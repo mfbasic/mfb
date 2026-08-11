@@ -736,6 +736,9 @@ pub(crate) fn default_argument_padding(
 
 use crate::builtins::exact;
 
+mod native;
+pub(crate) use native::lower_datetime_helper;
+
 /// Parses the built-in `datetime` package source. Unlike the source packages that
 /// inline member bodies (`Implementation::Mfb`), datetime's members are `Custom`
 /// with an arity-keyed one-to-many mapping onto `__datetime_*<n>` bodies, so the

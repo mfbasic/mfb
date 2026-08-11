@@ -15,8 +15,8 @@
 
 use std::collections::HashMap;
 
-use super::*;
 use crate::target::shared::abi;
+use crate::target::shared::code::*;
 
 // Frame layout (16-aligned). `LOCALS_SIZE` is the size of this locals region,
 // which `finalize_vreg_body_with_locals` rounds to 16 and reserves; the vreg
@@ -71,7 +71,7 @@ const WIN_UNIX_EPOCH_TO_1601_SEC: &str = "11644473600";
 // still fits i64; a larger value would wrap. `(i64::MAX - epoch) / 1e7`.
 const WIN_FILETIME_MAX_UNIX_SEC: &str = "910692730085";
 
-pub(super) fn lower_datetime_helper(
+pub(crate) fn lower_datetime_helper(
     call: &str,
     symbol: &str,
     platform_imports: &HashMap<String, String>,

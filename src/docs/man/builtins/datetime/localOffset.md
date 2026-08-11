@@ -40,7 +40,7 @@ Two calls with epoch seconds on opposite sides of a daylight-saving transition
 can therefore return different values. The offset reflects whatever zone the host
 is configured to use (for example via the `TZ` environment variable or the
 system zone setting), so the same program can produce different results on
-different hosts. [[src/target/shared/code/datetime.rs:lower_datetime_helper]]
+different hosts. [[src/codegen/builtins/datetime/native.rs:lower_datetime_helper]]
 
 Only the seconds value matters; there is no sub-second component. `localOffset`
 is the low-level intrinsic that backs `datetime::offsetAt` for local zones and
@@ -67,7 +67,7 @@ state.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `epochSeconds` names an instant the host's C library cannot break down into calendar fields — its year overflows the platform `struct tm`'s `int` year (roughly `abs(epochSeconds)` beyond `6.7e16` seconds). `localtime_r` returns no result for such an instant, so no offset is defined. [[src/target/shared/code/datetime.rs:lower_datetime_helper]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050002` | `ErrInvalidArgument` | `epochSeconds` names an instant the host's C library cannot break down into calendar fields — its year overflows the platform `struct tm`'s `int` year (roughly `abs(epochSeconds)` beyond `6.7e16` seconds). `localtime_r` returns no result for such an instant, so no offset is defined. [[src/codegen/builtins/datetime/native.rs:lower_datetime_helper]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
 
 ## Examples
 

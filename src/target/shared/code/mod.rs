@@ -48,6 +48,7 @@ pub(crate) use entry::lower_program_entry;
 pub(crate) use runtime_helpers::lower_thread_trampoline;
 mod codegen_utils;
 use codegen_utils::*;
+pub(crate) use codegen_utils::finalize_vreg_body_with_locals;
 mod code_impl;
 use code_impl::{join_json, ToCodeJson};
 mod operand;
@@ -72,6 +73,7 @@ mod runtime_helpers_thread;
 use runtime_helpers_thread::*;
 mod data_objects;
 use data_objects::*;
+pub(crate) use data_objects::raise_error_into;
 mod module_analysis;
 use module_analysis::*;
 mod audio;
@@ -113,7 +115,6 @@ mod native_helpers;
 
 mod crypto;
 mod crypto_ec;
-mod datetime;
 /// Consumer-side native-library locator resolution (plan-46-C). Shared with
 /// plan-46-D's vendor copy via `dlopen_name`, so the emitted string and the
 /// copied filename cannot diverge.
@@ -172,7 +173,7 @@ pub(super) struct EmitCtx<'a> {
 /// fire 113 times (bug-323). A type alias is structurally transparent, so this
 /// is a pure renaming: identical `TyKind::Tuple`, identical MIR, no construction
 /// or destructuring site touched.
-pub(super) type HelperBody = (
+pub(crate) type HelperBody = (
     CodeFrame,
     Vec<CodeInstruction>,
     Vec<CodeRelocation>,
@@ -196,7 +197,7 @@ pub(crate) type AppHookBody = (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocati
 /// type, so one alias covers them; the two sites that return a bare tuple
 /// (`runtime_helpers_thread::thread_is_cancelled_helper` and `pad_no_slots`)
 /// take `HelperBody` directly and must not be given a `Result` they never had.
-pub(super) type HelperResult = Result<HelperBody, String>;
+pub(crate) type HelperResult = Result<HelperBody, String>;
 
 pub(crate) struct CodeBuilder<'a> {
     current_symbol: String,
@@ -2012,7 +2013,7 @@ fn lower_runtime_helper(
                     crypto::lower_crypto_random_bytes_helper(symbol, platform_imports, platform)?
                 }
                 "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset" => {
-                    datetime::lower_datetime_helper(spec.call, symbol, platform_imports, platform)?
+                    crate::codegen::builtins::datetime::lower_datetime_helper(spec.call, symbol, platform_imports, platform)?
                 }
                 // plan-67-B: internal perf-tracking helpers (injected, never NIR-level).
                 "perf.init" | "perf.start" | "perf.end" | "perf.done" => {

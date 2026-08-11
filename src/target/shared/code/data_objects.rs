@@ -81,7 +81,7 @@ pub(super) fn push_error_message_address(
 /// `error_name` must be a known `errorCode` constant (e.g. `"ErrEndOfFile"`);
 /// unknown names are a codegen bug and panic. `from` is the emitting function's
 /// symbol (the relocation origin), matching `push_error_message_address`.
-pub(super) fn raise_error_into(
+pub(crate) fn raise_error_into(
     from: &str,
     error_name: &str,
     instructions: &mut Vec<CodeInstruction>,

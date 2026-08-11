@@ -522,7 +522,7 @@ pub(super) fn finalize_vreg_body(
 /// every `sp`-relative access (buffer and spill alike) past the callee-saved area
 /// uniformly, so the two never overlap. `local_size` is rounded up to 16 to keep
 /// the spill area 8-aligned and the buffer suitably aligned.
-pub(super) fn finalize_vreg_body_with_locals(
+pub(crate) fn finalize_vreg_body_with_locals(
     instructions: &mut Vec<CodeInstruction>,
     reserved: &[&str],
     local_size: usize,

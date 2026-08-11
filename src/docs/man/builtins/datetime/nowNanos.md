@@ -30,7 +30,7 @@ since `1970-01-01T00:00:00Z` on the UTC timeline (the Unix epoch, without leap
 seconds). The reading is formed as `tv_sec * 1_000_000_000 + tv_nsec` from the
 libc `timespec`, folding whole seconds and the sub-second remainder into one
 count rather than the `seconds`/`nanos` pair an `Instant` carries.
-[[src/target/shared/code/datetime.rs:lower_datetime_helper]]
+[[src/codegen/builtins/datetime/native.rs:lower_datetime_helper]]
 
 Most programs should call `datetime::now`, which splits this same reading into a
 structured `Instant` whose `seconds` and `nanos` fields can be projected through

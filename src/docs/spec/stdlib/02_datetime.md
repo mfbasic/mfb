@@ -153,7 +153,7 @@ overflows `tm_year`'s `int` (roughly `abs(epochSeconds)` beyond `6.7e16`),
 leaving `tm` unwritten; `localOffset` branches on that return and raises
 `ErrInvalidArgument` (`77050002`) rather than reading the uninitialized buffer,
 and the error propagates through `offsetAt`/`toLocal` for a `Local` zone.
-[[src/target/shared/code/datetime.rs:lower_datetime_helper]]
+[[src/codegen/builtins/datetime/native.rs:lower_datetime_helper]]
 
 ### Zone constructors
 
