@@ -19,8 +19,36 @@ const OV: &[BuiltinOverload] = &[BuiltinOverload {
     return_type: ReturnType::Fixed(super::READER_TYPE),
 }];
 
-const INTRO: &str = "";
-const DESC: &str = "";
+const INTRO: &str = r#"Open a streaming reader over UTF-8 CSV text."#;
+const DESC: &str = r#"`csv::parseStream` returns a `CsvReader` — a value holding the decoded input and a
+scan cursor — without parsing any rows yet. Each subsequent `csv::readRow` parses
+exactly one record and returns it with the reader advanced, so a document is
+processed one row at a time and the whole `List OF List OF String` grid is never
+materialized. The rows a `parseStream`/`readRow` loop yields are identical to
+`csv::parse(value)`.
+
+The optional `delimiter` and `quote` select the input dialect exactly as for
+`csv::parse` (defaults `,` and `"`); each must be a non-empty single character.
+The output-only dialect option (`newline`) does not apply to reading.
+
+The argument may also be supplied by the name `text`. `csv::parseStream` does not
+mutate `value` and has no side effects."#;
+const EX: &str = r#"Process a CSV document row by row without building the whole grid:
+
+```
+IMPORT csv
+IMPORT collections
+IMPORT io
+
+SUB main()
+  MUT row AS CsvRow = csv::readRow(csv::parseStream("a,b\nc,d"))
+  WHILE row.done = FALSE
+    io::print(collections::get(row.fields, 0))
+    row = csv::readRow(row.reader)
+  END WHILE
+END SUB
+```"#;
 
 pub(crate) const PARSE_STREAM: BuiltinFunction =
-    BuiltinFunction::mfb("csv.parseStream", "parseStream", INTRO, DESC, &[], OV, BODY);
+    BuiltinFunction::mfb("csv.parseStream", "parseStream", INTRO, DESC, &[], OV, BODY)
+        .with_example(EX);
