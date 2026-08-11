@@ -1,4 +1,4 @@
-use super::*;
+use crate::target::shared::runtime::{RuntimeHelper, RuntimeHelperAbi, RuntimeHelperSpec};
 
 // plan-90 `process` package runtime helpers. `spawn` has two code-layer forms
 // selected by argument count in `builder_values` (like `net.connectTcp` →

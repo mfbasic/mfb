@@ -2,6 +2,7 @@ use super::*;
 use crate::codegen::builtins::datetime::{
     DATETIME_LOCAL_OFFSET_SPEC, DATETIME_MONOTONIC_NANOS_SPEC, DATETIME_NOW_NANOS_SPEC,
 };
+use crate::codegen::builtins::process::specs::*;
 
 /// The single, address-stable spec table. It MUST be a named `static`, not a
 /// `const`-promoted `&[...]` returned from the accessor: the catalog's identity

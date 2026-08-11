@@ -28,6 +28,8 @@ mod func_close;
 mod func_detach;
 
 mod native;
+pub(crate) mod specs;
+
 pub(crate) use native::{
     lower_process_close_helper, lower_process_detach_helper, lower_process_didsignal_helper,
     lower_process_drop_helper, lower_process_isrunning_helper, lower_process_pid_helper,
