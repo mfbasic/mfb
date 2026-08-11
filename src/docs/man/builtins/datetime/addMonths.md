@@ -19,7 +19,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -28,17 +28,17 @@ returns the resulting `DateTime`. It collapses `dt`'s year and month into a
 single month index (`year * 12 + month - 1`), adds `months`, and splits the sum
 back into a target year and month with a flooring divide so that crossing year
 boundaries in either direction is handled correctly.
-[[src/builtins/datetime_package.mfb:__datetime_floorDiv]] The wall-clock time of day
+[[src/codegen/builtins/datetime/package.mfb:__datetime_floorDiv]] The wall-clock time of day
 and the zone are taken unchanged from `dt`, and the result is re-resolved through
 `dt`'s zone so the UTC offset is recomputed for the new date.
-[[src/builtins/datetime_package.mfb:__datetime_addMonths]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_addMonths]]
 
 Because months vary in length, the day of month is clamped to the number of days
 in the target month. If `dt`'s day-of-month exceeds the target month's length the
 result lands on the last day of that month, so January 31 plus one month is
 February 28 (or February 29 in a leap year), and any earlier day is preserved
 exactly. The day is never carried over into the following month.
-[[src/builtins/datetime_package.mfb:__datetime_daysInMonth]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_daysInMonth]]
 
 `months` is a signed count: a positive value moves `dt` later in the calendar and
 a negative value moves it earlier; adding zero months returns a `DateTime` with
@@ -50,26 +50,26 @@ preserved while the underlying instant absorbs any offset change for the new
 date. For whole-day shifts use `datetime::addDays`, and for uniform physical-time
 arithmetic on an `Instant` use `datetime::add`. `addMonths` is pure: the same
 `DateTime` and month count always yield the same result, and it has no side
-effects. [[src/builtins/datetime_package.mfb:__datetime_civil]]
+effects. [[src/codegen/builtins/datetime/package.mfb:__datetime_civil]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `dt` | `DateTime` | The civil starting point. Its date, wall-clock time, and zone are read; the year and month are shifted, the day-of-month is clamped to the target month's length, and the time of day and zone are preserved. [[src/builtins/datetime.rs:ADD_MONTHS]] |
+| `dt` | `DateTime` | The civil starting point. Its date, wall-clock time, and zone are read; the year and month are shifted, the day-of-month is clamped to the target month's length, and the time of day and zone are preserved. [[src/codegen/builtins/datetime/mod.rs:ADD_MONTHS]] |
 | `months` | `Integer` | The signed number of whole calendar months to add. Positive values advance `dt` to a later month, negative values to an earlier one, and zero leaves the year and month unchanged. |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `DateTime` | The `DateTime` `dt` shifted by `months` calendar months, holding the new year and month, the original day-of-month clamped down to the target month's length when necessary, `dt`'s original time of day (re-resolved against `dt`'s zone for the new offset), and `dt`'s original zone. [[src/builtins/datetime.rs:DATETIME]] |
+| `DateTime` | The `DateTime` `dt` shifted by `months` calendar months, holding the new year and month, the original day-of-month clamped down to the target month's length when necessary, `dt`'s original time of day (re-resolved against `dt`'s zone for the new offset), and `dt`'s original zone. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | The month-index arithmetic (`year * 12 + month - 1 + months`), or the conversion of the shifted date back to epoch seconds during zone resolution, produces a value outside the signed `Integer` range. [[src/builtins/datetime_package.mfb:__datetime_addMonths]] [[src/builtins/datetime_package.mfb:__datetime_civil]] [[src/target/shared/code/builder_error_emission.rs:raise_error_bare]] [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | The month-index arithmetic (`year * 12 + month - 1 + months`), or the conversion of the shifted date back to epoch seconds during zone resolution, produces a value outside the signed `Integer` range. [[src/codegen/builtins/datetime/package.mfb:__datetime_addMonths]] [[src/codegen/builtins/datetime/package.mfb:__datetime_civil]] [[src/target/shared/code/builder_error_emission.rs:raise_error_bare]] [[src/builtins/errorcode.rs:ErrOverflow]] |
 
 ## Examples
 

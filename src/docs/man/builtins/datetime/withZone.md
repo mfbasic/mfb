@@ -19,7 +19,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -31,7 +31,7 @@ resolved UTC offset are re-derived for the new zone.
 The function is exactly the composition of `datetime::resolve` and
 `datetime::inZone`: it collapses `dt` back to an `Instant` with `datetime::resolve`
 and then projects that `Instant` into `zone` with `datetime::inZone`.
-[[src/builtins/datetime_package.mfb:__datetime_withZone]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_withZone]]
 
 The `resolve` step reads the offset already pinned on `dt` to reach the UTC
 timeline without any zone lookup (`daysFromCivil(...) * 86400 + hour * 3600 +
@@ -42,9 +42,9 @@ stored constant for a fixed-offset zone (`ZoneKind::FixedOffset`, built with
 (`ZoneKind::Local`, built with `datetime::local`) — adds it to the instant's
 seconds, floor-divides into whole days and second-of-day, and splits the result
 into civil year/month/day and hour/minute/second with the proleptic Gregorian
-calendar. [[src/builtins/datetime_package.mfb:ZoneKind]]
-[[src/builtins/datetime_package.mfb:__datetime_resolve]]
-[[src/builtins/datetime_package.mfb:__datetime_inZone]]
+calendar. [[src/codegen/builtins/datetime/package.mfb:ZoneKind]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_resolve]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_inZone]]
 
 The returned `DateTime` carries the new civil date and time, `zone` itself, and
 the offset resolved for `zone`. The sub-second `nanos` field is carried through
@@ -54,26 +54,26 @@ preserved, `datetime::resolve` on the result returns the same `Instant` as
 changes only its civil presentation. It is pure for UTC and fixed-offset zones;
 for a local zone it reads the host's time-zone configuration through the
 `datetime::localOffset` OS intrinsic to resolve the offset.
-[[src/builtins/datetime_package.mfb:__datetime_inZone]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_inZone]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `dt` | `DateTime` | The source civil date-time. Its `date`, `time`, and pinned `offset` are used to recover the absolute `Instant` it names; its `zone` field is not consulted for the recovery. The `nanos` of `dt.time` are preserved into the result. [[src/builtins/datetime.rs:WITH_ZONE]] |
-| `zone` | `Zone` | The zone to re-project into. Its kind selects how the new offset is resolved: a UTC zone always contributes a zero offset, a fixed-offset zone (`datetime::fixedOffset`) contributes its single constant offset, and a local zone (`datetime::local`) contributes the host's DST-correct offset for the recovered instant. [[src/builtins/datetime_package.mfb:__datetime_inZone]] |
+| `dt` | `DateTime` | The source civil date-time. Its `date`, `time`, and pinned `offset` are used to recover the absolute `Instant` it names; its `zone` field is not consulted for the recovery. The `nanos` of `dt.time` are preserved into the result. [[src/codegen/builtins/datetime/mod.rs:WITH_ZONE]] |
+| `zone` | `Zone` | The zone to re-project into. Its kind selects how the new offset is resolved: a UTC zone always contributes a zero offset, a fixed-offset zone (`datetime::fixedOffset`) contributes its single constant offset, and a local zone (`datetime::local`) contributes the host's DST-correct offset for the recovered instant. [[src/codegen/builtins/datetime/package.mfb:__datetime_inZone]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `DateTime` | A `DateTime` holding the civil date and wall-clock time observed in `zone` at the same instant `dt` names, together with `zone` and the offset resolved for it. Its `nanos` equal `dt.time.nanos`, and it resolves back to the same `Instant` as `dt` via `datetime::resolve`. [[src/builtins/datetime.rs:DATETIME]] |
+| `DateTime` | A `DateTime` holding the civil date and wall-clock time observed in `zone` at the same instant `dt` names, together with `zone` and the offset resolved for it. Its `nanos` equal `dt.time.nanos`, and it resolves back to the same `Instant` as `dt` via `datetime::resolve`. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | The civil-to-seconds arithmetic in the `resolve` step, the offset subtraction there, or the offset addition (`at.seconds + off`) in the projection step produces a value outside the signed `Integer` range, which can occur only for a `DateTime` at the extreme edge of the representable timeline. [[src/builtins/datetime_package.mfb:__datetime_resolve]] [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | The civil-to-seconds arithmetic in the `resolve` step, the offset subtraction there, or the offset addition (`at.seconds + off`) in the projection step produces a value outside the signed `Integer` range, which can occur only for a `DateTime` at the extreme edge of the representable timeline. [[src/codegen/builtins/datetime/package.mfb:__datetime_resolve]] [[src/builtins/errorcode.rs:ErrOverflow]] |
 
 ## Examples
 

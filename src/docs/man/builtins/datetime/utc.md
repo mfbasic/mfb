@@ -19,7 +19,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -29,7 +29,7 @@ the literal string `"UTC"`. The returned `Zone` carries a zone kind of
 `ZoneKind::Utc` (the first `ZoneKind` variant, tag `0`), marking it as the
 canonical UTC zone rather than an arbitrary fixed offset built with
 `datetime::fixedOffset` (kind `ZoneKind::FixedOffset`).
-[[src/builtins/datetime_package.mfb:__datetime_utc]] [[src/builtins/datetime_package.mfb:ZoneKind]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_utc]] [[src/codegen/builtins/datetime/package.mfb:ZoneKind]]
 
 A `Zone` is the bridge between the absolute UTC timeline (an `Instant`) and the
 human-readable civil fields of a `DateTime`. Project an `Instant` through this
@@ -43,19 +43,19 @@ of a `DateTime` in this zone match the seconds-since-epoch of the originating
 It is pure: every call yields an identical UTC zone, it reads no host state, and
 it has no side effects. Unlike `datetime::local`, whose offset depends on the
 host's configured time zone, `datetime::utc` is wholly independent of the
-environment. [[src/builtins/datetime.rs:DATETIME]]
+environment. [[src/codegen/builtins/datetime/mod.rs:DATETIME]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `datetime::utc` takes no arguments. [[src/builtins/datetime.rs:DATETIME]] |
+| — | — | `datetime::utc` takes no arguments. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Zone` | The UTC zone: a `Zone` with a constant offset of zero seconds, a zone kind of `ZoneKind::Utc` (tag `0`), and the label `"UTC"`. The same value is returned on every call. [[src/builtins/datetime.rs:DATETIME]] [[src/builtins/datetime_package.mfb:__datetime_utc]] |
+| `Zone` | The UTC zone: a `Zone` with a constant offset of zero seconds, a zone kind of `ZoneKind::Utc` (tag `0`), and the label `"UTC"`. The same value is returned on every call. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] [[src/codegen/builtins/datetime/package.mfb:__datetime_utc]] |
 
 ## Errors
 

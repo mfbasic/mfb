@@ -19,7 +19,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -36,7 +36,7 @@ intrinsic (`datetime::nowNanos`), then splits it into the `seconds` and `nanos`
 fields of an `Instant` by a truncating divide and remainder against
 `1_000_000_000`. The reading is non-negative and the divisor is a non-zero
 constant, so the split cannot trap, and the nanosecond remainder already falls
-in `0 .. 999_999_999`. [[src/builtins/datetime_package.mfb:__datetime_now]]
+in `0 .. 999_999_999`. [[src/codegen/builtins/datetime/package.mfb:__datetime_now]]
 
 `now` is bounded by its underlying intrinsic, which reports nanoseconds since
 the epoch and is valid through roughly the year 2262. This is a limit on `now`,
@@ -51,13 +51,13 @@ reproducible logic, capture a single instant and derive everything else from it.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `datetime::now` takes no arguments. [[src/builtins/datetime.rs:DATETIME]] |
+| — | — | `datetime::now` takes no arguments. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Instant` | The current instant on the UTC timeline. The `seconds` field holds whole seconds since `1970-01-01T00:00:00Z` and the `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. Two calls may return different instants depending on the host clock. [[src/builtins/datetime.rs:DATETIME]] |
+| `Instant` | The current instant on the UTC timeline. The `seconds` field holds whole seconds since `1970-01-01T00:00:00Z` and the `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. Two calls may return different instants depending on the host clock. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 

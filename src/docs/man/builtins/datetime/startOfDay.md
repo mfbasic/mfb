@@ -19,7 +19,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT datetime
 beginning of `dt`'s civil day, in `dt`'s own zone. It keeps `dt`'s calendar date
 (year, month, day) and zone, replaces the wall-clock time with a `Time` of
 `00:00:00` and zero nanoseconds, and re-resolves the moment through that zone.
-[[src/builtins/datetime_package.mfb:__datetime_startOfDay]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_startOfDay]]
 
 The result is produced exactly as `datetime::civil(dt.date, Time[0, 0, 0, 0],
 dt.zone)`: local midnight is interpreted in `dt`'s zone, the applicable UTC offset
@@ -36,7 +36,7 @@ is resolved for that moment, and the canonical `DateTime` naming the resulting
 `dt`, the result is daylight-saving correct: for the host's local zone the offset
 reflects whatever DST rule applies at midnight on that date, which may differ from
 the offset that applied at `dt`'s original time of day.
-[[src/builtins/datetime_package.mfb:__datetime_civil]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_civil]]
 
 The day boundary is civil midnight in `dt`'s zone, not UTC midnight, so the
 underlying `Instant` generally differs from `dt`'s `Instant` truncated to whole
@@ -54,19 +54,19 @@ different zone or DST rule.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `dt` | `DateTime` | The `DateTime` whose day is taken. Its calendar date and zone are read; its time of day and sub-second nanoseconds are discarded and replaced with `00:00:00.000000000`. The zone may be fixed-offset or the host's local zone. [[src/builtins/datetime.rs:START_OF_DAY]] |
+| `dt` | `DateTime` | The `DateTime` whose day is taken. Its calendar date and zone are read; its time of day and sub-second nanoseconds are discarded and replaced with `00:00:00.000000000`. The zone may be fixed-offset or the host's local zone. [[src/codegen/builtins/datetime/mod.rs:START_OF_DAY]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `DateTime` | A `DateTime` on the same calendar date and in the same zone as `dt`, with the wall-clock time set to `00:00:00` and zero nanoseconds, carrying the UTC offset re-resolved for local midnight on that date. The value round-trips through `datetime::resolve` and `datetime::inZone`. [[src/builtins/datetime.rs:DATETIME]] |
+| `DateTime` | A `DateTime` on the same calendar date and in the same zone as `dt`, with the wall-clock time set to `00:00:00` and zero nanoseconds, carrying the UTC offset re-resolved for local midnight on that date. The value round-trips through `datetime::resolve` and `datetime::inZone`. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | The epoch-seconds arithmetic used to resolve local midnight (`daysFromCivil(...) * 86400`, and the surrounding offset probes) produces a value outside the signed `Integer` range for an extreme calendar date. [[src/builtins/datetime_package.mfb:__datetime_civil]] [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | The epoch-seconds arithmetic used to resolve local midnight (`daysFromCivil(...) * 86400`, and the surrounding offset probes) produces a value outside the signed `Integer` range for an extreme calendar date. [[src/codegen/builtins/datetime/package.mfb:__datetime_civil]] [[src/builtins/errorcode.rs:ErrOverflow]] |
 
 ## Examples
 

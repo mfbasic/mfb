@@ -19,7 +19,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -29,7 +29,7 @@ host's configured local time zone applies at the absolute instant named by
 (the Unix epoch, without leap seconds). A positive result places local civil
 time ahead of UTC (east of the prime meridian); a negative result places it
 behind UTC (west); zero means local time coincides with UTC at that instant.
-[[src/builtins/datetime.rs:DATETIME]]
+[[src/codegen/builtins/datetime/mod.rs:DATETIME]]
 
 This is the OS seam through which the rest of the package learns the host's
 wall-clock rules. The call lowers to a libc runtime helper that hands
@@ -55,13 +55,13 @@ state.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `epochSeconds` | `Integer` | The absolute instant at which to evaluate the local offset, expressed as whole seconds since the Unix epoch (`1970-01-01T00:00:00Z`). The value selects the point on the timeline for which the host time zone is consulted; for a zone observing daylight saving it determines whether the standard or the daylight-saving offset is in force. [[src/builtins/datetime.rs:call_param_names]] |
+| `epochSeconds` | `Integer` | The absolute instant at which to evaluate the local offset, expressed as whole seconds since the Unix epoch (`1970-01-01T00:00:00Z`). The value selects the point on the timeline for which the host time zone is consulted; for a zone observing daylight saving it determines whether the standard or the daylight-saving offset is in force. [[src/codegen/builtins/datetime/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The signed offset from UTC, in seconds, that the host's local time zone applies at `epochSeconds`. Positive east of UTC, negative west, zero when the local zone coincides with UTC at that instant. The value is the same adjustment that converts an `Instant`'s seconds-since-epoch into local civil fields. [[src/builtins/datetime.rs:DATETIME]] |
+| `Integer` | The signed offset from UTC, in seconds, that the host's local time zone applies at `epochSeconds`. Positive east of UTC, negative west, zero when the local zone coincides with UTC at that instant. The value is the same adjustment that converts an `Instant`'s seconds-since-epoch into local civil fields. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 

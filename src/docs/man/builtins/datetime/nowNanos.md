@@ -19,7 +19,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -54,13 +54,13 @@ clock state only, and has no side effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `datetime::nowNanos` takes no arguments. [[src/builtins/datetime.rs:DATETIME]] |
+| — | — | `datetime::nowNanos` takes no arguments. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | Nanoseconds elapsed since `1970-01-01T00:00:00Z` on the UTC timeline. Two calls may return different values depending on the host clock. The value is non-negative on a correctly configured host and overflows the `Integer` range in the year 2262. [[src/builtins/datetime.rs:DATETIME]] |
+| `Integer` | Nanoseconds elapsed since `1970-01-01T00:00:00Z` on the UTC timeline. Two calls may return different values depending on the host clock. The value is non-negative on a correctly configured host and overflows the `Integer` range in the year 2262. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 

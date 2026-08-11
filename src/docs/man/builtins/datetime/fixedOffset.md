@@ -20,7 +20,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -31,7 +31,7 @@ zone, and unlike `datetime::utc`, the canonical zero-offset zone, a
 fixed-offset `Zone` carries a single signed offset that applies to every
 `Instant` projected through it. The returned `Zone` has a zone kind of
 `ZoneKind::FixedOffset` and a label rendered in the form `+HH:MM` or `-HH:MM`.
-[[src/builtins/datetime_package.mfb:__datetime_fixedOffset1]] [[src/builtins/datetime_package.mfb:ZoneKind]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_fixedOffset1]] [[src/codegen/builtins/datetime/package.mfb:ZoneKind]]
 
 A `Zone` is the bridge between the absolute UTC timeline (an `Instant`) and the
 human-readable civil fields of a `DateTime`. Projecting an `Instant` through a
@@ -48,7 +48,7 @@ thirty minutes behind UTC), and `datetime::fixedOffset(5, 30)` is `+05:30`. The
 two-argument form is implemented in terms of the one-argument form by combining
 the hours and minutes into a total second count of
 `sign(hours) * (abs(hours) * 3600 + mins * 60)`.
-[[src/builtins/datetime_package.mfb:__datetime_fixedOffset2]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_fixedOffset2]]
 
 In both forms the offset magnitude must be strictly under 24 hours (86400
 seconds); an offset of exactly `+/-24h` or more is rejected. The function is
@@ -71,21 +71,21 @@ minutes take the sign of `hours`, so the combined offset is
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `offsetSeconds` | `Integer` | The signed offset from UTC in seconds. Positive is east of UTC, negative is west. The magnitude must be strictly less than `86400` (24 hours). [[src/builtins/datetime_package.mfb:__datetime_fixedOffset1]] |
+| `offsetSeconds` | `Integer` | The signed offset from UTC in seconds. Positive is east of UTC, negative is west. The magnitude must be strictly less than `86400` (24 hours). [[src/codegen/builtins/datetime/package.mfb:__datetime_fixedOffset1]] |
 | `hours` | `Integer` | The whole-hour component of the offset, signed. Its sign determines the sign of the whole resulting offset, including the minutes contribution. |
-| `mins` | `Integer` | The minute magnitude of the offset, in the range `0 .. 59`. It contributes its magnitude only and inherits the sign of `hours`. [[src/builtins/datetime_package.mfb:__datetime_fixedOffset2]] |
+| `mins` | `Integer` | The minute magnitude of the offset, in the range `0 .. 59`. It contributes its magnitude only and inherits the sign of `hours`. [[src/codegen/builtins/datetime/package.mfb:__datetime_fixedOffset2]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Zone` | A `Zone` with a zone kind of `ZoneKind::FixedOffset`, the requested constant offset, and a label of the form `+HH:MM` or `-HH:MM`. For a zero offset the label is `+00:00`. [[src/builtins/datetime.rs:DATETIME]] [[src/builtins/datetime_package.mfb:__datetime_offsetLabel]] |
+| `Zone` | A `Zone` with a zone kind of `ZoneKind::FixedOffset`, the requested constant offset, and a label of the form `+HH:MM` or `-HH:MM`. For a zero offset the label is `+00:00`. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] [[src/codegen/builtins/datetime/package.mfb:__datetime_offsetLabel]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | The resulting offset magnitude is 24 hours (`86400` seconds) or more, or, in the two-argument form, `mins` is outside the range `0 .. 59`. [[src/builtins/datetime_package.mfb:__datetime_fixedOffset1]] |
+| `77050002` | `ErrInvalidArgument` | The resulting offset magnitude is 24 hours (`86400` seconds) or more, or, in the two-argument form, `mins` is outside the range `0 .. 59`. [[src/codegen/builtins/datetime/package.mfb:__datetime_fixedOffset1]] |
 
 ## Examples
 

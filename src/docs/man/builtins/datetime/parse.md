@@ -20,7 +20,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so `IMPORT datetime` needs no manifest
-dependency. [[src/builtins/datetime.rs:uses_package]]
+dependency. [[src/codegen/builtins/datetime/mod.rs:uses_package]]
 
 ## Description
 
@@ -32,7 +32,7 @@ position is matched. A token (a run of one or more of the same formatting letter
 consumes and decodes the corresponding field from `value`; any other `pattern`
 character is a literal that must appear verbatim at the current position in
 `value`. Single quotes escape literal text exactly as in `datetime::format` (`'T'`
-matches a literal `T`, `''` matches a single apostrophe). [[src/builtins/datetime_package.mfb:__datetime_parseFields]]
+matches a literal `T`, `''` matches a single apostrophe). [[src/codegen/builtins/datetime/package.mfb:__datetime_parseFields]]
 
 Fields not named by any token take defaults: year `1970`, month `1`, day `1`, and
 the time `00:00:00.000000000`. The recognized tokens are:
@@ -57,33 +57,33 @@ Numeric tokens are greedy up to their stated width but accept fewer digits, so t
 minimal forms (`M`, `d`, `H`, `h`, `m`, `s`) read one or two digits and the padded
 forms accept the same. Name tokens (month names, AM/PM) are matched without regard
 to case. The weekday token only skips over the run of letters in `value`; it does
-not check that the named weekday agrees with the parsed date. [[src/builtins/datetime_package.mfb:__datetime_parseFields]]
+not check that the named weekday agrees with the parsed date. [[src/codegen/builtins/datetime/package.mfb:__datetime_parseFields]]
 
 `parse` does not range-check the decoded calendar fields the way `datetime::date`
 and `datetime::time` do: an out-of-range component in `value` (for example month
 13) is carried into the resulting `DateTime` rather than rejected. The one
 validated numeric range is the offset token, whose magnitude must be under 24
-hours. [[src/builtins/datetime_package.mfb:__datetime_fixedOffset1]]
+hours. [[src/codegen/builtins/datetime/package.mfb:__datetime_fixedOffset1]]
 
 An offset token sets the `DateTime`'s offset directly and makes the result a
 fixed-offset moment, overriding `zone`. When `pattern` contains no offset token,
 the `zone` argument supplies the offset: the two-argument overload defaults it to
 `datetime::utc()`, and the three-argument overload resolves `value`'s civil fields
 against the given `zone`. `parse` is pure: it reads no host state and has no side
-effects. [[src/builtins/datetime_package.mfb:__datetime_buildFromFields]]
+effects. [[src/codegen/builtins/datetime/package.mfb:__datetime_buildFromFields]]
 
 ## Overloads
 
 **`datetime::parse(value AS String, pattern AS String) AS DateTime`**
 
 Parses `value` with `pattern` and, when `pattern` carries no offset token, treats
-the civil fields as UTC (the zone defaults to `datetime::utc()`). [[src/builtins/datetime_package.mfb:__datetime_parse2]]
+the civil fields as UTC (the zone defaults to `datetime::utc()`). [[src/codegen/builtins/datetime/package.mfb:__datetime_parse2]]
 
 **`datetime::parse(value AS String, pattern AS String, zone AS Zone) AS DateTime`**
 
 Parses `value` with `pattern` and, when `pattern` carries no offset token,
 resolves the civil fields against `zone`. An offset token in `pattern` still
-overrides `zone`. [[src/builtins/datetime_package.mfb:__datetime_parse3]]
+overrides `zone`. [[src/codegen/builtins/datetime/package.mfb:__datetime_parse3]]
 
 ## Parameters
 
@@ -91,20 +91,20 @@ overrides `zone`. [[src/builtins/datetime_package.mfb:__datetime_parse3]]
 | --- | --- | --- |
 | `value` | `String` | The text to parse. It must match `pattern` position for position: every literal in `pattern` must appear verbatim, and every token must find the digits or name it expects at the current position. |
 | `pattern` | `String` | The format string: a mix of literal characters and token runs from the table above, with single quotes escaping literal text. Tokens select which fields are read from `value`; absent fields keep their defaults. |
-| `zone` | `Zone` | The zone whose offset is applied when `pattern` has no offset token. Present only in the three-argument overload; the two-argument overload uses `datetime::utc()`. A `pattern` offset token overrides this argument either way. [[src/builtins/datetime.rs:call_param_names]] |
+| `zone` | `Zone` | The zone whose offset is applied when `pattern` has no offset token. Present only in the three-argument overload; the two-argument overload uses `datetime::utc()`. A `pattern` offset token overrides this argument either way. [[src/codegen/builtins/datetime/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `DateTime` | A `DateTime` built from the fields decoded from `value`, with unmatched fields left at their defaults. The offset comes from the `pattern`'s offset token when present, otherwise from `zone`. [[src/builtins/datetime.rs:DATETIME]] |
+| `DateTime` | A `DateTime` built from the fields decoded from `value`, with unmatched fields left at their defaults. The offset comes from the `pattern`'s offset token when present, otherwise from `zone`. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `value` does not match `pattern`: a literal character or quoted literal is absent, a numeric token finds no digit, a month-name or AM/PM token is unrecognized, an offset token is malformed, or `pattern` contains a run of letters that is not a recognized token. [[src/builtins/datetime_package.mfb:__datetime_parseFields]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
-| `77050002` | `ErrInvalidArgument` | An offset token in `value` decodes to a magnitude of 24 hours (86400 seconds) or more, which is out of range for a fixed-offset zone. [[src/builtins/datetime_package.mfb:__datetime_fixedOffset1]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050003` | `ErrInvalidFormat` | `value` does not match `pattern`: a literal character or quoted literal is absent, a numeric token finds no digit, a month-name or AM/PM token is unrecognized, an offset token is malformed, or `pattern` contains a run of letters that is not a recognized token. [[src/codegen/builtins/datetime/package.mfb:__datetime_parseFields]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050002` | `ErrInvalidArgument` | An offset token in `value` decodes to a magnitude of 24 hours (86400 seconds) or more, which is out of range for a fixed-offset zone. [[src/codegen/builtins/datetime/package.mfb:__datetime_fixedOffset1]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
 
 ## Examples
 

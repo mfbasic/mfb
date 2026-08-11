@@ -19,7 +19,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT datetime
 when `a` is before `b`, `0` when the two instants name the same point, and `1`
 when `a` is after `b`. The result is the standard comparator value suitable for
 driving a sort or a branch on ordering, and it never returns any value other
-than `-1`, `0`, or `1`. [[src/builtins/datetime_package.mfb:__datetime_compare]]
+than `-1`, `0`, or `1`. [[src/codegen/builtins/datetime/package.mfb:__datetime_compare]]
 
 The comparison is performed field by field. The `seconds` fields are compared
 first: if `a.seconds` is less than `b.seconds` the result is `-1`, and if it is
@@ -50,14 +50,14 @@ between two instants rather than just their order, use `datetime::between`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Instant` | The left operand, a point on the UTC timeline. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative) and its `nanos` field is the sub-second remainder. When `a` precedes `b` the result is `-1`. [[src/builtins/datetime.rs:COMPARE]] |
+| `a` | `Instant` | The left operand, a point on the UTC timeline. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative) and its `nanos` field is the sub-second remainder. When `a` precedes `b` the result is `-1`. [[src/codegen/builtins/datetime/mod.rs:COMPARE]] |
 | `b` | `Instant` | The right operand, compared against `a`. A point on the UTC timeline. When `b` precedes `a` the result is `1`. |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | `-1` when `a` is before `b`, `1` when `a` is after `b`, and `0` when `a` and `b` name the same instant. The `seconds` fields are compared first and the `nanos` fields break ties, so only fully equal instants return `0`. [[src/builtins/datetime.rs:DATETIME]] |
+| `Integer` | `-1` when `a` is before `b`, `1` when `a` is after `b`, and `0` when `a` and `b` name the same instant. The `seconds` fields are compared first and the `nanos` fields break ties, so only fully equal instants return `0`. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 

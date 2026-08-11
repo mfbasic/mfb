@@ -19,7 +19,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -29,7 +29,7 @@ the UTC timeline by the span `by`. It adds the two `seconds` fields and the two
 lands in the range `0 .. 999_999_999`, carrying any whole seconds embedded in
 the nanosecond sum into the `seconds` field. The result is a point on the same
 Unix-epoch, leap-second-free timeline as `at`.
-[[src/builtins/datetime_package.mfb:__datetime_add]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_add]]
 
 Because `by` is a signed `Duration`, `add` covers both directions on the
 timeline: a positive span moves the `Instant` later and a negative span moves it
@@ -43,7 +43,7 @@ that honors DST and varying month lengths, use `datetime::addDays` and
 Normalization floor-divides the nanosecond sum into a whole-second carry and a
 non-negative remainder, then folds the carry back into the `seconds` field, so
 a negative `Duration` that borrows across the second boundary still yields a
-`nanos` in `0 .. 999_999_999`. [[src/builtins/datetime_package.mfb:__datetime_normInstant]]
+`nanos` in `0 .. 999_999_999`. [[src/codegen/builtins/datetime/package.mfb:__datetime_normInstant]]
 The addition is ordinary signed `Integer` arithmetic, so a span large enough to
 push the combined second count past the `Integer` range overflows and traps.
 `add` is pure: the same `Instant` and `Duration` always yield the same
@@ -53,14 +53,14 @@ push the combined second count past the `Integer` range overflows and traps.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `at` | `Instant` | The starting point on the UTC timeline to shift. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative for instants before the epoch) and its `nanos` field is the sub-second remainder. [[src/builtins/datetime.rs:ADD]] |
+| `at` | `Instant` | The starting point on the UTC timeline to shift. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative for instants before the epoch) and its `nanos` field is the sub-second remainder. [[src/codegen/builtins/datetime/mod.rs:ADD]] |
 | `by` | `Duration` | The signed span to add. A positive `Duration` advances `at` to a later `Instant`; a negative `Duration` moves it to an earlier one. Its `seconds` and `nanos` fields are added to those of `at`. |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Instant` | The `Instant` at `at + by`, normalized so its `seconds` field holds the whole-second count (which may be negative) and its `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. [[src/builtins/datetime.rs:DATETIME]] |
+| `Instant` | The `Instant` at `at + by`, normalized so its `seconds` field holds the whole-second count (which may be negative) and its `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 

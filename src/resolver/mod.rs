@@ -83,7 +83,7 @@ pub fn resolve_project_with(
     let augmented = builtins::app::augmented_project(&augmented)?;
     let augmented = crate::codegen::builtins::csv::augmented_project(&augmented)?;
     let augmented = crate::codegen::builtins::regex::augmented_project(&augmented)?;
-    let augmented = builtins::datetime::augmented_project(&augmented)?;
+    let augmented = crate::codegen::builtins::datetime::augmented_project(&augmented)?;
     let augmented = builtins::money::augmented_project(&augmented)?;
     // `term_package.mfb` declares only the `LineStyle`/`FillStyle` enums and imports
     // nothing, so it has no source ordering dependency (the attribute bridge is a

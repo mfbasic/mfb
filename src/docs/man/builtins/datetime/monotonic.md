@@ -19,7 +19,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -42,7 +42,7 @@ supported platforms), then splits it into the `seconds` and `nanos` fields of a
 `Duration` by a truncating divide and remainder against `1_000_000_000`. The
 divisor is a non-zero constant, so the split cannot trap, and the nanosecond
 remainder already falls in `0 .. 999_999_999`.
-[[src/builtins/datetime_package.mfb:__datetime_monotonic]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_monotonic]]
 
 `monotonic` is **not pure**: two calls may return different spans, and the values
 depend on host clock state. It takes no arguments, reads clock state only, and
@@ -52,13 +52,13 @@ has no side effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `datetime::monotonic` takes no arguments. [[src/builtins/datetime.rs:DATETIME]] |
+| — | — | `datetime::monotonic` takes no arguments. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Duration` | The elapsed span from the OS-chosen monotonic origin to the moment of the call. The `seconds` field holds whole elapsed seconds and the `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. Only differences between two readings are meaningful; a single reading has no fixed reference point. [[src/builtins/datetime.rs:DATETIME]] |
+| `Duration` | The elapsed span from the OS-chosen monotonic origin to the moment of the call. The `seconds` field holds whole elapsed seconds and the `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. Only differences between two readings are meaningful; a single reading has no fixed reference point. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 

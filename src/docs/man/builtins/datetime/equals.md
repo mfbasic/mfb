@@ -19,7 +19,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -28,7 +28,7 @@ when `a` and `b` name the same point on the UTC timeline and `FALSE` otherwise.
 It is defined directly in terms of `datetime::compare`: the result is exactly
 `datetime::compare(a, b) = 0`, so it is `TRUE` only when `compare` reports `0`
 and `FALSE` when `compare` reports `-1` or `1`.
-[[src/builtins/datetime_package.mfb:__datetime_equals]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_equals]]
 
 The comparison is performed field by field, matching `datetime::compare`. The
 `seconds` fields are compared first; only when they are equal are the `nanos`
@@ -50,14 +50,14 @@ than just whether they coincide, use `datetime::between`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Instant` | The left operand, a point on the UTC timeline. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative) and its `nanos` field is the sub-second remainder. The result is `TRUE` only when `a` names the same point as `b`. [[src/builtins/datetime.rs:EQUALS]] |
+| `a` | `Instant` | The left operand, a point on the UTC timeline. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative) and its `nanos` field is the sub-second remainder. The result is `TRUE` only when `a` names the same point as `b`. [[src/codegen/builtins/datetime/mod.rs:EQUALS]] |
 | `b` | `Instant` | The right operand, compared against `a`. A point on the UTC timeline. The result is `TRUE` only when `b` names the same point as `a`. |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `a` and `b` name the same instant, and `FALSE` otherwise. The `seconds` fields are compared first and the `nanos` fields break ties, so a `TRUE` result requires both fields to match exactly. [[src/builtins/datetime.rs:DATETIME]] |
+| `Boolean` | `TRUE` when `a` and `b` name the same instant, and `FALSE` otherwise. The `seconds` fields are compared first and the `nanos` fields break ties, so a `TRUE` result requires both fields to match exactly. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 

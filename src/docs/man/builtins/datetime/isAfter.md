@@ -19,7 +19,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -28,7 +28,7 @@ IMPORT datetime
 It is defined directly in terms of `datetime::compare`: the result is exactly
 `datetime::compare(a, b) > 0`, so it is `TRUE` only when `compare` reports `1`
 and `FALSE` when `compare` reports `0` or `-1`.
-[[src/builtins/datetime_package.mfb:__datetime_isAfter]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_isAfter]]
 
 The comparison is performed field by field, matching `datetime::compare`. The
 `seconds` fields are compared first; only when they are equal are the `nanos`
@@ -51,14 +51,14 @@ instants rather than just their order, use `datetime::between`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Instant` | The left operand, a point on the UTC timeline. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative) and its `nanos` field is the sub-second remainder. The result is `TRUE` only when `a` falls strictly later than `b`. [[src/builtins/datetime.rs:IS_AFTER]] |
+| `a` | `Instant` | The left operand, a point on the UTC timeline. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative) and its `nanos` field is the sub-second remainder. The result is `TRUE` only when `a` falls strictly later than `b`. [[src/codegen/builtins/datetime/mod.rs:IS_AFTER]] |
 | `b` | `Instant` | The right operand, compared against `a`. A point on the UTC timeline. The result is `TRUE` only when `b` falls strictly earlier than `a`. |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `a` is strictly after `b`, and `FALSE` when `a` is equal to or before `b`. The `seconds` fields are compared first and the `nanos` fields break ties, so a `FALSE` result includes the case where `a` and `b` name the same instant. [[src/builtins/datetime.rs:DATETIME]] |
+| `Boolean` | `TRUE` when `a` is strictly after `b`, and `FALSE` when `a` is equal to or before `b`. The `seconds` fields are compared first and the `nanos` fields break ties, so a `FALSE` result includes the case where `a` and `b` name the same instant. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 

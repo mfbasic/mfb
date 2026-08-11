@@ -3,7 +3,6 @@ pub(crate) mod astrings;
 pub(crate) mod audio;
 pub(crate) mod bits;
 pub(crate) mod crypto;
-pub(crate) mod datetime;
 pub(crate) mod errorcode;
 pub(crate) mod fs;
 pub(crate) mod general;
@@ -167,7 +166,7 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         "audio" => audio::is_builtin_type(member),
         "crypto" => crypto::is_builtin_type(member),
         "csv" => crate::codegen::builtins::csv::is_builtin_type(member),
-        "datetime" => datetime::is_builtin_type(member),
+        "datetime" => crate::codegen::builtins::datetime::is_builtin_type(member),
         "fs" => fs::is_builtin_type(member),
         "http" => http::is_builtin_type(member),
         "json" => crate::codegen::builtins::json::is_builtin_type(member),
@@ -467,7 +466,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
         .or_else(|| crate::codegen::builtins::json::expected_arguments(name))
         .or_else(|| crate::codegen::builtins::csv::expected_arguments(name))
         .or_else(|| bits::expected_arguments(name))
-        .or_else(|| datetime::expected_arguments(name))
+        .or_else(|| crate::codegen::builtins::datetime::expected_arguments(name))
     {
         return Some(text.to_string());
     }
@@ -485,7 +484,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
 /// overloaded, so the monomorphizer types them).
 pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
     let machine_table = term::param_types(callee)
-        .or_else(|| datetime::argument_types(callee))
+        .or_else(|| crate::codegen::builtins::datetime::argument_types(callee))
         .or_else(|| crate::codegen::builtins::encoding::argument_types(callee))
         .or_else(|| money::argument_types(callee))
         .or_else(|| app::argument_types(callee));
@@ -534,7 +533,7 @@ pub(crate) fn default_argument_padding(
     for pad in [
         tls::default_argument_padding(callee, provided),
         crate::codegen::builtins::regex::default_argument_padding(callee, provided),
-        datetime::default_argument_padding(callee, provided),
+        crate::codegen::builtins::datetime::default_argument_padding(callee, provided),
         crypto::default_argument_padding(callee, provided),
         http::default_argument_padding(callee, provided),
         crate::codegen::builtins::csv::default_argument_padding(callee, provided),
@@ -704,7 +703,7 @@ pub(crate) fn split_func_params_and_return(rest: &str) -> Option<(Vec<&str>, &st
 pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static [&'static str]]> {
     audio::call_param_name_overloads(name)
         .or_else(|| net::call_param_name_overloads(name))
-        .or_else(|| datetime::call_param_name_overloads(name))
+        .or_else(|| crate::codegen::builtins::datetime::call_param_name_overloads(name))
         .or_else(|| tls::call_param_name_overloads(name))
 }
 
@@ -747,7 +746,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| crate::codegen::builtins::json::call_param_names(name))
         .or_else(|| crate::codegen::builtins::csv::call_param_names(name))
         .or_else(|| crate::codegen::builtins::regex::call_param_names(name))
-        .or_else(|| datetime::call_param_names(name))
+        .or_else(|| crate::codegen::builtins::datetime::call_param_names(name))
         .or_else(|| money::call_param_names(name))
         .or_else(|| net::call_param_names(name))
         .or_else(|| os::call_param_names(name))

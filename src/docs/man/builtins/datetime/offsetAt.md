@@ -19,7 +19,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -30,7 +30,7 @@ result places them behind UTC (west), and zero means the zone coincides with
 UTC at that instant. This is the exact quantity `datetime::inZone` adds to an
 `Instant`'s seconds-since-epoch to produce the civil fields of a `DateTime`, so
 `offsetAt` exposes that adjustment on its own.
-[[src/builtins/datetime_package.mfb:__datetime_inZone]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_inZone]]
 
 How the offset is determined depends on the zone's kind. For a UTC zone
 (`ZoneKind::Utc`) and a fixed-offset zone (`ZoneKind::FixedOffset`, built with
@@ -43,25 +43,25 @@ the host zone table and is therefore DST-correct, returning the standard-time
 offset for instants outside daylight saving and the shifted offset for instants
 within it. Two calls with the same local zone but instants on opposite sides of
 a DST transition can therefore return different values.
-[[src/builtins/datetime_package.mfb:__datetime_offsetAt]] [[src/builtins/datetime_package.mfb:ZoneKind]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_offsetAt]] [[src/codegen/builtins/datetime/package.mfb:ZoneKind]]
 
 Only the `seconds` field of `at` participates; the sub-second `nanos` field is
 ignored. The function reads no host state for UTC and fixed zones (those are
 pure); for a local zone it reads the host's time-zone configuration through the
-`datetime::localOffset` OS intrinsic. [[src/builtins/datetime_package.mfb:__datetime_offsetAt]]
+`datetime::localOffset` OS intrinsic. [[src/codegen/builtins/datetime/package.mfb:__datetime_offsetAt]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `zone` | `Zone` | The zone whose offset is queried. Its kind (UTC, fixed, or local) selects how the offset is computed. [[src/builtins/datetime.rs:OFFSET_AT]] |
+| `zone` | `Zone` | The zone whose offset is queried. Its kind (UTC, fixed, or local) selects how the offset is computed. [[src/codegen/builtins/datetime/mod.rs:OFFSET_AT]] |
 | `at` | `Instant` | The absolute instant at which to evaluate the offset. Its `seconds` field (seconds since the Unix epoch) is the point on the timeline used; the `nanos` field is ignored. For UTC and fixed zones the instant has no effect on the result; for a local zone it selects the standard or daylight-saving offset in force at that moment. |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The signed offset from UTC in seconds in force for `zone` at instant `at`: always `0` for a UTC zone, the stored constant for a fixed zone, and the DST-correct host offset for a local zone. [[src/builtins/datetime.rs:DATETIME]] |
+| `Integer` | The signed offset from UTC in seconds in force for `zone` at instant `at`: always `0` for a UTC zone, the stored constant for a fixed zone, and the DST-correct host offset for a local zone. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 

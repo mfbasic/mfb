@@ -19,7 +19,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -28,7 +28,7 @@ from combining two spans of elapsed physical time. It adds the two `seconds`
 fields and the two `nanos` fields independently, then normalizes the sum so the
 stored `nanos` lands in the range `0 .. 999_999_999`, carrying any whole seconds
 embedded in the nanosecond sum into the `seconds` field.
-[[src/builtins/datetime_package.mfb:__datetime_plus]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_plus]]
 
 Because both operands are signed `Duration`s, `plus` handles spans of either
 direction: adding a negative `Duration` shortens the total, and adding two
@@ -40,7 +40,7 @@ pairs with `datetime::minus` and `datetime::negate`, since
 Normalization floor-divides the nanosecond sum into a whole-second carry and a
 non-negative remainder, then folds the carry back into the `seconds` field, so a
 combined `nanos` that overflows or goes negative still yields a `nanos` in
-`0 .. 999_999_999`. [[src/builtins/datetime_package.mfb:__datetime_normDuration]]
+`0 .. 999_999_999`. [[src/codegen/builtins/datetime/package.mfb:__datetime_normDuration]]
 The arithmetic is uniform second-and-nanosecond addition with no awareness of
 calendars, time zones, or daylight-saving transitions; it simply totals elapsed
 physical time. To shift a point on the timeline rather than combine two spans,
@@ -53,14 +53,14 @@ same `Duration`, and it has no side effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Duration` | The first span to add. Its `seconds` field is a whole-second count (which may be negative) and its `nanos` field is the sub-second remainder. [[src/builtins/datetime.rs:PLUS]] |
+| `a` | `Duration` | The first span to add. Its `seconds` field is a whole-second count (which may be negative) and its `nanos` field is the sub-second remainder. [[src/codegen/builtins/datetime/mod.rs:PLUS]] |
 | `b` | `Duration` | The second span to add. Its `seconds` and `nanos` fields are added to those of `a`. A negative `Duration` subtracts from the running total. |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Duration` | The `Duration` `a + b`, normalized so its `seconds` field holds the whole-second count (which may be negative) and its `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. [[src/builtins/datetime.rs:DATETIME]] |
+| `Duration` | The `Duration` `a + b`, normalized so its `seconds` field holds the whole-second count (which may be negative) and its `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 

@@ -22,7 +22,7 @@ civil — `Date`, `Time`, and `DateTime` — is a projection of an instant throu
 `Zone`, and every projection records the resolved UTC offset, so a `DateTime`
 always knows its offset and round-trips back to its `Instant` without
 re-consulting the zone. `datetime` is a built-in package: `IMPORT datetime` needs
-no manifest dependency. [[src/builtins/datetime.rs:is_datetime_call]]
+no manifest dependency. [[src/codegen/builtins/datetime/mod.rs:is_datetime_call]]
 
 All public types are flat, copyable value records and enums — `Instant`,
 `Duration`, `Date`, `Time`, `Zone`, `DateTime`, and the enums `ZoneKind`,
@@ -31,7 +31,7 @@ types are referenced bare (`Instant`, `Date`, …), not package-qualified. Calen
 arithmetic is pure integer math (Howard Hinnant's civil ↔ epoch-day conversions)
 and produces identical results on every target. Only three operations touch the
 host: the wall clock (`now`), a monotonic counter (`monotonic`), and the local
-zone's DST-correct offset (`local`). [[src/builtins/datetime.rs:DATETIME]]
+zone's DST-correct offset (`local`). [[src/codegen/builtins/datetime/mod.rs:DATETIME]]
 
 Zones come in three kinds. `datetime::utc()` is fixed at offset 0;
 `datetime::fixedOffset(...)` builds a constant offset rendered as `+HH:MM`; and
@@ -40,7 +40,7 @@ the moment it projects. Named IANA zones are not supported in this version.
 `Instant.seconds` spans the full 64-bit `Integer`, so civil dates reach far beyond
 any practical need; `datetime::now()` is additionally bounded by its intrinsic
 (nanoseconds since the epoch), valid through year 2262. There are no leap seconds:
-every day is 86400 seconds, the POSIX convention. [[src/builtins/datetime_package.mfb:__datetime_fixedOffset1]]
+every day is 86400 seconds, the POSIX convention. [[src/codegen/builtins/datetime/package.mfb:__datetime_fixedOffset1]]
 
 Projection is the primary "to civil" operation: `inZone` maps an instant into a
 zone, `toUtc` and `toLocal` are shorthands, and `resolve` maps a civil `DateTime`
@@ -51,12 +51,12 @@ share a pattern mini-language: a pattern is literal text with token runs, where 
 run of the same letter is one token whose length selects width or style, and
 literal letters are wrapped in single quotes. `format` renders a `DateTime`,
 `parse` reads one back, and `toIso`/`parseIso` handle RFC 3339 / ISO 8601 with a
-required offset. [[src/builtins/datetime_package.mfb:__datetime_format]]
+required offset. [[src/codegen/builtins/datetime/package.mfb:__datetime_format]]
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | raised by `date`, `time`, `instant`, `duration`, and `fixedOffset` when a component field (month, day, hour, minute, second, nanos, or offset magnitude) is outside its valid range [[src/builtins/datetime_package.mfb:__datetime_date]] |
-| `77050003` | `ErrInvalidFormat` | raised by `format` on an unknown pattern token, and by `parse` and `parseIso` when the input does not match the pattern, a required field or offset is missing, or a month name is unrecognized [[src/builtins/datetime_package.mfb:__datetime_format]] |
-| `77050010` | `ErrOverflow` | raised by `add`, `subtract`, `between`, `addDays`, `addMonths`, `plus`, `minus`, `negate`, `toMillis`, `toNanos`, and other checked arithmetic when a value falls outside the `Integer` range [[src/builtins/datetime_package.mfb:__datetime_toMillis]] |
+| `77050002` | `ErrInvalidArgument` | raised by `date`, `time`, `instant`, `duration`, and `fixedOffset` when a component field (month, day, hour, minute, second, nanos, or offset magnitude) is outside its valid range [[src/codegen/builtins/datetime/package.mfb:__datetime_date]] |
+| `77050003` | `ErrInvalidFormat` | raised by `format` on an unknown pattern token, and by `parse` and `parseIso` when the input does not match the pattern, a required field or offset is missing, or a month name is unrecognized [[src/codegen/builtins/datetime/package.mfb:__datetime_format]] |
+| `77050010` | `ErrOverflow` | raised by `add`, `subtract`, `between`, `addDays`, `addMonths`, `plus`, `minus`, `negate`, `toMillis`, `toNanos`, and other checked arithmetic when a value falls outside the `Integer` range [[src/codegen/builtins/datetime/package.mfb:__datetime_toMillis]] |

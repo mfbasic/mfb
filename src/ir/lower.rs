@@ -101,7 +101,7 @@ pub fn lower_project_with_external_functions(
         .expect("built-in csv package source must parse");
     let augmented = crate::codegen::builtins::regex::augmented_project(&augmented)
         .expect("built-in regex package source must parse");
-    let augmented = builtins::datetime::augmented_project(&augmented)
+    let augmented = crate::codegen::builtins::datetime::augmented_project(&augmented)
         .expect("built-in datetime package source must parse");
     let augmented = builtins::money::augmented_project(&augmented)
         .expect("built-in money package source must parse");
@@ -2083,7 +2083,7 @@ fn expression_type(
                 || crate::codegen::builtins::json::is_json_call(&canonical_callee)
                 || crate::codegen::builtins::csv::is_csv_call(&canonical_callee)
                 || crate::codegen::builtins::regex::is_regex_call(&canonical_callee)
-                || builtins::datetime::is_datetime_call(&canonical_callee)
+                || crate::codegen::builtins::datetime::is_datetime_call(&canonical_callee)
                 || builtins::crypto::is_crypto_call(&canonical_callee)
                 || builtins::thread::is_thread_call(&canonical_callee)
             {
@@ -2831,8 +2831,11 @@ fn lower_expression_with_expected(
                         .map(str::to_string)
                 })
                 .or_else(|| {
-                    builtins::datetime::implementation_name(&canonical_callee, args.len())
-                        .map(|name| crate::internal_name::internalize(&name))
+                    crate::codegen::builtins::datetime::implementation_name(
+                        &canonical_callee,
+                        args.len(),
+                    )
+                    .map(|name| crate::internal_name::internalize(&name))
                 })
                 .or_else(|| {
                     // `astrings::` Attribute-model + Tier-C members rewrite to their

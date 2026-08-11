@@ -170,7 +170,7 @@ pub fn check_project_collect(
     let augmented = builtins::app::augmented_project(&augmented)?;
     let augmented = crate::codegen::builtins::csv::augmented_project(&augmented)?;
     let augmented = crate::codegen::builtins::regex::augmented_project(&augmented)?;
-    let augmented = builtins::datetime::augmented_project(&augmented)?;
+    let augmented = crate::codegen::builtins::datetime::augmented_project(&augmented)?;
     let augmented = builtins::money::augmented_project(&augmented)?;
     let augmented = builtins::term::augmented_project(&augmented)?;
     // `vector` imports only intrinsic `math` (plan-06-vector.md §5).

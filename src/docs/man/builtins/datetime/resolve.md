@@ -19,7 +19,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -36,7 +36,7 @@ dt.time.second`). That sum is the local second count: the seconds-since-epoch th
 wall-clock fields would name if they were UTC. It then subtracts `dt.offset` — the
 resolved UTC offset in seconds carried on the `DateTime` — to shift the local
 count back onto the UTC timeline, and pairs the result with `dt.time.nanos`.
-[[src/builtins/datetime_package.mfb:__datetime_resolve]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_resolve]]
 
 Because the offset is read directly from `dt` rather than re-derived from the
 zone, `resolve` is unambiguous even across daylight-saving transitions: it
@@ -44,25 +44,25 @@ reproduces exactly the instant a `DateTime` was built from. For any instant `at`
 and zone `z`, `datetime::resolve(datetime::inZone(at, z))` returns `at` unchanged.
 The `seconds` field participates in the date/time arithmetic; the `nanos` field is
 copied through verbatim. `resolve` is pure and reads no host state.
-[[src/builtins/datetime_package.mfb:__datetime_resolve]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_resolve]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `dt` | `DateTime` | The civil date-time to collapse to an instant. Its `date` and `time` fields supply the wall-clock value, and its `offset` field (the UTC offset in seconds pinned when the `DateTime` was produced) is subtracted to reach the UTC timeline. The `zone` field is not consulted; only the stored offset is used. The `nanos` of `dt.time` are carried into the result unchanged. [[src/builtins/datetime.rs:RESOLVE]] |
+| `dt` | `DateTime` | The civil date-time to collapse to an instant. Its `date` and `time` fields supply the wall-clock value, and its `offset` field (the UTC offset in seconds pinned when the `DateTime` was produced) is subtracted to reach the UTC timeline. The `zone` field is not consulted; only the stored offset is used. The `nanos` of `dt.time` are carried into the result unchanged. [[src/codegen/builtins/datetime/mod.rs:RESOLVE]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Instant` | The absolute point on the UTC timeline named by `dt`. Its `seconds` field equals the local second count of `dt`'s wall-clock fields minus `dt.offset`; its `nanos` field equals `dt.time.nanos`. May name an instant before the Unix epoch (negative `seconds`). [[src/builtins/datetime.rs:DATETIME]] |
+| `Instant` | The absolute point on the UTC timeline named by `dt`. Its `seconds` field equals the local second count of `dt`'s wall-clock fields minus `dt.offset`; its `nanos` field equals `dt.time.nanos`. May name an instant before the Unix epoch (negative `seconds`). [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | The civil-to-seconds arithmetic (`daysFromCivil(...) * 86400 + ...`) or the offset subtraction (`localSeconds - dt.offset`) produces a value outside the signed `Integer` range — `Integer` `*`/`+`/`-` are overflow-checked and trap at the boundary — which can occur only for a `DateTime` at the extreme edge of the representable timeline. [[src/builtins/datetime_package.mfb:__datetime_resolve]] [[src/target/shared/code/builder_numeric.rs:emit_overflow_if_flags_set]] |
+| `77050010` | `ErrOverflow` | The civil-to-seconds arithmetic (`daysFromCivil(...) * 86400 + ...`) or the offset subtraction (`localSeconds - dt.offset`) produces a value outside the signed `Integer` range — `Integer` `*`/`+`/`-` are overflow-checked and trap at the boundary — which can occur only for a `DateTime` at the extreme edge of the representable timeline. [[src/codegen/builtins/datetime/package.mfb:__datetime_resolve]] [[src/target/shared/code/builder_numeric.rs:emit_overflow_if_flags_set]] |
 
 ## Examples
 

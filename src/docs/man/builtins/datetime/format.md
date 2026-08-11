@@ -19,7 +19,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT datetime
 left to right and emitting, for each position, either a literal character or the
 value selected by a formatting token. The result is a freshly built `String`;
 `dt` is read only and is not modified. An empty pattern yields the empty string.
-[[src/builtins/datetime_package.mfb:__datetime_format]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_format]]
 
 A token is a run of one or more of the same ASCII letter (`A`–`Z` or `a`–`z`);
 the run length selects the width or style of the field. Any character that is
@@ -36,7 +36,7 @@ spaces, dashes, colons, and slashes appear literally. A run of a letter that is
 not one of the recognized tokens below is an error, not literal text: to emit a
 letter literally, wrap it in single quotes (`'T'` produces a literal `T`); to
 emit a literal apostrophe, write two single quotes (`''`).
-[[src/builtins/datetime_package.mfb:__datetime_isLetter]] [[src/builtins/datetime_package.mfb:__datetime_format]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_isLetter]] [[src/codegen/builtins/datetime/package.mfb:__datetime_format]]
 
 The recognized tokens are:
 
@@ -62,31 +62,31 @@ The fractional-second token renders the `nanos` of `dt.time` as 9 digits and
 keeps the leading run-length digits, so `fff` yields milliseconds, `ffffff`
 microseconds, and `fffffffff` nanoseconds. Month, weekday, and AM/PM names are
 English. The offset tokens read `dt.offset`, the resolved UTC offset carried by
-`dt`. [[src/builtins/datetime_package.mfb:__datetime_formatToken]]
+`dt`. [[src/codegen/builtins/datetime/package.mfb:__datetime_formatToken]]
 
 Inside single quotes every character, including formatting letters, is copied
 literally until the closing quote; an opening quote with no matching close runs
 to the end of `pattern`. `datetime::format` is pure: it reads no host state and
-has no side effects. [[src/builtins/datetime_package.mfb:__datetime_format]]
+has no side effects. [[src/codegen/builtins/datetime/package.mfb:__datetime_format]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `dt` | `DateTime` | The moment to render. Its date fields (`year`, `month`, `day`), time fields (`hour`, `minute`, `second`, `nanos`), and resolved UTC `offset` supply the values for the pattern tokens. [[src/builtins/datetime.rs:FORMAT]] |
-| `pattern` | `String` | The format string: a mix of literal characters and token runs drawn from the table above, with single quotes escaping literal text. An empty pattern produces an empty result. [[src/builtins/datetime_package.mfb:__datetime_format]] |
+| `dt` | `DateTime` | The moment to render. Its date fields (`year`, `month`, `day`), time fields (`hour`, `minute`, `second`, `nanos`), and resolved UTC `offset` supply the values for the pattern tokens. [[src/codegen/builtins/datetime/mod.rs:FORMAT]] |
+| `pattern` | `String` | The format string: a mix of literal characters and token runs drawn from the table above, with single quotes escaping literal text. An empty pattern produces an empty result. [[src/codegen/builtins/datetime/package.mfb:__datetime_format]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The rendered text, with each token replaced by the corresponding field of `dt` and every non-letter character copied through unchanged. The empty pattern returns the empty string. [[src/builtins/datetime.rs:DATETIME]] |
+| `String` | The rendered text, with each token replaced by the corresponding field of `dt` and every non-letter character copied through unchanged. The empty pattern returns the empty string. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `pattern` contains a run of ASCII letters that is not one of the recognized formatting tokens. [[src/builtins/datetime_package.mfb:__datetime_formatToken]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | `pattern` contains a run of ASCII letters that is not one of the recognized formatting tokens. [[src/codegen/builtins/datetime/package.mfb:__datetime_formatToken]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

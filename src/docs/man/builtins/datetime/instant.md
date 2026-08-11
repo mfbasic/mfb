@@ -23,7 +23,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -34,26 +34,26 @@ remainder in its `nanos` field, normalized into the range `0 .. 999_999_999`.
 
 `instant` is overloaded by argument count, with five disjoint forms selected by
 the number of `Integer` arguments (one through five).
-[[src/builtins/datetime.rs:DATETIME]] The one- and two-argument forms take
+[[src/codegen/builtins/datetime/mod.rs:DATETIME]] The one- and two-argument forms take
 whole seconds and, optionally, a nanosecond adjustment. The three-, four-, and
 five-argument forms are component builders that fold larger units down into a
 single second count: the three-argument form computes `mins*60 + seconds`, the
 four-argument form adds `hours*3600`, and the five-argument form adds
 `days*86400`, in every case adding the trailing `nanos` last.
-[[src/builtins/datetime_package.mfb:__datetime_instant5]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_instant5]]
 
 Whichever form is used (except the one-argument form), the supplied seconds and
 nanos are normalized: any whole seconds embedded in `nanos` are carried into the
 `seconds` field, and a negative `nanos` value borrows a second so the stored
 `nanos` always lands in `0 .. 999_999_999`.
-[[src/builtins/datetime_package.mfb:__datetime_normInstant]] Every numeric
+[[src/codegen/builtins/datetime/package.mfb:__datetime_normInstant]] Every numeric
 argument may be negative, which selects an instant before the epoch. The
 one-argument form performs no normalization because its `nanos` is fixed at zero.
-[[src/builtins/datetime_package.mfb:__datetime_instant1]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_instant1]]
 
 `instant` is overloaded, so every parameter of the form you call must be supplied
 explicitly; the component forms carry no defaults.
-[[src/builtins/datetime.rs:default_argument_padding]] The folding and
+[[src/codegen/builtins/datetime/mod.rs:default_argument_padding]] The folding and
 normalization are ordinary signed `Integer` arithmetic, so a sufficiently large
 day, hour, minute, or second magnitude can overflow the `Integer` range and trap.
 To shift an existing `Instant` by a span rather than build one from scratch, use
@@ -65,7 +65,7 @@ same arguments always yield the same `Instant`, and it has no side effects.
 **`datetime::instant(seconds AS Integer) AS Instant`**
 
 The `Instant` exactly `seconds` after the epoch, with a zero nanosecond field. No
-normalization is performed. [[src/builtins/datetime_package.mfb:__datetime_instant1]]
+normalization is performed. [[src/codegen/builtins/datetime/package.mfb:__datetime_instant1]]
 
 **`datetime::instant(seconds AS Integer, nanos AS Integer) AS Instant`**
 
@@ -100,7 +100,7 @@ The `Instant` at `days*86400 + hours*3600 + mins*60 + seconds` whole seconds, pl
 
 | Type | Description |
 | --- | --- |
-| `Instant` | The `Instant` at the requested offset from the Unix epoch. The `seconds` field holds the normalized whole-second count (which may be negative for instants before the epoch) and the `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. [[src/builtins/datetime.rs:DATETIME]] |
+| `Instant` | The `Instant` at the requested offset from the Unix epoch. The `seconds` field holds the normalized whole-second count (which may be negative for instants before the epoch) and the `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 

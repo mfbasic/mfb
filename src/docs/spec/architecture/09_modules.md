@@ -28,7 +28,7 @@ A map of the compiler's source modules and their responsibilities.
 | Math built-ins[[src/builtins/math.rs]] | Math built-in signatures and constants. |
 | String built-ins[[src/builtins/strings.rs]] | String built-in signatures. |
 | Thread built-ins[[src/builtins/thread.rs]] | Thread built-in type and call signatures. |
-| Date/time built-ins[[src/builtins/datetime.rs]] | Date/time built-in signatures. |
+| Date/time built-ins[[src/codegen/builtins/datetime/mod.rs]] | Date/time built-in signatures. |
 | Terminal built-ins[[src/builtins/term.rs]] | Terminal (`TermColor`/`TermSize`) built-in signatures. |
 | Network built-ins[[src/builtins/net.rs]] | Network (`Socket`/`Listener`/UDP) built-in signatures. |
 | TLS built-ins[[src/builtins/tls.rs]] | TLS (`TlsSocket`) built-in signatures. |

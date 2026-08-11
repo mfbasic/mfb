@@ -23,7 +23,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -35,26 +35,26 @@ time; to name a point on the UTC timeline use `datetime::instant` instead.
 
 `duration` is overloaded by argument count, with five disjoint forms selected by
 the number of `Integer` arguments (one through five).
-[[src/builtins/datetime.rs:DATETIME]] The one- and two-argument forms take
+[[src/codegen/builtins/datetime/mod.rs:DATETIME]] The one- and two-argument forms take
 whole seconds and, optionally, a nanosecond adjustment. The three-, four-, and
 five-argument forms are component builders that fold larger units down into a
 single second count: the three-argument form computes `mins*60 + seconds`, the
 four-argument form adds `hours*3600`, and the five-argument form adds
 `days*86400`, in every case adding the trailing `nanos` last.
-[[src/builtins/datetime_package.mfb:__datetime_duration5]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_duration5]]
 
 Whichever form is used (except the one-argument form), the supplied seconds and
 nanos are normalized: any whole seconds embedded in `nanos` are carried into the
 `seconds` field, and a negative `nanos` value borrows a second so the stored
 `nanos` always lands in `0 .. 999_999_999`.
-[[src/builtins/datetime_package.mfb:__datetime_normDuration]] Every numeric
+[[src/codegen/builtins/datetime/package.mfb:__datetime_normDuration]] Every numeric
 argument may be negative, which yields a negative span pointing backward in time.
 The one-argument form performs no normalization because its `nanos` is fixed at
-zero. [[src/builtins/datetime_package.mfb:__datetime_duration1]]
+zero. [[src/codegen/builtins/datetime/package.mfb:__datetime_duration1]]
 
 `duration` is overloaded, so every parameter of the form you call must be supplied
 explicitly; the component forms carry no defaults.
-[[src/builtins/datetime.rs:default_argument_padding]] The folding and
+[[src/codegen/builtins/datetime/mod.rs:default_argument_padding]] The folding and
 normalization are ordinary signed `Integer` arithmetic, so a sufficiently large
 day, hour, minute, or second magnitude can overflow the `Integer` range and trap.
 Combine durations with `datetime::plus`, `datetime::minus`, and `datetime::negate`;
@@ -67,7 +67,7 @@ effects.
 **`datetime::duration(seconds AS Integer) AS Duration`**
 
 A span of exactly `seconds` whole seconds, with a zero nanosecond field. No
-normalization is performed. [[src/builtins/datetime_package.mfb:__datetime_duration1]]
+normalization is performed. [[src/codegen/builtins/datetime/package.mfb:__datetime_duration1]]
 
 **`datetime::duration(seconds AS Integer, nanos AS Integer) AS Duration`**
 
@@ -101,7 +101,7 @@ A span of `days*86400 + hours*3600 + mins*60 + seconds` whole seconds, plus
 
 | Type | Description |
 | --- | --- |
-| `Duration` | The signed span of the requested length. The `seconds` field holds the normalized whole-second count (which may be negative for a backward span) and the `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. [[src/builtins/datetime.rs:DATETIME]] |
+| `Duration` | The signed span of the requested length. The `seconds` field holds the normalized whole-second count (which may be negative for a backward span) and the `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 

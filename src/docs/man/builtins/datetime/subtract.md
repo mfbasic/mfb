@@ -19,7 +19,7 @@ IMPORT datetime
 ```
 
 `datetime` is a built-in package, so no manifest dependency is required.
-[[src/builtins/datetime.rs:augmented_project]]
+[[src/codegen/builtins/datetime/mod.rs:augmented_project]]
 
 ## Description
 
@@ -30,7 +30,7 @@ of `at`, independently, then normalizes the difference so the stored `nanos`
 lands in the range `0 .. 999_999_999`, borrowing a whole second from the
 `seconds` field when the nanosecond difference is negative. The result is a point
 on the same Unix-epoch, leap-second-free timeline as `at`.
-[[src/builtins/datetime_package.mfb:__datetime_subtract]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_subtract]]
 
 Because `by` is a signed `Duration`, `subtract` covers both directions on the
 timeline: a positive span moves the `Instant` earlier and a negative span moves
@@ -44,7 +44,7 @@ honors DST and varying month lengths, use `datetime::addDays` and
 Normalization floor-divides the nanosecond difference into a whole-second borrow
 and a non-negative remainder, then folds the borrow back into the `seconds`
 field, so a subtraction that borrows across the second boundary still yields a
-`nanos` in `0 .. 999_999_999`. [[src/builtins/datetime_package.mfb:__datetime_normInstant]]
+`nanos` in `0 .. 999_999_999`. [[src/codegen/builtins/datetime/package.mfb:__datetime_normInstant]]
 The subtraction is ordinary signed `Integer` arithmetic, so a span large enough
 to push the combined second count past the `Integer` range overflows and traps.
 `subtract` is pure: the same `Instant` and `Duration` always yield the same
@@ -54,14 +54,14 @@ to push the combined second count past the `Integer` range overflows and traps.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `at` | `Instant` | The starting point on the UTC timeline to shift. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative for instants before the epoch) and its `nanos` field is the sub-second remainder. [[src/builtins/datetime.rs:SUBTRACT]] |
+| `at` | `Instant` | The starting point on the UTC timeline to shift. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative for instants before the epoch) and its `nanos` field is the sub-second remainder. [[src/codegen/builtins/datetime/mod.rs:SUBTRACT]] |
 | `by` | `Duration` | The signed span to subtract. A positive `Duration` moves `at` to an earlier `Instant`; a negative `Duration` advances it to a later one. Its `seconds` and `nanos` fields are subtracted from those of `at`. |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Instant` | The `Instant` at `at - by`, normalized so its `seconds` field holds the whole-second count (which may be negative) and its `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. [[src/builtins/datetime.rs:DATETIME]] |
+| `Instant` | The `Instant` at `at - by`, normalized so its `seconds` field holds the whole-second count (which may be negative) and its `nanos` field holds the sub-second remainder in `0 .. 999_999_999`. [[src/codegen/builtins/datetime/mod.rs:DATETIME]] |
 
 ## Errors
 

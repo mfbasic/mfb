@@ -10,9 +10,8 @@
 use std::borrow::Cow;
 
 use crate::codegen::registry::{
-    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
-    BuiltinType, DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
-    ParameterType, ReturnType, TypeKind,
+    BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource, BuiltinType,
+    DefaultResolver, DefaultValue, InjectionRule, Parameter, ParameterType, ReturnType, TypeKind,
 };
 
 // Public, documented surface. Each maps to an internal `__datetime_<name>`
@@ -107,26 +106,16 @@ const fn ov(params: &'static [Parameter], ret: &'static str) -> BuiltinOverload 
         return_type: ReturnType::Fixed(ret),
     }
 }
+// Every datetime member is argument-dependent (arity/type resolved by
+// `DatetimeResolver`), so each is declared with the registry-wide
+// `BuiltinFunction::custom`. `df` keeps the compact `(name, slug, overloads)`
+// call shape used across the table; docs default empty until Phase 5.
 const fn df(
     name: &'static str,
     slug: &'static str,
     overloads: &'static [BuiltinOverload],
 ) -> BuiltinFunction {
-    BuiltinFunction {
-        name,
-        doc_slug: slug,
-        doc_intro: "",
-        doc_desc: "",
-        errors: &[],
-        overloads,
-        doc_example: "",
-        implementation: Implementation::Custom,
-        lowering: Lowering::Helper,
-        flags: BuiltinFlags {
-            internal_only: false,
-            return_type_overloaded: false,
-        },
-    }
+    BuiltinFunction::custom(name, slug, "", "", &[], overloads)
 }
 
 const I: &str = "Integer";
@@ -745,14 +734,39 @@ pub(crate) fn default_argument_padding(
     }
 }
 
-super::package_source_glue!(
-    "datetime",
-    "<builtin-datetime>",
-    "builtins/datetime.mfb",
-    include_str!("datetime_package.mfb")
-);
+use crate::builtins::exact;
 
-use super::exact;
+/// Parses the built-in `datetime` package source. Unlike the source packages that
+/// inline member bodies (`Implementation::Mfb`), datetime's members are `Custom`
+/// with an arity-keyed one-to-many mapping onto `__datetime_*<n>` bodies, so the
+/// bodies stay in the `package.mfb` companion (parsed verbatim). Synthetic path
+/// label preserved byte-for-byte from the pre-migration `package_source_glue!`.
+pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
+    crate::ast::parse_source_internal(
+        std::path::Path::new("<builtin-datetime>"),
+        "builtins/datetime.mfb",
+        include_str!("package.mfb"),
+    )
+}
+
+pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
+    ast.files.iter().any(|file| {
+        file.imports
+            .iter()
+            .any(|import| import.package_name() == "datetime")
+    })
+}
+
+pub(crate) fn augmented_project(
+    ast: &crate::ast::AstProject,
+) -> Result<crate::ast::AstProject, ()> {
+    if !uses_package(ast) {
+        return Ok(ast.clone());
+    }
+    let mut augmented = ast.clone();
+    augmented.files.push(source_file()?);
+    Ok(augmented)
+}
 
 #[cfg(test)]
 mod tests {
@@ -936,10 +950,10 @@ mod tests {
         assert!(source_file().is_ok());
     }
 
-    /// The parameter names of `FUNC <func>(...)` as written in
-    /// `datetime_package.mfb` — the ground truth a param-name table must match.
+    /// The parameter names of `FUNC <func>(...)` as written in `package.mfb` —
+    /// the ground truth a param-name table must match.
     fn mfb_param_names(func: &str) -> Vec<String> {
-        let source = include_str!("datetime_package.mfb");
+        let source = include_str!("package.mfb");
         let prefix = format!("FUNC {func}(");
         let rest = source
             .lines()
@@ -1081,6 +1095,7 @@ mod tests {
         assert_eq!(f.name, "datetime.date");
         assert_eq!(f.doc_slug, "date");
         assert_eq!(f.overloads.len(), 1);
+        use crate::codegen::registry::{BuiltinFlags, Implementation, Lowering};
         assert_eq!(f.implementation, Implementation::Custom);
         assert_eq!(f.lowering, Lowering::Helper);
         assert_eq!(f.flags, BuiltinFlags::default());

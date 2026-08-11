@@ -5,18 +5,18 @@ formatting, and parsing are written in MFBASIC as internal `__datetime_*`
 functions, and only the OS clock and the local-zone table are platform state.
 A compiler seam owns registration, syntaxcheck metadata, and the rewrite from
 each public `datetime::` call onto its internal implementation; the MFBASIC
-source owns the algorithm. [[src/builtins/datetime.rs:implementation_name]] This topic specifies the
+source owns the algorithm. [[src/codegen/builtins/datetime/mod.rs:implementation_name]] This topic specifies the
 **model** — the record shapes, the civil-calendar math, the clock/zone seam, and
 the parse/format grammar. The per-function API surface is owned by
 `./mfb man datetime`.
 
 The package is injected only when a program `IMPORT datetime`; otherwise its AST
-is not added to the project. [[src/builtins/datetime.rs:uses_package]]
+is not added to the project. [[src/codegen/builtins/datetime/mod.rs:uses_package]]
 
 ## Value model
 
 Every public type is a flat, copyable record or enum — no handles, no hidden
-state. [[src/builtins/datetime_package.mfb:Instant]]
+state. [[src/codegen/builtins/datetime/package.mfb:Instant]]
 
 | Type | Fields | Meaning |
 | --- | --- | --- |
@@ -30,7 +30,7 @@ state. [[src/builtins/datetime_package.mfb:Instant]]
 Three enums name the discrete domains: `ZoneKind` (`Utc=0`, `FixedOffset=1`,
 `Local=2`), `Weekday` (`Monday`..`Sunday`), and `Month` (`January`..`December`).
 The `Zone.kind` field stores the `ZoneKind` ordinal as a raw `Integer`.
-[[src/builtins/datetime_package.mfb:ZoneKind]]
+[[src/codegen/builtins/datetime/package.mfb:ZoneKind]]
 
 ### Canonical form and normalization
 
@@ -55,13 +55,13 @@ normalizing — `instant`/`duration` accept 1..5 trailing `Integer` arguments
 each multiplying by `60 / 3600 / 86400` as appropriate. Arithmetic
 (`add`, `subtract`, `between`, `plus`, `minus`, `negate`) adds or subtracts the
 raw field pairs and re-normalizes; comparison (`compare`, `isBefore`, `isAfter`,
-`equals`) orders on `seconds` then `nanos`. [[src/builtins/datetime_package.mfb:__datetime_normInstant]]
+`equals`) orders on `seconds` then `nanos`. [[src/codegen/builtins/datetime/package.mfb:__datetime_normInstant]]
 
 `fromMillis` converts against the epoch with the same borrow logic;
 `toMillis`/`toNanos` are a straight multiply-add on the already-canonical pair.
 Both use checked `Integer` arithmetic, so a value outside the `Integer` range
 surfaces `ErrOverflow` (`77050010`).
-[[src/builtins/datetime_package.mfb:__datetime_toMillis]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_toMillis]]
 
 ## Monotonic vs wall clock
 
@@ -78,7 +78,7 @@ The model keeps the two clock kinds in distinct types so they cannot be mixed:
 
 Both intrinsics return non-negative nanoseconds on any sane host, so the
 truncating-divide split into `(seconds, nanos)` still passes through the
-normalizers but their borrow branch is a no-op for non-negative input. [[src/builtins/datetime_package.mfb:__datetime_monotonic]]
+normalizers but their borrow branch is a no-op for non-negative input. [[src/codegen/builtins/datetime/package.mfb:__datetime_monotonic]]
 
 ## Portable civil-calendar math
 
@@ -86,7 +86,7 @@ All date math is platform-independent and runs in MFBASIC. The epoch-day
 conversions use Howard Hinnant's branch-free civil ↔ days algorithm, valid
 across the full `Integer` range; the explicit era adjustments keep every divisor
 operand non-negative so truncating division equals flooring.
-[[src/builtins/datetime_package.mfb:__datetime_daysFromCivil]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_daysFromCivil]]
 
 * `daysFromCivil(y, m, d)` → days since `1970-01-01` (the `719468` constant
   shifts from the `0000-03-01` internal era origin to the Unix epoch).
@@ -97,20 +97,20 @@ historical adoption; there is no year 0 discontinuity special-casing beyond the
 algorithm's own era arithmetic.
 
 **Leap year:** divisible by 4, except centuries, except multiples of 400.
-[[src/builtins/datetime_package.mfb:__datetime_isLeapYear]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_isLeapYear]]
 
 ```
 isLeapYear(y) = (y MOD 4 = 0 AND y MOD 100 <> 0) OR y MOD 400 = 0
 ```
 
 **Days in month:** February is 29 in leap years else 28; April, June,
-September, November are 30; all others 31. [[src/builtins/datetime_package.mfb:__datetime_daysInMonth]]
+September, November are 30; all others 31. [[src/codegen/builtins/datetime/package.mfb:__datetime_daysInMonth]]
 
 **Day of week:** computed directly from the epoch-day number, not from a
 table. The epoch day `1970-01-01` is a Thursday; the package re-bases it to a
 Monday-origin index with `floorMod(days + 3, 7)`, mapping `0 → Monday` …
 `6 → Sunday`. The same index drives the `E` format token (ISO weekday).
-[[src/builtins/datetime_package.mfb:__datetime_weekday]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_weekday]]
 
 `dayOfYear` is `daysFromCivil(date) - daysFromCivil(year,1,1) + 1`.
 
@@ -121,7 +121,7 @@ negative epoch-second into a day index and a second-of-day requires *flooring*.
 The package defines `floorDiv` / `floorMod` (adjust the truncated quotient down
 when the remainder is negative) and uses them whenever a value can be negative —
 day-of-epoch splitting, weekday index, and `addMonths` month rollover.
-[[src/builtins/datetime_package.mfb:__datetime_floorDiv]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_floorDiv]]
 
 ## Zones, projection, and the OS clock/zone seam
 
@@ -140,7 +140,7 @@ helpers
 (`_mfb_rt_datetime_datetime_*`) rather than to `__datetime_*` MFBASIC code.
 `nowNanos` and `monotonicNanos` take no failure path — each returns an `Integer`
 with the OK tag set. `localOffset` uses the same result form but can fail (see
-below). [[src/builtins/datetime.rs:NOW_NANOS]]
+below). [[src/codegen/builtins/datetime/mod.rs:NOW_NANOS]]
 
 Platform notes from the native lowering: `CLOCK_REALTIME` is `0` on both Linux
 and macOS; `CLOCK_MONOTONIC` is `1` on Linux but `6` on Darwin. `localOffset`
@@ -162,11 +162,11 @@ and the error propagates through `offsetAt`/`toLocal` for a `Local` zone.
 `fixedOffset` takes either total seconds or `(hours, minutes)`; the magnitude
 must be under 24h (`|offset| < 86400`) and minutes `0..59`, else
 `ErrInvalidArgument` (`77050002`). The label is rendered `±HH:MM`.
-[[src/builtins/datetime_package.mfb:__datetime_fixedOffset1]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_fixedOffset1]]
 
 `offsetAt(zone, at)` returns `localOffset(at.seconds)` for a `Local` zone and
 the stored `offsetSeconds` otherwise — so a `Local` zone's effective offset is
-resolved against the specific instant (DST-correct). [[src/builtins/datetime_package.mfb:__datetime_offsetAt]]
+resolved against the specific instant (DST-correct). [[src/codegen/builtins/datetime/package.mfb:__datetime_offsetAt]]
 
 ### Projection: instant ↔ civil
 
@@ -174,7 +174,7 @@ resolved against the specific instant (DST-correct). [[src/builtins/datetime_pac
 the epoch seconds, `floorDiv`/`floorMod` by `86400` to split day vs
 second-of-day, runs `civilFromDays`, and packs the `DateTime` with the resolved
 offset cached. `toUtc` / `toLocal` are `inZone` against the standard zones.
-[[src/builtins/datetime_package.mfb:__datetime_inZone]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_inZone]]
 
 `resolve(dt)` is the inverse for a `DateTime` whose offset is already known:
 `epochSeconds = daysFromCivil*86400 + h*3600 + m*60 + s - dt.offset`.
@@ -184,7 +184,7 @@ hard case is a `Local` zone where the offset depends on the very instant being
 constructed. `resolveLocal` handles a single DST transition near the local time:
 it probes the offset one day on each side to bracket the transition, then
 applies the §"DST policy" below. `withZone(dt, z)` re-projects through
-`resolve` then `inZone`. [[src/builtins/datetime_package.mfb:__datetime_resolveLocal]]
+`resolve` then `inZone`. [[src/codegen/builtins/datetime/package.mfb:__datetime_resolveLocal]]
 
 **DST policy** (`resolveLocal`): with no transition in the bracket, use the
 common offset. Across a transition: an unambiguous time uses the bracketing
@@ -199,7 +199,7 @@ re-resolve the offset through the value's own zone via `civil`, so they remain
 DST-correct (adding a day across a transition keeps the same wall time, not the
 same elapsed duration). `addMonths` clamps an overflowing day to the target
 month's length (e.g. Jan 31 + 1 month → Feb 28/29). `startOfDay` is `civil` at
-`00:00:00.0` in the value's zone. [[src/builtins/datetime_package.mfb:__datetime_addMonths]]
+`00:00:00.0` in the value's zone. [[src/codegen/builtins/datetime/package.mfb:__datetime_addMonths]]
 
 ## Format grammar
 
@@ -207,7 +207,7 @@ month's length (e.g. Jan 31 + 1 month → Feb 28/29). `startOfDay` is `civil` at
 unchanged, copying single-quoted runs verbatim (`''` is a literal quote), and
 expanding **runs** of a recognized letter (the run length selects width/style).
 An unrecognized letter run fails `ErrInvalidFormat` (`77050003`).
-[[src/builtins/datetime_package.mfb:__datetime_formatToken]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_formatToken]]
 
 | Token | Meaning | Run-length behavior |
 | --- | --- | --- |
@@ -225,7 +225,7 @@ An unrecognized letter run fails `ErrInvalidFormat` (`77050003`).
 
 `toIso(dt)` is `format(dt, "yyyy-MM-dd'T'HH:mm:ss.fffZ")`. `formatDuration(d)`
 renders a signed span as `[Nd ]HH:MM:SS.mmm` (millisecond resolution, leading
-day part only when non-zero). [[src/builtins/datetime_package.mfb:__datetime_toIso]]
+day part only when non-zero). [[src/codegen/builtins/datetime/package.mfb:__datetime_toIso]]
 
 ## Parse grammar
 
@@ -234,7 +234,7 @@ filling field accumulators in a `__datetime_Fields` record. Absent fields keep
 epoch/zero defaults (`year=1970, month=1, day=1`, all time fields `0`). A
 structural mismatch — wrong literal, missing digits, bad AM/PM, bad month name,
 bad offset — fails `ErrInvalidFormat` (`77050003`). The pattern letters mirror
-`format`. [[src/builtins/datetime_package.mfb:__datetime_parseFields]]
+`format`. [[src/codegen/builtins/datetime/package.mfb:__datetime_parseFields]]
 
 Field-read rules:
 
@@ -256,7 +256,7 @@ Field-read rules:
 `YYYY-MM-DD(T|t| )HH:MM:SS[.frac][offset]`: a `.`-fractional part of any length
 is read then scaled (extra digits beyond 9 are skipped), and a trailing offset
 (`Z`/`z`/`±HH:MM`/`±HHMM`) is required. It always yields a fixed-offset `DateTime`.
-[[src/builtins/datetime_package.mfb:__datetime_parseIso]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_parseIso]]
 
 ## Validation
 
@@ -265,7 +265,7 @@ is read then scaled (extra digits beyond 9 are skipped), and a trailing offset
 `minute`/`second` outside `0..59`, `nanos` outside `0..999_999_999`. All raise `ErrInvalidArgument` (`77050002`). Note
 that the bare `Instant`/`Time`/`Date` *record literals* used internally by the
 projection helpers do **not** re-validate — validation lives in the named
-constructors. [[src/builtins/datetime_package.mfb:__datetime_date]]
+constructors. [[src/codegen/builtins/datetime/package.mfb:__datetime_date]]
 
 ## See Also
 
