@@ -735,9 +735,45 @@ pub(crate) fn default_argument_padding(
 }
 
 use crate::builtins::exact;
+use crate::target::shared::runtime::{RuntimeHelper, RuntimeHelperAbi, RuntimeHelperSpec};
 
 mod native;
 pub(crate) use native::lower_datetime_helper;
+
+// `datetime::` OS-seam intrinsics (plan-01-datetime.md §8.2). `nowNanos` /
+// `monotonicNanos` take no arguments; `localOffset` takes the epoch-seconds
+// instant in `x0`. All return an `Integer` in the standard result-value register
+// with the OK tag set. `nowNanos` / `monotonicNanos` cannot fail; `localOffset`
+// raises `ErrInvalidArgument` (ERR tag) for an instant `localtime_r` cannot
+// represent (bug-42). These `RuntimeHelperSpec`s register in the shared runtime
+// catalog (`target/shared/runtime/catalog.rs`), which imports them from here.
+pub(crate) const DATETIME_NOW_NANOS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Datetime,
+    call: "datetime.nowNanos",
+    abi: RuntimeHelperAbi { returns: "Integer" },
+};
+
+pub(crate) const DATETIME_MONOTONIC_NANOS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Datetime,
+    call: "datetime.monotonicNanos",
+    abi: RuntimeHelperAbi { returns: "Integer" },
+};
+
+pub(crate) const DATETIME_LOCAL_OFFSET_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Datetime,
+    call: "datetime.localOffset",
+    abi: RuntimeHelperAbi { returns: "Integer" },
+};
+
+/// Whether `name` is one of datetime's three OS-seam runtime intrinsics — lowered
+/// natively via [`lower_datetime_helper`], not through the source companion. The
+/// shared runtime-call recognizer (`target/shared/runtime/mod.rs`) delegates here.
+pub(crate) fn is_datetime_runtime_call(name: &str) -> bool {
+    matches!(
+        name,
+        "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset"
+    )
+}
 
 /// Parses the built-in `datetime` package source. Unlike the source packages that
 /// inline member bodies (`Implementation::Mfb`), datetime's members are `Custom`

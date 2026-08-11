@@ -96,7 +96,6 @@ mod app_specs;
 mod audio_specs;
 mod catalog;
 mod crypto_specs;
-mod datetime_specs;
 mod fs_specs;
 mod io_specs;
 mod net_specs;
@@ -114,7 +113,6 @@ pub(crate) use usage::{is_native_direct_call, required_helpers};
 use app_specs::*;
 use audio_specs::*;
 use crypto_specs::*;
-use datetime_specs::*;
 use fs_specs::*;
 use io_specs::*;
 use net_specs::*;
@@ -132,10 +130,7 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::Audio)
     } else if builtins::crypto::is_native_crypto_call(name) {
         Some(RuntimeHelper::Crypto)
-    } else if matches!(
-        name,
-        "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset"
-    ) {
+    } else if crate::codegen::builtins::datetime::is_datetime_runtime_call(name) {
         Some(RuntimeHelper::Datetime)
     } else if builtins::fs::is_fs_call(name) {
         Some(RuntimeHelper::Fs)

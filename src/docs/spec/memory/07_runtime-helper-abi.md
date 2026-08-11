@@ -100,7 +100,7 @@ A helper that **cannot fail** therefore does not return its value bare in
 `./mfb spec memory native-calling-convention`); instead it sets the OK tag in
 `%retMFB0` and places its value in `%retMFB1`. `datetime.nowNanos` and
 `datetime.monotonicNanos` are the canonical infallible-but-result-form helpers:
-each returns an `Integer` with the OK tag set. [[src/target/shared/runtime/datetime_specs.rs:DATETIME_NOW_NANOS_SPEC]] `datetime.localOffset` uses the same
+each returns an `Integer` with the OK tag set. [[src/codegen/builtins/datetime/mod.rs:DATETIME_NOW_NANOS_SPEC]] `datetime.localOffset` uses the same
 result form but *can* fail: it raises `ErrInvalidArgument` (setting the ERR tag)
 when `localtime_r` cannot break the instant down into calendar fields, so it must
 never be read as a bare `%retMFB0` result either. A helper whose `returns` is `Nothing`

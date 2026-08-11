@@ -47,8 +47,8 @@ mod validation;
 pub(crate) use entry::lower_program_entry;
 pub(crate) use runtime_helpers::lower_thread_trampoline;
 mod codegen_utils;
-use codegen_utils::*;
 pub(crate) use codegen_utils::finalize_vreg_body_with_locals;
+use codegen_utils::*;
 mod code_impl;
 use code_impl::{join_json, ToCodeJson};
 mod operand;
@@ -72,8 +72,8 @@ use runtime_helpers::*;
 mod runtime_helpers_thread;
 use runtime_helpers_thread::*;
 mod data_objects;
-use data_objects::*;
 pub(crate) use data_objects::raise_error_into;
+use data_objects::*;
 mod module_analysis;
 use module_analysis::*;
 mod audio;
@@ -2013,7 +2013,12 @@ fn lower_runtime_helper(
                     crypto::lower_crypto_random_bytes_helper(symbol, platform_imports, platform)?
                 }
                 "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset" => {
-                    crate::codegen::builtins::datetime::lower_datetime_helper(spec.call, symbol, platform_imports, platform)?
+                    crate::codegen::builtins::datetime::lower_datetime_helper(
+                        spec.call,
+                        symbol,
+                        platform_imports,
+                        platform,
+                    )?
                 }
                 // plan-67-B: internal perf-tracking helpers (injected, never NIR-level).
                 "perf.init" | "perf.start" | "perf.end" | "perf.done" => {
