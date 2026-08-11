@@ -119,10 +119,43 @@ impl BuiltinResolver for JsonResolver {
 }
 static JSON_RESOLVER: JsonResolver = JsonResolver;
 
+const MODULE_INTRO: &str = r#"Parse, build, serialize, and read JSON values as a `Json` tree"#;
+const MODULE_DESC: &str = r#"The `json` package converts between JSON text and a `Json` value tree and reads
+members out of that tree. `json::parse` turns a UTF-8 `String` holding one
+complete JSON document into a `Json` value, `json::stringify` renders a `Json`
+value back into compact JSON text, and `json::get` and `json::getOr` walk a path
+of object keys to a nested member. `json` is a built-in package written in
+MFBASIC source over the `collections`, `strings`, and `encoding` packages, so
+`IMPORT json` needs no manifest dependency.
+
+The package defines the `Json` union and its six member types. `Json` is a
+`UNION` over `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, and
+`JsonObj`, each a record wrapping one field: `JsonNull` holds `Nothing`,
+`JsonBool` holds a `Boolean`, `JsonNum` holds a `Float`, `JsonStr` holds a
+`String`, `JsonArr` holds a `List OF Json`, and `JsonObj` holds a
+`Map OF String TO Json`. Every JSON form maps to exactly one variant, and
+`json::stringify` accepts either the `Json` union or any one of its member types
+directly. Because numbers are carried as `Float`, very large or very precise
+values may lose precision in a parse/stringify round trip, and a `JsonNum`
+holding a non-finite `Float` (NaN or infinity) has no JSON form.
+
+Serialization is compact: `json::stringify` emits no insignificant whitespace,
+preserves array item order, emits object pairs in the map's iteration order, and
+applies the standard JSON string escapes. Parsing reads one complete document,
+allows surrounding JSON whitespace, and rejects any trailing non-whitespace
+content.
+
+The path readers operate only on object members. `json::get` and `json::getOr`
+follow a `List OF String` of object keys left to right from `value`, requiring a
+`JsonObj` at each step; an empty path returns `value` unchanged. They do not copy
+`value`: the located `Json` value is returned directly. `json::get` fails when a
+key is missing or the current value is not an object, whereas `json::getOr`
+returns its default value in those cases instead of failing."#;
+
 pub(crate) static JSON: BuiltinModule = BuiltinModule {
     name: "json",
-    doc_intro: "",
-    doc_desc: "",
+    doc_intro: MODULE_INTRO,
+    doc_desc: MODULE_DESC,
     functions: JSON_FUNCTIONS,
     types: JSON_TYPES,
     source: Some(BuiltinSource {
