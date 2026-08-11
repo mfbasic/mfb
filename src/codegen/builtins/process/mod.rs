@@ -191,10 +191,64 @@ const PROCESS_TYPES: &[BuiltinType] = &[BuiltinType {
     fields: &[],
 }];
 
+const MODULE_INTRO: &str =
+    r#"Spawn and manage child processes: run a program, stream its standard I/O,"#;
+const MODULE_DESC: &str = r#"The `process` package runs and controls child processes. Its one resource,
+`Process`, is an opaque, owned, non-copyable handle to a spawned child — a native
+resource sharing the runtime's canonical resource record (resource tag `10`).
+Like every resource handle it cannot be copied, stored as a collection element,
+or carried in a record; it is closed automatically by lexical drop when its
+binding leaves scope.
+
+
+A child is created two ways. `process::spawn` runs a program directly from an
+argument list — `args[0]` is the executable, resolved on `PATH`, and no shell is
+involved, so no quoting, globbing, or redirection is interpreted. `process::shell`
+instead runs a command line through the platform shell (`/bin/sh -c` on Unix), so
+pipes, redirection, and shell syntax work. A four-argument `spawn` overload adds a
+working directory, an environment `Map OF String TO String`, and a replace-vs-merge
+flag.
+
+
+Ownership of a live child is deliberate. Letting a `Process` drop at scope exit
+**force-kills and reaps** it (`SIGKILL` + `waitpid` on Unix), so no runaway child
+or zombie is left behind and the drop never blocks. `process::close` is *not* a
+handle-consuming close: it closes only the child's standard input (signalling
+end-of-input to a filter) and leaves the child running and the handle usable.
+`process::detach` relinquishes ownership the other way — it closes the parent-side
+pipes, arranges for the child to be auto-reaped, and marks the handle closed so
+the child keeps running independently after the program exits.
+
+
+
+Streaming I/O connects to the child's three standard streams over pipes.
+`process::send` writes a `String` (appending a newline) to the child's standard
+input; `process::sendBytes` writes raw bytes with no newline. `process::receive`
+reads one newline-terminated line as a `String`; `process::receiveBytes` reads one
+available chunk of raw bytes. Both readers take an optional `Stream` argument
+selecting standard output (the default) or standard error, and `process::poll`
+reports whether the selected stream is readable within a timeout. A read that
+reaches end of stream with nothing buffered raises `ErrResourceClosed`, so a
+consumer loops until that error is raised.
+
+
+The `Signal` enum is a four-bucket cross-platform vocabulary (`None`, `Kill`,
+`Terminate`, `Error`) used both to *deliver* a signal with `process::signal` and
+to *observe* how a terminated child died with `process::didSignal`; the exact
+platform mapping is tabulated in `mfb man process types`.
+
+
+
+The lifecycle queries read cached state: `process::pid` returns the child pid,
+`process::isRunning` polls without blocking, `process::waitFor` blocks for exit
+and returns the exit code (`-1` on a signal death on Unix). `waitFor` and
+`isRunning` cache the exit status the first time they observe it, so `waitFor` is
+idempotent and `didSignal` can report the death cause after the fact."#;
+
 pub(crate) static PROCESS: BuiltinModule = BuiltinModule {
     name: "process",
-    doc_intro: "",
-    doc_desc: "",
+    doc_intro: MODULE_INTRO,
+    doc_desc: MODULE_DESC,
     functions: PROCESS_FUNCTIONS,
     types: PROCESS_TYPES,
     // The source companion carries the `Stream` (plan-90-B) and `Signal`
