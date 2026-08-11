@@ -1,12 +1,17 @@
-//! `encoding::utf8Encode` — descriptor entry, docs, and source body.
+//! `encoding::utf8Encode` — descriptor entry, docs, selector, and both variants.
 //!
-//! Per-member file (mirrors collections/func_*.rs). The descriptor carries
-//! a Custom (resolver-selected) overload; its authored intro/description/examples migrated from
-//! `src/docs/man/builtins/encoding/utf8Encode.md`. Body byte-significant
-//! (2-space indent → `.ncode` columns); do not reformat.
+//! Per-member file (mirrors collections/func_*.rs). `utf8Encode` is an
+//! `Implementation::Resolve` **return-type** overload: [`resolve`] picks the byte-
+//! or integer-typed encoder from the expected (contextual) type, erroring
+//! (`Err(())` → `TYPE_OVERLOAD_AMBIGUOUS`) when no context selects one — a
+//! `LET … AS List OF Byte/Integer` disambiguates. Both candidates live inline in
+//! [`VARIANTS`] as **private** `Implementation::Mfb` bodies; they are not public
+//! functions, only monomorph targets of `utf8Encode`. Authored docs migrated from
+//! `src/docs/man/builtins/encoding/utf8Encode.md`. Bodies byte-significant (2-space
+//! indent → `.ncode` columns); do not reformat.
 
-use super::{ov, p, BYTES, VALTEXT};
-use crate::codegen::registry::BuiltinFunction;
+use super::{ov, p, BYTES, INTS, VALTEXT};
+use crate::codegen::registry::{BuiltinFunction, Implementation, Variant};
 
 const INTRO: &str = r#"Encode a `String` to its UTF-8 bytes."#;
 const DESC: &str = r#"`encoding::utf8Encode` returns the UTF-8 encoding of `value` — the exact bytes
@@ -51,12 +56,73 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const UTF8_ENCODE: BuiltinFunction = BuiltinFunction::custom(
+// The two private variant bodies (`FUNC __encoding_*`), injected into the package
+// source at their `'@@MFB_BODY:<slug>@@` markers. Byte-significant; do not reformat.
+#[rustfmt::skip]
+const BODY_BYTES: &str =
+r#"FUNC __encoding_utf8EncodeBytes(value AS String) AS List OF Byte
+  RETURN strings::toBytes(value)
+END FUNC"#;
+#[rustfmt::skip]
+const BODY_INTS: &str =
+r#"FUNC __encoding_utf8EncodeInts(value AS String) AS List OF Integer
+  LET data AS List OF Byte = strings::toBytes(value)
+  MUT result AS List OF Integer = []
+  FOR EACH b IN data
+    result = collections::append(result, toInt(b))
+  NEXT
+  RETURN result
+END FUNC"#;
+
+/// The compile-time overload selector for `utf8Encode` (an
+/// [`crate::codegen::registry::ResolveFn`]): the same `String` argument encodes to
+/// a `List OF Byte` or a `List OF Integer`, chosen by the expected (contextual)
+/// type. With no expected type the overload is ambiguous (`Err(())` →
+/// `TYPE_OVERLOAD_AMBIGUOUS`); any other argument shape is not this overload
+/// (`Ok(None)`).
+fn resolve(arg_types: &[String], expected: Option<&str>) -> Result<Option<&'static str>, ()> {
+    if arg_types == ["String"] {
+        match expected {
+            Some(BYTES) => Ok(Some("encoding.utf8EncodeBytes")),
+            Some(INTS) => Ok(Some("encoding.utf8EncodeInts")),
+            _ => Err(()),
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+/// The private candidates [`resolve`] chooses among — each its own internal
+/// `Mfb` body, injected under its slug and reached only as a monomorph target.
+const VARIANTS: &[Variant] = &[
+    Variant {
+        name: "encoding.utf8EncodeBytes",
+        doc_slug: "utf8EncodeBytes",
+        return_type: BYTES,
+        implementation: Implementation::Mfb {
+            body: BODY_BYTES,
+            fast_path: None,
+        },
+    },
+    Variant {
+        name: "encoding.utf8EncodeInts",
+        doc_slug: "utf8EncodeInts",
+        return_type: INTS,
+        implementation: Implementation::Mfb {
+            body: BODY_INTS,
+            fast_path: None,
+        },
+    },
+];
+
+pub(crate) const UTF8_ENCODE: BuiltinFunction = BuiltinFunction::resolve(
     "encoding.utf8Encode",
     "utf8Encode",
     INTRO,
     DESC,
     &[],
     &[ov(&[p("value", VALTEXT, "String")], BYTES)],
+    resolve,
+    VARIANTS,
 )
 .with_example(EX);

@@ -1074,16 +1074,20 @@ impl BuiltinRegistry {
         })
     }
 
-    /// The private [`Variant`] a `Resolve` member selects, found by its `name`
-    /// (e.g. `encoding.utf8DecodeBytes`). Variants are not in any module's public
-    /// `functions` list, so they are invisible to [`Self::function`]; this scan
-    /// gives the internal paths (return-type resolution, source injection) a way to
-    /// reach them without exposing them as user-callable functions.
-    pub(crate) fn variant(&self, name: &str) -> Option<&'static Variant> {
+    /// The `(module, variant)` for the private [`Variant`] a `Resolve` member
+    /// selects, found by its `name` (e.g. `encoding.utf8DecodeBytes`). Variants are
+    /// not in any module's public `functions` list, so they are invisible to
+    /// [`Self::function`]; this scan gives the internal paths (return-type
+    /// resolution, package attribution, source injection) a way to reach them
+    /// without exposing them as user-callable functions.
+    pub(crate) fn variant(&self, name: &str) -> Option<(&'static BuiltinModule, &'static Variant)> {
         self.modules.iter().copied().find_map(|module| {
             module.functions.iter().find_map(|function| {
                 if let Implementation::Resolve { variants, .. } = function.implementation {
-                    variants.iter().find(|variant| variant.name == name)
+                    variants
+                        .iter()
+                        .find(|variant| variant.name == name)
+                        .map(|variant| (module, variant))
                 } else {
                     None
                 }

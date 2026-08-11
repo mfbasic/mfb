@@ -389,7 +389,7 @@ pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Op
         // public function; its return type comes from the variant descriptor.
         return crate::codegen::registry::REGISTRY
             .variant(callee)
-            .map(|variant| variant.return_type.to_string());
+            .map(|(_, variant)| variant.return_type.to_string());
     };
     // A `Resolve` member owns its own selector on the descriptor: pick the variant
     // from the argument types (return-type resolution has no expected type) and
@@ -397,13 +397,20 @@ pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Op
     if let crate::codegen::registry::Implementation::Resolve { resolver, variants } =
         function.implementation
     {
-        let Ok(Some(name)) = resolver(arg_types, None) else {
-            return None;
+        return match resolver(arg_types, None) {
+            Ok(Some(name)) => variants
+                .iter()
+                .find(|v| v.name == name)
+                .map(|v| v.return_type.to_string()),
+            // A return-type overload is ambiguous with no context here (return-type
+            // resolution carries no expected type). Fall back to the first (declared
+            // default) variant's type so a `LET … AS T = …` initializer has a known
+            // type — as the pre-migration resolver defaulted `utf8Encode` to
+            // `List OF Byte`. The genuine ambiguity is still reported by
+            // `resolve_overload_target` during monomorphization.
+            Err(()) => variants.first().map(|v| v.return_type.to_string()),
+            Ok(None) => None,
         };
-        return variants
-            .iter()
-            .find(|v| v.name == name)
-            .map(|v| v.return_type.to_string());
     }
     match module.resolver {
         Some(resolver) => resolver.resolve_return_type(module, function.name, arg_types),
@@ -431,7 +438,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     // `encoding.utf8DecodeBytes`) is a lowered-only name: not a public function, but
     // its return type is known, so it is admitted as a builtin call exactly like the
     // other lowered-only names below (`tls.closeListener`).
-    if let Some(variant) = crate::codegen::registry::REGISTRY.variant(name) {
+    if let Some((_, variant)) = crate::codegen::registry::REGISTRY.variant(name) {
         return Some(variant.return_type);
     }
     audio::call_return_type_name(name).or_else(|| tls::call_return_type_name(name))
@@ -445,6 +452,16 @@ pub(crate) fn builtin_package_name(callee: &str) -> Option<&'static str> {
     crate::codegen::registry::REGISTRY
         .function(callee)
         .map(|(module, _)| module.name)
+        // A `Resolve` member's private variant target (e.g. `encoding.utf8EncodeBytes`,
+        // produced when a return-type overload resolves before type-checking) is not
+        // in the public `functions` list. Attribute it to its owning package so the
+        // type checker routes it through the package's arg-mode checker (which reads
+        // its return type from the variant) instead of dropping it to `Unknown`.
+        .or_else(|| {
+            crate::codegen::registry::REGISTRY
+                .variant(callee)
+                .map(|(module, _)| module.name)
+        })
 }
 
 /// The arity range `(min, max)` of a builtin call — plan-72-BB: the owning
