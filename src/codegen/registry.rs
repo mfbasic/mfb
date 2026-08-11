@@ -917,7 +917,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::general::GENERAL,
     &crate::builtins::fs::FS,
     &crate::builtins::http::HTTP,
-    &crate::builtins::regex::REGEX,
+    &crate::codegen::builtins::regex::REGEX,
     &crate::builtins::resource::RESOURCE,
     &crate::builtins::strings::STRINGS,
     &crate::builtins::term::TERM,

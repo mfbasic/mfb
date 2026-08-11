@@ -26,7 +26,7 @@ expansion of `replacement`. The text before, between, and after matches is copie
 unchanged. It is the rewriting form of the package: `regex::match` reports only
 whether a match exists, `regex::find` reports where the first one begins,
 `regex::findAll` reports the start of every non-overlapping match, and `replace`
-produces the rewritten text. [[src/builtins/regex.rs:REGEX]]
+produces the rewritten text. [[src/codegen/builtins/regex/mod.rs:REGEX]]
 
 Matches are found left to right by the same leftmost, unanchored search
 `regex::findAll` exposes. At each match the engine resolves it by preference
@@ -37,7 +37,7 @@ match is valid; the iterator then advances one scalar so iteration always
 terminates and the same empty match is never rewritten twice at one position.
 Consequently an empty or empty-matching pattern inserts the replacement before
 each scalar and once at the end: `regex::replace("abc", "", "-")` is `"-a-b-c-"`.
-[[src/builtins/regex_package.mfb:__regex_replace]]
+[[src/codegen/builtins/regex/func_replace.rs:__regex_replace]]
 
 Positions are Unicode scalar values, never UTF-8 bytes and never grapheme
 clusters, consistent with `len` and the `strings` package.
@@ -50,7 +50,7 @@ against following text: `${1}0` is group `1` then `"0"`, whereas `$10` is group
 `10`. A reference to a group that did not participate in the match, or to an
 unknown name or an out-of-range number, expands to the empty string. Replacement
 content is therefore always well-formed and is never a source of failure; only an
-invalid pattern fails. [[src/builtins/regex_package.mfb:__regex_expand]]
+invalid pattern fails. [[src/codegen/builtins/regex/package.mfb:__regex_expand]]
 
 `pattern` is an ordinary runtime `String`, so it may be built or read at run
 time; it uses MFBASIC's own portable regex dialect, defined in
@@ -76,13 +76,13 @@ effects.
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` with every non-overlapping match replaced by the expansion of `replacement`. Equal to `value` when `pattern` matches nothing. [[src/builtins/regex.rs:REGEX]] |
+| `String` | A new `String` with every non-overlapping match replaced by the expansion of `replacement`. Equal to `value` when `pattern` matches nothing. [[src/codegen/builtins/regex/mod.rs:REGEX]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `pattern` is not a valid regular expression: an unbalanced or unterminated group or class, a quantifier with no atom or stacked quantifiers, a counted quantifier with `m > n`, a class range whose low endpoint exceeds its high endpoint, an empty class, a backslash escape outside the defined set, a `\x...`/`\x{...}` value that is not a valid scalar, an unknown `\p{...}` property, a malformed flag or group head, or a non-goal construct (backreference or look-around). Replacement content never causes a failure. [[src/builtins/regex_package.mfb:__regex_replace]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | `pattern` is not a valid regular expression: an unbalanced or unterminated group or class, a quantifier with no atom or stacked quantifiers, a counted quantifier with `m > n`, a class range whose low endpoint exceeds its high endpoint, an empty class, a backslash escape outside the defined set, a `\x...`/`\x{...}` value that is not a valid scalar, an unknown `\p{...}` property, a malformed flag or group head, or a non-goal construct (backreference or look-around). Replacement content never causes a failure. [[src/codegen/builtins/regex/func_replace.rs:__regex_replace]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

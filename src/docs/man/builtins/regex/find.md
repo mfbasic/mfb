@@ -50,7 +50,7 @@ must be in the range `0` through the scalar length of `value` inclusive; the
 upper bound equals the length so that a search may begin at the end of the
 string (where only a zero-length or end-anchored pattern can match). A negative
 `start`, or one greater than the scalar length, is out of range and fails with
-`ErrIndexOutOfRange`. [[src/builtins/regex_package.mfb:__regex_find]]
+`ErrIndexOutOfRange`. [[src/codegen/builtins/regex/func_find.rs:__regex_find]]
 
 `pattern` is an ordinary runtime `String`, so it may be built or read at run
 time; it uses MFBASIC's own portable regex dialect, defined in
@@ -71,7 +71,7 @@ differs from `strings::find`, which fails with `ErrNotFound` on absence.)
 
 Searches from position `0`; equivalent to passing `start = 0`. The trailing
 `start` is supplied during lowering as a default of `0`.
-[[src/builtins/regex.rs:default_argument_padding]]
+[[src/codegen/builtins/regex/mod.rs:default_argument_padding]]
 
 **`regex::find(value AS String, pattern AS String, start AS Integer) AS Integer`**
 
@@ -89,14 +89,14 @@ Searches from the explicit scalar position `start`.
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The zero-based Unicode scalar index where the first match at or after `start` begins, or `-1` when there is no match. A zero-length match reports its own start position. [[src/builtins/regex.rs:REGEX]] |
+| `Integer` | The zero-based Unicode scalar index where the first match at or after `start` begins, or `-1` when there is no match. A zero-length match reports its own start position. [[src/codegen/builtins/regex/mod.rs:REGEX]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050003` | `ErrInvalidFormat` | `pattern` is not a valid regular expression: an unbalanced or unterminated group or class, a quantifier with no atom or stacked quantifiers, a counted quantifier with `m > n`, a class range whose low endpoint exceeds its high endpoint, an empty class, a backslash escape outside the defined set, a `\x...`/`\x{...}` value that is not a valid scalar, an unknown `\p{...}` property, a malformed flag or group head, or a non-goal construct (backreference or look-around). Pattern compilation is checked before `start`, so this error takes precedence when both apply. [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
-| `77050001` | `ErrIndexOutOfRange` | `start` is less than `0` or greater than the scalar length of `value`. [[src/builtins/regex_package.mfb:__regex_find]] [[src/builtins/errorcode.rs:ErrIndexOutOfRange]] |
+| `77050001` | `ErrIndexOutOfRange` | `start` is less than `0` or greater than the scalar length of `value`. [[src/codegen/builtins/regex/func_find.rs:__regex_find]] [[src/builtins/errorcode.rs:ErrIndexOutOfRange]] |
 
 ## Examples
 

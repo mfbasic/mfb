@@ -4,19 +4,19 @@ The `regex` package is a pure-MFBASIC regular-expression engine: a recursive-des
 parser builds an AST of `__regex_Node` values, and a continuation-passing backtracking
 matcher walks that AST in leftmost-first (greedy-by-default) preference order. The
 Unicode general-category table is a generated companion file; the rest of the engine is
-hand-written MFBASIC. All matching is over Unicode scalar values.[[src/builtins/regex_package.mfb:__regex_Node]]
+hand-written MFBASIC. All matching is over Unicode scalar values.[[src/codegen/builtins/regex/package.mfb:__regex_Node]]
 
 The package ships as two physical files that compile as one source unit: the engine
 (`regex_package.mfb`) and the generated general-category table (`unicode_gencat.mfb`,
 pinned to Unicode 16.0.0). They must be intra-file because `__regex_genCat` is a
-file-local `FUNC` and package visibility is not valid in an executable.[[src/builtins/regex.rs:source_file]]
+file-local `FUNC` and package visibility is not valid in an executable.[[src/codegen/builtins/regex/mod.rs:source_file]]
 
 ## Public Surface
 
 Four built-in calls are recognized and rewritten to internal entry points during the
 front end. Their signatures and return types are fixed (resolved by exact arg-type
 match); `find`/`findAll` take an optional `start` that is padded to `0` during IR
-lowering.[[src/builtins/regex.rs:resolve_call]][[src/builtins/regex.rs:default_argument_padding]]
+lowering.[[src/codegen/builtins/regex/mod.rs:resolve_call]][[src/codegen/builtins/regex/mod.rs:default_argument_padding]]
 
 | Call | Internal | Returns | Args |
 |------|----------|---------|------|
@@ -28,27 +28,27 @@ lowering.[[src/builtins/regex.rs:resolve_call]][[src/builtins/regex.rs:default_a
 `find` returns the scalar index of the first match at or after `start`, or `-1`.
 `findAll` returns the start index of every non-overlapping match. `replace` substitutes
 every match. There is no separate flags argument: flags are set inline in the pattern
-(see [Flags](#flags)). Per-call API detail is owned by `mfb man regex`.[[src/builtins/regex_package.mfb:__regex_find]]
+(see [Flags](#flags)). Per-call API detail is owned by `mfb man regex`.[[src/codegen/builtins/regex/func_find.rs:__regex_find]]
 
 Errors use `FAIL error(code, ...)`: `77050003` invalid pattern, `77050001` `start` index
-out of range. There is no `ErrNotFound`; absence is reported as `-1` / empty / unchanged.[[src/builtins/regex_package.mfb:__regex_find]]
+out of range. There is no `ErrNotFound`; absence is reported as `-1` / empty / unchanged.[[src/codegen/builtins/regex/func_find.rs:__regex_find]]
 
 ## Scalar Model
 
 A subject string is decomposed into a `__regex_Ctx`: a parallel list of single-scalar
 `String`s (`text`) and their code points (`cps`), plus the length `n`. Positions
 throughout the engine are scalar offsets into these lists, **not** byte offsets, so all
-returned indices are scalar indices.[[src/builtins/regex_package.mfb:__regex_makeCtx]]
+returned indices are scalar indices.[[src/codegen/builtins/regex/package.mfb:__regex_makeCtx]]
 
 Code points are derived two ways. `__regex_chr` UTF-8-encodes an `Integer` to a scalar
 string, clamping out-of-range and surrogate values; `__regex_scalarToCp` recovers a code
 point via the shared UTF-32 encoder (`encoding::utf32Encode`), returning the first
-scalar's code point. The pattern is decomposed into scalars the same way before parsing.[[src/builtins/regex_package.mfb:__regex_scalarToCp]]
+scalar's code point. The pattern is decomposed into scalars the same way before parsing.[[src/codegen/builtins/regex/package.mfb:__regex_scalarToCp]]
 
 ## Pattern Grammar
 
 Recursive descent: `parseAlt → parseConcat → (parseAtom | parseParen) → parseQuantSuffix`.
-A full parse must consume the entire pattern or it is invalid.[[src/builtins/regex_package.mfb:__regex_compile]]
+A full parse must consume the entire pattern or it is invalid.[[src/codegen/builtins/regex/package.mfb:__regex_compile]]
 
 ```
 alt      := concat ("|" concat)*
@@ -67,14 +67,14 @@ escape   := "\" (literal-escape | shorthand | property | anchor-escape)
 
 A bare `*`, `+`, `?`, or a counted `{m,n}` with nothing to quantify is an error.
 Counted braces are only treated as a quantifier when they form a valid count
-(`__regex_isCountedAt`); otherwise `{` is a literal.[[src/builtins/regex_package.mfb:__regex_parseConcat]] `{m}` is exact, `{m,}` is
-`m..∞` (`hi = -1`), `{m,n}` requires `m ≤ n`. Counts are clamped at 7 digits.[[src/builtins/regex_package.mfb:__regex_parseCounted]]
+(`__regex_isCountedAt`); otherwise `{` is a literal.[[src/codegen/builtins/regex/package.mfb:__regex_parseConcat]] `{m}` is exact, `{m,}` is
+`m..∞` (`hi = -1`), `{m,n}` requires `m ≤ n`. Counts are clamped at 7 digits.[[src/codegen/builtins/regex/package.mfb:__regex_parseCounted]]
 
 ### Concatenation / Alternation Folding
 
 `parseConcat` returns the single child directly when there is exactly one part (no
 `__regex_Concat` wrapper); likewise `parseAlt` returns the single branch when there is no
-`|`. So trivial patterns produce a bare atom node.[[src/builtins/regex_package.mfb:__regex_parseAlt]]
+`|`. So trivial patterns produce a bare atom node.[[src/codegen/builtins/regex/package.mfb:__regex_parseAlt]]
 
 ### Groups
 
@@ -82,11 +82,11 @@ Capturing groups allocate the next slot (`g + 1`) and record a `__regex_Group` n
 named groups additionally register `name → slot` in a `Map`, rejecting duplicates.
 `(?:...)` is non-capturing. Group `0` is the whole match. **Lookarounds
 (`(?=`, `(?!`, `(?<=`, `(?<!`) and backreferences are not supported** and are parse
-errors.[[src/builtins/regex_package.mfb:__regex_parseParen]][[src/builtins/regex_package.mfb:__regex_parseNamedGroup]]
+errors.[[src/codegen/builtins/regex/package.mfb:__regex_parseParen]][[src/codegen/builtins/regex/package.mfb:__regex_parseNamedGroup]]
 
 ## AST Node Set
 
-`__regex_Node` is a `UNION` of eight node types.[[src/builtins/regex_package.mfb:__regex_Node]]
+`__regex_Node` is a `UNION` of eight node types.[[src/codegen/builtins/regex/package.mfb:__regex_Node]]
 
 | Node | Fields | Meaning |
 |------|--------|---------|
@@ -101,17 +101,17 @@ errors.[[src/builtins/regex_package.mfb:__regex_parseParen]][[src/builtins/regex
 
 Class items are a separate `UNION __regex_ClassItem`: `__regex_Range` (`lo`,`hi`),
 `__regex_Single` (`ch`), `__regex_Short` (`kind` 1..6 for `\d\D\w\W\s\S`), and
-`__regex_Prop` (`name`, `neg`) for `\p{...}` / POSIX.[[src/builtins/regex_package.mfb:__regex_ClassItem]]
+`__regex_Prop` (`name`, `neg`) for `\p{...}` / POSIX.[[src/codegen/builtins/regex/package.mfb:__regex_ClassItem]]
 
 Anchor `kind` encoding: `1` = `^`, `2` = `$` (both honor `ml`); `3` = `\A`, `4` = `\z`
-(absolute); `5` = `\b`, `6` = `\B` (word boundary).[[src/builtins/regex_package.mfb:__regex_anchorMatch]]
+(absolute); `5` = `\b`, `6` = `\B` (word boundary).[[src/codegen/builtins/regex/package.mfb:__regex_anchorMatch]]
 
 ## CPS Backtracking Matcher
 
 The matcher is continuation-passing. `__regex_matchNode(node, pos, caps, cont, ctx)`
 attempts `node` at `pos`; on success it invokes the continuation `cont` rather than
 returning, threading the new position and capture list forward. A continuation
-(`__regex_Cont`, a `UNION` of four) encodes "what to match after this":[[src/builtins/regex_package.mfb:__regex_Cont]]
+(`__regex_Cont`, a `UNION` of four) encodes "what to match after this":[[src/codegen/builtins/regex/package.mfb:__regex_Cont]]
 
 | Cont | Role |
 |------|------|
@@ -123,42 +123,42 @@ returning, threading the new position and capture list forward. A continuation
 Consuming nodes (`Lit`, `Any`, `Class`) advance `pos` by one scalar and call the
 continuation; anchors assert and call the continuation at the same `pos`. A `Group`
 records the start index (`2*slot`) immediately, then matches its child under a
-`ContCap` continuation that records the end index when the child succeeds.[[src/builtins/regex_package.mfb:__regex_matchNode]]
+`ContCap` continuation that records the end index when the child succeeds.[[src/codegen/builtins/regex/package.mfb:__regex_matchNode]]
 
 Backtracking is implemented by ordinary return values and sequential trial: every
 alternative/iteration choice tries its preferred branch first and, on failure (an
 `ok = FALSE` result), falls through to the next. There is no explicit backtrack stack;
-the call stack and the continuation chain carry the state.[[src/builtins/regex_package.mfb:__regex_matchAlt]]
+the call stack and the continuation chain carry the state.[[src/codegen/builtins/regex/package.mfb:__regex_matchAlt]]
 
 ### Preference Ordering (leftmost-first, greedy by default)
 
 - **Alternation**: `__regex_matchAlt` tries `opts` in source order, returning the first
   branch whose full continuation succeeds. This is leftmost-first (PCRE-style ordered
-  choice), not leftmost-longest.[[src/builtins/regex_package.mfb:__regex_matchAlt]]
+  choice), not leftmost-longest.[[src/codegen/builtins/regex/package.mfb:__regex_matchAlt]]
 - **Greedy repeat**: when `greedy`, `__regex_matchRep` first tries to consume **one more**
   iteration (recursing through `ContRep`), and only if that whole path fails does it try
-  the continuation at the current position — provided the minimum `lo` is already met.[[src/builtins/regex_package.mfb:__regex_matchRep]]
+  the continuation at the current position — provided the minimum `lo` is already met.[[src/codegen/builtins/regex/package.mfb:__regex_matchRep]]
 - **Lazy repeat**: when not greedy, the order inverts — try the continuation first
-  (if `lo` is satisfied), then try one more iteration.[[src/builtins/regex_package.mfb:__regex_matchRep]]
+  (if `lo` is satisfied), then try one more iteration.[[src/codegen/builtins/regex/package.mfb:__regex_matchRep]]
 - **Empty-iteration guard**: `ContRep` compares the post-iteration position to the
   iteration start; if the child matched empty, it stops iterating and proceeds to `nxt`,
-  preventing infinite loops on e.g. `(a*)*`.[[src/builtins/regex_package.mfb:__regex_matchCont]]
+  preventing infinite loops on e.g. `(a*)*`.[[src/codegen/builtins/regex/package.mfb:__regex_matchCont]]
 
 ### Search and Captures
 
 `__regex_searchFrom` performs an unanchored search by trying `__regex_tryAt` at each
 start position `from .. n` (so an empty match can occur at `n`). `tryAt` seeds the
 capture list, records group-0 start, and matches the root under a `ContCap[0, ContDone]`
-so group 0 is closed on success.[[src/builtins/regex_package.mfb:__regex_searchFrom]]
+so group 0 is closed on success.[[src/codegen/builtins/regex/package.mfb:__regex_searchFrom]]
 
 Captures are a flat `List OF Integer` of `2*(groups+1)` slots: for group `k`, slot
 `2k` is the start scalar index and `2k+1` the end, both `-1` when unset. The whole-match
-span is group 0.[[src/builtins/regex_package.mfb:__regex_initCaps]]
+span is group 0.[[src/codegen/builtins/regex/package.mfb:__regex_initCaps]]
 
 `findAll` and `replace` iterate non-overlapping matches. After a non-empty match they
 resume at the match end; after an empty match they record it once and advance by one
 scalar, tracking `lastMatch` to avoid emitting an empty match adjacent to a prior
-non-empty one.[[src/builtins/regex_package.mfb:__regex_findAll]]
+non-empty one.[[src/codegen/builtins/regex/func_find_all.rs:__regex_findAll]]
 
 ## Supported Syntax
 
@@ -166,38 +166,38 @@ non-empty one.[[src/builtins/regex_package.mfb:__regex_findAll]]
 
 `^` `$` (line-start/end), `\A` `\z` (absolute string start/end), `\b` `\B` (word
 boundary / non-boundary). With multiline (`m`), `^`/`$` also match adjacent to a `\n`.
-Word boundaries compare the word-ness of the scalars before and after `pos`.[[src/builtins/regex_package.mfb:__regex_wordBoundary]]
+Word boundaries compare the word-ness of the scalars before and after `pos`.[[src/codegen/builtins/regex/package.mfb:__regex_wordBoundary]]
 
 ### Repeats / Quantifiers
 
 `*` (`0..∞`), `+` (`1..∞`), `?` (`0..1`), and counted `{m}`, `{m,}`, `{m,n}`. A trailing
-`?` toggles laziness (under `ungreedy`, the toggle is inverted).[[src/builtins/regex_package.mfb:__regex_parseQuantSuffix]]
+`?` toggles laziness (under `ungreedy`, the toggle is inverted).[[src/codegen/builtins/regex/package.mfb:__regex_parseQuantSuffix]]
 
 ### Escapes
 
 Literal/control escapes: `\n \r \t \f \v \a \e \0`, `\xHH`, `\x{H..H}` (1–6 hex digits,
 no surrogates), and any escaped ASCII punctuation as itself. Under verbose mode `\ ` is a
-literal space. **Unknown letter escapes and backreferences are rejected.**[[src/builtins/regex_package.mfb:__regex_parseLiteralEscape]]
+literal space. **Unknown letter escapes and backreferences are rejected.**[[src/codegen/builtins/regex/package.mfb:__regex_parseLiteralEscape]]
 
 ### Character Classes
 
 `[...]`, negated `[^...]`. Items: literal scalars, ranges `a-z` (low ≤ high required;
 escapes are non-rangeable), shorthands `\d \D \w \W \s \S`, `\p{...}`/`\P{...}`, and
 POSIX `[:name:]` / `[:^name:]`. A class must be non-empty; `&&` set intersection is a
-parse error. Under `i`, class membership also tries the lower- and upper-cased scalar.[[src/builtins/regex_package.mfb:__regex_parseClass]][[src/builtins/regex_package.mfb:__regex_classMatch]]
+parse error. Under `i`, class membership also tries the lower- and upper-cased scalar.[[src/codegen/builtins/regex/package.mfb:__regex_parseClass]][[src/codegen/builtins/regex/package.mfb:__regex_classMatch]]
 
 Shorthand semantics are Unicode-aware via general category: `\d` = `Nd`; `\w` =
-letter/`Nl`/mark/`Nd`/`Pc`/ZWJ/ZWNJ; `\s` = `Z*` plus `\t..\r` and U+0085.[[src/builtins/regex_package.mfb:__regex_shorthandMatch]]
+letter/`Nl`/mark/`Nd`/`Pc`/ZWJ/ZWNJ; `\s` = `Z*` plus `\t..\r` and U+0085.[[src/codegen/builtins/regex/package.mfb:__regex_shorthandMatch]]
 
 POSIX names map to properties (`alpha`→`Alphabetic`, `digit`→`Nd`, `upper`→`Lu`,
 `punct`→`P`, `cntrl`→`Cc`, …). Note `alnum`, `word`, `xdigit`, `blank`, `graph`, and
 `print` map to special tokens (`posixAlnum`, etc.) that `__regex_propTest` does not
-implement, so those POSIX classes effectively never match a scalar.[[src/builtins/regex_package.mfb:__regex_posixProp]]
+implement, so those POSIX classes effectively never match a scalar.[[src/codegen/builtins/regex/package.mfb:__regex_posixProp]]
 
 ### Unicode Properties `\p{...}`
 
 `\p{...}`/`\P{...}` (and single-letter `\pL`/`\PL`) resolve a name through
-`__regex_canonProp`. Accepted forms:[[src/builtins/regex_package.mfb:__regex_canonProp]]
+`__regex_canonProp`. Accepted forms:[[src/codegen/builtins/regex/package.mfb:__regex_canonProp]]
 
 - Top-level categories `L M N P S Z C` (and long aliases `letter`, `mark`, `number`,
   `punctuation`, `symbol`, `separator`, `other`) — prefix-tested against the scalar's
@@ -206,14 +206,14 @@ implement, so those POSIX classes effectively never match a scalar.[[src/builtin
 - Binary properties `White_Space` (alias `whitespace`) and `Alphabetic` (alias `alpha`).
 - Any Unicode Script name (all 170 of Unicode 16.0.0 — `Latin`, `Greek`, `Han`,
   `Armenian`, `Thai`, `Devanagari`, …), matched against the scalar's Script
-  property. `__regex_scriptTest(name, cp)` returns `__regex_scriptOf(cp) = name`.[[src/builtins/regex_package.mfb:__regex_scriptTest]]
+  property. `__regex_scriptTest(name, cp)` returns `__regex_scriptOf(cp) = name`.[[src/codegen/builtins/regex/package.mfb:__regex_scriptTest]]
 - `key=value` form with `gc`/`general_category` or `sc`/`script` keys.
 
 Unknown property names are parse errors. The general-category lookup `__regex_genCat`
 maps each scalar to its two-letter category via contiguous ranges over `0..0x10FFFF`,
-generated from Unicode 16.0.0.[[src/builtins/unicode_gencat.mfb:__regex_genCat]] The
+generated from Unicode 16.0.0.[[src/codegen/unicode/unicode_gencat.mfb:__regex_genCat]] The
 Script lookup `__regex_scriptOf` is the analogous run-length table, generated from the
-vendored UCD `Scripts.txt` (Unicode 16.0.0).[[src/builtins/unicode_scripts.mfb:__regex_scriptOf]]
+vendored UCD `Scripts.txt` (Unicode 16.0.0).[[src/codegen/builtins/regex/regex_scripts.mfb:__regex_scriptOf]]
 
 ## Flags
 
@@ -221,7 +221,7 @@ Flags live in `__regex_Flags` and are set inline only — there is no flags para
 `(?flags)` is a directive that mutates the flags for the rest of the enclosing
 concatenation; `(?flags:...)` scopes flags to a sub-expression. A leading `-` clears the
 following flags. Flags are baked into nodes at parse time (e.g. `Lit.fold = flags.ci`),
-so they are static per node, not consulted at match time.[[src/builtins/regex_package.mfb:__regex_parseFlagSpec]]
+so they are static per node, not consulted at match time.[[src/codegen/builtins/regex/package.mfb:__regex_parseFlagSpec]]
 
 | Letter | Field | Effect |
 |--------|-------|--------|
@@ -232,7 +232,7 @@ so they are static per node, not consulted at match time.[[src/builtins/regex_pa
 | `x` | `verbose` | ignore unescaped pattern whitespace and `#`-to-EOL comments |
 
 In verbose mode `parseConcat` skips unescaped whitespace and `#` comments while building
-the AST.[[src/builtins/regex_package.mfb:__regex_parseConcat]]
+the AST.[[src/codegen/builtins/regex/package.mfb:__regex_parseConcat]]
 
 ## Replacement Expansion
 
@@ -240,7 +240,7 @@ the AST.[[src/builtins/regex_package.mfb:__regex_parseConcat]]
 `$`; `$N` / `${N}` insert capture group `N`; `$name` / `${name}` insert a named group.
 Unknown or unmatched references expand to empty; a dangling `$` is emitted literally.
 References resolve against the capture spans, slicing the original `value` with
-`strings::mid`.[[src/builtins/regex_package.mfb:__regex_expand]]
+`strings::mid`.[[src/codegen/builtins/regex/package.mfb:__regex_expand]]
 
 ## See Also
 

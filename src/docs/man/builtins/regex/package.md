@@ -19,7 +19,7 @@ regular-expression dialect that is MFBASIC's own. Its syntax and semantics are
 defined entirely by `mfb spec stdlib regex` and produce byte-for-byte identical
 results on every target, never deferring to a host libc, locale, or OS regex
 library. `regex` is a built-in package: `IMPORT regex` needs no manifest
-dependency. For the full pattern language, run `mfb man regex language`. [[src/builtins/regex.rs:REGEX]]
+dependency. For the full pattern language, run `mfb man regex language`. [[src/codegen/builtins/regex/mod.rs:REGEX]]
 
 The package defines no new types. `pattern` and `replacement` are ordinary
 runtime `String` values, so they may be literals, built at run time, or read from
@@ -28,7 +28,7 @@ pattern fails the call with `ErrInvalidFormat` rather than being silently treate
 as "no match". Because MFBASIC `String` literals process their own backslash
 escapes, a backslash the regex needs is written `"\\"` in a source literal
 (`"\\d"` is the pattern `\d`); a pattern read from a file or user input has no
-such doubling. [[src/builtins/regex_package.mfb:__regex_find]]
+such doubling. [[src/codegen/builtins/regex/func_find.rs:__regex_find]]
 
 Matching operates over Unicode scalar values. Every position and index a regex
 function accepts or reports is a zero-based Unicode scalar index — never a byte
@@ -49,7 +49,7 @@ is the one beginning at the smallest position where any match exists. `find` and
 `findAll` take an optional `start` (default `0`) restricting only where a match
 may begin — the absolute anchors `\A`, `\z`, and unflagged `^`/`$` are still
 evaluated against the whole value. A zero-length match is valid; iteration
-advances one scalar past an empty match so it always terminates. [[src/builtins/regex_package.mfb:__regex_findAll]]
+advances one scalar past an empty match so it always terminates. [[src/codegen/builtins/regex/func_find_all.rs:__regex_findAll]]
 
 No `regex` function fails on the absence of a match: `match` returns `FALSE`,
 `find` returns `-1`, `findAll` returns an empty list, and `replace` returns
@@ -61,4 +61,4 @@ functions mutate their arguments or have side effects.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050003` | `ErrInvalidFormat` | raised by every function when `pattern` is not a valid regular expression: an unbalanced or unterminated group or class, a quantifier with no atom or stacked quantifiers, a counted quantifier with `m > n`, a class range whose low endpoint exceeds its high endpoint, an empty class, a backslash escape outside the defined set, a `\x...`/`\x{...}` value that is not a valid scalar, an unknown `\p{...}` property, a malformed flag or group head, or a non-goal construct (backreference or look-around) [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
-| `77050001` | `ErrIndexOutOfRange` | raised by `find` and `findAll` when `start` is less than `0` or greater than the scalar length of `value`; `ErrInvalidFormat` takes precedence when the pattern is also invalid [[src/builtins/regex_package.mfb:__regex_find]] [[src/builtins/errorcode.rs:ErrIndexOutOfRange]] |
+| `77050001` | `ErrIndexOutOfRange` | raised by `find` and `findAll` when `start` is less than `0` or greater than the scalar length of `value`; `ErrInvalidFormat` takes precedence when the pattern is also invalid [[src/codegen/builtins/regex/func_find.rs:__regex_find]] [[src/builtins/errorcode.rs:ErrIndexOutOfRange]] |

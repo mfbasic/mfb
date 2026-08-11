@@ -44,7 +44,7 @@ an ordinary runtime `String`, so it may be built or read at run time; because
 never reports absence as a failure; absence simply returns `FALSE`. Only an
 invalid pattern fails, with `ErrInvalidFormat`. Because `match` takes no `start`
 argument, it raises neither `ErrIndexOutOfRange` nor `ErrNotFound`.
-[[src/builtins/regex.rs:REGEX]]
+[[src/codegen/builtins/regex/mod.rs:REGEX]]
 
 `match` does not mutate `value` or `pattern` and has no side effects.
 
@@ -65,7 +65,7 @@ argument, it raises neither `ErrIndexOutOfRange` nor `ErrNotFound`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `pattern` is not a valid regular expression: an unbalanced or unterminated group or class, a quantifier with no atom or stacked quantifiers, a counted quantifier with `m > n`, a class range whose low endpoint exceeds its high endpoint, an empty class, a backslash escape outside the defined set, a `\x...`/`\x{...}` value that is not a valid scalar, an unknown `\p{...}` property, a malformed flag or group head, or a non-goal construct (backreference or look-around). [[src/builtins/regex_package.mfb:878]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | `pattern` is not a valid regular expression: an unbalanced or unterminated group or class, a quantifier with no atom or stacked quantifiers, a counted quantifier with `m > n`, a class range whose low endpoint exceeds its high endpoint, an empty class, a backslash escape outside the defined set, a `\x...`/`\x{...}` value that is not a valid scalar, an unknown `\p{...}` property, a malformed flag or group head, or a non-goal construct (backreference or look-around). [[src/codegen/builtins/regex/package.mfb:878]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

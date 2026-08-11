@@ -121,6 +121,8 @@ def package_label(stem: str) -> str:
         return stem[: -len("_package")]
     if stem == "unicode_gencat":
         return "regex"
+    if stem == "regex_scripts":
+        return "regex"
     # The Rust module is `errorcode.rs`; the package users import is `errorCode`.
     if stem == "errorcode":
         return "errorCode"

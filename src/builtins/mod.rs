@@ -14,7 +14,6 @@ pub(crate) mod money;
 pub(crate) mod net;
 pub(crate) mod os;
 pub(crate) mod process;
-pub(crate) mod regex;
 pub(crate) mod resource;
 pub(crate) mod strings;
 pub(crate) mod term;
@@ -461,7 +460,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
         .or_else(|| general::expected_arguments(name))
         .or_else(|| thread::expected_arguments(name))
         .or_else(|| strings::expected_arguments(name))
-        .or_else(|| regex::expected_arguments(name))
+        .or_else(|| crate::codegen::builtins::regex::expected_arguments(name))
         .or_else(|| fs::expected_arguments(name))
         .or_else(|| os::expected_arguments(name))
         .or_else(|| io::expected_arguments(name))
@@ -503,7 +502,7 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| io::expected_arguments(callee))
         .or_else(|| crate::codegen::builtins::json::expected_arguments(callee))
         .or_else(|| crate::codegen::builtins::csv::expected_arguments(callee))
-        .or_else(|| regex::expected_arguments(callee))
+        .or_else(|| crate::codegen::builtins::regex::expected_arguments(callee))
         .or_else(|| net::argument_types(callee))
         .or_else(|| tls::argument_types(callee))
         .or_else(|| audio::argument_types(callee))
@@ -534,7 +533,7 @@ pub(crate) fn default_argument_padding(
 ) -> &'static [(&'static str, &'static str)] {
     for pad in [
         tls::default_argument_padding(callee, provided),
-        regex::default_argument_padding(callee, provided),
+        crate::codegen::builtins::regex::default_argument_padding(callee, provided),
         datetime::default_argument_padding(callee, provided),
         crypto::default_argument_padding(callee, provided),
         http::default_argument_padding(callee, provided),
@@ -747,7 +746,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| io::call_param_names(name))
         .or_else(|| crate::codegen::builtins::json::call_param_names(name))
         .or_else(|| crate::codegen::builtins::csv::call_param_names(name))
-        .or_else(|| regex::call_param_names(name))
+        .or_else(|| crate::codegen::builtins::regex::call_param_names(name))
         .or_else(|| datetime::call_param_names(name))
         .or_else(|| money::call_param_names(name))
         .or_else(|| net::call_param_names(name))

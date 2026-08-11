@@ -1,0 +1,1905 @@
+' MFBASIC regex package — implements src/docs/spec/stdlib/01_regex.md (mfb spec stdlib regex).
+'
+' Strategy: parse the pattern into an AST of __regex_Node values, then run a
+' continuation-passing backtracking matcher (leftmost-first / preference order,
+' regex.md §4). The Unicode general-category table lives in unicode_gencat.mfb
+' (__regex_genCat); everything else is here. All matching is over Unicode scalars,
+' represented as single-scalar Strings, with a parallel code-point list.
+'
+' Error codes (regex.md §14): ErrInvalidFormat 77050003, ErrNotFound 77050004,
+' ErrIndexOutOfRange 77050001.
+
+IMPORT collections
+IMPORT strings
+IMPORT encoding
+
+' ---------------------------------------------------------------------------
+' Types
+' ---------------------------------------------------------------------------
+
+TYPE __regex_Flags
+  ci AS Boolean
+  ml AS Boolean
+  dotall AS Boolean
+  ungreedy AS Boolean
+  verbose AS Boolean
+END TYPE
+
+' Character-class items.
+TYPE __regex_Range
+  lo AS String
+  hi AS String
+END TYPE
+TYPE __regex_Single
+  ch AS String
+END TYPE
+TYPE __regex_Short
+  kind AS Integer
+END TYPE
+TYPE __regex_Prop
+  name AS String
+  neg AS Boolean
+END TYPE
+UNION __regex_ClassItem
+  __regex_Range
+  __regex_Single
+  __regex_Short
+  __regex_Prop
+END UNION
+
+' Regex AST nodes.
+TYPE __regex_Lit
+  ch AS String
+  fold AS Boolean
+END TYPE
+TYPE __regex_Any
+  dotall AS Boolean
+END TYPE
+TYPE __regex_Class
+  neg AS Boolean
+  fold AS Boolean
+  items AS List OF __regex_ClassItem
+  ascii AS List OF Boolean
+END TYPE
+TYPE __regex_Anchor
+  kind AS Integer
+  ml AS Boolean
+END TYPE
+TYPE __regex_Concat
+  parts AS List OF __regex_Node
+END TYPE
+TYPE __regex_Alt
+  opts AS List OF __regex_Node
+END TYPE
+TYPE __regex_Repeat
+  child AS __regex_Node
+  lo AS Integer
+  hi AS Integer
+  greedy AS Boolean
+END TYPE
+TYPE __regex_Group
+  child AS __regex_Node
+  slot AS Integer
+END TYPE
+UNION __regex_Node
+  __regex_Lit
+  __regex_Any
+  __regex_Class
+  __regex_Anchor
+  __regex_Concat
+  __regex_Alt
+  __regex_Repeat
+  __regex_Group
+END UNION
+
+' Match continuations.
+TYPE __regex_ContDone
+  dummy AS Boolean
+END TYPE
+TYPE __regex_ContSeq
+  parts AS List OF __regex_Node
+  idx AS Integer
+  nxt AS __regex_Cont
+END TYPE
+TYPE __regex_ContCap
+  slot AS Integer
+  nxt AS __regex_Cont
+END TYPE
+TYPE __regex_ContRep
+  rep AS __regex_Repeat
+  count AS Integer
+  startPos AS Integer
+  nxt AS __regex_Cont
+END TYPE
+UNION __regex_Cont
+  __regex_ContDone
+  __regex_ContSeq
+  __regex_ContCap
+  __regex_ContRep
+END UNION
+
+TYPE __regex_Result
+  ok AS Boolean
+  pos AS Integer
+  caps AS List OF Integer
+END TYPE
+
+TYPE __regex_Ctx
+  text AS List OF String
+  cps AS List OF Integer
+  n AS Integer
+END TYPE
+
+TYPE __regex_Program
+  root AS __regex_Node
+  groups AS Integer
+  names AS Map OF String TO Integer
+END TYPE
+
+' Parser return values.
+TYPE __regex_Parse
+  node AS __regex_Node
+  nxt AS Integer
+  groups AS Integer
+  names AS Map OF String TO Integer
+END TYPE
+TYPE __regex_Paren
+  isDir AS Boolean
+  flags AS __regex_Flags
+  node AS __regex_Node
+  nxt AS Integer
+  groups AS Integer
+  names AS Map OF String TO Integer
+END TYPE
+TYPE __regex_Count
+  lo AS Integer
+  hi AS Integer
+  nxt AS Integer
+END TYPE
+TYPE __regex_LitScalar
+  ch AS String
+  nxt AS Integer
+END TYPE
+TYPE __regex_PropParse
+  name AS String
+  neg AS Boolean
+  nxt AS Integer
+END TYPE
+TYPE __regex_Endpoint
+  kind AS Integer
+  ch AS String
+  item AS __regex_ClassItem
+  nxt AS Integer
+END TYPE
+TYPE __regex_FlagSpec
+  flags AS __regex_Flags
+  any AS Boolean
+  term AS String
+  nxt AS Integer
+END TYPE
+TYPE __regex_Name
+  name AS String
+  nxt AS Integer
+END TYPE
+
+' ---------------------------------------------------------------------------
+' Scalar / code-point helpers
+' ---------------------------------------------------------------------------
+
+FUNC __regex_chr(value AS Integer) AS String
+  MUT v AS Integer = value
+  IF v < 0 THEN
+    v = 0
+  END IF
+  IF v >= 55296 AND v <= 57343 THEN
+    v = 55295
+  END IF
+  IF v > 1114111 THEN
+    v = 1114111
+  END IF
+  ' The clamp above guarantees a valid Unicode scalar, so utf32Decode is total
+  ' here (it FAILs only on surrogate/out-of-range, both excluded by the clamp).
+  RETURN encoding::utf32Decode([v])
+END FUNC
+
+' Code point of a single scalar string via the shared UTF-32 encoder.
+FUNC __regex_scalarToCp(ch AS String) AS Integer
+  IF ch = "" THEN
+    RETURN 0
+  END IF
+  LET cps AS List OF Integer = encoding::utf32Encode(ch)
+  RETURN collections::get(cps, 0)
+END FUNC
+
+FUNC __regex_toScalars(s AS String) AS List OF String
+  ' Split into Unicode *scalars* (regex indexes by scalar, never grapheme) in one
+  ' O(n) pass: utf32Encode walks the UTF-8 once, then each scalar is materialized
+  ' via the in-place MUT append. Replaces the O(n^2) per-index strings::mid(s,i,1)
+  ' (each re-walks from the start), which ran on every regex call (plan-02 §6b).
+  MUT out AS List OF String = []
+  LET cps AS List OF Integer = encoding::utf32Encode(s)
+  FOR EACH cp IN cps
+    LET one AS List OF Integer = [cp]
+    LET scalar AS String = encoding::utf32Decode(one)
+    out = collections::append(out, scalar)
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC __regex_makeCtx(value AS String) AS __regex_Ctx
+  LET cps AS List OF Integer = encoding::utf32Encode(value)
+  MUT chars AS List OF String = []
+  FOR EACH cp IN cps
+    chars = collections::append(chars, encoding::utf32Decode([cp]))
+  NEXT
+  RETURN __regex_Ctx[chars, cps, len(chars)]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Character classification (regex.md §8)
+' ---------------------------------------------------------------------------
+
+FUNC __regex_catIsLetter(cat AS String) AS Boolean
+  RETURN strings::startsWith(cat, "L")
+END FUNC
+
+FUNC __regex_catIsMark(cat AS String) AS Boolean
+  RETURN strings::startsWith(cat, "M")
+END FUNC
+
+FUNC __regex_isSpaceCp(cp AS Integer, cat AS String) AS Boolean
+  IF strings::startsWith(cat, "Z") THEN
+    RETURN TRUE
+  END IF
+  IF cp >= 9 AND cp <= 13 THEN
+    RETURN TRUE
+  END IF
+  IF cp = 133 THEN
+    RETURN TRUE
+  END IF
+  RETURN FALSE
+END FUNC
+
+FUNC __regex_isWordCp(cp AS Integer, cat AS String) AS Boolean
+  IF __regex_catIsLetter(cat) THEN
+    RETURN TRUE
+  END IF
+  IF cat = "Nl" THEN
+    RETURN TRUE
+  END IF
+  IF __regex_catIsMark(cat) THEN
+    RETURN TRUE
+  END IF
+  IF cat = "Nd" THEN
+    RETURN TRUE
+  END IF
+  IF cat = "Pc" THEN
+    RETURN TRUE
+  END IF
+  IF cp = 8204 OR cp = 8205 THEN
+    RETURN TRUE
+  END IF
+  RETURN FALSE
+END FUNC
+
+FUNC __regex_isWord(cp AS Integer) AS Boolean
+  RETURN __regex_isWordCp(cp, __regex_genCat(cp))
+END FUNC
+
+' \d \D \w \W \s \S — kind 1..6.
+FUNC __regex_shorthandMatch(kind AS Integer, cp AS Integer) AS Boolean
+  LET cat AS String = __regex_genCat(cp)
+  IF kind = 1 THEN
+    RETURN cat = "Nd"
+  END IF
+  IF kind = 2 THEN
+    RETURN NOT (cat = "Nd")
+  END IF
+  IF kind = 3 THEN
+    RETURN __regex_isWordCp(cp, cat)
+  END IF
+  IF kind = 4 THEN
+    RETURN NOT __regex_isWordCp(cp, cat)
+  END IF
+  IF kind = 5 THEN
+    RETURN __regex_isSpaceCp(cp, cat)
+  END IF
+  RETURN NOT __regex_isSpaceCp(cp, cat)
+END FUNC
+
+FUNC __regex_isGcName(name AS String) AS Boolean
+  IF name = "Lu" OR name = "Ll" OR name = "Lt" OR name = "Lm" OR name = "Lo" THEN
+    RETURN TRUE
+  END IF
+  IF name = "Mn" OR name = "Mc" OR name = "Me" THEN
+    RETURN TRUE
+  END IF
+  IF name = "Nd" OR name = "Nl" OR name = "No" THEN
+    RETURN TRUE
+  END IF
+  IF name = "Pc" OR name = "Pd" OR name = "Ps" OR name = "Pe" THEN
+    RETURN TRUE
+  END IF
+  IF name = "Pi" OR name = "Pf" OR name = "Po" THEN
+    RETURN TRUE
+  END IF
+  IF name = "Sm" OR name = "Sc" OR name = "Sk" OR name = "So" THEN
+    RETURN TRUE
+  END IF
+  IF name = "Zs" OR name = "Zl" OR name = "Zp" THEN
+    RETURN TRUE
+  END IF
+  IF name = "Cc" OR name = "Cf" OR name = "Cs" OR name = "Co" OR name = "Cn" THEN
+    RETURN TRUE
+  END IF
+  RETURN FALSE
+END FUNC
+
+' plan-77 R2: canonicalize against the full generated Unicode script list
+' (`__regex_scriptCanonName`, from third_party/unicode/Scripts-16.0.0.txt) instead
+' of the 10 hand-listed scripts.
+FUNC __regex_scriptCanon(low AS String) AS String
+  RETURN __regex_scriptCanonName(low)
+END FUNC
+
+' plan-77 R2: a scalar is in script `name` iff its generated Script property
+' (`__regex_scriptOf`) equals `name`.
+FUNC __regex_scriptTest(name AS String, cp AS Integer) AS Boolean
+  RETURN __regex_scriptOf(cp) = name
+END FUNC
+
+FUNC __regex_isScriptName(low AS String) AS Boolean
+  RETURN __regex_scriptCanon(low) <> ""
+END FUNC
+
+' Property test against a canonical property name (see __regex_canonProp).
+FUNC __regex_propTest(name AS String, cp AS Integer) AS Boolean
+  LET cat AS String = __regex_genCat(cp)
+  IF name = "L" THEN
+    RETURN strings::startsWith(cat, "L")
+  END IF
+  IF name = "M" THEN
+    RETURN strings::startsWith(cat, "M")
+  END IF
+  IF name = "N" THEN
+    RETURN strings::startsWith(cat, "N")
+  END IF
+  IF name = "P" THEN
+    RETURN strings::startsWith(cat, "P")
+  END IF
+  IF name = "S" THEN
+    RETURN strings::startsWith(cat, "S")
+  END IF
+  IF name = "Z" THEN
+    RETURN strings::startsWith(cat, "Z")
+  END IF
+  IF name = "C" THEN
+    RETURN strings::startsWith(cat, "C")
+  END IF
+  IF name = "White_Space" THEN
+    RETURN __regex_isSpaceCp(cp, cat)
+  END IF
+  IF name = "Alphabetic" THEN
+    RETURN strings::startsWith(cat, "L") OR cat = "Nl"
+  END IF
+  ' POSIX class sentinels emitted by __regex_posixProp.
+  IF name = "posixAlnum" THEN
+    RETURN strings::startsWith(cat, "L") OR cat = "Nl" OR cat = "Nd"
+  END IF
+  IF name = "posixWord" THEN
+    RETURN __regex_isWordCp(cp, cat)
+  END IF
+  IF name = "posixXdigit" THEN
+    IF cp >= 48 AND cp <= 57 THEN
+      RETURN TRUE
+    END IF
+    IF cp >= 65 AND cp <= 70 THEN
+      RETURN TRUE
+    END IF
+    RETURN cp >= 97 AND cp <= 102
+  END IF
+  IF name = "posixBlank" THEN
+    RETURN cp = 9 OR cat = "Zs"
+  END IF
+  IF name = "posixGraph" THEN
+    RETURN NOT __regex_isSpaceCp(cp, cat) AND NOT strings::startsWith(cat, "C")
+  END IF
+  IF name = "posixPrint" THEN
+    IF cat = "Zs" THEN
+      RETURN TRUE
+    END IF
+    RETURN NOT __regex_isSpaceCp(cp, cat) AND NOT strings::startsWith(cat, "C")
+  END IF
+  IF __regex_isGcName(name) THEN
+    RETURN cat = name
+  END IF
+  RETURN __regex_scriptTest(name, cp)
+END FUNC
+
+' Resolve a \p{...} property text to a canonical name, or "" if invalid.
+FUNC __regex_canonProp(name AS String) AS String
+  IF strings::contains(name, "=") THEN
+    LET parts AS List OF String = strings::split(name, "=")
+    IF len(parts) <> 2 THEN
+      RETURN ""
+    END IF
+    LET key AS String = strings::lower(strings::trim(collections::get(parts, 0)))
+    LET val AS String = strings::trim(collections::get(parts, 1))
+    IF key = "gc" OR key = "general_category" THEN
+      RETURN __regex_canonProp(val)
+    END IF
+    IF key = "sc" OR key = "script" THEN
+      RETURN __regex_scriptCanon(strings::lower(val))
+    END IF
+    RETURN ""
+  END IF
+  LET low AS String = strings::lower(name)
+  IF low = "l" OR low = "letter" THEN
+    RETURN "L"
+  END IF
+  IF low = "m" OR low = "mark" THEN
+    RETURN "M"
+  END IF
+  IF low = "n" OR low = "number" THEN
+    RETURN "N"
+  END IF
+  IF low = "p" OR low = "punctuation" THEN
+    RETURN "P"
+  END IF
+  IF low = "s" OR low = "symbol" THEN
+    RETURN "S"
+  END IF
+  IF low = "z" OR low = "separator" THEN
+    RETURN "Z"
+  END IF
+  IF low = "c" OR low = "other" THEN
+    RETURN "C"
+  END IF
+  IF __regex_isGcName(name) THEN
+    RETURN name
+  END IF
+  IF low = "white_space" OR low = "whitespace" THEN
+    RETURN "White_Space"
+  END IF
+  IF low = "alphabetic" OR low = "alpha" THEN
+    RETURN "Alphabetic"
+  END IF
+  IF __regex_isScriptName(low) THEN
+    RETURN __regex_scriptCanon(low)
+  END IF
+  RETURN ""
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Class membership
+' ---------------------------------------------------------------------------
+
+FUNC __regex_classMatchOne(items AS List OF __regex_ClassItem, ch AS String, cp AS Integer) AS Boolean
+  FOR EACH item IN items
+    MATCH item
+      CASE __regex_Range(rng)
+        IF ch >= rng.lo AND ch <= rng.hi THEN
+          RETURN TRUE
+        END IF
+      CASE __regex_Single(sng)
+        IF ch = sng.ch THEN
+          RETURN TRUE
+        END IF
+      CASE __regex_Short(sh)
+        IF __regex_shorthandMatch(sh.kind, cp) THEN
+          RETURN TRUE
+        END IF
+      CASE __regex_Prop(pr)
+        IF __regex_propMatchItem(pr.name, pr.neg, cp) THEN
+          RETURN TRUE
+        END IF
+    END MATCH
+  NEXT
+  RETURN FALSE
+END FUNC
+
+FUNC __regex_propMatchItem(name AS String, neg AS Boolean, cp AS Integer) AS Boolean
+  LET hit AS Boolean = __regex_propTest(name, cp)
+  IF neg THEN
+    RETURN NOT hit
+  END IF
+  RETURN hit
+END FUNC
+
+FUNC __regex_classMatch(cls AS __regex_Class, pos AS Integer, ctx AS __regex_Ctx) AS Boolean
+  LET cp AS Integer = collections::get(ctx.cps, pos)
+  MUT hit AS Boolean = FALSE
+  IF cp >= 0 AND cp <= 127 THEN
+    ' plan-77 R4: O(1) precomputed ASCII membership (fold already baked in by
+    ' __regex_asciiClassBitset; `neg` is applied below, not in the bitset).
+    hit = collections::get(cls.ascii, cp)
+  ELSE
+    LET ch AS String = collections::get(ctx.text, pos)
+    hit = __regex_classMatchOne(cls.items, ch, cp)
+    IF cls.fold AND hit = FALSE THEN
+      LET lc AS String = strings::lower(ch)
+      IF lc <> ch AND len(lc) = 1 THEN
+        IF __regex_classMatchOne(cls.items, lc, __regex_scalarToCp(lc)) THEN
+          hit = TRUE
+        END IF
+      END IF
+    END IF
+    IF cls.fold AND hit = FALSE THEN
+      LET uc AS String = strings::upper(ch)
+      IF uc <> ch AND len(uc) = 1 THEN
+        IF __regex_classMatchOne(cls.items, uc, __regex_scalarToCp(uc)) THEN
+          hit = TRUE
+        END IF
+      END IF
+    END IF
+  END IF
+  IF cls.neg THEN
+    RETURN NOT hit
+  END IF
+  RETURN hit
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Anchors (regex.md §11.4)
+' ---------------------------------------------------------------------------
+
+FUNC __regex_wordBoundary(pos AS Integer, ctx AS __regex_Ctx) AS Boolean
+  MUT before AS Boolean = FALSE
+  MUT after AS Boolean = FALSE
+  IF pos > 0 THEN
+    before = __regex_isWord(collections::get(ctx.cps, pos - 1))
+  END IF
+  IF pos < ctx.n THEN
+    after = __regex_isWord(collections::get(ctx.cps, pos))
+  END IF
+  RETURN before <> after
+END FUNC
+
+FUNC __regex_anchorMatch(anchor AS __regex_Anchor, pos AS Integer, ctx AS __regex_Ctx) AS Boolean
+  IF anchor.kind = 3 THEN
+    RETURN pos = 0
+  END IF
+  IF anchor.kind = 4 THEN
+    RETURN pos = ctx.n
+  END IF
+  IF anchor.kind = 1 THEN
+    IF pos = 0 THEN
+      RETURN TRUE
+    END IF
+    IF anchor.ml AND collections::get(ctx.text, pos - 1) = "\n" THEN
+      RETURN TRUE
+    END IF
+    RETURN FALSE
+  END IF
+  IF anchor.kind = 2 THEN
+    IF pos = ctx.n THEN
+      RETURN TRUE
+    END IF
+    IF anchor.ml AND collections::get(ctx.text, pos) = "\n" THEN
+      RETURN TRUE
+    END IF
+    RETURN FALSE
+  END IF
+  IF anchor.kind = 5 THEN
+    RETURN __regex_wordBoundary(pos, ctx)
+  END IF
+  RETURN NOT __regex_wordBoundary(pos, ctx)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Matcher (regex.md §4, §5, §6)
+' ---------------------------------------------------------------------------
+
+FUNC __regex_fail AS __regex_Result
+  LET e AS List OF Integer = []
+  RETURN __regex_Result[FALSE, 0, e]
+END FUNC
+
+FUNC __regex_setCap(caps AS List OF Integer, idx AS Integer, val AS Integer) AS List OF Integer
+  RETURN collections::set(caps, idx, val)
+END FUNC
+
+FUNC __regex_charEq(a AS String, b AS String, fold AS Boolean) AS Boolean
+  IF fold THEN
+    RETURN strings::caseFold(a) = strings::caseFold(b)
+  END IF
+  RETURN a = b
+END FUNC
+
+FUNC __regex_matchNode(node AS __regex_Node, pos AS Integer, caps AS List OF Integer, c AS __regex_Cont, ctx AS __regex_Ctx, depth AS Integer) AS __regex_Result
+  ' bug-315: every node visit is one step. This is the single dispatch every
+  ' alternative, repetition and continuation passes through, so counting here
+  ' bounds the whole search regardless of which construct is blowing up.
+  __regex_steps = __regex_steps + 1
+  IF __regex_steps > __REGEX_STEP_BUDGET THEN
+    FAIL error(77050003, "regex: pattern too complex for this input (backtracking limit exceeded)")
+  END IF
+  ' bug-315: and a recursion-depth guard. A greedy repeat over a SIMPLE child is
+  ' consumed iteratively below and never reaches this, but a repeat over a GROUP
+  ' -- `(ab)*` -- still recurses once per repetition, and the native stack was
+  ' exhausted somewhere between 800 and 1000 frames, killing the process with an
+  ' uncatchable SIGSEGV. This turns that into an ordinary catchable failure well
+  ' before the stack runs out.
+  IF depth > __REGEX_DEPTH_LIMIT THEN
+    FAIL error(77050003, "regex: pattern too complex for this input (nesting limit exceeded)")
+  END IF
+  MATCH node
+    CASE __regex_Lit(litNode)
+      IF pos >= ctx.n THEN
+        RETURN __regex_fail()
+      END IF
+      IF __regex_charEq(litNode.ch, collections::get(ctx.text, pos), litNode.fold) THEN
+        RETURN __regex_matchCont(c, pos + 1, caps, ctx, depth + 1)
+      END IF
+      RETURN __regex_fail()
+    CASE __regex_Any(anyNode)
+      IF pos >= ctx.n THEN
+        RETURN __regex_fail()
+      END IF
+      IF anyNode.dotall OR collections::get(ctx.text, pos) <> "\n" THEN
+        RETURN __regex_matchCont(c, pos + 1, caps, ctx, depth + 1)
+      END IF
+      RETURN __regex_fail()
+    CASE __regex_Class(clsNode)
+      IF pos >= ctx.n THEN
+        RETURN __regex_fail()
+      END IF
+      IF __regex_classMatch(clsNode, pos, ctx) THEN
+        RETURN __regex_matchCont(c, pos + 1, caps, ctx, depth + 1)
+      END IF
+      RETURN __regex_fail()
+    CASE __regex_Anchor(anchorNode)
+      IF __regex_anchorMatch(anchorNode, pos, ctx) THEN
+        RETURN __regex_matchCont(c, pos, caps, ctx, depth + 1)
+      END IF
+      RETURN __regex_fail()
+    CASE __regex_Concat(seqNode)
+      RETURN __regex_matchCont(__regex_ContSeq[seqNode.parts, 0, c], pos, caps, ctx, depth + 1)
+    CASE __regex_Alt(altNode)
+      RETURN __regex_matchAlt(altNode.opts, 0, pos, caps, c, ctx, depth + 1)
+    CASE __regex_Repeat(repNode)
+      RETURN __regex_matchRep(repNode, 0, pos, caps, c, ctx, depth + 1)
+    CASE __regex_Group(grpNode)
+      LET caps2 AS List OF Integer = __regex_setCap(caps, 2 * grpNode.slot, pos)
+      RETURN __regex_matchNode(grpNode.child, pos, caps2, __regex_ContCap[grpNode.slot, c], ctx, depth + 1)
+  END MATCH
+END FUNC
+
+FUNC __regex_matchAlt(opts AS List OF __regex_Node, i AS Integer, pos AS Integer, caps AS List OF Integer, c AS __regex_Cont, ctx AS __regex_Ctx, depth AS Integer) AS __regex_Result
+  IF i >= len(opts) THEN
+    RETURN __regex_fail()
+  END IF
+  LET r AS __regex_Result = __regex_matchNode(collections::get(opts, i), pos, caps, c, ctx, depth + 1)
+  IF r.ok THEN
+    RETURN r
+  END IF
+  RETURN __regex_matchAlt(opts, i + 1, pos, caps, c, ctx, depth + 1)
+END FUNC
+
+' bug-315: is this node a "simple" one-scalar matcher -- Lit, Any or Class? Such
+' a child consumes exactly one scalar, sets no captures and needs no continuation,
+' so a greedy repeat over it can be consumed with a LOOP instead of one native
+' stack frame per iteration. That recursion is what made `^a*$` SIGSEGV somewhere
+' between 800 and 1000 scalars.
+' bug-315: a global backtracking budget. The matcher is a pure backtracker with
+' no memoization, so a nested/ambiguous quantifier such as `^(a+)+$` explores
+' exponentially many input partitions -- `aaaa...X` at 24 scalars already ran for
+' minutes. The engine accepts untrusted patterns AND untrusted text, so that is a
+' denial-of-service vector, not just a slow case.
+'
+' A budget cannot be threaded through the immutable continuation state: a failed
+' branch's work would be forgotten on backtrack, which is precisely the work that
+' needs counting. It has to be module-level and monotonic, reset once per search.
+MUT __regex_steps AS Integer = 0
+
+' Ceiling on backtracking steps for one search. Generous enough that no realistic
+' pattern reaches it -- a linear scan over a 50 000-scalar subject costs about
+' that many steps -- while still bounding the exponential cases to well under a
+' second.
+LET __REGEX_STEP_BUDGET AS Integer = 2000000
+
+' Ceiling on matcher recursion depth. Measured: the native stack is exhausted
+' between 800 and 1000 nested frames, so 600 fails cleanly with margin. Only
+' constructs that genuinely recurse per repetition reach it -- a greedy repeat
+' over a single-scalar child is iterative and unaffected at any input length.
+LET __REGEX_DEPTH_LIMIT AS Integer = 600
+
+' bug-423: the recursive-descent parser had no depth cap, so a deeply-nested-group
+' pattern (`((((...`) recursed once per group and overflowed the native stack
+' during *compile*, killing the process with an uncatchable SIGSEGV before any
+' matching happened -- bug-315 had guarded only the matcher. This is the parser's
+' own ceiling on group-nesting depth. It is LOWER than __REGEX_DEPTH_LIMIT on
+' purpose: each nesting level costs three native frames (parseAlt -> parseConcat
+' -> parseParen -> parseAlt), so the same ~600-frame stack budget the matcher
+' proved safe corresponds to ~200 nesting levels here. Measured: the produced
+' executable's stack is exhausted around 350 nested `(` (N<=300 fails cleanly,
+' N>=400 SIGSEGVs), so 200 rejects the pathological cases with margin while
+' leaving any realistic pattern -- which nests only a handful deep -- untouched.
+LET __REGEX_PARSE_DEPTH_LIMIT AS Integer = 200
+
+FUNC __regex_isSimpleNode(node AS __regex_Node) AS Boolean
+  MATCH node
+    CASE __regex_Lit(litNode)
+      RETURN TRUE
+    CASE __regex_Any(anyNode)
+      RETURN TRUE
+    CASE __regex_Class(clsNode)
+      RETURN TRUE
+    CASE ELSE
+      RETURN FALSE
+  END MATCH
+END FUNC
+
+' Does a simple node match the single scalar at `pos`? Mirrors the Lit/Any/Class
+' arms of __regex_matchNode exactly, so the iterative path below accepts precisely
+' what the recursive one did.
+FUNC __regex_simpleMatchAt(node AS __regex_Node, pos AS Integer, ctx AS __regex_Ctx) AS Boolean
+  IF pos >= ctx.n THEN
+    RETURN FALSE
+  END IF
+  MATCH node
+    CASE __regex_Lit(litNode)
+      RETURN __regex_charEq(litNode.ch, collections::get(ctx.text, pos), litNode.fold)
+    CASE __regex_Any(anyNode)
+      IF anyNode.dotall THEN
+        RETURN TRUE
+      END IF
+      RETURN collections::get(ctx.text, pos) <> "\n"
+    CASE __regex_Class(clsNode)
+      RETURN __regex_classMatch(clsNode, pos, ctx)
+    CASE ELSE
+      RETURN FALSE
+  END MATCH
+END FUNC
+
+FUNC __regex_matchRep(rep AS __regex_Repeat, count AS Integer, pos AS Integer, caps AS List OF Integer, c AS __regex_Cont, ctx AS __regex_Ctx, depth AS Integer) AS __regex_Result
+  LET canMore AS Boolean = (rep.hi < 0) OR (count < rep.hi)
+  LET mustMore AS Boolean = count < rep.lo
+  ' bug-315: a greedy repeat over a SIMPLE one-scalar child is consumed with a
+  ' loop rather than one native frame per iteration. The recursive form grew stack
+  ' depth proportional to the number of repetitions, so `^a*$` crashed with
+  ' SIGSEGV between 800 and 1000 scalars -- an uncatchable process death on
+  ' ordinary paragraph-length input.
+  '
+  ' Semantics are unchanged: consume as far as the bound allows, then give back
+  ' one scalar at a time, trying the continuation at each length from longest to
+  ' shortest. That is exactly the order the recursion explored, so the FIRST match
+  ' found is the same one -- greedy leftmost, longest-first.
+  IF rep.greedy AND __regex_isSimpleNode(rep.child) THEN
+    MUT p AS Integer = pos
+    MUT k AS Integer = count
+    ' Consume greedily up to `hi` (or unbounded when hi < 0).
+    MUT more AS Boolean = (rep.hi < 0) OR (k < rep.hi)
+    WHILE more
+      IF __regex_simpleMatchAt(rep.child, p, ctx) = FALSE THEN
+        more = FALSE
+      ELSE
+        p = p + 1
+        k = k + 1
+        more = (rep.hi < 0) OR (k < rep.hi)
+      END IF
+    END WHILE
+    ' Give back one at a time until the continuation matches or we fall below the
+    ' minimum. `k = count` is the floor: nothing was consumed by this call.
+    MUT backtracking AS Boolean = TRUE
+    WHILE backtracking
+      IF k >= rep.lo THEN
+        LET rr AS __regex_Result = __regex_matchCont(c, p, caps, ctx, depth + 1)
+        IF rr.ok THEN
+          RETURN rr
+        END IF
+      END IF
+      IF k <= count THEN
+        backtracking = FALSE
+      ELSE
+        p = p - 1
+        k = k - 1
+      END IF
+    END WHILE
+    RETURN __regex_fail()
+  END IF
+  IF rep.greedy THEN
+    IF canMore THEN
+      LET r AS __regex_Result = __regex_matchNode(rep.child, pos, caps, __regex_ContRep[rep, count + 1, pos, c], ctx, depth + 1)
+      IF r.ok THEN
+        RETURN r
+      END IF
+    END IF
+    IF mustMore THEN
+      RETURN __regex_fail()
+    END IF
+    RETURN __regex_matchCont(c, pos, caps, ctx, depth + 1)
+  END IF
+  IF mustMore = FALSE THEN
+    LET r2 AS __regex_Result = __regex_matchCont(c, pos, caps, ctx, depth + 1)
+    IF r2.ok THEN
+      RETURN r2
+    END IF
+  END IF
+  IF canMore THEN
+    RETURN __regex_matchNode(rep.child, pos, caps, __regex_ContRep[rep, count + 1, pos, c], ctx, depth + 1)
+  END IF
+  RETURN __regex_fail()
+END FUNC
+
+FUNC __regex_matchCont(c AS __regex_Cont, pos AS Integer, caps AS List OF Integer, ctx AS __regex_Ctx, depth AS Integer) AS __regex_Result
+  MATCH c
+    CASE __regex_ContDone(doneCont)
+      RETURN __regex_Result[TRUE, pos, caps]
+    CASE __regex_ContSeq(seqCont)
+      IF seqCont.idx >= len(seqCont.parts) THEN
+        RETURN __regex_matchCont(seqCont.nxt, pos, caps, ctx, depth + 1)
+      END IF
+      LET part AS __regex_Node = collections::get(seqCont.parts, seqCont.idx)
+      RETURN __regex_matchNode(part, pos, caps, __regex_ContSeq[seqCont.parts, seqCont.idx + 1, seqCont.nxt], ctx, depth + 1)
+    CASE __regex_ContCap(capCont)
+      LET caps2 AS List OF Integer = __regex_setCap(caps, 2 * capCont.slot + 1, pos)
+      RETURN __regex_matchCont(capCont.nxt, pos, caps2, ctx, depth + 1)
+    CASE __regex_ContRep(repCont)
+      IF pos = repCont.startPos THEN
+        RETURN __regex_matchCont(repCont.nxt, pos, caps, ctx, depth + 1)
+      END IF
+      RETURN __regex_matchRep(repCont.rep, repCont.count, pos, caps, repCont.nxt, ctx, depth + 1)
+  END MATCH
+END FUNC
+
+FUNC __regex_initCaps(groups AS Integer) AS List OF Integer
+  MUT caps AS List OF Integer = []
+  LET total AS Integer = 2 * (groups + 1)
+  MUT i AS Integer = 0
+  WHILE i < total
+    caps = collections::append(caps, -1)
+    i = i + 1
+  END WHILE
+  RETURN caps
+END FUNC
+
+FUNC __regex_tryAt(prog AS __regex_Program, ctx AS __regex_Ctx, start AS Integer) AS __regex_Result
+  MUT caps AS List OF Integer = __regex_initCaps(prog.groups)
+  caps = __regex_setCap(caps, 0, start)
+  ' bug-315: depth 0 seeds the recursion-depth guard threaded through the matcher.
+  RETURN __regex_matchNode(prog.root, start, caps, __regex_ContCap[0, __regex_ContDone[TRUE]], ctx, 0)
+END FUNC
+
+FUNC __regex_searchFrom(prog AS __regex_Program, ctx AS __regex_Ctx, from AS Integer) AS __regex_Result
+  ' bug-315: one budget per search, not per start offset -- the scan over start
+  ' positions is itself part of the work an adversarial pattern multiplies.
+  __regex_steps = 0
+  ' plan-77 R5: if the pattern must begin with a fixed literal code point, skip
+  ' start offsets that cannot match it instead of running the full engine at each.
+  LET firstCp AS Integer = __regex_requiredFirstCp(prog.root)
+  MUT s AS Integer = from
+  WHILE s <= ctx.n
+    IF firstCp >= 0 THEN
+      WHILE s < ctx.n AND collections::get(ctx.cps, s) <> firstCp
+        s = s + 1
+      END WHILE
+    END IF
+    LET r AS __regex_Result = __regex_tryAt(prog, ctx, s)
+    IF r.ok THEN
+      RETURN r
+    END IF
+    s = s + 1
+  END WHILE
+  RETURN __regex_fail()
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Lexical helpers for the parser
+' ---------------------------------------------------------------------------
+
+FUNC __regex_isDigit(ch AS String) AS Boolean
+  RETURN ch >= "0" AND ch <= "9"
+END FUNC
+
+FUNC __regex_isNameStart(ch AS String) AS Boolean
+  IF ch >= "A" AND ch <= "Z" THEN
+    RETURN TRUE
+  END IF
+  IF ch >= "a" AND ch <= "z" THEN
+    RETURN TRUE
+  END IF
+  RETURN ch = "_"
+END FUNC
+
+FUNC __regex_isNameCont(ch AS String) AS Boolean
+  RETURN __regex_isNameStart(ch) OR __regex_isDigit(ch)
+END FUNC
+
+FUNC __regex_isAsciiPunct(ch AS String) AS Boolean
+  IF ch >= "!" AND ch <= "/" THEN
+    RETURN TRUE
+  END IF
+  IF ch >= ":" AND ch <= "@" THEN
+    RETURN TRUE
+  END IF
+  IF ch >= "[" AND ch <= "`" THEN
+    RETURN TRUE
+  END IF
+  IF ch >= "{" AND ch <= "~" THEN
+    RETURN TRUE
+  END IF
+  RETURN FALSE
+END FUNC
+
+FUNC __regex_isPatSpace(ch AS String) AS Boolean
+  IF ch = " " OR ch = "\t" OR ch = "\n" OR ch = "\r" THEN
+    RETURN TRUE
+  END IF
+  RETURN ch = __regex_chr(12) OR ch = __regex_chr(11)
+END FUNC
+
+FUNC __regex_parseIntClamp(s AS String) AS Integer
+  IF len(s) > 7 THEN
+    RETURN 10000000
+  END IF
+  RETURN toInt(s)
+  TRAP(err)
+    RETURN 10000000
+  END TRAP
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Escape parsing
+' ---------------------------------------------------------------------------
+
+' Parse \xHH or \x{H..H}; i points just after the 'x'.
+FUNC __regex_parseHexEscape(pat AS List OF String, n AS Integer, i AS Integer) AS __regex_LitScalar
+  IF i >= n THEN
+    FAIL error(77050003, "invalid regex")
+  END IF
+  IF collections::get(pat, i) = "{" THEN
+    ' Collect the run between `{` and `}`, then let toInt(_, 16) validate the
+    ' hex digits (it FAILs on any non-hex char). The 1-6 digit bound and the
+    ' surrogate/range clamp stay regex's own checks (regex.md §8.2).
+    MUT j AS Integer = i + 1
+    MUT hexText AS String = ""
+    WHILE j < n AND collections::get(pat, j) <> "}"
+      hexText = hexText & collections::get(pat, j)
+      j = j + 1
+    END WHILE
+    IF j >= n THEN
+      FAIL error(77050003, "invalid regex")
+    END IF
+    LET digits AS Integer = len(hexText)
+    IF digits < 1 OR digits > 6 THEN
+      FAIL error(77050003, "invalid regex")
+    END IF
+    LET value AS Integer = toInt(hexText, 16) TRAP(err)
+      FAIL error(77050003, "invalid regex")
+    END TRAP
+    IF value > 1114111 OR (value >= 55296 AND value <= 57343) THEN
+      FAIL error(77050003, "invalid regex")
+    END IF
+    RETURN __regex_LitScalar[__regex_chr(value), j + 1]
+  END IF
+  IF i + 1 >= n THEN
+    FAIL error(77050003, "invalid regex")
+  END IF
+  LET hexPair AS String = collections::get(pat, i) & collections::get(pat, i + 1)
+  LET value AS Integer = toInt(hexPair, 16) TRAP(err)
+    FAIL error(77050003, "invalid regex")
+  END TRAP
+  RETURN __regex_LitScalar[__regex_chr(value), i + 2]
+END FUNC
+
+' A literal/control escape; i points at the backslash. allowSpace permits
+' "\ " (x mode). Rejects backreferences and unknown letter/digit escapes.
+FUNC __regex_parseLiteralEscape(pat AS List OF String, n AS Integer, i AS Integer, allowSpace AS Boolean) AS __regex_LitScalar
+  IF i + 1 >= n THEN
+    FAIL error(77050003, "invalid regex")
+  END IF
+  LET e AS String = collections::get(pat, i + 1)
+  IF e = "n" THEN
+    RETURN __regex_LitScalar["\n", i + 2]
+  END IF
+  IF e = "r" THEN
+    RETURN __regex_LitScalar["\r", i + 2]
+  END IF
+  IF e = "t" THEN
+    RETURN __regex_LitScalar["\t", i + 2]
+  END IF
+  IF e = "f" THEN
+    RETURN __regex_LitScalar[__regex_chr(12), i + 2]
+  END IF
+  IF e = "v" THEN
+    RETURN __regex_LitScalar[__regex_chr(11), i + 2]
+  END IF
+  IF e = "a" THEN
+    RETURN __regex_LitScalar[__regex_chr(7), i + 2]
+  END IF
+  IF e = "e" THEN
+    RETURN __regex_LitScalar[__regex_chr(27), i + 2]
+  END IF
+  IF e = "0" THEN
+    RETURN __regex_LitScalar[__regex_chr(0), i + 2]
+  END IF
+  IF e = "x" THEN
+    RETURN __regex_parseHexEscape(pat, n, i + 2)
+  END IF
+  IF __regex_isAsciiPunct(e) THEN
+    RETURN __regex_LitScalar[e, i + 2]
+  END IF
+  IF allowSpace AND e = " " THEN
+    RETURN __regex_LitScalar[" ", i + 2]
+  END IF
+  FAIL error(77050003, "invalid regex")
+END FUNC
+
+' Parse \p{...} / \pX / \P...; i points just after the p/P. neg=TRUE for \P.
+FUNC __regex_parseProp(pat AS List OF String, n AS Integer, i AS Integer, neg AS Boolean) AS __regex_PropParse
+  IF i >= n THEN
+    FAIL error(77050003, "invalid regex")
+  END IF
+  IF collections::get(pat, i) = "{" THEN
+    MUT j AS Integer = i + 1
+    MUT name AS String = ""
+    WHILE j < n AND collections::get(pat, j) <> "}"
+      name = name & collections::get(pat, j)
+      j = j + 1
+    END WHILE
+    IF j >= n THEN
+      FAIL error(77050003, "invalid regex")
+    END IF
+    LET canon AS String = __regex_canonProp(name)
+    IF canon = "" THEN
+      FAIL error(77050003, "invalid regex")
+    END IF
+    RETURN __regex_PropParse[canon, neg, j + 1]
+  END IF
+  LET canon AS String = __regex_canonProp(collections::get(pat, i))
+  IF canon = "" THEN
+    FAIL error(77050003, "invalid regex")
+  END IF
+  RETURN __regex_PropParse[canon, neg, i + 1]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Character class parsing (regex.md §9)
+' ---------------------------------------------------------------------------
+
+FUNC __regex_shortKind(e AS String) AS Integer
+  IF e = "d" THEN
+    RETURN 1
+  END IF
+  IF e = "D" THEN
+    RETURN 2
+  END IF
+  IF e = "w" THEN
+    RETURN 3
+  END IF
+  IF e = "W" THEN
+    RETURN 4
+  END IF
+  IF e = "s" THEN
+    RETURN 5
+  END IF
+  IF e = "S" THEN
+    RETURN 6
+  END IF
+  RETURN 0
+END FUNC
+
+' POSIX [:name:] inside a class; idx points at the leading '['.
+FUNC __regex_parsePosix(pat AS List OF String, n AS Integer, idx AS Integer) AS __regex_Endpoint
+  MUT j AS Integer = idx + 2
+  MUT neg AS Boolean = FALSE
+  IF j < n AND collections::get(pat, j) = "^" THEN
+    neg = TRUE
+    j = j + 1
+  END IF
+  MUT name AS String = ""
+  WHILE j < n AND collections::get(pat, j) <> ":"
+    name = name & collections::get(pat, j)
+    j = j + 1
+  END WHILE
+  IF j + 1 >= n THEN
+    FAIL error(77050003, "invalid regex")
+  END IF
+  IF collections::get(pat, j) <> ":" OR collections::get(pat, j + 1) <> "]" THEN
+    FAIL error(77050003, "invalid regex")
+  END IF
+  LET prop AS String = __regex_posixProp(name)
+  IF prop = "" THEN
+    FAIL error(77050003, "invalid regex")
+  END IF
+  LET item AS __regex_ClassItem = __regex_Prop[prop, neg]
+  RETURN __regex_Endpoint[1, "", item, j + 2]
+END FUNC
+
+' Map a POSIX class name to a property usable by __regex_propTest (or a special).
+FUNC __regex_posixProp(name AS String) AS String
+  IF name = "alpha" THEN
+    RETURN "Alphabetic"
+  END IF
+  IF name = "digit" THEN
+    RETURN "Nd"
+  END IF
+  IF name = "alnum" THEN
+    RETURN "posixAlnum"
+  END IF
+  IF name = "space" THEN
+    RETURN "White_Space"
+  END IF
+  IF name = "upper" THEN
+    RETURN "Lu"
+  END IF
+  IF name = "lower" THEN
+    RETURN "Ll"
+  END IF
+  IF name = "punct" THEN
+    RETURN "P"
+  END IF
+  IF name = "word" THEN
+    RETURN "posixWord"
+  END IF
+  IF name = "xdigit" THEN
+    RETURN "posixXdigit"
+  END IF
+  IF name = "blank" THEN
+    RETURN "posixBlank"
+  END IF
+  IF name = "cntrl" THEN
+    RETURN "Cc"
+  END IF
+  IF name = "graph" THEN
+    RETURN "posixGraph"
+  END IF
+  IF name = "print" THEN
+    RETURN "posixPrint"
+  END IF
+  RETURN ""
+END FUNC
+
+' One class endpoint; kind 0 = literal scalar (rangeable), 1 = item.
+FUNC __regex_parseClassEndpoint(pat AS List OF String, n AS Integer, idx AS Integer) AS __regex_Endpoint
+  LET c AS String = collections::get(pat, idx)
+  IF c = "\\" THEN
+    IF idx + 1 >= n THEN
+      FAIL error(77050003, "invalid regex")
+    END IF
+    LET e AS String = collections::get(pat, idx + 1)
+    LET sk AS Integer = __regex_shortKind(e)
+    IF sk <> 0 THEN
+      LET item AS __regex_ClassItem = __regex_Short[sk]
+      RETURN __regex_Endpoint[1, "", item, idx + 2]
+    END IF
+    IF e = "p" OR e = "P" THEN
+      LET pp AS __regex_PropParse = __regex_parseProp(pat, n, idx + 2, (e = "P"))
+      LET item AS __regex_ClassItem = __regex_Prop[pp.name, pp.neg]
+      RETURN __regex_Endpoint[1, "", item, pp.nxt]
+    END IF
+    IF e = "b" OR e = "A" OR e = "z" OR e = "B" THEN
+      FAIL error(77050003, "invalid regex")
+    END IF
+    LET lit AS __regex_LitScalar = __regex_parseLiteralEscape(pat, n, idx, FALSE)
+    LET dummy AS __regex_ClassItem = __regex_Single[lit.ch]
+    RETURN __regex_Endpoint[0, lit.ch, dummy, lit.nxt]
+  END IF
+  LET dummy AS __regex_ClassItem = __regex_Single[c]
+  RETURN __regex_Endpoint[0, c, dummy, idx + 1]
+END FUNC
+
+FUNC __regex_parseClass(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer) AS __regex_Parse
+  MUT idx AS Integer = i + 1
+  MUT neg AS Boolean = FALSE
+  IF idx < n AND collections::get(pat, idx) = "^" THEN
+    neg = TRUE
+    idx = idx + 1
+  END IF
+  MUT items AS List OF __regex_ClassItem = []
+  MUT count AS Integer = 0
+  DO WHILE TRUE
+    IF idx >= n THEN
+      FAIL error(77050003, "invalid regex")
+    END IF
+    LET c AS String = collections::get(pat, idx)
+    IF c = "]" THEN
+      IF count = 0 THEN
+        FAIL error(77050003, "invalid regex")
+      END IF
+      idx = idx + 1
+      EXIT DO
+    END IF
+    IF c = "&" AND idx + 1 < n AND collections::get(pat, idx + 1) = "&" THEN
+      FAIL error(77050003, "invalid regex")
+    END IF
+    IF c = "[" AND idx + 1 < n AND collections::get(pat, idx + 1) = ":" THEN
+      LET px AS __regex_Endpoint = __regex_parsePosix(pat, n, idx)
+      items = collections::append(items, px.item)
+      count = count + 1
+      idx = px.nxt
+      CONTINUE DO
+    END IF
+    LET ep AS __regex_Endpoint = __regex_parseClassEndpoint(pat, n, idx)
+    idx = ep.nxt
+    IF ep.kind = 1 THEN
+      items = collections::append(items, ep.item)
+      count = count + 1
+      CONTINUE DO
+    END IF
+    IF idx < n AND collections::get(pat, idx) = "-" AND idx + 1 < n AND collections::get(pat, idx + 1) <> "]" THEN
+      idx = idx + 1
+      LET ep2 AS __regex_Endpoint = __regex_parseClassEndpoint(pat, n, idx)
+      idx = ep2.nxt
+      IF ep2.kind = 1 THEN
+        FAIL error(77050003, "invalid regex")
+      END IF
+      IF ep.ch > ep2.ch THEN
+        FAIL error(77050003, "invalid regex")
+      END IF
+      LET rng AS __regex_ClassItem = __regex_Range[ep.ch, ep2.ch]
+      items = collections::append(items, rng)
+      count = count + 1
+      CONTINUE DO
+    END IF
+    LET sng AS __regex_ClassItem = __regex_Single[ep.ch]
+    items = collections::append(items, sng)
+    count = count + 1
+  LOOP
+  LET node AS __regex_Node = __regex_makeClass(neg, flags.ci, items)
+  RETURN __regex_Parse[node, idx, g, names]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Counted quantifier syntax
+' ---------------------------------------------------------------------------
+
+FUNC __regex_isCountedAt(pat AS List OF String, n AS Integer, i AS Integer) AS Boolean
+  MUT j AS Integer = i + 1
+  IF j >= n OR __regex_isDigit(collections::get(pat, j)) = FALSE THEN
+    RETURN FALSE
+  END IF
+  WHILE j < n AND __regex_isDigit(collections::get(pat, j))
+    j = j + 1
+  END WHILE
+  IF j < n AND collections::get(pat, j) = "}" THEN
+    RETURN TRUE
+  END IF
+  IF j < n AND collections::get(pat, j) = "," THEN
+    j = j + 1
+    IF j < n AND collections::get(pat, j) = "}" THEN
+      RETURN TRUE
+    END IF
+    IF j < n AND __regex_isDigit(collections::get(pat, j)) THEN
+      WHILE j < n AND __regex_isDigit(collections::get(pat, j))
+        j = j + 1
+      END WHILE
+      IF j < n AND collections::get(pat, j) = "}" THEN
+        RETURN TRUE
+      END IF
+    END IF
+  END IF
+  RETURN FALSE
+END FUNC
+
+FUNC __regex_parseCounted(pat AS List OF String, n AS Integer, i AS Integer) AS __regex_Count
+  MUT j AS Integer = i + 1
+  MUT loS AS String = ""
+  WHILE j < n AND __regex_isDigit(collections::get(pat, j))
+    loS = loS & collections::get(pat, j)
+    j = j + 1
+  END WHILE
+  LET lo AS Integer = __regex_parseIntClamp(loS)
+  IF collections::get(pat, j) = "}" THEN
+    RETURN __regex_Count[lo, lo, j + 1]
+  END IF
+  j = j + 1
+  IF collections::get(pat, j) = "}" THEN
+    RETURN __regex_Count[lo, -1, j + 1]
+  END IF
+  MUT hiS AS String = ""
+  WHILE j < n AND __regex_isDigit(collections::get(pat, j))
+    hiS = hiS & collections::get(pat, j)
+    j = j + 1
+  END WHILE
+  LET hi AS Integer = __regex_parseIntClamp(hiS)
+  IF lo > hi THEN
+    FAIL error(77050003, "invalid regex")
+  END IF
+  RETURN __regex_Count[lo, hi, j + 1]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Flag spec parsing
+' ---------------------------------------------------------------------------
+
+FUNC __regex_parseFlagSpec(pat AS List OF String, n AS Integer, i AS Integer, base AS __regex_Flags) AS __regex_FlagSpec
+  MUT fi AS Boolean = base.ci
+  MUT fm AS Boolean = base.ml
+  MUT fs AS Boolean = base.dotall
+  MUT fu AS Boolean = base.ungreedy
+  MUT fx AS Boolean = base.verbose
+  MUT j AS Integer = i
+  MUT any AS Boolean = FALSE
+  DO WHILE j < n
+    LET c AS String = collections::get(pat, j)
+    IF c = "i" THEN
+      fi = TRUE
+    ELSEIF c = "m" THEN
+      fm = TRUE
+    ELSEIF c = "s" THEN
+      fs = TRUE
+    ELSEIF c = "U" THEN
+      fu = TRUE
+    ELSEIF c = "x" THEN
+      fx = TRUE
+    ELSE
+      EXIT DO
+    END IF
+    any = TRUE
+    j = j + 1
+  LOOP
+  IF j < n AND collections::get(pat, j) = "-" THEN
+    j = j + 1
+    MUT negAny AS Boolean = FALSE
+    DO WHILE j < n
+      LET c AS String = collections::get(pat, j)
+      IF c = "i" THEN
+        fi = FALSE
+      ELSEIF c = "m" THEN
+        fm = FALSE
+      ELSEIF c = "s" THEN
+        fs = FALSE
+      ELSEIF c = "U" THEN
+        fu = FALSE
+      ELSEIF c = "x" THEN
+        fx = FALSE
+      ELSE
+        EXIT DO
+      END IF
+      negAny = TRUE
+      any = TRUE
+      j = j + 1
+    LOOP
+    IF negAny = FALSE THEN
+      FAIL error(77050003, "invalid regex")
+    END IF
+  END IF
+  LET fl AS __regex_Flags = __regex_Flags[fi, fm, fs, fu, fx]
+  MUT term AS String = ""
+  IF j < n THEN
+    term = collections::get(pat, j)
+  END IF
+  RETURN __regex_FlagSpec[fl, any, term, j]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Group / paren parsing
+' ---------------------------------------------------------------------------
+
+FUNC __regex_parseName(pat AS List OF String, n AS Integer, i AS Integer) AS __regex_Name
+  IF i >= n OR __regex_isNameStart(collections::get(pat, i)) = FALSE THEN
+    FAIL error(77050003, "invalid regex")
+  END IF
+  MUT j AS Integer = i
+  MUT name AS String = ""
+  WHILE j < n AND __regex_isNameCont(collections::get(pat, j))
+    name = name & collections::get(pat, j)
+    j = j + 1
+  END WHILE
+  IF j >= n OR collections::get(pat, j) <> ">" THEN
+    FAIL error(77050003, "invalid regex")
+  END IF
+  RETURN __regex_Name[name, j + 1]
+END FUNC
+
+FUNC __regex_parseNamedGroup(pat AS List OF String, n AS Integer, nameStart AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer, depth AS Integer) AS __regex_Paren
+  LET nm AS __regex_Name = __regex_parseName(pat, n, nameStart)
+  IF collections::hasKey(names, nm.name) THEN
+    FAIL error(77050003, "invalid regex")
+  END IF
+  LET slot AS Integer = g + 1
+  LET names2 AS Map OF String TO Integer = collections::set(names, nm.name, slot)
+  LET inner AS __regex_Parse = __regex_parseAlt(pat, n, nm.nxt, flags, slot, names2, depth)
+  IF inner.nxt >= n OR collections::get(pat, inner.nxt) <> ")" THEN
+    FAIL error(77050003, "invalid regex")
+  END IF
+  LET node AS __regex_Node = __regex_Group[inner.node, slot]
+  RETURN __regex_Paren[FALSE, flags, node, inner.nxt + 1, inner.groups, inner.names]
+END FUNC
+
+FUNC __regex_parseParen(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer, depth AS Integer) AS __regex_Paren
+  MUT idx AS Integer = i + 1
+  IF idx >= n THEN
+    FAIL error(77050003, "invalid regex")
+  END IF
+  LET c AS String = collections::get(pat, idx)
+  IF c <> "?" THEN
+    LET slot AS Integer = g + 1
+    LET inner AS __regex_Parse = __regex_parseAlt(pat, n, idx, flags, slot, names, depth + 1)
+    IF inner.nxt >= n OR collections::get(pat, inner.nxt) <> ")" THEN
+      FAIL error(77050003, "invalid regex")
+    END IF
+    LET node AS __regex_Node = __regex_Group[inner.node, slot]
+    RETURN __regex_Paren[FALSE, flags, node, inner.nxt + 1, inner.groups, inner.names]
+  END IF
+  idx = idx + 1
+  IF idx >= n THEN
+    FAIL error(77050003, "invalid regex")
+  END IF
+  LET d AS String = collections::get(pat, idx)
+  IF d = ":" THEN
+    LET inner AS __regex_Parse = __regex_parseAlt(pat, n, idx + 1, flags, g, names, depth + 1)
+    IF inner.nxt >= n OR collections::get(pat, inner.nxt) <> ")" THEN
+      FAIL error(77050003, "invalid regex")
+    END IF
+    RETURN __regex_Paren[FALSE, flags, inner.node, inner.nxt + 1, inner.groups, inner.names]
+  END IF
+  IF d = "<" THEN
+    IF idx + 1 < n THEN
+      LET d2 AS String = collections::get(pat, idx + 1)
+      IF d2 = "=" OR d2 = "!" THEN
+        FAIL error(77050003, "invalid regex")
+      END IF
+    END IF
+    RETURN __regex_parseNamedGroup(pat, n, idx + 1, flags, g, names, depth + 1)
+  END IF
+  IF d = "P" THEN
+    IF idx + 1 >= n OR collections::get(pat, idx + 1) <> "<" THEN
+      FAIL error(77050003, "invalid regex")
+    END IF
+    RETURN __regex_parseNamedGroup(pat, n, idx + 2, flags, g, names, depth + 1)
+  END IF
+  IF d = "=" OR d = "!" THEN
+    FAIL error(77050003, "invalid regex")
+  END IF
+  LET spec AS __regex_FlagSpec = __regex_parseFlagSpec(pat, n, idx, flags)
+  IF spec.term = ")" THEN
+    IF spec.any = FALSE THEN
+      FAIL error(77050003, "invalid regex")
+    END IF
+    LET empty AS List OF __regex_Node = []
+    LET node AS __regex_Node = __regex_Concat[empty]
+    RETURN __regex_Paren[TRUE, spec.flags, node, spec.nxt + 1, g, names]
+  END IF
+  IF spec.term = ":" THEN
+    LET inner AS __regex_Parse = __regex_parseAlt(pat, n, spec.nxt + 1, spec.flags, g, names, depth + 1)
+    IF inner.nxt >= n OR collections::get(pat, inner.nxt) <> ")" THEN
+      FAIL error(77050003, "invalid regex")
+    END IF
+    RETURN __regex_Paren[FALSE, flags, inner.node, inner.nxt + 1, inner.groups, inner.names]
+  END IF
+  FAIL error(77050003, "invalid regex")
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Atom / quantifier / concat / alternation
+' ---------------------------------------------------------------------------
+
+FUNC __regex_parseEscapeAtom(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer) AS __regex_Parse
+  IF i + 1 >= n THEN
+    FAIL error(77050003, "invalid regex")
+  END IF
+  LET e AS String = collections::get(pat, i + 1)
+  IF e = "A" THEN
+    LET node AS __regex_Node = __regex_Anchor[3, FALSE]
+    RETURN __regex_Parse[node, i + 2, g, names]
+  END IF
+  IF e = "z" THEN
+    LET node AS __regex_Node = __regex_Anchor[4, FALSE]
+    RETURN __regex_Parse[node, i + 2, g, names]
+  END IF
+  IF e = "b" THEN
+    LET node AS __regex_Node = __regex_Anchor[5, FALSE]
+    RETURN __regex_Parse[node, i + 2, g, names]
+  END IF
+  IF e = "B" THEN
+    LET node AS __regex_Node = __regex_Anchor[6, FALSE]
+    RETURN __regex_Parse[node, i + 2, g, names]
+  END IF
+  LET sk AS Integer = __regex_shortKind(e)
+  IF sk <> 0 THEN
+    LET item AS __regex_ClassItem = __regex_Short[sk]
+    LET items AS List OF __regex_ClassItem = [item]
+    LET node AS __regex_Node = __regex_makeClass(FALSE, flags.ci, items)
+    RETURN __regex_Parse[node, i + 2, g, names]
+  END IF
+  IF e = "p" OR e = "P" THEN
+    LET pp AS __regex_PropParse = __regex_parseProp(pat, n, i + 2, (e = "P"))
+    LET item AS __regex_ClassItem = __regex_Prop[pp.name, pp.neg]
+    LET items AS List OF __regex_ClassItem = [item]
+    LET node AS __regex_Node = __regex_makeClass(FALSE, flags.ci, items)
+    RETURN __regex_Parse[node, pp.nxt, g, names]
+  END IF
+  LET lit AS __regex_LitScalar = __regex_parseLiteralEscape(pat, n, i, flags.verbose)
+  LET node AS __regex_Node = __regex_Lit[lit.ch, flags.ci]
+  RETURN __regex_Parse[node, lit.nxt, g, names]
+END FUNC
+
+FUNC __regex_parseAtom(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer) AS __regex_Parse
+  LET c AS String = collections::get(pat, i)
+  IF c = "." THEN
+    LET node AS __regex_Node = __regex_Any[flags.dotall]
+    RETURN __regex_Parse[node, i + 1, g, names]
+  END IF
+  IF c = "^" THEN
+    LET node AS __regex_Node = __regex_Anchor[1, flags.ml]
+    RETURN __regex_Parse[node, i + 1, g, names]
+  END IF
+  IF c = "$" THEN
+    LET node AS __regex_Node = __regex_Anchor[2, flags.ml]
+    RETURN __regex_Parse[node, i + 1, g, names]
+  END IF
+  IF c = "[" THEN
+    RETURN __regex_parseClass(pat, n, i, flags, g, names)
+  END IF
+  IF c = "\\" THEN
+    RETURN __regex_parseEscapeAtom(pat, n, i, flags, g, names)
+  END IF
+  LET node AS __regex_Node = __regex_Lit[c, flags.ci]
+  RETURN __regex_Parse[node, i + 1, g, names]
+END FUNC
+
+FUNC __regex_parseQuantSuffix(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, atom AS __regex_Node, g AS Integer, names AS Map OF String TO Integer) AS __regex_Parse
+  IF i >= n THEN
+    RETURN __regex_Parse[atom, i, g, names]
+  END IF
+  LET c AS String = collections::get(pat, i)
+  MUT lo AS Integer = 0
+  MUT hi AS Integer = 0
+  MUT has AS Boolean = FALSE
+  MUT nxt AS Integer = i
+  IF c = "*" THEN
+    lo = 0
+    hi = -1
+    has = TRUE
+    nxt = i + 1
+  ELSEIF c = "+" THEN
+    lo = 1
+    hi = -1
+    has = TRUE
+    nxt = i + 1
+  ELSEIF c = "?" THEN
+    lo = 0
+    hi = 1
+    has = TRUE
+    nxt = i + 1
+  ELSEIF c = "{" AND __regex_isCountedAt(pat, n, i) THEN
+    LET cnt AS __regex_Count = __regex_parseCounted(pat, n, i)
+    lo = cnt.lo
+    hi = cnt.hi
+    has = TRUE
+    nxt = cnt.nxt
+  END IF
+  IF has = FALSE THEN
+    RETURN __regex_Parse[atom, i, g, names]
+  END IF
+  MUT greedy AS Boolean = TRUE
+  IF flags.ungreedy THEN
+    greedy = FALSE
+  END IF
+  IF nxt < n AND collections::get(pat, nxt) = "?" THEN
+    IF flags.ungreedy THEN
+      greedy = TRUE
+    ELSE
+      greedy = FALSE
+    END IF
+    nxt = nxt + 1
+  END IF
+  LET rep AS __regex_Node = __regex_Repeat[atom, lo, hi, greedy]
+  RETURN __regex_Parse[rep, nxt, g, names]
+END FUNC
+
+FUNC __regex_parseConcat(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer, depth AS Integer) AS __regex_Parse
+  MUT idx AS Integer = i
+  MUT gg AS Integer = g
+  MUT nm AS Map OF String TO Integer = names
+  MUT fl AS __regex_Flags = flags
+  MUT parts AS List OF __regex_Node = []
+  DO WHILE idx < n
+    LET c AS String = collections::get(pat, idx)
+    IF c = "|" OR c = ")" THEN
+      EXIT DO
+    END IF
+    IF fl.verbose AND __regex_isPatSpace(c) THEN
+      idx = idx + 1
+      CONTINUE DO
+    END IF
+    IF fl.verbose AND c = "#" THEN
+      WHILE idx < n AND collections::get(pat, idx) <> "\n"
+        idx = idx + 1
+      END WHILE
+      CONTINUE DO
+    END IF
+    IF c = "(" THEN
+      LET pr AS __regex_Paren = __regex_parseParen(pat, n, idx, fl, gg, nm, depth)
+      gg = pr.groups
+      nm = pr.names
+      IF pr.isDir THEN
+        fl = pr.flags
+        idx = pr.nxt
+        CONTINUE DO
+      END IF
+      LET q AS __regex_Parse = __regex_parseQuantSuffix(pat, n, pr.nxt, fl, pr.node, gg, nm)
+      parts = collections::append(parts, q.node)
+      idx = q.nxt
+      gg = q.groups
+      nm = q.names
+      CONTINUE DO
+    END IF
+    IF c = "*" OR c = "+" OR c = "?" THEN
+      FAIL error(77050003, "invalid regex")
+    END IF
+    IF c = "{" AND __regex_isCountedAt(pat, n, idx) THEN
+      FAIL error(77050003, "invalid regex")
+    END IF
+    LET atom AS __regex_Parse = __regex_parseAtom(pat, n, idx, fl, gg, nm)
+    LET q AS __regex_Parse = __regex_parseQuantSuffix(pat, n, atom.nxt, fl, atom.node, atom.groups, atom.names)
+    parts = collections::append(parts, q.node)
+    idx = q.nxt
+    gg = q.groups
+    nm = q.names
+  LOOP
+  IF len(parts) = 1 THEN
+    RETURN __regex_Parse[collections::get(parts, 0), idx, gg, nm]
+  END IF
+  LET node AS __regex_Node = __regex_Concat[parts]
+  RETURN __regex_Parse[node, idx, gg, nm]
+END FUNC
+
+FUNC __regex_parseAlt(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer, depth AS Integer) AS __regex_Parse
+  ' bug-423: one native frame per group-nesting level with no guard overflowed
+  ' the stack on a pathologically deep pattern. Every group descent routes
+  ' through here (parseParen -> parseAlt), so capping depth at this single point
+  ' turns the crash into an ordinary catchable failure well before the native
+  ' stack runs out.
+  IF depth > __REGEX_PARSE_DEPTH_LIMIT THEN
+    FAIL error(77050003, "regex: pattern nested too deeply")
+  END IF
+  MUT idx AS Integer = i
+  MUT gg AS Integer = g
+  MUT nm AS Map OF String TO Integer = names
+  LET first AS __regex_Parse = __regex_parseConcat(pat, n, idx, flags, gg, nm, depth)
+  idx = first.nxt
+  gg = first.groups
+  nm = first.names
+  MUT opts AS List OF __regex_Node = [first.node]
+  WHILE idx < n AND collections::get(pat, idx) = "|"
+    idx = idx + 1
+    LET nextc AS __regex_Parse = __regex_parseConcat(pat, n, idx, flags, gg, nm, depth)
+    idx = nextc.nxt
+    gg = nextc.groups
+    nm = nextc.names
+    opts = collections::append(opts, nextc.node)
+  END WHILE
+  IF len(opts) = 1 THEN
+    RETURN __regex_Parse[collections::get(opts, 0), idx, gg, nm]
+  END IF
+  LET node AS __regex_Node = __regex_Alt[opts]
+  RETURN __regex_Parse[node, idx, gg, nm]
+END FUNC
+
+FUNC __regex_compile(pattern AS String) AS __regex_Program
+  LET pat AS List OF String = __regex_toScalars(pattern)
+  LET flags0 AS __regex_Flags = __regex_Flags[FALSE, FALSE, FALSE, FALSE, FALSE]
+  LET names0 AS Map OF String TO Integer = Map OF String TO Integer {}
+  LET parsed AS __regex_Parse = __regex_parseAlt(pat, len(pat), 0, flags0, 0, names0, 0)
+  IF parsed.nxt <> len(pat) THEN
+    FAIL error(77050003, "invalid regex")
+  END IF
+  RETURN __regex_Program[parsed.node, parsed.groups, parsed.names]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Replacement expansion (regex.md §13)
+' ---------------------------------------------------------------------------
+
+FUNC __regex_allDigits(s AS String) AS Boolean
+  IF len(s) = 0 THEN
+    RETURN FALSE
+  END IF
+  FOR EACH ch IN __regex_toScalars(s)
+    IF __regex_isDigit(ch) = FALSE THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
+
+FUNC __regex_lookupNum(num AS Integer, r AS __regex_Result, value AS String, prog AS __regex_Program) AS String
+  IF num < 0 OR num > prog.groups THEN
+    RETURN ""
+  END IF
+  LET s AS Integer = collections::get(r.caps, 2 * num)
+  LET e AS Integer = collections::get(r.caps, 2 * num + 1)
+  IF s < 0 OR e < 0 THEN
+    RETURN ""
+  END IF
+  RETURN strings::mid(value, s, e - s)
+END FUNC
+
+FUNC __regex_lookupName(name AS String, r AS __regex_Result, value AS String, prog AS __regex_Program) AS String
+  IF collections::hasKey(prog.names, name) THEN
+    RETURN __regex_lookupNum(collections::get(prog.names, name), r, value, prog)
+  END IF
+  RETURN ""
+END FUNC
+
+FUNC __regex_lookupRef(ref AS String, r AS __regex_Result, value AS String, prog AS __regex_Program) AS String
+  IF __regex_allDigits(ref) THEN
+    RETURN __regex_lookupNum(__regex_parseIntClamp(ref), r, value, prog)
+  END IF
+  RETURN __regex_lookupName(ref, r, value, prog)
+END FUNC
+
+FUNC __regex_expand(repl AS String, r AS __regex_Result, value AS String, prog AS __regex_Program) AS String
+  LET rs AS List OF String = __regex_toScalars(repl)
+  LET m AS Integer = len(rs)
+  MUT out AS String = ""
+  MUT i AS Integer = 0
+  DO WHILE i < m
+    LET c AS String = collections::get(rs, i)
+    IF c <> "$" THEN
+      out = out & c
+      i = i + 1
+      CONTINUE DO
+    END IF
+    IF i + 1 >= m THEN
+      out = out & "$"
+      i = i + 1
+      CONTINUE DO
+    END IF
+    LET d AS String = collections::get(rs, i + 1)
+    IF d = "$" THEN
+      out = out & "$"
+      i = i + 2
+      CONTINUE DO
+    END IF
+    IF d = "{" THEN
+      MUT j AS Integer = i + 2
+      MUT ref AS String = ""
+      MUT closed AS Boolean = FALSE
+      DO WHILE j < m
+        LET e AS String = collections::get(rs, j)
+        IF e = "}" THEN
+          closed = TRUE
+          EXIT DO
+        END IF
+        ref = ref & e
+        j = j + 1
+      LOOP
+      IF closed THEN
+        out = out & __regex_lookupRef(ref, r, value, prog)
+        i = j + 1
+      ELSE
+        out = out & "$"
+        i = i + 1
+      END IF
+      CONTINUE DO
+    END IF
+    IF __regex_isDigit(d) THEN
+      MUT j AS Integer = i + 1
+      MUT num AS String = ""
+      DO WHILE j < m AND __regex_isDigit(collections::get(rs, j))
+        num = num & collections::get(rs, j)
+        j = j + 1
+      LOOP
+      out = out & __regex_lookupNum(__regex_parseIntClamp(num), r, value, prog)
+      i = j
+      CONTINUE DO
+    END IF
+    IF __regex_isNameStart(d) THEN
+      MUT j AS Integer = i + 1
+      MUT nm AS String = ""
+      DO WHILE j < m AND __regex_isNameCont(collections::get(rs, j))
+        nm = nm & collections::get(rs, j)
+        j = j + 1
+      LOOP
+      out = out & __regex_lookupName(nm, r, value, prog)
+      i = j
+      CONTINUE DO
+    END IF
+    out = out & "$"
+    i = i + 1
+  LOOP
+  RETURN out
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Public functions
+' ---------------------------------------------------------------------------
+
+'@@MFB_BODY:match@@
+
+'@@MFB_BODY:find@@
+
+' bug-339 C3: the global-match walk — including the zero-width-match rule (a
+' match ending where the previous one did is skipped by advancing one position,
+' otherwise it is recorded and the cursor jumps past it) — lived identically in
+' both __regex_findAll and __regex_replace. Written once here; both consume the
+' resulting list of matches, differing only in what they do with each one.
+FUNC __regex_matchResults(prog AS __regex_Program, ctx AS __regex_Ctx, start AS Integer) AS List OF __regex_Result
+  MUT out AS List OF __regex_Result = []
+  MUT lastEnd AS Integer = start
+  MUT lastMatch AS Integer = -1
+  DO WHILE lastEnd <= ctx.n
+    LET r AS __regex_Result = __regex_searchFrom(prog, ctx, lastEnd)
+    IF r.ok = FALSE THEN
+      EXIT DO
+    END IF
+    LET mstart AS Integer = collections::get(r.caps, 0)
+    LET mend AS Integer = r.pos
+    IF mstart = mend THEN
+      IF mend = lastMatch THEN
+        lastEnd = mend + 1
+        CONTINUE DO
+      END IF
+      out = collections::append(out, r)
+      lastMatch = mend
+      lastEnd = mend + 1
+      CONTINUE DO
+    END IF
+    out = collections::append(out, r)
+    lastMatch = mend
+    lastEnd = mend
+  LOOP
+  RETURN out
+END FUNC
+
+'@@MFB_BODY:findAll@@
+
+'@@MFB_BODY:replace@@
+
+' plan-77 R4: precompute a 0..127 ASCII membership table for a character class so
+' __regex_classMatch does an O(1) lookup per input position instead of an
+' O(items) scan (plus its string comparisons). Built ONCE when the class node is
+' constructed, using the exact same logic __regex_classMatch would run for a
+' non-ASCII scalar — __regex_classMatchOne with case folding applied when the
+' class is case-insensitive. `neg` is NOT baked in here; __regex_classMatch
+' negates the looked-up bit so a single table serves both `[…]` and `[^…]`.
+FUNC __regex_asciiClassBitset(items AS List OF __regex_ClassItem, fold AS Boolean) AS List OF Boolean
+  MUT bits AS List OF Boolean = []
+  MUT cp AS Integer = 0
+  WHILE cp <= 127
+    LET ch AS String = encoding::utf32Decode([cp])
+    MUT hit AS Boolean = __regex_classMatchOne(items, ch, cp)
+    IF fold AND hit = FALSE THEN
+      LET lc AS String = strings::lower(ch)
+      IF lc <> ch AND len(lc) = 1 THEN
+        IF __regex_classMatchOne(items, lc, __regex_scalarToCp(lc)) THEN
+          hit = TRUE
+        END IF
+      END IF
+    END IF
+    IF fold AND hit = FALSE THEN
+      LET uc AS String = strings::upper(ch)
+      IF uc <> ch AND len(uc) = 1 THEN
+        IF __regex_classMatchOne(items, uc, __regex_scalarToCp(uc)) THEN
+          hit = TRUE
+        END IF
+      END IF
+    END IF
+    bits = collections::append(bits, hit)
+    cp = cp + 1
+  END WHILE
+  RETURN bits
+END FUNC
+
+FUNC __regex_makeClass(neg AS Boolean, fold AS Boolean, items AS List OF __regex_ClassItem) AS __regex_Class
+  RETURN __regex_Class[neg, fold, items, __regex_asciiClassBitset(items, fold)]
+END FUNC
+
+' plan-77 R5: the code point a match MUST begin with, or -1 when the pattern has
+' no fixed first literal (so __regex_searchFrom can fast-skip start offsets). Only
+' a non-folding literal yields a fixed cp; Concat/Group are transparent to their
+' first child. Everything else (Any, Class, Anchor, Alt, Repeat — which may be
+' optional or multi-valued) is conservatively "unknown" (-1).
+FUNC __regex_requiredFirstCp(node AS __regex_Node) AS Integer
+  MATCH node
+    CASE __regex_Lit(lit)
+      IF lit.fold THEN
+        RETURN -1
+      END IF
+      RETURN __regex_scalarToCp(lit.ch)
+    CASE __regex_Concat(cat)
+      IF len(cat.parts) = 0 THEN
+        RETURN -1
+      END IF
+      RETURN __regex_requiredFirstCp(collections::get(cat.parts, 0))
+    CASE __regex_Group(grp)
+      RETURN __regex_requiredFirstCp(grp.child)
+    CASE ELSE
+      RETURN -1
+  END MATCH
+END FUNC

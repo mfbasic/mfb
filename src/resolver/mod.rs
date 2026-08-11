@@ -82,7 +82,7 @@ pub fn resolve_project_with(
     let augmented = builtins::astrings::augmented_project(&augmented)?;
     let augmented = builtins::app::augmented_project(&augmented)?;
     let augmented = crate::codegen::builtins::csv::augmented_project(&augmented)?;
-    let augmented = builtins::regex::augmented_project(&augmented)?;
+    let augmented = crate::codegen::builtins::regex::augmented_project(&augmented)?;
     let augmented = builtins::datetime::augmented_project(&augmented)?;
     let augmented = builtins::money::augmented_project(&augmented)?;
     // `term_package.mfb` declares only the `LineStyle`/`FillStyle` enums and imports

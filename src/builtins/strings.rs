@@ -679,7 +679,12 @@ pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
     // restructure of the built-in injection/augmentation model that risks every
     // regex/strings program for a compile-time-only win, so it is deliberately not
     // done here. The `.replace` seam is the load-bearing part and must stay.
-    let table = include_str!("unicode_gencat.mfb").replace("__regex_genCat", "__strings_genCat");
+    // Shared single source of truth: the general-category table lives in the
+    // neutral `src/codegen/unicode/` (it is used by both `regex` and `strings`);
+    // `strings` includes the same file and renames `__regex_genCat` to its own
+    // file-local copy.
+    let table = include_str!("../codegen/unicode/unicode_gencat.mfb")
+        .replace("__regex_genCat", "__strings_genCat");
     let combined = format!("{}\n{}", include_str!("strings_package.mfb"), table);
     crate::ast::parse_source_internal(
         std::path::Path::new("<builtin-strings>"),

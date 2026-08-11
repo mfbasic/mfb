@@ -119,7 +119,7 @@ Build fixture programs, run them, and diff their behavior against goldens.
 
 ## Generated sources
 
-- **gen_regex_unicode.py** — Generates `src/builtins/unicode_gencat.mfb`, the
+- **gen_regex_unicode.py** — Generates `src/codegen/unicode/unicode_gencat.mfb`, the
   pinned Unicode general-category table the regex package resolves through. Output
   is tied to the interpreter's Unicode version, so regenerate only under Python
   3.14 (Unicode 16.0.0).
