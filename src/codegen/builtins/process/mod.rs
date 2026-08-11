@@ -24,6 +24,21 @@ use crate::codegen::registry::{
     DefaultValue, InjectionRule, Parameter, ParameterType, ReturnType, TypeKind,
 };
 
+mod func_close;
+mod func_detach;
+mod func_did_signal;
+mod func_is_running;
+mod func_pid;
+mod func_poll;
+mod func_receive;
+mod func_receive_bytes;
+mod func_send;
+mod func_send_bytes;
+mod func_shell;
+mod func_signal;
+mod func_spawn;
+mod func_wait_for;
+
 /// The opaque `Process` resource handle type name.
 pub(crate) const PROCESS_TYPE: &str = "Process";
 
@@ -68,18 +83,6 @@ const fn ov(params: &'static [Parameter], ret: &'static str) -> BuiltinOverload 
         params,
         return_type: ReturnType::Fixed(ret),
     }
-}
-
-// Every process member lowers natively via the `_mfb_rt_process_*` runtime-call
-// seam (dispatched by call name in `native/`), so each is `Implementation::Same`
-// declared with the registry-wide `BuiltinFunction::same`. `nf` keeps the compact
-// `(name, slug, overloads)` call shape; docs default empty until Phase 5.
-const fn nf(
-    name: &'static str,
-    slug: &'static str,
-    overloads: &'static [BuiltinOverload],
-) -> BuiltinFunction {
-    BuiltinFunction::same(name, slug, "", "", &[], overloads)
 }
 
 const fn req(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
@@ -155,20 +158,20 @@ const OV_SPAWN: &[BuiltinOverload] = &[
 ];
 
 const PROCESS_FUNCTIONS: &[BuiltinFunction] = &[
-    nf(SPAWN, "spawn", OV_SPAWN),
-    nf(SHELL, "shell", &[ov(P_SHELL, PROCESS_TYPE)]),
-    nf(PID, "pid", &[ov(P_PROC, "Integer")]),
-    nf(IS_RUNNING, "isRunning", &[ov(P_PROC, "Boolean")]),
-    nf(WAIT_FOR, "waitFor", &[ov(P_PROC, "Integer")]),
-    nf(CLOSE, "close", &[ov(P_PROC, "Nothing")]),
-    nf(SEND, "send", OV_SEND),
-    nf(SEND_BYTES, "sendBytes", OV_SEND_BYTES),
-    nf(RECEIVE, "receive", OV_RECEIVE),
-    nf(RECEIVE_BYTES, "receiveBytes", OV_RECEIVE_BYTES),
-    nf(POLL, "poll", OV_POLL),
-    nf(SIGNAL, "signal", &[ov(P_SIGNAL, "Nothing")]),
-    nf(DID_SIGNAL, "didSignal", &[ov(P_PROC, SIGNAL_TYPE)]),
-    nf(DETACH, "detach", &[ov(P_PROC, "Nothing")]),
+    func_spawn::SPAWN,
+    func_shell::SHELL,
+    func_pid::PID,
+    func_is_running::IS_RUNNING,
+    func_wait_for::WAIT_FOR,
+    func_close::CLOSE,
+    func_send::SEND,
+    func_send_bytes::SEND_BYTES,
+    func_receive::RECEIVE,
+    func_receive_bytes::RECEIVE_BYTES,
+    func_poll::POLL,
+    func_signal::SIGNAL,
+    func_did_signal::DID_SIGNAL,
+    func_detach::DETACH,
 ];
 
 const PROCESS_TYPES: &[BuiltinType] = &[BuiltinType {
@@ -295,9 +298,14 @@ mod tests {
         assert_eq!(o.params.len(), P_SHELL.len());
         assert!(matches!(o.return_type, ReturnType::Fixed("Boolean")));
 
-        let f = nf(
+        // Members are declared via the registry-wide `BuiltinFunction::same` (each
+        // in its own `func_*.rs`); exercise it here.
+        let f = BuiltinFunction::same(
             black_box("process.demo"),
             black_box("demo"),
+            "",
+            "",
+            &[],
             black_box(OV_POLL),
         );
         assert_eq!(f.name, "process.demo");
@@ -308,6 +316,8 @@ mod tests {
         assert!(matches!(f.lowering, Lowering::Helper));
         assert!(!f.flags.internal_only);
         assert!(!f.flags.return_type_overloaded);
+        // A migrated member descriptor lives in its func file.
+        assert_eq!(func_spawn::SPAWN.name, SPAWN);
     }
 
     fn ret(name: &str, args: &[&str]) -> Option<String> {
