@@ -907,7 +907,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::astrings::ASTRINGS,
     &crate::builtins::bits::BITS,
     &crate::codegen::builtins::collections::COLLECTIONS,
-    &crate::builtins::csv::CSV,
+    &crate::codegen::builtins::csv::CSV,
     &crate::builtins::crypto::CRYPTO,
     &crate::builtins::audio::AUDIO,
     &crate::builtins::datetime::DATETIME,

@@ -33,7 +33,7 @@ A map of the compiler's source modules and their responsibilities.
 | Network built-ins[[src/builtins/net.rs]] | Network (`Socket`/`Listener`/UDP) built-in signatures. |
 | TLS built-ins[[src/builtins/tls.rs]] | TLS (`TlsSocket`) built-in signatures. |
 | HTTP built-ins[[src/builtins/http.rs]] | HTTP built-in signatures. |
-| CSV built-ins[[src/builtins/csv.rs]] | CSV built-in signatures. |
+| CSV built-ins[[src/codegen/builtins/csv/mod.rs]] | CSV built-in signatures. |
 | Regex built-ins[[src/builtins/regex.rs]] | Regex built-in signatures. |
 | `errorCode` package[[src/builtins/errorcode.rs]] | `errorCode` integer-constant package. |
 | Resource-type registry[[src/builtins/resource.rs]] | Data-driven resource-type registry. |

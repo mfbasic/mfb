@@ -97,7 +97,7 @@ pub fn lower_project_with_external_functions(
         .expect("built-in astrings package source must parse");
     let augmented = builtins::app::augmented_project(&augmented)
         .expect("built-in app package source must parse");
-    let augmented = builtins::csv::augmented_project(&augmented)
+    let augmented = crate::codegen::builtins::csv::augmented_project(&augmented)
         .expect("built-in csv package source must parse");
     let augmented = builtins::regex::augmented_project(&augmented)
         .expect("built-in regex package source must parse");
@@ -2081,7 +2081,7 @@ fn expression_type(
                 || builtins::audio::is_audio_call(&canonical_callee)
                 || builtins::http::is_http_call(&canonical_callee)
                 || builtins::json::is_json_call(&canonical_callee)
-                || builtins::csv::is_csv_call(&canonical_callee)
+                || crate::codegen::builtins::csv::is_csv_call(&canonical_callee)
                 || builtins::regex::is_regex_call(&canonical_callee)
                 || builtins::datetime::is_datetime_call(&canonical_callee)
                 || builtins::crypto::is_crypto_call(&canonical_callee)
@@ -2953,7 +2953,9 @@ fn lower_expression_with_expected(
                 })
                 .or_else(|| {
                     builtins::json::implementation_name(&canonical_callee)
-                        .or_else(|| builtins::csv::implementation_name(&canonical_callee))
+                        .or_else(|| {
+                            crate::codegen::builtins::csv::implementation_name(&canonical_callee)
+                        })
                         .or_else(|| builtins::regex::implementation_name(&canonical_callee))
                         .or_else(|| builtins::net::implementation_name(&canonical_callee))
                         .or_else(|| {

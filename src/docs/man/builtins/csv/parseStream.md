@@ -19,7 +19,7 @@ csv
 IMPORT csv
 ```
 
-`csv` is a built-in package, so `IMPORT csv` needs no manifest dependency. [[src/builtins/csv.rs:CSV]]
+`csv` is a built-in package, so `IMPORT csv` needs no manifest dependency. [[src/codegen/builtins/csv/mod.rs:CSV]]
 
 ## Description
 
@@ -28,28 +28,28 @@ scan cursor — without parsing any rows yet. Each subsequent `csv::readRow` par
 exactly one record and returns it with the reader advanced, so a document is
 processed one row at a time and the whole `List OF List OF String` grid is never
 materialized. The rows a `parseStream`/`readRow` loop yields are identical to
-`csv::parse(value)`. [[src/builtins/csv_package.mfb:__csv_parseStream]]
+`csv::parse(value)`. [[src/codegen/builtins/csv/func_parse_stream.rs:__csv_parseStream]]
 
 The optional `delimiter` and `quote` select the input dialect exactly as for
 `csv::parse` (defaults `,` and `"`); each must be a non-empty single character.
-The output-only dialect option (`newline`) does not apply to reading. [[src/builtins/csv.rs:default_argument_padding]]
+The output-only dialect option (`newline`) does not apply to reading. [[src/codegen/builtins/csv/mod.rs:default_argument_padding]]
 
 The argument may also be supplied by the name `text`. `csv::parseStream` does not
-mutate `value` and has no side effects. [[src/builtins/csv.rs:call_param_names]]
+mutate `value` and has no side effects. [[src/codegen/builtins/csv/mod.rs:call_param_names]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The UTF-8 CSV text to stream. May also be passed by the name `text`. It is never modified. [[src/builtins/csv.rs:call_param_names]] |
-| `delimiter` | `String` | Optional. The single character that separates fields. Defaults to `,`. [[src/builtins/csv.rs:default_argument_padding]] |
-| `quote` | `String` | Optional. The single character that wraps a field and, doubled, escapes itself. Defaults to `"`. [[src/builtins/csv.rs:default_argument_padding]] |
+| `value` | `String` | The UTF-8 CSV text to stream. May also be passed by the name `text`. It is never modified. [[src/codegen/builtins/csv/mod.rs:call_param_names]] |
+| `delimiter` | `String` | Optional. The single character that separates fields. Defaults to `,`. [[src/codegen/builtins/csv/mod.rs:default_argument_padding]] |
+| `quote` | `String` | Optional. The single character that wraps a field and, doubled, escapes itself. Defaults to `"`. [[src/codegen/builtins/csv/mod.rs:default_argument_padding]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `CsvReader` | A reader positioned at the start of `value`. Pass it to `csv::readRow` to obtain the first record. [[src/builtins/csv_package.mfb:CsvReader]] |
+| `CsvReader` | A reader positioned at the start of `value`. Pass it to `csv::readRow` to obtain the first record. [[src/codegen/builtins/csv/package.mfb:CsvReader]] |
 
 ## Errors
 

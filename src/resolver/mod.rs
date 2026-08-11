@@ -81,7 +81,7 @@ pub fn resolve_project_with(
     // ordering dependency.
     let augmented = builtins::astrings::augmented_project(&augmented)?;
     let augmented = builtins::app::augmented_project(&augmented)?;
-    let augmented = builtins::csv::augmented_project(&augmented)?;
+    let augmented = crate::codegen::builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;
     let augmented = builtins::datetime::augmented_project(&augmented)?;
     let augmented = builtins::money::augmented_project(&augmented)?;

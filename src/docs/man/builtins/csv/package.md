@@ -17,20 +17,20 @@ csv::readRow(reader)                           ' -> CsvRow
 The `csv` package converts between CSV text and a grid of rows of String cells.
 `csv::parse` turns a UTF-8 `String` holding CSV text into a
 `List OF List OF String`, and `csv::stringify` renders such a grid back into CSV
-text. `csv` is a built-in package: `IMPORT csv` needs no manifest dependency. [[src/builtins/csv.rs:CSV]]
+text. `csv` is a built-in package: `IMPORT csv` needs no manifest dependency. [[src/codegen/builtins/csv/mod.rs:CSV]]
 
 A whole-document CSV is exactly a `List OF List OF String`: an ordered list of
 rows, each an ordered list of String cells. The parsed grid composes directly
 with the `collections` package and `FOR EACH`; cells are read positionally with
 `collections::get`; there is no header concept — every parsed line is an ordinary
-row. [[src/builtins/csv.rs:GRID_TYPE]]
+row. [[src/codegen/builtins/csv/mod.rs:GRID_TYPE]]
 
 For large inputs there is a streaming alternative that never materializes the
 whole grid: `csv::parseStream` returns a `CsvReader` holding the input and a scan
 cursor, and each `csv::readRow` parses exactly one record and returns a `CsvRow`
 (`fields AS List OF String`, `reader AS CsvReader` advanced past the record, and
 `done AS Boolean`). A caller loops `WHILE row.done = FALSE` (see `mfb man csv
-readRow`). The rows are identical to `csv::parse`'s. [[src/builtins/csv_package.mfb:__csv_next]]
+readRow`). The rows are identical to `csv::parse`'s. [[src/codegen/builtins/csv/func_read_row.rs:__csv_next]]
 
 Cells are plain Strings. There is no type inference and no null: `42`, `true`,
 and an empty field are just the Strings `"42"`, `"true"`, and `""`. Callers that
@@ -47,14 +47,14 @@ data. A field may be wrapped in the quote character, inside which a literal quot
 is written by doubling it and delimiters, CR, and LF are ordinary data.
 Whitespace is significant and never trimmed. A single trailing record separator does not
 create an empty final row, but two consecutive separators do produce an empty
-row in the middle. Empty input parses to zero rows. [[src/builtins/csv_package.mfb:__csv_parse]]
+row in the middle. Empty input parses to zero rows. [[src/codegen/builtins/csv/func_parse.rs:__csv_parse]]
 
 `csv::stringify` renders deterministically: rows are joined with a single LF
 with no trailing newline, fields within a row are joined with a comma, and a
 field is quoted only when it contains a comma, a double quote, a CR, or an LF.
 For any grid `x`, `csv::parse(csv::stringify(x))` yields a grid whose cells
 equal those of `x`, except that a trailing empty row produced only by separator
-placement is not reintroduced and a CRLF separator is normalized to LF. [[src/builtins/csv_package.mfb:__csv_needsQuote]]
+placement is not reintroduced and a CRLF separator is normalized to LF. [[src/codegen/builtins/csv/package.mfb:__csv_needsQuote]]
 
 ## Errors
 

@@ -168,7 +168,7 @@ pub fn check_project_collect(
     // `astrings` imports only `collections` (native members) + `astrings` itself.
     let augmented = builtins::astrings::augmented_project(&augmented)?;
     let augmented = builtins::app::augmented_project(&augmented)?;
-    let augmented = builtins::csv::augmented_project(&augmented)?;
+    let augmented = crate::codegen::builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;
     let augmented = builtins::datetime::augmented_project(&augmented)?;
     let augmented = builtins::money::augmented_project(&augmented)?;

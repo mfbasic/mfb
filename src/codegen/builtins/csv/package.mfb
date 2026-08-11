@@ -31,78 +31,7 @@ IMPORT encoding
 ' plan-77 C3: `delimiter` and `quote` are single-character strings (RFC-4180
 ' defaults "," and the double quote when the caller omits them). The parser works
 ' on Unicode scalar codes, so each is converted to its first code point once.
-FUNC __csv_parse(value AS String, delimiter AS String, quote AS String) AS List OF List OF String
-  LET delimCode AS Integer = __csv_firstCode(delimiter)
-  LET quoteCode AS Integer = __csv_firstCode(quote)
-  LET chars AS List OF Integer = encoding::utf32Encode(value)
-  LET count AS Integer = len(chars)
-  MUT rows AS List OF List OF String = []
-  MUT row AS List OF String = []
-  MUT fieldBuf AS List OF Integer = []
-  MUT fieldStart AS Integer = 0
-  MUT index AS Integer = 0
-  MUT inQuotes AS Boolean = FALSE
-  MUT fieldStarted AS Boolean = FALSE
-  MUT wasQuoted AS Boolean = FALSE
-  MUT recordPending AS Boolean = FALSE
-
-  WHILE index < count
-    LET ch AS Integer = collections::get(chars, index)
-    IF inQuotes THEN
-      IF ch = quoteCode THEN
-        IF __csv_isDoubledQuote(chars, count, index, quoteCode) THEN
-          fieldBuf = collections::append(fieldBuf, quoteCode)
-          index = index + 2
-        ELSE
-          inQuotes = FALSE
-          wasQuoted = TRUE
-          index = index + 1
-        END IF
-      ELSE
-        fieldBuf = collections::append(fieldBuf, ch)
-        index = index + 1
-      END IF
-    ELSEIF __csv_separatorLength(chars, count, index) > 0 THEN
-      row = collections::append(row, __csv_fieldValue(chars, fieldBuf, wasQuoted, fieldStart, index))
-      rows = collections::append(rows, row)
-      row = []
-      fieldBuf = []
-      fieldStarted = FALSE
-      wasQuoted = FALSE
-      recordPending = FALSE
-      index = index + __csv_separatorLength(chars, count, index)
-      fieldStart = index
-    ELSEIF ch = delimCode THEN
-      row = collections::append(row, __csv_fieldValue(chars, fieldBuf, wasQuoted, fieldStart, index))
-      fieldBuf = []
-      fieldStarted = FALSE
-      wasQuoted = FALSE
-      recordPending = TRUE
-      index = index + 1
-      fieldStart = index
-    ELSEIF wasQuoted THEN
-      FAIL error(77050003, "invalid CSV format")
-    ELSEIF ch = quoteCode AND fieldStarted = FALSE THEN
-      inQuotes = TRUE
-      fieldStarted = TRUE
-      index = index + 1
-    ELSE
-      fieldStarted = TRUE
-      index = index + 1
-    END IF
-  END WHILE
-
-  IF inQuotes THEN
-    FAIL error(77050003, "invalid CSV format")
-  END IF
-
-  IF fieldStarted OR recordPending OR wasQuoted THEN
-    row = collections::append(row, __csv_fieldValue(chars, fieldBuf, wasQuoted, fieldStart, index))
-    rows = collections::append(rows, row)
-  END IF
-
-  RETURN rows
-END FUNC
+'@@MFB_BODY:parse@@
 
 ' Decode one CSV field. A quoted field's content was collapsed into `buf`
 ' (doubled quotes folded, delimiters stripped), so it is decoded from the buffer.
@@ -188,19 +117,7 @@ END FUNC
 ' LF. Inside a quoted field every double quote is doubled.
 ' plan-77 C3: `delimiter`/`quote`/`newline` are the output dialect (RFC-4180
 ' defaults ",", the double quote, and LF when the caller omits them).
-FUNC __csv_stringify(value AS List OF List OF String, delimiter AS String, quote AS String, newline AS String) AS String
-  MUT out AS String = ""
-  MUT firstRow AS Boolean = TRUE
-  FOR EACH row IN value
-    IF firstRow THEN
-      firstRow = FALSE
-    ELSE
-      out = out & newline
-    END IF
-    out = out & __csv_stringifyRow(row, delimiter, quote)
-  NEXT
-  RETURN out
-END FUNC
+'@@MFB_BODY:stringify@@
 
 FUNC __csv_stringifyRow(row AS List OF String, delimiter AS String, quote AS String) AS String
   MUT out AS String = ""
@@ -269,67 +186,6 @@ EXPORT TYPE CsvRow
   done AS Boolean
 END TYPE
 
-FUNC __csv_parseStream(value AS String, delimiter AS String, quote AS String) AS CsvReader
-  LET chars AS List OF Integer = encoding::utf32Encode(value)
-  RETURN CsvReader[chars, len(chars), 0, __csv_firstCode(delimiter), __csv_firstCode(quote)]
-END FUNC
+'@@MFB_BODY:parseStream@@
 
-FUNC __csv_next(reader AS CsvReader) AS CsvRow
-  LET chars AS List OF Integer = reader.chars
-  LET count AS Integer = reader.count
-  LET delimCode AS Integer = reader.delimCode
-  LET quoteCode AS Integer = reader.quoteCode
-  MUT index AS Integer = reader.index
-  IF index >= count THEN
-    RETURN CsvRow[[], reader, TRUE]
-  END IF
-  MUT row AS List OF String = []
-  MUT fieldBuf AS List OF Integer = []
-  MUT fieldStart AS Integer = index
-  MUT inQuotes AS Boolean = FALSE
-  MUT fieldStarted AS Boolean = FALSE
-  MUT wasQuoted AS Boolean = FALSE
-  WHILE index < count
-    LET ch AS Integer = collections::get(chars, index)
-    IF inQuotes THEN
-      IF ch = quoteCode THEN
-        IF __csv_isDoubledQuote(chars, count, index, quoteCode) THEN
-          fieldBuf = collections::append(fieldBuf, quoteCode)
-          index = index + 2
-        ELSE
-          inQuotes = FALSE
-          wasQuoted = TRUE
-          index = index + 1
-        END IF
-      ELSE
-        fieldBuf = collections::append(fieldBuf, ch)
-        index = index + 1
-      END IF
-    ELSEIF __csv_separatorLength(chars, count, index) > 0 THEN
-      row = collections::append(row, __csv_fieldValue(chars, fieldBuf, wasQuoted, fieldStart, index))
-      index = index + __csv_separatorLength(chars, count, index)
-      RETURN CsvRow[row, CsvReader[chars, count, index, delimCode, quoteCode], FALSE]
-    ELSEIF ch = delimCode THEN
-      row = collections::append(row, __csv_fieldValue(chars, fieldBuf, wasQuoted, fieldStart, index))
-      fieldBuf = []
-      fieldStarted = FALSE
-      wasQuoted = FALSE
-      index = index + 1
-      fieldStart = index
-    ELSEIF wasQuoted THEN
-      FAIL error(77050003, "invalid CSV format")
-    ELSEIF ch = quoteCode AND fieldStarted = FALSE THEN
-      inQuotes = TRUE
-      fieldStarted = TRUE
-      index = index + 1
-    ELSE
-      fieldStarted = TRUE
-      index = index + 1
-    END IF
-  END WHILE
-  IF inQuotes THEN
-    FAIL error(77050003, "invalid CSV format")
-  END IF
-  row = collections::append(row, __csv_fieldValue(chars, fieldBuf, wasQuoted, fieldStart, index))
-  RETURN CsvRow[row, CsvReader[chars, count, index, delimCode, quoteCode], FALSE]
-END FUNC
+'@@MFB_BODY:readRow@@

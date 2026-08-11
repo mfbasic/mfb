@@ -19,7 +19,7 @@ csv
 IMPORT csv
 ```
 
-`csv` is a built-in package, so `IMPORT csv` needs no manifest dependency. [[src/builtins/csv.rs:CSV]]
+`csv` is a built-in package, so `IMPORT csv` needs no manifest dependency. [[src/codegen/builtins/csv/mod.rs:CSV]]
 
 ## Description
 
@@ -30,7 +30,7 @@ cells. Internally the text is decoded to its Unicode scalars in one pass
 splits a multi-byte code point or a `\r\n` pair incorrectly; each field is
 accumulated in a scalar buffer and re-encoded to a String with
 `encoding::utf32Decode`. Every structural CSV character (comma, quote, CR, LF) is
-ASCII, so the resulting grid is byte-identical to a grapheme-based scan. [[src/builtins/csv_package.mfb:__csv_parse]]
+ASCII, so the resulting grid is byte-identical to a grapheme-based scan. [[src/codegen/builtins/csv/func_parse.rs:__csv_parse]]
 
 The dialect is RFC-4180-aligned. The field delimiter defaults to a comma (scalar
 `44`) but can be overridden with the optional `delimiter` argument; the quote
@@ -43,7 +43,7 @@ be wrapped in the quote character: the opening quote must be the first character
 of the field, inside a quoted field a literal quote is written by doubling it, and
 delimiters, CR, and LF are ordinary data. The closing quote must be immediately
 followed by the delimiter, a record separator, or the end of input. Whitespace is
-significant and never trimmed. [[src/builtins/csv_package.mfb:__csv_separatorLength]]
+significant and never trimmed. [[src/codegen/builtins/csv/package.mfb:__csv_separatorLength]]
 
 Cells are plain Strings with no type inference and no null: `42`, `true`, and an
 empty field parse to the Strings `"42"`, `"true"`, and `""`. Callers that want
@@ -52,30 +52,30 @@ to be rectangular; each row keeps whatever field count it had. A single trailing
 record separator does not create an empty final row, so `"a\nb\n"` parses to two
 rows, while two consecutive separators do produce an empty row in the middle.
 Empty input parses to zero rows. There is no header concept — every parsed line
-is an ordinary row, and cells are read positionally with `collections::get`. [[src/builtins/csv_package.mfb:__csv_parse]]
+is an ordinary row, and cells are read positionally with `collections::get`. [[src/codegen/builtins/csv/func_parse.rs:__csv_parse]]
 
 The argument may also be supplied by the name `text`. `csv::parse` does not
-mutate `value` and has no side effects. [[src/builtins/csv.rs:call_param_names]]
+mutate `value` and has no side effects. [[src/codegen/builtins/csv/mod.rs:call_param_names]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The UTF-8 CSV text to parse. May also be passed by the name `text`. It is never modified. [[src/builtins/csv.rs:call_param_names]] |
-| `delimiter` | `String` | Optional. The single character that separates fields. Defaults to `,`. [[src/builtins/csv.rs:default_argument_padding]] |
-| `quote` | `String` | Optional. The single character that wraps a field and, doubled, escapes itself. Defaults to `"`. [[src/builtins/csv.rs:default_argument_padding]] |
+| `value` | `String` | The UTF-8 CSV text to parse. May also be passed by the name `text`. It is never modified. [[src/codegen/builtins/csv/mod.rs:call_param_names]] |
+| `delimiter` | `String` | Optional. The single character that separates fields. Defaults to `,`. [[src/codegen/builtins/csv/mod.rs:default_argument_padding]] |
+| `quote` | `String` | Optional. The single character that wraps a field and, doubled, escapes itself. Defaults to `"`. [[src/codegen/builtins/csv/mod.rs:default_argument_padding]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF List OF String` | The grid of rows of String cells, in document order. Empty input yields an empty list; a single trailing record separator does not add an empty final row. [[src/builtins/csv.rs:GRID_TYPE]] |
+| `List OF List OF String` | The grid of rows of String cells, in document order. Empty input yields an empty list; a single trailing record separator does not add an empty final row. [[src/codegen/builtins/csv/mod.rs:GRID_TYPE]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | A quoted field is opened but never closed before the end of input; the closing quote of a quoted field is followed by a grapheme that is neither the delimiter, a record separator, nor the end of input; or a supplied `delimiter`/`quote` is the empty String. [[src/builtins/csv_package.mfb:__csv_parse]] [[src/builtins/csv_package.mfb:__csv_firstCode]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | A quoted field is opened but never closed before the end of input; the closing quote of a quoted field is followed by a grapheme that is neither the delimiter, a record separator, nor the end of input; or a supplied `delimiter`/`quote` is the empty String. [[src/codegen/builtins/csv/func_parse.rs:__csv_parse]] [[src/codegen/builtins/csv/package.mfb:__csv_firstCode]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

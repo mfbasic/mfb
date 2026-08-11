@@ -3,7 +3,6 @@ pub(crate) mod astrings;
 pub(crate) mod audio;
 pub(crate) mod bits;
 pub(crate) mod crypto;
-pub(crate) mod csv;
 pub(crate) mod datetime;
 pub(crate) mod errorcode;
 pub(crate) mod fs;
@@ -169,7 +168,7 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         "app" => app::is_builtin_type(member),
         "audio" => audio::is_builtin_type(member),
         "crypto" => crypto::is_builtin_type(member),
-        "csv" => csv::is_builtin_type(member),
+        "csv" => crate::codegen::builtins::csv::is_builtin_type(member),
         "datetime" => datetime::is_builtin_type(member),
         "fs" => fs::is_builtin_type(member),
         "http" => http::is_builtin_type(member),
@@ -468,7 +467,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
         .or_else(|| os::expected_arguments(name))
         .or_else(|| io::expected_arguments(name))
         .or_else(|| json::expected_arguments(name))
-        .or_else(|| csv::expected_arguments(name))
+        .or_else(|| crate::codegen::builtins::csv::expected_arguments(name))
         .or_else(|| bits::expected_arguments(name))
         .or_else(|| datetime::expected_arguments(name))
     {
@@ -504,7 +503,7 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| os::expected_arguments(callee))
         .or_else(|| io::expected_arguments(callee))
         .or_else(|| json::expected_arguments(callee))
-        .or_else(|| csv::expected_arguments(callee))
+        .or_else(|| crate::codegen::builtins::csv::expected_arguments(callee))
         .or_else(|| regex::expected_arguments(callee))
         .or_else(|| net::argument_types(callee))
         .or_else(|| tls::argument_types(callee))
@@ -540,7 +539,7 @@ pub(crate) fn default_argument_padding(
         datetime::default_argument_padding(callee, provided),
         crypto::default_argument_padding(callee, provided),
         http::default_argument_padding(callee, provided),
-        csv::default_argument_padding(callee, provided),
+        crate::codegen::builtins::csv::default_argument_padding(callee, provided),
     ] {
         if !pad.is_empty() {
             return pad;
@@ -748,7 +747,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| fs::call_param_names(name))
         .or_else(|| io::call_param_names(name))
         .or_else(|| json::call_param_names(name))
-        .or_else(|| csv::call_param_names(name))
+        .or_else(|| crate::codegen::builtins::csv::call_param_names(name))
         .or_else(|| regex::call_param_names(name))
         .or_else(|| datetime::call_param_names(name))
         .or_else(|| money::call_param_names(name))
