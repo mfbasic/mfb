@@ -20,7 +20,7 @@ IMPORT process
 ```
 
 `process` is a built-in package, so no manifest dependency is required.
-[[src/builtins/process.rs:is_process_call]]
+[[src/codegen/builtins/process/mod.rs:is_process_call]]
 
 ## Description
 
@@ -63,15 +63,15 @@ milliseconds (best-effort on Windows). [[src/target/shared/code/process/unix.rs:
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/builtins/process.rs:P_SENDB]] |
+| `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/mod.rs:P_SENDB]] |
 | `data` | `List OF Byte` | The bytes to write, in list order, with no newline appended. An empty list writes nothing. [[src/target/shared/code/process/unix.rs:lower_process_send_helper]] |
-| `timeoutMs` | `Integer` | Optional. The maximum time to wait for room in the child's input pipe, in milliseconds; on expiry the call raises `ErrTimeout`. Best-effort on Windows. [[src/builtins/process.rs:P_SENDB_T]] |
+| `timeoutMs` | `Integer` | Optional. The maximum time to wait for room in the child's input pipe, in milliseconds; on expiry the call raises `ErrTimeout`. Best-effort on Windows. [[src/codegen/builtins/process/mod.rs:P_SENDB_T]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `sendBytes` returns no value. On a successful return every byte of `data` has been handed to the child's input pipe. [[src/builtins/process.rs:PROCESS_TYPE]] |
+| `Nothing` | `sendBytes` returns no value. On a successful return every byte of `data` has been handed to the child's input pipe. [[src/codegen/builtins/process/mod.rs:PROCESS_TYPE]] |
 
 ## Errors
 

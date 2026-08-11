@@ -12,7 +12,6 @@ pub(crate) mod math;
 pub(crate) mod money;
 pub(crate) mod net;
 pub(crate) mod os;
-pub(crate) mod process;
 pub(crate) mod resource;
 pub(crate) mod strings;
 pub(crate) mod term;
@@ -172,7 +171,7 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         "json" => crate::codegen::builtins::json::is_builtin_type(member),
         "money" => money::is_builtin_type(member),
         "net" => net::is_builtin_type(member),
-        "process" => process::is_builtin_type(member),
+        "process" => crate::codegen::builtins::process::is_builtin_type(member),
         "term" => term::is_builtin_type(member),
         "thread" => thread::is_builtin_type(member),
         "tls" => tls::is_builtin_type(member),
@@ -452,7 +451,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
         .or_else(|| net::expected_arguments(name))
         .or_else(|| tls::expected_arguments(name))
         .or_else(|| audio::expected_arguments(name))
-        .or_else(|| process::expected_arguments(name))
+        .or_else(|| crate::codegen::builtins::process::expected_arguments(name))
         .or_else(|| http::expected_arguments(name))
         .or_else(|| vector::expected_arguments(name))
         .or_else(|| crate::codegen::builtins::collections::expected_arguments(name))

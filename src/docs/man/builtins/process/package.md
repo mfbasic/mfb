@@ -21,7 +21,7 @@ The `process` package runs and controls child processes. Its one resource,
 resource sharing the runtime's canonical resource record (resource tag `10`).
 Like every resource handle it cannot be copied, stored as a collection element,
 or carried in a record; it is closed automatically by lexical drop when its
-binding leaves scope. [[src/builtins/process.rs:PROCESS_TYPE]]
+binding leaves scope. [[src/codegen/builtins/process/mod.rs:PROCESS_TYPE]]
 [[src/target/shared/code/error_constants.rs:RESOURCE_TAG_PROCESS]]
 
 A child is created two ways. `process::spawn` runs a program directly from an
@@ -41,7 +41,7 @@ end-of-input to a filter) and leaves the child running and the handle usable.
 `process::detach` relinquishes ownership the other way — it closes the parent-side
 pipes, arranges for the child to be auto-reaped, and marks the handle closed so
 the child keeps running independently after the program exits.
-[[src/builtins/process.rs:resource_close_function]]
+[[src/codegen/builtins/process/mod.rs:resource_close_function]]
 [[src/target/shared/code/process/unix.rs:lower_process_detach_helper]]
 
 Streaming I/O connects to the child's three standard streams over pipes.
@@ -52,14 +52,14 @@ available chunk of raw bytes. Both readers take an optional `Stream` argument
 selecting standard output (the default) or standard error, and `process::poll`
 reports whether the selected stream is readable within a timeout. A read that
 reaches end of stream with nothing buffered raises `ErrResourceClosed`, so a
-consumer loops until that error is raised. [[src/builtins/process.rs:STREAM_TYPE]]
+consumer loops until that error is raised. [[src/codegen/builtins/process/mod.rs:STREAM_TYPE]]
 [[src/target/shared/code/process/unix.rs:lower_process_receive_helper]]
 
 The `Signal` enum is a four-bucket cross-platform vocabulary (`None`, `Kill`,
 `Terminate`, `Error`) used both to *deliver* a signal with `process::signal` and
 to *observe* how a terminated child died with `process::didSignal`; the exact
 platform mapping is tabulated in `mfb man process types`.
-[[src/builtins/process.rs:SIGNAL_TYPE]]
+[[src/codegen/builtins/process/mod.rs:SIGNAL_TYPE]]
 [[src/target/shared/code/process/unix.rs:lower_process_signal_helper]]
 
 The lifecycle queries read cached state: `process::pid` returns the child pid,

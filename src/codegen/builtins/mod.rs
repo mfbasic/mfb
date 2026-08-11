@@ -7,4 +7,5 @@ pub(crate) mod csv;
 pub(crate) mod datetime;
 pub(crate) mod encoding;
 pub(crate) mod json;
+pub(crate) mod process;
 pub(crate) mod regex;

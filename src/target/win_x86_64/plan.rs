@@ -507,7 +507,7 @@ impl NativePlanPlatform for Platform {
             // plan-90-D: the process lifecycle over CreateProcessA. Over-importing
             // the whole kernel32 set for every process.* helper is harmless (the
             // merged IAT dedups).
-            call if crate::builtins::process::is_process_runtime_call(call) => vec![
+            call if crate::codegen::builtins::process::is_process_runtime_call(call) => vec![
                 import("CreateProcessA", KERNEL32, required_by),
                 import("CreatePipe", KERNEL32, required_by),
                 import("SetHandleInformation", KERNEL32, required_by),

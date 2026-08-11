@@ -19,7 +19,7 @@ IMPORT process
 ```
 
 `process` is a built-in package, so no manifest dependency is required.
-[[src/builtins/process.rs:is_process_call]]
+[[src/codegen/builtins/process/mod.rs:is_process_call]]
 
 ## Description
 
@@ -49,7 +49,7 @@ exiting; drain the child with `process::receive` (or close its input with
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/builtins/process.rs:P_PROC]] |
+| `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/mod.rs:P_PROC]] |
 
 ## Return value
 

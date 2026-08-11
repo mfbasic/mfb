@@ -20,7 +20,7 @@ IMPORT process
 ```
 
 `process` is a built-in package, so no manifest dependency is required.
-[[src/builtins/process.rs:is_process_call]]
+[[src/codegen/builtins/process/mod.rs:is_process_call]]
 
 ## Description
 
@@ -30,7 +30,7 @@ never over-reading past the line boundary, so successive calls return successive
 lines. Without a `from` argument it reads the child's standard output; pass a
 `Stream` value to choose standard output or standard error explicitly.
 [[src/target/shared/code/process/unix.rs:lower_process_receive_helper]]
-[[src/builtins/process.rs:STREAM_TYPE]]
+[[src/codegen/builtins/process/mod.rs:STREAM_TYPE]]
 
 The call blocks until a full line is available or the stream ends. At end of stream
 it **drains before reporting closed**: any bytes accumulated since the last newline
@@ -60,8 +60,8 @@ Reads one line from the selected stream — `Stream.StdOut` or `Stream.StdErr`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/builtins/process.rs:P_RECV]] |
-| `from` | `Stream` | Optional. Which output stream to read: `Stream.StdOut` (the default) or `Stream.StdErr`. [[src/builtins/process.rs:P_RECV_S]] |
+| `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/mod.rs:P_RECV]] |
+| `from` | `Stream` | Optional. Which output stream to read: `Stream.StdOut` (the default) or `Stream.StdErr`. [[src/codegen/builtins/process/mod.rs:P_RECV_S]] |
 
 ## Return value
 

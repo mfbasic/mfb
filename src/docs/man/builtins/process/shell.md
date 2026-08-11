@@ -19,7 +19,7 @@ IMPORT process
 ```
 
 `process` is a built-in package, so no manifest dependency is required.
-[[src/builtins/process.rs:is_process_call]]
+[[src/codegen/builtins/process/mod.rs:is_process_call]]
 
 ## Description
 
@@ -41,19 +41,19 @@ The child is wired to three pipes for its standard streams exactly as with
 lexical drop at scope exit, which force-kills and reaps a still-running child unless
 it is first awaited with `process::waitFor` or released with `process::detach`.
 [[src/target/shared/code/process/unix.rs:emit_spawn_tail]]
-[[src/builtins/process.rs:resource_close_function]]
+[[src/codegen/builtins/process/mod.rs:resource_close_function]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `cmd` | `String` | The command line, parsed and run by the platform shell (`/bin/sh -c` on Unix). Also accepts the alternate named-argument spelling `command`. [[src/builtins/process.rs:P_SHELL]] |
+| `cmd` | `String` | The command line, parsed and run by the platform shell (`/bin/sh -c` on Unix). Also accepts the alternate named-argument spelling `command`. [[src/codegen/builtins/process/mod.rs:P_SHELL]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Process` | An owned handle to the running shell child. Closed by lexical drop at scope exit (which kills and reaps it) unless first awaited with `process::waitFor` or released with `process::detach`. [[src/builtins/process.rs:PROCESS_TYPE]] |
+| `Process` | An owned handle to the running shell child. Closed by lexical drop at scope exit (which kills and reaps it) unless first awaited with `process::waitFor` or released with `process::detach`. [[src/codegen/builtins/process/mod.rs:PROCESS_TYPE]] |
 
 ## Errors
 

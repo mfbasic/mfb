@@ -351,6 +351,37 @@ impl BuiltinFunction {
         }
     }
 
+    /// Declare a builtin with no rewrite — the public name **is** the
+    /// implementation (`Implementation::Same`). Used by OS-seam packages whose
+    /// members lower to `_mfb_rt_<pkg>_*` runtime helpers keyed by call name
+    /// (process/io/fs/net/…): the descriptor answers arity/return/validation and
+    /// the native backend emits the mechanism. The registry-wide counterpart to
+    /// [`Self::mfb`]/[`Self::native`]/[`Self::custom`].
+    pub(crate) const fn same(
+        name: &'static str,
+        doc_slug: &'static str,
+        doc_intro: &'static str,
+        doc_desc: &'static str,
+        errors: &'static [&'static str],
+        overloads: &'static [BuiltinOverload],
+    ) -> BuiltinFunction {
+        BuiltinFunction {
+            name,
+            doc_slug,
+            doc_intro,
+            doc_desc,
+            errors,
+            overloads,
+            doc_example: "",
+            implementation: Implementation::Same,
+            lowering: Lowering::Helper,
+            flags: BuiltinFlags {
+                internal_only: false,
+                return_type_overloaded: false,
+            },
+        }
+    }
+
     /// The member's native fast path, if it carries one (`Implementation::Mfb`
     /// with a `Some` `fast_path`). The codegen monomorph-dispatch seam
     /// (`try_mfb_fast_path`) consults this before instantiating the `.mfb` body.
@@ -942,7 +973,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::money::MONEY,
     &crate::builtins::net::NET,
     &crate::builtins::os::OS,
-    &crate::builtins::process::PROCESS,
+    &crate::codegen::builtins::process::PROCESS,
     &crate::builtins::thread::THREAD,
     &crate::builtins::tls::TLS,
     &crate::builtins::vector::VECTOR,

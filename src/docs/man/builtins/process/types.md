@@ -21,12 +21,12 @@ IMPORT process
 ```
 
 `process` is a built-in package, so `IMPORT process` needs no manifest
-dependency. [[src/builtins/process.rs:is_process_call]]
+dependency. [[src/codegen/builtins/process/mod.rs:is_process_call]]
 
 ## Description
 
 The `process` package exposes one resource type and two value enums.
-[[src/builtins/process.rs:PROCESS]]
+[[src/codegen/builtins/process/mod.rs:PROCESS]]
 
 `Process` is an opaque, owned, non-copyable **resource handle** to a spawned child
 process. It carries no readable fields: a program never constructs one directly or
@@ -37,7 +37,7 @@ pipe file descriptors, and the exit/signal status once the child is reaped. Like
 every resource handle it cannot be copied, stored as a collection element, or
 carried in a record, and it is closed by lexical drop when its binding leaves
 scope — a drop force-kills and reaps a still-running child.
-[[src/builtins/process.rs:PROCESS_TYPE]]
+[[src/codegen/builtins/process/mod.rs:PROCESS_TYPE]]
 [[src/target/shared/code/error_constants.rs:RESOURCE_TAG_PROCESS]]
 
 `Stream` and `Signal` are ordinary, flat, copyable value enums declared in the
@@ -45,18 +45,18 @@ package's source companion: they hold no resource and no hidden state, so they
 copy freely and are thread-sendable. Both are recognized once `IMPORT process` is
 in scope, and each member is addressed with the bare enum name and a dot
 (`Stream.StdErr`, `Signal.Kill`), not a package prefix.
-[[src/builtins/process_package.mfb:EXPORT ENUM]]
+[[src/codegen/builtins/process/package.mfb:EXPORT ENUM]]
 
 `Stream` selects which of the child's two output streams a read reads from. It is
 the optional final argument of `process::receive`, `process::receiveBytes`, and
 `process::poll`; when omitted, those calls read standard output.
-[[src/builtins/process.rs:STREAM_TYPE]]
+[[src/codegen/builtins/process/mod.rs:STREAM_TYPE]]
 
 `Signal` is a four-bucket cross-platform signal vocabulary used for two purposes:
 `process::signal` **delivers** a bucket to a child, and `process::didSignal`
 **observes** which bucket a terminated child died on. The buckets abstract over
 platform signal numbers, and the two directions map to and from the host
-differently, as tabulated below. [[src/builtins/process.rs:SIGNAL_TYPE]]
+differently, as tabulated below. [[src/codegen/builtins/process/mod.rs:SIGNAL_TYPE]]
 [[src/target/shared/code/process/unix.rs:lower_process_signal_helper]]
 
 ## Types
@@ -64,13 +64,13 @@ differently, as tabulated below. [[src/builtins/process.rs:SIGNAL_TYPE]]
 ### process::Process
 
 An opaque, owned handle to a spawned child process. Returned by `process::spawn`
-and `process::shell`. It has no readable fields. [[src/builtins/process.rs:PROCESS_TYPE]]
+and `process::shell`. It has no readable fields. [[src/codegen/builtins/process/mod.rs:PROCESS_TYPE]]
 
 ### process::Stream
 
 Selects which of a child's output streams a read reads from. The member ordinals
 are `StdOut = 0` and `StdErr = 1`; a read with no `Stream` argument reads
-`StdOut`. [[src/builtins/process_package.mfb:Stream]]
+`StdOut`. [[src/codegen/builtins/process/package.mfb:Stream]]
 
 | Variant | Description |
 | --- | --- |
@@ -81,7 +81,7 @@ are `StdOut = 0` and `StdErr = 1`; a read with no `Stream` argument reads
 
 A four-bucket cross-platform signal vocabulary, delivered by `process::signal` and
 observed by `process::didSignal`. The member ordinals are `None = 0`, `Kill = 1`,
-`Terminate = 2`, `Error = 3`. [[src/builtins/process_package.mfb:Signal]]
+`Terminate = 2`, `Error = 3`. [[src/codegen/builtins/process/package.mfb:Signal]]
 
 | Variant | Description |
 | --- | --- |

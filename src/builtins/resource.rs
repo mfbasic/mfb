@@ -238,11 +238,13 @@ static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::ne
         },
     );
     entries.insert(
-        super::process::PROCESS_TYPE.to_string(),
+        crate::codegen::builtins::process::PROCESS_TYPE.to_string(),
         ResourceInfo {
-            close_function: super::process::resource_close_function(super::process::PROCESS_TYPE)
-                .expect("Process has a built-in close op")
-                .to_string(),
+            close_function: crate::codegen::builtins::process::resource_close_function(
+                crate::codegen::builtins::process::PROCESS_TYPE,
+            )
+            .expect("Process has a built-in close op")
+            .to_string(),
             // A Process owns child pipe fds and drives waitpid from its owning
             // thread; not thread-sendable in v1 (plan-90-A; C revisits).
             sendable: false,

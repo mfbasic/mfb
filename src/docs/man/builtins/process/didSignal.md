@@ -19,7 +19,7 @@ IMPORT process
 ```
 
 `process` is a built-in package, so no manifest dependency is required.
-[[src/builtins/process.rs:is_process_call]]
+[[src/codegen/builtins/process/mod.rs:is_process_call]]
 
 ## Description
 
@@ -29,7 +29,7 @@ by `process::waitFor` or by a `process::isRunning` that observed the exit — so
 returns `Signal.None` for a child that exited normally *or* that has not yet been
 observed to terminate. Await or poll the child first if you need the death cause.
 [[src/target/shared/code/process/unix.rs:lower_process_didsignal_helper]]
-[[src/builtins/process.rs:SIGNAL_TYPE]]
+[[src/codegen/builtins/process/mod.rs:SIGNAL_TYPE]]
 
 On Unix it decodes the terminating signal (`WTERMSIG`): `SIGKILL` maps to
 `Signal.Kill`; the fault signals `SIGILL`, `SIGABRT`, `SIGFPE`, `SIGBUS`, and
@@ -48,7 +48,7 @@ Reading a handle that has already been dropped or detached raises
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/builtins/process.rs:P_PROC]] |
+| `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/mod.rs:P_PROC]] |
 
 ## Return value
 

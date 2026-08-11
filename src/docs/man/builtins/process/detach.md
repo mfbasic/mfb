@@ -19,7 +19,7 @@ IMPORT process
 ```
 
 `process` is a built-in package, so no manifest dependency is required.
-[[src/builtins/process.rs:is_process_call]]
+[[src/codegen/builtins/process/mod.rs:is_process_call]]
 
 ## Description
 
@@ -32,7 +32,7 @@ running on its own and survives the parent's exit. [[src/target/shared/code/proc
 This is the counterpart to the default drop behavior. Normally letting a `Process`
 go out of scope force-kills and reaps the child; `detach` is the deliberate opt-out
 for a child that should outlive the program — a daemon, a background job, a handoff
-to another process. [[src/builtins/process.rs:resource_close_function]]
+to another process. [[src/codegen/builtins/process/mod.rs:resource_close_function]]
 
 Because `detach` marks the handle closed, it consumes the handle for all practical
 purposes: every later `process::` call on it — including a second `detach` — raises
@@ -43,13 +43,13 @@ purposes: every later `process::` call on it — including a second `detach` —
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `p` | `Process` | The child process handle. After the call the handle is closed and unusable, but the child keeps running. Also accepts the alternate named-argument spelling `process`. [[src/builtins/process.rs:P_PROC]] |
+| `p` | `Process` | The child process handle. After the call the handle is closed and unusable, but the child keeps running. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/mod.rs:P_PROC]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `detach` returns no value. On return the parent-side pipes are closed, the handle is marked closed, and the child continues running independently. [[src/builtins/process.rs:PROCESS_TYPE]] |
+| `Nothing` | `detach` returns no value. On return the parent-side pipes are closed, the handle is marked closed, and the child continues running independently. [[src/codegen/builtins/process/mod.rs:PROCESS_TYPE]] |
 
 ## Errors
 

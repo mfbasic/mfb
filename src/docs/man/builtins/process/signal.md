@@ -19,7 +19,7 @@ IMPORT process
 ```
 
 `process` is a built-in package, so no manifest dependency is required.
-[[src/builtins/process.rs:is_process_call]]
+[[src/codegen/builtins/process/mod.rs:is_process_call]]
 
 ## Description
 
@@ -28,7 +28,7 @@ IMPORT process
 call works on Unix and Windows. `Signal.None` is a no-op. On Unix, `Signal.Kill`
 sends `SIGKILL`, `Signal.Terminate` sends `SIGTERM`, and `Signal.Error` sends
 `SIGABRT`. [[src/target/shared/code/process/unix.rs:lower_process_signal_helper]]
-[[src/builtins/process.rs:SIGNAL_TYPE]]
+[[src/codegen/builtins/process/mod.rs:SIGNAL_TYPE]]
 
 On Windows there is no way to deliver an arbitrary signal to a child without a
 shared console, so every terminating bucket maps to the same best-effort
@@ -47,14 +47,14 @@ detached raises `ErrResourceClosed`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/builtins/process.rs:P_SIGNAL]] |
-| `sig` | `Signal` | The bucket to deliver: `Signal.None` (no-op), `Signal.Kill`, `Signal.Terminate`, or `Signal.Error`. Also accepts the alternate named-argument spelling `signal`. [[src/builtins/process.rs:P_SIGNAL]] |
+| `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/mod.rs:P_SIGNAL]] |
+| `sig` | `Signal` | The bucket to deliver: `Signal.None` (no-op), `Signal.Kill`, `Signal.Terminate`, or `Signal.Error`. Also accepts the alternate named-argument spelling `signal`. [[src/codegen/builtins/process/mod.rs:P_SIGNAL]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `signal` returns no value. On return the signal has been delivered (best-effort on Windows); it neither waits for nor reaps the child. [[src/builtins/process.rs:PROCESS_TYPE]] |
+| `Nothing` | `signal` returns no value. On return the signal has been delivered (best-effort on Windows); it neither waits for nor reaps the child. [[src/codegen/builtins/process/mod.rs:PROCESS_TYPE]] |
 
 ## Errors
 

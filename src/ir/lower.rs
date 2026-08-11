@@ -117,7 +117,7 @@ pub fn lower_project_with_external_functions(
         .expect("built-in net package source must parse");
     let augmented = builtins::audio::augmented_project(&augmented)
         .expect("built-in audio package source must parse");
-    let augmented = builtins::process::augmented_project(&augmented)
+    let augmented = crate::codegen::builtins::process::augmented_project(&augmented)
         .expect("built-in process package source must parse");
     // `crypto` before `encoding`: `crypto_package.mfb` imports `encoding`
     // (mirrors `http` before `net`; plan-04-crypto.md Part C).

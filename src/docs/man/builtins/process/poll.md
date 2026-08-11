@@ -20,7 +20,7 @@ IMPORT process
 ```
 
 `process` is a built-in package, so no manifest dependency is required.
-[[src/builtins/process.rs:is_process_call]]
+[[src/codegen/builtins/process/mod.rs:is_process_call]]
 
 ## Description
 
@@ -40,7 +40,7 @@ as a boolean and never raises `ErrTimeout`).
 
 Without a `from` argument `poll` inspects the child's standard output; pass a
 `Stream` value to choose standard output or standard error.
-[[src/builtins/process.rs:STREAM_TYPE]]
+[[src/codegen/builtins/process/mod.rs:STREAM_TYPE]]
 
 ## Overloads
 
@@ -57,9 +57,9 @@ The same, for the selected stream — `Stream.StdOut` or `Stream.StdErr`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `p` | `Process` | The child process handle. Borrowed and inspected for readiness only; no data is read. Also accepts the alternate named-argument spelling `process`. [[src/builtins/process.rs:P_POLL]] |
+| `p` | `Process` | The child process handle. Borrowed and inspected for readiness only; no data is read. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/mod.rs:P_POLL]] |
 | `ms` | `Integer` | The maximum time to wait, in milliseconds. `0` is an immediate non-blocking check; a positive value waits up to that long. [[src/target/shared/code/process/unix.rs:lower_process_poll_helper]] |
-| `from` | `Stream` | Optional. Which output stream to inspect: `Stream.StdOut` (the default) or `Stream.StdErr`. [[src/builtins/process.rs:P_POLL_S]] |
+| `from` | `Stream` | Optional. Which output stream to inspect: `Stream.StdOut` (the default) or `Stream.StdErr`. [[src/codegen/builtins/process/mod.rs:P_POLL_S]] |
 
 ## Return value
 

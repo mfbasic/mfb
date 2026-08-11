@@ -148,7 +148,7 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::Net)
     } else if builtins::os::is_os_call(name) {
         Some(RuntimeHelper::Os)
-    } else if builtins::process::is_process_runtime_call(name) {
+    } else if crate::codegen::builtins::process::is_process_runtime_call(name) {
         Some(RuntimeHelper::Process)
     } else if builtins::tls::is_tls_runtime_call(name) {
         Some(RuntimeHelper::Tls)

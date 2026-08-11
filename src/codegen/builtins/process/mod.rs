@@ -20,9 +20,8 @@
 //! waitFor/close; **B** streaming I/O; **C** signals & detach; **D** Windows.
 
 use crate::codegen::registry::{
-    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, BuiltinType,
-    DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
-    ParameterType, ReturnType, TypeKind,
+    BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, BuiltinType, DefaultResolver,
+    DefaultValue, InjectionRule, Parameter, ParameterType, ReturnType, TypeKind,
 };
 
 /// The opaque `Process` resource handle type name.
@@ -71,26 +70,16 @@ const fn ov(params: &'static [Parameter], ret: &'static str) -> BuiltinOverload 
     }
 }
 
+// Every process member lowers natively via the `_mfb_rt_process_*` runtime-call
+// seam (dispatched by call name in `native/`), so each is `Implementation::Same`
+// declared with the registry-wide `BuiltinFunction::same`. `nf` keeps the compact
+// `(name, slug, overloads)` call shape; docs default empty until Phase 5.
 const fn nf(
     name: &'static str,
     slug: &'static str,
     overloads: &'static [BuiltinOverload],
 ) -> BuiltinFunction {
-    BuiltinFunction {
-        name,
-        doc_slug: slug,
-        doc_intro: "",
-        doc_desc: "",
-        errors: &[],
-        overloads,
-        doc_example: "",
-        implementation: Implementation::Same,
-        lowering: Lowering::Helper,
-        flags: BuiltinFlags {
-            internal_only: false,
-            return_type_overloaded: false,
-        },
-    }
+    BuiltinFunction::same(name, slug, "", "", &[], overloads)
 }
 
 const fn req(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
@@ -247,12 +236,37 @@ pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
     }
 }
 
-super::package_source_glue!(
-    "process",
-    "<builtin-process>",
-    "builtins/process.mfb",
-    include_str!("process_package.mfb")
-);
+/// Parses the built-in `process` source companion. process is a native package —
+/// every member lowers via the runtime-call seam, not a source body — so the
+/// companion carries only the `Stream`/`Signal` value enums and is parsed verbatim
+/// (no `assembled_source`/markers). Synthetic path label preserved byte-for-byte
+/// from the pre-migration `package_source_glue!`.
+pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
+    crate::ast::parse_source_internal(
+        std::path::Path::new("<builtin-process>"),
+        "builtins/process.mfb",
+        include_str!("package.mfb"),
+    )
+}
+
+pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
+    ast.files.iter().any(|file| {
+        file.imports
+            .iter()
+            .any(|import| import.package_name() == "process")
+    })
+}
+
+pub(crate) fn augmented_project(
+    ast: &crate::ast::AstProject,
+) -> Result<crate::ast::AstProject, ()> {
+    if !uses_package(ast) {
+        return Ok(ast.clone());
+    }
+    let mut augmented = ast.clone();
+    augmented.files.push(source_file()?);
+    Ok(augmented)
+}
 
 #[cfg(test)]
 mod tests {
@@ -289,6 +303,7 @@ mod tests {
         assert_eq!(f.name, "process.demo");
         assert_eq!(f.doc_slug, "demo");
         assert_eq!(f.overloads.len(), OV_POLL.len());
+        use crate::codegen::registry::{Implementation, Lowering};
         assert!(matches!(f.implementation, Implementation::Same));
         assert!(matches!(f.lowering, Lowering::Helper));
         assert!(!f.flags.internal_only);

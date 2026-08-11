@@ -20,7 +20,7 @@ IMPORT process
 ```
 
 `process` is a built-in package, so no manifest dependency is required.
-[[src/builtins/process.rs:is_process_call]]
+[[src/codegen/builtins/process/mod.rs:is_process_call]]
 
 ## Description
 
@@ -39,7 +39,7 @@ before signalling end of stream, so late output is drained; only a read that fin
 end of stream with nothing buffered raises `ErrResourceClosed`. On success the
 result always holds at least one byte — end of output is never an empty list.
 [[src/builtins/errorcode.rs:ErrResourceClosed]]
-[[src/builtins/process.rs:STREAM_TYPE]]
+[[src/codegen/builtins/process/mod.rs:STREAM_TYPE]]
 
 ## Overloads
 
@@ -56,8 +56,8 @@ Reads the next chunk from the selected stream — `Stream.StdOut` or `Stream.Std
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/builtins/process.rs:P_RECV]] |
-| `from` | `Stream` | Optional. Which output stream to read: `Stream.StdOut` (the default) or `Stream.StdErr`. [[src/builtins/process.rs:P_RECV_S]] |
+| `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/mod.rs:P_RECV]] |
+| `from` | `Stream` | Optional. Which output stream to read: `Stream.StdOut` (the default) or `Stream.StdErr`. [[src/codegen/builtins/process/mod.rs:P_RECV_S]] |
 
 ## Return value
 
