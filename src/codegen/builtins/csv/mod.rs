@@ -102,10 +102,53 @@ const CSV_FUNCTIONS: &[BuiltinFunction] = &[
     func_read_row::READ_ROW,
 ];
 
+const MODULE_INTRO: &str = r#"Parse and serialize CSV text as a grid of String cells"#;
+const MODULE_DESC: &str = r#"The `csv` package converts between CSV text and a grid of rows of String cells.
+`csv::parse` turns a UTF-8 `String` holding CSV text into a
+`List OF List OF String`, and `csv::stringify` renders such a grid back into CSV
+text. `csv` is a built-in package: `IMPORT csv` needs no manifest dependency.
+
+A whole-document CSV is exactly a `List OF List OF String`: an ordered list of
+rows, each an ordered list of String cells. The parsed grid composes directly
+with the `collections` package and `FOR EACH`; cells are read positionally with
+`collections::get`; there is no header concept — every parsed line is an ordinary
+row.
+
+For large inputs there is a streaming alternative that never materializes the
+whole grid: `csv::parseStream` returns a `CsvReader` holding the input and a scan
+cursor, and each `csv::readRow` parses exactly one record and returns a `CsvRow`
+(`fields AS List OF String`, `reader AS CsvReader` advanced past the record, and
+`done AS Boolean`). A caller loops `WHILE row.done = FALSE` (see `mfb man csv
+readRow`). The rows are identical to `csv::parse`'s.
+
+Cells are plain Strings. There is no type inference and no null: `42`, `true`,
+and an empty field are just the Strings `"42"`, `"true"`, and `""`. Callers that
+want numbers convert explicitly with `toFloat` or `toInteger`. Rows are not
+required to be rectangular: `csv::parse` preserves whatever field count each row
+had.
+
+The dialect is RFC-4180-aligned by default, but the field delimiter and quote
+character are configurable: `parse`/`parseStream` take optional `delimiter` and
+`quote`, and `stringify` also takes an optional output `newline`, each defaulting
+to `,`, `"`, and LF. On input, a record separator is a line feed (LF) or a
+carriage-return/line-feed pair (CRLF); a bare CR not followed by LF is ordinary
+data. A field may be wrapped in the quote character, inside which a literal quote
+is written by doubling it and delimiters, CR, and LF are ordinary data.
+Whitespace is significant and never trimmed. A single trailing record separator does not
+create an empty final row, but two consecutive separators do produce an empty
+row in the middle. Empty input parses to zero rows.
+
+`csv::stringify` renders deterministically: rows are joined with a single LF
+with no trailing newline, fields within a row are joined with a comma, and a
+field is quoted only when it contains a comma, a double quote, a CR, or an LF.
+For any grid `x`, `csv::parse(csv::stringify(x))` yields a grid whose cells
+equal those of `x`, except that a trailing empty row produced only by separator
+placement is not reintroduced and a CRLF separator is normalized to LF."#;
+
 pub(crate) static CSV: BuiltinModule = BuiltinModule {
     name: "csv",
-    doc_intro: "",
-    doc_desc: "",
+    doc_intro: MODULE_INTRO,
+    doc_desc: MODULE_DESC,
     functions: CSV_FUNCTIONS,
     types: CSV_TYPES,
     source: Some(BuiltinSource {
