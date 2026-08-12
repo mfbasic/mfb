@@ -692,15 +692,18 @@ pub(crate) fn registry() -> &'static Registry {
     REGISTRY.get_or_init(build)
 }
 
+/// The migrated packages register themselves here, one submodule each.
+mod csv;
+
 /// Construct the registry by registering every migrated package.
 ///
-/// Empty of real packages today — they migrate over one at a time. The `example`
-/// package below is an illustrative first entry that exercises the shape (a single-
-/// implementation function and a two-implementation overload); it is deleted once a
-/// real package lands here.
+/// The `example` package is an illustrative entry that exercises the shape (a
+/// single-implementation function and a two-implementation overload); `csv` is the
+/// first real package migrated off `target::shared::registry`.
 fn build() -> Registry {
     let mut r = Registry::new();
     register_example(&mut r);
+    csv::register(&mut r);
     r
 }
 
