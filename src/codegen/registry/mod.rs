@@ -586,6 +586,23 @@ impl Registry {
     pub(crate) fn get_package(&self, import_name: &str) -> Option<&RegistryPackage> {
         self.packages.iter().find(|p| p.import_name == import_name)
     }
+
+    /// The package that declares the function named `qualified` — a
+    /// `<import_name>.<function>` call name such as `"csv.parse"` — or `None` if no
+    /// migrated package declares it.
+    ///
+    /// This is the registry's single membership query, replacing the per-package
+    /// `is_<pkg>_call` checks: a `csv.parse` call is a csv call iff this returns the
+    /// csv package. Because it hands back the whole [`RegistryPackage`], the caller
+    /// can reach the function's [`Implementation`] from the same lookup (via
+    /// [`RegistryPackage::function`]) for the return type and rewrite target — the two
+    /// other facts the old `resolve_call_return_type` / `implementation_name` hooks
+    /// answered separately.
+    pub(crate) fn get_package_by_func_name(&self, qualified: &str) -> Option<&RegistryPackage> {
+        let (package, function) = qualified.split_once('.')?;
+        let package = self.get_package(package)?;
+        package.function(function).map(|_| package)
+    }
 }
 
 /// The process-wide clean-room registry, built once on first access.
@@ -739,6 +756,46 @@ mod tests {
         );
         assert_eq!(r.packages().len(), 1);
         assert_eq!(r.get_package("t").unwrap().functions().len(), 1);
+    }
+
+    #[test]
+    fn get_package_by_func_name_finds_the_owning_package() {
+        let mut r = Registry::new();
+        let pkg = r.add_package("csv", "i", "d");
+        pkg.add_function(
+            "parse",
+            "i",
+            "d",
+            "e",
+            vec![Implementation {
+                params: vec![],
+                return_type: "List OF List OF String",
+                errors: vec![],
+                lowering: Lowering::Helper,
+                body: Body::Rewrite("__csv_parse"),
+            }],
+        );
+
+        // A qualified call name maps back to its package.
+        assert_eq!(
+            r.get_package_by_func_name("csv.parse")
+                .map(RegistryPackage::import_name),
+            Some("csv"),
+        );
+        // Package exists but the function does not.
+        assert!(r.get_package_by_func_name("csv.nope").is_none());
+        // Package does not exist.
+        assert!(r.get_package_by_func_name("nope.parse").is_none());
+        // Not a qualified `package.function` name at all.
+        assert!(r.get_package_by_func_name("toString").is_none());
+
+        // Works against the frozen registry too (example::identity).
+        assert_eq!(
+            registry()
+                .get_package_by_func_name("example.identity")
+                .map(RegistryPackage::import_name),
+            Some("example"),
+        );
     }
 
     // A lowering fn of the `NativeLower` signature (the `common` slot). Never invoked
