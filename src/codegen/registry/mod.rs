@@ -51,15 +51,25 @@ pub(crate) enum Lowering {
 }
 
 /// How one implementation is *realized* in codegen. Data-only kinds for now; the
-/// target-generic native and per-OS lowering-fn kinds (the `Native`/`Os` shapes in
-/// `target::shared::registry`) land here when the first package that needs them
-/// migrates — they carry function pointers, so they are added with real callers,
-/// never as empty arms.
+/// target-generic native and per-OS lowering-fn kinds (the `Native(NativeLower)` /
+/// `Os { posix, win, all }` shapes in `target::shared::registry`) land here when the
+/// first package that needs them migrates — they carry function pointers, so they
+/// are added with real callers, never as empty arms.
+///
+/// Note on what is *not* a variant here: an MFBASIC body's optional **native fast
+/// path** (`Implementation::Mfb.fast_path` in the old enum) is not its own kind. A
+/// fast path is an accelerator for the *same* implementation, selected at monomorph
+/// time by whether the instantiation qualifies (a computed axis, not the call's
+/// arg/return signature) — so it cannot be a second element of the signature-
+/// selected `implementations` array either. When a fast-path package (`zip`,
+/// `findLastIndex`) migrates, [`Body::Mfb`] widens from a bare body to
+/// `Mfb { body, fast_path: Option<..> }`; it does not gain an `MfbFastPath` variant.
 #[derive(Clone, Debug)]
 pub(crate) enum Body {
     /// An MFBASIC source body (`FUNC __pkg_name(...) ... END FUNC`) injected before
     /// monomorphization and mangled per signature (the `encoding::utf8Encode`
-    /// native-overload pattern).
+    /// native-overload pattern). Widens to `{ body, fast_path: Option<..> }` when a
+    /// member carrying a native accelerator migrates (see the type-level note).
     Mfb(&'static str),
     /// A fixed internal rewrite target: the call becomes a call to this `__`-symbol.
     Rewrite(&'static str),
