@@ -249,6 +249,52 @@ impl RegistryPackage {
         self.functions.iter().find(|f| f.name == name)
     }
 
+    /// Assemble this package's complete injectable MFBASIC source — the modern
+    /// equivalent of a hand-written `package.mfb` (e.g.
+    /// `codegen/builtins/csv/package.mfb`), reconstructed from the members' own
+    /// [`Body::Mfb`] bodies.
+    ///
+    /// Every [`Body::Mfb`] body across all functions (each overload counts — a
+    /// same-named native-overload set like `encoding::utf8Encode` emits one `FUNC`
+    /// per overload) is appended, in registration order, to the optional `prefix`.
+    /// The `prefix` carries the package-level boilerplate that is *not* per-member —
+    /// the `IMPORT` lines, any `EXPORT` enums/records, and shared `__pkg_*` helper
+    /// functions — because `get_mfb` assembles source, it does not synthesize
+    /// imports. Bodies keep their raw `__pkg_name` spelling; internalization to
+    /// `#pkg_name` happens later when the assembled text is parsed.
+    ///
+    /// Returns the **empty string** when the package has no `Mfb` member at all —
+    /// even if a `prefix` is given — because with nothing to inject the imports and
+    /// helpers support nothing. Pieces are separated by a blank line and the result
+    /// ends with a newline, so the output is directly parseable.
+    pub(crate) fn get_mfb(&self, prefix: Option<&str>) -> String {
+        let bodies: Vec<&str> = self
+            .functions
+            .iter()
+            .flat_map(|f| f.implementations.iter())
+            .filter_map(|imp| match &imp.body {
+                Body::Mfb { body, .. } => Some(body.trim_end()),
+                _ => None,
+            })
+            .collect();
+        if bodies.is_empty() {
+            return String::new();
+        }
+
+        let mut pieces: Vec<&str> = Vec::with_capacity(bodies.len() + 1);
+        if let Some(prefix) = prefix {
+            let prefix = prefix.trim_end();
+            if !prefix.is_empty() {
+                pieces.push(prefix);
+            }
+        }
+        pieces.extend(bodies);
+
+        let mut out = pieces.join("\n\n");
+        out.push('\n');
+        out
+    }
+
     /// Add a function to this package. `implementations` must be non-empty — a
     /// function is a name plus at least one fully-specified implementation.
     pub(crate) fn add_function(
@@ -542,5 +588,82 @@ mod tests {
     #[should_panic(expected = "at least one of posix/win/common")]
     fn native_with_no_slots_is_rejected() {
         let _ = Body::native(None, None, None);
+    }
+
+    // Build a throwaway package with two Mfb members plus one non-Mfb member, to
+    // exercise get_mfb's collection/joining without touching the example package.
+    fn mfb_impl(body: &'static str) -> Implementation {
+        Implementation {
+            params: vec![],
+            return_type: "String",
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(body),
+        }
+    }
+
+    #[test]
+    fn get_mfb_appends_member_bodies_to_the_prefix() {
+        let mut r = Registry::new();
+        let pkg = r.add_package("demo", "intro", "desc");
+        pkg.add_function(
+            "a",
+            "i",
+            "d",
+            "e",
+            vec![mfb_impl(
+                "FUNC __demo_a() AS String\n  RETURN \"a\"\nEND FUNC",
+            )],
+        );
+        // A non-Mfb member contributes no source.
+        pkg.add_function(
+            "b",
+            "i",
+            "d",
+            "e",
+            vec![Implementation {
+                params: vec![],
+                return_type: "String",
+                errors: vec![],
+                lowering: Lowering::Helper,
+                body: Body::Rewrite("__demo_b"),
+            }],
+        );
+        pkg.add_function(
+            "c",
+            "i",
+            "d",
+            "e",
+            vec![mfb_impl(
+                "FUNC __demo_c() AS String\n  RETURN \"c\"\nEND FUNC",
+            )],
+        );
+
+        let pkg = r.get_package("demo").expect("demo package");
+
+        // With a prefix: imports/helpers first, then both Mfb bodies (a, c), in order.
+        let src = pkg.get_mfb(Some("IMPORT strings"));
+        assert_eq!(
+            src,
+            "IMPORT strings\n\n\
+             FUNC __demo_a() AS String\n  RETURN \"a\"\nEND FUNC\n\n\
+             FUNC __demo_c() AS String\n  RETURN \"c\"\nEND FUNC\n",
+        );
+        // The Rewrite member 'b' contributed nothing.
+        assert!(!src.contains("__demo_b"));
+
+        // Without a prefix: just the bodies.
+        let src = pkg.get_mfb(None);
+        assert!(src.starts_with("FUNC __demo_a"));
+        assert!(src.contains("FUNC __demo_c"));
+        assert!(src.ends_with("END FUNC\n"));
+    }
+
+    #[test]
+    fn get_mfb_is_empty_when_the_package_has_no_mfb_member() {
+        // The example package is all Intrinsic/Rewrite — no Mfb body to inject.
+        let pkg = registry().get_package("example").expect("example package");
+        assert_eq!(pkg.get_mfb(Some("IMPORT strings")), "");
+        assert_eq!(pkg.get_mfb(None), "");
     }
 }
