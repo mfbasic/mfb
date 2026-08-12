@@ -5,7 +5,7 @@
 //! `'@@MFB_BODY:parse@@` marker in package.mfb via assembled_source. Body
 //! byte-significant (2-space indent → .ncode columns); do not reformat.
 
-use crate::target::shared::registry::{BuiltinFunction, BuiltinOverload, ReturnType};
+use crate::codegen::registry::RegistryPackage;
 
 #[rustfmt::skip]
 const BODY: &str =
@@ -82,11 +82,6 @@ r#"FUNC __csv_parse(value AS String, delimiter AS String, quote AS String) AS Li
   RETURN rows
 END FUNC"#;
 
-const OV: &[BuiltinOverload] = &[BuiltinOverload {
-    params: super::P_PARSE,
-    return_type: ReturnType::Fixed(super::GRID_TYPE),
-}];
-
 const INTRO: &str = r#"Parse UTF-8 CSV text into a grid of String cells."#;
 const DESC: &str = r#"`csv::parse` scans `value` left to right and returns the resulting document as a
 `List OF List OF String`: an ordered list of rows, each an ordered list of String
@@ -141,5 +136,21 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const PARSE: BuiltinFunction =
-    BuiltinFunction::mfb("csv.parse", "parse", INTRO, DESC, &[], OV, BODY).with_example(EX);
+pub(super) fn add(pkg: &mut RegistryPackage) {
+    pkg.add_function(
+        "parse",
+        INTRO,
+        DESC,
+        EX,
+        vec![super::mfb_impl(
+            vec![
+                super::required("value", &["text"], "String"),
+                super::opt("delimiter", super::DEFAULT_DELIMITER),
+                super::opt("quote", super::DEFAULT_QUOTE),
+            ],
+            "List OF List OF String",
+            BODY,
+            "__csv_parse",
+        )],
+    );
+}

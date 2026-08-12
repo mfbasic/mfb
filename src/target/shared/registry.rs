@@ -1038,7 +1038,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::astrings::ASTRINGS,
     &crate::builtins::bits::BITS,
     &crate::codegen::builtins::collections::COLLECTIONS,
-    &crate::codegen::builtins::csv::CSV,
+    // csv migrated to the clean-room registry (crate::codegen::registry).
     &crate::builtins::crypto::CRYPTO,
     &crate::builtins::audio::AUDIO,
     &crate::codegen::builtins::datetime::DATETIME,

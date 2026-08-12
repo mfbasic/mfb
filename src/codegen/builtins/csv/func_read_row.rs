@@ -5,7 +5,7 @@
 //! `'@@MFB_BODY:readRow@@` marker in package.mfb via assembled_source. Body
 //! byte-significant (2-space indent → .ncode columns); do not reformat.
 
-use crate::target::shared::registry::{BuiltinFunction, BuiltinOverload, ReturnType};
+use crate::codegen::registry::RegistryPackage;
 
 #[rustfmt::skip]
 const BODY: &str =
@@ -69,11 +69,6 @@ r#"FUNC __csv_next(reader AS CsvReader) AS CsvRow
   RETURN CsvRow[row, CsvReader[chars, count, index, delimCode, quoteCode], FALSE]
 END FUNC"#;
 
-const OV: &[BuiltinOverload] = &[BuiltinOverload {
-    params: super::P_NEXT,
-    return_type: ReturnType::Fixed(super::ROW_TYPE),
-}];
-
 const INTRO: &str = r#"Read the next record from a streaming CSV reader."#;
 const DESC: &str = r#"`csv::readRow` parses exactly one record starting at `reader`'s cursor and returns
 a `CsvRow` with three fields: `fields` (the record's cells, a `List OF String`),
@@ -107,5 +102,17 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const READ_ROW: BuiltinFunction =
-    BuiltinFunction::mfb("csv.readRow", "readRow", INTRO, DESC, &[], OV, BODY).with_example(EX);
+pub(super) fn add(pkg: &mut RegistryPackage) {
+    pkg.add_function(
+        "readRow",
+        INTRO,
+        DESC,
+        EX,
+        vec![super::mfb_impl(
+            vec![super::required("reader", &[], "CsvReader")],
+            "CsvRow",
+            BODY,
+            "__csv_next",
+        )],
+    );
+}

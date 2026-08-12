@@ -5,7 +5,7 @@
 //! `'@@MFB_BODY:parseStream@@` marker in package.mfb via assembled_source. Body
 //! byte-significant (2-space indent → .ncode columns); do not reformat.
 
-use crate::target::shared::registry::{BuiltinFunction, BuiltinOverload, ReturnType};
+use crate::codegen::registry::RegistryPackage;
 
 #[rustfmt::skip]
 const BODY: &str =
@@ -13,11 +13,6 @@ r#"FUNC __csv_parseStream(value AS String, delimiter AS String, quote AS String)
   LET chars AS List OF Integer = encoding::utf32Encode(value)
   RETURN CsvReader[chars, len(chars), 0, __csv_firstCode(delimiter), __csv_firstCode(quote)]
 END FUNC"#;
-
-const OV: &[BuiltinOverload] = &[BuiltinOverload {
-    params: super::P_PARSE_STREAM,
-    return_type: ReturnType::Fixed(super::READER_TYPE),
-}];
 
 const INTRO: &str = r#"Open a streaming reader over UTF-8 CSV text."#;
 const DESC: &str = r#"`csv::parseStream` returns a `CsvReader` — a value holding the decoded input and a
@@ -49,6 +44,21 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const PARSE_STREAM: BuiltinFunction =
-    BuiltinFunction::mfb("csv.parseStream", "parseStream", INTRO, DESC, &[], OV, BODY)
-        .with_example(EX);
+pub(super) fn add(pkg: &mut RegistryPackage) {
+    pkg.add_function(
+        "parseStream",
+        INTRO,
+        DESC,
+        EX,
+        vec![super::mfb_impl(
+            vec![
+                super::required("value", &["text"], "String"),
+                super::opt("delimiter", super::DEFAULT_DELIMITER),
+                super::opt("quote", super::DEFAULT_QUOTE),
+            ],
+            "CsvReader",
+            BODY,
+            "__csv_parseStream",
+        )],
+    );
+}

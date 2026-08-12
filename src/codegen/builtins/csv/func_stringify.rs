@@ -5,7 +5,7 @@
 //! `'@@MFB_BODY:stringify@@` marker in package.mfb via assembled_source. Body
 //! byte-significant (2-space indent → .ncode columns); do not reformat.
 
-use crate::target::shared::registry::{BuiltinFunction, BuiltinOverload, ReturnType};
+use crate::codegen::registry::RegistryPackage;
 
 #[rustfmt::skip]
 const BODY: &str =
@@ -22,11 +22,6 @@ r#"FUNC __csv_stringify(value AS List OF List OF String, delimiter AS String, qu
   NEXT
   RETURN out
 END FUNC"#;
-
-const OV: &[BuiltinOverload] = &[BuiltinOverload {
-    params: super::P_STRINGIFY,
-    return_type: ReturnType::Fixed("String"),
-}];
 
 const INTRO: &str = r#"Encode a grid of String cells as RFC-4180-aligned CSV text."#;
 const DESC: &str = r#"`csv::stringify` renders a grid — a `List OF List OF String` of rows of String
@@ -82,5 +77,22 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const STRINGIFY: BuiltinFunction =
-    BuiltinFunction::mfb("csv.stringify", "stringify", INTRO, DESC, &[], OV, BODY).with_example(EX);
+pub(super) fn add(pkg: &mut RegistryPackage) {
+    pkg.add_function(
+        "stringify",
+        INTRO,
+        DESC,
+        EX,
+        vec![super::mfb_impl(
+            vec![
+                super::required("value", &[], "List OF List OF String"),
+                super::opt("delimiter", super::DEFAULT_DELIMITER),
+                super::opt("quote", super::DEFAULT_QUOTE),
+                super::opt("newline", super::DEFAULT_NEWLINE),
+            ],
+            "String",
+            BODY,
+            "__csv_stringify",
+        )],
+    );
+}

@@ -719,18 +719,16 @@ pub(crate) fn augment_project(ast: &crate::ast::AstProject) -> Result<crate::ast
     Ok(augmented.unwrap_or_else(|| ast.clone()))
 }
 
-/// The migrated packages register themselves here, one submodule each.
-mod csv;
-
 /// Construct the registry by registering every migrated package.
 ///
 /// The `example` package is an illustrative entry that exercises the shape (a
 /// single-implementation function and a two-implementation overload); `csv` is the
-/// first real package migrated off `target::shared::registry`.
+/// first real package migrated off `target::shared::registry` — it registers itself
+/// from its own module, `crate::codegen::builtins::csv`.
 fn build() -> Registry {
     let mut r = Registry::new();
     register_example(&mut r);
-    csv::register(&mut r);
+    crate::codegen::builtins::csv::register(&mut r);
     r
 }
 
