@@ -664,6 +664,13 @@ impl Registry {
         self.packages.iter().find(|p| p.import_name == import_name)
     }
 
+    /// The function named `qualified` — a `<import_name>.<function>` call name such
+    /// as `"csv.parse"` — or `None` if no migrated package declares it.
+    pub(crate) fn function_by_qualified(&self, qualified: &str) -> Option<&RegistryFunction> {
+        let (package, function) = qualified.split_once('.')?;
+        self.get_package(package)?.function(function)
+    }
+
     /// The package that declares the function named `qualified` — a
     /// `<import_name>.<function>` call name such as `"csv.parse"` — or `None` if no
     /// migrated package declares it.
@@ -717,6 +724,62 @@ pub(crate) fn augment_project(ast: &crate::ast::AstProject) -> Result<crate::ast
             .push(file);
     }
     Ok(augmented.unwrap_or_else(|| ast.clone()))
+}
+
+// The generic-dispatch query surface. Each answers, for a migrated (clean-room)
+// call, the fact the old `REGISTRY`-based generic dispatch answered — so a caller
+// can dual-path `registry::X(name).or(old(name))`. `None`/`false` means "no migrated
+// package owns this call", i.e. fall through to the old path.
+
+/// Whether a migrated package declares the call `qualified` (`"csv.parse"`).
+pub(crate) fn is_member(qualified: &str) -> bool {
+    registry().get_package_by_func_name(qualified).is_some()
+}
+
+/// The import name of the migrated package that owns `qualified`, or `None`.
+pub(crate) fn owning_package(qualified: &str) -> Option<&'static str> {
+    registry()
+        .get_package_by_func_name(qualified)
+        .map(RegistryPackage::import_name)
+}
+
+/// The return type of the migrated call `qualified`, or `None`. (csv has one
+/// implementation per member; the return type is uniform across a name's overloads.)
+pub(crate) fn call_return_type(qualified: &str) -> Option<&'static str> {
+    Some(
+        registry()
+            .function_by_qualified(qualified)?
+            .implementations()
+            .first()?
+            .return_type,
+    )
+}
+
+/// The `(min, max)` argument arity of the migrated call `qualified`, or `None`.
+/// `min` counts the required (non-defaulted) params; `max` is the widest overload.
+pub(crate) fn arity(qualified: &str) -> Option<(usize, usize)> {
+    let function = registry().function_by_qualified(qualified)?;
+    let mut min = usize::MAX;
+    let mut max = 0usize;
+    for implementation in function.implementations() {
+        let required = implementation
+            .params
+            .iter()
+            .filter(|param| matches!(param.default, DefaultValue::None))
+            .count();
+        min = min.min(required);
+        max = max.max(implementation.params.len());
+    }
+    (min != usize::MAX).then_some((min, max))
+}
+
+/// Whether `name` is a value type (`EXPORT TYPE`/`UNION`) declared by any migrated
+/// package (`CsvReader`/`CsvRow`).
+pub(crate) fn is_builtin_type(name: &str) -> bool {
+    registry().packages().iter().any(|package| {
+        package.records().iter().any(|record| record.name() == name)
+            || package.unions().iter().any(|union| union.name() == name)
+    })
 }
 
 /// Construct the registry by registering every migrated package.

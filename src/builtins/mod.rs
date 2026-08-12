@@ -109,10 +109,12 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
 /// `Thread OF ...` / `ThreadWorker OF ...` forms are the one shape a static type
 /// list cannot enumerate, so they stay a structural prefix check.
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    crate::target::shared::registry::REGISTRY
-        .modules()
-        .iter()
-        .any(|module| module.types.iter().any(|ty| ty.name == name))
+    // Migrated (clean-room registry) types first; else the old REGISTRY.
+    crate::codegen::registry::is_builtin_type(name)
+        || crate::target::shared::registry::REGISTRY
+            .modules()
+            .iter()
+            .any(|module| module.types.iter().any(|ty| ty.name == name))
         || name.starts_with("Thread OF ")
         || name.starts_with("ThreadWorker OF ")
 }
@@ -383,6 +385,10 @@ pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
 /// (`duplicate_function_name` is `None`), so this is order-independent — replacing
 /// the hand-ordered per-package `resolve_call` chain it grew from.
 pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Option<String> {
+    // Migrated (clean-room registry) packages first; else the old REGISTRY.
+    if let Some(return_type) = crate::codegen::registry::call_return_type(callee) {
+        return Some(return_type.to_string());
+    }
     let (module, function) = crate::target::shared::registry::REGISTRY.function(callee)?;
     match module.resolver {
         Some(resolver) => resolver.resolve_return_type(module, function.name, arg_types),
@@ -403,6 +409,9 @@ pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Op
 /// functions, so IR lowering's queries for their rewritten targets fall back to
 /// those two packages' explicit internal-name maps.
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
+    if let Some(return_type) = crate::codegen::registry::call_return_type(name) {
+        return Some(return_type);
+    }
     if let Some((module, function)) = crate::target::shared::registry::REGISTRY.function(name) {
         return crate::target::shared::registry::DefaultResolver::return_type_name(
             module,
@@ -417,14 +426,19 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
 /// to select a table package's argument-inference mode without a per-package
 /// `is_<pkg>_call` chain.
 pub(crate) fn builtin_package_name(callee: &str) -> Option<&'static str> {
-    crate::target::shared::registry::REGISTRY
-        .function(callee)
-        .map(|(module, _)| module.name)
+    crate::codegen::registry::owning_package(callee).or_else(|| {
+        crate::target::shared::registry::REGISTRY
+            .function(callee)
+            .map(|(module, _)| module.name)
+    })
 }
 
 /// The arity range `(min, max)` of a builtin call — plan-72-BB: the owning
 /// module's `DefaultResolver::arity`. `None` for a call no package owns.
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
+    if let Some(range) = crate::codegen::registry::arity(name) {
+        return Some(range);
+    }
     let (module, function) = crate::target::shared::registry::REGISTRY.function(name)?;
     crate::target::shared::registry::DefaultResolver::arity(module, function.name)
 }
@@ -593,15 +607,17 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
     if audio::is_audio_internal_call(name) {
         return false;
     }
+    // Migrated (clean-room registry) packages first; else the old REGISTRY.
     // plan-72-BB: descriptor membership is every package's `is_<pkg>_call`
     // (`DefaultResolver::contains`). The two non-descriptor member surfaces stay
     // explicit: `collections`' source-generic functions and `vector`'s
     // dynamically-parsed constants. The `call_return_type_name` tail preserves the
     // pre-existing admission of lowered-only names whose return type is known
     // (e.g. `tls.closeListener`).
-    crate::target::shared::registry::REGISTRY
-        .function(name)
-        .is_some()
+    crate::codegen::registry::is_member(name)
+        || crate::target::shared::registry::REGISTRY
+            .function(name)
+            .is_some()
         || crate::codegen::builtins::collections::is_collections_call(name)
         || vector::is_vector_call(name)
         || call_return_type_name(name).is_some()
