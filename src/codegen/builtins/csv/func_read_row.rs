@@ -111,6 +111,7 @@ pub(super) fn add(pkg: &mut RegistryPackage) {
         vec![super::mfb_impl(
             vec![super::required("reader", &[], "CsvReader")],
             "CsvRow",
+            vec!["ErrInvalidFormat"],
             BODY,
             "__csv_next",
         )],

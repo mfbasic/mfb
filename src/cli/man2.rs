@@ -290,6 +290,18 @@ mod tests {
         assert!(md.contains("`delimiter` (optional)")); // Fill-defaulted
         assert!(md.contains("Returns `List OF List OF String`."));
         assert!(md.contains("## Examples"));
+        // The Errors table is rendered from the descriptor's declared errors.
+        assert!(md.contains("## Errors"));
+        assert!(md.contains("`77050003`"));
+        assert!(md.contains("`ErrInvalidFormat`"));
+    }
+
+    #[test]
+    fn a_member_with_no_declared_errors_omits_the_errors_section() {
+        let package = registry().get_package("csv").unwrap();
+        // stringify declares no errors.
+        let md = render_function_markdown(package, package.function("stringify").unwrap());
+        assert!(!md.contains("## Errors"));
     }
 
     #[test]

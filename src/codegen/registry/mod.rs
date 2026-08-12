@@ -795,6 +795,20 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
     declares.then(|| member.to_string())
 }
 
+/// Whether the migrated call `qualified` declares `error_name` among any of its
+/// implementations' errors — the clean-room half of the `raise_error` "a builtin
+/// must declare the errors it raises" check.
+pub(crate) fn declares_error(qualified: &str, error_name: &str) -> bool {
+    registry()
+        .function_by_qualified(qualified)
+        .is_some_and(|function| {
+            function
+                .implementations()
+                .iter()
+                .any(|implementation| implementation.errors.iter().any(|e| *e == error_name))
+        })
+}
+
 /// The internal symbol the migrated call `qualified` rewrites to at IR lowering, or
 /// `None`.
 pub(crate) fn rewrite_target(qualified: &str) -> Option<&'static str> {

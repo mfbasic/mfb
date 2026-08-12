@@ -16,8 +16,9 @@ impl CodeBuilder<'_> {
         debug_assert!(
             crate::target::shared::registry::REGISTRY
                 .function(function_id)
-                .is_some_and(|(_, function)| function.errors.contains(&error_name)),
-            "{function_id} raises {error_name} but does not declare it in BuiltinFunction.errors",
+                .is_some_and(|(_, function)| function.errors.contains(&error_name))
+                || crate::codegen::registry::declares_error(function_id, error_name),
+            "{function_id} raises {error_name} but does not declare it in its descriptor errors",
         );
         self.raise_error_bare(error_name)
     }

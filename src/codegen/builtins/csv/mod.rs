@@ -51,17 +51,18 @@ pub(super) fn opt(name: &'static str, expr: &'static str) -> Parameter {
 }
 
 /// A source-backed member: its `FUNC` body plus the internal symbol a call rewrites
-/// to (the `FUNC` the body declares).
+/// to (the `FUNC` the body declares) and the `errorCode` names it can raise.
 pub(super) fn mfb_impl(
     params: Vec<Parameter>,
     return_type: &'static str,
+    errors: Vec<&'static str>,
     body: &'static str,
     rewrite: &'static str,
 ) -> Implementation {
     Implementation {
         params,
         return_type,
-        errors: vec![],
+        errors,
         lowering: Lowering::Helper,
         body: Body::mfb(body, rewrite),
     }

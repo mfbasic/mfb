@@ -149,6 +149,7 @@ pub(super) fn add(pkg: &mut RegistryPackage) {
                 super::opt("quote", super::DEFAULT_QUOTE),
             ],
             "List OF List OF String",
+            vec!["ErrInvalidFormat"],
             BODY,
             "__csv_parse",
         )],

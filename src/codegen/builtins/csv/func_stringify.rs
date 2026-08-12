@@ -91,6 +91,7 @@ pub(super) fn add(pkg: &mut RegistryPackage) {
                 super::opt("newline", super::DEFAULT_NEWLINE),
             ],
             "String",
+            vec![],
             BODY,
             "__csv_stringify",
         )],

@@ -57,6 +57,7 @@ pub(super) fn add(pkg: &mut RegistryPackage) {
                 super::opt("quote", super::DEFAULT_QUOTE),
             ],
             "CsvReader",
+            vec![],
             BODY,
             "__csv_parseStream",
         )],
