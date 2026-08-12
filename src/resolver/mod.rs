@@ -115,7 +115,9 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     // ordering dependency.
     let augmented = builtins::astrings::augmented_project(&augmented)?;
     let augmented = builtins::app::augmented_project(&augmented)?;
-    let augmented = crate::codegen::builtins::csv::augmented_project(&augmented)?;
+    // csv is migrated to the clean-room registry; its source is injected by the
+    // registry-driven augmentation (which also covers any later-migrated package).
+    let augmented = crate::codegen::registry::augment_project(&augmented)?;
     let augmented = crate::codegen::builtins::regex::augmented_project(&augmented)?;
     let augmented = crate::codegen::builtins::datetime::augmented_project(&augmented)?;
     let augmented = builtins::money::augmented_project(&augmented)?;

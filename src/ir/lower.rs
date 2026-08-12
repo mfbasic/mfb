@@ -102,8 +102,9 @@ pub fn lower_project_with_external_functions(
         .expect("built-in astrings package source must parse");
     let augmented = builtins::app::augmented_project(&augmented)
         .expect("built-in app package source must parse");
-    let augmented = crate::codegen::builtins::csv::augmented_project(&augmented)
-        .expect("built-in csv package source must parse");
+    // csv is migrated to the clean-room registry (source injected by the registry).
+    let augmented = crate::codegen::registry::augment_project(&augmented)
+        .expect("clean-room registry package source must parse");
     let augmented = crate::codegen::builtins::regex::augmented_project(&augmented)
         .expect("built-in regex package source must parse");
     let augmented = crate::codegen::builtins::datetime::augmented_project(&augmented)

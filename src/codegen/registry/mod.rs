@@ -692,6 +692,33 @@ pub(crate) fn registry() -> &'static Registry {
     REGISTRY.get_or_init(build)
 }
 
+/// Inject every migrated (clean-room) package's reassembled source into `ast`, for
+/// each package the program imports — the registry-driven replacement for the
+/// per-package `augmented_project` functions. A package that is not imported, or has
+/// nothing to inject (empty [`get_mfb`](RegistryPackage::get_mfb)), contributes no
+/// file. The synthetic path/doc labels match the pre-migration convention
+/// (`<builtin-csv>` / `builtins/csv.mfb`).
+pub(crate) fn augment_project(ast: &crate::ast::AstProject) -> Result<crate::ast::AstProject, ()> {
+    let mut augmented: Option<crate::ast::AstProject> = None;
+    for package in registry().packages() {
+        if !package.is_imported_by(ast) {
+            continue;
+        }
+        let source = package.get_mfb();
+        if source.is_empty() {
+            continue;
+        }
+        let label = format!("<builtin-{}>", package.import_name());
+        let doc = format!("builtins/{}.mfb", package.import_name());
+        let file = crate::ast::parse_source_internal(std::path::Path::new(&label), &doc, &source)?;
+        augmented
+            .get_or_insert_with(|| ast.clone())
+            .files
+            .push(file);
+    }
+    Ok(augmented.unwrap_or_else(|| ast.clone()))
+}
+
 /// The migrated packages register themselves here, one submodule each.
 mod csv;
 
