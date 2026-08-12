@@ -97,8 +97,37 @@ before adding the machinery — the earlier `Implementation::Resolve` attempt
 (reverted in `4d379173`) was worth reverting precisely because it was aimed at
 `encoding`, which was plain overloading, not a computed family.
 
+**Prerequisite (must land before the `Custom` deprecation): make the `overloads`
+property carry the `Implementation`.** Today `BuiltinFunction.overloads:
+&[BuiltinOverload]` is *signature/doc metadata only* — `{ params, return_type }`,
+read by `DefaultResolver` for arity/expected-args/return type. The monomorphizer
+never looks at it; a builtin's actual overload *implementations* live elsewhere
+(same-named `__pkg_*` funcs in the package `.mfb`, per `encoding::utf8Encode`'s
+native-overload pattern). Change `BuiltinOverload` to also hold each overload's
+`implementation: Implementation` (`::mfb` body / `::native` lowering / `::rewrite`),
+so an overloaded builtin is declared **once, wholly on the descriptor** — signature
+*and* implementation per overload — instead of split between the descriptor
+(signatures) and the `.mfb` companion (bodies). The overload machinery
+(`monomorph::resolve_overload`) then resolves against the descriptor's `overloads`
+directly, mangling each to a private `$`-symbol by signature.
+
+This is the enabler that lets `Custom` be `#[deprecated]`: every `Custom` case that
+is really overloading (`crypto` `_bytes`/`_text`, `datetime` by arity, and —
+pending the open question above — likely `vector`) moves onto descriptor `overloads`
+with real implementations, leaving `Custom` with no legitimate users.
+
+**And if this works, `::resolve` is probably NOT needed at all.** `overloads`-with-
+`Implementation` IS the "map of implementations" `::resolve` was going to add — keyed
+by parameter/return signature and resolved *natively* by `resolve_overload`, with no
+bespoke `resolver` fn. `::resolve` only survives if some builtin genuinely dispatches
+on a *computed axis that is neither arg-type nor return-type* (none is known today —
+`vector`'s axis is the argument's shape type, i.e. a parameter overload). So sequence
+the plan: **(1)** `overloads` carries `Implementation`; **(2)** migrate the `Custom`
+overload cases onto it; **(3)** `#[deprecate]` `Custom`; **(4)** add `::resolve`
+*only if* a real computed-axis case remains after (2).
+
 **Guardrails when it is planned:** behavior-preserving per member — the resolved
 concrete target (hence emitted `.ncode`) must not change, so byte-identity gate
 every affected package (`vector`, and anything injecting it). No new public names:
-the variant targets stay internal `__vector_*` symbols, never descriptor members
+the variant/overload targets stay internal `__*` symbols, never descriptor members
 (the whole point — `Custom`'s computed targets were already internal; keep them so).
