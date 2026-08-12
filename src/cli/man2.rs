@@ -1,166 +1,148 @@
 //! Experimental `mfb man2` — render a builtin function's man page directly from
-//! the descriptor [`REGISTRY`] metadata (`doc_intro` / `doc_desc` / `errors` /
-//! overload parameters) rather than from the static `src/docs/man/**` Markdown.
+//! the **clean-room registry** (`crate::codegen::registry`) descriptor: a package's
+//! `intro`/`desc`, each function's `intro`/`desc`/`example`, and every
+//! `Implementation`'s parameters / return type / errors — rather than from the
+//! static `src/docs/man/**` Markdown or the legacy `target::shared::registry`.
 //!
-//! This is a testbed for registry-driven documentation and is deliberately wired
-//! for the `collections` package only. Once the approach is proven it can widen
-//! to every package (every `BuiltinModule` carries the same fields).
+//! man2 is registry-generic: it renders any package that has migrated onto the
+//! clean-room registry (today `csv`), reading the same fields off every descriptor.
 
 use std::io::IsTerminal;
 
 use crate::builtins::errorcode;
 use crate::cli::spec::detect_terminal_width;
+use crate::codegen::registry::{registry, DefaultValue, RegistryFunction, RegistryPackage};
 use crate::docs::render;
-use crate::target::shared::registry::{
-    BuiltinFunction, BuiltinModule, DefaultValue, ReturnType, REGISTRY,
-};
 
 pub(crate) fn show_man2(args: &[String]) -> Result<(), String> {
     let positional: Vec<&str> = args.iter().map(String::as_str).collect();
     match positional.as_slice() {
         [package, function_name] => {
-            let module = lookup_module(package)?;
-            let function = lookup(module, function_name).ok_or_else(|| {
+            let package = lookup_package(package)?;
+            let function = package.function(function_name).ok_or_else(|| {
                 format!(
-                    "unknown {package} function `{function_name}`\n\nRun `mfb man {package}` to list functions."
+                    "unknown {} function `{function_name}`\n\nRun `mfb man2 {}` to list functions.",
+                    package.import_name(),
+                    package.import_name(),
                 )
             })?;
-            print_markdown(&render_function_markdown(module, function));
+            print_markdown(&render_function_markdown(package, function));
             Ok(())
         }
         [package] => {
-            let module = lookup_module(package)?;
-            print_markdown(&render_package_markdown(module));
+            let package = lookup_package(package)?;
+            print_markdown(&render_package_markdown(package));
             Ok(())
         }
         [] | [_, _, _, ..] => Err("Usage: mfb man2 <package> [function]".to_string()),
     }
 }
 
-/// Resolve a package name to its registered descriptor, or a user-facing error.
-fn lookup_module(package: &str) -> Result<&'static BuiltinModule, String> {
-    REGISTRY
-        .module(package)
+/// Resolve a package name to its clean-room descriptor, or a user-facing error.
+fn lookup_package(package: &str) -> Result<&'static RegistryPackage, String> {
+    registry()
+        .get_package(package)
         .ok_or_else(|| format!("mfb man2: unknown package `{package}`"))
 }
 
-/// Resolve a bare function name (`get`) to its descriptor entry, matching either
-/// the qualified call name (`collections.get`) or the documentation slug.
-fn lookup<'a>(module: &'a BuiltinModule, function_name: &str) -> Option<&'a BuiltinFunction> {
-    let qualified = format!("{}.{function_name}", module.name);
-    module.function(&qualified).or_else(|| {
-        module
-            .functions
-            .iter()
-            .find(|f| f.doc_slug == function_name)
-    })
-}
-
-/// Build a package-overview Markdown page from the module descriptor: its
-/// `doc_intro` summary, `doc_desc` description, a listing of every member with
-/// its own `doc_intro`, and the union of every declared error.
-fn render_package_markdown(module: &BuiltinModule) -> String {
-    let mut md = String::new();
-
-    md.push_str(&format!("# {}\n\n", module.name));
-    if !module.doc_intro.is_empty() {
-        md.push_str(module.doc_intro);
-        md.push_str("\n\n");
-    }
-    if !module.doc_desc.is_empty() {
-        md.push_str("## Description\n\n");
-        md.push_str(module.doc_desc);
-        md.push_str("\n\n");
-    }
-
-    if !module.functions.is_empty() {
-        md.push_str("## Functions\n\n");
-        md.push_str("| Function | Summary |\n| --- | --- |\n");
-        for function in module.functions {
-            md.push_str(&format!(
-                "| `{}::{}` | {} |\n",
-                module.name, function.doc_slug, function.doc_intro
-            ));
-        }
-        md.push('\n');
-    }
-
-    render_package_errors(&mut md, module);
-
-    md
-}
-
-/// The union of every error declared by any member, ordered by code, resolved to
-/// `(code, message)`. The aggregate Errors table for a package overview.
-fn render_package_errors(md: &mut String, module: &BuiltinModule) {
+/// The union of every error any of a function's implementations declares, in first-
+/// seen order.
+fn function_errors(function: &RegistryFunction) -> Vec<&'static str> {
     let mut names: Vec<&'static str> = Vec::new();
-    for function in module.functions {
-        for &name in function.errors {
+    for implementation in function.implementations() {
+        for &name in &implementation.errors {
             if !names.contains(&name) {
                 names.push(name);
             }
         }
     }
-    if names.is_empty() {
-        return;
-    }
-    names.sort_by_key(|name| {
-        errorcode::runtime_error(name)
-            .map(|(code, _)| code)
-            .unwrap_or("")
-    });
-
-    md.push_str("## Errors\n\n");
-    md.push_str("| Code | Name | Message |\n| --- | --- | --- |\n");
-    for name in names {
-        let (code, message) = errorcode::runtime_error(name).unwrap_or(("", ""));
-        md.push_str(&format!("| `{code}` | `{name}` | {message} |\n"));
-    }
-    md.push('\n');
+    names
 }
 
-/// Build a Markdown man page for one function purely from its descriptor.
-fn render_function_markdown(module: &BuiltinModule, function: &BuiltinFunction) -> String {
+/// Build a package-overview Markdown page: `intro` summary, `desc` description, a
+/// listing of every member with its own `intro`, and the union of every declared
+/// error.
+fn render_package_markdown(package: &RegistryPackage) -> String {
     let mut md = String::new();
 
-    md.push_str(&format!("# {}\n\n", function.doc_slug));
-    if !function.doc_intro.is_empty() {
-        md.push_str(function.doc_intro);
+    md.push_str(&format!("# {}\n\n", package.import_name()));
+    if !package.intro().is_empty() {
+        md.push_str(package.intro());
         md.push_str("\n\n");
     }
-
-    md.push_str("## Package\n\n");
-    md.push_str(module.name);
-    md.push_str("\n\n");
-
-    render_parameters(&mut md, function);
-
-    if !function.doc_desc.is_empty() {
+    if !package.desc().is_empty() {
         md.push_str("## Description\n\n");
-        md.push_str(function.doc_desc);
+        md.push_str(package.desc());
         md.push_str("\n\n");
     }
 
-    render_errors(&mut md, function);
-
-    if !function.doc_example.is_empty() {
-        md.push_str("## Examples\n\n");
-        md.push_str(function.doc_example);
-        md.push_str("\n\n");
+    if !package.functions().is_empty() {
+        md.push_str("## Functions\n\n");
+        md.push_str("| Function | Summary |\n| --- | --- |\n");
+        for function in package.functions() {
+            md.push_str(&format!(
+                "| `{}::{}` | {} |\n",
+                package.import_name(),
+                function.name(),
+                function.intro(),
+            ));
+        }
+        md.push('\n');
     }
 
-    render_see_also(&mut md, module, function);
+    let mut names: Vec<&'static str> = Vec::new();
+    for function in package.functions() {
+        for name in function_errors(function) {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+    }
+    render_errors_table(&mut md, &names);
 
     md
 }
 
-/// Collect every `package::function` reference that appears in the Description
-/// and list it under "See also". The current function's own qualified name is
-/// excluded, and duplicates are collapsed, so a page points only at the *other*
-/// members it mentions.
-fn render_see_also(md: &mut String, module: &BuiltinModule, function: &BuiltinFunction) {
-    let current = format!("{}::{}", module.name, function.doc_slug);
-    let referenced = referenced_functions(function.doc_desc, &current);
+/// Build a Markdown man page for one function purely from its descriptor.
+fn render_function_markdown(package: &RegistryPackage, function: &RegistryFunction) -> String {
+    let mut md = String::new();
+
+    md.push_str(&format!("# {}\n\n", function.name()));
+    if !function.intro().is_empty() {
+        md.push_str(function.intro());
+        md.push_str("\n\n");
+    }
+
+    md.push_str("## Package\n\n");
+    md.push_str(package.import_name());
+    md.push_str("\n\n");
+
+    render_parameters(&mut md, function);
+
+    if !function.desc().is_empty() {
+        md.push_str("## Description\n\n");
+        md.push_str(function.desc());
+        md.push_str("\n\n");
+    }
+
+    render_errors_table(&mut md, &function_errors(function));
+
+    if !function.example().is_empty() {
+        md.push_str("## Examples\n\n");
+        md.push_str(function.example());
+        md.push_str("\n\n");
+    }
+
+    render_see_also(&mut md, package, function);
+
+    md
+}
+
+/// Collect every `package::function` reference that appears in the Description and
+/// list it under "See also", excluding the current member and collapsing duplicates.
+fn render_see_also(md: &mut String, package: &RegistryPackage, function: &RegistryFunction) {
+    let current = format!("{}::{}", package.import_name(), function.name());
+    let referenced = referenced_functions(function.desc(), &current);
     if referenced.is_empty() {
         return;
     }
@@ -204,24 +186,24 @@ fn referenced_functions(text: &str, current: &str) -> Vec<String> {
     refs
 }
 
-/// The parameter table, taken from the first overload's parameters. Optional
-/// (defaulted) parameters are flagged, and any alias spellings are listed. The
-/// return type is shown only when it is a fixed nominal (`collections` members
-/// are argument-dependent, so this is usually omitted).
-fn render_parameters(md: &mut String, function: &BuiltinFunction) {
-    let Some(overload) = function.overloads.first() else {
+/// The parameter table, taken from the first implementation's parameters. Optional
+/// (defaulted) parameters are flagged, alias spellings are listed, and the fixed
+/// return type is shown.
+fn render_parameters(md: &mut String, function: &RegistryFunction) {
+    let Some(implementation) = function.implementations().first() else {
         return;
     };
-    if overload.params.is_empty() {
-        if let ReturnType::Fixed(ret) = overload.return_type {
-            md.push_str(&format!("Takes no arguments and returns `{ret}`.\n\n"));
-        }
+    if implementation.params.is_empty() {
+        md.push_str(&format!(
+            "Takes no arguments and returns `{}`.\n\n",
+            implementation.return_type,
+        ));
         return;
     }
 
     md.push_str("## Parameters\n\n");
     md.push_str("| Parameter | Type | Also accepted as |\n| --- | --- | --- |\n");
-    for param in overload.params {
+    for param in &implementation.params {
         let optional = matches!(
             param.default,
             DefaultValue::Fill { .. } | DefaultValue::Optional
@@ -241,24 +223,29 @@ fn render_parameters(md: &mut String, function: &BuiltinFunction) {
                 .collect::<Vec<_>>()
                 .join(", ")
         };
-        md.push_str(&format!("| {name} | `{}` | {aliases} |\n", param.ty.name()));
+        md.push_str(&format!("| {name} | `{}` | {aliases} |\n", param.ty));
     }
     md.push('\n');
 
-    if let ReturnType::Fixed(ret) = overload.return_type {
-        md.push_str(&format!("Returns `{ret}`.\n\n"));
-    }
+    md.push_str(&format!("Returns `{}`.\n\n", implementation.return_type));
 }
 
-/// The Errors table, resolving each declared `errorCode` name to its `(code,
-/// message)` from the single `ERRORCODE_CONSTANTS` table.
-fn render_errors(md: &mut String, function: &BuiltinFunction) {
-    if function.errors.is_empty() {
+/// Render an Errors table for a set of `errorCode` names, resolving each to its
+/// `(code, message)` and ordering by code. No-op when `names` is empty.
+fn render_errors_table(md: &mut String, names: &[&'static str]) {
+    if names.is_empty() {
         return;
     }
+    let mut ordered = names.to_vec();
+    ordered.sort_by_key(|name| {
+        errorcode::runtime_error(name)
+            .map(|(code, _)| code)
+            .unwrap_or("")
+    });
+
     md.push_str("## Errors\n\n");
     md.push_str("| Code | Name | Message |\n| --- | --- | --- |\n");
-    for &name in function.errors {
+    for name in ordered {
         let (code, message) = errorcode::runtime_error(name).unwrap_or(("", ""));
         md.push_str(&format!("| `{code}` | `{name}` | {message} |\n"));
     }
@@ -282,43 +269,52 @@ mod tests {
     }
 
     #[test]
-    fn renders_a_collections_function_from_the_registry() {
-        // `get` carries doc_intro, doc_desc, and two declared errors.
-        assert!(show_man2(&s(&["collections", "get"])).is_ok());
-        // `findLastIndex` — the source-generic member added to the descriptor.
-        assert!(show_man2(&s(&["collections", "findLastIndex"])).is_ok());
-        // An infallible member with no errors table.
-        assert!(show_man2(&s(&["collections", "append"])).is_ok());
+    fn renders_a_csv_function_from_the_clean_room_registry() {
+        assert!(show_man2(&s(&["csv", "parse"])).is_ok());
+        assert!(show_man2(&s(&["csv", "readRow"])).is_ok());
+        assert!(show_man2(&s(&["csv", "stringify"])).is_ok());
     }
 
     #[test]
-    fn markdown_includes_summary_description_and_errors() {
-        let module = REGISTRY.module("collections").unwrap();
-        let function = lookup(module, "get").unwrap();
-        let md = render_function_markdown(module, function);
-        assert!(md.starts_with("# get\n"));
-        assert!(md.contains("## Package\n\ncollections"));
+    fn markdown_includes_summary_description_and_parameters() {
+        let package = registry().get_package("csv").unwrap();
+        let function = package.function("parse").unwrap();
+        let md = render_function_markdown(package, function);
+        assert!(md.starts_with("# parse\n"));
+        assert!(md.contains("## Package\n\ncsv"));
         assert!(md.contains("## Description"));
-        assert!(md.contains("## Errors"));
-        // Errors are resolved to their code + runtime message.
-        assert!(md.contains("`ErrIndexOutOfRange`"));
-        assert!(md.contains("`ErrNotFound`"));
-        // The parameter table reflects the descriptor's params and aliases.
+        // The parameter table reflects the descriptor's params, aliases, and optionals.
         assert!(md.contains("## Parameters"));
         assert!(md.contains("`value`"));
-        assert!(md.contains("`collection`")); // alias of `value`
+        assert!(md.contains("`text`")); // alias of `value`
+        assert!(md.contains("`delimiter` (optional)")); // Fill-defaulted
+        assert!(md.contains("Returns `List OF List OF String`."));
+        assert!(md.contains("## Examples"));
     }
 
     #[test]
-    fn see_also_lists_referenced_members_and_excludes_self() {
-        let module = REGISTRY.module("collections").unwrap();
-        let md = render_function_markdown(module, lookup(module, "get").unwrap());
-        // get's description points at getOr and hasKey.
-        assert!(md.contains("## See also"));
-        assert!(md.contains("- `collections::getOr`"));
-        assert!(md.contains("- `collections::hasKey`"));
-        // It does not list itself.
-        assert!(!md.contains("- `collections::get`"));
+    fn no_function_renders_the_package_overview() {
+        let package = registry().get_package("csv").unwrap();
+        let md = render_package_markdown(package);
+        assert!(md.starts_with("# csv\n"));
+        assert!(md.contains("## Description"));
+        assert!(md.contains("## Functions"));
+        assert!(md.contains("| `csv::parse` |"));
+        assert!(md.contains("| `csv::readRow` |"));
+        assert!(show_man2(&s(&["csv"])).is_ok());
+    }
+
+    #[test]
+    fn rejects_unknown_package() {
+        let err = show_man2(&s(&["definitely-not-a-package"])).unwrap_err();
+        assert!(err.contains("unknown package"));
+    }
+
+    #[test]
+    fn rejects_missing_function() {
+        assert!(show_man2(&s(&["csv", "nope"]))
+            .unwrap_err()
+            .contains("unknown csv function"));
     }
 
     #[test]
@@ -332,81 +328,5 @@ mod tests {
                 "collections::hasKey".to_string()
             ]
         );
-    }
-
-    #[test]
-    fn an_infallible_member_omits_the_errors_section() {
-        let module = REGISTRY.module("collections").unwrap();
-        let md = render_function_markdown(module, lookup(module, "append").unwrap());
-        assert!(!md.contains("## Errors"));
-    }
-
-    #[test]
-    fn lookup_matches_qualified_name_and_slug() {
-        let module = REGISTRY.module("collections").unwrap();
-        assert!(lookup(module, "get").is_some());
-        assert!(lookup(module, "collections.get").is_none()); // bare slug only
-        assert!(lookup(module, "definitely-not-a-fn").is_none());
-    }
-
-    #[test]
-    fn renders_any_registered_package() {
-        // man2 is registry-driven: every registered package resolves (encoding's
-        // docs have migrated, so it renders richly; others render what they carry).
-        assert!(show_man2(&s(&["encoding", "hexEncode"])).is_ok());
-        assert!(show_man2(&s(&["encoding"])).is_ok());
-        assert!(show_man2(&s(&["io", "print"])).is_ok());
-    }
-
-    #[test]
-    fn rejects_unknown_package() {
-        let err = show_man2(&s(&["definitely-not-a-package"])).unwrap_err();
-        assert!(err.contains("unknown package"));
-    }
-
-    #[test]
-    fn renders_encoding_function_from_migrated_docs() {
-        let module = REGISTRY.module("encoding").unwrap();
-        let md = render_function_markdown(module, lookup(module, "hexEncode").unwrap());
-        assert!(md.starts_with("# hexEncode\n"));
-        assert!(md.contains("lowercase hexadecimal"));
-        assert!(md.contains("## Description"));
-        assert!(md.contains("## Examples"));
-    }
-
-    #[test]
-    fn no_function_renders_the_package_overview() {
-        // `mfb man2 collections` renders the package page from the registry.
-        assert!(show_man2(&s(&["collections"])).is_ok());
-    }
-
-    #[test]
-    fn package_markdown_has_intro_description_functions_and_aggregate_errors() {
-        let module = REGISTRY.module("collections").unwrap();
-        let md = render_package_markdown(module);
-        assert!(md.starts_with("# collections\n"));
-        // doc_intro one-liner.
-        assert!(md.contains("Sequence and map helper functions"));
-        // doc_desc description.
-        assert!(md.contains("## Description"));
-        assert!(md.contains("package-qualified helpers for `List` and `Map`"));
-        // Function listing with per-member summaries.
-        assert!(md.contains("## Functions"));
-        assert!(md.contains("| `collections::get` |"));
-        // Aggregate Errors table: the union across members, ordered by code.
-        assert!(md.contains("## Errors"));
-        assert!(md.contains("`ErrIndexOutOfRange`"));
-        assert!(md.contains("`ErrNotFound`"));
-        assert!(md.contains("`ErrOverflow`")); // from sum
-        let index_pos = md.find("77050001").unwrap();
-        let overflow_pos = md.find("77050010").unwrap();
-        assert!(index_pos < overflow_pos, "errors ordered by code");
-    }
-
-    #[test]
-    fn rejects_missing_function() {
-        assert!(show_man2(&s(&["collections", "nope"]))
-            .unwrap_err()
-            .contains("unknown collections function"));
     }
 }

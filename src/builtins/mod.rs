@@ -925,7 +925,7 @@ mod tests {
                 continue;
             };
             for (index, aliases) in groups.iter().enumerate() {
-                for alias in *aliases {
+                for alias in aliases {
                     let earlier = groups[..index].iter().any(|group| group.contains(alias));
                     assert!(
                         !earlier,
