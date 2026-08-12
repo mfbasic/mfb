@@ -342,15 +342,17 @@ impl RegistryUnion {
     }
 }
 
-/// One builtin package: its import name, documentation, records, unions, and
-/// functions. Fields are private — construct via [`Registry::add_package`] and fill
-/// with [`RegistryPackage::add_record`] / [`RegistryPackage::add_union`] /
+/// One builtin package: its import name, documentation, the packages it imports, its
+/// records, unions, and functions. Fields are private — construct via
+/// [`Registry::add_package`] and fill with [`RegistryPackage::add_imports`] /
+/// [`RegistryPackage::add_record`] / [`RegistryPackage::add_union`] /
 /// [`RegistryPackage::add_function`].
 #[derive(Debug)]
 pub(crate) struct RegistryPackage {
     import_name: &'static str,
     intro: &'static str,
     desc: &'static str,
+    imports: Vec<&'static str>,
     records: Vec<RegistryRecord>,
     unions: Vec<RegistryUnion>,
     functions: Vec<RegistryFunction>,
@@ -378,6 +380,11 @@ impl RegistryPackage {
         self.functions.iter().find(|f| f.name == name)
     }
 
+    /// The packages this one imports, in the order they were added.
+    pub(crate) fn imports(&self) -> &[&'static str] {
+        &self.imports
+    }
+
     /// The package's records, in declaration order.
     pub(crate) fn records(&self) -> &[RegistryRecord] {
         &self.records
@@ -393,25 +400,31 @@ impl RegistryPackage {
     /// `codegen/builtins/csv/package.mfb`), reconstructed from the package's records
     /// and the members' own [`Body::Mfb`] bodies.
     ///
-    /// The output is, in order: the optional `prefix`, then every [`RegistryRecord`]
-    /// rendered as an `[EXPORT] TYPE … END TYPE` block (in `add_record` order), then
-    /// every [`RegistryUnion`] rendered as an `[EXPORT] UNION … END UNION` block (in
-    /// `add_union` order), then every [`Body::Mfb`] body across all functions (each
-    /// overload counts — a same-named native-overload set like `encoding::utf8Encode`
-    /// emits one `FUNC` per overload), in registration order. The `prefix` carries the
-    /// package-level boilerplate `get_mfb` does not synthesize — the `IMPORT` lines,
-    /// any `EXPORT` enums, and shared `__pkg_*` helper functions. Bodies keep their raw
-    /// `__pkg_name` spelling; internalization to `#pkg_name` happens later when the
-    /// assembled text is parsed.
+    /// The output is, in order:
+    ///
+    /// 1. the package's [`imports`](Self::imports), as a leading block of
+    ///    `IMPORT <name>` lines (imports must precede all declarations in MFBASIC);
+    /// 2. every [`RegistryRecord`] as an `[EXPORT] TYPE … END TYPE` block (in
+    ///    `add_record` order);
+    /// 3. every [`RegistryUnion`] as an `[EXPORT] UNION … END UNION` block (in
+    ///    `add_union` order);
+    /// 4. the optional `helper_functions` — the shared `__pkg_*` helper functions the
+    ///    members call, which `get_mfb` does not synthesize;
+    /// 5. every [`Body::Mfb`] body across all functions (each overload counts — a
+    ///    same-named native-overload set like `encoding::utf8Encode` emits one `FUNC`
+    ///    per overload), in registration order.
+    ///
+    /// Bodies keep their raw `__pkg_name` spelling; internalization to `#pkg_name`
+    /// happens later when the assembled text is parsed.
     ///
     /// Returns the **empty string** only when the package has *nothing* to inject —
-    /// no records, no unions, and no `Mfb` member — even if a `prefix` is given,
-    /// because then the imports and helpers support nothing. (Records and unions are
-    /// injectable source in their own right: a package whose functions are all
-    /// `Native`/`Rewrite` still emits its `TYPE`/`UNION` declarations here.) Pieces
-    /// are separated by a blank line and the result ends with a newline, so the output
-    /// is directly parseable.
-    pub(crate) fn get_mfb(&self, prefix: Option<&str>) -> String {
+    /// no records, no unions, and no `Mfb` member — even if imports or
+    /// `helper_functions` are given, because then the imports and helpers support
+    /// nothing. (Records and unions are injectable source in their own right: a
+    /// package whose functions are all `Native`/`Rewrite` still emits its
+    /// `TYPE`/`UNION` declarations here.) Pieces are separated by a blank line and the
+    /// result ends with a newline, so the output is directly parseable.
+    pub(crate) fn get_mfb(&self, helper_functions: Option<&str>) -> String {
         let bodies: Vec<&str> = self
             .functions
             .iter()
@@ -426,20 +439,38 @@ impl RegistryPackage {
         }
 
         let mut pieces: Vec<String> =
-            Vec::with_capacity(1 + self.records.len() + self.unions.len() + bodies.len());
-        if let Some(prefix) = prefix {
-            let prefix = prefix.trim_end();
-            if !prefix.is_empty() {
-                pieces.push(prefix.to_string());
-            }
+            Vec::with_capacity(1 + self.records.len() + self.unions.len() + 1 + bodies.len());
+        if !self.imports.is_empty() {
+            let imports = self
+                .imports
+                .iter()
+                .map(|name| format!("IMPORT {name}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            pieces.push(imports);
         }
         pieces.extend(self.records.iter().map(RegistryRecord::render));
         pieces.extend(self.unions.iter().map(RegistryUnion::render));
+        if let Some(helper_functions) = helper_functions {
+            let helper_functions = helper_functions.trim_end();
+            if !helper_functions.is_empty() {
+                pieces.push(helper_functions.to_string());
+            }
+        }
         pieces.extend(bodies.iter().map(|body| body.to_string()));
 
         let mut out = pieces.join("\n\n");
         out.push('\n');
         out
+    }
+
+    /// Add packages to this package's import list. Additive — later calls append —
+    /// so a package may accumulate its imports across several calls. They render into
+    /// [`get_mfb`](Self::get_mfb) as leading `IMPORT <name>` lines, before everything
+    /// else, in the order added.
+    pub(crate) fn add_imports(&mut self, imports: Vec<&'static str>) -> &mut Self {
+        self.imports.extend(imports);
+        self
     }
 
     /// Add a value record (`[EXPORT] TYPE … END TYPE`) to this package. `props` must
@@ -538,6 +569,7 @@ impl Registry {
             import_name,
             intro,
             desc,
+            imports: Vec::new(),
             records: Vec::new(),
             unions: Vec::new(),
             functions: Vec::new(),
@@ -835,18 +867,18 @@ mod tests {
 
         let pkg = r.get_package("demo").expect("demo package");
 
-        // With a prefix: imports/helpers first, then both Mfb bodies (a, c), in order.
-        let src = pkg.get_mfb(Some("IMPORT strings"));
+        // With helper functions: the shared helper first, then both Mfb bodies (a, c).
+        let src = pkg.get_mfb(Some("FUNC __demo_helper() AS Nothing\nEND FUNC"));
         assert_eq!(
             src,
-            "IMPORT strings\n\n\
+            "FUNC __demo_helper() AS Nothing\nEND FUNC\n\n\
              FUNC __demo_a() AS String\n  RETURN \"a\"\nEND FUNC\n\n\
              FUNC __demo_c() AS String\n  RETURN \"c\"\nEND FUNC\n",
         );
         // The Rewrite member 'b' contributed nothing.
         assert!(!src.contains("__demo_b"));
 
-        // Without a prefix: just the bodies.
+        // Without helper functions: just the bodies.
         let src = pkg.get_mfb(None);
         assert!(src.starts_with("FUNC __demo_a"));
         assert!(src.contains("FUNC __demo_c"));
@@ -858,8 +890,22 @@ mod tests {
         // The example package is all Intrinsic/Rewrite and has no records — nothing
         // to inject.
         let pkg = registry().get_package("example").expect("example package");
-        assert_eq!(pkg.get_mfb(Some("IMPORT strings")), "");
+        assert_eq!(
+            pkg.get_mfb(Some("FUNC __helper() AS Nothing\nEND FUNC")),
+            ""
+        );
         assert_eq!(pkg.get_mfb(None), "");
+
+        // Imports and helper functions are scaffolding: with no records/unions/Mfb
+        // member to support, they render nothing.
+        let mut r = Registry::new();
+        let pkg = r.add_package("bare", "i", "d");
+        pkg.add_imports(vec!["strings"]);
+        let pkg = r.get_package("bare").expect("bare package");
+        assert_eq!(
+            pkg.get_mfb(Some("FUNC __helper() AS Nothing\nEND FUNC")),
+            ""
+        );
     }
 
     fn prop(name: &'static str, ty: &'static str) -> RecordProp {
@@ -926,9 +972,12 @@ mod tests {
     }
 
     #[test]
-    fn get_mfb_emits_records_then_unions_then_functions_in_add_order() {
+    fn get_mfb_orders_imports_records_unions_helpers_functions() {
         let mut r = Registry::new();
         let pkg = r.add_package("json", "intro", "desc");
+        // add_imports accumulates across calls.
+        pkg.add_imports(vec!["collections"]);
+        pkg.add_imports(vec!["strings"]);
         pkg.add_record("JsonNum", true, vec![prop("value", "Float")]);
         pkg.add_record("JsonBool", true, vec![prop("flag", "Boolean")]);
         pkg.add_union("Json", true, vec![variant("JsonNum"), variant("JsonBool")]);
@@ -943,12 +992,15 @@ mod tests {
         );
 
         let pkg = r.get_package("json").expect("json package");
+        assert_eq!(pkg.imports(), &["collections", "strings"]);
+        // Full order: imports, records, unions, helper functions, then member bodies.
         assert_eq!(
-            pkg.get_mfb(Some("IMPORT strings")),
-            "IMPORT strings\n\n\
+            pkg.get_mfb(Some("FUNC __json_helper() AS Nothing\nEND FUNC")),
+            "IMPORT collections\nIMPORT strings\n\n\
              EXPORT TYPE JsonNum\n  value AS Float\nEND TYPE\n\n\
              EXPORT TYPE JsonBool\n  flag AS Boolean\nEND TYPE\n\n\
              EXPORT UNION Json\n  JsonNum\n  JsonBool\nEND UNION\n\n\
+             FUNC __json_helper() AS Nothing\nEND FUNC\n\n\
              FUNC __json_render() AS String\n  RETURN \"\"\nEND FUNC\n",
         );
     }
