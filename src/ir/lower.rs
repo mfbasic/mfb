@@ -2106,7 +2106,7 @@ fn expression_type(
                 || builtins::audio::is_audio_call(&canonical_callee)
                 || builtins::http::is_http_call(&canonical_callee)
                 || crate::codegen::builtins::json::is_json_call(&canonical_callee)
-                || crate::codegen::builtins::csv::is_csv_call(&canonical_callee)
+                || crate::codegen::registry::is_member(&canonical_callee)
                 || crate::codegen::builtins::regex::is_regex_call(&canonical_callee)
                 || crate::codegen::builtins::datetime::is_datetime_call(&canonical_callee)
                 || builtins::crypto::is_crypto_call(&canonical_callee)
@@ -2768,8 +2768,15 @@ fn lower_expression_with_expected(
                     value: " ".to_string(),
                 });
             }
-            for (type_, value) in builtins::default_argument_padding(&canonical_callee, args.len())
-            {
+            // Migrated (clean-room registry) packages first, else the old tables.
+            let clean_room_pad =
+                crate::codegen::registry::default_argument_padding(&canonical_callee, args.len());
+            let padding: Vec<(&str, &str)> = if clean_room_pad.is_empty() {
+                builtins::default_argument_padding(&canonical_callee, args.len()).to_vec()
+            } else {
+                clean_room_pad
+            };
+            for (type_, value) in &padding {
                 if type_.starts_with("List OF ") {
                     args.push(IrValue::ListLiteral {
                         type_: (*type_).to_string(),
@@ -2981,9 +2988,7 @@ fn lower_expression_with_expected(
                 })
                 .or_else(|| {
                     crate::codegen::builtins::json::implementation_name(&canonical_callee)
-                        .or_else(|| {
-                            crate::codegen::builtins::csv::implementation_name(&canonical_callee)
-                        })
+                        .or_else(|| crate::codegen::registry::rewrite_target(&canonical_callee))
                         .or_else(|| {
                             crate::codegen::builtins::regex::implementation_name(&canonical_callee)
                         })

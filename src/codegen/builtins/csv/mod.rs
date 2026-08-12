@@ -3,13 +3,13 @@
 //! the two `EXPORT` records, the shared `__csv_*` helpers (`package.mfb`), and its
 //! four members, each owning its `FUNC __csv_* … END FUNC` body in its `func_*.rs`
 //! (`Body::mfb`, carrying the rewrite target — `readRow` → `__csv_next`, irregular).
-//! [`RegistryPackage::get_mfb`] reassembles the injectable source; the pipeline
-//! reaches csv's return type / rewrite / arg validation through the seams below,
-//! which read the clean-room descriptor rather than a static `BuiltinModule`.
+//! [`RegistryPackage::get_mfb`] reassembles the injectable source; the frontend and
+//! IR lowering reach csv through the *generic* clean-room dispatch (the
+//! `get_package_by_func_name` dual-path in `builtins::` / `ir::lower`), so this module
+//! is pure registration — no per-package `is_csv_call`/`implementation_name` seams.
 
 use crate::codegen::registry::{
-    registry, Body, DefaultValue, Implementation, Lowering, Parameter, RecordProp, Registry,
-    RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Lowering, Parameter, RecordProp, Registry, RegistryPackage,
 };
 
 mod func_parse;
@@ -141,114 +141,32 @@ pub(crate) fn register(r: &mut Registry) {
     func_read_row::add(pkg);
 }
 
-// ---------------------------------------------------------------------------
-// Pipeline seams — the frontend/IR-lowering hooks csv is reached through. Each
-// reads the clean-room descriptor (the package is the single source of truth).
-// ---------------------------------------------------------------------------
-
-/// The clean-room `RegistryFunction` a `csv.<member>` call names, or `None`.
-fn csv_function(name: &str) -> Option<&'static RegistryFunction> {
-    let member = name.strip_prefix("csv.")?;
-    registry().get_package("csv")?.function(member)
-}
-
-/// Whether `name` is a `csv.<member>` call.
-pub(crate) fn is_csv_call(name: &str) -> bool {
-    csv_function(name).is_some()
-}
-
-/// The internal `__csv_*` symbol a `csv.<member>` call rewrites to at IR lowering.
-pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
-    csv_function(name)?
-        .implementations()
-        .first()?
-        .body
-        .rewrite_target()
-}
-
-/// The primary expected argument type of a `csv.<member>` call (its first param).
-pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
-    Some(
-        csv_function(name)?
-            .implementations()
-            .first()?
-            .params
-            .first()?
-            .ty,
-    )
-}
-
-/// Whether `name` is one of csv's `EXPORT` record types (`CsvReader`/`CsvRow`).
-pub(crate) fn is_builtin_type(name: &str) -> bool {
-    registry()
-        .get_package("csv")
-        .is_some_and(|pkg| pkg.records().iter().any(|record| record.name() == name))
-}
-
-/// The per-position `[name, alias…]` lists for keyword-argument matching. Kept as a
-/// static table: this is the one seam whose return is a `&'static [&'static […]]`
-/// shape the runtime-built descriptor cannot borrow without allocating.
-pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
-    match name {
-        "csv.parse" => Some(&[&["value", "text"], &["delimiter"], &["quote"]]),
-        "csv.stringify" => Some(&[&["value"], &["delimiter"], &["quote"], &["newline"]]),
-        "csv.parseStream" => Some(&[&["value", "text"], &["delimiter"], &["quote"]]),
-        "csv.readRow" => Some(&[&["reader"]]),
-        _ => None,
-    }
-}
-
-/// The `(type, expr)` constants to append after `provided` real arguments so the
-/// injected `__csv_*` body always receives its full arity. Kept as a static table
-/// for the same `&'static`-slice reason as [`call_param_names`]; the exprs mirror the
-/// members' `Fill` defaults.
-pub(crate) fn default_argument_padding(
-    name: &str,
-    provided: usize,
-) -> &'static [(&'static str, &'static str)] {
-    const PARSE_DEFAULTS: &[(&str, &str)] =
-        &[("String", DEFAULT_DELIMITER), ("String", DEFAULT_QUOTE)];
-    const STRINGIFY_DEFAULTS: &[(&str, &str)] = &[
-        ("String", DEFAULT_DELIMITER),
-        ("String", DEFAULT_QUOTE),
-        ("String", DEFAULT_NEWLINE),
-    ];
-    match name {
-        "csv.parse" | "csv.parseStream" => {
-            &PARSE_DEFAULTS[provided.saturating_sub(1).min(PARSE_DEFAULTS.len())..]
-        }
-        "csv.stringify" => {
-            &STRINGIFY_DEFAULTS[provided.saturating_sub(1).min(STRINGIFY_DEFAULTS.len())..]
-        }
-        _ => &[],
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::codegen::registry::{self, registry};
 
     #[test]
     fn csv_registered_on_the_clean_room_registry() {
         let pkg = registry().get_package("csv").expect("csv package");
         assert_eq!(pkg.functions().len(), 4);
-        assert!(is_builtin_type("CsvReader"));
-        assert!(is_builtin_type("CsvRow"));
-        assert!(!is_builtin_type("Nope"));
+        // The two EXPORT records are visible to the generic type query.
+        assert!(registry::is_builtin_type("CsvReader"));
+        assert!(registry::is_builtin_type("CsvRow"));
     }
 
     #[test]
-    fn seams_read_the_clean_room_descriptor() {
-        assert!(is_csv_call("csv.parse"));
-        assert!(!is_csv_call("csv.nope"));
-        assert_eq!(implementation_name("csv.parse"), Some("__csv_parse"));
-        assert_eq!(implementation_name("csv.readRow"), Some("__csv_next"));
-        assert_eq!(expected_arguments("csv.parse"), Some("String"));
+    fn generic_dispatch_reaches_csv() {
+        assert!(registry::is_member("csv.parse"));
+        assert!(!registry::is_member("csv.nope"));
         assert_eq!(
-            expected_arguments("csv.stringify"),
+            registry::call_return_type("csv.parse"),
             Some("List OF List OF String")
         );
-        assert_eq!(expected_arguments("csv.readRow"), Some("CsvReader"));
+        assert_eq!(registry::rewrite_target("csv.parse"), Some("__csv_parse"));
+        // The irregular pairing the public name cannot derive.
+        assert_eq!(registry::rewrite_target("csv.readRow"), Some("__csv_next"));
+        assert_eq!(registry::arity("csv.parse"), Some((1, 3)));
+        assert_eq!(registry::arity("csv.readRow"), Some((1, 1)));
     }
 
     #[test]

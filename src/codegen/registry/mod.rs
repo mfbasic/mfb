@@ -782,6 +782,89 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
     })
 }
 
+/// A `package.Type` reference (`"csv.CsvReader"`) resolved to its bare member type
+/// id when the migrated package declares it, else `None`.
+pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
+    let (package, member) = qualified.split_once('.')?;
+    let package = registry().get_package(package)?;
+    let declares = package
+        .records()
+        .iter()
+        .any(|record| record.name() == member)
+        || package.unions().iter().any(|union| union.name() == member);
+    declares.then(|| member.to_string())
+}
+
+/// The internal symbol the migrated call `qualified` rewrites to at IR lowering, or
+/// `None`.
+pub(crate) fn rewrite_target(qualified: &str) -> Option<&'static str> {
+    registry()
+        .function_by_qualified(qualified)?
+        .implementations()
+        .first()?
+        .body
+        .rewrite_target()
+}
+
+/// The primary expected argument type (first parameter) of the migrated call
+/// `qualified`, or `None`.
+pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
+    Some(
+        registry()
+            .function_by_qualified(qualified)?
+            .implementations()
+            .first()?
+            .params
+            .first()?
+            .ty,
+    )
+}
+
+/// The per-position `[name, alias…]` keyword-matching lists for the migrated call
+/// `qualified`, or `None`.
+pub(crate) fn call_param_names(qualified: &str) -> Option<Vec<Vec<&'static str>>> {
+    let implementation = registry()
+        .function_by_qualified(qualified)?
+        .implementations()
+        .first()?;
+    Some(
+        implementation
+            .params
+            .iter()
+            .map(|param| {
+                let mut names = Vec::with_capacity(1 + param.aliases.len());
+                names.push(param.name);
+                names.extend_from_slice(param.aliases);
+                names
+            })
+            .collect(),
+    )
+}
+
+/// The `(type, expr)` constants to append after `provided` real arguments so a
+/// migrated call's injected body receives its full arity — the `Fill` params past
+/// `provided`. Empty when no migrated package owns `qualified`.
+pub(crate) fn default_argument_padding(
+    qualified: &str,
+    provided: usize,
+) -> Vec<(&'static str, &'static str)> {
+    let Some(function) = registry().function_by_qualified(qualified) else {
+        return Vec::new();
+    };
+    let Some(implementation) = function.implementations().first() else {
+        return Vec::new();
+    };
+    implementation
+        .params
+        .iter()
+        .skip(provided)
+        .filter_map(|param| match &param.default {
+            DefaultValue::Fill { type_name, expr } => Some((*type_name, *expr)),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Construct the registry by registering every migrated package.
 ///
 /// The `example` package is an illustrative entry that exercises the shape (a

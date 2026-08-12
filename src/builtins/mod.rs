@@ -158,6 +158,10 @@ pub(crate) fn general_override_target(builtin: &str, arg_type: &str) -> Option<&
 /// `http.Response`) to its bare internal type id, or `None` when it is not a
 /// qualified built-in type (plan-03-http.md §A.1).
 pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
+    // Migrated (clean-room registry) packages first (`csv.CsvReader`).
+    if let Some(member) = crate::codegen::registry::qualified_builtin_type(qualified) {
+        return Some(member);
+    }
     let (package, member) = qualified.split_once('.')?;
     // The member type must belong to the *named* package — an independent
     // `is_builtin_type(member)` check would accept any cross pairing (`io.Url`,
@@ -166,7 +170,6 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         "app" => app::is_builtin_type(member),
         "audio" => audio::is_builtin_type(member),
         "crypto" => crypto::is_builtin_type(member),
-        "csv" => crate::codegen::builtins::csv::is_builtin_type(member),
         "datetime" => crate::codegen::builtins::datetime::is_builtin_type(member),
         "fs" => fs::is_builtin_type(member),
         "http" => http::is_builtin_type(member),
@@ -480,7 +483,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
         .or_else(|| os::expected_arguments(name))
         .or_else(|| io::expected_arguments(name))
         .or_else(|| crate::codegen::builtins::json::expected_arguments(name))
-        .or_else(|| crate::codegen::builtins::csv::expected_arguments(name))
+        .or_else(|| crate::codegen::registry::expected_arguments(name))
         .or_else(|| bits::expected_arguments(name))
         .or_else(|| crate::codegen::builtins::datetime::expected_arguments(name))
     {
@@ -516,7 +519,7 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| os::expected_arguments(callee))
         .or_else(|| io::expected_arguments(callee))
         .or_else(|| crate::codegen::builtins::json::expected_arguments(callee))
-        .or_else(|| crate::codegen::builtins::csv::expected_arguments(callee))
+        .or_else(|| crate::codegen::registry::expected_arguments(callee))
         .or_else(|| crate::codegen::builtins::regex::expected_arguments(callee))
         .or_else(|| net::argument_types(callee))
         .or_else(|| tls::argument_types(callee))
@@ -552,7 +555,6 @@ pub(crate) fn default_argument_padding(
         crate::codegen::builtins::datetime::default_argument_padding(callee, provided),
         crypto::default_argument_padding(callee, provided),
         http::default_argument_padding(callee, provided),
-        crate::codegen::builtins::csv::default_argument_padding(callee, provided),
     ] {
         if !pad.is_empty() {
             return pad;
@@ -750,8 +752,12 @@ pub(crate) fn select_param_name_overload<'a>(
     })
 }
 
-pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
-    app::call_param_names(name)
+pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
+    // Migrated (clean-room registry) packages first, then the legacy per-package tables.
+    if let Some(names) = crate::codegen::registry::call_param_names(name) {
+        return Some(names);
+    }
+    let borrowed: &'static [&'static [&'static str]] = app::call_param_names(name)
         .or_else(|| astrings::call_param_names(name))
         .or_else(|| audio::call_param_names(name))
         .or_else(|| general::call_param_names(name))
@@ -764,7 +770,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| fs::call_param_names(name))
         .or_else(|| io::call_param_names(name))
         .or_else(|| crate::codegen::builtins::json::call_param_names(name))
-        .or_else(|| crate::codegen::builtins::csv::call_param_names(name))
         .or_else(|| crate::codegen::builtins::regex::call_param_names(name))
         .or_else(|| crate::codegen::builtins::datetime::call_param_names(name))
         .or_else(|| money::call_param_names(name))
@@ -774,7 +779,8 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| term::call_param_names(name))
         .or_else(|| tls::call_param_names(name))
         .or_else(|| thread::call_param_names(name))
-        .or_else(|| vector::call_param_names(name))
+        .or_else(|| vector::call_param_names(name))?;
+    Some(borrowed.iter().map(|aliases| aliases.to_vec()).collect())
 }
 
 // plan-72 registry adapters. Each queries a descriptor `registry` for a call's
