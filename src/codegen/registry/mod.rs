@@ -216,14 +216,143 @@ impl RegistryFunction {
     }
 }
 
-/// One builtin package: its import name, documentation, and functions. Fields are
-/// private — construct via [`Registry::add_package`] and fill with
+/// One field of a [`RegistryRecord`], e.g. `value AS Float`.
+#[derive(Clone, Debug)]
+pub(crate) struct RecordProp {
+    /// The field name (`value`).
+    pub(crate) name: &'static str,
+    /// The field's type name (`Float`, `List OF Byte`, `net.Url`, …).
+    pub(crate) ty: &'static str,
+    /// One-line documentation of the field. Retained for doc generation; **not**
+    /// rendered into the `TYPE` declaration [`RegistryPackage::get_mfb`] emits (the
+    /// declaration is bare `name AS type`, as in a hand-written companion).
+    pub(crate) description: &'static str,
+}
+
+/// A package value record — an `[EXPORT] TYPE Name … END TYPE` declaration, e.g.
+///
+/// ```text
+/// EXPORT TYPE JsonNum
+///   value AS Float
+/// END TYPE
+/// ```
+///
+/// Fields are private — construct via [`RegistryPackage::add_record`].
+#[derive(Debug)]
+pub(crate) struct RegistryRecord {
+    name: &'static str,
+    export: bool,
+    props: Vec<RecordProp>,
+}
+
+impl RegistryRecord {
+    /// The record's type name (`JsonNum`).
+    pub(crate) fn name(&self) -> &'static str {
+        self.name
+    }
+    /// Whether the record is `EXPORT`ed (visible to importers) or package-internal.
+    pub(crate) fn is_exported(&self) -> bool {
+        self.export
+    }
+    /// The record's fields, in declaration order.
+    pub(crate) fn props(&self) -> &[RecordProp] {
+        &self.props
+    }
+
+    /// Render the `[EXPORT] TYPE … END TYPE` declaration (no trailing newline).
+    fn render(&self) -> String {
+        let mut out = String::new();
+        if self.export {
+            out.push_str("EXPORT ");
+        }
+        out.push_str("TYPE ");
+        out.push_str(self.name);
+        for prop in &self.props {
+            out.push_str("\n  ");
+            out.push_str(prop.name);
+            out.push_str(" AS ");
+            out.push_str(prop.ty);
+        }
+        out.push_str("\nEND TYPE");
+        out
+    }
+}
+
+/// One variant of a [`RegistryUnion`] — a reference, by name, to a member type
+/// (`JsonNum`, `JsonStr`, …).
+#[derive(Clone, Debug)]
+pub(crate) struct UnionVariant {
+    /// The variant's type name (must name a record/type the package declares).
+    pub(crate) name: &'static str,
+    /// One-line documentation of the variant. Retained for doc generation; **not**
+    /// rendered into the `UNION` declaration [`RegistryPackage::get_mfb`] emits (the
+    /// declaration is a bare list of variant names, as in a hand-written companion).
+    pub(crate) description: &'static str,
+}
+
+/// A package tagged-union type — an `[EXPORT] UNION Name … END UNION` declaration,
+/// e.g.
+///
+/// ```text
+/// EXPORT UNION Json
+///   JsonNull
+///   JsonBool
+///   JsonNum
+/// END UNION
+/// ```
+///
+/// (The `UNION … INCLUDES Base` extension form is unused by builtin packages, so it
+/// is intentionally not modeled; add an `Option` field if a builtin ever needs it.)
+/// Fields are private — construct via [`RegistryPackage::add_union`].
+#[derive(Debug)]
+pub(crate) struct RegistryUnion {
+    name: &'static str,
+    export: bool,
+    variants: Vec<UnionVariant>,
+}
+
+impl RegistryUnion {
+    /// The union's type name (`Json`).
+    pub(crate) fn name(&self) -> &'static str {
+        self.name
+    }
+    /// Whether the union is `EXPORT`ed (visible to importers) or package-internal.
+    pub(crate) fn is_exported(&self) -> bool {
+        self.export
+    }
+    /// The union's variants, in declaration order.
+    pub(crate) fn variants(&self) -> &[UnionVariant] {
+        &self.variants
+    }
+
+    /// Render the `[EXPORT] UNION … END UNION` declaration (no trailing newline).
+    fn render(&self) -> String {
+        let mut out = String::new();
+        if self.export {
+            out.push_str("EXPORT ");
+        }
+        out.push_str("UNION ");
+        out.push_str(self.name);
+        for variant in &self.variants {
+            out.push_str("\n  ");
+            out.push_str(variant.name);
+        }
+        out.push_str("\nEND UNION");
+        out
+    }
+}
+
+/// One builtin package: its import name, documentation, records, unions, and
+/// functions. Fields are private — construct via [`Registry::add_package`] and fill
+/// with [`RegistryPackage::add_record`] / [`RegistryPackage::add_union`] /
 /// [`RegistryPackage::add_function`].
 #[derive(Debug)]
 pub(crate) struct RegistryPackage {
     import_name: &'static str,
     intro: &'static str,
     desc: &'static str,
+    records: Vec<RegistryRecord>,
+    unions: Vec<RegistryUnion>,
     functions: Vec<RegistryFunction>,
 }
 
@@ -249,24 +378,39 @@ impl RegistryPackage {
         self.functions.iter().find(|f| f.name == name)
     }
 
+    /// The package's records, in declaration order.
+    pub(crate) fn records(&self) -> &[RegistryRecord] {
+        &self.records
+    }
+
+    /// The package's unions, in declaration order.
+    pub(crate) fn unions(&self) -> &[RegistryUnion] {
+        &self.unions
+    }
+
     /// Assemble this package's complete injectable MFBASIC source — the modern
     /// equivalent of a hand-written `package.mfb` (e.g.
-    /// `codegen/builtins/csv/package.mfb`), reconstructed from the members' own
-    /// [`Body::Mfb`] bodies.
+    /// `codegen/builtins/csv/package.mfb`), reconstructed from the package's records
+    /// and the members' own [`Body::Mfb`] bodies.
     ///
-    /// Every [`Body::Mfb`] body across all functions (each overload counts — a
-    /// same-named native-overload set like `encoding::utf8Encode` emits one `FUNC`
-    /// per overload) is appended, in registration order, to the optional `prefix`.
-    /// The `prefix` carries the package-level boilerplate that is *not* per-member —
-    /// the `IMPORT` lines, any `EXPORT` enums/records, and shared `__pkg_*` helper
-    /// functions — because `get_mfb` assembles source, it does not synthesize
-    /// imports. Bodies keep their raw `__pkg_name` spelling; internalization to
-    /// `#pkg_name` happens later when the assembled text is parsed.
+    /// The output is, in order: the optional `prefix`, then every [`RegistryRecord`]
+    /// rendered as an `[EXPORT] TYPE … END TYPE` block (in `add_record` order), then
+    /// every [`RegistryUnion`] rendered as an `[EXPORT] UNION … END UNION` block (in
+    /// `add_union` order), then every [`Body::Mfb`] body across all functions (each
+    /// overload counts — a same-named native-overload set like `encoding::utf8Encode`
+    /// emits one `FUNC` per overload), in registration order. The `prefix` carries the
+    /// package-level boilerplate `get_mfb` does not synthesize — the `IMPORT` lines,
+    /// any `EXPORT` enums, and shared `__pkg_*` helper functions. Bodies keep their raw
+    /// `__pkg_name` spelling; internalization to `#pkg_name` happens later when the
+    /// assembled text is parsed.
     ///
-    /// Returns the **empty string** when the package has no `Mfb` member at all —
-    /// even if a `prefix` is given — because with nothing to inject the imports and
-    /// helpers support nothing. Pieces are separated by a blank line and the result
-    /// ends with a newline, so the output is directly parseable.
+    /// Returns the **empty string** only when the package has *nothing* to inject —
+    /// no records, no unions, and no `Mfb` member — even if a `prefix` is given,
+    /// because then the imports and helpers support nothing. (Records and unions are
+    /// injectable source in their own right: a package whose functions are all
+    /// `Native`/`Rewrite` still emits its `TYPE`/`UNION` declarations here.) Pieces
+    /// are separated by a blank line and the result ends with a newline, so the output
+    /// is directly parseable.
     pub(crate) fn get_mfb(&self, prefix: Option<&str>) -> String {
         let bodies: Vec<&str> = self
             .functions
@@ -277,22 +421,70 @@ impl RegistryPackage {
                 _ => None,
             })
             .collect();
-        if bodies.is_empty() {
+        if self.records.is_empty() && self.unions.is_empty() && bodies.is_empty() {
             return String::new();
         }
 
-        let mut pieces: Vec<&str> = Vec::with_capacity(bodies.len() + 1);
+        let mut pieces: Vec<String> =
+            Vec::with_capacity(1 + self.records.len() + self.unions.len() + bodies.len());
         if let Some(prefix) = prefix {
             let prefix = prefix.trim_end();
             if !prefix.is_empty() {
-                pieces.push(prefix);
+                pieces.push(prefix.to_string());
             }
         }
-        pieces.extend(bodies);
+        pieces.extend(self.records.iter().map(RegistryRecord::render));
+        pieces.extend(self.unions.iter().map(RegistryUnion::render));
+        pieces.extend(bodies.iter().map(|body| body.to_string()));
 
         let mut out = pieces.join("\n\n");
         out.push('\n');
         out
+    }
+
+    /// Add a value record (`[EXPORT] TYPE … END TYPE`) to this package. `props` must
+    /// be non-empty — a `TYPE` needs at least one field. Records render into
+    /// [`get_mfb`](Self::get_mfb) in the order they are added, before the functions.
+    pub(crate) fn add_record(
+        &mut self,
+        name: &'static str,
+        export: bool,
+        props: Vec<RecordProp>,
+    ) -> &mut Self {
+        debug_assert!(
+            !props.is_empty(),
+            "{}::{name}: a record needs at least one field",
+            self.import_name,
+        );
+        self.records.push(RegistryRecord {
+            name,
+            export,
+            props,
+        });
+        self
+    }
+
+    /// Add a tagged union (`[EXPORT] UNION … END UNION`) to this package. `variants`
+    /// must be non-empty — a `UNION` needs at least one variant. Unions render into
+    /// [`get_mfb`](Self::get_mfb) in the order they are added, between the records and
+    /// the functions.
+    pub(crate) fn add_union(
+        &mut self,
+        name: &'static str,
+        export: bool,
+        variants: Vec<UnionVariant>,
+    ) -> &mut Self {
+        debug_assert!(
+            !variants.is_empty(),
+            "{}::{name}: a union needs at least one variant",
+            self.import_name,
+        );
+        self.unions.push(RegistryUnion {
+            name,
+            export,
+            variants,
+        });
+        self
     }
 
     /// Add a function to this package. `implementations` must be non-empty — a
@@ -346,6 +538,8 @@ impl Registry {
             import_name,
             intro,
             desc,
+            records: Vec::new(),
+            unions: Vec::new(),
             functions: Vec::new(),
         });
         self.packages.last_mut().expect("just pushed a package")
@@ -661,9 +855,129 @@ mod tests {
 
     #[test]
     fn get_mfb_is_empty_when_the_package_has_no_mfb_member() {
-        // The example package is all Intrinsic/Rewrite — no Mfb body to inject.
+        // The example package is all Intrinsic/Rewrite and has no records — nothing
+        // to inject.
         let pkg = registry().get_package("example").expect("example package");
         assert_eq!(pkg.get_mfb(Some("IMPORT strings")), "");
         assert_eq!(pkg.get_mfb(None), "");
+    }
+
+    fn prop(name: &'static str, ty: &'static str) -> RecordProp {
+        RecordProp {
+            name,
+            ty,
+            description: "field doc",
+        }
+    }
+
+    #[test]
+    fn add_record_renders_the_type_declaration() {
+        let mut r = Registry::new();
+        let pkg = r.add_package("json", "intro", "desc");
+        pkg.add_record("JsonNum", true, vec![prop("value", "Float")]);
+        pkg.add_record(
+            "Pair",
+            false,
+            vec![prop("key", "String"), prop("val", "Integer")],
+        );
+
+        let pkg = r.get_package("json").expect("json package");
+        assert_eq!(pkg.records().len(), 2);
+        assert!(pkg.records()[0].is_exported());
+        assert!(!pkg.records()[1].is_exported());
+
+        assert_eq!(
+            pkg.records()[0].render(),
+            "EXPORT TYPE JsonNum\n  value AS Float\nEND TYPE"
+        );
+        assert_eq!(
+            pkg.records()[1].render(),
+            "TYPE Pair\n  key AS String\n  val AS Integer\nEND TYPE"
+        );
+    }
+
+    fn variant(name: &'static str) -> UnionVariant {
+        UnionVariant {
+            name,
+            description: "variant doc",
+        }
+    }
+
+    #[test]
+    fn add_union_renders_the_union_declaration() {
+        let mut r = Registry::new();
+        let pkg = r.add_package("json", "intro", "desc");
+        pkg.add_union(
+            "Json",
+            true,
+            vec![variant("JsonNull"), variant("JsonNum"), variant("JsonStr")],
+        );
+        pkg.add_union("Internal", false, vec![variant("A")]);
+
+        let pkg = r.get_package("json").expect("json package");
+        assert_eq!(pkg.unions().len(), 2);
+        assert!(pkg.unions()[0].is_exported());
+        assert!(!pkg.unions()[1].is_exported());
+        assert_eq!(
+            pkg.unions()[0].render(),
+            "EXPORT UNION Json\n  JsonNull\n  JsonNum\n  JsonStr\nEND UNION"
+        );
+        assert_eq!(pkg.unions()[1].render(), "UNION Internal\n  A\nEND UNION");
+    }
+
+    #[test]
+    fn get_mfb_emits_records_then_unions_then_functions_in_add_order() {
+        let mut r = Registry::new();
+        let pkg = r.add_package("json", "intro", "desc");
+        pkg.add_record("JsonNum", true, vec![prop("value", "Float")]);
+        pkg.add_record("JsonBool", true, vec![prop("flag", "Boolean")]);
+        pkg.add_union("Json", true, vec![variant("JsonNum"), variant("JsonBool")]);
+        pkg.add_function(
+            "render",
+            "i",
+            "d",
+            "e",
+            vec![mfb_impl(
+                "FUNC __json_render() AS String\n  RETURN \"\"\nEND FUNC",
+            )],
+        );
+
+        let pkg = r.get_package("json").expect("json package");
+        assert_eq!(
+            pkg.get_mfb(Some("IMPORT strings")),
+            "IMPORT strings\n\n\
+             EXPORT TYPE JsonNum\n  value AS Float\nEND TYPE\n\n\
+             EXPORT TYPE JsonBool\n  flag AS Boolean\nEND TYPE\n\n\
+             EXPORT UNION Json\n  JsonNum\n  JsonBool\nEND UNION\n\n\
+             FUNC __json_render() AS String\n  RETURN \"\"\nEND FUNC\n",
+        );
+    }
+
+    #[test]
+    fn get_mfb_emits_records_even_with_no_mfb_functions() {
+        // A package with a record but only a Native/Rewrite function still injects
+        // its TYPE declaration.
+        let mut r = Registry::new();
+        let pkg = r.add_package("shape", "intro", "desc");
+        pkg.add_record("Point", true, vec![prop("x", "Float"), prop("y", "Float")]);
+        pkg.add_function(
+            "origin",
+            "i",
+            "d",
+            "e",
+            vec![Implementation {
+                params: vec![],
+                return_type: "Point",
+                errors: vec![],
+                lowering: Lowering::Helper,
+                body: Body::Rewrite("__shape_origin"),
+            }],
+        );
+
+        let pkg = r.get_package("shape").expect("shape package");
+        assert_eq!(
+            pkg.get_mfb(None),
+            "EXPORT TYPE Point\n  x AS Float\n  y AS Float\nEND TYPE\n",
+        );
     }
 }
