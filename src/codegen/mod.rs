@@ -11,3 +11,11 @@
 pub(crate) mod builtins;
 pub(crate) mod memory;
 pub(crate) mod os;
+// Clean-room north-star registry (planning/todo.md), built in parallel and not yet
+// wired into the pipeline — packages migrate onto it one at a time. It is fully
+// exercised by its own `#[cfg(test)]` suite (the lint stays live there as a
+// tripwire); it is "dead" only in the shipping binary, precisely because no package
+// has migrated onto it yet. The allow is scoped to `not(test)` and lifts, item by
+// item, as real consumers appear — it is not a blanket suppression.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) mod registry;
