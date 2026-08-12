@@ -65,6 +65,24 @@ pub(crate) type MfbFastPath =
         &[crate::target::shared::nir::NirValue],
     ) -> Result<Option<crate::target::shared::code::ValueResult>, String>;
 
+/// Whether a [`Parameter`] is required, or optional with a default — mirrors
+/// `target::shared::registry::DefaultValue`.
+#[derive(Clone, Debug)]
+pub(crate) enum DefaultValue {
+    /// A required parameter — no default.
+    None,
+    /// An optional parameter padded with `(type_name, expr)` when omitted — the
+    /// caller injects the literal (csv's `delimiter`/`quote`/`newline`).
+    Fill {
+        type_name: &'static str,
+        expr: &'static str,
+    },
+    /// An optional parameter that widens arity but is NOT default-padded — the
+    /// implementation selects a distinct body by argument count (datetime's trailing
+    /// `zone`). Contributes to the arity range like `Fill`, but padding skips it.
+    Optional,
+}
+
 /// One parameter of an [`Implementation`]'s signature.
 #[derive(Clone, Debug)]
 pub(crate) struct Parameter {
@@ -74,6 +92,8 @@ pub(crate) struct Parameter {
     pub(crate) aliases: &'static [&'static str],
     /// The parameter's type name, e.g. `"Integer"` or `"List OF Byte"`.
     pub(crate) ty: &'static str,
+    /// Whether the parameter is required or optional (with how it defaults).
+    pub(crate) default: DefaultValue,
 }
 
 /// How an implementation reaches its code: a `bl` into a runtime helper, or emitted
@@ -105,12 +125,14 @@ pub(crate) enum Lowering {
 #[derive(Clone, Debug)]
 pub(crate) enum Body {
     /// An MFBASIC source body (`FUNC __pkg_name(...) ... END FUNC`) injected before
-    /// monomorphization and mangled per signature (the `encoding::utf8Encode`
-    /// native-overload pattern), plus an optional native `fast_path` that lowers a
+    /// monomorphization, plus the internal symbol a call to this member `rewrite`s to
+    /// (the `FUNC` the body declares — e.g. `csv.readRow` → `__csv_next`, which the
+    /// public name cannot derive) and an optional native `fast_path` that lowers a
     /// qualifying monomorph instantiation directly instead of instantiating `body`.
     /// Build with [`Body::mfb`] / [`Body::mfb_with_fast_path`].
     Mfb {
         body: &'static str,
+        rewrite: &'static str,
         fast_path: Option<MfbFastPath>,
     },
     /// The member owns its native lowering, split by target family. `posix` is
@@ -133,19 +155,46 @@ pub(crate) enum Body {
 }
 
 impl Body {
-    /// An `Mfb` body with no native fast path.
-    pub(crate) fn mfb(body: &'static str) -> Self {
+    /// An `Mfb` body that a call `rewrite`s to, with no native fast path. `rewrite`
+    /// is the internal symbol the body declares (`FUNC <rewrite>(…)`).
+    pub(crate) fn mfb(body: &'static str, rewrite: &'static str) -> Self {
+        debug_assert!(
+            body.contains(rewrite),
+            "Body::mfb: body does not declare its rewrite target `{rewrite}`",
+        );
         Body::Mfb {
             body,
+            rewrite,
             fast_path: None,
         }
     }
 
     /// An `Mfb` body carrying a native fast path (the `zip`/`findLastIndex` shape).
-    pub(crate) fn mfb_with_fast_path(body: &'static str, fast_path: MfbFastPath) -> Self {
+    pub(crate) fn mfb_with_fast_path(
+        body: &'static str,
+        rewrite: &'static str,
+        fast_path: MfbFastPath,
+    ) -> Self {
+        debug_assert!(
+            body.contains(rewrite),
+            "Body::mfb_with_fast_path: body does not declare its rewrite target `{rewrite}`",
+        );
         Body::Mfb {
             body,
+            rewrite,
             fast_path: Some(fast_path),
+        }
+    }
+
+    /// The internal symbol a call to this member rewrites to, or `None` when the
+    /// member is not a rewrite (a `Native`/`Intrinsic` lowering). Unifies the two
+    /// rewrite forms — `Rewrite`'s fixed symbol and `Mfb`'s body-declared one —
+    /// replacing the old per-package `implementation_name`.
+    pub(crate) fn rewrite_target(&self) -> Option<&'static str> {
+        match self {
+            Body::Rewrite(symbol) => Some(symbol),
+            Body::Mfb { rewrite, .. } => Some(rewrite),
+            Body::Native { .. } | Body::Intrinsic => None,
         }
     }
 
@@ -355,6 +404,9 @@ pub(crate) struct RegistryPackage {
     imports: Vec<&'static str>,
     records: Vec<RegistryRecord>,
     unions: Vec<RegistryUnion>,
+    /// Shared `__pkg_*` helper functions the members call, as source chunks. Not
+    /// callable members; rendered between the unions and the member bodies.
+    helper_functions: Vec<&'static str>,
     functions: Vec<RegistryFunction>,
 }
 
@@ -395,10 +447,26 @@ impl RegistryPackage {
         &self.unions
     }
 
+    /// The package's shared helper-function source chunks, in the order added.
+    pub(crate) fn helper_functions(&self) -> &[&'static str] {
+        &self.helper_functions
+    }
+
+    /// Whether `ast` imports this package — the generic replacement for the old
+    /// per-package `uses_package`. A property of the *program being compiled*, so it
+    /// takes the AST rather than being a stored flag.
+    pub(crate) fn is_imported_by(&self, ast: &crate::ast::AstProject) -> bool {
+        ast.files.iter().any(|file| {
+            file.imports
+                .iter()
+                .any(|import| import.package_name() == self.import_name)
+        })
+    }
+
     /// Assemble this package's complete injectable MFBASIC source — the modern
     /// equivalent of a hand-written `package.mfb` (e.g.
-    /// `codegen/builtins/csv/package.mfb`), reconstructed from the package's records
-    /// and the members' own [`Body::Mfb`] bodies.
+    /// `codegen/builtins/csv/package.mfb`), reconstructed from the package's own
+    /// imports, records, unions, helper functions, and members' [`Body::Mfb`] bodies.
     ///
     /// The output is, in order:
     ///
@@ -408,8 +476,8 @@ impl RegistryPackage {
     ///    `add_record` order);
     /// 3. every [`RegistryUnion`] as an `[EXPORT] UNION … END UNION` block (in
     ///    `add_union` order);
-    /// 4. the optional `helper_functions` — the shared `__pkg_*` helper functions the
-    ///    members call, which `get_mfb` does not synthesize;
+    /// 4. the [`helper_functions`](Self::helper_functions) — the shared `__pkg_*`
+    ///    helpers the members call, in the order added;
     /// 5. every [`Body::Mfb`] body across all functions (each overload counts — a
     ///    same-named native-overload set like `encoding::utf8Encode` emits one `FUNC`
     ///    per overload), in registration order.
@@ -418,13 +486,13 @@ impl RegistryPackage {
     /// happens later when the assembled text is parsed.
     ///
     /// Returns the **empty string** only when the package has *nothing* to inject —
-    /// no records, no unions, and no `Mfb` member — even if imports or
-    /// `helper_functions` are given, because then the imports and helpers support
-    /// nothing. (Records and unions are injectable source in their own right: a
-    /// package whose functions are all `Native`/`Rewrite` still emits its
-    /// `TYPE`/`UNION` declarations here.) Pieces are separated by a blank line and the
-    /// result ends with a newline, so the output is directly parseable.
-    pub(crate) fn get_mfb(&self, helper_functions: Option<&str>) -> String {
+    /// no records, no unions, and no `Mfb` member — even if imports or helper
+    /// functions are present, because then they support nothing. (Records and unions
+    /// are injectable source in their own right: a package whose functions are all
+    /// `Native`/`Rewrite` still emits its `TYPE`/`UNION` declarations here.) Pieces are
+    /// separated by a blank line and the result ends with a newline, so the output is
+    /// directly parseable.
+    pub(crate) fn get_mfb(&self) -> String {
         let bodies: Vec<&str> = self
             .functions
             .iter()
@@ -438,8 +506,9 @@ impl RegistryPackage {
             return String::new();
         }
 
-        let mut pieces: Vec<String> =
-            Vec::with_capacity(1 + self.records.len() + self.unions.len() + 1 + bodies.len());
+        let mut pieces: Vec<String> = Vec::with_capacity(
+            1 + self.records.len() + self.unions.len() + self.helper_functions.len() + bodies.len(),
+        );
         if !self.imports.is_empty() {
             let imports = self
                 .imports
@@ -451,12 +520,11 @@ impl RegistryPackage {
         }
         pieces.extend(self.records.iter().map(RegistryRecord::render));
         pieces.extend(self.unions.iter().map(RegistryUnion::render));
-        if let Some(helper_functions) = helper_functions {
-            let helper_functions = helper_functions.trim_end();
-            if !helper_functions.is_empty() {
-                pieces.push(helper_functions.to_string());
-            }
-        }
+        pieces.extend(
+            self.helper_functions
+                .iter()
+                .map(|helper| helper.trim_end().to_string()),
+        );
         pieces.extend(bodies.iter().map(|body| body.to_string()));
 
         let mut out = pieces.join("\n\n");
@@ -470,6 +538,14 @@ impl RegistryPackage {
     /// else, in the order added.
     pub(crate) fn add_imports(&mut self, imports: Vec<&'static str>) -> &mut Self {
         self.imports.extend(imports);
+        self
+    }
+
+    /// Add shared helper-function source chunks (the `__pkg_*` helpers the members
+    /// call). Additive — later calls append. They render into
+    /// [`get_mfb`](Self::get_mfb) between the unions and the member bodies.
+    pub(crate) fn add_helper_functions(&mut self, helpers: Vec<&'static str>) -> &mut Self {
+        self.helper_functions.extend(helpers);
         self
     }
 
@@ -572,6 +648,7 @@ impl Registry {
             imports: Vec::new(),
             records: Vec::new(),
             unions: Vec::new(),
+            helper_functions: Vec::new(),
             functions: Vec::new(),
         });
         self.packages.last_mut().expect("just pushed a package")
@@ -647,6 +724,7 @@ fn register_example(r: &mut Registry) {
                 name: "x",
                 aliases: &[],
                 ty: "Integer",
+                default: DefaultValue::None,
             }],
             return_type: "Integer",
             errors: vec![],
@@ -666,6 +744,7 @@ fn register_example(r: &mut Registry) {
                     name: "v",
                     aliases: &[],
                     ty: "Integer",
+                    default: DefaultValue::None,
                 }],
                 return_type: "String",
                 errors: vec![],
@@ -677,6 +756,7 @@ fn register_example(r: &mut Registry) {
                     name: "v",
                     aliases: &[],
                     ty: "String",
+                    default: DefaultValue::None,
                 }],
                 return_type: "String",
                 errors: vec![],
@@ -828,21 +908,30 @@ mod tests {
     }
 
     #[test]
-    fn mfb_body_carries_an_optional_fast_path() {
+    fn mfb_body_carries_a_rewrite_target_and_optional_fast_path() {
+        let plain = Body::mfb("FUNC __x() ... END FUNC", "__x");
         assert!(matches!(
-            Body::mfb("FUNC __x() ... END FUNC"),
+            plain,
             Body::Mfb {
                 fast_path: None,
                 ..
             }
         ));
+        assert_eq!(plain.rewrite_target(), Some("__x"));
+
+        let accelerated =
+            Body::mfb_with_fast_path("FUNC __x() ... END FUNC", "__x", sample_fast_path);
         assert!(matches!(
-            Body::mfb_with_fast_path("FUNC __x() ... END FUNC", sample_fast_path),
+            accelerated,
             Body::Mfb {
                 fast_path: Some(_),
                 ..
             }
         ));
+
+        // rewrite_target unifies with Body::Rewrite; Native/Intrinsic have none.
+        assert_eq!(Body::Rewrite("__y").rewrite_target(), Some("__y"));
+        assert_eq!(Body::Intrinsic.rewrite_target(), None);
     }
 
     #[test]
@@ -876,19 +965,25 @@ mod tests {
     // Build a throwaway package with two Mfb members plus one non-Mfb member, to
     // exercise get_mfb's collection/joining without touching the example package.
     fn mfb_impl(body: &'static str) -> Implementation {
+        // Test bodies are `FUNC __name(...)`; derive the rewrite symbol from the name.
+        let rewrite = body
+            .strip_prefix("FUNC ")
+            .and_then(|rest| rest.split(['(', ' ']).next())
+            .expect("test body starts with `FUNC <name>`");
         Implementation {
             params: vec![],
             return_type: "String",
             errors: vec![],
             lowering: Lowering::Helper,
-            body: Body::mfb(body),
+            body: Body::mfb(body, rewrite),
         }
     }
 
     #[test]
-    fn get_mfb_appends_member_bodies_to_the_prefix() {
+    fn get_mfb_renders_helper_functions_before_member_bodies() {
         let mut r = Registry::new();
         let pkg = r.add_package("demo", "intro", "desc");
+        pkg.add_helper_functions(vec!["FUNC __demo_helper() AS Nothing\nEND FUNC"]);
         pkg.add_function(
             "a",
             "i",
@@ -924,8 +1019,8 @@ mod tests {
 
         let pkg = r.get_package("demo").expect("demo package");
 
-        // With helper functions: the shared helper first, then both Mfb bodies (a, c).
-        let src = pkg.get_mfb(Some("FUNC __demo_helper() AS Nothing\nEND FUNC"));
+        // The shared helper first, then both Mfb bodies (a, c) in registration order.
+        let src = pkg.get_mfb();
         assert_eq!(
             src,
             "FUNC __demo_helper() AS Nothing\nEND FUNC\n\n\
@@ -934,12 +1029,6 @@ mod tests {
         );
         // The Rewrite member 'b' contributed nothing.
         assert!(!src.contains("__demo_b"));
-
-        // Without helper functions: just the bodies.
-        let src = pkg.get_mfb(None);
-        assert!(src.starts_with("FUNC __demo_a"));
-        assert!(src.contains("FUNC __demo_c"));
-        assert!(src.ends_with("END FUNC\n"));
     }
 
     #[test]
@@ -947,22 +1036,16 @@ mod tests {
         // The example package is all Intrinsic/Rewrite and has no records — nothing
         // to inject.
         let pkg = registry().get_package("example").expect("example package");
-        assert_eq!(
-            pkg.get_mfb(Some("FUNC __helper() AS Nothing\nEND FUNC")),
-            ""
-        );
-        assert_eq!(pkg.get_mfb(None), "");
+        assert_eq!(pkg.get_mfb(), "");
 
         // Imports and helper functions are scaffolding: with no records/unions/Mfb
         // member to support, they render nothing.
         let mut r = Registry::new();
         let pkg = r.add_package("bare", "i", "d");
         pkg.add_imports(vec!["strings"]);
+        pkg.add_helper_functions(vec!["FUNC __helper() AS Nothing\nEND FUNC"]);
         let pkg = r.get_package("bare").expect("bare package");
-        assert_eq!(
-            pkg.get_mfb(Some("FUNC __helper() AS Nothing\nEND FUNC")),
-            ""
-        );
+        assert_eq!(pkg.get_mfb(), "");
     }
 
     fn prop(name: &'static str, ty: &'static str) -> RecordProp {
@@ -1038,6 +1121,7 @@ mod tests {
         pkg.add_record("JsonNum", true, vec![prop("value", "Float")]);
         pkg.add_record("JsonBool", true, vec![prop("flag", "Boolean")]);
         pkg.add_union("Json", true, vec![variant("JsonNum"), variant("JsonBool")]);
+        pkg.add_helper_functions(vec!["FUNC __json_helper() AS Nothing\nEND FUNC"]);
         pkg.add_function(
             "render",
             "i",
@@ -1052,7 +1136,7 @@ mod tests {
         assert_eq!(pkg.imports(), &["collections", "strings"]);
         // Full order: imports, records, unions, helper functions, then member bodies.
         assert_eq!(
-            pkg.get_mfb(Some("FUNC __json_helper() AS Nothing\nEND FUNC")),
+            pkg.get_mfb(),
             "IMPORT collections\nIMPORT strings\n\n\
              EXPORT TYPE JsonNum\n  value AS Float\nEND TYPE\n\n\
              EXPORT TYPE JsonBool\n  flag AS Boolean\nEND TYPE\n\n\
@@ -1085,8 +1169,122 @@ mod tests {
 
         let pkg = r.get_package("shape").expect("shape package");
         assert_eq!(
-            pkg.get_mfb(None),
+            pkg.get_mfb(),
             "EXPORT TYPE Point\n  x AS Float\n  y AS Float\nEND TYPE\n",
         );
+    }
+
+    #[test]
+    fn descriptor_accessors_round_trip_the_full_surface() {
+        let mut r = Registry::new();
+        let pkg = r.add_package("demo", "pkg intro", "pkg desc");
+        pkg.add_imports(vec!["strings"]);
+        pkg.add_helper_functions(vec!["FUNC __demo_helper()\nEND FUNC"]);
+        pkg.add_record(
+            "Rec",
+            true,
+            vec![RecordProp {
+                name: "f",
+                ty: "Integer",
+                description: "rec field",
+            }],
+        );
+        pkg.add_union(
+            "Uni",
+            false,
+            vec![UnionVariant {
+                name: "V",
+                description: "uni variant",
+            }],
+        );
+        pkg.add_function(
+            "fn1",
+            "fn intro",
+            "fn desc",
+            "fn example",
+            vec![Implementation {
+                params: vec![
+                    Parameter {
+                        name: "req",
+                        aliases: &["r"],
+                        ty: "String",
+                        default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "opt",
+                        aliases: &[],
+                        ty: "String",
+                        default: DefaultValue::Fill {
+                            type_name: "String",
+                            expr: ",",
+                        },
+                    },
+                    Parameter {
+                        name: "zone",
+                        aliases: &[],
+                        ty: "String",
+                        default: DefaultValue::Optional,
+                    },
+                ],
+                return_type: "Nothing",
+                errors: vec!["SOME_ERROR"],
+                lowering: Lowering::Helper,
+                body: Body::Rewrite("__demo_fn1"),
+            }],
+        );
+
+        let pkg = r.get_package("demo").expect("demo package");
+        assert_eq!(pkg.intro(), "pkg intro");
+        assert_eq!(pkg.desc(), "pkg desc");
+        assert_eq!(pkg.helper_functions(), &["FUNC __demo_helper()\nEND FUNC"]);
+
+        let rec = &pkg.records()[0];
+        assert_eq!(rec.name(), "Rec");
+        assert_eq!(rec.props()[0].name, "f");
+        assert_eq!(rec.props()[0].ty, "Integer");
+        assert_eq!(rec.props()[0].description, "rec field");
+
+        let uni = &pkg.unions()[0];
+        assert_eq!(uni.name(), "Uni");
+        assert_eq!(uni.variants()[0].name, "V");
+        assert_eq!(uni.variants()[0].description, "uni variant");
+
+        let f = pkg.function("fn1").expect("fn1");
+        assert_eq!(f.name(), "fn1");
+        assert_eq!(f.intro(), "fn intro");
+        assert_eq!(f.desc(), "fn desc");
+        assert_eq!(f.example(), "fn example");
+
+        let imp = &f.implementations()[0];
+        assert_eq!(imp.errors, vec!["SOME_ERROR"]);
+        assert_eq!(imp.params[0].name, "req");
+        assert_eq!(imp.params[0].aliases, &["r"]);
+        assert!(matches!(imp.params[0].default, DefaultValue::None));
+        assert!(matches!(
+            imp.params[1].default,
+            DefaultValue::Fill {
+                type_name: "String",
+                expr: ","
+            }
+        ));
+        assert!(matches!(imp.params[2].default, DefaultValue::Optional));
+    }
+
+    #[test]
+    fn is_imported_by_checks_the_program_imports() {
+        let mut r = Registry::new();
+        r.add_package("csv", "i", "d");
+        let csv = r.get_package("csv").expect("csv package");
+
+        let parse = |src: &str| {
+            let file = crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", src)
+                .expect("parse");
+            crate::ast::AstProject {
+                name: "test".to_string(),
+                files: vec![file],
+            }
+        };
+        assert!(csv.is_imported_by(&parse("IMPORT csv\nSUB main\nEND SUB\n")));
+        assert!(!csv.is_imported_by(&parse("SUB main\nEND SUB\n")));
     }
 }
