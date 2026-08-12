@@ -131,3 +131,63 @@ concrete target (hence emitted `.ncode`) must not change, so byte-identity gate
 every affected package (`vector`, and anything injecting it). No new public names:
 the variant/overload targets stay internal `__*` symbols, never descriptor members
 (the whole point — `Custom`'s computed targets were already internal; keep them so).
+
+## North star: one `implementations` array per builtin (unify overload+impl+lowering+errors+flags)
+
+**Status:** direction only — the proper long-term shape the two entries above step
+toward. Larger than either; do NOT start without a `plan-NN` (and land the
+`overloads`-carries-`Implementation` prerequisite first).
+
+**Motivation.** `BuiltinFunction` today spreads one function's definition across
+several parallel, per-function fields that really describe *each version/overload*
+of the function separately:
+
+```rust
+pub(crate) overloads: &'static [BuiltinOverload], // signatures (params + return)
+pub(crate) implementation: Implementation,        // ONE impl for the whole name
+pub(crate) lowering: Lowering,                     // ONE Helper/Inline for the name
+pub(crate) errors: &'static [&'static str],        // ONE error set for the name
+pub(crate) flags: BuiltinFlags,                    // ONE flag set for the name
+```
+
+A single `implementation`/`lowering` per name is exactly why overloading needed the
+`Custom`/`Resolve` side-channels: the descriptor can only name *one* way to lower,
+so a call that lowers N different ways (by arg/return type) has to escape to a
+resolver. The honest model is: **a builtin function is a name + docs + one-or-more
+fully-specified implementations**, each defining a signature *and* how that signature
+is realized.
+
+**Rough shape (to be designed, not committed here):**
+
+- Collapse `overloads` + `implementation` + `lowering` (+ likely `errors`, and the
+  overload-relevant parts of `flags`) into a single `implementations: &'static
+  [Implementation]` (≥1). `Implementation` is re-done to carry, per version/overload:
+  its **params + return type** (absorbing `BuiltinOverload`), its **lowering**
+  (`Helper`/`Inline` — resolving the standing "is `Lowering` redundant" question by
+  making it per-implementation), its **kind** (`Mfb`/`Native`/`Rewrite`/`Os`/…), and
+  its **errors**. Then `resolve_overload` picks the right element by signature and
+  mangles it — overloading, dispatch, and lowering all read from one place.
+- Non-overload-varying facets stay function-level on `BuiltinFunction`: `name`,
+  `doc_slug`/`doc_intro`/`doc_desc`/`doc_example`. The plan MUST decide the
+  function-vs-implementation split for the ambiguous fields — `internal_only` reads
+  function-level; `return_type_overloaded` is a property of the *set* (derivable
+  from "≥2 implementations share params, differ by return"), not a stored flag;
+  `errors` is usually uniform across overloads but is more precise per-implementation.
+  Don't blindly push every field down — only the ones that genuinely vary per version.
+- With this, `Custom` and `::resolve` both fall away for everything that is really
+  overloading (the common case): the `implementations` array *is* the candidate set,
+  resolved natively. Any true computed-axis remnant (if one is ever found) is the
+  only thing that would still want a resolver.
+
+**Why it's the endpoint, not the start:** it rewrites the construction site of all
+~28 packages' function descriptors and the `DefaultResolver` derivations
+(arity/expected-args/return type now fold over `implementations`), so it wants to
+follow — not precede — the smaller `overloads`-carries-`Implementation` step and the
+registry-constructor/encapsulation cleanup (first entry above). Sequence overall:
+registry constructors → `overloads` carries `Implementation` → migrate `Custom`
+overload cases → deprecate `Custom` → (only if needed) `::resolve` → unify into one
+`implementations` array.
+
+**Guardrails when it is planned:** provably-neutral refactor — same emitted `.ncode`
+for every package (byte-identity gate per package); the descriptor is a pure
+data-shape change, not a behavior change. One package (or small batch) per phase.
