@@ -27,6 +27,44 @@
 
 use std::sync::OnceLock;
 
+/// A member's target-generic native lowering — the plan-95
+/// `target::shared::registry::NativeLower` shape: given the code builder and the
+/// call's NIR args, emit the **call-site** sequence and return its result value.
+/// Held by the `common` slot of [`Body::Native`] (the all-targets lowering).
+pub(crate) type NativeLower =
+    for<'a> fn(
+        &mut crate::target::shared::code::CodeBuilder<'a>,
+        &[crate::target::shared::nir::NirValue],
+    ) -> Result<crate::target::shared::code::ValueResult, String>;
+
+/// An OS-seam member's per-platform native emission — the
+/// `target::shared::registry::OsLower` shape: given the runtime-call name, the
+/// mangled `_mfb_rt_<pkg>_<call>_<target>` helper symbol, the platform imports, and
+/// the target platform, emit that **runtime-helper body**. Held by the `posix` and
+/// `win` slots of [`Body::Native`]. This is a genuinely different codegen shape from
+/// [`NativeLower`] (a helper-body emitter, not a call-site value emitter) — which is
+/// why the two slots keep distinct types rather than being force-unified.
+pub(crate) type OsLower = fn(
+    &str,
+    &str,
+    &std::collections::HashMap<String, String>,
+    &dyn crate::target::shared::code::CodegenPlatform,
+) -> crate::target::shared::code::HelperResult;
+
+/// A [`Body::Mfb`] member's optional native **fast path** — the plan-95
+/// `target::shared::registry::MfbFastPath` shape. Given the builder, the
+/// `#pkg_<name>$<TypeArgs>` monomorph target, and the call args, it either lowers
+/// natively (`Ok(Some(_))`) or **declines** (`Ok(None)`), in which case the caller
+/// instantiates the `.mfb` `body` instead. Selected by whether the monomorph
+/// instantiation qualifies (a computed axis), so it rides on the `Mfb` body rather
+/// than being its own realization kind or a second overload.
+pub(crate) type MfbFastPath =
+    for<'a> fn(
+        &mut crate::target::shared::code::CodeBuilder<'a>,
+        &str,
+        &[crate::target::shared::nir::NirValue],
+    ) -> Result<Option<crate::target::shared::code::ValueResult>, String>;
+
 /// One parameter of an [`Implementation`]'s signature.
 #[derive(Clone, Debug)]
 pub(crate) struct Parameter {
@@ -50,32 +88,81 @@ pub(crate) enum Lowering {
     Inline,
 }
 
-/// How one implementation is *realized* in codegen. Data-only kinds for now; the
-/// target-generic native and per-OS lowering-fn kinds (the `Native(NativeLower)` /
-/// `Os { posix, win, all }` shapes in `target::shared::registry`) land here when the
-/// first package that needs them migrates — they carry function pointers, so they
-/// are added with real callers, never as empty arms.
+/// How one implementation is *realized* in codegen.
 ///
-/// Note on what is *not* a variant here: an MFBASIC body's optional **native fast
-/// path** (`Implementation::Mfb.fast_path` in the old enum) is not its own kind. A
-/// fast path is an accelerator for the *same* implementation, selected at monomorph
-/// time by whether the instantiation qualifies (a computed axis, not the call's
-/// arg/return signature) — so it cannot be a second element of the signature-
-/// selected `implementations` array either. When a fast-path package (`zip`,
-/// `findLastIndex`) migrates, [`Body::Mfb`] widens from a bare body to
-/// `Mfb { body, fast_path: Option<..> }`; it does not gain an `MfbFastPath` variant.
+/// The old enum's separate `Native(NativeLower)` (target-generic) and
+/// `Os { posix, win, all }` (per-platform) kinds are **merged** into one
+/// [`Body::Native`] carrying three optional per-target-family lowering slots. This
+/// is the design the merge commits to: a member without OS differences fills only
+/// `common`; an OS-seam member fills `posix`/`win`; a member with a shared fallback
+/// plus overrides can fill all three.
+///
+/// A fast path is deliberately *not* its own variant: it is an accelerator for the
+/// *same* [`Body::Mfb`] implementation, selected at monomorph time by whether the
+/// instantiation qualifies (a computed axis, not the call's arg/return signature) —
+/// so it cannot be a second element of the signature-selected `implementations`
+/// array either. It rides on `Mfb` as [`MfbFastPath`].
 #[derive(Clone, Debug)]
 pub(crate) enum Body {
     /// An MFBASIC source body (`FUNC __pkg_name(...) ... END FUNC`) injected before
     /// monomorphization and mangled per signature (the `encoding::utf8Encode`
-    /// native-overload pattern). Widens to `{ body, fast_path: Option<..> }` when a
-    /// member carrying a native accelerator migrates (see the type-level note).
-    Mfb(&'static str),
+    /// native-overload pattern), plus an optional native `fast_path` that lowers a
+    /// qualifying monomorph instantiation directly instead of instantiating `body`.
+    /// Build with [`Body::mfb`] / [`Body::mfb_with_fast_path`].
+    Mfb {
+        body: &'static str,
+        fast_path: Option<MfbFastPath>,
+    },
+    /// The member owns its native lowering, split by target family. `posix` is
+    /// emitted only on POSIX targets and `win` only on Windows — both as per-platform
+    /// runtime-helper bodies ([`OsLower`]) — while `common` is emitted on **all**
+    /// targets as a call-site lowering ([`NativeLower`]); a target picks its family
+    /// slot, falling back to `common`. **At least one slot must be `Some`** — enforced
+    /// by [`Body::native`], the blessed constructor. (Merges the old `Native` + `Os`
+    /// kinds, keeping each slot's original signature.)
+    Native {
+        posix: Option<OsLower>,
+        win: Option<OsLower>,
+        common: Option<NativeLower>,
+    },
     /// A fixed internal rewrite target: the call becomes a call to this `__`-symbol.
     Rewrite(&'static str),
     /// A by-name intrinsic: an inline op with no rewrite and no source body (the
     /// `bits`/`math` shape).
     Intrinsic,
+}
+
+impl Body {
+    /// An `Mfb` body with no native fast path.
+    pub(crate) fn mfb(body: &'static str) -> Self {
+        Body::Mfb {
+            body,
+            fast_path: None,
+        }
+    }
+
+    /// An `Mfb` body carrying a native fast path (the `zip`/`findLastIndex` shape).
+    pub(crate) fn mfb_with_fast_path(body: &'static str, fast_path: MfbFastPath) -> Self {
+        Body::Mfb {
+            body,
+            fast_path: Some(fast_path),
+        }
+    }
+
+    /// A `Native` lowering, split by target family (`posix`/`win` as [`OsLower`]
+    /// helper bodies, `common` as a [`NativeLower`] call-site lowering). At least one
+    /// of the three must be `Some` — a `Native` that lowers on no target is meaningless.
+    pub(crate) fn native(
+        posix: Option<OsLower>,
+        win: Option<OsLower>,
+        common: Option<NativeLower>,
+    ) -> Self {
+        debug_assert!(
+            posix.is_some() || win.is_some() || common.is_some(),
+            "Body::native requires at least one of posix/win/common to be Some",
+        );
+        Body::Native { posix, win, common }
+    }
 }
 
 /// One version/overload of a function: its signature, how it lowers, how it is
@@ -380,5 +467,80 @@ mod tests {
         );
         assert_eq!(r.packages().len(), 1);
         assert_eq!(r.get_package("t").unwrap().functions().len(), 1);
+    }
+
+    // A lowering fn of the `NativeLower` signature (the `common` slot). Never invoked
+    // here — it exists only to give the slot a real function pointer to hold.
+    fn sample_lower<'a>(
+        _b: &mut crate::target::shared::code::CodeBuilder<'a>,
+        _args: &[crate::target::shared::nir::NirValue],
+    ) -> Result<crate::target::shared::code::ValueResult, String> {
+        Err("sample lowering (test fixture, not invoked)".to_string())
+    }
+
+    // A fn of the `OsLower` signature (the `posix`/`win` slots). Declines with an
+    // Err so the fixture need not construct a HelperBody.
+    fn sample_os_lower(
+        _call: &str,
+        _symbol: &str,
+        _imports: &std::collections::HashMap<String, String>,
+        _platform: &dyn crate::target::shared::code::CodegenPlatform,
+    ) -> crate::target::shared::code::HelperResult {
+        Err("sample OS lowering (test fixture, not invoked)".to_string())
+    }
+
+    // A fast-path fn of the `MfbFastPath` signature (declines by returning Ok(None)).
+    fn sample_fast_path<'a>(
+        _b: &mut crate::target::shared::code::CodeBuilder<'a>,
+        _target: &str,
+        _args: &[crate::target::shared::nir::NirValue],
+    ) -> Result<Option<crate::target::shared::code::ValueResult>, String> {
+        Ok(None)
+    }
+
+    #[test]
+    fn mfb_body_carries_an_optional_fast_path() {
+        assert!(matches!(
+            Body::mfb("FUNC __x() ... END FUNC"),
+            Body::Mfb {
+                fast_path: None,
+                ..
+            }
+        ));
+        assert!(matches!(
+            Body::mfb_with_fast_path("FUNC __x() ... END FUNC", sample_fast_path),
+            Body::Mfb {
+                fast_path: Some(_),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn native_holds_three_per_family_slots() {
+        // A common-only member (no OS differences).
+        match Body::native(None, None, Some(sample_lower as NativeLower)) {
+            Body::Native { posix, win, common } => {
+                assert!(posix.is_none() && win.is_none() && common.is_some());
+            }
+            _ => panic!("expected Body::Native"),
+        }
+        // A per-OS member (posix + win as OsLower helper bodies, no common fallback).
+        match Body::native(
+            Some(sample_os_lower as OsLower),
+            Some(sample_os_lower as OsLower),
+            None,
+        ) {
+            Body::Native { posix, win, common } => {
+                assert!(posix.is_some() && win.is_some() && common.is_none());
+            }
+            _ => panic!("expected Body::Native"),
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "at least one of posix/win/common")]
+    fn native_with_no_slots_is_rejected() {
+        let _ = Body::native(None, None, None);
     }
 }
