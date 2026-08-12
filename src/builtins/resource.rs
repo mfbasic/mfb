@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use crate::codegen::registry::BuiltinModule;
+use crate::target::shared::registry::BuiltinModule;
 
 // plan-72-U: `resource` is the resource registry — it maps a resolved resource
 // type name (`File`, `Socket`, a `pkg.Handle`) to its close op and thread-transfer
@@ -410,7 +410,7 @@ mod tests {
     // cleanly. Kept until plan-72-BB.
     #[test]
     fn descriptor_is_registered_and_empty() {
-        use crate::codegen::registry::{DefaultResolver, REGISTRY};
+        use crate::target::shared::registry::{DefaultResolver, REGISTRY};
 
         let module = REGISTRY.module("resource").expect("resource is registered");
         assert_eq!(module.name, "resource");

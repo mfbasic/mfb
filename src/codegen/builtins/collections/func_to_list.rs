@@ -1,10 +1,10 @@
 //! `collections::toList` — descriptor entry + target-generic lowering (plan-96).
 
 use super::{custom, req};
-use crate::codegen::registry::BuiltinFunction;
 use crate::target::shared::code::type_utils::set_element_type;
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_TO_LIST: &str = "Return the elements of a set as a list, in insertion order";
 const DESC_TO_LIST: &str = r#"`collections::toList` returns a new `List OF T` holding every element of the set

@@ -1,13 +1,13 @@
 //! `collections::set` — descriptor entry + target-generic lowering (plan-96).
 
 use super::{custom, req};
-use crate::codegen::registry::BuiltinFunction;
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{list_element_type, map_type_parts};
 use crate::target::shared::code::{
     list_element_is_fixed_width, CodeBuilder, CollectionValueSlot, PayloadSlot, ValueResult,
 };
 use crate::target::shared::nir::NirValue;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_SET: &str = "Return a collection with one element replaced, or one map key assigned";
 const DESC_SET: &str = r#"`collections::set` returns a new collection with one position updated. It takes

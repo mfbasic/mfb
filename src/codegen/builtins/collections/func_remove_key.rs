@@ -1,11 +1,11 @@
 //! `collections::removeKey` — descriptor entry + target-generic lowering (plan-96).
 
 use super::{custom, req};
-use crate::codegen::registry::BuiltinFunction;
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::map_type_parts;
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_REMOVE_KEY: &str = "Return a copy of a map with the entry for one key removed.";
 const DESC_REMOVE_KEY: &str = r#"`collections::removeKey` produces a **new** map containing every entry of

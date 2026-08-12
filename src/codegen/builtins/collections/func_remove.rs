@@ -1,11 +1,11 @@
 //! `collections::remove` — descriptor entry + target-generic lowering (plan-96).
 
 use super::{custom, req};
-use crate::codegen::registry::BuiltinFunction;
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::set_element_type;
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_REMOVE: &str = "Return a set with one element removed, leaving the argument unchanged";
 const DESC_REMOVE: &str = r#"`collections::remove` returns a new `Set OF T` containing every element of

@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/plus.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Add two `Duration` spans into their combined `Duration`."#;
 const DESC: &str = r#"`datetime::plus` returns the `Duration` `a + b`, the signed span that results

@@ -1,9 +1,9 @@
 //! `collections::append` — descriptor entry + target-generic lowering (plan-96).
 
 use super::{custom, req};
-use crate::codegen::registry::BuiltinFunction;
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_APPEND: &str =
     "Return a list with one element, or every element of another list, added at the end";

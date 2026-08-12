@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/weekday.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"The day of the week of a `DateTime`'s civil date."#;
 const DESC: &str = r#"`datetime::weekday` returns the day of the week on which `dt`'s civil date falls,

@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/formatDuration.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Render a `Duration` as a human-readable `[-][Nd ]HH:MM:SS.mmm` span."#;
 const DESC: &str = r#"`datetime::formatDuration` renders the signed span `d` as a fixed-shape string of

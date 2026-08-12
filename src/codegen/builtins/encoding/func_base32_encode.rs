@@ -6,7 +6,7 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use super::{ov, p, BYTES};
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Encode a `List OF Byte` to a standard Base32 `String`."#;
 const DESC: &str = r#"`encoding::base32Encode` returns the standard Base32 representation of `data`

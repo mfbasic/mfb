@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/monotonic.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"A monotonically non-decreasing clock reading for measuring elapsed time."#;
 const DESC: &str = r#"`datetime::monotonic` reads the host's monotonic clock and returns the elapsed

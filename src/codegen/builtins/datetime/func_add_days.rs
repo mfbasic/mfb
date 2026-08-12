@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/addDays.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Shift a civil `DateTime` by a whole number of calendar days, preserving its wall-clock time and zone."#;
 const DESC: &str = r#"`datetime::addDays` advances `dt` by a whole number of calendar days and returns

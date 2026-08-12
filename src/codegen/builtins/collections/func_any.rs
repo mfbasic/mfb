@@ -2,7 +2,7 @@
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
 use super::{custom, req};
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = "Test whether at least one element of a list satisfies a predicate";
 

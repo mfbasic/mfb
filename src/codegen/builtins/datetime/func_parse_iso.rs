@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/parseIso.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Parse an RFC 3339 / ISO 8601 timestamp into a `DateTime`."#;
 const DESC: &str = r#"`datetime::parseIso` reads an RFC 3339 (ISO 8601 profile) timestamp from `value`

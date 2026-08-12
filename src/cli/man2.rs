@@ -10,10 +10,10 @@ use std::io::IsTerminal;
 
 use crate::builtins::errorcode;
 use crate::cli::spec::detect_terminal_width;
-use crate::codegen::registry::{
+use crate::docs::render;
+use crate::target::shared::registry::{
     BuiltinFunction, BuiltinModule, DefaultValue, ReturnType, REGISTRY,
 };
-use crate::docs::render;
 
 pub(crate) fn show_man2(args: &[String]) -> Result<(), String> {
     let positional: Vec<&str> = args.iter().map(String::as_str).collect();

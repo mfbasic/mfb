@@ -5,7 +5,7 @@
 //! `'@@MFB_BODY:readRow@@` marker in package.mfb via assembled_source. Body
 //! byte-significant (2-space indent → .ncode columns); do not reformat.
 
-use crate::codegen::registry::{BuiltinFunction, BuiltinOverload, ReturnType};
+use crate::target::shared::registry::{BuiltinFunction, BuiltinOverload, ReturnType};
 
 #[rustfmt::skip]
 const BODY: &str =

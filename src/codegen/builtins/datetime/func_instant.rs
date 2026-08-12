@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/instant.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Build an `Instant` from seconds, nanoseconds, or larger time components."#;
 const DESC: &str = r#"`datetime::instant` builds an `Instant` on the UTC timeline (the Unix epoch,

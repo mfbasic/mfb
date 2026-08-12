@@ -6,7 +6,7 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use super::{ov, p, VALTEXT};
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Escape the five HTML/XML metacharacters in a `String`."#;
 const DESC: &str = r#"`encoding::htmlEscape` produces a form of `text` that is safe to embed inside

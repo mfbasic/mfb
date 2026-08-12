@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/date.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Validate and build a calendar `Date` from year, month, and day components."#;
 const DESC: &str = r#"`datetime::date` builds a calendar `Date` on the proleptic-Gregorian calendar

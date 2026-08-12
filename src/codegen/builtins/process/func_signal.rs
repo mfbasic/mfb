@@ -9,10 +9,10 @@
 
 use std::collections::HashMap;
 
-use crate::codegen::registry::BuiltinFunction;
 use crate::target::shared::abi;
 use crate::target::shared::code::native_helpers::emit_fail;
 use crate::target::shared::code::*;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Deliver a cross-platform signal bucket to a child process."#;
 const DESC: &str = r#"`process::signal` delivers one of the four `Signal` buckets to the child behind a

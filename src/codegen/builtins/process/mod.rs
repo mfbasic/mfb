@@ -19,7 +19,7 @@
 //! Landing across plan-90: **A** the plumbing + spawn/shell/pid/isRunning/
 //! waitFor/close; **B** streaming I/O; **C** signals & detach; **D** Windows.
 
-use crate::codegen::registry::{
+use crate::target::shared::registry::{
     BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, BuiltinType, DefaultResolver,
     DefaultValue, InjectionRule, Parameter, ParameterType, ReturnType, TypeKind,
 };
@@ -375,7 +375,7 @@ mod tests {
         assert_eq!(f.name, "process.demo");
         assert_eq!(f.doc_slug, "demo");
         assert_eq!(f.overloads.len(), OV_POLL.len());
-        use crate::codegen::registry::{Implementation, Lowering};
+        use crate::target::shared::registry::{Implementation, Lowering};
         assert!(matches!(f.implementation, Implementation::Same));
         assert!(matches!(f.lowering, Lowering::Helper));
         assert!(!f.flags.internal_only);

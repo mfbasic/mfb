@@ -6,7 +6,7 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use super::{ov, p, BYTES};
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Decode a hexadecimal `String` into a `List OF Byte`."#;
 const DESC: &str = r#"`encoding::hexDecode` parses `text` as base-16 and returns the bytes it encodes.

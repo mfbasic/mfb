@@ -9,7 +9,7 @@
 
 use std::borrow::Cow;
 
-use crate::codegen::registry::{
+use crate::target::shared::registry::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinType, DefaultResolver,
     DefaultValue, Implementation, Lowering, Parameter, ParameterType, ReturnType, TypeKind,
 };
@@ -194,7 +194,7 @@ const TLS_TYPES: &[BuiltinType] = &[
 /// Default padding is left to `DefaultResolver::default_padding` (the `Fill`
 /// params reproduce it), so this resolver does not override it.
 struct TlsResolver;
-impl crate::codegen::registry::BuiltinResolver for TlsResolver {
+impl crate::target::shared::registry::BuiltinResolver for TlsResolver {
     fn resolve_return_type(
         &self,
         _module: &BuiltinModule,

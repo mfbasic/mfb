@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/compare.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Order two instants on the UTC timeline as a three-way sign."#;
 const DESC: &str = r#"`datetime::compare` returns the sign of `a - b` as a three-way ordering: `-1`

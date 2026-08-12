@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/civil.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Build a zoned `DateTime` from a civil `Date`, `Time`, and `Zone`."#;
 const DESC: &str = r#"`datetime::civil` builds a `DateTime` by reading a calendar `date` and a

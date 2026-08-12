@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/monotonicNanos.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"The raw monotonic-clock reading as a whole nanosecond count."#;
 const DESC: &str = r#"`datetime::monotonicNanos` reads the host's monotonic clock and returns the

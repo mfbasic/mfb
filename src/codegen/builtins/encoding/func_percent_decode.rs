@@ -6,7 +6,7 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use super::{ov, p, VALTEXT};
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Decode a percent-encoded (URL-encoded) `String` back into text."#;
 const DESC: &str = r#"`encoding::percentDecode` reverses `encoding::percentEncode`, expanding every

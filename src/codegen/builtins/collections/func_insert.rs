@@ -1,11 +1,11 @@
 //! `collections::insert` — descriptor entry + target-generic lowering (plan-96).
 
 use super::{custom, req};
-use crate::codegen::registry::BuiltinFunction;
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::list_element_type;
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_INSERT: &str = "Return a list with one element inserted before a given index";
 const DESC_INSERT: &str = r#"`collections::insert` returns a new list in which `item` occupies position

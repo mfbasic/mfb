@@ -6,7 +6,7 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use super::{ov, p, INTS, VALTEXT};
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Encode a `String` to its UTF-32 code points."#;
 const DESC: &str = r#"`encoding::utf32Encode` returns the UTF-32 encoding of `value` as a list of

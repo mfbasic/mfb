@@ -8,11 +8,11 @@
 //! case the codegen seam monomorphizes BODY instead.
 
 use super::{custom, req};
-use crate::codegen::registry::BuiltinFunction;
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::list_element_type;
 use crate::target::shared::code::{CodeBuilder, Operand, ValueResult, COLLECTION_OFFSET_COUNT};
 use crate::target::shared::nir::NirValue;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = "Concatenate a list of lists into a single list, one level deep";
 

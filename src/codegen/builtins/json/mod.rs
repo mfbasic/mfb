@@ -12,7 +12,7 @@
 use std::borrow::Cow;
 
 use crate::builtins::exact;
-use crate::codegen::registry::{
+use crate::target::shared::registry::{
     BuiltinFunction, BuiltinModule, BuiltinResolver, BuiltinSource, BuiltinType, DefaultResolver,
     DefaultValue, Implementation, InjectionRule, Parameter, ParameterType, TypeKind,
 };

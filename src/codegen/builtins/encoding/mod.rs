@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use crate::codegen::registry::{
+use crate::target::shared::registry::{
     BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
     DefaultResolver, DefaultValue, Implementation, InjectionRule, Parameter, ParameterType,
     ReturnType,

@@ -6,7 +6,7 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use super::{ov, p, BYTES};
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Encode a signed `Integer` as a signed LEB128 `List OF Byte`."#;
 const DESC: &str = r#"`encoding::sleb128Encode` returns the signed [LEB128](https://en.wikipedia.org/wiki/LEB128)

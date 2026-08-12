@@ -109,7 +109,7 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
 /// `Thread OF ...` / `ThreadWorker OF ...` forms are the one shape a static type
 /// list cannot enumerate, so they stay a structural prefix check.
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    crate::codegen::registry::REGISTRY
+    crate::target::shared::registry::REGISTRY
         .modules()
         .iter()
         .any(|module| module.types.iter().any(|ty| ty.name == name))
@@ -123,7 +123,7 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
 /// A type with no fields (opaque handle / source-companion record) reports `None`,
 /// matching the legacy per-package `builtin_type_fields`.
 pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
-    crate::codegen::registry::REGISTRY
+    crate::target::shared::registry::REGISTRY
         .modules()
         .iter()
         .find_map(|module| {
@@ -383,10 +383,10 @@ pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
 /// (`duplicate_function_name` is `None`), so this is order-independent — replacing
 /// the hand-ordered per-package `resolve_call` chain it grew from.
 pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Option<String> {
-    let (module, function) = crate::codegen::registry::REGISTRY.function(callee)?;
+    let (module, function) = crate::target::shared::registry::REGISTRY.function(callee)?;
     match module.resolver {
         Some(resolver) => resolver.resolve_return_type(module, function.name, arg_types),
-        None => crate::codegen::registry::DefaultResolver::resolve_call(
+        None => crate::target::shared::registry::DefaultResolver::resolve_call(
             module,
             function.name,
             arg_types,
@@ -403,8 +403,11 @@ pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Op
 /// functions, so IR lowering's queries for their rewritten targets fall back to
 /// those two packages' explicit internal-name maps.
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    if let Some((module, function)) = crate::codegen::registry::REGISTRY.function(name) {
-        return crate::codegen::registry::DefaultResolver::return_type_name(module, function.name);
+    if let Some((module, function)) = crate::target::shared::registry::REGISTRY.function(name) {
+        return crate::target::shared::registry::DefaultResolver::return_type_name(
+            module,
+            function.name,
+        );
     }
     audio::call_return_type_name(name).or_else(|| tls::call_return_type_name(name))
 }
@@ -414,7 +417,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
 /// to select a table package's argument-inference mode without a per-package
 /// `is_<pkg>_call` chain.
 pub(crate) fn builtin_package_name(callee: &str) -> Option<&'static str> {
-    crate::codegen::registry::REGISTRY
+    crate::target::shared::registry::REGISTRY
         .function(callee)
         .map(|(module, _)| module.name)
 }
@@ -422,8 +425,8 @@ pub(crate) fn builtin_package_name(callee: &str) -> Option<&'static str> {
 /// The arity range `(min, max)` of a builtin call — plan-72-BB: the owning
 /// module's `DefaultResolver::arity`. `None` for a call no package owns.
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    let (module, function) = crate::codegen::registry::REGISTRY.function(name)?;
-    crate::codegen::registry::DefaultResolver::arity(module, function.name)
+    let (module, function) = crate::target::shared::registry::REGISTRY.function(name)?;
+    crate::target::shared::registry::DefaultResolver::arity(module, function.name)
 }
 
 /// The human-readable expected-argument rendering for a builtin call's
@@ -469,8 +472,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
     {
         return Some(text.to_string());
     }
-    let (module, function) = crate::codegen::registry::REGISTRY.function(name)?;
-    crate::codegen::registry::DefaultResolver::expected_arguments(module, function.name)
+    let (module, function) = crate::target::shared::registry::REGISTRY.function(name)?;
+    crate::target::shared::registry::DefaultResolver::expected_arguments(module, function.name)
 }
 
 /// The concrete per-position argument-type signature IR lowering uses for literal
@@ -596,7 +599,9 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
     // dynamically-parsed constants. The `call_return_type_name` tail preserves the
     // pre-existing admission of lowered-only names whose return type is known
     // (e.g. `tls.closeListener`).
-    crate::codegen::registry::REGISTRY.function(name).is_some()
+    crate::target::shared::registry::REGISTRY
+        .function(name)
+        .is_some()
         || crate::codegen::builtins::collections::is_collections_call(name)
         || vector::is_vector_call(name)
         || call_return_type_name(name).is_some()
@@ -759,7 +764,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 // plan-72 registry adapters. Each queries a descriptor `registry` for a call's
 // metadata and falls back to the legacy per-package helper when the call's
 // package has not migrated yet. In letter A the production
-// `crate::codegen::registry::REGISTRY` is empty, so these always take the fallback path and
+// `crate::target::shared::registry::REGISTRY` is empty, so these always take the fallback path and
 // production behavior is byte-identical to calling the legacy helper directly;
 // letters B..AA populate the registry (moving each package onto the descriptor
 // branch) and BB removes the `legacy` fallbacks once every package has migrated.
@@ -767,7 +772,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 // `not(test)` dead-code allow; the tests below exercise both branches.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn registry_is_call(
-    registry: &crate::codegen::registry::BuiltinRegistry,
+    registry: &crate::target::shared::registry::BuiltinRegistry,
     callee: &str,
     legacy: impl Fn(&str) -> bool,
 ) -> bool {
@@ -776,36 +781,39 @@ pub(crate) fn registry_is_call(
 
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn registry_arity(
-    registry: &crate::codegen::registry::BuiltinRegistry,
+    registry: &crate::target::shared::registry::BuiltinRegistry,
     callee: &str,
     legacy: impl Fn(&str) -> Option<(usize, usize)>,
 ) -> Option<(usize, usize)> {
     if let Some((module, function)) = registry.function(callee) {
-        return crate::codegen::registry::DefaultResolver::arity(module, function.name);
+        return crate::target::shared::registry::DefaultResolver::arity(module, function.name);
     }
     legacy(callee)
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn registry_return_type_name(
-    registry: &crate::codegen::registry::BuiltinRegistry,
+    registry: &crate::target::shared::registry::BuiltinRegistry,
     callee: &str,
     legacy: impl Fn(&str) -> Option<&'static str>,
 ) -> Option<&'static str> {
     if let Some((module, function)) = registry.function(callee) {
-        return crate::codegen::registry::DefaultResolver::return_type_name(module, function.name);
+        return crate::target::shared::registry::DefaultResolver::return_type_name(
+            module,
+            function.name,
+        );
     }
     legacy(callee)
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn registry_expected_arguments(
-    registry: &crate::codegen::registry::BuiltinRegistry,
+    registry: &crate::target::shared::registry::BuiltinRegistry,
     callee: &str,
     legacy: impl Fn(&str) -> Option<String>,
 ) -> Option<String> {
     if let Some((module, function)) = registry.function(callee) {
-        return crate::codegen::registry::DefaultResolver::expected_arguments(
+        return crate::target::shared::registry::DefaultResolver::expected_arguments(
             module,
             function.name,
         );
@@ -1313,18 +1321,18 @@ mod tests {
         // still-unmigrated real example — `math` until plan-72-P, `regex` until -T,
         // `tls` until -Z — but none remains.)
         assert!(registry_is_call(
-            &crate::codegen::registry::REGISTRY,
+            &crate::target::shared::registry::REGISTRY,
             "nonesuch.thing",
             |name| { name == "nonesuch.thing" }
         ));
         assert!(!registry_is_call(
-            &crate::codegen::registry::REGISTRY,
+            &crate::target::shared::registry::REGISTRY,
             "nonesuch.other",
             |_| false
         ));
         assert_eq!(
             registry_arity(
-                &crate::codegen::registry::REGISTRY,
+                &crate::target::shared::registry::REGISTRY,
                 "nonesuch.thing",
                 |_| Some((1, 2))
             ),
@@ -1332,7 +1340,7 @@ mod tests {
         );
         assert_eq!(
             registry_return_type_name(
-                &crate::codegen::registry::REGISTRY,
+                &crate::target::shared::registry::REGISTRY,
                 "nonesuch.thing",
                 |_| Some("Nothing")
             ),
@@ -1340,7 +1348,7 @@ mod tests {
         );
         assert_eq!(
             registry_expected_arguments(
-                &crate::codegen::registry::REGISTRY,
+                &crate::target::shared::registry::REGISTRY,
                 "nonesuch.thing",
                 |_| Some("X".to_string())
             ),

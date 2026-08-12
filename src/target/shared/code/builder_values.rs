@@ -1514,7 +1514,7 @@ impl CodeBuilder<'_> {
         target: &str,
         args: &[NirValue],
     ) -> Option<Result<ValueResult, String>> {
-        let lower = crate::codegen::registry::REGISTRY
+        let lower = crate::target::shared::registry::REGISTRY
             .function(target)?
             .1
             .native_lower()?;
@@ -1535,7 +1535,7 @@ impl CodeBuilder<'_> {
     ) -> Option<Result<ValueResult, String>> {
         let member = target.strip_prefix("#collections_")?.split('$').next()?;
         let qualified = format!("collections.{member}");
-        let fast_path = crate::codegen::registry::REGISTRY
+        let fast_path = crate::target::shared::registry::REGISTRY
             .function(&qualified)?
             .1
             .mfb_fast_path()?;

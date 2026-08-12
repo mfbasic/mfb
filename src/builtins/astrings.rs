@@ -1,4 +1,4 @@
-use crate::codegen::registry::{
+use crate::target::shared::registry::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, DefaultResolver,
     Implementation, InjectionRule, Lowering, Parameter, ReturnType,
 };

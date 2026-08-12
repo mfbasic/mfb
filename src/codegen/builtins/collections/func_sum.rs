@@ -1,7 +1,6 @@
 //! `collections::sum` — descriptor entry + target-generic lowering (plan-96).
 
 use super::{custom, req};
-use crate::codegen::registry::BuiltinFunction;
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::list_element_type;
 use crate::target::shared::code::{
@@ -9,6 +8,7 @@ use crate::target::shared::code::{
     COLLECTION_ENTRY_SIZE, COLLECTION_HEADER_SIZE, COLLECTION_OFFSET_COUNT,
 };
 use crate::target::shared::nir::NirValue;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_SUM: &str = "Add up the elements of an Integer, Float, or Fixed list";
 const DESC_SUM: &str = r#"`collections::sum` walks `value` from the first element to the last and adds

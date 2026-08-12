@@ -1,13 +1,13 @@
 //! `collections::filter` — descriptor entry + target-generic lowering (plan-96).
 
 use super::{custom, req};
-use crate::codegen::registry::BuiltinFunction;
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{callable_return_type, list_element_type};
 use crate::target::shared::code::{
     CodeBuilder, Operand, ValueResult, RESULT_OK_TAG, RESULT_TAG_REGISTER, RESULT_VALUE_REGISTER,
 };
 use crate::target::shared::nir::NirValue;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_FILTER: &str = "Keep the elements of a list for which a predicate returns TRUE";
 const DESC_FILTER: &str = r#"`collections::filter` walks `value` from the first element to the last, calls

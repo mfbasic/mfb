@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/toUtc.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Project an absolute `Instant` into UTC to produce a civil `DateTime`."#;
 const DESC: &str = r#"`datetime::toUtc` projects the absolute instant `at` into the UTC zone, yielding

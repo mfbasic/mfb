@@ -18,7 +18,7 @@
 
 use std::borrow::Cow;
 
-use crate::codegen::registry::{
+use crate::target::shared::registry::{
     BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
     BuiltinType, DefaultResolver, DefaultValue, Implementation, InjectionRule, Lowering, Parameter,
     ParameterType, ReturnType, TypeKind,
@@ -949,7 +949,7 @@ mod tests {
         // `VectorResolver`'s hooks are only invoked through the registry at
         // runtime; drive them directly so the delegating bodies (and the
         // `implementation_name` free function's constant and typed branches) run.
-        use crate::codegen::registry::BuiltinResolver;
+        use crate::target::shared::registry::BuiltinResolver;
         let resolver = VectorResolver;
         assert_eq!(
             resolver.resolve_return_type(&VECTOR, LENGTH, &strings(&["Float3"])),

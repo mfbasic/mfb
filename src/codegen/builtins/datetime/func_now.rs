@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/now.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"The current wall-clock instant on the UTC timeline."#;
 const DESC: &str = r#"`datetime::now` reads the host's real-time clock and returns the `Instant` it

@@ -6,7 +6,7 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use super::{ov, p, VALTEXT};
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Decode `application/x-www-form-urlencoded` text back into a `String`."#;
 const DESC: &str = r#"`encoding::formUrlDecode` reverses `encoding::formUrlEncode`, parsing

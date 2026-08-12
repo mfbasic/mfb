@@ -9,7 +9,7 @@
 
 use std::borrow::Cow;
 
-use crate::codegen::registry::{
+use crate::target::shared::registry::{
     BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource, BuiltinType,
     DefaultResolver, DefaultValue, InjectionRule, Parameter, ParameterType, ReturnType, TypeKind,
 };
@@ -692,7 +692,9 @@ pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
 fn assembled_source() -> String {
     let mut source = String::from(include_str!("package.mfb"));
     for func in DATETIME_FUNCTIONS {
-        if let crate::codegen::registry::Implementation::Mfb { body, .. } = func.implementation {
+        if let crate::target::shared::registry::Implementation::Mfb { body, .. } =
+            func.implementation
+        {
             let marker = format!("'@@MFB_BODY:{}@@", func.doc_slug);
             debug_assert!(
                 source.contains(&marker),
@@ -1055,7 +1057,7 @@ mod tests {
         assert_eq!(f.name, "datetime.date");
         assert_eq!(f.doc_slug, "date");
         assert_eq!(f.overloads.len(), 1);
-        use crate::codegen::registry::{BuiltinFlags, Implementation, Lowering};
+        use crate::target::shared::registry::{BuiltinFlags, Implementation, Lowering};
         assert_eq!(f.implementation, Implementation::Custom);
         assert_eq!(f.lowering, Lowering::Helper);
         assert_eq!(f.flags, BuiltinFlags::default());

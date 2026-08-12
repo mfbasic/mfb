@@ -6,7 +6,7 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use super::{ov, p, BYTES};
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Encode a non-negative `Integer` as an unsigned LEB128 `List OF Byte`."#;
 const DESC: &str = r#"`encoding::uleb128Encode` returns the unsigned [LEB128](https://en.wikipedia.org/wiki/LEB128)

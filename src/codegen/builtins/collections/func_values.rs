@@ -1,10 +1,10 @@
 //! `collections::values` — descriptor entry + target-generic lowering (plan-96).
 
 use super::{custom, req};
-use crate::codegen::registry::BuiltinFunction;
 use crate::target::shared::code::type_utils::map_type_parts;
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_VALUES: &str = "Return a map's values as a list.";
 const DESC_VALUES: &str = r#"`collections::values` builds a new `List OF V` holding the value of every entry

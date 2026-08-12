@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/isLeapYear.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Whether a proleptic-Gregorian calendar year is a leap year."#;
 const DESC: &str = r#"`datetime::isLeapYear` applies the proleptic-Gregorian leap rule to `year` and

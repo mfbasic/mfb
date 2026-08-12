@@ -6,7 +6,7 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use super::{ov, p};
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Decode an ASCII Punycode hostname back to its Unicode form."#;
 const DESC: &str = r#"`encoding::punycodeDecode` converts an ASCII hostname in the internationalized

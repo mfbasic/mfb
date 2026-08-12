@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/nowNanos.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"The current wall-clock reading as nanoseconds since the Unix epoch."#;
 const DESC: &str = r#"`datetime::nowNanos` is the low-level OS-seam intrinsic behind `datetime::now`.

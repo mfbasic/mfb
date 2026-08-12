@@ -3,11 +3,11 @@
 //! do not reformat.
 
 use super::{custom, req};
-use crate::codegen::registry::BuiltinFunction;
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{callable_return_type, list_element_type};
 use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = "Split a list into the elements that satisfy a predicate and those that do not";
 

@@ -13,7 +13,7 @@
 
 use std::path::Path;
 
-use crate::codegen::registry::{
+use crate::target::shared::registry::{
     BuiltinFunction, BuiltinModule, BuiltinSource, DefaultResolver, DefaultValue, Implementation,
     InjectionRule, Parameter, ParameterType,
 };

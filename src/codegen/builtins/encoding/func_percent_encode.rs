@@ -6,7 +6,7 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use super::{ov, p, VALTEXT};
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Percent-encode (URL-encode) a `String` per RFC 3986."#;
 const DESC: &str = r#"`encoding::percentEncode` percent-encodes `text` following the RFC 3986 rules for

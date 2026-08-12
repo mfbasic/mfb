@@ -6,7 +6,7 @@
 //! reindent it.
 
 use super::{custom, req};
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = "Return a new list holding the first `count` elements of a list";
 

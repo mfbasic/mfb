@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/parse.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Parse text into a `DateTime` using the format pattern mini-language."#;
 const DESC: &str = r#"`datetime::parse` reads `value` against `pattern` and returns the `DateTime` it

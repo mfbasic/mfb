@@ -8,11 +8,11 @@
 //! not reformat.
 
 use super::{custom, opt, req};
-use crate::codegen::registry::BuiltinFunction;
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{callable_return_type, list_element_type};
 use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str =
     "Index of the last element at or before an end position that satisfies a predicate";

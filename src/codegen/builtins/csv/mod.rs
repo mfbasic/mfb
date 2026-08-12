@@ -8,7 +8,7 @@
 //! `__csv_*` rewrite target comes from the explicit `IMPL_NAMES` table (note
 //! `readRow` → `__csv_next`, not `__csv_readRow`).
 
-use crate::codegen::registry::{
+use crate::target::shared::registry::{
     BuiltinFunction, BuiltinModule, BuiltinSource, BuiltinType, DefaultResolver, DefaultValue,
     Implementation, InjectionRule, Parameter, ParameterType, TypeKind,
 };

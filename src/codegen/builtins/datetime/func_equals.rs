@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/equals.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Test whether two instants name the same point on the UTC timeline."#;
 const DESC: &str = r#"`datetime::equals` is a convenience predicate over instants that returns `TRUE`

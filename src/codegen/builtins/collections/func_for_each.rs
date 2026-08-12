@@ -1,7 +1,6 @@
 //! `collections::forEach` — descriptor entry + target-generic lowering (plan-96).
 
 use super::{custom, req};
-use crate::codegen::registry::BuiltinFunction;
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::list_element_type;
 use crate::target::shared::code::{
@@ -10,6 +9,7 @@ use crate::target::shared::code::{
     COLLECTION_OFFSET_COUNT, RESULT_OK_TAG, RESULT_TAG_REGISTER,
 };
 use crate::target::shared::nir::NirValue;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_FOR_EACH: &str = "Call an action once for each element of a list, in order";
 const DESC_FOR_EACH: &str = r#"`collections::forEach` walks `value` from the first element to the last and

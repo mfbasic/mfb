@@ -12,7 +12,7 @@
 //! The spec topic above documents the same registry; the `table_matches_registry`
 //! test keeps the two in agreement.
 
-use crate::codegen::registry::BuiltinModule;
+use crate::target::shared::registry::BuiltinModule;
 
 /// `(name, integer-literal, message, message-symbol)` for every runtime registry
 /// row. Hand-maintained here (the source of truth for `errorCode::Err*` values);
@@ -141,7 +141,7 @@ pub(crate) fn constant_value(name: &str) -> Option<&'static str> {
 /// [`constant_value`], which takes the package-qualified `errorCode.<Name>` key and
 /// returns only the code for constant folding.
 ///
-/// [`BuiltinFunction::errors`]: crate::codegen::registry::BuiltinFunction::errors
+/// [`BuiltinFunction::errors`]: crate::target::shared::registry::BuiltinFunction::errors
 pub(crate) fn runtime_error(name: &str) -> Option<(&'static str, &'static str)> {
     ERRORCODE_CONSTANTS
         .iter()
@@ -275,7 +275,7 @@ mod tests {
     /// relationship directly so a bad declaration fails fast in release test runs.
     #[test]
     fn every_builtin_declared_error_is_a_table_name() {
-        use crate::codegen::registry::REGISTRY;
+        use crate::target::shared::registry::REGISTRY;
         for module in REGISTRY.modules() {
             for function in module.functions {
                 for name in function.errors {
@@ -296,7 +296,7 @@ mod tests {
     // registered, carries the empty shape, and rejects every name lookup cleanly.
     #[test]
     fn descriptor_is_registered_and_empty() {
-        use crate::codegen::registry::{DefaultResolver, REGISTRY};
+        use crate::target::shared::registry::{DefaultResolver, REGISTRY};
 
         let module = REGISTRY
             .module("errorCode")

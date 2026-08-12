@@ -9,8 +9,8 @@
 
 use std::collections::HashMap;
 
-use crate::codegen::registry::{Implementation, REGISTRY};
 use crate::target::shared::code::{CodegenPlatform, HelperResult, PlatformFamily};
+use crate::target::shared::registry::{Implementation, REGISTRY};
 
 /// Emit the runtime-helper body for `call` from the owning member's
 /// [`Implementation::Os`] lowering, chosen by `platform.family()`. `call` may be

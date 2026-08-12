@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/format.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Render a `DateTime` as text with the pattern mini-language."#;
 const DESC: &str = r#"`datetime::format` renders the fields of `dt` as text by walking `pattern` from

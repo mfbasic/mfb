@@ -2,13 +2,13 @@
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
 use super::{custom, req};
-use crate::codegen::registry::BuiltinFunction;
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{
     collection_has_buckets, list_element_type, map_type_parts,
 };
 use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = "Combine two maps into one, choosing which side wins on a key collision";
 

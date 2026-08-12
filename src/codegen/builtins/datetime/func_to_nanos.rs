@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/toNanos.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Return the whole nanoseconds between the Unix epoch and an `Instant`."#;
 const DESC: &str = r#"`datetime::toNanos` collapses the absolute point `at` into a single `Integer`

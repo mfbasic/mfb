@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/offsetAt.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"A `Zone`'s signed UTC offset in seconds at a given `Instant`."#;
 const DESC: &str = r#"`datetime::offsetAt` returns the signed offset from UTC, in seconds, that

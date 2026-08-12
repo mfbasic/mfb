@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/fixedOffset.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Build a `Zone` with a constant UTC offset."#;
 const DESC: &str = r#"`datetime::fixedOffset` builds a `Zone` whose offset from UTC is a constant

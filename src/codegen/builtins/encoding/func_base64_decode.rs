@@ -6,7 +6,7 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use super::{ov, p, BYTES};
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Decode a standard Base64 `String` into a `List OF Byte`."#;
 const DESC: &str = r#"`encoding::base64Decode` parses `text` as standard Base64 (RFC 4648 §4) and

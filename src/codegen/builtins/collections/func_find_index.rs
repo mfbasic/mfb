@@ -8,7 +8,7 @@
 //! `.ncode` columns); do not reformat.
 
 use super::{custom, opt, req};
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str =
     "Index of the first element at or after a start position that satisfies a predicate";

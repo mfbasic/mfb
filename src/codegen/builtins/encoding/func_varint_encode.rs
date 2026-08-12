@@ -6,7 +6,7 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use super::{ov, p, BYTES};
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Encode a signed `Integer` as a ZigZag varint `List OF Byte`."#;
 const DESC: &str = r#"`encoding::varintEncode` returns the ZigZag [varint](https://protobuf.dev/programming-guides/encoding/#varints)

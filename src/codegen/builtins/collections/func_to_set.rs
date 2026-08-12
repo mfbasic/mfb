@@ -2,7 +2,7 @@
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
 use super::{custom, req};
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = "Build a set from the distinct elements of a list";
 

@@ -5,7 +5,7 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/dayOfYear.md`.
 
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"The ordinal day within the year of a `DateTime`'s civil date."#;
 const DESC: &str = r#"`datetime::dayOfYear` returns the ordinal position of `dt`'s civil date within

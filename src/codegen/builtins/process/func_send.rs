@@ -9,8 +9,8 @@
 
 use std::collections::HashMap;
 
-use crate::codegen::registry::BuiltinFunction;
 use crate::target::shared::code::{CodegenPlatform, HelperResult};
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Write a line of text to a child's standard input, appending a newline."#;
 const DESC: &str = r#"`process::send` writes the UTF-8 bytes of `text` to the child's standard input and

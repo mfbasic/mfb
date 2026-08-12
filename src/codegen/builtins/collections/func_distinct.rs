@@ -10,7 +10,7 @@
 //! from the member's man page summary.
 
 use super::{custom, req};
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_DISTINCT: &str =
     "Remove duplicate elements from a list, keeping the first occurrence of each";

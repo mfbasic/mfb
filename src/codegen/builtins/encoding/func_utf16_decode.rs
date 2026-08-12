@@ -6,7 +6,7 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use super::{ov, p, INTS};
-use crate::codegen::registry::BuiltinFunction;
+use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Decode a `List OF Integer` of UTF-16 code units to a `String`."#;
 const DESC: &str = r#"`encoding::utf16Decode` interprets `value` as a sequence of UTF-16 code units and
