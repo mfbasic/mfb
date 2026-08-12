@@ -5,16 +5,12 @@
 //! `'@@MFB_BODY:parseStream@@` marker in package.mfb via assembled_source. Body
 //! byte-significant (2-space indent → .ncode columns); do not reformat.
 
-use crate::codegen::registry::RegistryPackage;
-
-#[rustfmt::skip]
-const BODY: &str =
-r#"FUNC __csv_parseStream(value AS String, delimiter AS String, quote AS String) AS CsvReader
-  LET chars AS List OF Integer = encoding::utf32Encode(value)
-  RETURN CsvReader[chars, len(chars), 0, __csv_firstCode(delimiter), __csv_firstCode(quote)]
-END FUNC"#;
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, RegistryFunction, RegistryPackage,
+};
 
 const INTRO: &str = r#"Open a streaming reader over UTF-8 CSV text."#;
+
 const DESC: &str = r#"`csv::parseStream` returns a `CsvReader` — a value holding the decoded input and a
 scan cursor — without parsing any rows yet. Each subsequent `csv::readRow` parses
 exactly one record and returns it with the reader advanced, so a document is
@@ -28,6 +24,7 @@ The output-only dialect option (`newline`) does not apply to reading.
 
 The argument may also be supplied by the name `text`. `csv::parseStream` does not
 mutate `value` and has no side effects."#;
+
 const EX: &str = r#"Process a CSV document row by row without building the whole grid:
 
 ```
@@ -44,22 +41,50 @@ SUB main()
 END SUB
 ```"#;
 
+#[rustfmt::skip]
+const FUNC_BODY: &str =
+r#"FUNC __csv_parseStream(value AS String, delimiter AS String, quote AS String) AS CsvReader
+  LET chars AS List OF Integer = encoding::utf32Encode(value)
+  RETURN CsvReader[chars, len(chars), 0, __csv_firstCode(delimiter), __csv_firstCode(quote)]
+END FUNC"#;
+
 pub(super) fn add(pkg: &mut RegistryPackage) {
-    pkg.add_function(
-        "parseStream",
-        INTRO,
-        DESC,
-        EX,
-        vec![super::mfb_impl(
-            vec![
-                super::required("value", &["text"], "String"),
-                super::opt("delimiter", super::DEFAULT_DELIMITER),
-                super::opt("quote", super::DEFAULT_QUOTE),
+    pkg.add_function(RegistryFunction {
+        name: "parseStream",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "value",
+                    aliases: &["text"],
+                    ty: "String",
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "delimiter",
+                    aliases: &[],
+                    ty: "String",
+                    default: DefaultValue::Fill {
+                        type_name: "String",
+                        expr: super::DEFAULT_DELIMITER,
+                    },
+                },
+                Parameter {
+                    name: "quote",
+                    aliases: &[],
+                    ty: "String",
+                    default: DefaultValue::Fill {
+                        type_name: "String",
+                        expr: super::DEFAULT_QUOTE,
+                    },
+                },
             ],
-            "CsvReader",
-            vec![],
-            BODY,
-            "__csv_parseStream",
-        )],
-    );
+            return_type: "CsvReader",
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(FUNC_BODY, "__csv_parseStream"),
+        }],
+    });
 }

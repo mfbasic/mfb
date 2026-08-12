@@ -8,9 +8,7 @@
 //! `get_package_by_func_name` dual-path in `builtins::` / `ir::lower`), so this module
 //! is pure registration — no per-package `is_csv_call`/`implementation_name` seams.
 
-use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, RecordProp, Registry, RegistryPackage,
-};
+use crate::codegen::registry::{RecordProp, Registry, RegistryPackage, RegistryRecord};
 
 mod func_parse;
 mod func_parse_stream;
@@ -23,54 +21,9 @@ pub(super) const DEFAULT_DELIMITER: &str = ",";
 pub(super) const DEFAULT_QUOTE: &str = "\"";
 pub(super) const DEFAULT_NEWLINE: &str = "\n";
 
-/// A required parameter (with optional keyword aliases).
-pub(super) fn required(
-    name: &'static str,
-    aliases: &'static [&'static str],
-    ty: &'static str,
-) -> Parameter {
-    Parameter {
-        name,
-        aliases,
-        ty,
-        default: DefaultValue::None,
-    }
-}
-
-/// An optional String parameter, default-padded with `expr` when omitted.
-pub(super) fn opt(name: &'static str, expr: &'static str) -> Parameter {
-    Parameter {
-        name,
-        aliases: &[],
-        ty: "String",
-        default: DefaultValue::Fill {
-            type_name: "String",
-            expr,
-        },
-    }
-}
-
-/// A source-backed member: its `FUNC` body plus the internal symbol a call rewrites
-/// to (the `FUNC` the body declares) and the `errorCode` names it can raise.
-pub(super) fn mfb_impl(
-    params: Vec<Parameter>,
-    return_type: &'static str,
-    errors: Vec<&'static str>,
-    body: &'static str,
-    rewrite: &'static str,
-) -> Implementation {
-    Implementation {
-        params,
-        return_type,
-        errors,
-        lowering: Lowering::Helper,
-        body: Body::mfb(body, rewrite),
-    }
-}
-
 /// Register the `csv` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {
-    let pkg = r.add_package(
+    let mut pkg = RegistryPackage::new(
         "csv",
         "Parse and serialize CSV text as a grid of String cells",
         "The `csv` package converts between CSV text and a grid of rows of String \
@@ -80,10 +33,10 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_imports(vec!["collections", "strings", "encoding"]);
 
     // plan-77 C4: the streaming reader/row records (EXPORT so callers can name them).
-    pkg.add_record(
-        "CsvReader",
-        true,
-        vec![
+    pkg.add_record(RegistryRecord {
+        name: "CsvReader",
+        export: true,
+        props: vec![
             RecordProp {
                 name: "chars",
                 ty: "List OF Integer",
@@ -110,11 +63,11 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "The quote-character scalar.",
             },
         ],
-    );
-    pkg.add_record(
-        "CsvRow",
-        true,
-        vec![
+    });
+    pkg.add_record(RegistryRecord {
+        name: "CsvRow",
+        export: true,
+        props: vec![
             RecordProp {
                 name: "fields",
                 ty: "List OF String",
@@ -131,15 +84,17 @@ pub(crate) fn register(r: &mut Registry) {
                 description: "TRUE when the reader was already at end of input.",
             },
         ],
-    );
+    });
 
     // The shared private `__csv_*` helpers the member bodies call.
     pkg.add_helper_functions(vec![include_str!("package.mfb")]);
 
-    func_parse::add(pkg);
-    func_stringify::add(pkg);
-    func_parse_stream::add(pkg);
-    func_read_row::add(pkg);
+    func_parse::add(&mut pkg);
+    func_stringify::add(&mut pkg);
+    func_parse_stream::add(&mut pkg);
+    func_read_row::add(&mut pkg);
+
+    r.add_package(pkg);
 }
 
 #[cfg(test)]

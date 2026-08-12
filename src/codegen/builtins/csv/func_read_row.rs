@@ -5,10 +5,12 @@
 //! `'@@MFB_BODY:readRow@@` marker in package.mfb via assembled_source. Body
 //! byte-significant (2-space indent → .ncode columns); do not reformat.
 
-use crate::codegen::registry::RegistryPackage;
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, RegistryFunction, RegistryPackage,
+};
 
 #[rustfmt::skip]
-const BODY: &str =
+const FUNC_BODY: &str =
 r#"FUNC __csv_next(reader AS CsvReader) AS CsvRow
   LET chars AS List OF Integer = reader.chars
   LET count AS Integer = reader.count
@@ -103,17 +105,22 @@ END SUB
 ```"#;
 
 pub(super) fn add(pkg: &mut RegistryPackage) {
-    pkg.add_function(
-        "readRow",
-        INTRO,
-        DESC,
-        EX,
-        vec![super::mfb_impl(
-            vec![super::required("reader", &[], "CsvReader")],
-            "CsvRow",
-            vec!["ErrInvalidFormat"],
-            BODY,
-            "__csv_next",
-        )],
-    );
+    pkg.add_function(RegistryFunction {
+        name: "readRow",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "reader",
+                aliases: &[],
+                ty: "CsvReader",
+                default: DefaultValue::None,
+            }],
+            return_type: "CsvRow",
+            errors: vec!["ErrInvalidFormat"],
+            lowering: Lowering::Helper,
+            body: Body::mfb(FUNC_BODY, "__csv_next"),
+        }],
+    });
 }

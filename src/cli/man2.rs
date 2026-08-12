@@ -49,7 +49,7 @@ fn lookup_package(package: &str) -> Result<&'static RegistryPackage, String> {
 /// seen order.
 fn function_errors(function: &RegistryFunction) -> Vec<&'static str> {
     let mut names: Vec<&'static str> = Vec::new();
-    for implementation in function.implementations() {
+    for implementation in &function.implementations {
         for &name in &implementation.errors {
             if !names.contains(&name) {
                 names.push(name);
@@ -83,8 +83,8 @@ fn render_package_markdown(package: &RegistryPackage) -> String {
             md.push_str(&format!(
                 "| `{}::{}` | {} |\n",
                 package.import_name(),
-                function.name(),
-                function.intro(),
+                function.name,
+                function.intro,
             ));
         }
         md.push('\n');
@@ -107,9 +107,9 @@ fn render_package_markdown(package: &RegistryPackage) -> String {
 fn render_function_markdown(package: &RegistryPackage, function: &RegistryFunction) -> String {
     let mut md = String::new();
 
-    md.push_str(&format!("# {}\n\n", function.name()));
-    if !function.intro().is_empty() {
-        md.push_str(function.intro());
+    md.push_str(&format!("# {}\n\n", function.name));
+    if !function.intro.is_empty() {
+        md.push_str(function.intro);
         md.push_str("\n\n");
     }
 
@@ -119,17 +119,17 @@ fn render_function_markdown(package: &RegistryPackage, function: &RegistryFuncti
 
     render_parameters(&mut md, function);
 
-    if !function.desc().is_empty() {
+    if !function.desc.is_empty() {
         md.push_str("## Description\n\n");
-        md.push_str(function.desc());
+        md.push_str(function.desc);
         md.push_str("\n\n");
     }
 
     render_errors_table(&mut md, &function_errors(function));
 
-    if !function.example().is_empty() {
+    if !function.example.is_empty() {
         md.push_str("## Examples\n\n");
-        md.push_str(function.example());
+        md.push_str(function.example);
         md.push_str("\n\n");
     }
 
@@ -141,8 +141,8 @@ fn render_function_markdown(package: &RegistryPackage, function: &RegistryFuncti
 /// Collect every `package::function` reference that appears in the Description and
 /// list it under "See also", excluding the current member and collapsing duplicates.
 fn render_see_also(md: &mut String, package: &RegistryPackage, function: &RegistryFunction) {
-    let current = format!("{}::{}", package.import_name(), function.name());
-    let referenced = referenced_functions(function.desc(), &current);
+    let current = format!("{}::{}", package.import_name(), function.name);
+    let referenced = referenced_functions(function.desc, &current);
     if referenced.is_empty() {
         return;
     }
@@ -190,7 +190,7 @@ fn referenced_functions(text: &str, current: &str) -> Vec<String> {
 /// (defaulted) parameters are flagged, alias spellings are listed, and the fixed
 /// return type is shown.
 fn render_parameters(md: &mut String, function: &RegistryFunction) {
-    let Some(implementation) = function.implementations().first() else {
+    let Some(implementation) = function.implementations.first() else {
         return;
     };
     if implementation.params.is_empty() {

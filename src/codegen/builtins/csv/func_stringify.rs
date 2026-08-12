@@ -5,10 +5,12 @@
 //! `'@@MFB_BODY:stringify@@` marker in package.mfb via assembled_source. Body
 //! byte-significant (2-space indent → .ncode columns); do not reformat.
 
-use crate::codegen::registry::RegistryPackage;
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, RegistryFunction, RegistryPackage,
+};
 
 #[rustfmt::skip]
-const BODY: &str =
+const FUNC_BODY: &str =
 r#"FUNC __csv_stringify(value AS List OF List OF String, delimiter AS String, quote AS String, newline AS String) AS String
   MUT out AS String = ""
   MUT firstRow AS Boolean = TRUE
@@ -78,22 +80,51 @@ END SUB
 ```"#;
 
 pub(super) fn add(pkg: &mut RegistryPackage) {
-    pkg.add_function(
-        "stringify",
-        INTRO,
-        DESC,
-        EX,
-        vec![super::mfb_impl(
-            vec![
-                super::required("value", &[], "List OF List OF String"),
-                super::opt("delimiter", super::DEFAULT_DELIMITER),
-                super::opt("quote", super::DEFAULT_QUOTE),
-                super::opt("newline", super::DEFAULT_NEWLINE),
+    pkg.add_function(RegistryFunction {
+        name: "stringify",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "value",
+                    aliases: &[],
+                    ty: "List OF List OF String",
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "delimiter",
+                    aliases: &[],
+                    ty: "String",
+                    default: DefaultValue::Fill {
+                        type_name: "String",
+                        expr: super::DEFAULT_DELIMITER,
+                    },
+                },
+                Parameter {
+                    name: "quote",
+                    aliases: &[],
+                    ty: "String",
+                    default: DefaultValue::Fill {
+                        type_name: "String",
+                        expr: super::DEFAULT_QUOTE,
+                    },
+                },
+                Parameter {
+                    name: "newline",
+                    aliases: &[],
+                    ty: "String",
+                    default: DefaultValue::Fill {
+                        type_name: "String",
+                        expr: super::DEFAULT_NEWLINE,
+                    },
+                },
             ],
-            "String",
-            vec![],
-            BODY,
-            "__csv_stringify",
-        )],
-    );
+            return_type: "String",
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(FUNC_BODY, "__csv_stringify"),
+        }],
+    });
 }

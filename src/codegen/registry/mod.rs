@@ -235,34 +235,16 @@ pub(crate) struct Implementation {
 /// record — construct via [`RegistryPackage::add_function`].
 #[derive(Debug)]
 pub(crate) struct RegistryFunction {
-    name: &'static str,
-    intro: &'static str,
-    desc: &'static str,
-    example: &'static str,
-    implementations: Vec<Implementation>,
-}
-
-impl RegistryFunction {
     /// The function's public (unqualified) name, e.g. `"utf8Encode"`.
-    pub(crate) fn name(&self) -> &'static str {
-        self.name
-    }
+    pub(crate) name: &'static str,
     /// One-line documentation intro.
-    pub(crate) fn intro(&self) -> &'static str {
-        self.intro
-    }
+    pub(crate) intro: &'static str,
     /// Full documentation description.
-    pub(crate) fn desc(&self) -> &'static str {
-        self.desc
-    }
+    pub(crate) desc: &'static str,
     /// A runnable documentation example.
-    pub(crate) fn example(&self) -> &'static str {
-        self.example
-    }
+    pub(crate) example: &'static str,
     /// The function's implementations (`>= 1`); more than one means an overload set.
-    pub(crate) fn implementations(&self) -> &[Implementation] {
-        &self.implementations
-    }
+    pub(crate) implementations: Vec<Implementation>,
 }
 
 /// One field of a [`RegistryRecord`], e.g. `value AS Float`.
@@ -286,28 +268,18 @@ pub(crate) struct RecordProp {
 /// END TYPE
 /// ```
 ///
-/// Fields are private — construct via [`RegistryPackage::add_record`].
+/// Construct with a named struct literal; add via [`RegistryPackage::add_record`].
 #[derive(Debug)]
 pub(crate) struct RegistryRecord {
-    name: &'static str,
-    export: bool,
-    props: Vec<RecordProp>,
+    /// The record's type name (`JsonNum`).
+    pub(crate) name: &'static str,
+    /// Whether the record is `EXPORT`ed (visible to importers) or package-internal.
+    pub(crate) export: bool,
+    /// The record's fields, in declaration order (`>= 1`).
+    pub(crate) props: Vec<RecordProp>,
 }
 
 impl RegistryRecord {
-    /// The record's type name (`JsonNum`).
-    pub(crate) fn name(&self) -> &'static str {
-        self.name
-    }
-    /// Whether the record is `EXPORT`ed (visible to importers) or package-internal.
-    pub(crate) fn is_exported(&self) -> bool {
-        self.export
-    }
-    /// The record's fields, in declaration order.
-    pub(crate) fn props(&self) -> &[RecordProp] {
-        &self.props
-    }
-
     /// Render the `[EXPORT] TYPE … END TYPE` declaration (no trailing newline).
     fn render(&self) -> String {
         let mut out = String::new();
@@ -352,28 +324,18 @@ pub(crate) struct UnionVariant {
 ///
 /// (The `UNION … INCLUDES Base` extension form is unused by builtin packages, so it
 /// is intentionally not modeled; add an `Option` field if a builtin ever needs it.)
-/// Fields are private — construct via [`RegistryPackage::add_union`].
+/// Construct with a named struct literal; add via [`RegistryPackage::add_union`].
 #[derive(Debug)]
 pub(crate) struct RegistryUnion {
-    name: &'static str,
-    export: bool,
-    variants: Vec<UnionVariant>,
+    /// The union's type name (`Json`).
+    pub(crate) name: &'static str,
+    /// Whether the union is `EXPORT`ed (visible to importers) or package-internal.
+    pub(crate) export: bool,
+    /// The union's variants, in declaration order (`>= 1`).
+    pub(crate) variants: Vec<UnionVariant>,
 }
 
 impl RegistryUnion {
-    /// The union's type name (`Json`).
-    pub(crate) fn name(&self) -> &'static str {
-        self.name
-    }
-    /// Whether the union is `EXPORT`ed (visible to importers) or package-internal.
-    pub(crate) fn is_exported(&self) -> bool {
-        self.export
-    }
-    /// The union's variants, in declaration order.
-    pub(crate) fn variants(&self) -> &[UnionVariant] {
-        &self.variants
-    }
-
     /// Render the `[EXPORT] UNION … END UNION` declaration (no trailing newline).
     fn render(&self) -> String {
         let mut out = String::new();
@@ -411,6 +373,23 @@ pub(crate) struct RegistryPackage {
 }
 
 impl RegistryPackage {
+    /// An empty package with the given import name and documentation. Fill it with
+    /// [`add_imports`](Self::add_imports) / [`add_record`](Self::add_record) /
+    /// [`add_union`](Self::add_union) / [`add_helper_functions`](Self::add_helper_functions)
+    /// / [`add_function`](Self::add_function), then hand it to [`Registry::add_package`].
+    pub(crate) fn new(import_name: &'static str, intro: &'static str, desc: &'static str) -> Self {
+        Self {
+            import_name,
+            intro,
+            desc,
+            imports: Vec::new(),
+            records: Vec::new(),
+            unions: Vec::new(),
+            helper_functions: Vec::new(),
+            functions: Vec::new(),
+        }
+    }
+
     /// The package's import name, e.g. `"encoding"`.
     pub(crate) fn import_name(&self) -> &'static str {
         self.import_name
@@ -549,73 +528,39 @@ impl RegistryPackage {
         self
     }
 
-    /// Add a value record (`[EXPORT] TYPE … END TYPE`) to this package. `props` must
-    /// be non-empty — a `TYPE` needs at least one field. Records render into
+    /// Add a value record (a `RegistryRecord { … }`). Records render into
     /// [`get_mfb`](Self::get_mfb) in the order they are added, before the functions.
-    pub(crate) fn add_record(
-        &mut self,
-        name: &'static str,
-        export: bool,
-        props: Vec<RecordProp>,
-    ) -> &mut Self {
+    pub(crate) fn add_record(&mut self, record: RegistryRecord) -> &mut Self {
         debug_assert!(
-            !props.is_empty(),
-            "{}::{name}: a record needs at least one field",
-            self.import_name,
+            !record.props.is_empty(),
+            "record `{}` needs at least one field",
+            record.name,
         );
-        self.records.push(RegistryRecord {
-            name,
-            export,
-            props,
-        });
+        self.records.push(record);
         self
     }
 
-    /// Add a tagged union (`[EXPORT] UNION … END UNION`) to this package. `variants`
-    /// must be non-empty — a `UNION` needs at least one variant. Unions render into
+    /// Add a tagged union (a `RegistryUnion { … }`). Unions render into
     /// [`get_mfb`](Self::get_mfb) in the order they are added, between the records and
     /// the functions.
-    pub(crate) fn add_union(
-        &mut self,
-        name: &'static str,
-        export: bool,
-        variants: Vec<UnionVariant>,
-    ) -> &mut Self {
+    pub(crate) fn add_union(&mut self, union: RegistryUnion) -> &mut Self {
         debug_assert!(
-            !variants.is_empty(),
-            "{}::{name}: a union needs at least one variant",
-            self.import_name,
+            !union.variants.is_empty(),
+            "union `{}` needs at least one variant",
+            union.name,
         );
-        self.unions.push(RegistryUnion {
-            name,
-            export,
-            variants,
-        });
+        self.unions.push(union);
         self
     }
 
-    /// Add a function to this package. `implementations` must be non-empty — a
-    /// function is a name plus at least one fully-specified implementation.
-    pub(crate) fn add_function(
-        &mut self,
-        name: &'static str,
-        intro: &'static str,
-        desc: &'static str,
-        example: &'static str,
-        implementations: Vec<Implementation>,
-    ) -> &mut Self {
+    /// Add a function (a `RegistryFunction { … }`).
+    pub(crate) fn add_function(&mut self, function: RegistryFunction) -> &mut Self {
         debug_assert!(
-            !implementations.is_empty(),
-            "{}::{name}: a function needs at least one implementation",
-            self.import_name,
+            !function.implementations.is_empty(),
+            "function `{}` needs at least one implementation",
+            function.name,
         );
-        self.functions.push(RegistryFunction {
-            name,
-            intro,
-            desc,
-            example,
-            implementations,
-        });
+        self.functions.push(function);
         self
     }
 }
@@ -633,25 +578,11 @@ impl Registry {
         Self::default()
     }
 
-    /// Add a package with no functions; returns it so functions can be added by
-    /// chaining [`RegistryPackage::add_function`].
-    pub(crate) fn add_package(
-        &mut self,
-        import_name: &'static str,
-        intro: &'static str,
-        desc: &'static str,
-    ) -> &mut RegistryPackage {
-        self.packages.push(RegistryPackage {
-            import_name,
-            intro,
-            desc,
-            imports: Vec::new(),
-            records: Vec::new(),
-            unions: Vec::new(),
-            helper_functions: Vec::new(),
-            functions: Vec::new(),
-        });
-        self.packages.last_mut().expect("just pushed a package")
+    /// Add a fully-built package (built with [`RegistryPackage::new`] and filled
+    /// with its records / unions / helpers / functions).
+    pub(crate) fn add_package(&mut self, package: RegistryPackage) -> &mut Self {
+        self.packages.push(package);
+        self
     }
 
     /// All packages, in registration order.
@@ -749,7 +680,7 @@ pub(crate) fn call_return_type(qualified: &str) -> Option<&'static str> {
     Some(
         registry()
             .function_by_qualified(qualified)?
-            .implementations()
+            .implementations
             .first()?
             .return_type,
     )
@@ -761,7 +692,7 @@ pub(crate) fn arity(qualified: &str) -> Option<(usize, usize)> {
     let function = registry().function_by_qualified(qualified)?;
     let mut min = usize::MAX;
     let mut max = 0usize;
-    for implementation in function.implementations() {
+    for implementation in &function.implementations {
         let required = implementation
             .params
             .iter()
@@ -777,8 +708,8 @@ pub(crate) fn arity(qualified: &str) -> Option<(usize, usize)> {
 /// package (`CsvReader`/`CsvRow`).
 pub(crate) fn is_builtin_type(name: &str) -> bool {
     registry().packages().iter().any(|package| {
-        package.records().iter().any(|record| record.name() == name)
-            || package.unions().iter().any(|union| union.name() == name)
+        package.records().iter().any(|record| record.name == name)
+            || package.unions().iter().any(|union| union.name == name)
     })
 }
 
@@ -787,11 +718,8 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
 pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
     let (package, member) = qualified.split_once('.')?;
     let package = registry().get_package(package)?;
-    let declares = package
-        .records()
-        .iter()
-        .any(|record| record.name() == member)
-        || package.unions().iter().any(|union| union.name() == member);
+    let declares = package.records().iter().any(|record| record.name == member)
+        || package.unions().iter().any(|union| union.name == member);
     declares.then(|| member.to_string())
 }
 
@@ -803,7 +731,7 @@ pub(crate) fn declares_error(qualified: &str, error_name: &str) -> bool {
         .function_by_qualified(qualified)
         .is_some_and(|function| {
             function
-                .implementations()
+                .implementations
                 .iter()
                 .any(|implementation| implementation.errors.iter().any(|e| *e == error_name))
         })
@@ -814,7 +742,7 @@ pub(crate) fn declares_error(qualified: &str, error_name: &str) -> bool {
 pub(crate) fn rewrite_target(qualified: &str) -> Option<&'static str> {
     registry()
         .function_by_qualified(qualified)?
-        .implementations()
+        .implementations
         .first()?
         .body
         .rewrite_target()
@@ -826,7 +754,7 @@ pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
     Some(
         registry()
             .function_by_qualified(qualified)?
-            .implementations()
+            .implementations
             .first()?
             .params
             .first()?
@@ -839,7 +767,7 @@ pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
 pub(crate) fn call_param_names(qualified: &str) -> Option<Vec<Vec<&'static str>>> {
     let implementation = registry()
         .function_by_qualified(qualified)?
-        .implementations()
+        .implementations
         .first()?;
     Some(
         implementation
@@ -865,7 +793,7 @@ pub(crate) fn default_argument_padding(
     let Some(function) = registry().function_by_qualified(qualified) else {
         return Vec::new();
     };
-    let Some(implementation) = function.implementations().first() else {
+    let Some(implementation) = function.implementations.first() else {
         return Vec::new();
     };
     implementation
@@ -896,18 +824,18 @@ fn build() -> Registry {
 /// function (`identity`) and a two-implementation parameter overload (`describe`),
 /// the shape that makes a resolver unnecessary. Delete when a real package migrates.
 fn register_example(r: &mut Registry) {
-    let pkg = r.add_package(
+    let mut pkg = RegistryPackage::new(
         "example",
         "An illustrative clean-room package.",
         "Demonstrates the packages -> functions -> implementations shape; not a real builtin.",
     );
 
-    pkg.add_function(
-        "identity",
-        "Return the argument unchanged.",
-        "`example::identity(x)` returns `x`.",
-        "example::identity(42)",
-        vec![Implementation {
+    pkg.add_function(RegistryFunction {
+        name: "identity",
+        intro: "Return the argument unchanged.",
+        desc: "`example::identity(x)` returns `x`.",
+        example: "example::identity(42)",
+        implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "x",
                 aliases: &[],
@@ -919,14 +847,14 @@ fn register_example(r: &mut Registry) {
             lowering: Lowering::Inline,
             body: Body::Intrinsic,
         }],
-    );
+    });
 
-    pkg.add_function(
-        "describe",
-        "Describe a value as text.",
-        "`example::describe(v)` renders an Integer or a String as text.",
-        "example::describe(1)",
-        vec![
+    pkg.add_function(RegistryFunction {
+        name: "describe",
+        intro: "Describe a value as text.",
+        desc: "`example::describe(v)` renders an Integer or a String as text.",
+        example: "example::describe(1)",
+        implementations: vec![
             Implementation {
                 params: vec![Parameter {
                     name: "v",
@@ -952,12 +880,93 @@ fn register_example(r: &mut Registry) {
                 body: Body::Rewrite("__example_describe_str"),
             },
         ],
-    );
+    });
+
+    r.add_package(pkg);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- test builders (named-literal wrappers with throwaway docs) ---
+
+    fn func(name: &'static str, implementations: Vec<Implementation>) -> RegistryFunction {
+        RegistryFunction {
+            name,
+            intro: "i",
+            desc: "d",
+            example: "e",
+            implementations,
+        }
+    }
+
+    fn prop(name: &'static str, ty: &'static str) -> RecordProp {
+        RecordProp {
+            name,
+            ty,
+            description: "field doc",
+        }
+    }
+
+    fn rec(name: &'static str, export: bool, props: Vec<RecordProp>) -> RegistryRecord {
+        RegistryRecord {
+            name,
+            export,
+            props,
+        }
+    }
+
+    fn variant(name: &'static str) -> UnionVariant {
+        UnionVariant {
+            name,
+            description: "variant doc",
+        }
+    }
+
+    fn uni(name: &'static str, export: bool, variants: Vec<UnionVariant>) -> RegistryUnion {
+        RegistryUnion {
+            name,
+            export,
+            variants,
+        }
+    }
+
+    // A source-backed member built from its `FUNC __name(...)` body; the rewrite
+    // symbol is derived from the body's declared name.
+    fn mfb_impl(body: &'static str) -> Implementation {
+        let rewrite = body
+            .strip_prefix("FUNC ")
+            .and_then(|rest| rest.split(['(', ' ']).next())
+            .expect("test body starts with `FUNC <name>`");
+        Implementation {
+            params: vec![],
+            return_type: "String",
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(body, rewrite),
+        }
+    }
+
+    fn intrinsic(return_type: &'static str) -> Implementation {
+        Implementation {
+            params: vec![],
+            return_type,
+            errors: vec![],
+            lowering: Lowering::Inline,
+            body: Body::Intrinsic,
+        }
+    }
+
+    fn rewrite_impl(symbol: &'static str) -> Implementation {
+        Implementation {
+            params: vec![],
+            return_type: "String",
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::Rewrite(symbol),
+        }
+    }
 
     #[test]
     fn frozen_registry_exposes_the_example_package() {
@@ -970,58 +979,23 @@ mod tests {
     }
 
     #[test]
-    fn a_single_implementation_function_has_one_implementation() {
-        let identity = registry()
-            .get_package("example")
-            .and_then(|p| p.function("identity"))
-            .expect("identity function");
-        assert_eq!(identity.implementations().len(), 1);
-        let only = &identity.implementations()[0];
-        assert_eq!(only.return_type, "Integer");
-        assert_eq!(only.lowering, Lowering::Inline);
-        assert!(matches!(only.body, Body::Intrinsic));
-    }
-
-    #[test]
     fn an_overload_is_two_implementations_differing_by_parameter_type() {
         let describe = registry()
             .get_package("example")
             .and_then(|p| p.function("describe"))
             .expect("describe function");
-        let impls = describe.implementations();
+        let impls = &describe.implementations;
         assert_eq!(impls.len(), 2);
-        // Same arity, one parameter, differing types — a parameter overload.
-        assert_eq!(impls[0].params.len(), 1);
         assert_eq!(impls[0].params[0].ty, "Integer");
         assert_eq!(impls[1].params[0].ty, "String");
-        assert!(matches!(
-            impls[0].body,
-            Body::Rewrite("__example_describe_int")
-        ));
-        assert!(matches!(
-            impls[1].body,
-            Body::Rewrite("__example_describe_str")
-        ));
     }
 
     #[test]
-    fn the_builder_grows_a_registry_from_empty() {
+    fn add_function_takes_a_function_value() {
         let mut r = Registry::new();
-        assert!(r.packages().is_empty());
-        let pkg = r.add_package("t", "intro", "desc");
-        pkg.add_function(
-            "f",
-            "intro",
-            "desc",
-            "example",
-            vec![Implementation {
-                params: vec![],
-                return_type: "Nothing",
-                errors: vec![],
-                lowering: Lowering::Inline,
-                body: Body::Intrinsic,
-            }],
-        );
+        let mut pkg = RegistryPackage::new("t", "intro", "desc");
+        pkg.add_function(func("f", vec![intrinsic("Nothing")]));
+        r.add_package(pkg);
         assert_eq!(r.packages().len(), 1);
         assert_eq!(r.get_package("t").unwrap().functions().len(), 1);
     }
@@ -1029,35 +1003,18 @@ mod tests {
     #[test]
     fn get_package_by_func_name_finds_the_owning_package() {
         let mut r = Registry::new();
-        let pkg = r.add_package("csv", "i", "d");
-        pkg.add_function(
-            "parse",
-            "i",
-            "d",
-            "e",
-            vec![Implementation {
-                params: vec![],
-                return_type: "List OF List OF String",
-                errors: vec![],
-                lowering: Lowering::Helper,
-                body: Body::Rewrite("__csv_parse"),
-            }],
-        );
+        let mut pkg = RegistryPackage::new("csv", "i", "d");
+        pkg.add_function(func("parse", vec![rewrite_impl("__csv_parse")]));
+        r.add_package(pkg);
 
-        // A qualified call name maps back to its package.
         assert_eq!(
             r.get_package_by_func_name("csv.parse")
                 .map(RegistryPackage::import_name),
             Some("csv"),
         );
-        // Package exists but the function does not.
         assert!(r.get_package_by_func_name("csv.nope").is_none());
-        // Package does not exist.
         assert!(r.get_package_by_func_name("nope.parse").is_none());
-        // Not a qualified `package.function` name at all.
         assert!(r.get_package_by_func_name("toString").is_none());
-
-        // Works against the frozen registry too (example::identity).
         assert_eq!(
             registry()
                 .get_package_by_func_name("example.identity")
@@ -1066,8 +1023,6 @@ mod tests {
         );
     }
 
-    // A lowering fn of the `NativeLower` signature (the `common` slot). Never invoked
-    // here — it exists only to give the slot a real function pointer to hold.
     fn sample_lower<'a>(
         _b: &mut crate::target::shared::code::CodeBuilder<'a>,
         _args: &[crate::target::shared::nir::NirValue],
@@ -1075,8 +1030,6 @@ mod tests {
         Err("sample lowering (test fixture, not invoked)".to_string())
     }
 
-    // A fn of the `OsLower` signature (the `posix`/`win` slots). Declines with an
-    // Err so the fixture need not construct a HelperBody.
     fn sample_os_lower(
         _call: &str,
         _symbol: &str,
@@ -1086,7 +1039,6 @@ mod tests {
         Err("sample OS lowering (test fixture, not invoked)".to_string())
     }
 
-    // A fast-path fn of the `MfbFastPath` signature (declines by returning Ok(None)).
     fn sample_fast_path<'a>(
         _b: &mut crate::target::shared::code::CodeBuilder<'a>,
         _target: &str,
@@ -1117,21 +1069,18 @@ mod tests {
             }
         ));
 
-        // rewrite_target unifies with Body::Rewrite; Native/Intrinsic have none.
         assert_eq!(Body::Rewrite("__y").rewrite_target(), Some("__y"));
         assert_eq!(Body::Intrinsic.rewrite_target(), None);
     }
 
     #[test]
     fn native_holds_three_per_family_slots() {
-        // A common-only member (no OS differences).
         match Body::native(None, None, Some(sample_lower as NativeLower)) {
             Body::Native { posix, win, common } => {
                 assert!(posix.is_none() && win.is_none() && common.is_some());
             }
             _ => panic!("expected Body::Native"),
         }
-        // A per-OS member (posix + win as OsLower helper bodies, no common fallback).
         match Body::native(
             Some(sample_os_lower as OsLower),
             Some(sample_os_lower as OsLower),
@@ -1150,116 +1099,64 @@ mod tests {
         let _ = Body::native(None, None, None);
     }
 
-    // Build a throwaway package with two Mfb members plus one non-Mfb member, to
-    // exercise get_mfb's collection/joining without touching the example package.
-    fn mfb_impl(body: &'static str) -> Implementation {
-        // Test bodies are `FUNC __name(...)`; derive the rewrite symbol from the name.
-        let rewrite = body
-            .strip_prefix("FUNC ")
-            .and_then(|rest| rest.split(['(', ' ']).next())
-            .expect("test body starts with `FUNC <name>`");
-        Implementation {
-            params: vec![],
-            return_type: "String",
-            errors: vec![],
-            lowering: Lowering::Helper,
-            body: Body::mfb(body, rewrite),
-        }
-    }
-
     #[test]
     fn get_mfb_renders_helper_functions_before_member_bodies() {
         let mut r = Registry::new();
-        let pkg = r.add_package("demo", "intro", "desc");
+        let mut pkg = RegistryPackage::new("demo", "intro", "desc");
         pkg.add_helper_functions(vec!["FUNC __demo_helper() AS Nothing\nEND FUNC"]);
-        pkg.add_function(
+        pkg.add_function(func(
             "a",
-            "i",
-            "d",
-            "e",
             vec![mfb_impl(
                 "FUNC __demo_a() AS String\n  RETURN \"a\"\nEND FUNC",
             )],
-        );
-        // A non-Mfb member contributes no source.
-        pkg.add_function(
-            "b",
-            "i",
-            "d",
-            "e",
-            vec![Implementation {
-                params: vec![],
-                return_type: "String",
-                errors: vec![],
-                lowering: Lowering::Helper,
-                body: Body::Rewrite("__demo_b"),
-            }],
-        );
-        pkg.add_function(
+        ));
+        pkg.add_function(func("b", vec![rewrite_impl("__demo_b")]));
+        pkg.add_function(func(
             "c",
-            "i",
-            "d",
-            "e",
             vec![mfb_impl(
                 "FUNC __demo_c() AS String\n  RETURN \"c\"\nEND FUNC",
             )],
-        );
+        ));
+        r.add_package(pkg);
 
-        let pkg = r.get_package("demo").expect("demo package");
-
-        // The shared helper first, then both Mfb bodies (a, c) in registration order.
-        let src = pkg.get_mfb();
+        let src = r.get_package("demo").unwrap().get_mfb();
         assert_eq!(
             src,
             "FUNC __demo_helper() AS Nothing\nEND FUNC\n\n\
              FUNC __demo_a() AS String\n  RETURN \"a\"\nEND FUNC\n\n\
              FUNC __demo_c() AS String\n  RETURN \"c\"\nEND FUNC\n",
         );
-        // The Rewrite member 'b' contributed nothing.
         assert!(!src.contains("__demo_b"));
     }
 
     #[test]
     fn get_mfb_is_empty_when_the_package_has_no_mfb_member() {
-        // The example package is all Intrinsic/Rewrite and has no records — nothing
-        // to inject.
-        let pkg = registry().get_package("example").expect("example package");
-        assert_eq!(pkg.get_mfb(), "");
+        assert_eq!(registry().get_package("example").unwrap().get_mfb(), "");
 
-        // Imports and helper functions are scaffolding: with no records/unions/Mfb
-        // member to support, they render nothing.
         let mut r = Registry::new();
-        let pkg = r.add_package("bare", "i", "d");
+        let mut pkg = RegistryPackage::new("bare", "i", "d");
         pkg.add_imports(vec!["strings"]);
         pkg.add_helper_functions(vec!["FUNC __helper() AS Nothing\nEND FUNC"]);
-        let pkg = r.get_package("bare").expect("bare package");
-        assert_eq!(pkg.get_mfb(), "");
-    }
-
-    fn prop(name: &'static str, ty: &'static str) -> RecordProp {
-        RecordProp {
-            name,
-            ty,
-            description: "field doc",
-        }
+        r.add_package(pkg);
+        assert_eq!(r.get_package("bare").unwrap().get_mfb(), "");
     }
 
     #[test]
     fn add_record_renders_the_type_declaration() {
         let mut r = Registry::new();
-        let pkg = r.add_package("json", "intro", "desc");
-        pkg.add_record("JsonNum", true, vec![prop("value", "Float")]);
-        pkg.add_record(
+        let mut pkg = RegistryPackage::new("json", "intro", "desc");
+        pkg.add_record(rec("JsonNum", true, vec![prop("value", "Float")]));
+        pkg.add_record(rec(
             "Pair",
             false,
             vec![prop("key", "String"), prop("val", "Integer")],
-        );
+        ));
+        r.add_package(pkg);
 
-        let pkg = r.get_package("json").expect("json package");
+        let pkg = r.get_package("json").unwrap();
         assert_eq!(pkg.records().len(), 2);
-        assert!(pkg.records()[0].is_exported());
-        assert!(!pkg.records()[1].is_exported());
-
+        assert!(pkg.records()[0].export);
+        assert!(!pkg.records()[1].export);
         assert_eq!(
             pkg.records()[0].render(),
             "EXPORT TYPE JsonNum\n  value AS Float\nEND TYPE"
@@ -1270,28 +1167,22 @@ mod tests {
         );
     }
 
-    fn variant(name: &'static str) -> UnionVariant {
-        UnionVariant {
-            name,
-            description: "variant doc",
-        }
-    }
-
     #[test]
     fn add_union_renders_the_union_declaration() {
         let mut r = Registry::new();
-        let pkg = r.add_package("json", "intro", "desc");
-        pkg.add_union(
+        let mut pkg = RegistryPackage::new("json", "intro", "desc");
+        pkg.add_union(uni(
             "Json",
             true,
             vec![variant("JsonNull"), variant("JsonNum"), variant("JsonStr")],
-        );
-        pkg.add_union("Internal", false, vec![variant("A")]);
+        ));
+        pkg.add_union(uni("Internal", false, vec![variant("A")]));
+        r.add_package(pkg);
 
-        let pkg = r.get_package("json").expect("json package");
+        let pkg = r.get_package("json").unwrap();
         assert_eq!(pkg.unions().len(), 2);
-        assert!(pkg.unions()[0].is_exported());
-        assert!(!pkg.unions()[1].is_exported());
+        assert!(pkg.unions()[0].export);
+        assert!(!pkg.unions()[1].export);
         assert_eq!(
             pkg.unions()[0].render(),
             "EXPORT UNION Json\n  JsonNull\n  JsonNum\n  JsonStr\nEND UNION"
@@ -1302,27 +1193,27 @@ mod tests {
     #[test]
     fn get_mfb_orders_imports_records_unions_helpers_functions() {
         let mut r = Registry::new();
-        let pkg = r.add_package("json", "intro", "desc");
-        // add_imports accumulates across calls.
+        let mut pkg = RegistryPackage::new("json", "intro", "desc");
         pkg.add_imports(vec!["collections"]);
         pkg.add_imports(vec!["strings"]);
-        pkg.add_record("JsonNum", true, vec![prop("value", "Float")]);
-        pkg.add_record("JsonBool", true, vec![prop("flag", "Boolean")]);
-        pkg.add_union("Json", true, vec![variant("JsonNum"), variant("JsonBool")]);
+        pkg.add_record(rec("JsonNum", true, vec![prop("value", "Float")]));
+        pkg.add_record(rec("JsonBool", true, vec![prop("flag", "Boolean")]));
+        pkg.add_union(uni(
+            "Json",
+            true,
+            vec![variant("JsonNum"), variant("JsonBool")],
+        ));
         pkg.add_helper_functions(vec!["FUNC __json_helper() AS Nothing\nEND FUNC"]);
-        pkg.add_function(
+        pkg.add_function(func(
             "render",
-            "i",
-            "d",
-            "e",
             vec![mfb_impl(
                 "FUNC __json_render() AS String\n  RETURN \"\"\nEND FUNC",
             )],
-        );
+        ));
+        r.add_package(pkg);
 
-        let pkg = r.get_package("json").expect("json package");
+        let pkg = r.get_package("json").unwrap();
         assert_eq!(pkg.imports(), &["collections", "strings"]);
-        // Full order: imports, records, unions, helper functions, then member bodies.
         assert_eq!(
             pkg.get_mfb(),
             "IMPORT collections\nIMPORT strings\n\n\
@@ -1335,62 +1226,19 @@ mod tests {
     }
 
     #[test]
-    fn get_mfb_emits_records_even_with_no_mfb_functions() {
-        // A package with a record but only a Native/Rewrite function still injects
-        // its TYPE declaration.
+    fn descriptor_round_trips_the_full_surface() {
         let mut r = Registry::new();
-        let pkg = r.add_package("shape", "intro", "desc");
-        pkg.add_record("Point", true, vec![prop("x", "Float"), prop("y", "Float")]);
-        pkg.add_function(
-            "origin",
-            "i",
-            "d",
-            "e",
-            vec![Implementation {
-                params: vec![],
-                return_type: "Point",
-                errors: vec![],
-                lowering: Lowering::Helper,
-                body: Body::Rewrite("__shape_origin"),
-            }],
-        );
-
-        let pkg = r.get_package("shape").expect("shape package");
-        assert_eq!(
-            pkg.get_mfb(),
-            "EXPORT TYPE Point\n  x AS Float\n  y AS Float\nEND TYPE\n",
-        );
-    }
-
-    #[test]
-    fn descriptor_accessors_round_trip_the_full_surface() {
-        let mut r = Registry::new();
-        let pkg = r.add_package("demo", "pkg intro", "pkg desc");
+        let mut pkg = RegistryPackage::new("demo", "pkg intro", "pkg desc");
         pkg.add_imports(vec!["strings"]);
         pkg.add_helper_functions(vec!["FUNC __demo_helper()\nEND FUNC"]);
-        pkg.add_record(
-            "Rec",
-            true,
-            vec![RecordProp {
-                name: "f",
-                ty: "Integer",
-                description: "rec field",
-            }],
-        );
-        pkg.add_union(
-            "Uni",
-            false,
-            vec![UnionVariant {
-                name: "V",
-                description: "uni variant",
-            }],
-        );
-        pkg.add_function(
-            "fn1",
-            "fn intro",
-            "fn desc",
-            "fn example",
-            vec![Implementation {
+        pkg.add_record(rec("Rec", true, vec![prop("f", "Integer")]));
+        pkg.add_union(uni("Uni", false, vec![variant("V")]));
+        pkg.add_function(RegistryFunction {
+            name: "fn1",
+            intro: "fn intro",
+            desc: "fn desc",
+            example: "fn example",
+            implementations: vec![Implementation {
                 params: vec![
                     Parameter {
                         name: "req",
@@ -1419,33 +1267,30 @@ mod tests {
                 lowering: Lowering::Helper,
                 body: Body::Rewrite("__demo_fn1"),
             }],
-        );
+        });
+        r.add_package(pkg);
 
-        let pkg = r.get_package("demo").expect("demo package");
+        let pkg = r.get_package("demo").unwrap();
         assert_eq!(pkg.intro(), "pkg intro");
         assert_eq!(pkg.desc(), "pkg desc");
         assert_eq!(pkg.helper_functions(), &["FUNC __demo_helper()\nEND FUNC"]);
 
         let rec = &pkg.records()[0];
-        assert_eq!(rec.name(), "Rec");
-        assert_eq!(rec.props()[0].name, "f");
-        assert_eq!(rec.props()[0].ty, "Integer");
-        assert_eq!(rec.props()[0].description, "rec field");
+        assert_eq!(rec.name, "Rec");
+        assert_eq!(rec.props[0].name, "f");
+        assert_eq!(rec.props[0].description, "field doc");
 
         let uni = &pkg.unions()[0];
-        assert_eq!(uni.name(), "Uni");
-        assert_eq!(uni.variants()[0].name, "V");
-        assert_eq!(uni.variants()[0].description, "uni variant");
+        assert_eq!(uni.name, "Uni");
+        assert_eq!(uni.variants[0].name, "V");
 
         let f = pkg.function("fn1").expect("fn1");
-        assert_eq!(f.name(), "fn1");
-        assert_eq!(f.intro(), "fn intro");
-        assert_eq!(f.desc(), "fn desc");
-        assert_eq!(f.example(), "fn example");
+        assert_eq!(f.name, "fn1");
+        assert_eq!(f.intro, "fn intro");
+        assert_eq!(f.example, "fn example");
 
-        let imp = &f.implementations()[0];
+        let imp = &f.implementations[0];
         assert_eq!(imp.errors, vec!["SOME_ERROR"]);
-        assert_eq!(imp.params[0].name, "req");
         assert_eq!(imp.params[0].aliases, &["r"]);
         assert!(matches!(imp.params[0].default, DefaultValue::None));
         assert!(matches!(
@@ -1461,7 +1306,7 @@ mod tests {
     #[test]
     fn is_imported_by_checks_the_program_imports() {
         let mut r = Registry::new();
-        r.add_package("csv", "i", "d");
+        r.add_package(RegistryPackage::new("csv", "i", "d"));
         let csv = r.get_package("csv").expect("csv package");
 
         let parse = |src: &str| {

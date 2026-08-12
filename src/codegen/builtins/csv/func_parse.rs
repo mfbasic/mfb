@@ -5,10 +5,12 @@
 //! `'@@MFB_BODY:parse@@` marker in package.mfb via assembled_source. Body
 //! byte-significant (2-space indent → .ncode columns); do not reformat.
 
-use crate::codegen::registry::RegistryPackage;
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, RegistryFunction, RegistryPackage,
+};
 
 #[rustfmt::skip]
-const BODY: &str =
+const FUNC_BODY: &str =
 r#"FUNC __csv_parse(value AS String, delimiter AS String, quote AS String) AS List OF List OF String
   LET delimCode AS Integer = __csv_firstCode(delimiter)
   LET quoteCode AS Integer = __csv_firstCode(quote)
@@ -137,21 +139,42 @@ END SUB
 ```"#;
 
 pub(super) fn add(pkg: &mut RegistryPackage) {
-    pkg.add_function(
-        "parse",
-        INTRO,
-        DESC,
-        EX,
-        vec![super::mfb_impl(
-            vec![
-                super::required("value", &["text"], "String"),
-                super::opt("delimiter", super::DEFAULT_DELIMITER),
-                super::opt("quote", super::DEFAULT_QUOTE),
+    pkg.add_function(RegistryFunction {
+        name: "parse",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "value",
+                    aliases: &["text"],
+                    ty: "String",
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "delimiter",
+                    aliases: &[],
+                    ty: "String",
+                    default: DefaultValue::Fill {
+                        type_name: "String",
+                        expr: super::DEFAULT_DELIMITER,
+                    },
+                },
+                Parameter {
+                    name: "quote",
+                    aliases: &[],
+                    ty: "String",
+                    default: DefaultValue::Fill {
+                        type_name: "String",
+                        expr: super::DEFAULT_QUOTE,
+                    },
+                },
             ],
-            "List OF List OF String",
-            vec!["ErrInvalidFormat"],
-            BODY,
-            "__csv_parse",
-        )],
-    );
+            return_type: "List OF List OF String",
+            errors: vec!["ErrInvalidFormat"],
+            lowering: Lowering::Helper,
+            body: Body::mfb(FUNC_BODY, "__csv_parse"),
+        }],
+    });
 }
