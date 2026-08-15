@@ -1,8 +1,5 @@
 use crate::ast::AstProject;
-use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, Registry,
-    RegistryFunction, RegistryPackage,
-};
+use crate::codegen::registry::{Registry, RegistryPackage};
 use std::path::Path;
 
 pub(crate) mod common;
@@ -16,6 +13,7 @@ mod func_difference;
 mod func_distinct;
 mod func_drop;
 mod func_filter;
+mod func_find;
 mod func_find_index;
 mod func_find_last_index;
 mod func_flatten;
@@ -32,6 +30,7 @@ mod func_is_superset;
 mod func_keys;
 mod func_map_values;
 mod func_merge;
+mod func_mid;
 mod func_partition;
 mod func_prepend;
 mod func_reduce;
@@ -39,6 +38,7 @@ mod func_reduce_right;
 mod func_remove;
 mod func_remove_at;
 mod func_remove_key;
+mod func_replace;
 mod func_set;
 mod func_sort;
 mod func_sort_by;
@@ -151,380 +151,6 @@ const NATIVE_MEMBERS: &[&str] = &[
 /// One-line package intro (was `BuiltinModule::doc_intro`).
 const INTRO: &str = "Sequence and map helper functions";
 
-/// A required native-member parameter. The `collections` man pages are served by
-/// the static `.md` files, not the registry, so the per-parameter `desc` carries
-/// no documentation weight here — it is left empty.
-fn param(name: &'static str, aliases: &'static [&'static str], ty: ParameterType) -> Parameter {
-    Parameter {
-        name,
-        desc: "",
-        aliases,
-        ty,
-        default: DefaultValue::None,
-    }
-}
-
-// ---- find ----
-const INTO_FIND: &str =
-    "Return the index of the first matching element or contiguous sublist in a list";
-const DESC_FIND: &str = r#"`collections::find` scans `value` forward from `start` and returns the
-zero-based index of the first match. It is a **native** member: the compiler
-emits the search loop directly rather than instantiating an MFBASIC generic.
-
-This page documents the `List` form only. `collections::find` accepts nothing
-but a `List` as its first argument; the `String` search of the same name lives in
-`strings::`.
-
-Two searches share the name, chosen by the type of the second argument. When it
-has the element type `T`, `find` performs an **element search**. When it has the
-same `List OF T` type as `value`, `find` performs a **contiguous sublist
-search**. The element form is tested first, so for a list of lists — where the
-element type is itself a `List` — a second argument of that element type is read
-as an element search. Any other second-argument type fails to resolve at compile
-time.
-
-`start` is optional. When it is omitted the search begins at index 0; the
-lowering supplies that default itself, so an omitted `start` and an explicit `0`
-behave identically.
-
-`start` is validated before anything is compared. A negative `start`, or a
-`start` greater than the length of `value`, fails with `ErrIndexOutOfRange`. A
-`start` exactly equal to the length is **valid**: it selects an empty search
-range, which yields `ErrNotFound` for an element search and, for a sublist
-search with an empty needle, the index `start` itself.
-
-When no match exists at or after `start`, `find` fails with `ErrNotFound`. It
-never returns a sentinel such as `-1`; a search that may legitimately come up
-empty needs a `TRAP`, or `collections::contains` if only the yes/no answer is
-wanted.
-
-Element equality is decided on the stored payload. `String` elements compare by
-length and then byte for byte; `Integer`, `Float`, `Fixed`, and `Money` elements
-compare as their stored 64-bit pattern, so `Float` matching is bit-exact and a
-`NaN` never matches itself; `Boolean`, `Byte`, and `Scalar` compare as their
-narrower stored value; record elements compare field by field. A nested
-collection that is stored as a handle rather than inlined compares by identity,
-not by contents.
-
-`value` is neither modified nor consumed, and no new collection is allocated."#;
-
-// ---- mid ----
-const INTO_MID: &str = "Return a new list holding a contiguous run of elements taken from a list";
-const DESC_MID: &str = r#"`collections::mid` returns a new list holding the `count` elements of `value`
-that begin at the zero-based index `start`, in their original order. It is a
-**native** member: the compiler emits the slice loop directly rather than
-instantiating an MFBASIC generic.
-
-This page documents the `List` form only. `collections::mid` accepts nothing but
-a `List` as its first argument; the `String` slice of the same name lives in
-`strings::`.
-
-All three arguments are required — there is no two-argument "to the end" form —
-and `start` and `count` must both be exactly `Integer`.
-
-The range is **validated, not clamped**. Before any element is copied the
-lowering checks, in order, that `start` is not negative, that `count` is not
-negative, that `start` is not greater than the length of `value`, that
-`start + count` does not wrap around, and that `start + count` is not greater
-than the length of `value`. Any of those failing raises `ErrIndexOutOfRange`.
-A short trailing run is therefore an error rather than a truncated result: on a
-three-element list, `mid(value, 2, 2)` fails instead of returning one element.
-
-Empty results are legal at the boundaries, since `start` may equal the length of
-`value` and `count` may be `0`: on a four-element list, `mid(value, 4, 0)`
-returns an empty list.
-
-The result is a freshly allocated, independently owned list of the same type as
-`value`; `value` itself is neither modified nor consumed, and element payloads
-are copied into the new list's own data region rather than shared.
-
-`mid` copies the selected run using a fast contiguous path when the source
-entries covering the slice are stored in order and packed tightly, and falls
-back to a per-entry copy otherwise. A list whose entry records have been
-permuted without moving the underlying data — the result of a sorted directory
-listing, for instance — takes the fallback. Either way the returned elements are
-the same."#;
-
-// ---- replace ----
-const INTO_REPLACE: &str = "Return a list with every element equal to a given value replaced";
-const DESC_REPLACE: &str = r#"`collections::replace` returns a new list of the same length as `value` in which
-every element equal to `old` has been replaced by `new`, and every other element
-is carried over unchanged. It takes exactly three arguments; none is optional and
-none is variadic.
-
-All matches are replaced, not just the first, and positions are preserved: the
-result has the same length and the same ordering as `value`, differing only at
-the indices where `old` occurred. When `old` does not occur, the result is a copy
-of `value`. When `value` is empty, the result is empty.
-
-Matching compares each element's stored payload against `old` using the same
-element-equality test the rest of the collections layer uses, so the element type
-must be one for which that comparison is defined; `old` and `new` must both have
-exactly the element type `T`. `new` may itself be equal to `old`, in which case
-the result is equal to `value`.
-
-Only the **List** overload of `replace` lives in `collections`. The `String`
-overload — replacing a substring within a `String` — is a different function that
-lives in `strings::`. A `String` first argument does not resolve here.
-
-`replace` is value-semantic. The list named by `value` is unchanged; the modified
-list is the returned value, and a program observes the update only through what
-it does with that return value. There is no in-place fast path for `replace` —
-the compiler's in-place assignment recognizers cover `append`, bulk `append`,
-`prepend`, `set`, and string concatenation, not `replace`.
-
-`replace` is **infallible**: no path in its lowering raises a trappable domain
-error. It has no index to range-check, and a `new` that never matches is a
-success producing an unchanged copy, not a failure — so it is classified as
-infallible alongside `append` and `prepend`, and an inline `TRAP` written on a
-`replace` call has a dead handler (the front end reports
-`TYPE_INLINE_TRAP_DEAD_HANDLER`). Allocation exhaustion is not a trappable domain
-error in this language."#;
-
-const EX_FIND: &str = r#"Find an element, with and without a starting index:
-
-```
-IMPORT collections
-IMPORT io
-
-FUNC main AS Integer
-  LET numbers AS List OF Integer = [10, 20, 30, 20]
-  io::print(toString(collections::find(numbers, 20)))
-  io::print(toString(collections::find(numbers, 20, 2)))
-  RETURN 0
-END FUNC
-```
-
-Find a contiguous sublist:
-
-```
-IMPORT collections
-IMPORT io
-
-FUNC main AS Integer
-  LET numbers AS List OF Integer = [10, 20, 30, 20]
-  LET needle AS List OF Integer = [20, 30]
-  io::print(toString(collections::find(numbers, needle)))
-  RETURN 0
-END FUNC
-```
-
-Handle a missing element instead of letting `ErrNotFound` propagate:
-
-```
-IMPORT collections
-IMPORT io
-
-FUNC main AS Integer
-  LET numbers AS List OF Integer = [1, 2, 3]
-  LET index AS Integer = collections::find(numbers, 99) TRAP(e)
-    io::print("absent: " & e.message)
-    RECOVER -1
-  END TRAP
-  io::print(toString(index))
-  RETURN 0
-END FUNC
-```"#;
-
-const EX_MID: &str = r#"Take two elements from the middle:
-
-```
-IMPORT collections
-IMPORT io
-
-FUNC main AS Integer
-  LET numbers AS List OF Integer = [1, 2, 3, 4]
-  LET middle AS List OF Integer = collections::mid(numbers, 1, 2)
-  io::print(toString(collections::get(middle, 0)))
-  io::print(toString(len(middle)))
-  RETURN 0
-END FUNC
-```
-
-An empty slice at the end of the list is legal:
-
-```
-IMPORT collections
-IMPORT io
-
-FUNC main AS Integer
-  LET numbers AS List OF Integer = [1, 2, 3, 4]
-  LET empty AS List OF Integer = collections::mid(numbers, 4, 0)
-  io::print(toString(len(empty)))
-  RETURN 0
-END FUNC
-```
-
-An over-long range raises rather than truncating, so handle it:
-
-```
-IMPORT collections
-IMPORT io
-
-FUNC main AS Integer
-  LET numbers AS List OF Integer = [1, 2, 3]
-  LET tail AS List OF Integer = collections::mid(numbers, 2, 2) TRAP(e)
-    io::print("bad range: " & e.message)
-    RECOVER []
-  END TRAP
-  io::print(toString(len(tail)))
-  RETURN 0
-END FUNC
-```"#;
-
-const EX_REPLACE: &str = r#"Replace every matching element:
-
-```
-IMPORT collections
-
-FUNC main AS Integer
-  LET values AS List OF Integer = collections::replace([1, 2, 1], 1, 9)
-  RETURN 0
-END FUNC
-```
-
-A needle that does not occur yields an unchanged copy:
-
-```
-IMPORT collections
-IMPORT strings
-IMPORT io
-
-FUNC main AS Integer
-  LET words AS List OF String = collections::replace(["a", "b"], "z", "Q")
-  io::print(strings::join(words, ","))
-  RETURN 0
-END FUNC
-```
-
-Substituting a placeholder throughout a list:
-
-```
-IMPORT collections
-IMPORT io
-
-FUNC main AS Integer
-  LET cleaned AS List OF String = collections::replace(["x", "b", "x"], "x", "QQ")
-  io::print(toString(len(cleaned)))
-  RETURN 0
-END FUNC
-```"#;
-
-/// `collections::find` — List element/sublist search. Reached through the
-/// `native_builtin_target` bare-name dispatch (`lower_find`), so its `Body` is
-/// [`Body::Intrinsic`] (no `native_lower`, no rewrite); the descriptor exists only
-/// for return-type resolution, arity, errors, and parameter names.
-fn register_find(pkg: &mut RegistryPackage) {
-    pkg.add_function(RegistryFunction {
-        name: "find",
-        intro: INTO_FIND,
-        desc: DESC_FIND,
-        example: EX_FIND,
-        expected_arguments: Some("List OF T, T[, Integer]"),
-        implementations: vec![
-            Implementation {
-                params: vec![
-                    param(
-                        "value",
-                        &["list"],
-                        ParameterType::list_of(ParameterType::Var("T")),
-                    ),
-                    param("item", &["needle"], ParameterType::Var("T")),
-                    Parameter {
-                        name: "start",
-                        desc: "",
-                        aliases: &[],
-                        ty: ParameterType::Integer,
-                        default: DefaultValue::Optional,
-                    },
-                ],
-                return_type: ParameterType::Integer,
-                errors: vec!["ErrIndexOutOfRange", "ErrNotFound"],
-                lowering: Lowering::Helper,
-                body: Body::Intrinsic,
-            },
-            Implementation {
-                params: vec![
-                    param(
-                        "value",
-                        &["list"],
-                        ParameterType::list_of(ParameterType::Var("T")),
-                    ),
-                    param(
-                        "item",
-                        &["needle"],
-                        ParameterType::list_of(ParameterType::Var("T")),
-                    ),
-                    Parameter {
-                        name: "start",
-                        desc: "",
-                        aliases: &[],
-                        ty: ParameterType::Integer,
-                        default: DefaultValue::Optional,
-                    },
-                ],
-                return_type: ParameterType::Integer,
-                errors: vec!["ErrIndexOutOfRange", "ErrNotFound"],
-                lowering: Lowering::Helper,
-                body: Body::Intrinsic,
-            },
-        ],
-    });
-}
-
-/// `collections::mid` — List slice. Bare-name dispatch (`lower_mid`); [`Body::Intrinsic`].
-fn register_mid(pkg: &mut RegistryPackage) {
-    pkg.add_function(RegistryFunction {
-        name: "mid",
-        intro: INTO_MID,
-        desc: DESC_MID,
-        example: EX_MID,
-        expected_arguments: Some("List OF T, Integer, Integer"),
-        implementations: vec![Implementation {
-            params: vec![
-                param(
-                    "value",
-                    &["list"],
-                    ParameterType::list_of(ParameterType::Var("T")),
-                ),
-                param("start", &[], ParameterType::Integer),
-                param("count", &[], ParameterType::Integer),
-            ],
-            return_type: ParameterType::Arg(0),
-            errors: vec!["ErrIndexOutOfRange"],
-            lowering: Lowering::Helper,
-            body: Body::Intrinsic,
-        }],
-    });
-}
-
-/// `collections::replace` — List element replacement. Bare-name dispatch
-/// (`lower_replace`); [`Body::Intrinsic`].
-fn register_replace(pkg: &mut RegistryPackage) {
-    pkg.add_function(RegistryFunction {
-        name: "replace",
-        intro: INTO_REPLACE,
-        desc: DESC_REPLACE,
-        example: EX_REPLACE,
-        expected_arguments: Some("List OF T, T, T"),
-        implementations: vec![Implementation {
-            params: vec![
-                param(
-                    "value",
-                    &["list"],
-                    ParameterType::list_of(ParameterType::Var("T")),
-                ),
-                param("old", &["needle"], ParameterType::Var("T")),
-                param("new", &["replacement"], ParameterType::Var("T")),
-            ],
-            return_type: ParameterType::Arg(0),
-            errors: vec![],
-            lowering: Lowering::Helper,
-            body: Body::Intrinsic,
-        }],
-    });
-}
-
 /// Package-overview description, from `src/docs/man/builtins/collections/package.md`
 /// (its Description section, citation markers stripped).
 const COLLECTIONS_DESC: &str = r#"The `collections` package provides package-qualified helpers for `List` and `Map`
@@ -615,9 +241,9 @@ pub(crate) fn register(r: &mut Registry) {
     func_reduce::register(&mut pkg);
     func_reduce_right::register(&mut pkg);
     func_sum::register(&mut pkg);
-    register_find(&mut pkg);
-    register_mid(&mut pkg);
-    register_replace(&mut pkg);
+    func_find::register(&mut pkg);
+    func_mid::register(&mut pkg);
+    func_replace::register(&mut pkg);
     func_add::register(&mut pkg);
     func_remove::register(&mut pkg);
     func_to_list::register(&mut pkg);
@@ -645,8 +271,11 @@ pub(crate) fn augmented_project(ast: AstProject) -> Result<AstProject, ()> {
     if !imported {
         return Ok(ast);
     }
-    let file =
-        crate::ast::parse_source_internal(Path::new(SOURCE_PATH), SOURCE_PATH, include_str!("package.mfb"))?;
+    let file = crate::ast::parse_source_internal(
+        Path::new(SOURCE_PATH),
+        SOURCE_PATH,
+        include_str!("package.mfb"),
+    )?;
     let mut augmented = ast;
     augmented.files.push(file);
     Ok(augmented)

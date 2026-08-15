@@ -72,7 +72,7 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: super::arg_hint("utc"),
+        expected_arguments: Some("()"),
         implementations: vec![super::Implementation {
             params: vec![],
             return_type: super::ParameterType::Named("Zone"),

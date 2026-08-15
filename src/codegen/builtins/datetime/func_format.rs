@@ -114,7 +114,7 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: super::arg_hint("format"),
+        expected_arguments: Some("DateTime, String"),
         implementations: vec![super::Implementation {
             params: vec![
                 super::Parameter {

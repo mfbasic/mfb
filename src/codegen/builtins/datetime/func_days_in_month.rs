@@ -90,7 +90,7 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: super::arg_hint("daysInMonth"),
+        expected_arguments: Some("Integer, Integer"),
         implementations: vec![super::Implementation {
             params: vec![
                 super::Parameter {

@@ -134,47 +134,6 @@ pub(crate) fn register(r: &mut Registry) {
     r.add_package(pkg);
 }
 
-/// The bespoke expected-argument phrasing for a `datetime::` argument-mismatch
-/// diagnostic, keyed by the member's unqualified name — moved onto each member's
-/// `RegistryFunction::expected_arguments` descriptor field at registration (the
-/// generic `registry::expected_arguments` returns it). Retained as a private
-/// registration-time helper because the phrasings — the optional-argument `[...]`
-/// brackets (`time`'s `"Integer, Integer[, Integer[, Integer]]"`, `parse`'s
-/// `"String, String[, Zone]"`), the range prose (`"1 to 5 Integer"`), and the
-/// zero-argument `"()"` — are shapes the registry's per-position join cannot
-/// reproduce. The single-parameter members whose phrasing equals the per-position
-/// render (`resolve` → `"DateTime"`, …) still carry it here so every member's
-/// diagnostic stays pinned byte-for-byte.
-fn arg_hint(name: &str) -> Option<&'static str> {
-    let text = match name {
-        "now" | "monotonic" | "utc" | "local" | "nowNanos" | "monotonicNanos" => "()",
-        "instant" | "duration" => "1 to 5 Integer",
-        "date" => "Integer, Integer, Integer",
-        "time" => "Integer, Integer[, Integer[, Integer]]",
-        "fixedOffset" => "Integer[, Integer]",
-        "offsetAt" => "Zone, Instant",
-        "inZone" => "Instant, Zone",
-        "toUtc" | "toLocal" => "Instant",
-        "resolve" | "weekday" | "dayOfYear" | "startOfDay" | "toIso" => "DateTime",
-        "civil" => "Date, Time, Zone",
-        "withZone" => "DateTime, Zone",
-        "add" | "subtract" => "Instant, Duration",
-        "between" | "compare" | "isBefore" | "isAfter" | "equals" => "Instant, Instant",
-        "addDays" | "addMonths" => "DateTime, Integer",
-        "negate" => "Duration",
-        "plus" | "minus" => "Duration, Duration",
-        "isLeapYear" | "fromMillis" | "localOffset" => "Integer",
-        "daysInMonth" => "Integer, Integer",
-        "toMillis" | "toNanos" => "Instant",
-        "format" => "DateTime, String",
-        "parse" => "String, String[, Zone]",
-        "parseIso" => "String",
-        "formatDuration" => "Duration",
-        _ => return None,
-    };
-    Some(text)
-}
-
 use crate::target::shared::runtime::{RuntimeHelper, RuntimeHelperAbi, RuntimeHelperSpec};
 
 mod native;

@@ -69,7 +69,7 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: super::arg_hint("minus"),
+        expected_arguments: Some("Duration, Duration"),
         implementations: vec![super::Implementation {
             params: vec![
                 super::Parameter {

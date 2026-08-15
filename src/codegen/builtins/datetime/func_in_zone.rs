@@ -85,7 +85,7 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: super::arg_hint("inZone"),
+        expected_arguments: Some("Instant, Zone"),
         implementations: vec![super::Implementation {
             params: vec![
                 super::Parameter {
