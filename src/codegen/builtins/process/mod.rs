@@ -19,7 +19,9 @@
 //! an argument *union*, so the registry's generic overload/return resolution
 //! answers arity/return/validation with no custom resolver.
 
-use crate::codegen::registry::{Registry, RegistryPackage, RegistryResource};
+use crate::codegen::registry::{
+    EnumVariant, Registry, RegistryEnum, RegistryPackage, RegistryResource,
+};
 
 mod func_close;
 mod func_detach;
@@ -124,10 +126,48 @@ idempotent and `didSignal` can report the death cause after the fact."#;
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("process", MODULE_INTRO, MODULE_DESC);
 
-    // The source companion carries only the `Stream` (plan-90-B) and `Signal`
-    // (plan-90-C) value enums; the opaque `Process` handle stays descriptor-only.
-    // It imports nothing, so it has no source-ordering dependency.
-    pkg.add_helper_functions(vec![include_str!("package.mfb")]);
+    // The two public value enums, modeled on the registry — `get_mfb` renders them
+    // into the injected source in place of the hand-written `EXPORT ENUM`s that used to
+    // be the package's whole source companion (`package.mfb` is now gone). `Stream`
+    // (plan-90-B) selects which child stream a read reads from; `Signal` (plan-90-C) is
+    // the cross-platform signal bucket.
+    pkg.add_enum(RegistryEnum {
+        name: STREAM_TYPE,
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "StdOut",
+                description: "The child's standard output.",
+            },
+            EnumVariant {
+                name: "StdErr",
+                description: "The child's standard error.",
+            },
+        ],
+    });
+    pkg.add_enum(RegistryEnum {
+        name: SIGNAL_TYPE,
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "None",
+                description:
+                    "No signal (a no-op to send; \"exited normally / still running\" to read).",
+            },
+            EnumVariant {
+                name: "Kill",
+                description: "Forced, uncatchable termination (SIGKILL).",
+            },
+            EnumVariant {
+                name: "Terminate",
+                description: "A polite \"please stop\" (SIGTERM and the other catchable stops).",
+            },
+            EnumVariant {
+                name: "Error",
+                description: "An abnormal-fault termination (SIGABRT/SIGSEGV/SIGFPE/…).",
+            },
+        ],
+    });
 
     // The opaque `Process` resource handle. Semantic-only (no injectable source):
     // it makes `registry::qualified_builtin_type("process.Process")` and

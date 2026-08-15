@@ -17,8 +17,8 @@
 //! are gone.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, Registry,
-    RegistryFunction, RegistryPackage,
+    Body, DefaultValue, EnumVariant, Implementation, Lowering, Parameter, ParameterType, Registry,
+    RegistryEnum, RegistryFunction, RegistryPackage,
 };
 
 const MODULE_INTRO: &str =
@@ -76,15 +76,120 @@ pub(crate) fn register(r: &mut Registry) {
     // `TYPE`/`ENUM` declarations, the private helpers, and the arity bodies.
     pkg.add_helper_functions(vec![include_str!("package.mfb")]);
 
-    // The public value records/enums are authored (with their `DOC` blocks and
-    // byte-exact formatting) in `package.mfb`, so they are NOT modeled as
-    // `RegistryRecord`/`RegistryEnum` (that would double-declare / reformat them).
-    // Recording their names as source-declared types lets the generic
-    // `registry::is_builtin_type` / `qualified_builtin_type` recognize them, replacing
-    // the deleted per-package `is_builtin_type` predicate.
-    pkg.add_source_types(&[
-        "Instant", "Duration", "Date", "Time", "Zone", "DateTime", "ZoneKind", "Weekday", "Month",
-    ]);
+    // The public value RECORDS are authored (with their `DOC` blocks and byte-exact
+    // field formatting) in `package.mfb`; recording their names as source-declared
+    // types lets the generic `registry::is_builtin_type` / `qualified_builtin_type`
+    // recognize them without double-declaring.
+    pkg.add_source_types(&["Instant", "Duration", "Date", "Time", "Zone", "DateTime"]);
+
+    // The public value ENUMS are modeled on the registry — `get_mfb` renders them into
+    // the injected source in place of a hand-written `EXPORT ENUM` in `package.mfb`.
+    pkg.add_enum(RegistryEnum {
+        name: "ZoneKind",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Utc",
+                description: "Coordinated Universal Time (offset 0).",
+            },
+            EnumVariant {
+                name: "FixedOffset",
+                description: "A constant offset from UTC.",
+            },
+            EnumVariant {
+                name: "Local",
+                description: "The host system's local time zone.",
+            },
+        ],
+    });
+    pkg.add_enum(RegistryEnum {
+        name: "Weekday",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Monday",
+                description: "Monday.",
+            },
+            EnumVariant {
+                name: "Tuesday",
+                description: "Tuesday.",
+            },
+            EnumVariant {
+                name: "Wednesday",
+                description: "Wednesday.",
+            },
+            EnumVariant {
+                name: "Thursday",
+                description: "Thursday.",
+            },
+            EnumVariant {
+                name: "Friday",
+                description: "Friday.",
+            },
+            EnumVariant {
+                name: "Saturday",
+                description: "Saturday.",
+            },
+            EnumVariant {
+                name: "Sunday",
+                description: "Sunday.",
+            },
+        ],
+    });
+    pkg.add_enum(RegistryEnum {
+        name: "Month",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "January",
+                description: "January.",
+            },
+            EnumVariant {
+                name: "February",
+                description: "February.",
+            },
+            EnumVariant {
+                name: "March",
+                description: "March.",
+            },
+            EnumVariant {
+                name: "April",
+                description: "April.",
+            },
+            EnumVariant {
+                name: "May",
+                description: "May.",
+            },
+            EnumVariant {
+                name: "June",
+                description: "June.",
+            },
+            EnumVariant {
+                name: "July",
+                description: "July.",
+            },
+            EnumVariant {
+                name: "August",
+                description: "August.",
+            },
+            EnumVariant {
+                name: "September",
+                description: "September.",
+            },
+            EnumVariant {
+                name: "October",
+                description: "October.",
+            },
+            EnumVariant {
+                name: "November",
+                description: "November.",
+            },
+            EnumVariant {
+                name: "December",
+                description: "December.",
+            },
+        ],
+    });
 
     func_now::register(&mut pkg);
     func_monotonic::register(&mut pkg);

@@ -42,7 +42,7 @@ stored constant for a fixed-offset zone (`ZoneKind::FixedOffset`, built with
 (`ZoneKind::Local`, built with `datetime::local`) — adds it to the instant's
 seconds, floor-divides into whole days and second-of-day, and splits the result
 into civil year/month/day and hour/minute/second with the proleptic Gregorian
-calendar. [[src/codegen/builtins/datetime/package.mfb:ZoneKind]]
+calendar. [[src/codegen/builtins/datetime/mod.rs:register]]
 [[src/codegen/builtins/datetime/func_resolve.rs:__datetime_resolve]]
 [[src/codegen/builtins/datetime/func_in_zone.rs:__datetime_inZone]]
 

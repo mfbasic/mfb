@@ -98,53 +98,6 @@ EXPORT TYPE DateTime
   offset AS Integer
 END TYPE
 
-DOC
-  ENUM ZoneKind
-  DESC Classifies a `Zone`: coordinated universal time, a fixed offset, or the
-  DESC host's local zone.
-  PROP Utc Coordinated Universal Time (offset 0).
-  PROP FixedOffset A constant offset from UTC.
-  PROP Local The host system's local time zone.
-END DOC
-EXPORT ENUM ZoneKind
-  Utc, FixedOffset, Local
-END ENUM
-
-DOC
-  ENUM Weekday
-  DESC A day of the week, Monday through Sunday.
-  PROP Monday Monday.
-  PROP Tuesday Tuesday.
-  PROP Wednesday Wednesday.
-  PROP Thursday Thursday.
-  PROP Friday Friday.
-  PROP Saturday Saturday.
-  PROP Sunday Sunday.
-END DOC
-EXPORT ENUM Weekday
-  Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday
-END ENUM
-
-DOC
-  ENUM Month
-  DESC A month of the year, January through December.
-  PROP January January.
-  PROP February February.
-  PROP March March.
-  PROP April April.
-  PROP May May.
-  PROP June June.
-  PROP July July.
-  PROP August August.
-  PROP September September.
-  PROP October October.
-  PROP November November.
-  PROP December December.
-END DOC
-EXPORT ENUM Month
-  January, February, March, April, May, June, July, August, September, October, November, December
-END ENUM
-
 ' ===========================================================================
 ' Normalization helpers. Carry a raw (seconds, nanos) pair into the canonical
 ' form where nanos is in [0, 1_000_000_000). `/` truncates toward zero and

@@ -30,7 +30,7 @@ state. [[src/codegen/builtins/datetime/package.mfb:Instant]]
 Three enums name the discrete domains: `ZoneKind` (`Utc=0`, `FixedOffset=1`,
 `Local=2`), `Weekday` (`Monday`..`Sunday`), and `Month` (`January`..`December`).
 The `Zone.kind` field stores the `ZoneKind` ordinal as a raw `Integer`.
-[[src/codegen/builtins/datetime/package.mfb:ZoneKind]]
+[[src/codegen/builtins/datetime/mod.rs:register]]
 
 ### Canonical form and normalization
 

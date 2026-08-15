@@ -31,7 +31,7 @@ zone, and unlike `datetime::utc`, the canonical zero-offset zone, a
 fixed-offset `Zone` carries a single signed offset that applies to every
 `Instant` projected through it. The returned `Zone` has a zone kind of
 `ZoneKind::FixedOffset` and a label rendered in the form `+HH:MM` or `-HH:MM`.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_fixedOffset1]] [[src/codegen/builtins/datetime/package.mfb:ZoneKind]]
+[[src/codegen/builtins/datetime/package.mfb:__datetime_fixedOffset1]] [[src/codegen/builtins/datetime/mod.rs:register]]
 
 A `Zone` is the bridge between the absolute UTC timeline (an `Instant`) and the
 human-readable civil fields of a `DateTime`. Projecting an `Instant` through a

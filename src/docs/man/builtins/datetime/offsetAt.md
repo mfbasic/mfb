@@ -43,7 +43,7 @@ the host zone table and is therefore DST-correct, returning the standard-time
 offset for instants outside daylight saving and the shifted offset for instants
 within it. Two calls with the same local zone but instants on opposite sides of
 a DST transition can therefore return different values.
-[[src/codegen/builtins/datetime/func_offset_at.rs:__datetime_offsetAt]] [[src/codegen/builtins/datetime/package.mfb:ZoneKind]]
+[[src/codegen/builtins/datetime/func_offset_at.rs:__datetime_offsetAt]] [[src/codegen/builtins/datetime/mod.rs:register]]
 
 Only the `seconds` field of `at` participates; the sub-second `nanos` field is
 ignored. The function reads no host state for UTC and fixed zones (those are

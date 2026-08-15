@@ -70,7 +70,7 @@ and `process::shell`. It has no readable fields. [[src/codegen/builtins/process/
 
 Selects which of a child's output streams a read reads from. The member ordinals
 are `StdOut = 0` and `StdErr = 1`; a read with no `Stream` argument reads
-`StdOut`. [[src/codegen/builtins/process/package.mfb:Stream]]
+`StdOut`. [[src/codegen/builtins/process/mod.rs:register]]
 
 | Variant | Description |
 | --- | --- |
@@ -81,7 +81,7 @@ are `StdOut = 0` and `StdErr = 1`; a read with no `Stream` argument reads
 
 A four-bucket cross-platform signal vocabulary, delivered by `process::signal` and
 observed by `process::didSignal`. The member ordinals are `None = 0`, `Kill = 1`,
-`Terminate = 2`, `Error = 3`. [[src/codegen/builtins/process/package.mfb:Signal]]
+`Terminate = 2`, `Error = 3`. [[src/codegen/builtins/process/mod.rs:register]]
 
 | Variant | Description |
 | --- | --- |

@@ -29,7 +29,7 @@ variant, tag `2`), marking it as the platform-resolved local zone rather than th
 canonical UTC zone built by `datetime::utc` (kind `ZoneKind::Utc`, tag `0`) or an
 arbitrary fixed offset built by `datetime::fixedOffset` (kind
 `ZoneKind::FixedOffset`, tag `1`).
-[[src/codegen/builtins/datetime/func_local.rs:__datetime_local]] [[src/codegen/builtins/datetime/package.mfb:ZoneKind]]
+[[src/codegen/builtins/datetime/func_local.rs:__datetime_local]] [[src/codegen/builtins/datetime/mod.rs:register]]
 
 Unlike `datetime::utc` and `datetime::fixedOffset`, whose offsets are baked into
 the `Zone` at construction, the local zone holds no fixed offset of its own. The

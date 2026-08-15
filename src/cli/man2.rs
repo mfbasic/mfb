@@ -479,14 +479,14 @@ mod tests {
 
     #[test]
     fn types_is_a_normal_function_lookup_when_the_package_has_no_public_types() {
-        // `process` declares only value enums (not modeled as records/unions), so it
-        // has no public types page — `types` falls through to a function lookup.
+        // `encoding` declares no records/unions/enums/resources, so it has no public
+        // types page — `types` falls through to a function lookup.
         assert!(!has_public_types(
-            registry().resolve_package("process").unwrap()
+            registry().resolve_package("encoding").unwrap()
         ));
-        assert!(show_man2(&s(&["process", "types"]))
+        assert!(show_man2(&s(&["encoding", "types"]))
             .unwrap_err()
-            .contains("unknown process function"));
+            .contains("unknown encoding function"));
     }
 
     #[test]

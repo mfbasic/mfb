@@ -32,7 +32,7 @@ same quantity `datetime::offsetAt` returns: zero for a UTC zone
 (`ZoneKind::Utc`), the stored constant for a fixed-offset zone (`ZoneKind::FixedOffset`,
 kind `1`, built with `datetime::fixedOffset`), and the DST-correct host offset
 for a local zone (`ZoneKind::Local`, kind `2`, built with `datetime::local`).
-[[src/codegen/builtins/datetime/package.mfb:ZoneKind]] [[src/codegen/builtins/datetime/func_offset_at.rs:__datetime_offsetAt]] It then adds
+[[src/codegen/builtins/datetime/mod.rs:register]] [[src/codegen/builtins/datetime/func_offset_at.rs:__datetime_offsetAt]] It then adds
 that offset, in seconds, to the instant's seconds-since-epoch to obtain a local
 second count, floor-divides that into whole days and the second-of-day, converts
 the day count to a civil year/month/day with the proleptic Gregorian calendar,
