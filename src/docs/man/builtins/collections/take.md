@@ -27,7 +27,7 @@ IMPORT collections
 of `value`, in their original order. It is a generic function written in MFBASIC
 source: the call is rewritten to the internal `__collections_take` generic and
 instantiated for the element type `T` during monomorphization.
-[[src/codegen/builtins/collections/mod.rs:internal_name]]
+[[src/monomorph/lower.rs:collections_internal_callee]]
 [[src/codegen/builtins/collections/package.mfb:__collections_take]]
 
 `take(value, count)` is defined as the half-open range `[0, count)` of `value`,

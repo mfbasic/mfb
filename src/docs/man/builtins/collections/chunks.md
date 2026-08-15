@@ -28,7 +28,7 @@ for each step emits the range starting there and running `chunkSize` elements
 forward, stopping early at the end of the list. The result is a list of those
 blocks. It is a generic function written in MFBASIC source, rewritten to the
 internal `__collections_chunks` generic and instantiated for the element type
-`T` during monomorphization. [[src/codegen/builtins/collections/mod.rs:internal_name]]
+`T` during monomorphization. [[src/monomorph/lower.rs:collections_internal_callee]]
 [[src/codegen/builtins/collections/package.mfb:__collections_chunks]]
 
 Because the step and the block length are both `chunkSize`, the blocks are

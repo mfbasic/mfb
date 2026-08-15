@@ -51,7 +51,7 @@ here are the **List** overloads only; their `String` overloads live in
 `strings::`. The **Set** members `collections::add` (idempotent insert),
 `collections::remove` (no-op when absent), and `collections::toList` (elements in
 insertion order) are native too, and `collections::contains` gains a `Set OF T`
-overload alongside its `List OF T` one. [[src/codegen/builtins/collections/mod.rs:NATIVE_MEMBERS]]
+overload alongside its `List OF T` one. [[src/codegen/builtins/collections/mod.rs:register]]
 
 **Source generics** — generic MFBASIC functions defined in a bundled MFBASIC
 source companion and injected when the package is imported. [[src/codegen/builtins/collections/package.mfb]]

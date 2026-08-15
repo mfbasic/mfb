@@ -21,14 +21,14 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
 `collections::sum` walks `value` from the first element to the last and adds
 each element into a running total, returning that total. It is a **native**
 member: the compiler emits the accumulation loop directly rather than
-instantiating an MFBASIC generic. [[src/codegen/builtins/collections/mod.rs:is_native_member]]
+instantiating an MFBASIC generic. [[src/codegen/registry/mod.rs:native_lower]]
 [[src/codegen/builtins/collections/func_sum.rs:lower_sum]]
 
 There are exactly **three** overloads — `List OF Integer`, `List OF Float`, and
@@ -45,7 +45,7 @@ respectively without any addition being performed.
 
 `value` is neither modified nor consumed. `sum` takes no callback and has no
 optional argument; it is a single-argument member.
-[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:register]]
 
 For the `Integer` and `Fixed` overloads each step is a **checked** 64-bit
 addition: if the running total leaves the destination range, the addition fails

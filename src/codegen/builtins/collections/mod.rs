@@ -56,7 +56,7 @@ pub(crate) mod func_transform;
 mod func_values;
 
 /// Path of the compiler-owned `collections` package source injected into every
-/// project that imports it. This is the `AstFile.path` (see `source_file`), so
+/// project that imports it. This is the `AstFile.path` (see `augmented_project`), so
 /// `AstProject::to_json` can filter it out of `-ast` output.
 pub(crate) const SOURCE_PATH: &str = "builtins/collections.mfb";
 
@@ -97,55 +97,6 @@ const FUNCTIONS: &[&str] = &[
     "isSubset",
     "isSuperset",
     "isDisjoint",
-];
-
-/// The native `collections::` members migrated out of the bare global namespace
-/// (plan-01-functions.md §5). These keep the native code generator's bare-name
-/// lowering: the resolve logic is reused verbatim from `general`, and the IR
-/// call target is dequalified back to the bare native name (see
-/// `crate::builtins::native_builtin_target`). `find`/`mid`/`replace` accept ONLY the List
-/// overload here; their String overloads live in `strings::`.
-///
-/// The per-package dispatch predicates this table once fed — `is_collections_call`,
-/// `is_collections_function`, `is_native_member`, `is_native_member_call`,
-/// `native_member_bare`, `unary_callback_member`, `internal_name`, `mfb_fast_path`,
-/// `uses_package`, `collections_bindings` — are gone: the shared pipeline now answers
-/// membership/dequalification/fast-path/import through the generic
-/// `crate::codegen::registry` accessors (`owning_package`, `is_source_generic_member`,
-/// `native_bare_target`, `callback_member`, `mfb_fast_path`, `is_imported_by`) and
-/// `crate::builtins::native_builtin_target`. The `internal_name` mapping
-/// (`sort` -> `__collections_sort`) now lives in `monomorph::collections_internal_callee`.
-/// This data table survives as the man corpus's per-member provenance anchor and the
-/// unit-test fixture below; `#[allow(dead_code)]` because only `#[cfg(test)]` code
-/// reads it now.
-#[allow(dead_code)]
-const NATIVE_MEMBERS: &[&str] = &[
-    "get",
-    "getOr",
-    "set",
-    "append",
-    "prepend",
-    "insert",
-    "removeAt",
-    "removeKey",
-    "keys",
-    "values",
-    "hasKey",
-    "contains",
-    "forEach",
-    "transform",
-    "filter",
-    "reduce",
-    "reduceRight",
-    "sum",
-    "find",
-    "mid",
-    "replace",
-    // Set members (plan-63-B): `add`/`remove`/`toList` are Set-only; `contains`
-    // gains a Set overload alongside its List overload.
-    "add",
-    "remove",
-    "toList",
 ];
 
 /// One-line package intro (was `BuiltinModule::doc_intro`).
@@ -360,10 +311,16 @@ mod tests {
     #[test]
     fn call_param_names_all_members() {
         // Every native member's keyword table is served by the generic registry
-        // union of its overloads' parameters.
-        for member in NATIVE_MEMBERS {
-            let name = format!("collections.{member}");
-            assert!(registry::call_param_names(&name).is_some(), "{member}");
+        // union of its overloads' parameters. The registered functions ARE the native
+        // members (source generics are injected source, not registered).
+        let pkg = registry().resolve_package("collections").unwrap();
+        for function in pkg.functions() {
+            let name = format!("collections.{}", function.name);
+            assert!(
+                registry::call_param_names(&name).is_some(),
+                "{}",
+                function.name
+            );
         }
         assert!(registry::call_param_names("collections.sort").is_none());
         assert!(registry::call_param_names("get").is_none());
@@ -378,9 +335,14 @@ mod tests {
     fn expected_arguments_all_members() {
         // Every native member carries a bespoke `"or"`/generic phrasing on its
         // descriptor, served by the generic `registry::expected_arguments`.
-        for member in NATIVE_MEMBERS {
-            let name = format!("collections.{member}");
-            assert!(registry::expected_arguments(&name).is_some(), "{member}");
+        let pkg = registry().resolve_package("collections").unwrap();
+        for function in pkg.functions() {
+            let name = format!("collections.{}", function.name);
+            assert!(
+                registry::expected_arguments(&name).is_some(),
+                "{}",
+                function.name
+            );
         }
         assert!(registry::expected_arguments("collections.sort").is_none());
         assert_eq!(
@@ -439,7 +401,7 @@ mod tests {
             .resolve_package("collections")
             .expect("collections package");
         // Exactly the 24 native members (source generics are not registered here).
-        assert_eq!(pkg.functions().len(), NATIVE_MEMBERS.len());
+        assert_eq!(pkg.functions().len(), 24);
         assert!(registry::is_member("collections.get"));
         assert!(!registry::is_member("collections.sort")); // source generic
         assert!(!registry::is_member("collections.nope"));

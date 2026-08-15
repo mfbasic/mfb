@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -28,7 +28,7 @@ calls `f` once per element with that element as its only argument, and appends
 each returned value to a new list. The result therefore has exactly as many
 elements as `value`, in the same order. It is a **native** member: the compiler
 emits the mapping loop directly rather than instantiating an MFBASIC generic.
-[[src/codegen/builtins/collections/mod.rs:is_native_member]]
+[[src/codegen/registry/mod.rs:native_lower]]
 [[src/codegen/builtins/collections/func_transform.rs:lower_transform]]
 
 The element type of the result is `f`'s success type `U`, so mapping a
@@ -95,7 +95,7 @@ as `List OF U`. Passing a non-list first argument, an `f` of the wrong arity, an
 `f` whose parameter type differs from `T`, or an `f` that returns `Nothing` is a
 compile-time type error — no overload resolves.
 [[src/codegen/registry/mod.rs:resolve_call]]
-[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:register]]
 
 ## Examples
 

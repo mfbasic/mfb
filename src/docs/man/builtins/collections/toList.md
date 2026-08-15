@@ -19,18 +19,18 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 `toList` is a native `collections::` member and must be called with the
 `collections::` qualifier; there is no bare `toList` built-in.
-[[src/codegen/builtins/collections/mod.rs:is_native_member]]
+[[src/codegen/registry/mod.rs:native_lower]]
 
 ## Description
 
 `collections::toList` returns a new `List OF T` holding every element of the set
 `value` exactly once, in the set's stable insertion order. It takes exactly one
 argument, which is neither optional nor variadic.
-[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:register]]
 
 The set is neither copied for the caller nor mutated: the result is a freshly
 built list. Because a set already holds each element at most once, the resulting
@@ -63,7 +63,7 @@ The single argument must be a `Set OF T`; a `List`, a `Map`, or any other value
 resolves no overload and is rejected at compile time. The result type is
 `List OF T` for the set's element type `T`.
 [[src/codegen/registry/mod.rs:resolve_call]]
-[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:register]]
 
 ## Examples
 

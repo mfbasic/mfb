@@ -22,14 +22,14 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
 `collections::find` scans `value` forward from `start` and returns the
 zero-based index of the first match. It is a **native** member: the compiler
 emits the search loop directly rather than instantiating an MFBASIC generic.
-[[src/codegen/builtins/collections/mod.rs:is_native_member]]
+[[src/codegen/registry/mod.rs:native_lower]]
 [[src/target/shared/code/builder_search.rs:lower_find]]
 
 This page documents the `List` form only. `collections::find` accepts nothing
@@ -47,7 +47,7 @@ time. [[src/codegen/registry/mod.rs:resolve_call]]
 
 `start` is optional. When it is omitted the search begins at index 0; the
 lowering supplies that default itself, so an omitted `start` and an explicit `0`
-behave identically. [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+behave identically. [[src/codegen/builtins/collections/mod.rs:register]]
 [[src/target/shared/code/builder_search.rs:lower_find]]
 
 `start` is validated before anything is compared. A negative `start`, or a
@@ -101,7 +101,7 @@ to and including the length of `value`.
 | --- | --- | --- |
 | `value` | `List OF T` | The list to search. Must be a `List`; a `String` first argument selects `strings::find` instead. Also accepted under the name `list`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/registry/mod.rs:call_param_names]] |
 | `item` | `T` or `List OF T` | What to look for: an element of type `T` for an element search, or a list of the same type as `value` for a contiguous sublist search. Also accepted under the name `needle`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/registry/mod.rs:call_param_names]] |
-| `start` | `Integer` | Optional zero-based index at which the scan begins; defaults to `0` when omitted. Must be in the range `0` through the length of `value` inclusive. There is no alternate name for this parameter. [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]] [[src/target/shared/code/builder_search.rs:lower_find]] |
+| `start` | `Integer` | Optional zero-based index at which the scan begins; defaults to `0` when omitted. Must be in the range `0` through the length of `value` inclusive. There is no alternate name for this parameter. [[src/codegen/builtins/collections/mod.rs:register]] [[src/target/shared/code/builder_search.rs:lower_find]] |
 
 ## Return value
 
@@ -123,7 +123,7 @@ must be either exactly `T` or exactly the type of `value`; nothing else
 resolves, and the `T` case wins when both would match. A supplied `start` must
 be exactly `Integer` — no other numeric type is accepted, and the whole call
 takes two or three arguments.
-[[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+[[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/mod.rs:register]]
 
 ## Examples
 

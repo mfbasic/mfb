@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -28,7 +28,7 @@ IMPORT collections
 predicate returns `TRUE`. Elements for which the predicate returns `FALSE` are
 skipped. It is a **native** member: the compiler emits the selection loop
 directly rather than instantiating an MFBASIC generic.
-[[src/codegen/builtins/collections/mod.rs:is_native_member]]
+[[src/codegen/registry/mod.rs:native_lower]]
 [[src/codegen/builtins/collections/func_filter.rs:lower_filter]]
 
 Relative order is preserved: kept elements appear in the result in the same
@@ -92,7 +92,7 @@ whose success type is exactly `Boolean`. The result type is the same
 arity, a `predicate` whose parameter type differs from `T`, or a `predicate`
 that returns anything other than `Boolean` is a compile-time type error — no
 overload resolves. [[src/codegen/registry/mod.rs:resolve_call]]
-[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:register]]
 
 ## Examples
 

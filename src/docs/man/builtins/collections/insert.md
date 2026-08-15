@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT collections
 `index`, every element of `value` below `index` keeps its position, and every
 element from `index` onward is shifted up by one. The result is always exactly
 one element longer than `value`. It takes exactly three arguments; none is
-optional and none is variadic. [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+optional and none is variadic. [[src/codegen/builtins/collections/mod.rs:register]]
 
 `index` is zero-based and is validated as `0 <= index <= len(value)`. The upper
 bound is **inclusive**: `index` equal to the current length is the append

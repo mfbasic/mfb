@@ -19,14 +19,14 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
 `collections::replace` returns a new list of the same length as `value` in which
 every element equal to `old` has been replaced by `new`, and every other element
 is carried over unchanged. It takes exactly three arguments; none is optional and
-none is variadic. [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+none is variadic. [[src/codegen/builtins/collections/mod.rs:register]]
 
 All matches are replaced, not just the first, and positions are preserved: the
 result has the same length and the same ordering as `value`, differing only at

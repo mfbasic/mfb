@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -29,7 +29,7 @@ element the reducer is called as `f(accumulator, element)` — **accumulator
 first, element second** — with its return value becoming the accumulator for the
 next step. The accumulator left after the final element is the result. It is a
 **native** member: the compiler emits the fold loop directly rather than
-instantiating an MFBASIC generic. [[src/codegen/builtins/collections/mod.rs:is_native_member]]
+instantiating an MFBASIC generic. [[src/codegen/registry/mod.rs:native_lower]]
 [[src/codegen/builtins/collections/func_reduce.rs:lower_reduce]]
 
 The fold direction is left, from index 0 upward: the loop starts at the head of
@@ -95,7 +95,7 @@ constraints are checked together, so an `initial` whose type does not match both
 `f`'s first parameter and `f`'s return type is a compile-time type error, as is
 a reducer with the two parameters in the opposite order. No overload resolves in
 those cases. [[src/codegen/registry/mod.rs:resolve_call]]
-[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:register]]
 
 ## Examples
 

@@ -19,11 +19,11 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 `removeKey` is a native `collections::` member and must be called with the
 `collections::` qualifier; there is no bare `removeKey` built-in.
-[[src/codegen/builtins/collections/mod.rs:is_native_member]]
+[[src/codegen/registry/mod.rs:native_lower]]
 
 ## Description
 
@@ -80,7 +80,7 @@ No errors.
 ## Type checking
 
 `collections::removeKey` takes exactly two arguments.
-[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:register]]
 
 The first must be a `Map OF K TO V`; a `List` or any non-map value is a
 compile-time type error, and there is no list counterpart here — use

@@ -19,14 +19,14 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
 `collections::forEach` walks `value` from the first element to the last and
 calls `action` once per element, passing the element as the single argument. It
 is a **native** member: the compiler emits the traversal loop directly rather
-than instantiating an MFBASIC generic. [[src/codegen/builtins/collections/mod.rs:is_native_member]]
+than instantiating an MFBASIC generic. [[src/codegen/registry/mod.rs:native_lower]]
 [[src/codegen/builtins/collections/func_for_each.rs:lower_for_each]]
 
 The loop is a straight forward scan over the list's entry table with no
@@ -92,7 +92,7 @@ whose success type is exactly `Nothing`. Passing a non-list first argument, an
 `action` of the wrong arity, an `action` whose parameter type differs from `T`,
 or an `action` that returns a value is a compile-time type error — no overload
 resolves. [[src/codegen/registry/mod.rs:resolve_call]]
-[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:register]]
 
 ## Examples
 

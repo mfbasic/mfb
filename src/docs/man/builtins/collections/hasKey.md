@@ -19,11 +19,11 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 `hasKey` is a native `collections::` member and must be called with the
 `collections::` qualifier; there is no bare `hasKey` built-in.
-[[src/codegen/builtins/collections/mod.rs:is_native_member]]
+[[src/codegen/registry/mod.rs:native_lower]]
 
 ## Description
 
@@ -34,7 +34,7 @@ the matching value is never materialized — only the key is compared.
 
 This is a map-only member. There is no list or `String` form: to test list
 membership use `collections::contains`, and to test for a substring use the
-`strings::` package. [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+`strings::` package. [[src/codegen/builtins/collections/mod.rs:register]]
 
 Key comparison is a comparison of the stored key payload. Fixed-width keys
 compare their raw stored bits (one byte for `Boolean` and `Byte`, four for
@@ -78,7 +78,7 @@ No errors.
 ## Type checking
 
 `collections::hasKey` takes exactly two arguments.
-[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:register]]
 
 The first must be a `Map OF K TO V`; a `List` or any non-map value is a
 compile-time type error. The second must be exactly the map key type `K` — there

@@ -28,7 +28,7 @@ each position where a full run of `size` consecutive elements still fits, emits
 that run as a window. The result is the list of those windows, in order. It is a
 generic function written in MFBASIC source, rewritten to the internal
 `__collections_window` generic and instantiated for the element type `T` during
-monomorphization. [[src/codegen/builtins/collections/mod.rs:internal_name]]
+monomorphization. [[src/monomorph/lower.rs:collections_internal_callee]]
 [[src/codegen/builtins/collections/package.mfb:__collections_window]]
 
 Every window has exactly `size` elements — there is no short final window. The

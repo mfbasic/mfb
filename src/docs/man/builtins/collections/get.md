@@ -20,11 +20,11 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 `get` is a native `collections::` member and must be called with the
 `collections::` qualifier; there is no bare `get` built-in.
-[[src/codegen/builtins/collections/mod.rs:is_native_member]]
+[[src/codegen/registry/mod.rs:native_lower]]
 
 ## Description
 
@@ -99,7 +99,7 @@ Returns the value stored under `key`. A key that is not present raises
 ## Type checking
 
 `collections::get` takes exactly two arguments.
-[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:register]]
 
 If the first argument is a `List OF T`, the second must be exactly `Integer` and
 the call has type `T`. Otherwise the first argument must be a `Map OF K TO V`,

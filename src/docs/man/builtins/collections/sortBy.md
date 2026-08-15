@@ -28,7 +28,7 @@ arranged in ascending order of the key `keyFn(element)`. The elements themselves
 are never compared; only the keys are. It is a generic function written in
 MFBASIC source, rewritten to the internal `__collections_sortBy` generic and
 instantiated for the element type `T` and key type `U` during monomorphization.
-[[src/codegen/builtins/collections/mod.rs:internal_name]]
+[[src/monomorph/lower.rs:collections_internal_callee]]
 [[src/codegen/builtins/collections/package.mfb:__collections_sortBy]]
 
 `keyFn` is applied to the whole list up front, in one pass, via

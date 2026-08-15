@@ -20,13 +20,13 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
 `collections::append` returns a new list whose contents are those of `value`
 followed by the appended content. It takes exactly two arguments; neither is
-optional and neither is variadic. [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+optional and neither is variadic. [[src/codegen/builtins/collections/mod.rs:register]]
 
 The second argument may be either a single element of the list's element type
 `T`, or another `List OF T`. The compiler picks the overload from the static type

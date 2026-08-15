@@ -23,7 +23,7 @@ values: element access and mutation (`get`, `set`, `append`, `prepend`, `insert`
 `findLastIndex`, `contains`, `any`, `all`, `hasKey`, `keys`, `values`), reshaping
 (`sort`, `sortBy`, `distinct`, `flatten`, `zip`, `chunks`, `window`, `partition`,
 `groupBy`, `merge`), and numeric folding (`sum`). `collections` is a built-in
-package: `IMPORT collections` needs no manifest dependency. [[src/codegen/builtins/collections/mod.rs:FUNCTIONS]] [[src/codegen/builtins/collections/mod.rs:NATIVE_MEMBERS]]
+package: `IMPORT collections` needs no manifest dependency. [[src/codegen/builtins/collections/mod.rs:FUNCTIONS]] [[src/codegen/builtins/collections/mod.rs:register]]
 
 These helpers do not mutate their arguments. A function that changes a collection
 returns a new value and leaves the original unchanged. List indexes are
@@ -47,7 +47,7 @@ A, B`, and `partition` produces a `Partition OF T` holding the matched and
 unmatched elements. See `mfb man types pair` and `mfb man types partition`.
 
 The List-only overloads of `find`, `mid`, and `replace` live here; their String
-overloads live in `strings::`. [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+overloads live in `strings::`. [[src/codegen/builtins/collections/mod.rs:register]]
 
 ## Errors
 

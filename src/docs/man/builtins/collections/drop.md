@@ -27,7 +27,7 @@ IMPORT collections
 its leading `count` elements, in their original order. It is a generic function
 written in MFBASIC source: the call is rewritten to the internal
 `__collections_drop` generic and instantiated for the element type `T` during
-monomorphization. [[src/codegen/builtins/collections/mod.rs:internal_name]]
+monomorphization. [[src/monomorph/lower.rs:collections_internal_callee]]
 [[src/codegen/builtins/collections/package.mfb:__collections_drop]]
 
 `drop(value, count)` is defined as the half-open range `[count, len(value))` of

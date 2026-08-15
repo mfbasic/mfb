@@ -20,11 +20,11 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 `contains` is a native `collections::` member and must be called with the
 `collections::` qualifier; there is no bare `contains` built-in.
-[[src/codegen/builtins/collections/mod.rs:is_native_member]]
+[[src/codegen/registry/mod.rs:native_lower]]
 
 ## Description
 
@@ -42,7 +42,7 @@ probe for a probe-eligible element type and a linear scan otherwise. It does not
 accept a `Map`, and it is not the substring test: the `String` form of
 `contains` lives in the `strings::` package, not here.
 [[src/codegen/registry/mod.rs:resolve_call]]
-[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:register]]
 
 Equality is payload comparison, resolved by the element type:
 
@@ -107,7 +107,7 @@ No errors.
 ## Type checking
 
 `collections::contains` takes exactly two arguments.
-[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:register]]
 
 The first must be a `List OF T` or a `Set OF T`; a `Map`, a `String`, or any
 other value is a compile-time type error. The second must be exactly the element

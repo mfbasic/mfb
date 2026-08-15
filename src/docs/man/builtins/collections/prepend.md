@@ -19,7 +19,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT collections
 remaining elements are those of `value` in their original order. The result is
 always exactly one element longer than `value`. It takes exactly two arguments;
 neither is optional and neither is variadic.
-[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:register]]
 
 Unlike `collections::append`, `prepend` has **only** the single-element form.
 There is no list-into-list overload: the second argument must have exactly the

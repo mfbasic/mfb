@@ -20,7 +20,7 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -28,7 +28,7 @@ IMPORT collections
 exactly three arguments; none is optional and none is variadic. The first
 argument selects the overload: a `List OF T` is addressed by an `Integer` index,
 and a `Map OF K TO V` is addressed by a key of type `K`.
-[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]] [[src/codegen/registry/mod.rs:resolve_call]]
+[[src/codegen/builtins/collections/mod.rs:register]] [[src/codegen/registry/mod.rs:resolve_call]]
 
 The two overloads differ in more than addressing — they differ in whether a
 missing position is an error:

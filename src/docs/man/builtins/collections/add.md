@@ -19,17 +19,17 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 `add` is a native `collections::` member and must be called with the
 `collections::` qualifier; there is no bare `add` built-in.
-[[src/codegen/builtins/collections/mod.rs:is_native_member]]
+[[src/codegen/registry/mod.rs:native_lower]]
 
 ## Description
 
 `collections::add` returns a new `Set OF T` containing every element of `value`
 plus `item`. It takes exactly two arguments; neither is optional and neither is
-variadic. [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+variadic. [[src/codegen/builtins/collections/mod.rs:register]]
 
 Insertion is **idempotent**: if an equal element is already in `value`, the
 result is a set with the same elements — no duplicate is created and the length
@@ -74,7 +74,7 @@ non-set first argument, or with an element type that does not match, resolves to
 no overload and is rejected at compile time. Because a set requires a comparable
 element type, `T` must be comparable.
 [[src/codegen/registry/mod.rs:resolve_call]]
-[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:register]]
 
 ## Examples
 

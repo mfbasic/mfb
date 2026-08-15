@@ -27,7 +27,7 @@ IMPORT collections
 arranged in ascending order. It is a generic function written in MFBASIC source:
 a call to `collections::sort` is rewritten to the internal
 `__collections_sort` generic and instantiated for the element type `T` during
-monomorphization. [[src/codegen/builtins/collections/mod.rs:internal_name]]
+monomorphization. [[src/monomorph/lower.rs:collections_internal_callee]]
 [[src/codegen/builtins/collections/package.mfb:__collections_sort]]
 
 The algorithm is a bottom-up merge sort with O(n log n) comparisons. Runs of

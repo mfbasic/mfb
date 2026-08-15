@@ -19,14 +19,14 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
 `collections::mid` returns a new list holding the `count` elements of `value`
 that begin at the zero-based index `start`, in their original order. It is a
 **native** member: the compiler emits the slice loop directly rather than
-instantiating an MFBASIC generic. [[src/codegen/builtins/collections/mod.rs:is_native_member]]
+instantiating an MFBASIC generic. [[src/codegen/registry/mod.rs:native_lower]]
 [[src/target/shared/code/builder_search.rs:lower_list_mid]]
 
 This page documents the `List` form only. `collections::mid` accepts nothing but
@@ -35,7 +35,7 @@ a `List` as its first argument; the `String` slice of the same name lives in
 
 All three arguments are required — there is no two-argument "to the end" form —
 and `start` and `count` must both be exactly `Integer`.
-[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]] [[src/codegen/registry/mod.rs:resolve_call]]
+[[src/codegen/builtins/collections/mod.rs:register]] [[src/codegen/registry/mod.rs:resolve_call]]
 
 The range is **validated, not clamped**. Before any element is copied the
 lowering checks, in order, that `start` is not negative, that `count` is not
@@ -90,7 +90,7 @@ the same. [[src/target/shared/code/builder_search.rs:lower_list_mid]]
 must both be exactly `Integer`; no other numeric type is accepted and no
 conversion is applied. The call takes exactly three arguments, and the result
 type is the same `List OF T` as the input.
-[[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+[[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/mod.rs:register]]
 
 ## Examples
 

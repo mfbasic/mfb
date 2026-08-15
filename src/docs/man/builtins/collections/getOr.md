@@ -20,11 +20,11 @@ IMPORT collections
 ```
 
 `collections` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/collections/mod.rs:is_collections_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 `getOr` is a native `collections::` member and must be called with the
 `collections::` qualifier; there is no bare `getOr` built-in.
-[[src/codegen/builtins/collections/mod.rs:is_native_member]]
+[[src/codegen/registry/mod.rs:native_lower]]
 
 ## Description
 
@@ -99,7 +99,7 @@ No errors.
 ## Type checking
 
 `collections::getOr` takes exactly three arguments.
-[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+[[src/codegen/builtins/collections/mod.rs:register]]
 
 If the first argument is a `List OF T`, the second must be exactly `Integer`,
 the third must be exactly `T`, and the call has type `T`. Otherwise the first
