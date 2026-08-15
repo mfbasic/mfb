@@ -47,7 +47,7 @@ it is first awaited with `process::waitFor` or released with `process::detach`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `cmd` | `String` | The command line, parsed and run by the platform shell (`/bin/sh -c` on Unix). Also accepts the alternate named-argument spelling `command`. [[src/codegen/builtins/process/mod.rs:P_SHELL]] |
+| `cmd` | `String` | The command line, parsed and run by the platform shell (`/bin/sh -c` on Unix). Also accepts the alternate named-argument spelling `command`. [[src/codegen/builtins/process/func_shell.rs:register]] |
 
 ## Return value
 

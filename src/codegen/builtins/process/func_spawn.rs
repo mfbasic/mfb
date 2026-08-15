@@ -1,18 +1,21 @@
-//! `process::spawn` — descriptor entry.
+//! `process::spawn` — registry entry.
 //!
-//! Per-member file (planning/migrate.md). `Implementation::Os`: the member's
-//! per-platform OS-seam entry fns (`*_posix`/`*_win`) delegate to the arch-neutral
-//! emission in `../native/{unix,windows}`, and the generic runtime-call dispatch
-//! (`crate::codegen::os`) picks by `platform.family()`. This file carries the
-//! descriptor, those entry fns, and the
-//! docs migrated from `src/docs/man/builtins/process/spawn.md`.
+//! Per-member file. `Body::Native`: the member's per-platform OS-seam emitters
+//! (`*_posix`/`*_win`) delegate to the arch-neutral emission in
+//! `../native/{unix,windows}`, and the runtime-call dispatch
+//! (`super::dispatch_os_helper`) picks by `platform.family()`. This file carries the
+//! registry entry, those emitters, and the docs migrated from
+//! `src/docs/man/builtins/process/spawn.md`.
 
 use std::collections::HashMap;
 
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::native_helpers::emit_fail;
 use crate::target::shared::code::*;
-use crate::target::shared::registry::BuiltinFunction;
 
 use super::native::unix::*;
 use super::native::windows::*;
@@ -71,18 +74,73 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const SPAWN: BuiltinFunction = BuiltinFunction::os(
-    super::SPAWN,
-    "spawn",
-    INTRO,
-    DESC,
-    &[],
-    super::OV_SPAWN,
-    lower_process_spawn_helper_posix,
-    lower_process_spawn_helper_win,
-    &["process.spawn", "process.spawnEnv"],
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    // Both overloads lower through the same posix/win emitters; the full form is
+    // selected at codegen by argument count (`builder_values` → `process.spawnEnv`),
+    // and each emitter branches on the runtime-call name internally.
+    let args = Parameter {
+        name: "args",
+        desc: "The argument vector. `args[0]` is the executable, resolved on `PATH`; the rest are the child's arguments, passed literally with no shell interpretation. Must be non-empty.",
+        aliases: &[],
+        ty: ParameterType::list_of(ParameterType::String),
+        default: DefaultValue::None,
+    };
+    pkg.add_function(RegistryFunction {
+        name: "spawn",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![
+            // Bare argv form.
+            Implementation {
+                params: vec![args.clone()],
+                return_type: ParameterType::Named(super::PROCESS_TYPE),
+                errors: vec![],
+                lowering: Lowering::Helper,
+                body: Body::native(
+                    Some(lower_process_spawn_helper_posix),
+                    Some(lower_process_spawn_helper_win),
+                    None,
+                ),
+            },
+            // Full form: working directory + environment map + replace/merge flag.
+            Implementation {
+                params: vec![
+                    args,
+                    Parameter {
+                        name: "cwd",
+                        desc: "(full form) The working directory to switch to before running the child. An empty string leaves the parent's working directory in effect.",
+                        aliases: &[],
+                        ty: ParameterType::String,
+                        default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "env",
+                        desc: "(full form) Environment variables for the child, each key/value set with `setenv`.",
+                        aliases: &[],
+                        ty: ParameterType::map_of(ParameterType::String, ParameterType::String),
+                        default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "envReplace",
+                        desc: "(full form) `TRUE` to run with *only* `env` (the inherited environment is cleared first); `FALSE` to merge `env` over the inherited environment.",
+                        aliases: &[],
+                        ty: ParameterType::Boolean,
+                        default: DefaultValue::None,
+                    },
+                ],
+                return_type: ParameterType::Named(super::PROCESS_TYPE),
+                errors: vec![],
+                lowering: Lowering::Helper,
+                body: Body::native(
+                    Some(lower_process_spawn_helper_posix),
+                    Some(lower_process_spawn_helper_win),
+                    None,
+                ),
+            },
+        ],
+    });
+}
 
 pub(crate) fn lower_process_spawn_helper_posix(
     call: &str,

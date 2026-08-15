@@ -9,10 +9,13 @@
 
 use std::collections::HashMap;
 
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::native_helpers::emit_fail;
 use crate::target::shared::code::*;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Deliver a cross-platform signal bucket to a child process."#;
 const DESC: &str = r#"`process::signal` delivers one of the four `Signal` buckets to the child behind a
@@ -47,18 +50,40 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const SIGNAL: BuiltinFunction = BuiltinFunction::os(
-    super::SIGNAL,
-    "signal",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(super::P_SIGNAL, "Nothing")],
-    lower_process_signal_helper_posix,
-    lower_process_signal_helper_win,
-    &["process.signal"],
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "signal",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "p",
+                    desc: "The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`.",
+                    aliases: &["process"],
+                    ty: ParameterType::Named(super::PROCESS_TYPE),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "sig",
+                    desc: "The bucket to deliver: `Signal.None` (no-op), `Signal.Kill`, `Signal.Terminate`, or `Signal.Error`. Also accepts the alternate named-argument spelling `signal`.",
+                    aliases: &["signal"],
+                    ty: ParameterType::Named(super::SIGNAL_TYPE),
+                    default: DefaultValue::None,
+                },
+            ],
+            return_type: ParameterType::Nothing,
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::native(
+                Some(lower_process_signal_helper_posix),
+                Some(lower_process_signal_helper_win),
+                None,
+            ),
+        }],
+    });
+}
 
 pub(crate) fn lower_process_signal_helper_posix(
     _call: &str,

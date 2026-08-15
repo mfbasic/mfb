@@ -60,8 +60,8 @@ Reads one line from the selected stream — `Stream.StdOut` or `Stream.StdErr`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/mod.rs:P_RECV]] |
-| `from` | `Stream` | Optional. Which output stream to read: `Stream.StdOut` (the default) or `Stream.StdErr`. [[src/codegen/builtins/process/mod.rs:P_RECV_S]] |
+| `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/func_receive.rs:register]] |
+| `from` | `Stream` | Optional. Which output stream to read: `Stream.StdOut` (the default) or `Stream.StdErr`. [[src/codegen/builtins/process/func_receive.rs:register]] |
 
 ## Return value
 

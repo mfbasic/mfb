@@ -9,10 +9,13 @@
 
 use std::collections::HashMap;
 
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::native_helpers::emit_fail;
 use crate::target::shared::code::*;
-use crate::target::shared::registry::BuiltinFunction;
 
 use super::native::*;
 
@@ -63,18 +66,50 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const POLL: BuiltinFunction = BuiltinFunction::os(
-    super::POLL,
-    "poll",
-    INTRO,
-    DESC,
-    &[],
-    super::OV_POLL,
-    lower_process_poll_helper_posix,
-    lower_process_poll_helper_win,
-    &["process.poll", "process.pollFrom"],
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    // The optional trailing `from AS Stream` widens arity to 3 and is NOT
+    // default-padded: the 3-arg form is selected at codegen (`builder_values` →
+    // `process.pollFrom`), and the emitter branches on the runtime-call name.
+    pkg.add_function(RegistryFunction {
+        name: "poll",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "p",
+                    desc: "The child process handle. Borrowed and inspected for readiness only; no data is read. Also accepts the alternate named-argument spelling `process`.",
+                    aliases: &["process"],
+                    ty: ParameterType::Named(super::PROCESS_TYPE),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "ms",
+                    desc: "The maximum time to wait, in milliseconds. `0` is an immediate non-blocking check; a positive value waits up to that long.",
+                    aliases: &[],
+                    ty: ParameterType::Integer,
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "from",
+                    desc: "Optional. Which output stream to inspect: `Stream.StdOut` (the default) or `Stream.StdErr`.",
+                    aliases: &[],
+                    ty: ParameterType::Named(super::STREAM_TYPE),
+                    default: DefaultValue::Optional,
+                },
+            ],
+            return_type: ParameterType::Boolean,
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::native(
+                Some(lower_process_poll_helper_posix),
+                Some(lower_process_poll_helper_win),
+                None,
+            ),
+        }],
+    });
+}
 
 pub(crate) fn lower_process_poll_helper_posix(
     call: &str,

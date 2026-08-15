@@ -9,10 +9,13 @@
 
 use std::collections::HashMap;
 
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::native_helpers::emit_fail;
 use crate::target::shared::code::*;
-use crate::target::shared::registry::BuiltinFunction;
 
 use super::native::unix::*;
 use super::native::windows::*;
@@ -62,18 +65,31 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const SHELL: BuiltinFunction = BuiltinFunction::os(
-    super::SHELL,
-    "shell",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(super::P_SHELL, super::PROCESS_TYPE)],
-    lower_process_shell_helper_posix,
-    lower_process_shell_helper_win,
-    &["process.shell"],
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "shell",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "cmd",
+                desc: "The command line to run through the platform shell (`/bin/sh -c` on Unix). Also accepts the alternate named-argument spelling `command`.",
+                aliases: &["command"],
+                ty: ParameterType::String,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::Named(super::PROCESS_TYPE),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::native(
+                Some(lower_process_shell_helper_posix),
+                Some(lower_process_shell_helper_win),
+                None,
+            ),
+        }],
+    });
+}
 
 pub(crate) fn lower_process_shell_helper_posix(
     _call: &str,

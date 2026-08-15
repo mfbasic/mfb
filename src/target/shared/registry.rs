@@ -1056,7 +1056,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::money::MONEY,
     &crate::builtins::net::NET,
     &crate::builtins::os::OS,
-    &crate::codegen::builtins::process::PROCESS,
+    // process migrated to the clean-room registry (crate::codegen::registry).
     &crate::builtins::thread::THREAD,
     &crate::builtins::tls::TLS,
     &crate::builtins::vector::VECTOR,
@@ -1749,16 +1749,14 @@ mod tests {
         // plan-89-A: the `astrings` package (opaque AttributedString + fromString).
         assert!(REGISTRY.module("astrings").is_some());
         assert!(REGISTRY.function("astrings.fromString").is_some());
-        // plan-90-A: the `process` package (opaque Process resource). Its callable
-        // surface lands in Phase 2/sub-plans, so only the module is asserted here.
-        assert!(REGISTRY.module("process").is_some());
-        // csv / json / regex have migrated onto the clean-room registry
+        // csv / json / regex / process have migrated onto the clean-room registry
         // (`crate::codegen::registry`) and are no longer held here.
         assert!(REGISTRY.module("csv").is_none());
         assert!(REGISTRY.module("json").is_none());
         assert!(REGISTRY.module("regex").is_none());
-        // The 28 builtin packages minus the 3 migrated to the clean-room registry.
-        assert_eq!(REGISTRY.modules().len(), 25);
+        assert!(REGISTRY.module("process").is_none());
+        // The 28 builtin packages minus the 4 migrated to the clean-room registry.
+        assert_eq!(REGISTRY.modules().len(), 24);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);

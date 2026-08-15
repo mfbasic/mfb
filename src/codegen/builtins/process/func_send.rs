@@ -9,8 +9,11 @@
 
 use std::collections::HashMap;
 
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 use crate::target::shared::code::{CodegenPlatform, HelperResult};
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTRO: &str = r#"Write a line of text to a child's standard input, appending a newline."#;
 const DESC: &str = r#"`process::send` writes the UTF-8 bytes of `text` to the child's standard input and
@@ -62,18 +65,50 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const SEND: BuiltinFunction = BuiltinFunction::os(
-    super::SEND,
-    "send",
-    INTRO,
-    DESC,
-    &[],
-    super::OV_SEND,
-    lower_process_send_helper_posix,
-    lower_process_send_helper_win,
-    &["process.send", "process.sendTimeout"],
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    // The optional trailing `timeoutMs` widens arity to 3 and is NOT default-padded:
+    // the 3-arg form is selected at codegen (`builder_values` → `process.sendTimeout`),
+    // and the emitter branches on the runtime-call name.
+    pkg.add_function(RegistryFunction {
+        name: "send",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "p",
+                    desc: "The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`.",
+                    aliases: &["process"],
+                    ty: ParameterType::Named(super::PROCESS_TYPE),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "text",
+                    desc: "The text to write to the child's standard input; a single newline is appended.",
+                    aliases: &[],
+                    ty: ParameterType::String,
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "timeoutMs",
+                    desc: "Optional. The maximum time to wait for room in the child's input pipe, in milliseconds; on expiry the call raises `ErrTimeout`. Best-effort on Windows.",
+                    aliases: &[],
+                    ty: ParameterType::Integer,
+                    default: DefaultValue::Optional,
+                },
+            ],
+            return_type: ParameterType::Nothing,
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::native(
+                Some(lower_process_send_helper_posix),
+                Some(lower_process_send_helper_win),
+                None,
+            ),
+        }],
+    });
+}
 
 pub(crate) fn lower_process_send_helper_posix(
     call: &str,

@@ -9,10 +9,13 @@
 
 use std::collections::HashMap;
 
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::native_helpers::emit_fail;
 use crate::target::shared::code::*;
-use crate::target::shared::registry::BuiltinFunction;
 
 use super::native::*;
 
@@ -54,18 +57,31 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const DID_SIGNAL: BuiltinFunction = BuiltinFunction::os(
-    super::DID_SIGNAL,
-    "didSignal",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(super::P_PROC, super::SIGNAL_TYPE)],
-    lower_process_didsignal_helper_posix,
-    lower_process_didsignal_helper_win,
-    &["process.didSignal"],
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "didSignal",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "p",
+                desc: "The terminated child process handle to inspect. Also accepts the alternate named-argument spelling `process`.",
+                aliases: &["process"],
+                ty: ParameterType::Named(super::PROCESS_TYPE),
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::Named(super::SIGNAL_TYPE),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::native(
+                Some(lower_process_didsignal_helper_posix),
+                Some(lower_process_didsignal_helper_win),
+                None,
+            ),
+        }],
+    });
+}
 
 pub(crate) fn lower_process_didsignal_helper_posix(
     _call: &str,
