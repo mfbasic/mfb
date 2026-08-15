@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/instant.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Build an `Instant` from seconds, nanoseconds, or larger time components."#;
 const DESC: &str = r#"`datetime::instant` builds an `Instant` on the UTC timeline (the Unix epoch,
 without leap seconds) at a given offset after `1970-01-01T00:00:00Z`. The result
@@ -71,12 +69,53 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const INSTANT: BuiltinFunction = BuiltinFunction::custom(
-    "datetime.instant",
-    "instant",
-    INTRO,
-    DESC,
-    &[],
-    super::INSTANT_OVERLOADS,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::arity_family(
+        pkg,
+        "instant",
+        INTRO,
+        DESC,
+        EX,
+        super::named("Instant"),
+        vec![
+            (
+                vec![super::req("seconds", super::int())],
+                "__datetime_instant1",
+            ),
+            (
+                vec![
+                    super::req("seconds", super::int()),
+                    super::req("nanos", super::int()),
+                ],
+                "__datetime_instant2",
+            ),
+            (
+                vec![
+                    super::req("mins", super::int()),
+                    super::req("seconds", super::int()),
+                    super::req("nanos", super::int()),
+                ],
+                "__datetime_instant3",
+            ),
+            (
+                vec![
+                    super::req("hours", super::int()),
+                    super::req("mins", super::int()),
+                    super::req("seconds", super::int()),
+                    super::req("nanos", super::int()),
+                ],
+                "__datetime_instant4",
+            ),
+            (
+                vec![
+                    super::req("days", super::int()),
+                    super::req("hours", super::int()),
+                    super::req("mins", super::int()),
+                    super::req("seconds", super::int()),
+                    super::req("nanos", super::int()),
+                ],
+                "__datetime_instant5",
+            ),
+        ],
+    );
+}

@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/minus.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str =
     r#"Subtract one `Duration` span from another and return the resulting `Duration`."#;
 const DESC: &str = r#"`datetime::minus` returns the `Duration` `a - b`, the signed span left after
@@ -65,16 +63,19 @@ r#"FUNC __datetime_minus(a AS Duration, b AS Duration) AS Duration
   RETURN __datetime_normDuration(a.seconds - b.seconds, a.nanos - b.nanos)
 END FUNC"#;
 
-pub(crate) const MINUS: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.minus",
-    "minus",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[super::req("a", "Duration"), super::req("b", "Duration")],
-        "Duration",
-    )],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "minus",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("a", super::named("Duration")),
+            super::req("b", super::named("Duration")),
+        ],
+        super::named("Duration"),
+        BODY,
+        "__datetime_minus",
+    );
+}

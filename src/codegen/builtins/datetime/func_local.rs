@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/local.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"The `Zone` representing the host's local time."#;
 const DESC: &str = r#"`datetime::local` returns the `Zone` that represents the host's local time. The
 returned `Zone` carries a zone kind of `ZoneKind::Local` (the third `ZoneKind`
@@ -74,13 +72,16 @@ r#"FUNC __datetime_local AS Zone
   RETURN Zone[0, 2, "Local"]
 END FUNC"#;
 
-pub(crate) const LOCAL: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.local",
-    "local",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(&[], "Zone")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "local",
+        INTRO,
+        DESC,
+        EX,
+        vec![],
+        super::named("Zone"),
+        BODY,
+        "__datetime_local",
+    );
+}

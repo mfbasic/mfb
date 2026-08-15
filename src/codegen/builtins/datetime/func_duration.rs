@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/duration.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str =
     r#"Build a `Duration` span from seconds, nanoseconds, or larger time components."#;
 const DESC: &str = r#"`datetime::duration` builds a signed `Duration`, a span of elapsed time with no
@@ -84,12 +82,53 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const DURATION: BuiltinFunction = BuiltinFunction::custom(
-    "datetime.duration",
-    "duration",
-    INTRO,
-    DESC,
-    &[],
-    super::DT_COMPONENTS,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::arity_family(
+        pkg,
+        "duration",
+        INTRO,
+        DESC,
+        EX,
+        super::named("Duration"),
+        vec![
+            (
+                vec![super::req("seconds", super::int())],
+                "__datetime_duration1",
+            ),
+            (
+                vec![
+                    super::req("seconds", super::int()),
+                    super::req("nanos", super::int()),
+                ],
+                "__datetime_duration2",
+            ),
+            (
+                vec![
+                    super::req("mins", super::int()),
+                    super::req("seconds", super::int()),
+                    super::req("nanos", super::int()),
+                ],
+                "__datetime_duration3",
+            ),
+            (
+                vec![
+                    super::req("hours", super::int()),
+                    super::req("mins", super::int()),
+                    super::req("seconds", super::int()),
+                    super::req("nanos", super::int()),
+                ],
+                "__datetime_duration4",
+            ),
+            (
+                vec![
+                    super::req("days", super::int()),
+                    super::req("hours", super::int()),
+                    super::req("mins", super::int()),
+                    super::req("seconds", super::int()),
+                    super::req("nanos", super::int()),
+                ],
+                "__datetime_duration5",
+            ),
+        ],
+    );
+}

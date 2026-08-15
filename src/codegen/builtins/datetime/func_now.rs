@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/now.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"The current wall-clock instant on the UTC timeline."#;
 const DESC: &str = r#"`datetime::now` reads the host's real-time clock and returns the `Instant` it
 names on the UTC timeline (the Unix epoch, without leap seconds). The result
@@ -59,13 +57,16 @@ r#"FUNC __datetime_now AS Instant
   RETURN __datetime_normInstant(ns / 1000000000, ns MOD 1000000000)
 END FUNC"#;
 
-pub(crate) const NOW: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.now",
-    "now",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(&[], "Instant")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "now",
+        INTRO,
+        DESC,
+        EX,
+        vec![],
+        super::named("Instant"),
+        BODY,
+        "__datetime_now",
+    );
+}

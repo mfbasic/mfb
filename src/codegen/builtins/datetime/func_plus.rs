@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/plus.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Add two `Duration` spans into their combined `Duration`."#;
 const DESC: &str = r#"`datetime::plus` returns the `Duration` `a + b`, the signed span that results
 from combining two spans of elapsed physical time. It adds the two `seconds`
@@ -62,16 +60,19 @@ r#"FUNC __datetime_plus(a AS Duration, b AS Duration) AS Duration
   RETURN __datetime_normDuration(a.seconds + b.seconds, a.nanos + b.nanos)
 END FUNC"#;
 
-pub(crate) const PLUS: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.plus",
-    "plus",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[super::req("a", "Duration"), super::req("b", "Duration")],
-        "Duration",
-    )],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "plus",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("a", super::named("Duration")),
+            super::req("b", super::named("Duration")),
+        ],
+        super::named("Duration"),
+        BODY,
+        "__datetime_plus",
+    );
+}

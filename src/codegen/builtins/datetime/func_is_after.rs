@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/isAfter.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Test whether one instant strictly follows another on the UTC timeline."#;
 const DESC: &str = r#"`datetime::isAfter` is a convenience predicate over instants that returns
 `TRUE` when `a` strictly follows `b` on the UTC timeline and `FALSE` otherwise.
@@ -76,16 +74,19 @@ r#"FUNC __datetime_isAfter(a AS Instant, b AS Instant) AS Boolean
   RETURN __datetime_compare(a, b) > 0
 END FUNC"#;
 
-pub(crate) const IS_AFTER: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.isAfter",
-    "isAfter",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[super::req("a", "Instant"), super::req("b", "Instant")],
-        "Boolean",
-    )],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "isAfter",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("a", super::named("Instant")),
+            super::req("b", super::named("Instant")),
+        ],
+        super::boolean(),
+        BODY,
+        "__datetime_isAfter",
+    );
+}

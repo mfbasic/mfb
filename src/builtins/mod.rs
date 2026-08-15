@@ -111,6 +111,10 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
 pub(crate) fn is_builtin_type(name: &str) -> bool {
     // Migrated (clean-room registry) types first; else the old REGISTRY.
     crate::codegen::registry::is_builtin_type(name)
+        // `datetime`'s value records + enums are authored in `package.mfb` (the
+        // registry models neither `ENUM`s nor the source `DOC` blocks), so they are
+        // recognized here rather than through the generic registry type query.
+        || crate::codegen::builtins::datetime::is_builtin_type(name)
         || crate::target::shared::registry::REGISTRY
             .modules()
             .iter()
@@ -482,9 +486,12 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
         .or_else(|| fs::expected_arguments(name))
         .or_else(|| os::expected_arguments(name))
         .or_else(|| io::expected_arguments(name))
+        // datetime keeps its bespoke phrasing (`"1 to 5 Integer"`, `"()"`, the
+        // optional-tail brackets), which the generic per-position rendering cannot
+        // reproduce — so it precedes the registry fallback.
+        .or_else(|| crate::codegen::builtins::datetime::expected_arguments(name))
         .or_else(|| crate::codegen::registry::expected_arguments(name))
         .or_else(|| bits::expected_arguments(name))
-        .or_else(|| crate::codegen::builtins::datetime::expected_arguments(name))
     {
         return Some(text.to_string());
     }

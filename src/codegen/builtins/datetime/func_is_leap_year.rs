@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/isLeapYear.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Whether a proleptic-Gregorian calendar year is a leap year."#;
 const DESC: &str = r#"`datetime::isLeapYear` applies the proleptic-Gregorian leap rule to `year` and
 reports whether that year has 366 days. A year is a leap year when it is
@@ -57,13 +55,16 @@ r#"FUNC __datetime_isLeapYear(year AS Integer) AS Boolean
   RETURN (year MOD 4 = 0 AND year MOD 100 <> 0) OR year MOD 400 = 0
 END FUNC"#;
 
-pub(crate) const IS_LEAP_YEAR: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.isLeapYear",
-    "isLeapYear",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(&[super::req("year", super::I)], "Boolean")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "isLeapYear",
+        INTRO,
+        DESC,
+        EX,
+        vec![super::req("year", super::int())],
+        super::boolean(),
+        BODY,
+        "__datetime_isLeapYear",
+    );
+}

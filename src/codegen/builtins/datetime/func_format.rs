@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/format.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Render a `DateTime` as text with the pattern mini-language."#;
 const DESC: &str = r#"`datetime::format` renders the fields of `dt` as text by walking `pattern` from
 left to right and emitting, for each position, either a literal character or the
@@ -110,19 +108,19 @@ r#"FUNC __datetime_format(dt AS DateTime, pattern AS String) AS String
   RETURN out
 END FUNC"#;
 
-pub(crate) const FORMAT: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.format",
-    "format",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[
-            super::req("dt", "DateTime"),
-            super::req("pattern", "String"),
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "format",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("dt", super::named("DateTime")),
+            super::req("pattern", super::string()),
         ],
-        "String",
-    )],
-    BODY,
-)
-.with_example(EX);
+        super::string(),
+        BODY,
+        "__datetime_format",
+    );
+}

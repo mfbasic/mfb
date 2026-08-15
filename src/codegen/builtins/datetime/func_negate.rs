@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/negate.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str =
     r#"Return a `Duration` with the opposite sign — the additive inverse of a span."#;
 const DESC: &str = r#"`datetime::negate` returns the additive inverse of `d`: the span of equal
@@ -56,13 +54,16 @@ r#"FUNC __datetime_negate(d AS Duration) AS Duration
   RETURN __datetime_normDuration(-d.seconds, -d.nanos)
 END FUNC"#;
 
-pub(crate) const NEGATE: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.negate",
-    "negate",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(&[super::req("d", "Duration")], "Duration")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "negate",
+        INTRO,
+        DESC,
+        EX,
+        vec![super::req("d", super::named("Duration"))],
+        super::named("Duration"),
+        BODY,
+        "__datetime_negate",
+    );
+}

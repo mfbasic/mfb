@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/resolve.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Collapse a civil `DateTime` back to the absolute `Instant` it names."#;
 const DESC: &str = r#"`datetime::resolve` is the inverse of `datetime::inZone`: where `inZone` projects
 an absolute instant onto the wall-clock fields an observer in a zone reads,
@@ -60,13 +58,16 @@ r#"FUNC __datetime_resolve(dt AS DateTime) AS Instant
   RETURN Instant[localSeconds - dt.offset, dt.time.nanos]
 END FUNC"#;
 
-pub(crate) const RESOLVE: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.resolve",
-    "resolve",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(&[super::req("dt", "DateTime")], "Instant")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "resolve",
+        INTRO,
+        DESC,
+        EX,
+        vec![super::req("dt", super::named("DateTime"))],
+        super::named("Instant"),
+        BODY,
+        "__datetime_resolve",
+    );
+}

@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/startOfDay.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Return the civil `DateTime` naming midnight at the start of a `DateTime`'s day, in its own zone."#;
 const DESC: &str = r#"`datetime::startOfDay` returns the `DateTime` naming `00:00:00` (midnight) at the
 beginning of `dt`'s civil day, in `dt`'s own zone. It keeps `dt`'s calendar date
@@ -64,13 +62,16 @@ r#"FUNC __datetime_startOfDay(dt AS DateTime) AS DateTime
   RETURN __datetime_civil(dt.date, Time[0, 0, 0, 0], dt.zone)
 END FUNC"#;
 
-pub(crate) const START_OF_DAY: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.startOfDay",
-    "startOfDay",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(&[super::req("dt", "DateTime")], "DateTime")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "startOfDay",
+        INTRO,
+        DESC,
+        EX,
+        vec![super::req("dt", super::named("DateTime"))],
+        super::named("DateTime"),
+        BODY,
+        "__datetime_startOfDay",
+    );
+}

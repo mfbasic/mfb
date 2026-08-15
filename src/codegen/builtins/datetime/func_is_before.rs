@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/isBefore.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Test whether one instant strictly precedes another on the UTC timeline."#;
 const DESC: &str = r#"`datetime::isBefore` is a convenience predicate over instants that returns
 `TRUE` when `a` strictly precedes `b` on the UTC timeline and `FALSE` otherwise.
@@ -76,16 +74,19 @@ r#"FUNC __datetime_isBefore(a AS Instant, b AS Instant) AS Boolean
   RETURN __datetime_compare(a, b) < 0
 END FUNC"#;
 
-pub(crate) const IS_BEFORE: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.isBefore",
-    "isBefore",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[super::req("a", "Instant"), super::req("b", "Instant")],
-        "Boolean",
-    )],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "isBefore",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("a", super::named("Instant")),
+            super::req("b", super::named("Instant")),
+        ],
+        super::boolean(),
+        BODY,
+        "__datetime_isBefore",
+    );
+}

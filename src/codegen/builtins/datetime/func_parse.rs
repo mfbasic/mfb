@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/parse.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Parse text into a `DateTime` using the format pattern mini-language."#;
 const DESC: &str = r#"`datetime::parse` reads `value` against `pattern` and returns the `DateTime` it
 describes. `pattern` uses the same token mini-language as `datetime::format`, and
@@ -96,19 +94,32 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const PARSE: BuiltinFunction = BuiltinFunction::custom(
-    "datetime.parse",
-    "parse",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[
-            super::req("value", "String"),
-            super::req("pattern", "String"),
-            super::optn("zone", "Zone"),
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    // Arity-dispatched: 2 args -> `__datetime_parse2`, 3 args (trailing `zone`) ->
+    // `__datetime_parse3`. `select` picks by arity and yields the right rewrite.
+    super::arity_family(
+        pkg,
+        "parse",
+        INTRO,
+        DESC,
+        EX,
+        super::named("DateTime"),
+        vec![
+            (
+                vec![
+                    super::req("value", super::string()),
+                    super::req("pattern", super::string()),
+                ],
+                "__datetime_parse2",
+            ),
+            (
+                vec![
+                    super::req("value", super::string()),
+                    super::req("pattern", super::string()),
+                    super::req("zone", super::named("Zone")),
+                ],
+                "__datetime_parse3",
+            ),
         ],
-        "DateTime",
-    )],
-)
-.with_example(EX);
+    );
+}

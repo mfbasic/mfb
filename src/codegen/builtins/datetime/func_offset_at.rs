@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/offsetAt.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"A `Zone`'s signed UTC offset in seconds at a given `Instant`."#;
 const DESC: &str = r#"`datetime::offsetAt` returns the signed offset from UTC, in seconds, that
 `zone` applies to the absolute instant `at`. A positive result places the
@@ -74,16 +72,19 @@ r#"FUNC __datetime_offsetAt(z AS Zone, at AS Instant) AS Integer
   RETURN z.offsetSeconds
 END FUNC"#;
 
-pub(crate) const OFFSET_AT: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.offsetAt",
-    "offsetAt",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[super::req("zone", "Zone"), super::req("at", "Instant")],
-        super::I,
-    )],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "offsetAt",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("zone", super::named("Zone")),
+            super::req("at", super::named("Instant")),
+        ],
+        super::int(),
+        BODY,
+        "__datetime_offsetAt",
+    );
+}

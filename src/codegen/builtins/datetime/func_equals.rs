@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/equals.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Test whether two instants name the same point on the UTC timeline."#;
 const DESC: &str = r#"`datetime::equals` is a convenience predicate over instants that returns `TRUE`
 when `a` and `b` name the same point on the UTC timeline and `FALSE` otherwise.
@@ -75,16 +73,19 @@ r#"FUNC __datetime_equals(a AS Instant, b AS Instant) AS Boolean
   RETURN __datetime_compare(a, b) = 0
 END FUNC"#;
 
-pub(crate) const EQUALS: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.equals",
-    "equals",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[super::req("a", "Instant"), super::req("b", "Instant")],
-        "Boolean",
-    )],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "equals",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("a", super::named("Instant")),
+            super::req("b", super::named("Instant")),
+        ],
+        super::boolean(),
+        BODY,
+        "__datetime_equals",
+    );
+}

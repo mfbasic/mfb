@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/addDays.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Shift a civil `DateTime` by a whole number of calendar days, preserving its wall-clock time and zone."#;
 const DESC: &str = r#"`datetime::addDays` advances `dt` by a whole number of calendar days and returns
 the resulting `DateTime`. It converts `dt`'s calendar date to a serial day count,
@@ -67,16 +65,19 @@ r#"FUNC __datetime_addDays(dt AS DateTime, days AS Integer) AS DateTime
   RETURN __datetime_civil(__datetime_civilFromDays(newDays), dt.time, dt.zone)
 END FUNC"#;
 
-pub(crate) const ADD_DAYS: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.addDays",
-    "addDays",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[super::req("dt", "DateTime"), super::req("days", super::I)],
-        "DateTime",
-    )],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "addDays",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("dt", super::named("DateTime")),
+            super::req("days", super::int()),
+        ],
+        super::named("DateTime"),
+        BODY,
+        "__datetime_addDays",
+    );
+}

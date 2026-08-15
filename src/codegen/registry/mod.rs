@@ -903,6 +903,7 @@ fn build() -> Registry {
     crate::codegen::builtins::csv::register(&mut r);
     crate::codegen::builtins::json::register(&mut r);
     crate::codegen::builtins::regex::register(&mut r);
+    crate::codegen::builtins::datetime::register(&mut r);
     r
 }
 
@@ -1019,10 +1020,9 @@ fn unify(
         (ParameterType::SetOf(elem), ParameterType::SetOf(concrete_elem)) => {
             unify(elem, concrete_elem, bindings)
         }
-        (
-            ParameterType::MapOf(key, value),
-            ParameterType::MapOf(concrete_key, concrete_value),
-        ) => unify(key, concrete_key, bindings) && unify(value, concrete_value, bindings),
+        (ParameterType::MapOf(key, value), ParameterType::MapOf(concrete_key, concrete_value)) => {
+            unify(key, concrete_key, bindings) && unify(value, concrete_value, bindings)
+        }
         // A container pattern against a non-matching concrete container/leaf fails.
         (ParameterType::ListOf(_) | ParameterType::SetOf(_) | ParameterType::MapOf(_, _), _) => {
             false
@@ -1077,7 +1077,10 @@ fn contains_var(ty: &ParameterType) -> bool {
 pub(crate) fn resolve_call(qualified: &str, arg_types: &[String]) -> Option<String> {
     let function = registry().resolve_func(qualified)?.function;
     let call = CallShape {
-        args: arg_types.iter().map(|arg| ParameterType::parse(arg)).collect(),
+        args: arg_types
+            .iter()
+            .map(|arg| ParameterType::parse(arg))
+            .collect(),
     };
     function
         .select(&call)
@@ -1142,15 +1145,14 @@ pub(crate) fn rewrite_target(qualified: &str) -> Option<&'static str> {
 /// This leaks, once migration is complete it goes away
 /// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
-    let name = registry()
-        .resolve_func(qualified)?
-        .function
-        .implementations
-        .first()?
-        .params
-        .first()?
-        .ty
-        .name();
+    let function = &registry().resolve_func(qualified)?.function;
+    // A multi-implementation (overloaded / variadic) member has no single
+    // first-parameter rendering — its overloads disagree on position 0 — so it
+    // yields None here and keeps whatever bespoke phrasing its package supplies.
+    if function.implementations.len() > 1 {
+        return None;
+    }
+    let name = function.implementations.first()?.params.first()?.ty.name();
 
     Some(match name {
         Cow::Borrowed(s) => s,
@@ -1162,11 +1164,15 @@ pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
 /// `qualified`, or `None`.
 /// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn call_param_names(qualified: &str) -> Option<Vec<Vec<&'static str>>> {
-    let implementation = registry()
-        .resolve_func(qualified)?
-        .function
-        .implementations
-        .first()?;
+    let function = &registry().resolve_func(qualified)?.function;
+    // Multi-implementation members whose overloads disagree on positional layout
+    // have no single merged per-position table (binding a name off a merged table
+    // would land it in the wrong slot — bug-349/bug-94); they yield None so the
+    // caller falls through to a per-overload table.
+    if function.implementations.len() > 1 {
+        return None;
+    }
+    let implementation = function.implementations.first()?;
     Some(
         implementation
             .params

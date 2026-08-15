@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/compare.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Order two instants on the UTC timeline as a three-way sign."#;
 const DESC: &str = r#"`datetime::compare` returns the sign of `a - b` as a three-way ordering: `-1`
 when `a` is before `b`, `0` when the two instants name the same point, and `1`
@@ -80,16 +78,19 @@ r#"FUNC __datetime_compare(a AS Instant, b AS Instant) AS Integer
   RETURN 0
 END FUNC"#;
 
-pub(crate) const COMPARE: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.compare",
-    "compare",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[super::req("a", "Instant"), super::req("b", "Instant")],
-        super::I,
-    )],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "compare",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("a", super::named("Instant")),
+            super::req("b", super::named("Instant")),
+        ],
+        super::int(),
+        BODY,
+        "__datetime_compare",
+    );
+}
