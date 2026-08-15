@@ -53,3 +53,40 @@ Want me to trace exactly what each of the `src/builtins/mod.rs` call sites needs
 
 ---
 
+Here's the order I'd follow, with the gating reason for each boundary:
+
+## Phase 0 — free prep (do first, independent of everything)
+
+- **Delete Bucket 1** (the 7 pure delegators: `is_member`, `owning_package`, `arity`, `declares_error`, `qualified_builtin_type`, `is_builtin_type`, `augment_project`). These are gated on *nothing* — repoint callers to `registry().resolve_func(...)` today. Doing this now shrinks the shim surface so the later phases are legible.
+- **Extract `ParameterType` to its neutral module** (the leaf move). Do it *before* migrating more packages, so every package you migrate next already references the type from its final home — otherwise you re-churn `use` paths across all of them later.
+
+Neither of these touches the compiler's string currency, so they're low-risk and unlock the rest.
+
+## Phase 0.5 — package-scope resources ([plan-97], bug-441) — BEFORE the resource-owning packages migrate
+
+Builtin resource type names (`File`, `Socket`, `Process`, …) are a global, unqualified **bare-name** reservation, so a user `TYPE Process` collides with the builtin (bug-441). Make them `pkg::Name` (`process::Process`), like every other builtin surface. See `planning/plan-97-resources-package-scoped.md`.
+
+**Why here, not later:** the cost scales with migrated resources. `fs`/`net`/`tls`/`audio` (File/Socket/Listener/UdpSocket/AudioInput/AudioOutput/TlsSocket/TlsListener) all migrate in Phase 1 and each calls `add_resource` with a *bare* name — exactly as `process` already did. Fix the scoping *first* and each of those migrations adopts qualified resources for free; fix it *after* (or at Phase 3) and you re-qualify ~8 more resources plus their syntax/spec/goldens, and double-touch `ParameterType::Named` (bare then qualified). Not Phase 3.
+
+- The cheap non-breaking interim (bug-441 Phase 2a — a "name collides with a builtin resource" diagnostic) can land anytime, independently.
+- plan-97 (the real package-qualification) is breaking/spec-touching — run it as its own plan, sequenced right after Phase 0's `ParameterType` extraction and before the `fs`/`net`/`tls`/`audio` migrations below.
+
+## Phase 1 — finish the package migration (`target/shared → codegen`)
+
+Migrate each remaining builtin into the registry, **leaning on the Bucket 2 shims as the bridge**. This is the key realization: Bucket 2 is *scaffolding* — its whole purpose is to let the still-String-speaking compiler consume registry packages. You keep it alive precisely so you can migrate packages *without* touching the compiler's currency yet. Per package: parity-test against the old path, then delete that package's old path.
+
+> ⚠️ The resource-owning packages here (`fs`/`net`/`tls`/`audio`) depend on **Phase 0.5 / plan-97** landing first — otherwise they register bare-name resources that plan-97 must then re-qualify.
+
+## Phase 2 — delete the old branch
+
+Once no package resolves through `target/shared`, delete the plan-72 descriptor vocabulary (including its degenerate `Named(&'static str)` `ParameterType`) and the hand-written free-function fallbacks in `builtins/mod.rs`. The `registry::X(name).or(old(name))` dual-paths collapse to a single registry call. **Now the registry is the one source of truth.**
+
+## Phase 3 — flip the compiler currency to `ParameterType`
+
+Change the type checker / `ir` / `syntaxcheck` to carry `ParameterType` (and `Selection`) across the registry boundary instead of `String`.
+
+⚠️ **This is the one ordering trap:** do *not* do Phase 3 before Phase 2. If you flip the currency while the old string path still exists, you just relocate the `String↔ParameterType` boundary onto the old path instead of eliminating it — you'd be building a new adapter at the same time you're trying to delete one.
+
+## Phase 4 — Bucket 2 falls out
+
+The 6 leak-adapters (`resolve_call`, `rewrite_target`, `call_return_type`, `expected_arguments`, `call_param_names`, `default_argument_padding`) now have no callers doing string marshalling — they evaporate. This isn't a separate effort; it's the *consequence* of Phase 3. (Decide separately whether `resolve_call`/`native_lower` — the two the author left un-`#[deprecated]` — stay as intended permanent `CallShape`/`Selection` seams or get inlined.)
