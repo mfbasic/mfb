@@ -1,7 +1,8 @@
 //! `collections::values` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
 };
 use crate::target::shared::code::type_utils::map_type_parts;
 use crate::target::shared::code::{CodeBuilder, ValueResult};
@@ -83,11 +84,13 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("Map OF K TO V"),
         implementations: vec![Implementation {
-            params: vec![super::param(
-                "value",
-                &["map"],
-                ParameterType::map_of(ParameterType::Var("K"), ParameterType::Var("V")),
-            )],
+            params: vec![Parameter {
+                name: "value",
+                desc: "",
+                aliases: &["map"],
+                ty: ParameterType::map_of(ParameterType::Var("K"), ParameterType::Var("V")),
+                default: DefaultValue::None,
+            }],
             return_type: ParameterType::list_of(ParameterType::Var("V")),
             errors: vec![],
             lowering: Lowering::Helper,

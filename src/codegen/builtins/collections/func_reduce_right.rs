@@ -1,7 +1,8 @@
 //! `collections::reduceRight` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
 };
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
@@ -96,20 +97,30 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         expected_arguments: Some("List OF T, U, FUNC(U, T) AS U"),
         implementations: vec![Implementation {
             params: vec![
-                super::param(
-                    "value",
-                    &["collection"],
-                    ParameterType::list_of(ParameterType::Var("T")),
-                ),
-                super::param("initial", &["seed"], ParameterType::Var("U")),
-                super::param(
-                    "f",
-                    &["combine"],
-                    ParameterType::func(
+                Parameter {
+                    name: "value",
+                    desc: "",
+                    aliases: &["collection"],
+                    ty: ParameterType::list_of(ParameterType::Var("T")),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "initial",
+                    desc: "",
+                    aliases: &["seed"],
+                    ty: ParameterType::Var("U"),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "f",
+                    desc: "",
+                    aliases: &["combine"],
+                    ty: ParameterType::func(
                         vec![ParameterType::Var("U"), ParameterType::Var("T")],
                         ParameterType::Var("U"),
                     ),
-                ),
+                    default: DefaultValue::None,
+                },
             ],
             return_type: ParameterType::Arg(1),
             errors: vec![],

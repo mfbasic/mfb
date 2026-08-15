@@ -55,12 +55,28 @@ END SUB
 ```"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::intrinsic(
-        pkg,
-        "localOffset",
-        INTRO,
-        DESC,
-        EX,
-        vec![super::req("epochSeconds", super::int())],
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "localOffset",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("localOffset"),
+        implementations: vec![super::Implementation {
+            params: vec![super::Parameter {
+                name: "epochSeconds",
+                desc: "",
+                aliases: &[],
+                ty: super::ParameterType::Integer,
+                default: super::DefaultValue::None,
+            }],
+            return_type: super::ParameterType::Integer,
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::native(
+                Some(super::lower_datetime_helper),
+                Some(super::lower_datetime_helper),
+                None,
+            ),
+        }],
+    });
 }

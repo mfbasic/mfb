@@ -70,15 +70,24 @@ r#"FUNC __datetime_weekday(dt AS DateTime) AS Weekday
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "weekday",
-        INTRO,
-        DESC,
-        EX,
-        vec![super::req("dt", super::named("DateTime"))],
-        super::named("Weekday"),
-        BODY,
-        "__datetime_weekday",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "weekday",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("weekday"),
+        implementations: vec![super::Implementation {
+            params: vec![super::Parameter {
+                name: "dt",
+                desc: "",
+                aliases: &[],
+                ty: super::ParameterType::Named("DateTime"),
+                default: super::DefaultValue::None,
+            }],
+            return_type: super::ParameterType::Named("Weekday"),
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_weekday"),
+        }],
+    });
 }

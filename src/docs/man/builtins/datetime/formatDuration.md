@@ -53,7 +53,7 @@ that multiplying by 1000 (or negating the reduced total) leaves the signed
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `d` | `Duration` | The signed span to render. Its `seconds` field supplies the whole-second magnitude and its `nanos` field the sub-second remainder, of which only whole milliseconds are kept. May be negative, in which case the output is prefixed with a minus sign. [[src/codegen/builtins/datetime/mod.rs:FORMAT_DURATION]] |
+| `d` | `Duration` | The signed span to render. Its `seconds` field supplies the whole-second magnitude and its `nanos` field the sub-second remainder, of which only whole milliseconds are kept. May be negative, in which case the output is prefixed with a minus sign. [[src/codegen/builtins/datetime/mod.rs:register]] |
 
 ## Return value
 

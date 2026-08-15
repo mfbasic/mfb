@@ -769,6 +769,22 @@ pub(crate) struct RegistryPackage {
     /// `collections.sort` as a builtin member ([`is_source_generic_member`]) without a
     /// per-package branch.
     source_generics: Vec<&'static str>,
+    /// Value-type names (`EXPORT TYPE`/`ENUM`) a package declares **only** in its
+    /// injected companion source (`package.mfb`) rather than as a modeled
+    /// [`RegistryRecord`]/[`RegistryEnum`] — `datetime`'s `Instant`/`Date`/…/`ZoneKind`,
+    /// whose `DOC`-block-carrying declarations and byte-exact formatting cannot be
+    /// reproduced by [`get_mfb`](Self::get_mfb)'s renderers. Recorded as semantic-only
+    /// facts so [`is_builtin_type`] / [`qualified_builtin_type`] recognize them without
+    /// a per-package predicate; they are NOT rendered (the companion already declares
+    /// them).
+    source_types: Vec<&'static str>,
+    /// Native HOF **fast paths** for the package's [`source_generics`](Self::source_generics),
+    /// keyed by bare member name (`"sort"` -> `sort_fast_path`). Source-generic members
+    /// are not registered [`RegistryFunction`]s (see `source_generics`), so their fast
+    /// paths cannot ride on a [`Body::Mfb`]; they are recorded here so the generic
+    /// [`mfb_fast_path`] can answer a `#<pkg>_<member>$…` monomorph target without a
+    /// per-package table.
+    source_generic_fast_paths: Vec<(&'static str, MfbFastPath)>,
 }
 
 impl RegistryPackage {
@@ -789,6 +805,8 @@ impl RegistryPackage {
             helper_functions: Vec::new(),
             functions: Vec::new(),
             source_generics: Vec::new(),
+            source_types: Vec::new(),
+            source_generic_fast_paths: Vec::new(),
         }
     }
 
@@ -846,6 +864,11 @@ impl RegistryPackage {
     /// The package's source-generic member names (see [`source_generics`](Self::source_generics)).
     pub(crate) fn source_generics(&self) -> &[&'static str] {
         &self.source_generics
+    }
+
+    /// The package's source-declared value-type names (see [`source_types`](Self::source_types)).
+    pub(crate) fn source_types(&self) -> &[&'static str] {
+        &self.source_types
     }
 
     /// Whether `ast` imports this package — the generic replacement for the old
@@ -965,6 +988,25 @@ impl RegistryPackage {
     /// registry signature and are recognized only by [`is_source_generic_member`].
     pub(crate) fn add_source_generics(&mut self, names: &[&'static str]) -> &mut Self {
         self.source_generics.extend_from_slice(names);
+        self
+    }
+
+    /// Record the package's **source-declared value-type** names (see the
+    /// [`source_types`](Self::source_types) field). Additive; the names are semantic-only
+    /// (recognized by [`is_builtin_type`] / [`qualified_builtin_type`]) and are NOT
+    /// rendered by [`get_mfb`](Self::get_mfb) — the companion source already declares them.
+    pub(crate) fn add_source_types(&mut self, names: &[&'static str]) -> &mut Self {
+        self.source_types.extend_from_slice(names);
+        self
+    }
+
+    /// Record native HOF **fast paths** for the package's source-generic members (see
+    /// the [`source_generic_fast_paths`](Self::source_generic_fast_paths) field). Additive.
+    pub(crate) fn add_source_generic_fast_paths(
+        &mut self,
+        fast_paths: &[(&'static str, MfbFastPath)],
+    ) -> &mut Self {
+        self.source_generic_fast_paths.extend_from_slice(fast_paths);
         self
     }
 
@@ -1422,6 +1464,8 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
         package.records().iter().any(|record| record.name == name)
             || package.unions().iter().any(|union| union.name == name)
             || package.enums().iter().any(|r#enum| r#enum.name == name)
+            // `datetime`'s value records/enums live in its injected companion source.
+            || package.source_types().contains(&name)
     })
 }
 
@@ -1429,14 +1473,38 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
 /// id when the migrated package declares it, else `None`.
 /// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
-    registry()
-        .resolve_type(qualified)
-        .map(|resolved| match resolved {
+    if let Some(resolved) = registry().resolve_type(qualified) {
+        return Some(match resolved {
             ResolvedType::Record(record) => record.name.to_string(),
             ResolvedType::Union(union) => union.name.to_string(),
             ResolvedType::Enum(r#enum) => r#enum.name.to_string(),
             ResolvedType::Resource(resource) => resource.name.to_string(),
-        })
+        });
+    }
+    // A source-declared value type (`datetime.Instant`) authored only in the
+    // package's injected companion, not modeled as a record/union/enum.
+    let (pkg_name, type_name) = qualified.split_once('.')?;
+    registry()
+        .packages()
+        .iter()
+        .find(|p| p.import_name == pkg_name)
+        .filter(|p| p.source_types().contains(&type_name))
+        .map(|_| type_name.to_string())
+}
+
+/// The qualified close op that releases a migrated package's resource handle named
+/// `type_name` (`Process` → `process.__drop`), or `None` when no migrated package
+/// declares a resource of that name. The generic replacement for the per-package
+/// `resource_close_function` seams (`process::resource_close_function`).
+/// #[deprecated(note = "migrate registry().*")]
+pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
+    registry().packages().iter().find_map(|package| {
+        package
+            .resources()
+            .iter()
+            .find(|resource| resource.name == type_name)
+            .map(|resource| resource.close_function)
+    })
 }
 
 /// Whether the migrated call `qualified` declares `error_name` among any of its
@@ -1487,6 +1555,26 @@ pub(crate) fn native_lower(qualified: &str) -> Option<NativeLower> {
         }
     }
     None
+}
+
+/// The native HOF **fast path** for a source-generic monomorph `target`
+/// (`#collections_sort$Integer` → `collections`'s `sort` fast path), or `None` when
+/// no migrated package registered a fast path for that member. The `try_mfb_fast_path`
+/// codegen seam consults this before instantiating the injected `.mfb` body. Generic
+/// replacement for the old per-package `collections::mfb_fast_path`; the fast paths
+/// ride on the package's [`add_source_generic_fast_paths`](RegistryPackage::add_source_generic_fast_paths)
+/// data because source-generic members are not registered [`RegistryFunction`]s.
+pub(crate) fn mfb_fast_path(target: &str) -> Option<MfbFastPath> {
+    let (pkg_name, rest) = target.strip_prefix('#')?.split_once('_')?;
+    let member = rest.split('$').next()?;
+    registry()
+        .packages()
+        .iter()
+        .find(|p| p.import_name == pkg_name)?
+        .source_generic_fast_paths
+        .iter()
+        .find(|(name, _)| *name == member)
+        .map(|(_, fast_path)| *fast_path)
 }
 
 /// The bare native-codegen name a migrated call `qualified` dequalifies to for the

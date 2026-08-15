@@ -79,18 +79,33 @@ r#"FUNC __datetime_compare(a AS Instant, b AS Instant) AS Integer
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "compare",
-        INTRO,
-        DESC,
-        EX,
-        vec![
-            super::req("a", super::named("Instant")),
-            super::req("b", super::named("Instant")),
-        ],
-        super::int(),
-        BODY,
-        "__datetime_compare",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "compare",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("compare"),
+        implementations: vec![super::Implementation {
+            params: vec![
+                super::Parameter {
+                    name: "a",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("Instant"),
+                    default: super::DefaultValue::None,
+                },
+                super::Parameter {
+                    name: "b",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("Instant"),
+                    default: super::DefaultValue::None,
+                },
+            ],
+            return_type: super::ParameterType::Integer,
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_compare"),
+        }],
+    });
 }

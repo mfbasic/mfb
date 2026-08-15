@@ -20,7 +20,7 @@ datetime
 ## Imports
 
 `IMPORT datetime`. `datetime` is a built-in package, so the import needs no
-manifest dependency. [[src/codegen/builtins/datetime/mod.rs:is_datetime_call]]
+manifest dependency. [[src/codegen/builtins/datetime/mod.rs:register]]
 
 ## Description
 

@@ -67,15 +67,18 @@ r#"FUNC __datetime_utc AS Zone
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "utc",
-        INTRO,
-        DESC,
-        EX,
-        vec![],
-        super::named("Zone"),
-        BODY,
-        "__datetime_utc",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "utc",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("utc"),
+        implementations: vec![super::Implementation {
+            params: vec![],
+            return_type: super::ParameterType::Named("Zone"),
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_utc"),
+        }],
+    });
 }

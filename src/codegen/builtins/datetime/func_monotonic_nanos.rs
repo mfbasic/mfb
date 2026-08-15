@@ -61,5 +61,22 @@ END SUB
 ```"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::intrinsic(pkg, "monotonicNanos", INTRO, DESC, EX, vec![]);
+    pkg.add_function(super::RegistryFunction {
+        name: "monotonicNanos",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("monotonicNanos"),
+        implementations: vec![super::Implementation {
+            params: vec![],
+            return_type: super::ParameterType::Integer,
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::native(
+                Some(super::lower_datetime_helper),
+                Some(super::lower_datetime_helper),
+                None,
+            ),
+        }],
+    });
 }

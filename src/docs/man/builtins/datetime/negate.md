@@ -47,7 +47,7 @@ has no side effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `d` | `Duration` | The span to negate. May be a forward span (positive `seconds`), a backward span (negative `seconds`), or the zero span. Its `nanos` field is assumed to be a normalized sub-second remainder in `0 .. 999_999_999`, as produced by every `datetime` constructor. [[src/codegen/builtins/datetime/mod.rs:NEGATE]] |
+| `d` | `Duration` | The span to negate. May be a forward span (positive `seconds`), a backward span (negative `seconds`), or the zero span. Its `nanos` field is assumed to be a normalized sub-second remainder in `0 .. 999_999_999`, as produced by every `datetime` constructor. [[src/codegen/builtins/datetime/mod.rs:register]] |
 
 ## Return value
 

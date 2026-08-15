@@ -472,7 +472,9 @@ impl LinuxPlan<'_> {
                     .map(|symbol| self.libc_import(symbol, required_by))
                     .collect()
             }
-            call if crate::codegen::builtins::process::is_process_runtime_call(call) => {
+            call if crate::codegen::registry::owning_package(call) == Some("process")
+                || call == "process.__drop" =>
+            {
                 // plan-90: fork/exec/pipe/wait + the errno accessor. Over-importing
                 // is harmless (the merged table dedups). `_exit` is spelled without
                 // the leading underscore macOS uses.

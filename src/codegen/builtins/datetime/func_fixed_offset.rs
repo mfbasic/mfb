@@ -67,25 +67,48 @@ END SUB
 ```"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::arity_family(
-        pkg,
-        "fixedOffset",
-        INTRO,
-        DESC,
-        EX,
-        super::named("Zone"),
-        vec![
-            (
-                vec![super::req("offsetSeconds", super::int())],
-                "__datetime_fixedOffset1",
-            ),
-            (
-                vec![
-                    super::req("hours", super::int()),
-                    super::req("mins", super::int()),
+    pkg.add_function(super::RegistryFunction {
+        name: "fixedOffset",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("fixedOffset"),
+        implementations: vec![
+            super::Implementation {
+                params: vec![super::Parameter {
+                    name: "offsetSeconds",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Integer,
+                    default: super::DefaultValue::None,
+                }],
+                return_type: super::ParameterType::Named("Zone"),
+                errors: vec![],
+                lowering: super::Lowering::Helper,
+                body: super::Body::Rewrite("__datetime_fixedOffset1"),
+            },
+            super::Implementation {
+                params: vec![
+                    super::Parameter {
+                        name: "hours",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "mins",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
                 ],
-                "__datetime_fixedOffset2",
-            ),
+                return_type: super::ParameterType::Named("Zone"),
+                errors: vec![],
+                lowering: super::Lowering::Helper,
+                body: super::Body::Rewrite("__datetime_fixedOffset2"),
+            },
         ],
-    );
+    });
 }

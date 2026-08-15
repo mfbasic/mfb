@@ -61,18 +61,33 @@ r#"FUNC __datetime_plus(a AS Duration, b AS Duration) AS Duration
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "plus",
-        INTRO,
-        DESC,
-        EX,
-        vec![
-            super::req("a", super::named("Duration")),
-            super::req("b", super::named("Duration")),
-        ],
-        super::named("Duration"),
-        BODY,
-        "__datetime_plus",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "plus",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("plus"),
+        implementations: vec![super::Implementation {
+            params: vec![
+                super::Parameter {
+                    name: "a",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("Duration"),
+                    default: super::DefaultValue::None,
+                },
+                super::Parameter {
+                    name: "b",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("Duration"),
+                    default: super::DefaultValue::None,
+                },
+            ],
+            return_type: super::ParameterType::Named("Duration"),
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_plus"),
+        }],
+    });
 }

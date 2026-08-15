@@ -240,7 +240,7 @@ static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::ne
     entries.insert(
         crate::codegen::builtins::process::PROCESS_TYPE.to_string(),
         ResourceInfo {
-            close_function: crate::codegen::builtins::process::resource_close_function(
+            close_function: crate::codegen::registry::resource_close_function(
                 crate::codegen::builtins::process::PROCESS_TYPE,
             )
             .expect("Process has a built-in close op")

@@ -54,7 +54,7 @@ different zone or DST rule.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `dt` | `DateTime` | The `DateTime` whose day is taken. Its calendar date and zone are read; its time of day and sub-second nanoseconds are discarded and replaced with `00:00:00.000000000`. The zone may be fixed-offset or the host's local zone. [[src/codegen/builtins/datetime/mod.rs:START_OF_DAY]] |
+| `dt` | `DateTime` | The `DateTime` whose day is taken. Its calendar date and zone are read; its time of day and sub-second nanoseconds are discarded and replaced with `00:00:00.000000000`. The zone may be fixed-offset or the host's local zone. [[src/codegen/builtins/datetime/mod.rs:register]] |
 
 ## Return value
 

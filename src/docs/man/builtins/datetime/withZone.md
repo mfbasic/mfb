@@ -60,7 +60,7 @@ for a local zone it reads the host's time-zone configuration through the
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `dt` | `DateTime` | The source civil date-time. Its `date`, `time`, and pinned `offset` are used to recover the absolute `Instant` it names; its `zone` field is not consulted for the recovery. The `nanos` of `dt.time` are preserved into the result. [[src/codegen/builtins/datetime/mod.rs:WITH_ZONE]] |
+| `dt` | `DateTime` | The source civil date-time. Its `date`, `time`, and pinned `offset` are used to recover the absolute `Instant` it names; its `zone` field is not consulted for the recovery. The `nanos` of `dt.time` are preserved into the result. [[src/codegen/builtins/datetime/mod.rs:register]] |
 | `zone` | `Zone` | The zone to re-project into. Its kind selects how the new offset is resolved: a UTC zone always contributes a zero offset, a fixed-offset zone (`datetime::fixedOffset`) contributes its single constant offset, and a local zone (`datetime::local`) contributes the host's DST-correct offset for the recovered instant. [[src/codegen/builtins/datetime/func_in_zone.rs:__datetime_inZone]] |
 
 ## Return value

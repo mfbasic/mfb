@@ -51,7 +51,7 @@ overflow the `Integer` range, so this call raises no error of its own.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `at` | `Instant` | The absolute point on the UTC timeline to project. Its `seconds` field (seconds since the Unix epoch, may be negative) drives the civil date/time computation; its `nanos` field is copied unchanged into the result's time. [[src/codegen/builtins/datetime/mod.rs:TO_UTC]] |
+| `at` | `Instant` | The absolute point on the UTC timeline to project. Its `seconds` field (seconds since the Unix epoch, may be negative) drives the civil date/time computation; its `nanos` field is copied unchanged into the result's time. [[src/codegen/builtins/datetime/mod.rs:register]] |
 
 ## Return value
 

@@ -1,7 +1,8 @@
 //! `collections::forEach` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::list_element_type;
@@ -93,16 +94,20 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         expected_arguments: Some("List OF T, FUNC(T) AS Nothing"),
         implementations: vec![Implementation {
             params: vec![
-                super::param(
-                    "value",
-                    &["collection"],
-                    ParameterType::list_of(ParameterType::Var("T")),
-                ),
-                super::param(
-                    "action",
-                    &[],
-                    ParameterType::func(vec![ParameterType::Var("T")], ParameterType::Nothing),
-                ),
+                Parameter {
+                    name: "value",
+                    desc: "",
+                    aliases: &["collection"],
+                    ty: ParameterType::list_of(ParameterType::Var("T")),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "action",
+                    desc: "",
+                    aliases: &[],
+                    ty: ParameterType::func(vec![ParameterType::Var("T")], ParameterType::Nothing),
+                    default: DefaultValue::None,
+                },
             ],
             return_type: ParameterType::Nothing,
             errors: vec![],

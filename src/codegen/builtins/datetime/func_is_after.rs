@@ -75,18 +75,33 @@ r#"FUNC __datetime_isAfter(a AS Instant, b AS Instant) AS Boolean
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "isAfter",
-        INTRO,
-        DESC,
-        EX,
-        vec![
-            super::req("a", super::named("Instant")),
-            super::req("b", super::named("Instant")),
-        ],
-        super::boolean(),
-        BODY,
-        "__datetime_isAfter",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "isAfter",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("isAfter"),
+        implementations: vec![super::Implementation {
+            params: vec![
+                super::Parameter {
+                    name: "a",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("Instant"),
+                    default: super::DefaultValue::None,
+                },
+                super::Parameter {
+                    name: "b",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("Instant"),
+                    default: super::DefaultValue::None,
+                },
+            ],
+            return_type: super::ParameterType::Boolean,
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_isAfter"),
+        }],
+    });
 }

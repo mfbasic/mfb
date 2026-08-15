@@ -53,7 +53,7 @@ push the combined second count past the `Integer` range overflows and traps.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `at` | `Instant` | The starting point on the UTC timeline to shift. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative for instants before the epoch) and its `nanos` field is the sub-second remainder. [[src/codegen/builtins/datetime/mod.rs:ADD]] |
+| `at` | `Instant` | The starting point on the UTC timeline to shift. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative for instants before the epoch) and its `nanos` field is the sub-second remainder. [[src/codegen/builtins/datetime/mod.rs:register]] |
 | `by` | `Duration` | The signed span to add. A positive `Duration` advances `at` to a later `Instant`; a negative `Duration` moves it to an earlier one. Its `seconds` and `nanos` fields are added to those of `at`. |
 
 ## Return value

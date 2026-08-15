@@ -159,14 +159,6 @@ pub(crate) fn register(r: &mut Registry) {
 const SOURCE_LABEL: &str = "<builtin-encoding>";
 const SOURCE_DOC: &str = "builtins/encoding.mfb";
 
-/// Whether `ast` imports `encoding` (directly or via another built-in's injected
-/// `IMPORT encoding`).
-pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
-    registry()
-        .resolve_package("encoding")
-        .is_some_and(|pkg| pkg.is_imported_by(ast))
-}
-
 /// Parse the built-in `encoding` package source — the generic
 /// [`RegistryPackage::get_mfb`] assembly (imports → shared helpers → member
 /// bodies), identical to the mechanism csv/json/regex use. The synthetic path/doc
@@ -189,10 +181,14 @@ fn source_file() -> Result<crate::ast::AstFile, ()> {
 /// The generic pass therefore skips `encoding` (see `Registry::augment_project`).
 /// The injected *source* is the generic [`RegistryPackage::get_mfb`] assembly; only
 /// the injection *position* (this late pass) is bespoke.
+/// #[deprecated(note = "migrate registry().augment_project once crypto/strings move")]
 pub(crate) fn augmented_project(
     ast: &crate::ast::AstProject,
 ) -> Result<crate::ast::AstProject, ()> {
-    if !uses_package(ast) {
+    let imported = registry()
+        .resolve_package("encoding")
+        .is_some_and(|pkg| pkg.is_imported_by(ast));
+    if !imported {
         return Ok(ast.clone());
     }
     let mut augmented = ast.clone();
@@ -326,7 +322,10 @@ mod tests {
     #[test]
     fn augmented_project_injects_when_imported() {
         let ast = project("IMPORT encoding\nSUB main\nEND SUB\n");
-        assert!(uses_package(&ast));
+        assert!(registry()
+            .resolve_package("encoding")
+            .unwrap()
+            .is_imported_by(&ast));
         assert_eq!(
             augmented_project(&ast).expect("augment").files.len(),
             ast.files.len() + 1
@@ -336,7 +335,10 @@ mod tests {
     #[test]
     fn augmented_project_noop_without_import() {
         let ast = project("SUB main\nEND SUB\n");
-        assert!(!uses_package(&ast));
+        assert!(!registry()
+            .resolve_package("encoding")
+            .unwrap()
+            .is_imported_by(&ast));
         assert_eq!(
             augmented_project(&ast).expect("augment").files.len(),
             ast.files.len()

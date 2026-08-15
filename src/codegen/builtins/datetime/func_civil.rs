@@ -72,19 +72,40 @@ r#"FUNC __datetime_civil(d AS Date, t AS Time, z AS Zone) AS DateTime
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "civil",
-        INTRO,
-        DESC,
-        EX,
-        vec![
-            super::req("date", super::named("Date")),
-            super::req("time", super::named("Time")),
-            super::req("zone", super::named("Zone")),
-        ],
-        super::named("DateTime"),
-        BODY,
-        "__datetime_civil",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "civil",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("civil"),
+        implementations: vec![super::Implementation {
+            params: vec![
+                super::Parameter {
+                    name: "date",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("Date"),
+                    default: super::DefaultValue::None,
+                },
+                super::Parameter {
+                    name: "time",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("Time"),
+                    default: super::DefaultValue::None,
+                },
+                super::Parameter {
+                    name: "zone",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("Zone"),
+                    default: super::DefaultValue::None,
+                },
+            ],
+            return_type: super::ParameterType::Named("DateTime"),
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_civil"),
+        }],
+    });
 }

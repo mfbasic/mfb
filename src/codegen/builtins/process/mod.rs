@@ -19,7 +19,7 @@
 //! an argument *union*, so the registry's generic overload/return resolution
 //! answers arity/return/validation with no custom resolver.
 
-use crate::codegen::registry::{Registry, RegistryPackage};
+use crate::codegen::registry::{Registry, RegistryPackage, RegistryResource};
 
 mod func_close;
 mod func_detach;
@@ -129,6 +129,20 @@ pub(crate) fn register(r: &mut Registry) {
     // It imports nothing, so it has no source-ordering dependency.
     pkg.add_helper_functions(vec![include_str!("package.mfb")]);
 
+    // The opaque `Process` resource handle. Semantic-only (no injectable source):
+    // it makes `registry::qualified_builtin_type("process.Process")` and
+    // `registry::resource_close_function("Process")` answer generically, replacing
+    // the deleted per-package `is_builtin_type`/`resource_close_function` seams.
+    // `export: false`: the qualified-type resolution and close-op lookup ignore this
+    // flag, and it is `false` only so the man2 `types` page does not render a
+    // "released with `process.__drop`" line exposing the internal scope-drop op — the
+    // `Process` handle is closed automatically by lexical scope, not a public close.
+    pkg.add_resource(RegistryResource {
+        name: PROCESS_TYPE,
+        export: false,
+        close_function: DROP,
+    });
+
     func_spawn::register(&mut pkg);
     func_shell::register(&mut pkg);
     func_pid::register(&mut pkg);
@@ -147,37 +161,6 @@ pub(crate) fn register(r: &mut Registry) {
     r.add_package(pkg);
 }
 
-/// Whether `name` is a public `process` builtin call (`process.spawn`, …). The
-/// internal `__drop` op and the `builder_values` aux code-form symbols are not
-/// descriptor calls, so they are excluded here; use [`is_process_runtime_call`]
-/// for the runtime-helper dispatch that includes `__drop`.
-pub(crate) fn is_process_call(name: &str) -> bool {
-    crate::codegen::registry::owning_package(name) == Some("process")
-}
-
-/// Whether `name` is a `process` call that lowers to a `_mfb_rt_process_*`
-/// runtime helper — every public call plus the internal `__drop` cleanup op.
-pub(crate) fn is_process_runtime_call(name: &str) -> bool {
-    is_process_call(name) || name == DROP
-}
-
-/// Whether `name` is a `process` value/opaque type (`Process`). The `Stream`/
-/// `Signal` value enums are recognized through the injected source companion, not
-/// here; only the descriptor-only opaque handle is claimed.
-pub(crate) fn is_builtin_type(name: &str) -> bool {
-    name == PROCESS_TYPE
-}
-
-/// The scope-drop close op for a `process` resource type, if any. `Process` is
-/// reaped via the internal `__drop` op (SIGKILL + waitpid), not the public
-/// `close`.
-pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
-    match type_name {
-        PROCESS_TYPE => Some(DROP),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::codegen::registry::{self, registry};
@@ -188,10 +171,14 @@ mod tests {
             .resolve_package("process")
             .expect("process package");
         assert_eq!(pkg.functions().len(), 14);
-        // The opaque handle is descriptor-only (not an EXPORT TYPE/UNION), so the
-        // generic type query does not see it; the hand-written predicate does.
-        assert!(super::is_builtin_type("Process"));
+        // The opaque handle is a semantic-only resource (not an EXPORT TYPE/UNION/
+        // ENUM), so the value-type query `is_builtin_type` does not see it, but the
+        // qualified-type resolution does (via the resource).
         assert!(!registry::is_builtin_type("Process"));
+        assert_eq!(
+            registry::qualified_builtin_type("process.Process"),
+            Some("Process".to_string())
+        );
     }
 
     #[test]
@@ -274,10 +261,10 @@ mod tests {
     #[test]
     fn process_close_op_is_drop() {
         assert_eq!(
-            super::resource_close_function(super::PROCESS_TYPE),
+            registry::resource_close_function(super::PROCESS_TYPE),
             Some(super::DROP)
         );
-        assert_eq!(super::resource_close_function("Nothing"), None);
+        assert_eq!(registry::resource_close_function("Nothing"), None);
     }
 
     #[test]
@@ -298,12 +285,15 @@ mod tests {
 
     #[test]
     fn runtime_call_membership() {
-        assert!(super::is_process_call("process.spawn"));
-        assert!(super::is_process_runtime_call("process.spawn"));
+        // The runtime-call predicate is inlined at each dispatch site as
+        // `owning_package(name) == Some("process") || name == process.__drop`.
+        let is_runtime =
+            |name: &str| registry::owning_package(name) == Some("process") || name == super::DROP;
+        assert!(registry::owning_package("process.spawn") == Some("process"));
+        assert!(is_runtime("process.spawn"));
         // `__drop` is the internal scope-drop op: a runtime call, not a descriptor call.
-        assert!(!super::is_process_call(super::DROP));
-        assert!(super::is_process_runtime_call(super::DROP));
-        assert!(!super::is_process_call("process.bogus"));
-        assert!(!super::is_process_runtime_call("process.bogus"));
+        assert!(registry::owning_package(super::DROP) != Some("process"));
+        assert!(is_runtime(super::DROP));
+        assert!(!is_runtime("process.bogus"));
     }
 }

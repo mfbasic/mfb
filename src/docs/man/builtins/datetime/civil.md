@@ -61,7 +61,7 @@ resolves it reads no host state and has no side effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `date` | `Date` | The calendar date (`year`, `month`, `day`) of the wall-clock moment, interpreted as a local date in `zone`. [[src/codegen/builtins/datetime/mod.rs:CIVIL]] |
+| `date` | `Date` | The calendar date (`year`, `month`, `day`) of the wall-clock moment, interpreted as a local date in `zone`. [[src/codegen/builtins/datetime/mod.rs:register]] |
 | `time` | `Time` | The wall-clock time of day (`hour`, `minute`, `second`, `nanos`) of the moment, interpreted as a local time in `zone`. The `nanos` field is preserved verbatim in the result. [[src/codegen/builtins/datetime/func_civil.rs:__datetime_civil]] |
 | `zone` | `Zone` | The zone in which `date` and `time` are read as local civil fields and against which the UTC offset is resolved. May be a fixed-offset zone (`datetime::utc`, `datetime::fixedOffset`) or the host's local zone (`datetime::local`). [[src/codegen/builtins/datetime/func_offset_at.rs:__datetime_offsetAt]] |
 

@@ -19,7 +19,7 @@ IMPORT process
 ```
 
 `process` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/process/mod.rs:is_process_call]]
+[[src/codegen/builtins/process/mod.rs:register]]
 
 ## Description
 
@@ -32,7 +32,7 @@ running on its own and survives the parent's exit. [[src/codegen/builtins/proces
 This is the counterpart to the default drop behavior. Normally letting a `Process`
 go out of scope force-kills and reaps the child; `detach` is the deliberate opt-out
 for a child that should outlive the program — a daemon, a background job, a handoff
-to another process. [[src/codegen/builtins/process/mod.rs:resource_close_function]]
+to another process. [[src/codegen/registry/mod.rs:resource_close_function]]
 
 Because `detach` marks the handle closed, it consumes the handle for all practical
 purposes: every later `process::` call on it — including a second `detach` — raises

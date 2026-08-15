@@ -81,15 +81,24 @@ r#"FUNC __datetime_fromMillis(millis AS Integer) AS Instant
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "fromMillis",
-        INTRO,
-        DESC,
-        EX,
-        vec![super::req("millis", super::int())],
-        super::named("Instant"),
-        BODY,
-        "__datetime_fromMillis",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "fromMillis",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("fromMillis"),
+        implementations: vec![super::Implementation {
+            params: vec![super::Parameter {
+                name: "millis",
+                desc: "",
+                aliases: &[],
+                ty: super::ParameterType::Integer,
+                default: super::DefaultValue::None,
+            }],
+            return_type: super::ParameterType::Named("Instant"),
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_fromMillis"),
+        }],
+    });
 }

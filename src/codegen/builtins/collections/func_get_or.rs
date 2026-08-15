@@ -1,7 +1,8 @@
 //! `collections::getOr` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{list_element_type, map_type_parts};
@@ -93,13 +94,27 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![
             Implementation {
                 params: vec![
-                    super::param(
-                        "value",
-                        &["collection"],
-                        ParameterType::list_of(ParameterType::Var("T")),
-                    ),
-                    super::param("index", &["key"], ParameterType::Integer),
-                    super::param("default", &["fallback"], ParameterType::Var("T")),
+                    Parameter {
+                        name: "value",
+                        desc: "",
+                        aliases: &["collection"],
+                        ty: ParameterType::list_of(ParameterType::Var("T")),
+                        default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "index",
+                        desc: "",
+                        aliases: &["key"],
+                        ty: ParameterType::Integer,
+                        default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "default",
+                        desc: "",
+                        aliases: &["fallback"],
+                        ty: ParameterType::Var("T"),
+                        default: DefaultValue::None,
+                    },
                 ],
                 return_type: ParameterType::Var("T"),
                 errors: vec![],
@@ -108,13 +123,27 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             },
             Implementation {
                 params: vec![
-                    super::param(
-                        "value",
-                        &["collection"],
-                        ParameterType::map_of(ParameterType::Var("K"), ParameterType::Var("V")),
-                    ),
-                    super::param("index", &["key"], ParameterType::Var("K")),
-                    super::param("default", &["fallback"], ParameterType::Var("V")),
+                    Parameter {
+                        name: "value",
+                        desc: "",
+                        aliases: &["collection"],
+                        ty: ParameterType::map_of(ParameterType::Var("K"), ParameterType::Var("V")),
+                        default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "index",
+                        desc: "",
+                        aliases: &["key"],
+                        ty: ParameterType::Var("K"),
+                        default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "default",
+                        desc: "",
+                        aliases: &["fallback"],
+                        ty: ParameterType::Var("V"),
+                        default: DefaultValue::None,
+                    },
                 ],
                 return_type: ParameterType::Var("V"),
                 errors: vec![],

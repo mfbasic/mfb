@@ -52,7 +52,7 @@ precision of `at`; use it when nanosecond fidelity matters.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `at` | `Instant` | The absolute point on the UTC timeline to measure. Its `seconds` field (seconds since the Unix epoch, possibly negative) and its `nanos` field (`0..999999999`) together determine the nanosecond count. Both fields contribute exactly. [[src/codegen/builtins/datetime/mod.rs:TO_NANOS]] |
+| `at` | `Instant` | The absolute point on the UTC timeline to measure. Its `seconds` field (seconds since the Unix epoch, possibly negative) and its `nanos` field (`0..999999999`) together determine the nanosecond count. Both fields contribute exactly. [[src/codegen/builtins/datetime/mod.rs:register]] |
 
 ## Return value
 

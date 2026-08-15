@@ -507,22 +507,26 @@ impl NativePlanPlatform for Platform {
             // plan-90-D: the process lifecycle over CreateProcessA. Over-importing
             // the whole kernel32 set for every process.* helper is harmless (the
             // merged IAT dedups).
-            call if crate::codegen::builtins::process::is_process_runtime_call(call) => vec![
-                import("CreateProcessA", KERNEL32, required_by),
-                import("CreatePipe", KERNEL32, required_by),
-                import("SetHandleInformation", KERNEL32, required_by),
-                import("WriteFile", KERNEL32, required_by),
-                import("ReadFile", KERNEL32, required_by),
-                import("PeekNamedPipe", KERNEL32, required_by),
-                import("SetNamedPipeHandleState", KERNEL32, required_by),
-                import("GetTickCount64", KERNEL32, required_by),
-                import("Sleep", KERNEL32, required_by),
-                import("WaitForSingleObject", KERNEL32, required_by),
-                import("GetExitCodeProcess", KERNEL32, required_by),
-                import("TerminateProcess", KERNEL32, required_by),
-                import("CloseHandle", KERNEL32, required_by),
-                import("GetLastError", KERNEL32, required_by),
-            ],
+            call if crate::codegen::registry::owning_package(call) == Some("process")
+                || call == "process.__drop" =>
+            {
+                vec![
+                    import("CreateProcessA", KERNEL32, required_by),
+                    import("CreatePipe", KERNEL32, required_by),
+                    import("SetHandleInformation", KERNEL32, required_by),
+                    import("WriteFile", KERNEL32, required_by),
+                    import("ReadFile", KERNEL32, required_by),
+                    import("PeekNamedPipe", KERNEL32, required_by),
+                    import("SetNamedPipeHandleState", KERNEL32, required_by),
+                    import("GetTickCount64", KERNEL32, required_by),
+                    import("Sleep", KERNEL32, required_by),
+                    import("WaitForSingleObject", KERNEL32, required_by),
+                    import("GetExitCodeProcess", KERNEL32, required_by),
+                    import("TerminateProcess", KERNEL32, required_by),
+                    import("CloseHandle", KERNEL32, required_by),
+                    import("GetLastError", KERNEL32, required_by),
+                ]
+            }
             // WASAPI audio (plan-66 G+H). ole32 provides the COM runtime and object
             // activation (CoInitializeEx/CoCreateInstance/CoTaskMemFree); kernel32
             // provides the event-driven wait primitives. The IMMDevice*/IAudioClient*/

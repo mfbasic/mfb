@@ -97,29 +97,64 @@ END SUB
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
     // Arity-dispatched: 2 args -> `__datetime_parse2`, 3 args (trailing `zone`) ->
     // `__datetime_parse3`. `select` picks by arity and yields the right rewrite.
-    super::arity_family(
-        pkg,
-        "parse",
-        INTRO,
-        DESC,
-        EX,
-        super::named("DateTime"),
-        vec![
-            (
-                vec![
-                    super::req("value", super::string()),
-                    super::req("pattern", super::string()),
+    pkg.add_function(super::RegistryFunction {
+        name: "parse",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("parse"),
+        implementations: vec![
+            super::Implementation {
+                params: vec![
+                    super::Parameter {
+                        name: "value",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::String,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "pattern",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::String,
+                        default: super::DefaultValue::None,
+                    },
                 ],
-                "__datetime_parse2",
-            ),
-            (
-                vec![
-                    super::req("value", super::string()),
-                    super::req("pattern", super::string()),
-                    super::req("zone", super::named("Zone")),
+                return_type: super::ParameterType::Named("DateTime"),
+                errors: vec![],
+                lowering: super::Lowering::Helper,
+                body: super::Body::Rewrite("__datetime_parse2"),
+            },
+            super::Implementation {
+                params: vec![
+                    super::Parameter {
+                        name: "value",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::String,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "pattern",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::String,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "zone",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Named("Zone"),
+                        default: super::DefaultValue::None,
+                    },
                 ],
-                "__datetime_parse3",
-            ),
+                return_type: super::ParameterType::Named("DateTime"),
+                errors: vec![],
+                lowering: super::Lowering::Helper,
+                body: super::Body::Rewrite("__datetime_parse3"),
+            },
         ],
-    );
+    });
 }

@@ -123,11 +123,15 @@ impl<'a> Monomorphizer<'a> {
             emitted_type_keys: HashSet::new(),
             emitted_function_keys: HashSet::new(),
             concrete_symbol_keys: HashMap::new(),
-            collections_bindings: crate::codegen::builtins::collections::collections_bindings(
-                source,
-            )
-            .into_keys()
-            .collect(),
+            // Binding names (including aliases) of every `collections` import — used
+            // to map a `binding.member` callee onto the source-generic implementation.
+            collections_bindings: source
+                .files
+                .iter()
+                .flat_map(|file| file.imports.iter())
+                .filter(|import| import.package_name() == "collections")
+                .map(|import| import.binding_name().to_string())
+                .collect(),
             function_files,
             current_file: None,
             template_instantiation_depth: 0,
@@ -145,8 +149,8 @@ impl<'a> Monomorphizer<'a> {
         if !self.collections_bindings.contains(binding) {
             return None;
         }
-        crate::codegen::builtins::collections::is_collections_function(member)
-            .then(|| crate::codegen::builtins::collections::internal_name(member))
+        crate::codegen::registry::is_source_generic_member(&format!("collections.{member}"))
+            .then(|| crate::internal_name::internalize(&format!("__collections_{member}")))
     }
 
     /// Rewrite a call to an imported overloaded function to the package's mangled

@@ -110,11 +110,9 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
 /// list cannot enumerate, so they stay a structural prefix check.
 pub(crate) fn is_builtin_type(name: &str) -> bool {
     // Migrated (clean-room registry) types first; else the old REGISTRY.
+    // `datetime`'s value records/enums (authored in `package.mfb`) are recognized
+    // through the generic registry via their `add_source_types` declaration.
     crate::codegen::registry::is_builtin_type(name)
-        // `datetime`'s value records + enums are authored in `package.mfb` (the
-        // registry models neither `ENUM`s nor the source `DOC` blocks), so they are
-        // recognized here rather than through the generic registry type query.
-        || crate::codegen::builtins::datetime::is_builtin_type(name)
         || crate::target::shared::registry::REGISTRY
             .modules()
             .iter()
@@ -174,12 +172,14 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         "app" => app::is_builtin_type(member),
         "audio" => audio::is_builtin_type(member),
         "crypto" => crypto::is_builtin_type(member),
-        "datetime" => crate::codegen::builtins::datetime::is_builtin_type(member),
+        // `datetime`'s source-declared value types resolve via the migrated-registry
+        // check above (`registry::qualified_builtin_type`), so no arm is needed here.
         "fs" => fs::is_builtin_type(member),
         "http" => http::is_builtin_type(member),
         "money" => money::is_builtin_type(member),
         "net" => net::is_builtin_type(member),
-        "process" => crate::codegen::builtins::process::is_builtin_type(member),
+        // `process` (the `Process` resource) is resolved by the migrated-registry
+        // check above (`registry::qualified_builtin_type`), so it needs no arm here.
         "term" => term::is_builtin_type(member),
         "thread" => thread::is_builtin_type(member),
         "tls" => tls::is_builtin_type(member),
@@ -532,16 +532,16 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
 
 /// The `(type, value)` constants to append after the `provided` real arguments so
 /// a fixed-ABI runtime helper always receives every parameter — plan-72-BB: the
-/// owning package's `default_argument_padding` (only `tls`/`regex`/`datetime`/
-/// `crypto`/`http` default-pad; each owns its callee uniquely, so the first
-/// non-empty result is the owner's).
+/// owning package's `default_argument_padding` (only `tls`/`regex`/`crypto`/`http`
+/// default-pad; each owns its callee uniquely, so the first non-empty result is the
+/// owner's). `datetime`'s `time` padding moved onto the clean-room registry (its
+/// trailing params are `Fill`), consulted first by the caller.
 pub(crate) fn default_argument_padding(
     callee: &str,
     provided: usize,
 ) -> &'static [(&'static str, &'static str)] {
     for pad in [
         tls::default_argument_padding(callee, provided),
-        crate::codegen::builtins::datetime::default_argument_padding(callee, provided),
         crypto::default_argument_padding(callee, provided),
         http::default_argument_padding(callee, provided),
     ] {

@@ -52,7 +52,7 @@ from the result. For full nanosecond precision use `datetime::toNanos`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `at` | `Instant` | The absolute point on the UTC timeline to measure. Its `seconds` field (seconds since the Unix epoch, possibly negative) and its `nanos` field (`0..999999999`) together determine the millisecond count. Sub-millisecond `nanos` are truncated. [[src/codegen/builtins/datetime/mod.rs:TO_MILLIS]] |
+| `at` | `Instant` | The absolute point on the UTC timeline to measure. Its `seconds` field (seconds since the Unix epoch, possibly negative) and its `nanos` field (`0..999999999`) together determine the millisecond count. Sub-millisecond `nanos` are truncated. [[src/codegen/builtins/datetime/mod.rs:register]] |
 
 ## Return value
 

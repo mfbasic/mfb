@@ -55,15 +55,24 @@ r#"FUNC __datetime_negate(d AS Duration) AS Duration
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "negate",
-        INTRO,
-        DESC,
-        EX,
-        vec![super::req("d", super::named("Duration"))],
-        super::named("Duration"),
-        BODY,
-        "__datetime_negate",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "negate",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("negate"),
+        implementations: vec![super::Implementation {
+            params: vec![super::Parameter {
+                name: "d",
+                desc: "",
+                aliases: &[],
+                ty: super::ParameterType::Named("Duration"),
+                default: super::DefaultValue::None,
+            }],
+            return_type: super::ParameterType::Named("Duration"),
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_negate"),
+        }],
+    });
 }

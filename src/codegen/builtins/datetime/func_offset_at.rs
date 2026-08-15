@@ -73,18 +73,33 @@ r#"FUNC __datetime_offsetAt(z AS Zone, at AS Instant) AS Integer
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "offsetAt",
-        INTRO,
-        DESC,
-        EX,
-        vec![
-            super::req("zone", super::named("Zone")),
-            super::req("at", super::named("Instant")),
-        ],
-        super::int(),
-        BODY,
-        "__datetime_offsetAt",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "offsetAt",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("offsetAt"),
+        implementations: vec![super::Implementation {
+            params: vec![
+                super::Parameter {
+                    name: "zone",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("Zone"),
+                    default: super::DefaultValue::None,
+                },
+                super::Parameter {
+                    name: "at",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("Instant"),
+                    default: super::DefaultValue::None,
+                },
+            ],
+            return_type: super::ParameterType::Integer,
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_offsetAt"),
+        }],
+    });
 }

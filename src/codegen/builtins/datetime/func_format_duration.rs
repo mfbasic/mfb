@@ -88,15 +88,24 @@ r#"FUNC __datetime_formatDuration(d AS Duration) AS String
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "formatDuration",
-        INTRO,
-        DESC,
-        EX,
-        vec![super::req("d", super::named("Duration"))],
-        super::string(),
-        BODY,
-        "__datetime_formatDuration",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "formatDuration",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("formatDuration"),
+        implementations: vec![super::Implementation {
+            params: vec![super::Parameter {
+                name: "d",
+                desc: "",
+                aliases: &[],
+                ty: super::ParameterType::Named("Duration"),
+                default: super::DefaultValue::None,
+            }],
+            return_type: super::ParameterType::String,
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_formatDuration"),
+        }],
+    });
 }

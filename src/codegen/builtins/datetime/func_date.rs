@@ -70,19 +70,40 @@ r#"FUNC __datetime_date(year AS Integer, month AS Integer, day AS Integer) AS Da
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "date",
-        INTRO,
-        DESC,
-        EX,
-        vec![
-            super::req("year", super::int()),
-            super::req("month", super::int()),
-            super::req("day", super::int()),
-        ],
-        super::named("Date"),
-        BODY,
-        "__datetime_date",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "date",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("date"),
+        implementations: vec![super::Implementation {
+            params: vec![
+                super::Parameter {
+                    name: "year",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Integer,
+                    default: super::DefaultValue::None,
+                },
+                super::Parameter {
+                    name: "month",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Integer,
+                    default: super::DefaultValue::None,
+                },
+                super::Parameter {
+                    name: "day",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Integer,
+                    default: super::DefaultValue::None,
+                },
+            ],
+            return_type: super::ParameterType::Named("Date"),
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_date"),
+        }],
+    });
 }

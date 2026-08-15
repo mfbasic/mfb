@@ -109,18 +109,33 @@ r#"FUNC __datetime_format(dt AS DateTime, pattern AS String) AS String
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "format",
-        INTRO,
-        DESC,
-        EX,
-        vec![
-            super::req("dt", super::named("DateTime")),
-            super::req("pattern", super::string()),
-        ],
-        super::string(),
-        BODY,
-        "__datetime_format",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "format",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("format"),
+        implementations: vec![super::Implementation {
+            params: vec![
+                super::Parameter {
+                    name: "dt",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("DateTime"),
+                    default: super::DefaultValue::None,
+                },
+                super::Parameter {
+                    name: "pattern",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::String,
+                    default: super::DefaultValue::None,
+                },
+            ],
+            return_type: super::ParameterType::String,
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_format"),
+        }],
+    });
 }

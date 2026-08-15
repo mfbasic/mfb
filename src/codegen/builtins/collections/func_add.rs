@@ -1,7 +1,8 @@
 //! `collections::add` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::set_element_type;
@@ -80,12 +81,20 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         expected_arguments: Some("Set OF T, T"),
         implementations: vec![Implementation {
             params: vec![
-                super::param(
-                    "value",
-                    &["set"],
-                    ParameterType::set_of(ParameterType::Var("T")),
-                ),
-                super::param("item", &["element"], ParameterType::Var("T")),
+                Parameter {
+                    name: "value",
+                    desc: "",
+                    aliases: &["set"],
+                    ty: ParameterType::set_of(ParameterType::Var("T")),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "item",
+                    desc: "",
+                    aliases: &["element"],
+                    ty: ParameterType::Var("T"),
+                    default: DefaultValue::None,
+                },
             ],
             return_type: ParameterType::Arg(0),
             errors: vec![],

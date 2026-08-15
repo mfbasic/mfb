@@ -73,7 +73,7 @@ has no side effects. [[src/codegen/builtins/datetime/func_format.rs:__datetime_f
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `dt` | `DateTime` | The moment to render. Its date fields (`year`, `month`, `day`), time fields (`hour`, `minute`, `second`, `nanos`), and resolved UTC `offset` supply the values for the pattern tokens. [[src/codegen/builtins/datetime/mod.rs:FORMAT]] |
+| `dt` | `DateTime` | The moment to render. Its date fields (`year`, `month`, `day`), time fields (`hour`, `minute`, `second`, `nanos`), and resolved UTC `offset` supply the values for the pattern tokens. [[src/codegen/builtins/datetime/mod.rs:register]] |
 | `pattern` | `String` | The format string: a mix of literal characters and token runs drawn from the table above, with single quotes escaping literal text. An empty pattern produces an empty result. [[src/codegen/builtins/datetime/func_format.rs:__datetime_format]] |
 
 ## Return value

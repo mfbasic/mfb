@@ -70,52 +70,156 @@ END SUB
 ```"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::arity_family(
-        pkg,
-        "instant",
-        INTRO,
-        DESC,
-        EX,
-        super::named("Instant"),
-        vec![
-            (
-                vec![super::req("seconds", super::int())],
-                "__datetime_instant1",
-            ),
-            (
-                vec![
-                    super::req("seconds", super::int()),
-                    super::req("nanos", super::int()),
+    pkg.add_function(super::RegistryFunction {
+        name: "instant",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("instant"),
+        implementations: vec![
+            super::Implementation {
+                params: vec![super::Parameter {
+                    name: "seconds",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Integer,
+                    default: super::DefaultValue::None,
+                }],
+                return_type: super::ParameterType::Named("Instant"),
+                errors: vec![],
+                lowering: super::Lowering::Helper,
+                body: super::Body::Rewrite("__datetime_instant1"),
+            },
+            super::Implementation {
+                params: vec![
+                    super::Parameter {
+                        name: "seconds",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "nanos",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
                 ],
-                "__datetime_instant2",
-            ),
-            (
-                vec![
-                    super::req("mins", super::int()),
-                    super::req("seconds", super::int()),
-                    super::req("nanos", super::int()),
+                return_type: super::ParameterType::Named("Instant"),
+                errors: vec![],
+                lowering: super::Lowering::Helper,
+                body: super::Body::Rewrite("__datetime_instant2"),
+            },
+            super::Implementation {
+                params: vec![
+                    super::Parameter {
+                        name: "mins",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "seconds",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "nanos",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
                 ],
-                "__datetime_instant3",
-            ),
-            (
-                vec![
-                    super::req("hours", super::int()),
-                    super::req("mins", super::int()),
-                    super::req("seconds", super::int()),
-                    super::req("nanos", super::int()),
+                return_type: super::ParameterType::Named("Instant"),
+                errors: vec![],
+                lowering: super::Lowering::Helper,
+                body: super::Body::Rewrite("__datetime_instant3"),
+            },
+            super::Implementation {
+                params: vec![
+                    super::Parameter {
+                        name: "hours",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "mins",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "seconds",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "nanos",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
                 ],
-                "__datetime_instant4",
-            ),
-            (
-                vec![
-                    super::req("days", super::int()),
-                    super::req("hours", super::int()),
-                    super::req("mins", super::int()),
-                    super::req("seconds", super::int()),
-                    super::req("nanos", super::int()),
+                return_type: super::ParameterType::Named("Instant"),
+                errors: vec![],
+                lowering: super::Lowering::Helper,
+                body: super::Body::Rewrite("__datetime_instant4"),
+            },
+            super::Implementation {
+                params: vec![
+                    super::Parameter {
+                        name: "days",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "hours",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "mins",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "seconds",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "nanos",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
                 ],
-                "__datetime_instant5",
-            ),
+                return_type: super::ParameterType::Named("Instant"),
+                errors: vec![],
+                lowering: super::Lowering::Helper,
+                body: super::Body::Rewrite("__datetime_instant5"),
+            },
         ],
-    );
+    });
 }

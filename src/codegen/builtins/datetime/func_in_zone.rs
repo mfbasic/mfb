@@ -80,18 +80,33 @@ r#"FUNC __datetime_inZone(at AS Instant, z AS Zone) AS DateTime
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "inZone",
-        INTRO,
-        DESC,
-        EX,
-        vec![
-            super::req("at", super::named("Instant")),
-            super::req("zone", super::named("Zone")),
-        ],
-        super::named("DateTime"),
-        BODY,
-        "__datetime_inZone",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "inZone",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("inZone"),
+        implementations: vec![super::Implementation {
+            params: vec![
+                super::Parameter {
+                    name: "at",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("Instant"),
+                    default: super::DefaultValue::None,
+                },
+                super::Parameter {
+                    name: "zone",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("Zone"),
+                    default: super::DefaultValue::None,
+                },
+            ],
+            return_type: super::ParameterType::Named("DateTime"),
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_inZone"),
+        }],
+    });
 }

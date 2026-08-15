@@ -58,15 +58,18 @@ r#"FUNC __datetime_now AS Instant
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "now",
-        INTRO,
-        DESC,
-        EX,
-        vec![],
-        super::named("Instant"),
-        BODY,
-        "__datetime_now",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "now",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("now"),
+        implementations: vec![super::Implementation {
+            params: vec![],
+            return_type: super::ParameterType::Named("Instant"),
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_now"),
+        }],
+    });
 }

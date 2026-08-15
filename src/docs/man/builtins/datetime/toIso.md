@@ -48,7 +48,7 @@ Because the pattern is fixed and always valid, `toIso` emits a result for every
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `dt` | `DateTime` | The moment to render. Its date fields (`year`, `month`, `day`), time fields (`hour`, `minute`, `second`, `nanos`), and resolved UTC `offset` supply the output values; the `nanos` are truncated to milliseconds for the `fff` field, and the offset selects `Z` or a signed `+/-HH:MM` suffix. [[src/codegen/builtins/datetime/mod.rs:TO_ISO]] |
+| `dt` | `DateTime` | The moment to render. Its date fields (`year`, `month`, `day`), time fields (`hour`, `minute`, `second`, `nanos`), and resolved UTC `offset` supply the output values; the `nanos` are truncated to milliseconds for the `fff` field, and the offset selects `Z` or a signed `+/-HH:MM` suffix. [[src/codegen/builtins/datetime/mod.rs:register]] |
 
 ## Return value
 
