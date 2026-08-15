@@ -63,9 +63,9 @@ allocation for the result, so a rejected index allocates nothing.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to insert into; left unchanged. Also accepted under the name `list`. Must be a list type; a `Map` or scalar resolves no overload and is a compile-time error. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
-| `index` | `Integer` | Zero-based position the inserted element will occupy. Valid range is `0` through `len(value)` inclusive; `len(value)` appends. Must be declared `Integer` exactly — no other numeric type resolves. This parameter has no alternate spelling. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/target/shared/code/list_mutate.rs:lower_list_insert_collection]] |
-| `item` | `T` | The single element to insert. Its type must be exactly the list's element type `T`; a `List OF T` is not accepted. This parameter has no alternate spelling. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/builtins/collections/func_insert.rs:lower_insert]] |
+| `value` | `List OF T` | The list to insert into; left unchanged. Also accepted under the name `list`. Must be a list type; a `Map` or scalar resolves no overload and is a compile-time error. [[src/codegen/registry/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `index` | `Integer` | Zero-based position the inserted element will occupy. Valid range is `0` through `len(value)` inclusive; `len(value)` appends. Must be declared `Integer` exactly — no other numeric type resolves. This parameter has no alternate spelling. [[src/codegen/registry/mod.rs:call_param_names]] [[src/target/shared/code/list_mutate.rs:lower_list_insert_collection]] |
+| `item` | `T` | The single element to insert. Its type must be exactly the list's element type `T`; a `List OF T` is not accepted. This parameter has no alternate spelling. [[src/codegen/registry/mod.rs:call_param_names]] [[src/codegen/builtins/collections/func_insert.rs:lower_insert]] |
 
 ## Return value
 

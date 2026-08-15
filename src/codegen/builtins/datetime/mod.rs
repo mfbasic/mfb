@@ -188,6 +188,7 @@ pub(super) fn single(
         intro,
         desc,
         example,
+        expected_arguments: arg_hint(name),
         implementations: vec![Implementation {
             params,
             return_type,
@@ -227,6 +228,7 @@ pub(super) fn arity_family(
         intro,
         desc,
         example,
+        expected_arguments: arg_hint(name),
         implementations,
     });
 }
@@ -247,6 +249,7 @@ pub(super) fn intrinsic(
         intro,
         desc,
         example,
+        expected_arguments: arg_hint(name),
         implementations: vec![Implementation {
             params,
             return_type: ParameterType::Integer,
@@ -389,130 +392,45 @@ pub(crate) fn is_datetime_call(name: &str) -> bool {
     ALL_CALLS.contains(&name)
 }
 
-/// The expected-argument phrasing for a `datetime::` argument-mismatch diagnostic.
-/// Kept hand-authored: the optional-argument `[...]` brackets (`time`'s
-/// `"Integer, Integer[, Integer[, Integer]]"`, `parse`'s `"String, String[, Zone]"`)
-/// and the range prose (`"1 to 5 Integer"`) are shapes the registry's per-position
-/// join cannot reproduce, so `builtins::expected_arguments` reads this before the
-/// generic registry rendering.
-pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
+/// The bespoke expected-argument phrasing for a `datetime::` argument-mismatch
+/// diagnostic, keyed by the member's unqualified name — moved onto each member's
+/// `RegistryFunction::expected_arguments` descriptor field at registration (the
+/// generic `registry::expected_arguments` returns it). Retained as a private
+/// registration-time helper because the phrasings — the optional-argument `[...]`
+/// brackets (`time`'s `"Integer, Integer[, Integer[, Integer]]"`, `parse`'s
+/// `"String, String[, Zone]"`), the range prose (`"1 to 5 Integer"`), and the
+/// zero-argument `"()"` — are shapes the registry's per-position join cannot
+/// reproduce. The single-parameter members whose phrasing equals the per-position
+/// render (`resolve` → `"DateTime"`, …) still carry it here so every member's
+/// diagnostic stays pinned byte-for-byte.
+fn arg_hint(name: &str) -> Option<&'static str> {
     let text = match name {
-        NOW | MONOTONIC | UTC | LOCAL | NOW_NANOS | MONOTONIC_NANOS => "()",
-        INSTANT | DURATION => "1 to 5 Integer",
-        DATE => "Integer, Integer, Integer",
-        TIME => "Integer, Integer[, Integer[, Integer]]",
-        FIXED_OFFSET => "Integer[, Integer]",
-        OFFSET_AT => "Zone, Instant",
-        IN_ZONE => "Instant, Zone",
-        TO_UTC | TO_LOCAL => "Instant",
-        RESOLVE | WEEKDAY | DAY_OF_YEAR | START_OF_DAY | TO_ISO => "DateTime",
-        CIVIL => "Date, Time, Zone",
-        WITH_ZONE => "DateTime, Zone",
-        ADD | SUBTRACT => "Instant, Duration",
-        BETWEEN | COMPARE | IS_BEFORE | IS_AFTER | EQUALS => "Instant, Instant",
-        ADD_DAYS | ADD_MONTHS => "DateTime, Integer",
-        NEGATE => "Duration",
-        PLUS | MINUS => "Duration, Duration",
-        IS_LEAP_YEAR | FROM_MILLIS | LOCAL_OFFSET => "Integer",
-        DAYS_IN_MONTH => "Integer, Integer",
-        TO_MILLIS | TO_NANOS => "Instant",
-        FORMAT => "DateTime, String",
-        PARSE => "String, String[, Zone]",
-        PARSE_ISO => "String",
-        FORMAT_DURATION => "Duration",
+        "now" | "monotonic" | "utc" | "local" | "nowNanos" | "monotonicNanos" => "()",
+        "instant" | "duration" => "1 to 5 Integer",
+        "date" => "Integer, Integer, Integer",
+        "time" => "Integer, Integer[, Integer[, Integer]]",
+        "fixedOffset" => "Integer[, Integer]",
+        "offsetAt" => "Zone, Instant",
+        "inZone" => "Instant, Zone",
+        "toUtc" | "toLocal" => "Instant",
+        "resolve" | "weekday" | "dayOfYear" | "startOfDay" | "toIso" => "DateTime",
+        "civil" => "Date, Time, Zone",
+        "withZone" => "DateTime, Zone",
+        "add" | "subtract" => "Instant, Duration",
+        "between" | "compare" | "isBefore" | "isAfter" | "equals" => "Instant, Instant",
+        "addDays" | "addMonths" => "DateTime, Integer",
+        "negate" => "Duration",
+        "plus" | "minus" => "Duration, Duration",
+        "isLeapYear" | "fromMillis" | "localOffset" => "Integer",
+        "daysInMonth" => "Integer, Integer",
+        "toMillis" | "toNanos" => "Instant",
+        "format" => "DateTime, String",
+        "parse" => "String, String[, Zone]",
+        "parseIso" => "String",
+        "formatDuration" => "Duration",
         _ => return None,
     };
     Some(text)
-}
-
-/// Per-overload parameter names for datetime builtins whose overloads have
-/// structurally different positional layouts (a named arg binds a different
-/// index depending on which overload it selects). Each entry is one overload's
-/// parameter names, in order. See bug-94/bug-349 for the motivation.
-pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static [&'static str]]> {
-    match name {
-        FIXED_OFFSET => Some(&[&["offsetSeconds"], &["hours", "mins"]]),
-        INSTANT | DURATION => Some(&[
-            &["seconds"],
-            &["seconds", "nanos"],
-            &["mins", "seconds", "nanos"],
-            &["hours", "mins", "seconds", "nanos"],
-            &["days", "hours", "mins", "seconds", "nanos"],
-        ]),
-        _ => None,
-    }
-}
-
-/// The per-position `[name]` keyword-matching lists for a `datetime::` call, or
-/// `None`. The arity constructors (`instant`/`duration`/`fixedOffset`) whose
-/// overloads drop components off the front use `call_param_name_overloads`
-/// instead and return `None` here.
-pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
-    let params: &'static [&'static [&'static str]] = match name {
-        NOW | MONOTONIC | UTC | LOCAL => &[],
-        // INSTANT/DURATION/FIXED_OFFSET drop components off the FRONT / disagree on
-        // position 0, so they carry no merged per-position table (bug-349/bug-94).
-        INSTANT | DURATION | FIXED_OFFSET => return None,
-        DATE => &[&["year"], &["month"], &["day"]],
-        TIME => &[&["hour"], &["minute"], &["second"], &["nanos"]],
-        OFFSET_AT => &[&["zone"], &["at"]],
-        IN_ZONE => &[&["at"], &["zone"]],
-        TO_UTC | TO_LOCAL => &[&["at"]],
-        RESOLVE => &[&["dt"]],
-        CIVIL => &[&["date"], &["time"], &["zone"]],
-        WITH_ZONE => &[&["dt"], &["zone"]],
-        ADD | SUBTRACT => &[&["at"], &["by"]],
-        BETWEEN => &[&["start"], &["finish"]],
-        ADD_DAYS => &[&["dt"], &["days"]],
-        ADD_MONTHS => &[&["dt"], &["months"]],
-        COMPARE | IS_BEFORE | IS_AFTER | EQUALS => &[&["a"], &["b"]],
-        NEGATE => &[&["d"]],
-        PLUS | MINUS => &[&["a"], &["b"]],
-        WEEKDAY | DAY_OF_YEAR | START_OF_DAY => &[&["dt"]],
-        IS_LEAP_YEAR => &[&["year"]],
-        DAYS_IN_MONTH => &[&["year"], &["month"]],
-        TO_MILLIS | TO_NANOS => &[&["at"]],
-        FROM_MILLIS => &[&["millis"]],
-        FORMAT => &[&["dt"], &["pattern"]],
-        PARSE => &[&["value"], &["pattern"], &["zone"]],
-        TO_ISO => &[&["dt"]],
-        PARSE_ISO => &[&["value"]],
-        FORMAT_DURATION => &[&["d"]],
-        LOCAL_OFFSET => &[&["epochSeconds"]],
-        NOW_NANOS | MONOTONIC_NANOS => &[],
-        _ => return None,
-    };
-    Some(params)
-}
-
-/// The machine-readable positional argument-type signature IR lowering hands to
-/// `call_argument_expected_type` (bug-340 A1). The variable-arity constructors
-/// (`instant`/`duration`), the no-argument clocks, and the optional-tail members
-/// (`time`/`fixedOffset`/`parse`) have no single fixed positional signature, so
-/// they return `None`.
-pub(crate) fn argument_types(name: &str) -> Option<&'static [&'static str]> {
-    let types: &'static [&'static str] = match name {
-        DATE => &["Integer", "Integer", "Integer"],
-        OFFSET_AT => &["Zone", "Instant"],
-        IN_ZONE => &["Instant", "Zone"],
-        TO_UTC | TO_LOCAL => &["Instant"],
-        RESOLVE | WEEKDAY | DAY_OF_YEAR | START_OF_DAY | TO_ISO => &["DateTime"],
-        CIVIL => &["Date", "Time", "Zone"],
-        WITH_ZONE => &["DateTime", "Zone"],
-        ADD | SUBTRACT => &["Instant", "Duration"],
-        BETWEEN | COMPARE | IS_BEFORE | IS_AFTER | EQUALS => &["Instant", "Instant"],
-        ADD_DAYS | ADD_MONTHS => &["DateTime", "Integer"],
-        NEGATE => &["Duration"],
-        PLUS | MINUS => &["Duration", "Duration"],
-        IS_LEAP_YEAR | FROM_MILLIS | LOCAL_OFFSET => &["Integer"],
-        DAYS_IN_MONTH => &["Integer", "Integer"],
-        TO_MILLIS | TO_NANOS => &["Instant"],
-        FORMAT => &["DateTime", "String"],
-        PARSE_ISO => &["String"],
-        FORMAT_DURATION => &["Duration"],
-        _ => return None,
-    };
-    Some(types)
 }
 
 /// Default trailing arguments injected during IR lowering. Only `time` carries
@@ -797,28 +715,49 @@ mod tests {
 
     #[test]
     fn expected_arguments_bespoke_phrasings() {
-        assert_eq!(expected_arguments(NOW), Some("()"));
-        assert_eq!(expected_arguments(INSTANT), Some("1 to 5 Integer"));
-        assert_eq!(expected_arguments(DURATION), Some("1 to 5 Integer"));
-        assert_eq!(expected_arguments(DATE), Some("Integer, Integer, Integer"));
+        // The bespoke phrasings now live on each member's descriptor field and are
+        // served by the generic `registry::expected_arguments`.
+        assert_eq!(registry::expected_arguments(NOW), Some("()"));
         assert_eq!(
-            expected_arguments(TIME),
+            registry::expected_arguments(INSTANT),
+            Some("1 to 5 Integer")
+        );
+        assert_eq!(
+            registry::expected_arguments(DURATION),
+            Some("1 to 5 Integer")
+        );
+        assert_eq!(
+            registry::expected_arguments(DATE),
+            Some("Integer, Integer, Integer")
+        );
+        assert_eq!(
+            registry::expected_arguments(TIME),
             Some("Integer, Integer[, Integer[, Integer]]")
         );
-        assert_eq!(expected_arguments(FIXED_OFFSET), Some("Integer[, Integer]"));
-        assert_eq!(expected_arguments(PARSE), Some("String, String[, Zone]"));
-        assert_eq!(expected_arguments("datetime.nope"), None);
+        assert_eq!(
+            registry::expected_arguments(FIXED_OFFSET),
+            Some("Integer[, Integer]")
+        );
+        assert_eq!(
+            registry::expected_arguments(PARSE),
+            Some("String, String[, Zone]")
+        );
+        // A single-parameter member's phrasing equals the per-position render.
+        assert_eq!(registry::expected_arguments(RESOLVE), Some("DateTime"));
+        assert_eq!(registry::expected_arguments("datetime.nope"), None);
     }
 
     #[test]
     fn param_name_tables() {
-        assert_eq!(call_param_names(NOW), Some(&[][..] as &[&[&str]]));
-        assert_eq!(call_param_names(INSTANT), None);
-        assert_eq!(call_param_names(DURATION), None);
-        assert_eq!(call_param_names(FIXED_OFFSET), None);
-        assert_eq!(call_param_names(DATE).unwrap().len(), 3);
+        // Single-overload and layout-agreeing members merge into one per-position
+        // table; the front-dropping constructors carry a per-overload table instead.
+        assert_eq!(registry::call_param_names(NOW), Some(vec![]));
+        assert_eq!(registry::call_param_names(INSTANT), None);
+        assert_eq!(registry::call_param_names(DURATION), None);
+        assert_eq!(registry::call_param_names(FIXED_OFFSET), None);
+        assert_eq!(registry::call_param_names(DATE).unwrap().len(), 3);
         assert_eq!(
-            call_param_name_overloads(INSTANT),
+            registry::call_param_name_overloads(INSTANT),
             Some(
                 &[
                     &["seconds"][..],
@@ -830,24 +769,9 @@ mod tests {
             )
         );
         assert_eq!(
-            call_param_name_overloads(FIXED_OFFSET),
+            registry::call_param_name_overloads(FIXED_OFFSET),
             Some(&[&["offsetSeconds"][..], &["hours", "mins"][..]][..])
         );
-    }
-
-    #[test]
-    fn argument_types_machine_table() {
-        assert_eq!(
-            argument_types(DATE),
-            Some(&["Integer", "Integer", "Integer"][..])
-        );
-        assert_eq!(argument_types(OFFSET_AT), Some(&["Zone", "Instant"][..]));
-        assert_eq!(argument_types(FORMAT), Some(&["DateTime", "String"][..]));
-        assert_eq!(argument_types(NOW), None);
-        assert_eq!(argument_types(INSTANT), None);
-        assert_eq!(argument_types(TIME), None);
-        assert_eq!(argument_types(PARSE), None);
-        assert_eq!(argument_types("datetime.nope"), None);
     }
 
     #[test]

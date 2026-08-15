@@ -61,7 +61,7 @@ bytes as UTF-8. Selected when the argument is a `List OF Integer`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF Byte` or `List OF Integer` | The UTF-8 bytes to decode. For the `List OF Integer` form, every element must be in the range `0..255`. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `value` | `List OF Byte` or `List OF Integer` | The UTF-8 bytes to decode. For the `List OF Integer` form, every element must be in the range `0..255`. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

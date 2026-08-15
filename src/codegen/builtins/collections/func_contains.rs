@@ -109,6 +109,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         intro: INTO_CONTAINS,
         desc: DESC_CONTAINS,
         example: EX,
+        expected_arguments: Some("List OF T, T"),
         implementations: vec![
             Implementation {
                 params: vec![

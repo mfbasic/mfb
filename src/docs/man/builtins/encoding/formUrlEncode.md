@@ -51,7 +51,7 @@ escapes and `+` back into text. [[src/codegen/builtins/encoding/func_form_url_de
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `text` | `String` | The text to encode. Any string, including the empty string, is accepted; it is interpreted as its UTF-8 byte sequence. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `text` | `String` | The text to encode. Any string, including the empty string, is accepted; it is interpreted as its UTF-8 byte sequence. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

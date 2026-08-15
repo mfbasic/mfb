@@ -70,9 +70,9 @@ the call site rather than letting it auto-propagate.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to fold. Any length is accepted, including the empty list. Also accepted under the name `collection`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
-| `initial` | `U` | The starting accumulator, and the value returned unchanged when `value` is empty. Its type fixes `U`. Also accepted under the name `seed`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
-| `f` | `FUNC(U, T) AS U` | The reducer, called once per element as `f(accumulator, element)`. Its first parameter must be the accumulator type `U`, its second the element type `T`, and its success type `U`. Also accepted under the name `combine`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `value` | `List OF T` | The list to fold. Any length is accepted, including the empty list. Also accepted under the name `collection`. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `initial` | `U` | The starting accumulator, and the value returned unchanged when `value` is empty. Its type fixes `U`. Also accepted under the name `seed`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/registry/mod.rs:call_param_names]] |
+| `f` | `FUNC(U, T) AS U` | The reducer, called once per element as `f(accumulator, element)`. Its first parameter must be the accumulator type `U`, its second the element type `T`, and its success type `U`. Also accepted under the name `combine`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

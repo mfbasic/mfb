@@ -81,6 +81,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         intro: INTO_REMOVE_AT,
         desc: DESC_REMOVE_AT,
         example: EX,
+        expected_arguments: Some("List OF T, Integer"),
         implementations: vec![Implementation {
             params: vec![
                 super::param(

@@ -64,8 +64,8 @@ is not a trappable domain error in this language.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Map OF K TO V` | The map to copy from. Also accepted under the name `map`. Not mutated. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
-| `key` | `K` | The key whose entry is dropped from the copy. Must be exactly the map's key type. A key that is not present is accepted and drops nothing. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `value` | `Map OF K TO V` | The map to copy from. Also accepted under the name `map`. Not mutated. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `key` | `K` | The key whose entry is dropped from the copy. Must be exactly the map's key type. A key that is not present is accepted and drops nothing. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

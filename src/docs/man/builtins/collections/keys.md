@@ -61,7 +61,7 @@ allocation failure is not a trappable domain error in this language.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Map OF K TO V` | The map to project. Also accepted under the name `map`. Not mutated, and not aliased by the result. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `value` | `Map OF K TO V` | The map to project. Also accepted under the name `map`. Not mutated, and not aliased by the result. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

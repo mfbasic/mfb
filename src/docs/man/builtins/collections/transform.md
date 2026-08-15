@@ -71,8 +71,8 @@ at the call site rather than letting it auto-propagate.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to map. Any length is accepted, including the empty list. Also accepted under the name `collection`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
-| `f` | `FUNC(T) AS U` | Called once per element with that element; its return value becomes the corresponding result element. Must take exactly one parameter of the element type `T`, and its success type `U` must not be `Nothing`. Also accepted under the name `transform`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `value` | `List OF T` | The list to map. Any length is accepted, including the empty list. Also accepted under the name `collection`. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `f` | `FUNC(T) AS U` | Called once per element with that element; its return value becomes the corresponding result element. Must take exactly one parameter of the element type `T`, and its success type `U` must not be `Nothing`. Also accepted under the name `transform`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

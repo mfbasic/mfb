@@ -53,7 +53,7 @@ numeric character references back into text.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `text` | `String` | The text to escape. Any string, including the empty string, is accepted. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `text` | `String` | The text to escape. Any string, including the empty string, is accepted. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

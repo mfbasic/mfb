@@ -41,7 +41,7 @@ state and has no side effects. [[src/codegen/builtins/datetime/func_is_leap_year
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `year` | `Integer` | The calendar year to test, interpreted as a proleptic-Gregorian year number. Any `Integer` is accepted, including zero and negative values; each is judged solely by its divisibility by `4`, `100`, and `400`. [[src/codegen/builtins/datetime/mod.rs:call_param_names]] |
+| `year` | `Integer` | The calendar year to test, interpreted as a proleptic-Gregorian year number. Any `Integer` is accepted, including zero and negative values; each is judged solely by its divisibility by `4`, `100`, and `400`. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

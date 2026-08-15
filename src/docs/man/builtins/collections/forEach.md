@@ -69,8 +69,8 @@ An empty `value` calls `action` zero times.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to walk. Any length is accepted, including the empty list. Also accepted under the name `collection`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
-| `action` | `FUNC(T) AS Nothing` | Called once per element with that element. Must take exactly one parameter of the element type `T` and have success type `Nothing`, so a `SUB(T)` qualifies. There is no alternate name for this parameter. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `value` | `List OF T` | The list to walk. Any length is accepted, including the empty list. Also accepted under the name `collection`. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `action` | `FUNC(T) AS Nothing` | Called once per element with that element. Must take exactly one parameter of the element type `T` and have success type `Nothing`, so a `SUB(T)` qualifies. There is no alternate name for this parameter. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

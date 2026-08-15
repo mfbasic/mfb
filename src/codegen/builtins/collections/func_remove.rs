@@ -61,6 +61,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         intro: INTO_REMOVE,
         desc: DESC_REMOVE,
         example: EX,
+        expected_arguments: Some("Set OF T, T"),
         implementations: vec![Implementation {
             params: vec![
                 super::param(

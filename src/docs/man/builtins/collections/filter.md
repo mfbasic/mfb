@@ -68,8 +68,8 @@ the call site rather than letting it auto-propagate.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to filter. Any length is accepted, including the empty list. Also accepted under the name `collection`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
-| `predicate` | `FUNC(T) AS Boolean` | Called once per element with that element; the element is kept when it returns `TRUE`. Must take exactly one parameter of the element type `T` and return `Boolean`. There is no alternate name for this parameter. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `value` | `List OF T` | The list to filter. Any length is accepted, including the empty list. Also accepted under the name `collection`. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `predicate` | `FUNC(T) AS Boolean` | Called once per element with that element; the element is kept when it returns `TRUE`. Must take exactly one parameter of the element type `T` and return `Boolean`. There is no alternate name for this parameter. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

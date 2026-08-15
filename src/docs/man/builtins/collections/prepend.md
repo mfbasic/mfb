@@ -68,8 +68,8 @@ Prepending to an empty list yields a one-element list.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to prepend to; left unchanged. Also accepted under the name `list`. Must be a list type; passing a `Map` or a scalar resolves no overload and is a compile-time error. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
-| `item` | `T` | The single element to place at the front. Its type must be exactly the list's element type `T`; a `List OF T` is not accepted. This parameter has no alternate spelling. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `value` | `List OF T` | The list to prepend to; left unchanged. Also accepted under the name `list`. Must be a list type; passing a `Map` or a scalar resolves no overload and is a compile-time error. [[src/codegen/registry/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `item` | `T` | The single element to place at the front. Its type must be exactly the list's element type `T`; a `List OF T` is not accepted. This parameter has no alternate spelling. [[src/codegen/registry/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Return value
 

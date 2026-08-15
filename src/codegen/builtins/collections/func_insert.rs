@@ -83,6 +83,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         intro: INTO_INSERT,
         desc: DESC_INSERT,
         example: EX,
+        expected_arguments: Some("List OF T, Integer, T"),
         implementations: vec![Implementation {
             params: vec![
                 super::param(

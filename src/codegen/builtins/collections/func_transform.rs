@@ -103,6 +103,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         intro: INTO_TRANSFORM,
         desc: DESC_TRANSFORM,
         example: EX,
+        expected_arguments: Some("List OF T, FUNC(T) AS U"),
         implementations: vec![Implementation {
             params: vec![
                 super::param(

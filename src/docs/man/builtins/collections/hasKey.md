@@ -62,8 +62,8 @@ When the goal is simply to obtain a value with a fallback,
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Map OF K TO V` | The map to test. Also accepted under the name `map`. Not copied and not mutated. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
-| `key` | `K` | The key to look for. Must be exactly the map's key type. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `value` | `Map OF K TO V` | The map to test. Also accepted under the name `map`. Not copied and not mutated. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `key` | `K` | The key to look for. Must be exactly the map's key type. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

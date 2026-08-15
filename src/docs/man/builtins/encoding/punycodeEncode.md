@@ -51,7 +51,7 @@ Punycode hostname back to its Unicode form. [[src/codegen/builtins/encoding/func
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `domain` | `String` | The Unicode hostname to encode. Split on `.` into labels; each label is encoded independently. Any `String`, including the empty string, is accepted. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `domain` | `String` | The Unicode hostname to encode. Split on `.` into labels; each label is encoded independently. Any `String`, including the empty string, is accepted. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

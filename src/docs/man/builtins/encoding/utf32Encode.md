@@ -46,7 +46,7 @@ or surrogate code points. [[src/codegen/builtins/encoding/func_utf32_decode.rs:_
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The text to encode. Any string, including the empty string, is accepted. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `value` | `String` | The text to encode. Any string, including the empty string, is accepted. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

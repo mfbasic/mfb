@@ -43,7 +43,7 @@ valid string reproduces its lowercase form. [[src/codegen/builtins/encoding/func
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `text` | `String` | The hexadecimal text to decode. Must have even length and contain only the digits `0`–`9`, `a`–`f`, `A`–`F`. The empty string is accepted and decodes to the empty list. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `text` | `String` | The hexadecimal text to decode. Must have even length and contain only the digits `0`–`9`, `a`–`f`, `A`–`F`. The empty string is accepted and decodes to the empty list. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

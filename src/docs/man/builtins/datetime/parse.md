@@ -91,7 +91,7 @@ overrides `zone`. [[src/codegen/builtins/datetime/package.mfb:__datetime_parse3]
 | --- | --- | --- |
 | `value` | `String` | The text to parse. It must match `pattern` position for position: every literal in `pattern` must appear verbatim, and every token must find the digits or name it expects at the current position. |
 | `pattern` | `String` | The format string: a mix of literal characters and token runs from the table above, with single quotes escaping literal text. Tokens select which fields are read from `value`; absent fields keep their defaults. |
-| `zone` | `Zone` | The zone whose offset is applied when `pattern` has no offset token. Present only in the three-argument overload; the two-argument overload uses `datetime::utc()`. A `pattern` offset token overrides this argument either way. [[src/codegen/builtins/datetime/mod.rs:call_param_names]] |
+| `zone` | `Zone` | The zone whose offset is applied when `pattern` has no offset token. Present only in the three-argument overload; the two-argument overload uses `datetime::utc()`. A `pattern` offset token overrides this argument either way. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

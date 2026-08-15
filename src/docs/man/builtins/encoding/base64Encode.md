@@ -47,7 +47,7 @@ which parses a Base64 string back into a `List OF Byte`. [[src/codegen/builtins/
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `data` | `List OF Byte` | The bytes to encode. Any list of bytes, including the empty list, is accepted. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `data` | `List OF Byte` | The bytes to encode. Any list of bytes, including the empty list, is accepted. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

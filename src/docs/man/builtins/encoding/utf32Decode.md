@@ -46,7 +46,7 @@ round-trips losslessly through the two functions.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF Integer` | The UTF-32 code points to decode. Every element must be in `0..1114111` and must not be a surrogate (`55296..57343`). [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `value` | `List OF Integer` | The UTF-32 code points to decode. Every element must be in `0..1114111` and must not be a surrogate (`55296..57343`). [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

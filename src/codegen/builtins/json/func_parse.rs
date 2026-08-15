@@ -124,6 +124,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
+        expected_arguments: None,
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "value",

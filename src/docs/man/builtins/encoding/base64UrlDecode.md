@@ -50,7 +50,7 @@ The empty string decodes to the empty list. For the standard variant that uses
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `text` | `String` | The URL-safe Base64 text to decode. Must contain only the alphabet characters `A`–`Z`, `a`–`z`, `0`–`9`, `-`, `_`, and optional trailing `=` padding. The empty string is accepted and decodes to the empty list. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `text` | `String` | The URL-safe Base64 text to decode. Must contain only the alphabet characters `A`–`Z`, `a`–`z`, `0`–`9`, `-`, `_`, and optional trailing `=` padding. The empty string is accepted and decodes to the empty list. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

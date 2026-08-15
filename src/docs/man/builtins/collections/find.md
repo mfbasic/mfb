@@ -99,8 +99,8 @@ to and including the length of `value`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to search. Must be a `List`; a `String` first argument selects `strings::find` instead. Also accepted under the name `list`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
-| `item` | `T` or `List OF T` | What to look for: an element of type `T` for an element search, or a list of the same type as `value` for a contiguous sublist search. Also accepted under the name `needle`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `value` | `List OF T` | The list to search. Must be a `List`; a `String` first argument selects `strings::find` instead. Also accepted under the name `list`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/registry/mod.rs:call_param_names]] |
+| `item` | `T` or `List OF T` | What to look for: an element of type `T` for an element search, or a list of the same type as `value` for a contiguous sublist search. Also accepted under the name `needle`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/registry/mod.rs:call_param_names]] |
 | `start` | `Integer` | Optional zero-based index at which the scan begins; defaults to `0` when omitted. Must be in the range `0` through the length of `value` inclusive. There is no alternate name for this parameter. [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]] [[src/target/shared/code/builder_search.rs:lower_find]] |
 
 ## Return value

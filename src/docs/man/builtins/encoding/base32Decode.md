@@ -46,7 +46,7 @@ empty string decodes to the empty list. [[src/codegen/builtins/encoding/func_bas
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `text` | `String` | The Base32 text to decode. Length must be a multiple of eight; must contain only the alphabet characters `A`–`Z`, `a`–`z`, `2`–`7`, and trailing `=` padding. The empty string is accepted and decodes to the empty list. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `text` | `String` | The Base32 text to decode. Length must be a multiple of eight; must contain only the alphabet characters `A`–`Z`, `a`–`z`, `2`–`7`, and trailing `=` padding. The empty string is accepted and decodes to the empty list. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

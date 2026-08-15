@@ -89,6 +89,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         intro: INTO_APPEND,
         desc: DESC_APPEND,
         example: EX,
+        expected_arguments: Some("List OF T, T or List OF T, List OF T"),
         implementations: vec![
             Implementation {
                 params: vec![

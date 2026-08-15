@@ -49,8 +49,8 @@ side effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `year` | `Integer` | The proleptic-Gregorian year number. It affects the result only when `month` is `2`, where it selects February's length via the leap-year rule. Any `Integer` is accepted, including zero and negative values. [[src/codegen/builtins/datetime/mod.rs:call_param_names]] |
-| `month` | `Integer` | The month of the year, where `1` is January and `12` is December. Values `2`, `4`, `6`, `9`, and `11` select February (28 or 29), April, June, September, and November (30) respectively; every other value, including out-of-range numbers, returns `31`. [[src/codegen/builtins/datetime/mod.rs:call_param_names]] |
+| `year` | `Integer` | The proleptic-Gregorian year number. It affects the result only when `month` is `2`, where it selects February's length via the leap-year rule. Any `Integer` is accepted, including zero and negative values. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `month` | `Integer` | The month of the year, where `1` is January and `12` is December. Values `2`, `4`, `6`, `9`, and `11` select February (28 or 29), April, June, September, and November (30) respectively; every other value, including out-of-range numbers, returns `31`. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

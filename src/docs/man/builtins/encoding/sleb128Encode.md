@@ -49,7 +49,7 @@ non-negative and the sign byte is unwanted. The inverse operation is
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Integer` | The signed value to encode. Any `Integer`, positive, negative, or zero. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `value` | `Integer` | The signed value to encode. Any `Integer`, positive, negative, or zero. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

@@ -58,8 +58,8 @@ raise when the key is absent. [[src/codegen/registry/mod.rs:resolve_call]]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to remove from; left unchanged. Also accepted under the name `list`. Must be a list type; a `Map` or scalar resolves no overload and is a compile-time error. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
-| `index` | `Integer` | Zero-based position of the element to remove. Valid range is `0` through `len(value) - 1` inclusive. Must be declared `Integer` exactly — no other numeric type resolves. This parameter has no alternate spelling. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/target/shared/code/list_mutate.rs:lower_list_remove_at]] |
+| `value` | `List OF T` | The list to remove from; left unchanged. Also accepted under the name `list`. Must be a list type; a `Map` or scalar resolves no overload and is a compile-time error. [[src/codegen/registry/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `index` | `Integer` | Zero-based position of the element to remove. Valid range is `0` through `len(value) - 1` inclusive. Must be declared `Integer` exactly — no other numeric type resolves. This parameter has no alternate spelling. [[src/codegen/registry/mod.rs:call_param_names]] [[src/target/shared/code/list_mutate.rs:lower_list_remove_at]] |
 
 ## Return value
 

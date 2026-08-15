@@ -45,7 +45,7 @@ for signed values. [[src/codegen/builtins/encoding/func_uleb128_decode.rs:__enco
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `data` | `List OF Byte` | The unsigned LEB128 bytes to decode, least-significant group first, terminated by a byte whose high bit is clear. Must be non-empty. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `data` | `List OF Byte` | The unsigned LEB128 bytes to decode, least-significant group first, terminated by a byte whose high bit is clear. Must be non-empty. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
