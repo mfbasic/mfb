@@ -21,7 +21,7 @@ IMPORT process
 ```
 
 `process` is a built-in package, so `IMPORT process` needs no manifest
-dependency. [[src/codegen/builtins/process/mod.rs:is_process_call]]
+dependency. [[src/codegen/builtins/process/mod.rs:register]]
 
 ## Description
 

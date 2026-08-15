@@ -1,7 +1,8 @@
 //! `collections::insert` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::list_element_type;
@@ -86,13 +87,27 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         expected_arguments: Some("List OF T, Integer, T"),
         implementations: vec![Implementation {
             params: vec![
-                super::param(
-                    "value",
-                    &["list"],
-                    ParameterType::list_of(ParameterType::Var("T")),
-                ),
-                super::param("index", &[], ParameterType::Integer),
-                super::param("item", &[], ParameterType::Var("T")),
+                Parameter {
+                    name: "value",
+                    desc: "",
+                    aliases: &["list"],
+                    ty: ParameterType::list_of(ParameterType::Var("T")),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "index",
+                    desc: "",
+                    aliases: &[],
+                    ty: ParameterType::Integer,
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "item",
+                    desc: "",
+                    aliases: &[],
+                    ty: ParameterType::Var("T"),
+                    default: DefaultValue::None,
+                },
             ],
             return_type: ParameterType::Arg(0),
             errors: vec!["ErrIndexOutOfRange"],

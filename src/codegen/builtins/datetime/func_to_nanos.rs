@@ -59,15 +59,24 @@ r#"FUNC __datetime_toNanos(at AS Instant) AS Integer
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "toNanos",
-        INTRO,
-        DESC,
-        EX,
-        vec![super::req("at", super::named("Instant"))],
-        super::int(),
-        BODY,
-        "__datetime_toNanos",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "toNanos",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("toNanos"),
+        implementations: vec![super::Implementation {
+            params: vec![super::Parameter {
+                name: "at",
+                desc: "",
+                aliases: &[],
+                ty: super::ParameterType::Named("Instant"),
+                default: super::DefaultValue::None,
+            }],
+            return_type: super::ParameterType::Integer,
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_toNanos"),
+        }],
+    });
 }

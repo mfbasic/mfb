@@ -85,18 +85,33 @@ r#"FUNC __datetime_daysInMonth(year AS Integer, month AS Integer) AS Integer
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "daysInMonth",
-        INTRO,
-        DESC,
-        EX,
-        vec![
-            super::req("year", super::int()),
-            super::req("month", super::int()),
-        ],
-        super::int(),
-        BODY,
-        "__datetime_daysInMonth",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "daysInMonth",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("daysInMonth"),
+        implementations: vec![super::Implementation {
+            params: vec![
+                super::Parameter {
+                    name: "year",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Integer,
+                    default: super::DefaultValue::None,
+                },
+                super::Parameter {
+                    name: "month",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Integer,
+                    default: super::DefaultValue::None,
+                },
+            ],
+            return_type: super::ParameterType::Integer,
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_daysInMonth"),
+        }],
+    });
 }

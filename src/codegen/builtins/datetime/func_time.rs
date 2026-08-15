@@ -88,23 +88,39 @@ r#"FUNC __datetime_time(hour AS Integer, minute AS Integer, second AS Integer, n
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    // `second`/`nanos` are optional (default 0). They widen arity here; the actual
-    // `0` padding is injected by the retained `default_argument_padding` so the
-    // 4-arg `__datetime_time` body always receives every component.
-    super::single(
-        pkg,
-        "time",
-        INTRO,
-        DESC,
-        EX,
-        vec![
-            super::req("hour", super::int()),
-            super::req("minute", super::int()),
-            super::optional("second", super::int()),
-            super::optional("nanos", super::int()),
-        ],
-        super::named("Time"),
-        BODY,
-        "__datetime_time",
-    );
+    use super::{Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType};
+    // `second`/`nanos` are optional and default to `0`. They are `Fill` params, so
+    // the generic `registry::default_argument_padding` injects the `("Integer","0")`
+    // padding (consulted before the legacy table), and the 4-arg `__datetime_time`
+    // body always receives every component.
+    let int_param = |name: &'static str, default: DefaultValue| Parameter {
+        name,
+        desc: "",
+        aliases: &[],
+        ty: ParameterType::Integer,
+        default,
+    };
+    let fill = DefaultValue::Fill {
+        type_name: ParameterType::Integer,
+        expr: "0",
+    };
+    pkg.add_function(super::RegistryFunction {
+        name: "time",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("time"),
+        implementations: vec![Implementation {
+            params: vec![
+                int_param("hour", DefaultValue::None),
+                int_param("minute", DefaultValue::None),
+                int_param("second", fill.clone()),
+                int_param("nanos", fill),
+            ],
+            return_type: ParameterType::Named("Time"),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(BODY, "__datetime_time"),
+        }],
+    });
 }

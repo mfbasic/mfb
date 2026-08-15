@@ -60,18 +60,33 @@ r#"FUNC __datetime_add(at AS Instant, by AS Duration) AS Instant
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "add",
-        INTRO,
-        DESC,
-        EX,
-        vec![
-            super::req("at", super::named("Instant")),
-            super::req("by", super::named("Duration")),
-        ],
-        super::named("Instant"),
-        BODY,
-        "__datetime_add",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "add",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("add"),
+        implementations: vec![super::Implementation {
+            params: vec![
+                super::Parameter {
+                    name: "at",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("Instant"),
+                    default: super::DefaultValue::None,
+                },
+                super::Parameter {
+                    name: "by",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("Duration"),
+                    default: super::DefaultValue::None,
+                },
+            ],
+            return_type: super::ParameterType::Named("Instant"),
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_add"),
+        }],
+    });
 }

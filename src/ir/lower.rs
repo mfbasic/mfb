@@ -2108,7 +2108,7 @@ fn expression_type(
                 || builtins::audio::is_audio_call(&canonical_callee)
                 || builtins::http::is_http_call(&canonical_callee)
                 || migrated_arg_typed
-                || crate::codegen::builtins::datetime::is_datetime_call(&canonical_callee)
+                || crate::codegen::registry::owning_package(&canonical_callee) == Some("datetime")
                 || builtins::crypto::is_crypto_call(&canonical_callee)
                 || builtins::thread::is_thread_call(&canonical_callee)
             {

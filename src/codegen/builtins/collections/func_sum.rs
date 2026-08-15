@@ -1,7 +1,8 @@
 //! `collections::sum` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::list_element_type;
@@ -97,33 +98,39 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         expected_arguments: Some("List OF Integer, List OF Float, or List OF Fixed"),
         implementations: vec![
             Implementation {
-                params: vec![super::param(
-                    "value",
-                    &["collection"],
-                    ParameterType::list_of(ParameterType::Integer),
-                )],
+                params: vec![Parameter {
+                    name: "value",
+                    desc: "",
+                    aliases: &["collection"],
+                    ty: ParameterType::list_of(ParameterType::Integer),
+                    default: DefaultValue::None,
+                }],
                 return_type: ParameterType::Integer,
                 errors: vec!["ErrOverflow"],
                 lowering: Lowering::Helper,
                 body: Body::native(None, None, Some(lower_sum)),
             },
             Implementation {
-                params: vec![super::param(
-                    "value",
-                    &["collection"],
-                    ParameterType::list_of(ParameterType::Float),
-                )],
+                params: vec![Parameter {
+                    name: "value",
+                    desc: "",
+                    aliases: &["collection"],
+                    ty: ParameterType::list_of(ParameterType::Float),
+                    default: DefaultValue::None,
+                }],
                 return_type: ParameterType::Float,
                 errors: vec!["ErrOverflow"],
                 lowering: Lowering::Helper,
                 body: Body::native(None, None, Some(lower_sum)),
             },
             Implementation {
-                params: vec![super::param(
-                    "value",
-                    &["collection"],
-                    ParameterType::list_of(ParameterType::Fixed),
-                )],
+                params: vec![Parameter {
+                    name: "value",
+                    desc: "",
+                    aliases: &["collection"],
+                    ty: ParameterType::list_of(ParameterType::Fixed),
+                    default: DefaultValue::None,
+                }],
                 return_type: ParameterType::Fixed,
                 errors: vec!["ErrOverflow"],
                 lowering: Lowering::Helper,

@@ -68,18 +68,33 @@ r#"FUNC __datetime_withZone(dt AS DateTime, z AS Zone) AS DateTime
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "withZone",
-        INTRO,
-        DESC,
-        EX,
-        vec![
-            super::req("dt", super::named("DateTime")),
-            super::req("zone", super::named("Zone")),
-        ],
-        super::named("DateTime"),
-        BODY,
-        "__datetime_withZone",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "withZone",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("withZone"),
+        implementations: vec![super::Implementation {
+            params: vec![
+                super::Parameter {
+                    name: "dt",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("DateTime"),
+                    default: super::DefaultValue::None,
+                },
+                super::Parameter {
+                    name: "zone",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("Zone"),
+                    default: super::DefaultValue::None,
+                },
+            ],
+            return_type: super::ParameterType::Named("DateTime"),
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_withZone"),
+        }],
+    });
 }

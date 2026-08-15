@@ -50,7 +50,7 @@ between two instants rather than just their order, use `datetime::between`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Instant` | The left operand, a point on the UTC timeline. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative) and its `nanos` field is the sub-second remainder. When `a` precedes `b` the result is `-1`. [[src/codegen/builtins/datetime/mod.rs:COMPARE]] |
+| `a` | `Instant` | The left operand, a point on the UTC timeline. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative) and its `nanos` field is the sub-second remainder. When `a` precedes `b` the result is `-1`. [[src/codegen/builtins/datetime/mod.rs:register]] |
 | `b` | `Instant` | The right operand, compared against `a`. A point on the UTC timeline. When `b` precedes `a` the result is `1`. |
 
 ## Return value

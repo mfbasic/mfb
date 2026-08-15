@@ -56,7 +56,7 @@ effects. [[src/codegen/builtins/datetime/func_civil.rs:__datetime_civil]]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `dt` | `DateTime` | The civil starting point. Its date, wall-clock time, and zone are read; the year and month are shifted, the day-of-month is clamped to the target month's length, and the time of day and zone are preserved. [[src/codegen/builtins/datetime/mod.rs:ADD_MONTHS]] |
+| `dt` | `DateTime` | The civil starting point. Its date, wall-clock time, and zone are read; the year and month are shifted, the day-of-month is clamped to the target month's length, and the time of day and zone are preserved. [[src/codegen/builtins/datetime/mod.rs:register]] |
 | `months` | `Integer` | The signed number of whole calendar months to add. Positive values advance `dt` to a later month, negative values to an earlier one, and zero leaves the year and month unchanged. |
 
 ## Return value

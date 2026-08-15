@@ -1121,7 +1121,7 @@ pub(crate) fn is_resource_element_pointer(value: &IrValue) -> bool {
         value,
         IrValue::Call { target, .. } | IrValue::CallResult { target, .. }
             if matches!(
-                crate::codegen::builtins::collections::native_member_bare(target),
+                crate::codegen::registry::native_bare_target(target),
                 Some("get" | "getOr")
             )
     )

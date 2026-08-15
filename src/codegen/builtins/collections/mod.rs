@@ -3,7 +3,6 @@ use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, Registry,
     RegistryFunction, RegistryPackage,
 };
-use std::collections::HashMap;
 use std::path::Path;
 
 pub(crate) mod common;
@@ -106,6 +105,20 @@ const FUNCTIONS: &[&str] = &[
 /// call target is dequalified back to the bare native name (see
 /// `crate::builtins::native_builtin_target`). `find`/`mid`/`replace` accept ONLY the List
 /// overload here; their String overloads live in `strings::`.
+///
+/// The per-package dispatch predicates this table once fed — `is_collections_call`,
+/// `is_collections_function`, `is_native_member`, `is_native_member_call`,
+/// `native_member_bare`, `unary_callback_member`, `internal_name`, `mfb_fast_path`,
+/// `uses_package`, `collections_bindings` — are gone: the shared pipeline now answers
+/// membership/dequalification/fast-path/import through the generic
+/// `crate::codegen::registry` accessors (`owning_package`, `is_source_generic_member`,
+/// `native_bare_target`, `callback_member`, `mfb_fast_path`, `is_imported_by`) and
+/// `crate::builtins::native_builtin_target`. The `internal_name` mapping
+/// (`sort` -> `__collections_sort`) now lives in `monomorph::collections_internal_callee`.
+/// This data table survives as the man corpus's per-member provenance anchor and the
+/// unit-test fixture below; `#[allow(dead_code)]` because only `#[cfg(test)]` code
+/// reads it now.
+#[allow(dead_code)]
 const NATIVE_MEMBERS: &[&str] = &[
     "get",
     "getOr",
@@ -141,11 +154,7 @@ const INTRO: &str = "Sequence and map helper functions";
 /// A required native-member parameter. The `collections` man pages are served by
 /// the static `.md` files, not the registry, so the per-parameter `desc` carries
 /// no documentation weight here — it is left empty.
-pub(super) fn param(
-    name: &'static str,
-    aliases: &'static [&'static str],
-    ty: ParameterType,
-) -> Parameter {
+fn param(name: &'static str, aliases: &'static [&'static str], ty: ParameterType) -> Parameter {
     Parameter {
         name,
         desc: "",
@@ -567,6 +576,27 @@ pub(crate) fn register(r: &mut Registry) {
     // like `collections.sort` as a builtin member without a per-package branch.
     pkg.add_source_generics(FUNCTIONS);
 
+    // The native HOF fast paths for the source-generic members. Recorded as registry
+    // data (they cannot ride a `Body::Mfb` — source generics are not registered
+    // functions) so the generic `registry::mfb_fast_path` answers a
+    // `#collections_<member>$…` monomorph target without a per-package table.
+    pkg.add_source_generic_fast_paths(&[
+        ("sort", func_sort::sort_fast_path),
+        ("sortBy", func_sort_by::sort_by_fast_path),
+        ("mapValues", func_map_values::map_values_fast_path),
+        ("groupBy", func_group_by::group_by_fast_path),
+        ("chunks", func_chunks::chunks_fast_path),
+        ("window", func_window::window_fast_path),
+        ("merge", func_merge::merge_fast_path),
+        ("partition", func_partition::partition_fast_path),
+        ("flatten", func_flatten::flatten_fast_path),
+        (
+            "findLastIndex",
+            func_find_last_index::find_last_index_fast_path,
+        ),
+        ("zip", func_zip::zip_fast_path),
+    ]);
+
     func_get::register(&mut pkg);
     func_get_or::register(&mut pkg);
     func_set::register(&mut pkg);
@@ -595,116 +625,10 @@ pub(crate) fn register(r: &mut Registry) {
     r.add_package(pkg);
 }
 
-/// The native fast-path dispatch for the SOURCE-GENERIC members: a
-/// `#collections_<member>$<TypeArgs>` monomorph target is routed to the member's
-/// `<member>_fast_path` fn, which either lowers the instantiation natively or
-/// declines (`Ok(None)`), in which case the caller instantiates the injected
-/// `.mfb` body instead. Only the source-generic members with a native accelerator
-/// appear here; every other member returns `None` (no fast path).
-pub(crate) fn mfb_fast_path(target: &str) -> Option<crate::codegen::registry::MfbFastPath> {
-    let member = target.strip_prefix("#collections_")?.split('$').next()?;
-    Some(match member {
-        "sort" => func_sort::sort_fast_path,
-        "sortBy" => func_sort_by::sort_by_fast_path,
-        "mapValues" => func_map_values::map_values_fast_path,
-        "groupBy" => func_group_by::group_by_fast_path,
-        "chunks" => func_chunks::chunks_fast_path,
-        "window" => func_window::window_fast_path,
-        "merge" => func_merge::merge_fast_path,
-        "partition" => func_partition::partition_fast_path,
-        "flatten" => func_flatten::flatten_fast_path,
-        "findLastIndex" => func_find_last_index::find_last_index_fast_path,
-        "zip" => func_zip::zip_fast_path,
-        _ => return None,
-    })
-}
-
-/// The internal generic-function name implementing a public `collections::`
-/// member, e.g. `sort` -> `#collections_sort`. The injected package is lexed in
-/// internal mode, so its `__collections_*` definitions carry the internal sigil;
-/// the monomorphizer's rewrite target must match.
-pub(crate) fn internal_name(member: &str) -> String {
-    crate::internal_name::internalize(&format!("__collections_{member}"))
-}
-
-/// Whether `member` is a public `collections::` function name.
-pub(crate) fn is_collections_function(member: &str) -> bool {
-    FUNCTIONS.contains(&member)
-}
-
-/// Whether `member` is a migrated native `collections::` member (`get`,
-/// `transform`, the List overloads of `find`/`mid`/`replace`, ...).
-pub(crate) fn is_native_member(member: &str) -> bool {
-    NATIVE_MEMBERS.contains(&member)
-}
-
-/// Whether `name` (a canonical `collections.<fn>` call) names a `collections::`
-/// builtin — either a source generic function (`sort`, ...) or a migrated native
-/// member (`get`, ...).
-///
-/// The shared pipeline no longer routes through this: builtin-membership goes
-/// through the generic `registry::is_member` (native members) + `registry::
-/// is_source_generic_member` (source generics), so `collections` needs no
-/// per-package dispatch branch. It is retained as the man-page provenance symbol
-/// (`man_citations_resolve` is symbol-level) and exercised by the unit tests below.
-#[allow(dead_code)]
-pub(crate) fn is_collections_call(name: &str) -> bool {
-    name.strip_prefix("collections.")
-        .is_some_and(|member| is_collections_function(member) || is_native_member(member))
-}
-
-/// Whether `name` is a migrated native `collections::` member call
-/// (`collections.get`, ...). Used to route the call into `general`'s resolve
-/// logic and to dequalify the IR target back to the bare native name.
-pub(crate) fn is_native_member_call(name: &str) -> bool {
-    // Keyed off `NATIVE_MEMBERS`, NOT the registry: `findIndex`/`findLastIndex`
-    // are source-generic, so they must NOT be routed as native members here.
-    // `native_member_bare` consults `NATIVE_MEMBERS`, which deliberately excludes
-    // them.
-    native_member_bare(name).is_some()
-}
-
-/// Whether a native `collections.<member>` call takes a **unary callback over
-/// the list's element type** as its second argument.
-///
-/// These are the positions where a bare general built-in predicate (`isEven`,
-/// `isPositive`, …) must resolve: the callback's parameter type is not written
-/// at the call site, it is the element type of the first argument, so the
-/// checker has to bind it before the predicate reference can be typed
-/// (bug-368).
-///
-/// `reduce` is deliberately absent — its callback is binary, so no unary
-/// predicate fits it.
-pub(crate) fn unary_callback_member(name: &str) -> bool {
-    unary_callback_member_bare(name.strip_prefix("collections.").unwrap_or(name))
-}
-
-/// The bare-member form of [`unary_callback_member`], for the unqualified call
-/// spelling that reaches `ir::lower` before canonicalization.
-pub(crate) fn unary_callback_member_bare(name: &str) -> bool {
-    matches!(name, "filter" | "transform" | "forEach")
-}
-
-/// `collections.get` -> `get`. Returns `None` for source generic functions and
-/// non-`collections` names.
-pub(crate) fn native_member_bare(name: &str) -> Option<&str> {
-    name.strip_prefix("collections.")
-        .filter(|member| is_native_member(member))
-}
-
-/// Whether any file in `ast` imports the `collections` package.
-pub(crate) fn uses_package(ast: &AstProject) -> bool {
-    ast.files.iter().any(|file| {
-        file.imports
-            .iter()
-            .any(|import| import.package_name() == "collections")
-    })
-}
-
 /// Parses the built-in `collections` package source. `package.mfb` is now
 /// self-contained (all source-generic bodies inlined at their original marker
 /// positions), so it is parsed directly with no body-splicing step.
-pub(crate) fn source_file() -> Result<AstFile, ()> {
+fn source_file() -> Result<AstFile, ()> {
     crate::ast::parse_source_internal(
         Path::new(SOURCE_PATH),
         SOURCE_PATH,
@@ -717,28 +641,23 @@ pub(crate) fn source_file() -> Result<AstFile, ()> {
 /// target is unchanged) and is filtered out of `-ast` output by its sentinel
 /// path. Call rewriting (`collections.sort` -> `__collections_sort`) happens in
 /// the monomorphizer.
+///
+/// `collections` is injected by this dedicated late pass (not the generic
+/// `registry::augment_project`) because its members are source generics with no
+/// modeled registry bodies (`get_mfb` is empty), so the migration keeps this hook.
+/// #[deprecated(note = "migrate registry().augment_project once source generics are modeled")]
 pub(crate) fn augmented_project(ast: AstProject) -> Result<AstProject, ()> {
-    if !uses_package(&ast) {
+    let imported = ast.files.iter().any(|file| {
+        file.imports
+            .iter()
+            .any(|i| i.package_name() == "collections")
+    });
+    if !imported {
         return Ok(ast);
     }
     let mut augmented = ast;
     augmented.files.push(source_file()?);
     Ok(augmented)
-}
-
-/// Builds a binding-name -> package-name map covering every `collections` import
-/// (including aliases) across the project. The monomorphizer uses it to map a
-/// call's `binding.member` callee onto the internal generic implementation.
-pub(crate) fn collections_bindings(ast: &AstProject) -> HashMap<String, ()> {
-    let mut bindings = HashMap::new();
-    for file in &ast.files {
-        for import in &file.imports {
-            if import.package_name() == "collections" {
-                bindings.insert(import.binding_name().to_string(), ());
-            }
-        }
-    }
-    bindings
 }
 
 #[cfg(test)]
@@ -759,17 +678,32 @@ mod tests {
         }
     }
 
+    // The `is_collections_call` / `is_source_generic_member` shape, exercised through
+    // the generic registry accessors the pipeline now routes through.
+    fn is_collections_call(name: &str) -> bool {
+        registry::owning_package(name) == Some("collections")
+            || registry::is_source_generic_member(name)
+    }
+
     #[test]
     fn function_and_native_membership() {
-        assert!(is_collections_function("sort"));
-        assert!(is_collections_function("partition"));
-        assert!(!is_collections_function("get"));
-        assert!(!is_collections_function("nope"));
+        // Source generics answer through `is_source_generic_member`; native members
+        // through `owning_package` (they are the registered functions).
+        assert!(registry::is_source_generic_member("collections.sort"));
+        assert!(registry::is_source_generic_member("collections.partition"));
+        assert!(!registry::is_source_generic_member("collections.get"));
+        assert!(!registry::is_source_generic_member("collections.nope"));
 
-        assert!(is_native_member("get"));
-        assert!(is_native_member("replace"));
-        assert!(!is_native_member("sort"));
-        assert!(!is_native_member("nope"));
+        assert_eq!(
+            registry::owning_package("collections.get"),
+            Some("collections")
+        );
+        assert_eq!(
+            registry::owning_package("collections.replace"),
+            Some("collections")
+        );
+        assert!(registry::owning_package("collections.sort").is_none());
+        assert!(registry::owning_package("collections.nope").is_none());
     }
 
     #[test]
@@ -783,18 +717,23 @@ mod tests {
 
     #[test]
     fn native_member_call_and_bare() {
-        assert!(is_native_member_call("collections.get"));
-        assert!(!is_native_member_call("collections.sort"));
-        assert!(!is_native_member_call("get"));
-        assert_eq!(native_member_bare("collections.get"), Some("get"));
-        assert_eq!(native_member_bare("collections.sort"), None);
-        assert_eq!(native_member_bare("get"), None);
-    }
-
-    #[test]
-    fn internal_name_shape() {
-        let name = internal_name("sort");
-        assert!(name.contains("collections_sort"), "{name}");
+        // `is_native_member_call` -> `owning_package == Some("collections")`;
+        // the bare-name dequalification -> `crate::builtins::native_builtin_target`.
+        assert_eq!(
+            registry::owning_package("collections.get"),
+            Some("collections")
+        );
+        assert!(registry::owning_package("collections.sort").is_none());
+        assert!(registry::owning_package("get").is_none());
+        assert_eq!(
+            crate::builtins::native_builtin_target("collections.get"),
+            Some("get")
+        );
+        assert_eq!(
+            crate::builtins::native_builtin_target("collections.sort"),
+            None
+        );
+        assert_eq!(crate::builtins::native_builtin_target("get"), None);
     }
 
     #[test]
@@ -830,14 +769,22 @@ mod tests {
     }
 
     #[test]
-    fn uses_package_and_bindings() {
+    fn import_detection_via_registry() {
+        let pkg = registry().resolve_package("collections").unwrap();
         let ast = project("IMPORT collections\nSUB main\nEND SUB\n");
-        assert!(uses_package(&ast));
-        assert!(collections_bindings(&ast).contains_key("collections"));
+        assert!(pkg.is_imported_by(&ast));
 
         let bare = project("SUB main\nEND SUB\n");
-        assert!(!uses_package(&bare));
-        assert!(collections_bindings(&bare).is_empty());
+        assert!(!pkg.is_imported_by(&bare));
+    }
+
+    #[test]
+    fn mfb_fast_path_routes_source_generics() {
+        // The generic registry accessor answers a `#collections_<member>$…` target.
+        assert!(registry::mfb_fast_path("#collections_sort$Integer").is_some());
+        assert!(registry::mfb_fast_path("#collections_zip$Integer$String").is_some());
+        assert!(registry::mfb_fast_path("#collections_get$Integer").is_none());
+        assert!(registry::mfb_fast_path("#collections_nope$Integer").is_none());
     }
 
     #[test]

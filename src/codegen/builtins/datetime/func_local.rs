@@ -73,15 +73,18 @@ r#"FUNC __datetime_local AS Zone
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "local",
-        INTRO,
-        DESC,
-        EX,
-        vec![],
-        super::named("Zone"),
-        BODY,
-        "__datetime_local",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "local",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("local"),
+        implementations: vec![super::Implementation {
+            params: vec![],
+            return_type: super::ParameterType::Named("Zone"),
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_local"),
+        }],
+    });
 }

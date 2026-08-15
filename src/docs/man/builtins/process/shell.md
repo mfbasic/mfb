@@ -19,7 +19,7 @@ IMPORT process
 ```
 
 `process` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/process/mod.rs:is_process_call]]
+[[src/codegen/builtins/process/mod.rs:register]]
 
 ## Description
 
@@ -41,7 +41,7 @@ The child is wired to three pipes for its standard streams exactly as with
 lexical drop at scope exit, which force-kills and reaps a still-running child unless
 it is first awaited with `process::waitFor` or released with `process::detach`.
 [[src/codegen/builtins/process/native/unix.rs:emit_spawn_tail]]
-[[src/codegen/builtins/process/mod.rs:resource_close_function]]
+[[src/codegen/registry/mod.rs:resource_close_function]]
 
 ## Parameters
 

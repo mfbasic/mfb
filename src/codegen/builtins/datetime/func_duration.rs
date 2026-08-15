@@ -83,52 +83,156 @@ END SUB
 ```"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::arity_family(
-        pkg,
-        "duration",
-        INTRO,
-        DESC,
-        EX,
-        super::named("Duration"),
-        vec![
-            (
-                vec![super::req("seconds", super::int())],
-                "__datetime_duration1",
-            ),
-            (
-                vec![
-                    super::req("seconds", super::int()),
-                    super::req("nanos", super::int()),
+    pkg.add_function(super::RegistryFunction {
+        name: "duration",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("duration"),
+        implementations: vec![
+            super::Implementation {
+                params: vec![super::Parameter {
+                    name: "seconds",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Integer,
+                    default: super::DefaultValue::None,
+                }],
+                return_type: super::ParameterType::Named("Duration"),
+                errors: vec![],
+                lowering: super::Lowering::Helper,
+                body: super::Body::Rewrite("__datetime_duration1"),
+            },
+            super::Implementation {
+                params: vec![
+                    super::Parameter {
+                        name: "seconds",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "nanos",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
                 ],
-                "__datetime_duration2",
-            ),
-            (
-                vec![
-                    super::req("mins", super::int()),
-                    super::req("seconds", super::int()),
-                    super::req("nanos", super::int()),
+                return_type: super::ParameterType::Named("Duration"),
+                errors: vec![],
+                lowering: super::Lowering::Helper,
+                body: super::Body::Rewrite("__datetime_duration2"),
+            },
+            super::Implementation {
+                params: vec![
+                    super::Parameter {
+                        name: "mins",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "seconds",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "nanos",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
                 ],
-                "__datetime_duration3",
-            ),
-            (
-                vec![
-                    super::req("hours", super::int()),
-                    super::req("mins", super::int()),
-                    super::req("seconds", super::int()),
-                    super::req("nanos", super::int()),
+                return_type: super::ParameterType::Named("Duration"),
+                errors: vec![],
+                lowering: super::Lowering::Helper,
+                body: super::Body::Rewrite("__datetime_duration3"),
+            },
+            super::Implementation {
+                params: vec![
+                    super::Parameter {
+                        name: "hours",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "mins",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "seconds",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "nanos",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
                 ],
-                "__datetime_duration4",
-            ),
-            (
-                vec![
-                    super::req("days", super::int()),
-                    super::req("hours", super::int()),
-                    super::req("mins", super::int()),
-                    super::req("seconds", super::int()),
-                    super::req("nanos", super::int()),
+                return_type: super::ParameterType::Named("Duration"),
+                errors: vec![],
+                lowering: super::Lowering::Helper,
+                body: super::Body::Rewrite("__datetime_duration4"),
+            },
+            super::Implementation {
+                params: vec![
+                    super::Parameter {
+                        name: "days",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "hours",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "mins",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "seconds",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
+                    super::Parameter {
+                        name: "nanos",
+                        desc: "",
+                        aliases: &[],
+                        ty: super::ParameterType::Integer,
+                        default: super::DefaultValue::None,
+                    },
                 ],
-                "__datetime_duration5",
-            ),
+                return_type: super::ParameterType::Named("Duration"),
+                errors: vec![],
+                lowering: super::Lowering::Helper,
+                body: super::Body::Rewrite("__datetime_duration5"),
+            },
         ],
-    );
+    });
 }

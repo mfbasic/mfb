@@ -41,7 +41,7 @@ end-of-input to a filter) and leaves the child running and the handle usable.
 `process::detach` relinquishes ownership the other way — it closes the parent-side
 pipes, arranges for the child to be auto-reaped, and marks the handle closed so
 the child keeps running independently after the program exits.
-[[src/codegen/builtins/process/mod.rs:resource_close_function]]
+[[src/codegen/registry/mod.rs:resource_close_function]]
 [[src/codegen/builtins/process/func_detach.rs:lower_process_detach_helper_posix]]
 
 Streaming I/O connects to the child's three standard streams over pipes.

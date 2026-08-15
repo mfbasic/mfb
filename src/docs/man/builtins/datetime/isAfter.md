@@ -51,7 +51,7 @@ instants rather than just their order, use `datetime::between`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Instant` | The left operand, a point on the UTC timeline. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative) and its `nanos` field is the sub-second remainder. The result is `TRUE` only when `a` falls strictly later than `b`. [[src/codegen/builtins/datetime/mod.rs:IS_AFTER]] |
+| `a` | `Instant` | The left operand, a point on the UTC timeline. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative) and its `nanos` field is the sub-second remainder. The result is `TRUE` only when `a` falls strictly later than `b`. [[src/codegen/builtins/datetime/mod.rs:register]] |
 | `b` | `Instant` | The right operand, compared against `a`. A point on the UTC timeline. The result is `TRUE` only when `b` falls strictly earlier than `a`. |
 
 ## Return value

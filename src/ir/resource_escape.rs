@@ -501,8 +501,15 @@ fn is_insertion_builtin(callee: &str) -> bool {
     // (`collections.append`, ...); map back to the bare op so a freed bare name
     // in user code is never treated as a collection insertion
     // (plan-01-functions.md §5).
+    // The bare native member name for a `collections.<member>` call (the collections
+    // guard excludes the shared `strings.{find,mid,replace}` overloads that
+    // `native_builtin_target` also matches).
+    let member = callee
+        .starts_with("collections.")
+        .then(|| crate::builtins::native_builtin_target(callee))
+        .flatten();
     matches!(
-        crate::codegen::builtins::collections::native_member_bare(callee),
+        member,
         Some("append" | "prepend" | "insert" | "set" | "mid" | "removeAt" | "filter" | "reduce")
     )
 }

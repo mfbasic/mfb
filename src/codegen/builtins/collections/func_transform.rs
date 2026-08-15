@@ -1,7 +1,8 @@
 //! `collections::transform` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{callable_return_type, list_element_type};
@@ -106,16 +107,20 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         expected_arguments: Some("List OF T, FUNC(T) AS U"),
         implementations: vec![Implementation {
             params: vec![
-                super::param(
-                    "value",
-                    &["collection"],
-                    ParameterType::list_of(ParameterType::Var("T")),
-                ),
-                super::param(
-                    "f",
-                    &["transform"],
-                    ParameterType::func(vec![ParameterType::Var("T")], ParameterType::Var("U")),
-                ),
+                Parameter {
+                    name: "value",
+                    desc: "",
+                    aliases: &["collection"],
+                    ty: ParameterType::list_of(ParameterType::Var("T")),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "f",
+                    desc: "",
+                    aliases: &["transform"],
+                    ty: ParameterType::func(vec![ParameterType::Var("T")], ParameterType::Var("U")),
+                    default: DefaultValue::None,
+                },
             ],
             return_type: ParameterType::list_of(ParameterType::Var("U")),
             errors: vec![],

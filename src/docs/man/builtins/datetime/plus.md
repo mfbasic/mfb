@@ -53,7 +53,7 @@ same `Duration`, and it has no side effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Duration` | The first span to add. Its `seconds` field is a whole-second count (which may be negative) and its `nanos` field is the sub-second remainder. [[src/codegen/builtins/datetime/mod.rs:PLUS]] |
+| `a` | `Duration` | The first span to add. Its `seconds` field is a whole-second count (which may be negative) and its `nanos` field is the sub-second remainder. [[src/codegen/builtins/datetime/mod.rs:register]] |
 | `b` | `Duration` | The second span to add. Its `seconds` and `nanos` fields are added to those of `a`. A negative `Duration` subtracts from the running total. |
 
 ## Return value

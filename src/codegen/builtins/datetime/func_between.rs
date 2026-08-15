@@ -77,18 +77,33 @@ r#"FUNC __datetime_between(start AS Instant, finish AS Instant) AS Duration
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "between",
-        INTRO,
-        DESC,
-        EX,
-        vec![
-            super::req("start", super::named("Instant")),
-            super::req("finish", super::named("Instant")),
-        ],
-        super::named("Duration"),
-        BODY,
-        "__datetime_between",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "between",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("between"),
+        implementations: vec![super::Implementation {
+            params: vec![
+                super::Parameter {
+                    name: "start",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("Instant"),
+                    default: super::DefaultValue::None,
+                },
+                super::Parameter {
+                    name: "finish",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("Instant"),
+                    default: super::DefaultValue::None,
+                },
+            ],
+            return_type: super::ParameterType::Named("Duration"),
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_between"),
+        }],
+    });
 }

@@ -64,15 +64,24 @@ r#"FUNC __datetime_dayOfYear(dt AS DateTime) AS Integer
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "dayOfYear",
-        INTRO,
-        DESC,
-        EX,
-        vec![super::req("dt", super::named("DateTime"))],
-        super::int(),
-        BODY,
-        "__datetime_dayOfYear",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "dayOfYear",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("dayOfYear"),
+        implementations: vec![super::Implementation {
+            params: vec![super::Parameter {
+                name: "dt",
+                desc: "",
+                aliases: &[],
+                ty: super::ParameterType::Named("DateTime"),
+                default: super::DefaultValue::None,
+            }],
+            return_type: super::ParameterType::Integer,
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_dayOfYear"),
+        }],
+    });
 }

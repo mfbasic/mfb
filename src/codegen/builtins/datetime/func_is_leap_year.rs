@@ -56,15 +56,24 @@ r#"FUNC __datetime_isLeapYear(year AS Integer) AS Boolean
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "isLeapYear",
-        INTRO,
-        DESC,
-        EX,
-        vec![super::req("year", super::int())],
-        super::boolean(),
-        BODY,
-        "__datetime_isLeapYear",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "isLeapYear",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("isLeapYear"),
+        implementations: vec![super::Implementation {
+            params: vec![super::Parameter {
+                name: "year",
+                desc: "",
+                aliases: &[],
+                ty: super::ParameterType::Integer,
+                default: super::DefaultValue::None,
+            }],
+            return_type: super::ParameterType::Boolean,
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_isLeapYear"),
+        }],
+    });
 }

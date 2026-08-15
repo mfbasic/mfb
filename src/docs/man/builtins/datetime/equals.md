@@ -50,7 +50,7 @@ than just whether they coincide, use `datetime::between`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Instant` | The left operand, a point on the UTC timeline. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative) and its `nanos` field is the sub-second remainder. The result is `TRUE` only when `a` names the same point as `b`. [[src/codegen/builtins/datetime/mod.rs:EQUALS]] |
+| `a` | `Instant` | The left operand, a point on the UTC timeline. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative) and its `nanos` field is the sub-second remainder. The result is `TRUE` only when `a` names the same point as `b`. [[src/codegen/builtins/datetime/mod.rs:register]] |
 | `b` | `Instant` | The right operand, compared against `a`. A point on the UTC timeline. The result is `TRUE` only when `b` names the same point as `a`. |
 
 ## Return value

@@ -21,249 +21,6 @@ use crate::codegen::registry::{
     RegistryFunction, RegistryPackage,
 };
 
-// Public, documented surface. Each maps to an internal `__datetime_<name>`
-// implementation carried by its `Implementation`'s `Body` rewrite target (the
-// arity constructors carry one per overload, `__datetime_<name>{N}`), except the
-// three OS-seam intrinsics, which stay as runtime-helper calls.
-const NOW: &str = "datetime.now";
-const MONOTONIC: &str = "datetime.monotonic";
-const INSTANT: &str = "datetime.instant";
-const DATE: &str = "datetime.date";
-const TIME: &str = "datetime.time";
-const DURATION: &str = "datetime.duration";
-const UTC: &str = "datetime.utc";
-const LOCAL: &str = "datetime.local";
-const FIXED_OFFSET: &str = "datetime.fixedOffset";
-const OFFSET_AT: &str = "datetime.offsetAt";
-const IN_ZONE: &str = "datetime.inZone";
-const TO_UTC: &str = "datetime.toUtc";
-const TO_LOCAL: &str = "datetime.toLocal";
-const RESOLVE: &str = "datetime.resolve";
-const CIVIL: &str = "datetime.civil";
-const WITH_ZONE: &str = "datetime.withZone";
-const ADD: &str = "datetime.add";
-const SUBTRACT: &str = "datetime.subtract";
-const BETWEEN: &str = "datetime.between";
-const ADD_DAYS: &str = "datetime.addDays";
-const ADD_MONTHS: &str = "datetime.addMonths";
-const COMPARE: &str = "datetime.compare";
-const IS_BEFORE: &str = "datetime.isBefore";
-const IS_AFTER: &str = "datetime.isAfter";
-const EQUALS: &str = "datetime.equals";
-const NEGATE: &str = "datetime.negate";
-const PLUS: &str = "datetime.plus";
-const MINUS: &str = "datetime.minus";
-const WEEKDAY: &str = "datetime.weekday";
-const DAY_OF_YEAR: &str = "datetime.dayOfYear";
-const IS_LEAP_YEAR: &str = "datetime.isLeapYear";
-const DAYS_IN_MONTH: &str = "datetime.daysInMonth";
-const START_OF_DAY: &str = "datetime.startOfDay";
-const TO_MILLIS: &str = "datetime.toMillis";
-const TO_NANOS: &str = "datetime.toNanos";
-const FROM_MILLIS: &str = "datetime.fromMillis";
-const FORMAT: &str = "datetime.format";
-const PARSE: &str = "datetime.parse";
-const TO_ISO: &str = "datetime.toIso";
-const PARSE_ISO: &str = "datetime.parseIso";
-const FORMAT_DURATION: &str = "datetime.formatDuration";
-
-// OS-seam intrinsics (§8.2). Not documented; callable but only return raw
-// integers. They lower to runtime helpers (`_mfb_rt_datetime_*`), so their
-// `Implementation` bodies carry no rewrite target (the canonical name reaches the
-// native seam instead).
-const NOW_NANOS: &str = "datetime.nowNanos";
-const MONOTONIC_NANOS: &str = "datetime.monotonicNanos";
-const LOCAL_OFFSET: &str = "datetime.localOffset";
-
-/// Every `datetime::` call, in registration order. Used by `is_datetime_call`
-/// (keeps the const-name surface live and citable).
-const ALL_CALLS: &[&str] = &[
-    NOW,
-    MONOTONIC,
-    INSTANT,
-    DATE,
-    TIME,
-    DURATION,
-    UTC,
-    LOCAL,
-    FIXED_OFFSET,
-    OFFSET_AT,
-    IN_ZONE,
-    TO_UTC,
-    TO_LOCAL,
-    RESOLVE,
-    CIVIL,
-    WITH_ZONE,
-    ADD,
-    SUBTRACT,
-    BETWEEN,
-    ADD_DAYS,
-    ADD_MONTHS,
-    COMPARE,
-    IS_BEFORE,
-    IS_AFTER,
-    EQUALS,
-    NEGATE,
-    PLUS,
-    MINUS,
-    WEEKDAY,
-    DAY_OF_YEAR,
-    IS_LEAP_YEAR,
-    DAYS_IN_MONTH,
-    START_OF_DAY,
-    TO_MILLIS,
-    TO_NANOS,
-    FROM_MILLIS,
-    FORMAT,
-    PARSE,
-    TO_ISO,
-    PARSE_ISO,
-    FORMAT_DURATION,
-    NOW_NANOS,
-    MONOTONIC_NANOS,
-    LOCAL_OFFSET,
-];
-
-// --- descriptor builders shared by the per-member `func_*.rs` via `super::` ---
-
-/// A required parameter of type `ty`.
-pub(super) fn req(name: &'static str, ty: ParameterType) -> Parameter {
-    Parameter {
-        name,
-        desc: "",
-        aliases: &[],
-        ty,
-        default: DefaultValue::None,
-    }
-}
-
-/// An optional trailing parameter that widens arity but is NOT default-padded by
-/// the registry (`time`'s trailing `second`/`nanos`, padded instead through the
-/// retained `default_argument_padding`).
-pub(super) fn optional(name: &'static str, ty: ParameterType) -> Parameter {
-    Parameter {
-        name,
-        desc: "",
-        aliases: &[],
-        ty,
-        default: DefaultValue::Optional,
-    }
-}
-
-/// The concrete nominal type named by `name` (`Instant`, `Date`, ...).
-pub(super) fn named(name: &'static str) -> ParameterType {
-    ParameterType::Named(name)
-}
-
-/// The `Integer` parameter type.
-pub(super) fn int() -> ParameterType {
-    ParameterType::Integer
-}
-
-/// The `String` parameter type.
-pub(super) fn string() -> ParameterType {
-    ParameterType::String
-}
-
-/// The `Boolean` parameter type.
-pub(super) fn boolean() -> ParameterType {
-    ParameterType::Boolean
-}
-
-/// Register a single-body member: one implementation whose `.mfb` body is
-/// spliced from `body` and whose call rewrites to the `FUNC` that body declares.
-pub(super) fn single(
-    pkg: &mut RegistryPackage,
-    name: &'static str,
-    intro: &'static str,
-    desc: &'static str,
-    example: &'static str,
-    params: Vec<Parameter>,
-    return_type: ParameterType,
-    body: &'static str,
-    rewrite: &'static str,
-) {
-    pkg.add_function(RegistryFunction {
-        name,
-        intro,
-        desc,
-        example,
-        expected_arguments: arg_hint(name),
-        implementations: vec![Implementation {
-            params,
-            return_type,
-            errors: vec![],
-            lowering: Lowering::Helper,
-            body: Body::mfb(body, rewrite),
-        }],
-    });
-}
-
-/// Register an arity-dispatched constructor family (`instant`/`duration`/
-/// `fixedOffset`/`parse`): each `(params, rewrite)` becomes its own
-/// implementation, so `select` picks the overload by arity and yields that
-/// overload's `__datetime_*N` rewrite target — no resolver needed. The bodies
-/// live in `package.mfb`, so each implementation is a plain [`Body::Rewrite`].
-pub(super) fn arity_family(
-    pkg: &mut RegistryPackage,
-    name: &'static str,
-    intro: &'static str,
-    desc: &'static str,
-    example: &'static str,
-    return_type: ParameterType,
-    overloads: Vec<(Vec<Parameter>, &'static str)>,
-) {
-    let implementations = overloads
-        .into_iter()
-        .map(|(params, rewrite)| Implementation {
-            params,
-            return_type: return_type.clone(),
-            errors: vec![],
-            lowering: Lowering::Helper,
-            body: Body::Rewrite(rewrite),
-        })
-        .collect();
-    pkg.add_function(RegistryFunction {
-        name,
-        intro,
-        desc,
-        example,
-        expected_arguments: arg_hint(name),
-        implementations,
-    });
-}
-
-/// Register an OS-seam intrinsic (`nowNanos`/`monotonicNanos`/`localOffset`):
-/// lowered natively via [`native::lower_datetime_helper`] (posix + windows share
-/// the one all-platform emitter), not through a source companion.
-pub(super) fn intrinsic(
-    pkg: &mut RegistryPackage,
-    name: &'static str,
-    intro: &'static str,
-    desc: &'static str,
-    example: &'static str,
-    params: Vec<Parameter>,
-) {
-    pkg.add_function(RegistryFunction {
-        name,
-        intro,
-        desc,
-        example,
-        expected_arguments: arg_hint(name),
-        implementations: vec![Implementation {
-            params,
-            return_type: ParameterType::Integer,
-            errors: vec![],
-            lowering: Lowering::Helper,
-            body: Body::native(
-                Some(native::lower_datetime_helper),
-                Some(native::lower_datetime_helper),
-                None,
-            ),
-        }],
-    });
-}
-
 const MODULE_INTRO: &str =
     r#"Instants, civil dates and times, durations, zones, formatting, and parsing"#;
 const MODULE_DESC: &str = r#"The `datetime` package models time around a single source of truth: an `Instant`,
@@ -319,6 +76,16 @@ pub(crate) fn register(r: &mut Registry) {
     // `TYPE`/`ENUM` declarations, the private helpers, and the arity bodies.
     pkg.add_helper_functions(vec![include_str!("package.mfb")]);
 
+    // The public value records/enums are authored (with their `DOC` blocks and
+    // byte-exact formatting) in `package.mfb`, so they are NOT modeled as
+    // `RegistryRecord`/`RegistryEnum` (that would double-declare / reformat them).
+    // Recording their names as source-declared types lets the generic
+    // `registry::is_builtin_type` / `qualified_builtin_type` recognize them, replacing
+    // the deleted per-package `is_builtin_type` predicate.
+    pkg.add_source_types(&[
+        "Instant", "Duration", "Date", "Time", "Zone", "DateTime", "ZoneKind", "Weekday", "Month",
+    ]);
+
     func_now::register(&mut pkg);
     func_monotonic::register(&mut pkg);
     func_instant::register(&mut pkg);
@@ -367,31 +134,6 @@ pub(crate) fn register(r: &mut Registry) {
     r.add_package(pkg);
 }
 
-/// The public copyable record/enum types defined in `package.mfb`. Referenced
-/// bare (`Instant`, `DateTime`, …) like every other builtin type. The registry
-/// models neither `ENUM`s nor the source `DOC` blocks, so these type names stay
-/// authored in `package.mfb` and are recognized here rather than via the generic
-/// `registry::is_builtin_type`.
-pub(crate) fn is_builtin_type(name: &str) -> bool {
-    matches!(
-        name,
-        "Instant"
-            | "Duration"
-            | "Date"
-            | "Time"
-            | "Zone"
-            | "DateTime"
-            | "ZoneKind"
-            | "Weekday"
-            | "Month"
-    )
-}
-
-/// Whether `name` is one of the package's public `datetime::` calls.
-pub(crate) fn is_datetime_call(name: &str) -> bool {
-    ALL_CALLS.contains(&name)
-}
-
 /// The bespoke expected-argument phrasing for a `datetime::` argument-mismatch
 /// diagnostic, keyed by the member's unqualified name — moved onto each member's
 /// `RegistryFunction::expected_arguments` descriptor field at registration (the
@@ -431,21 +173,6 @@ fn arg_hint(name: &str) -> Option<&'static str> {
         _ => return None,
     };
     Some(text)
-}
-
-/// Default trailing arguments injected during IR lowering. Only `time` carries
-/// trailing defaults (`second`, `nanos` default to 0); the overloaded
-/// constructors return EMPTY so the supplied argument count selects the right
-/// `.mfb` overload (§5.1.1).
-pub(crate) fn default_argument_padding(
-    name: &str,
-    provided: usize,
-) -> &'static [(&'static str, &'static str)] {
-    const TIME_DEFAULTS: &[(&str, &str)] = &[("Integer", "0"), ("Integer", "0")];
-    match name {
-        TIME => &TIME_DEFAULTS[(provided.saturating_sub(2)).min(TIME_DEFAULTS.len())..],
-        _ => &[],
-    }
 }
 
 use crate::target::shared::runtime::{RuntimeHelper, RuntimeHelperAbi, RuntimeHelperSpec};
@@ -523,20 +250,66 @@ pub(crate) const DATETIME_LOCAL_OFFSET_SPEC: RuntimeHelperSpec = RuntimeHelperSp
     abi: RuntimeHelperAbi { returns: "Integer" },
 };
 
-/// Whether `name` is one of datetime's three OS-seam runtime intrinsics — lowered
-/// natively via [`lower_datetime_helper`], not through the source companion. The
-/// shared runtime-call recognizer (`target/shared/runtime/mod.rs`) delegates here.
-pub(crate) fn is_datetime_runtime_call(name: &str) -> bool {
-    matches!(
-        name,
-        "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset"
-    )
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::codegen::registry::{self, registry};
+
+    // Qualified-call names exercised by the tests (the mod-level consts were
+    // retired — membership now answers through `registry::owning_package`).
+    const NOW: &str = "datetime.now";
+    const INSTANT: &str = "datetime.instant";
+    const DURATION: &str = "datetime.duration";
+    const DATE: &str = "datetime.date";
+    const TIME: &str = "datetime.time";
+    const FIXED_OFFSET: &str = "datetime.fixedOffset";
+    const PARSE: &str = "datetime.parse";
+    const RESOLVE: &str = "datetime.resolve";
+    const ALL_CALLS: &[&str] = &[
+        "datetime.now",
+        "datetime.monotonic",
+        "datetime.instant",
+        "datetime.date",
+        "datetime.time",
+        "datetime.duration",
+        "datetime.utc",
+        "datetime.local",
+        "datetime.fixedOffset",
+        "datetime.offsetAt",
+        "datetime.inZone",
+        "datetime.toUtc",
+        "datetime.toLocal",
+        "datetime.resolve",
+        "datetime.civil",
+        "datetime.withZone",
+        "datetime.add",
+        "datetime.subtract",
+        "datetime.between",
+        "datetime.addDays",
+        "datetime.addMonths",
+        "datetime.compare",
+        "datetime.isBefore",
+        "datetime.isAfter",
+        "datetime.equals",
+        "datetime.negate",
+        "datetime.plus",
+        "datetime.minus",
+        "datetime.weekday",
+        "datetime.dayOfYear",
+        "datetime.isLeapYear",
+        "datetime.daysInMonth",
+        "datetime.startOfDay",
+        "datetime.toMillis",
+        "datetime.toNanos",
+        "datetime.fromMillis",
+        "datetime.format",
+        "datetime.parse",
+        "datetime.toIso",
+        "datetime.parseIso",
+        "datetime.formatDuration",
+        "datetime.nowNanos",
+        "datetime.monotonicNanos",
+        "datetime.localOffset",
+    ];
 
     #[test]
     fn datetime_registered_on_the_clean_room_registry() {
@@ -684,33 +457,42 @@ mod tests {
 
     #[test]
     fn default_padding_time_only() {
-        // TIME with 2 provided -> two defaults; 3 -> one; 4 -> none.
-        assert_eq!(default_argument_padding(TIME, 2).len(), 2);
-        assert_eq!(default_argument_padding(TIME, 3).len(), 1);
-        assert_eq!(default_argument_padding(TIME, 4).len(), 0);
-        assert_eq!(default_argument_padding(TIME, 5).len(), 0);
-        assert_eq!(default_argument_padding(NOW, 0), &[]);
+        // `time`'s trailing `second`/`nanos` are `Fill { Integer, "0" }`, so the
+        // generic registry padder injects the right count; every other member (and
+        // the arity constructors) pad nothing.
+        assert_eq!(registry::default_argument_padding(TIME, 2).len(), 2);
+        assert_eq!(registry::default_argument_padding(TIME, 3).len(), 1);
+        assert_eq!(registry::default_argument_padding(TIME, 4).len(), 0);
+        assert_eq!(registry::default_argument_padding(TIME, 5).len(), 0);
+        assert_eq!(registry::default_argument_padding(NOW, 0), Vec::new());
     }
 
     #[test]
     fn builtin_types_recognized() {
+        // The value records/enums are source-declared (in `package.mfb`) and
+        // recognized through the generic registry via `add_source_types`.
         for t in [
             "Instant", "Duration", "Date", "Time", "Zone", "DateTime", "ZoneKind", "Weekday",
             "Month",
         ] {
-            assert!(is_builtin_type(t), "{t}");
+            assert!(registry::is_builtin_type(t), "{t}");
         }
-        assert!(!is_builtin_type("Nope"));
-        assert!(!is_builtin_type("Integer"));
+        assert!(!registry::is_builtin_type("Nope"));
+        assert!(!registry::is_builtin_type("Integer"));
+        // The qualified form resolves the same source-declared names.
+        assert_eq!(
+            registry::qualified_builtin_type("datetime.Instant"),
+            Some("Instant".to_string())
+        );
     }
 
     #[test]
-    fn is_call_recognizes_all_and_rejects_unknown() {
+    fn membership_via_generic_registry() {
         for n in ALL_CALLS {
-            assert!(is_datetime_call(n), "{n}");
+            assert_eq!(registry::owning_package(n), Some("datetime"), "{n}");
         }
-        assert!(!is_datetime_call("datetime.nope"));
-        assert!(!is_datetime_call("other.now"));
+        assert!(registry::owning_package("datetime.nope").is_none());
+        assert!(registry::owning_package("other.now").is_none());
     }
 
     #[test]

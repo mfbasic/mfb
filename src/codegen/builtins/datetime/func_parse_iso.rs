@@ -129,15 +129,24 @@ r#"FUNC __datetime_parseIso(value AS String) AS DateTime
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "parseIso",
-        INTRO,
-        DESC,
-        EX,
-        vec![super::req("value", super::string())],
-        super::named("DateTime"),
-        BODY,
-        "__datetime_parseIso",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "parseIso",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("parseIso"),
+        implementations: vec![super::Implementation {
+            params: vec![super::Parameter {
+                name: "value",
+                desc: "",
+                aliases: &[],
+                ty: super::ParameterType::String,
+                default: super::DefaultValue::None,
+            }],
+            return_type: super::ParameterType::Named("DateTime"),
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_parseIso"),
+        }],
+    });
 }

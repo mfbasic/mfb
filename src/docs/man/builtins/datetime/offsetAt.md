@@ -54,7 +54,7 @@ pure); for a local zone it reads the host's time-zone configuration through the
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `zone` | `Zone` | The zone whose offset is queried. Its kind (UTC, fixed, or local) selects how the offset is computed. [[src/codegen/builtins/datetime/mod.rs:OFFSET_AT]] |
+| `zone` | `Zone` | The zone whose offset is queried. Its kind (UTC, fixed, or local) selects how the offset is computed. [[src/codegen/builtins/datetime/mod.rs:register]] |
 | `at` | `Instant` | The absolute instant at which to evaluate the offset. Its `seconds` field (seconds since the Unix epoch) is the point on the timeline used; the `nanos` field is ignored. For UTC and fixed zones the instant has no effect on the result; for a local zone it selects the standard or daylight-saving offset in force at that moment. |
 
 ## Return value

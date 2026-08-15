@@ -58,7 +58,7 @@ its microsecond and nanosecond digits; for full nanosecond precision use
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `millis` | `Integer` | The number of whole milliseconds from the Unix epoch to the desired instant: `0` for the epoch, positive for instants after it, negative for instants before it. Any `Integer` value is accepted. [[src/codegen/builtins/datetime/mod.rs:FROM_MILLIS]] |
+| `millis` | `Integer` | The number of whole milliseconds from the Unix epoch to the desired instant: `0` for the epoch, positive for instants after it, negative for instants before it. Any `Integer` value is accepted. [[src/codegen/builtins/datetime/mod.rs:register]] |
 
 ## Return value
 

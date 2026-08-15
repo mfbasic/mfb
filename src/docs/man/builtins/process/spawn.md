@@ -20,7 +20,7 @@ IMPORT process
 ```
 
 `process` is a built-in package, so no manifest dependency is required.
-[[src/codegen/builtins/process/mod.rs:is_process_call]]
+[[src/codegen/builtins/process/mod.rs:register]]
 
 ## Description
 
@@ -44,7 +44,7 @@ The returned `Process` is an owned, non-copyable resource handle. It is closed b
 lexical drop when its binding leaves scope, which **force-kills and reaps** a
 still-running child (`SIGKILL` + `waitpid` on Unix) so no runaway process or zombie
 is left; call `process::waitFor` first if the child should be allowed to finish, or
-`process::detach` to let it outlive the program. [[src/codegen/builtins/process/mod.rs:resource_close_function]]
+`process::detach` to let it outlive the program. [[src/codegen/registry/mod.rs:resource_close_function]]
 
 The empty argument list is rejected with `ErrInvalidArgument` — there is no program
 to run. [[src/builtins/errorcode.rs:ErrInvalidArgument]]

@@ -229,7 +229,7 @@ impl CodeBuilder<'_> {
             NirValue::Local(_) => true,
             NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => {
                 matches!(
-                    crate::codegen::builtins::collections::native_member_bare(target),
+                    crate::codegen::registry::native_bare_target(target),
                     Some("get" | "getOr")
                 ) || crate::builtins::net::returns_borrowed_resource(target)
                     || crate::builtins::tls::returns_borrowed_resource(target)
@@ -1530,7 +1530,7 @@ impl CodeBuilder<'_> {
         target: &str,
         args: &[NirValue],
     ) -> Option<Result<ValueResult, String>> {
-        let fast_path = crate::codegen::builtins::collections::mfb_fast_path(target)?;
+        let fast_path = crate::codegen::registry::mfb_fast_path(target)?;
         fast_path(self, target, args).transpose()
     }
 

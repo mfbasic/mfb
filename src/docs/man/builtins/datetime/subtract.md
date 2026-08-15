@@ -54,7 +54,7 @@ to push the combined second count past the `Integer` range overflows and traps.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `at` | `Instant` | The starting point on the UTC timeline to shift. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative for instants before the epoch) and its `nanos` field is the sub-second remainder. [[src/codegen/builtins/datetime/mod.rs:SUBTRACT]] |
+| `at` | `Instant` | The starting point on the UTC timeline to shift. Its `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative for instants before the epoch) and its `nanos` field is the sub-second remainder. [[src/codegen/builtins/datetime/mod.rs:register]] |
 | `by` | `Duration` | The signed span to subtract. A positive `Duration` moves `at` to an earlier `Instant`; a negative `Duration` advances it to a later one. Its `seconds` and `nanos` fields are subtracted from those of `at`. |
 
 ## Return value

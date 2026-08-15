@@ -54,7 +54,7 @@ zero. [[src/codegen/builtins/datetime/package.mfb:__datetime_duration1]]
 
 `duration` is overloaded, so every parameter of the form you call must be supplied
 explicitly; the component forms carry no defaults.
-[[src/codegen/builtins/datetime/mod.rs:default_argument_padding]] The folding and
+[[src/codegen/registry/mod.rs:default_argument_padding]] The folding and
 normalization are ordinary signed `Integer` arithmetic, so a sufficiently large
 day, hour, minute, or second magnitude can overflow the `Integer` range and trap.
 Combine durations with `datetime::plus`, `datetime::minus`, and `datetime::negate`;

@@ -50,7 +50,7 @@ copied through verbatim. `resolve` is pure and reads no host state.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `dt` | `DateTime` | The civil date-time to collapse to an instant. Its `date` and `time` fields supply the wall-clock value, and its `offset` field (the UTC offset in seconds pinned when the `DateTime` was produced) is subtracted to reach the UTC timeline. The `zone` field is not consulted; only the stored offset is used. The `nanos` of `dt.time` are carried into the result unchanged. [[src/codegen/builtins/datetime/mod.rs:RESOLVE]] |
+| `dt` | `DateTime` | The civil date-time to collapse to an instant. Its `date` and `time` fields supply the wall-clock value, and its `offset` field (the UTC offset in seconds pinned when the `DateTime` was produced) is subtracted to reach the UTC timeline. The `zone` field is not consulted; only the stored offset is used. The `nanos` of `dt.time` are carried into the result unchanged. [[src/codegen/builtins/datetime/mod.rs:register]] |
 
 ## Return value
 

@@ -58,7 +58,7 @@ offset. [[src/codegen/builtins/datetime/func_to_utc.rs:__datetime_toUtc]]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `at` | `Instant` | The absolute point on the UTC timeline to project. Its `seconds` field (seconds since the Unix epoch, may be negative) drives the offset resolution and the civil date/time computation; its `nanos` field is copied unchanged into the result's time. [[src/codegen/builtins/datetime/mod.rs:IN_ZONE]] |
+| `at` | `Instant` | The absolute point on the UTC timeline to project. Its `seconds` field (seconds since the Unix epoch, may be negative) drives the offset resolution and the civil date/time computation; its `nanos` field is copied unchanged into the result's time. [[src/codegen/builtins/datetime/mod.rs:register]] |
 | `zone` | `Zone` | The zone to project into. Its kind selects how the offset is resolved: a UTC zone contributes a zero offset, a fixed-offset zone (`datetime::fixedOffset`) contributes its single constant offset, and a local zone (`datetime::local`) contributes the host's DST-correct offset for the instant `at`. |
 
 ## Return value

@@ -40,7 +40,7 @@ in `0 .. 999_999_999`. [[src/codegen/builtins/datetime/func_time.rs:__datetime_t
 minute and a three-argument call names the top of a second. Unlike
 `datetime::instant` and `datetime::duration`, `time` is not overloaded but a
 single signature with trailing defaults, so the defaults apply and you may omit
-`second`, or both `second` and `nanos`. [[src/codegen/builtins/datetime/mod.rs:default_argument_padding]]
+`second`, or both `second` and `nanos`. [[src/codegen/registry/mod.rs:default_argument_padding]]
 
 `time` is pure: the same arguments always yield the same `Time`, and it has no
 side effects.

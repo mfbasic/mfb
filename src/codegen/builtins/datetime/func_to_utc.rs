@@ -57,15 +57,24 @@ r#"FUNC __datetime_toUtc(at AS Instant) AS DateTime
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "toUtc",
-        INTRO,
-        DESC,
-        EX,
-        vec![super::req("at", super::named("Instant"))],
-        super::named("DateTime"),
-        BODY,
-        "__datetime_toUtc",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "toUtc",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("toUtc"),
+        implementations: vec![super::Implementation {
+            params: vec![super::Parameter {
+                name: "at",
+                desc: "",
+                aliases: &[],
+                ty: super::ParameterType::Named("Instant"),
+                default: super::DefaultValue::None,
+            }],
+            return_type: super::ParameterType::Named("DateTime"),
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_toUtc"),
+        }],
+    });
 }

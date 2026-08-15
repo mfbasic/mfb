@@ -66,18 +66,33 @@ r#"FUNC __datetime_addDays(dt AS DateTime, days AS Integer) AS DateTime
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "addDays",
-        INTRO,
-        DESC,
-        EX,
-        vec![
-            super::req("dt", super::named("DateTime")),
-            super::req("days", super::int()),
-        ],
-        super::named("DateTime"),
-        BODY,
-        "__datetime_addDays",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "addDays",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("addDays"),
+        implementations: vec![super::Implementation {
+            params: vec![
+                super::Parameter {
+                    name: "dt",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Named("DateTime"),
+                    default: super::DefaultValue::None,
+                },
+                super::Parameter {
+                    name: "days",
+                    desc: "",
+                    aliases: &[],
+                    ty: super::ParameterType::Integer,
+                    default: super::DefaultValue::None,
+                },
+            ],
+            return_type: super::ParameterType::Named("DateTime"),
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_addDays"),
+        }],
+    });
 }

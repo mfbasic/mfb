@@ -63,15 +63,18 @@ r#"FUNC __datetime_monotonic AS Duration
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    super::single(
-        pkg,
-        "monotonic",
-        INTRO,
-        DESC,
-        EX,
-        vec![],
-        super::named("Duration"),
-        BODY,
-        "__datetime_monotonic",
-    );
+    pkg.add_function(super::RegistryFunction {
+        name: "monotonic",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: super::arg_hint("monotonic"),
+        implementations: vec![super::Implementation {
+            params: vec![],
+            return_type: super::ParameterType::Named("Duration"),
+            errors: vec![],
+            lowering: super::Lowering::Helper,
+            body: super::Body::mfb(BODY, "__datetime_monotonic"),
+        }],
+    });
 }

@@ -53,7 +53,7 @@ one-argument form performs no normalization because its `nanos` is fixed at zero
 
 `instant` is overloaded, so every parameter of the form you call must be supplied
 explicitly; the component forms carry no defaults.
-[[src/codegen/builtins/datetime/mod.rs:default_argument_padding]] The folding and
+[[src/codegen/registry/mod.rs:default_argument_padding]] The folding and
 normalization are ordinary signed `Integer` arithmetic, so a sufficiently large
 day, hour, minute, or second magnitude can overflow the `Integer` range and trap.
 To shift an existing `Instant` by a span rather than build one from scratch, use

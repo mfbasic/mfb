@@ -128,7 +128,10 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::Audio)
     } else if builtins::crypto::is_native_crypto_call(name) {
         Some(RuntimeHelper::Crypto)
-    } else if crate::codegen::builtins::datetime::is_datetime_runtime_call(name) {
+    } else if matches!(
+        name,
+        "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset"
+    ) {
         Some(RuntimeHelper::Datetime)
     } else if builtins::fs::is_fs_call(name) {
         Some(RuntimeHelper::Fs)
@@ -146,7 +149,9 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::Net)
     } else if builtins::os::is_os_call(name) {
         Some(RuntimeHelper::Os)
-    } else if crate::codegen::builtins::process::is_process_runtime_call(name) {
+    } else if crate::codegen::registry::owning_package(name) == Some("process")
+        || name == "process.__drop"
+    {
         Some(RuntimeHelper::Process)
     } else if builtins::tls::is_tls_runtime_call(name) {
         Some(RuntimeHelper::Tls)

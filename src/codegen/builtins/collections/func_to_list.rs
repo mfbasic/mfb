@@ -1,7 +1,8 @@
 //! `collections::toList` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
 };
 use crate::target::shared::code::type_utils::set_element_type;
 use crate::target::shared::code::{CodeBuilder, ValueResult};
@@ -55,11 +56,13 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         example: EX,
         expected_arguments: Some("Set OF T"),
         implementations: vec![Implementation {
-            params: vec![super::param(
-                "value",
-                &["set"],
-                ParameterType::set_of(ParameterType::Var("T")),
-            )],
+            params: vec![Parameter {
+                name: "value",
+                desc: "",
+                aliases: &["set"],
+                ty: ParameterType::set_of(ParameterType::Var("T")),
+                default: DefaultValue::None,
+            }],
             return_type: ParameterType::list_of(ParameterType::Var("T")),
             errors: vec![],
             lowering: Lowering::Helper,

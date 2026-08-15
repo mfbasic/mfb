@@ -1,7 +1,8 @@
 //! `collections::append` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
 };
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
@@ -93,12 +94,20 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![
             Implementation {
                 params: vec![
-                    super::param(
-                        "value",
-                        &["list"],
-                        ParameterType::list_of(ParameterType::Var("T")),
-                    ),
-                    super::param("item", &["items"], ParameterType::Var("T")),
+                    Parameter {
+                        name: "value",
+                        desc: "",
+                        aliases: &["list"],
+                        ty: ParameterType::list_of(ParameterType::Var("T")),
+                        default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "item",
+                        desc: "",
+                        aliases: &["items"],
+                        ty: ParameterType::Var("T"),
+                        default: DefaultValue::None,
+                    },
                 ],
                 return_type: ParameterType::Arg(0),
                 errors: vec![],
@@ -107,16 +116,20 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             },
             Implementation {
                 params: vec![
-                    super::param(
-                        "value",
-                        &["list"],
-                        ParameterType::list_of(ParameterType::Var("T")),
-                    ),
-                    super::param(
-                        "item",
-                        &["items"],
-                        ParameterType::list_of(ParameterType::Var("T")),
-                    ),
+                    Parameter {
+                        name: "value",
+                        desc: "",
+                        aliases: &["list"],
+                        ty: ParameterType::list_of(ParameterType::Var("T")),
+                        default: DefaultValue::None,
+                    },
+                    Parameter {
+                        name: "item",
+                        desc: "",
+                        aliases: &["items"],
+                        ty: ParameterType::list_of(ParameterType::Var("T")),
+                        default: DefaultValue::None,
+                    },
                 ],
                 return_type: ParameterType::Arg(0),
                 errors: vec![],

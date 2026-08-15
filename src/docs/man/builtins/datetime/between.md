@@ -27,7 +27,7 @@ IMPORT datetime
 elapsed time you would add to `start` to reach `finish`. The span is positive when
 `finish` is later than `start`, negative when `finish` is earlier, and zero when
 the two instants are equal. Because the result is a `Duration` it carries no anchor
-on the timeline — it names a length, not a point. [[src/codegen/builtins/datetime/mod.rs:BETWEEN]]
+on the timeline — it names a length, not a point. [[src/codegen/builtins/datetime/mod.rs:register]]
 
 The span is computed by subtracting the two `Instant`s field by field
 (`finish.seconds - start.seconds` and `finish.nanos - start.nanos`) and then
@@ -53,7 +53,7 @@ apply spans with `datetime::plus`, `datetime::minus`, `datetime::negate`,
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `start` | `Instant` | The earlier reference point, subtracted from `finish`. A point on the UTC timeline whose `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative before the epoch) and whose `nanos` field is the sub-second remainder. [[src/codegen/builtins/datetime/mod.rs:BETWEEN]] |
+| `start` | `Instant` | The earlier reference point, subtracted from `finish`. A point on the UTC timeline whose `seconds` field is whole seconds since `1970-01-01T00:00:00Z` (possibly negative before the epoch) and whose `nanos` field is the sub-second remainder. [[src/codegen/builtins/datetime/mod.rs:register]] |
 | `finish` | `Instant` | The later reference point, from which `start` is subtracted. A point on the UTC timeline. When `finish` precedes `start` the returned span is negative. |
 
 ## Return value

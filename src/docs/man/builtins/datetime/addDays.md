@@ -48,7 +48,7 @@ yield the same result, and it has no side effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `dt` | `DateTime` | The civil starting point. Its date, wall-clock time, and zone are read; the date is shifted while the time of day and zone are preserved. [[src/codegen/builtins/datetime/mod.rs:ADD_DAYS]] |
+| `dt` | `DateTime` | The civil starting point. Its date, wall-clock time, and zone are read; the date is shifted while the time of day and zone are preserved. [[src/codegen/builtins/datetime/mod.rs:register]] |
 | `days` | `Integer` | The signed number of whole calendar days to add. Positive values advance `dt` to a later date, negative values to an earlier one, and zero leaves the date unchanged. |
 
 ## Return value

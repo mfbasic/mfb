@@ -22,7 +22,7 @@ civil — `Date`, `Time`, and `DateTime` — is a projection of an instant throu
 `Zone`, and every projection records the resolved UTC offset, so a `DateTime`
 always knows its offset and round-trips back to its `Instant` without
 re-consulting the zone. `datetime` is a built-in package: `IMPORT datetime` needs
-no manifest dependency. [[src/codegen/builtins/datetime/mod.rs:is_datetime_call]]
+no manifest dependency. [[src/codegen/builtins/datetime/mod.rs:register]]
 
 All public types are flat, copyable value records and enums — `Instant`,
 `Duration`, `Date`, `Time`, `Zone`, `DateTime`, and the enums `ZoneKind`,
