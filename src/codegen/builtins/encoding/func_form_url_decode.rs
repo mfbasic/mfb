@@ -5,8 +5,10 @@
 //! `src/docs/man/builtins/encoding/formUrlDecode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ov, p, VALTEXT};
-use crate::target::shared::registry::BuiltinFunction;
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str = r#"Decode `application/x-www-form-urlencoded` text back into a `String`."#;
 const DESC: &str = r#"`encoding::formUrlDecode` reverses `encoding::formUrlEncode`, parsing
@@ -57,13 +59,24 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const FORM_URL_DECODE: BuiltinFunction = BuiltinFunction::mfb(
-    "encoding.formUrlDecode",
-    "formUrlDecode",
-    INTRO,
-    DESC,
-    &[],
-    &[ov(&[p("value", VALTEXT, "String")], "String")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "formUrlDecode",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "value",
+                desc: "The form-url-encoded text to decode.",
+                aliases: &["text"],
+                ty: ParameterType::String,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::String,
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(BODY, "__encoding_formUrlDecode"),
+        }],
+    });
+}

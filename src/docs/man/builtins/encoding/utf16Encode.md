@@ -28,12 +28,12 @@ numeric code units, one element per 16-bit unit. Each Unicode scalar in `value`
 is examined in order: a scalar in the Basic Multilingual Plane (`0..65535`)
 becomes a single code unit, and an astral scalar (above `65535`) is split into a
 surrogate pair — a high surrogate in `55296..56319` followed by a low surrogate
-in `56320..57343`. [[src/codegen/builtins/encoding/mod.rs:__encoding_utf16Encode]]
+in `56320..57343`. [[src/codegen/builtins/encoding/func_utf16_encode.rs:__encoding_utf16Encode]]
 
 The surrogate split subtracts `65536` from the scalar, then takes the top ten
 bits (offset by `55296`) as the high unit and the low ten bits (offset by
 `56320`) as the low unit, so every returned element lies in `0..65535`.
-[[src/codegen/builtins/encoding/mod.rs:__encoding_utf16Encode]]
+[[src/codegen/builtins/encoding/func_utf16_encode.rs:__encoding_utf16Encode]]
 
 These are UTF-16 *code units*, not a byte serialization: the result is a
 sequence of numbers, so no byte order (endianness) or byte-order mark applies.
@@ -53,7 +53,7 @@ surrogates and out-of-range units. [[src/codegen/builtins/encoding/mod.rs:UTF16_
 
 | Type | Description |
 | --- | --- |
-| `List OF Integer` | The UTF-16 code units of `value`, each in `0..65535`; empty for the empty string. Astral scalars contribute two elements (a surrogate pair). [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `List OF Integer` | The UTF-16 code units of `value`, each in `0..65535`; empty for the empty string. Astral scalars contribute two elements (a surrogate pair). [[src/codegen/builtins/encoding/func_utf16_encode.rs:register]] |
 
 ## Errors
 

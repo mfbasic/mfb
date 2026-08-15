@@ -5,8 +5,10 @@
 //! `src/docs/man/builtins/encoding/base64Encode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ov, p, BYTES};
-use crate::target::shared::registry::BuiltinFunction;
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str = r#"Encode a `List OF Byte` to a standard Base64 `String`."#;
 const DESC: &str = r#"`encoding::base64Encode` returns the standard Base64 representation of `data`
@@ -59,13 +61,24 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const BASE64_ENCODE: BuiltinFunction = BuiltinFunction::mfb(
-    "encoding.base64Encode",
-    "base64Encode",
-    INTRO,
-    DESC,
-    &[],
-    &[ov(&[p("data", &[], BYTES)], "String")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "base64Encode",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "data",
+                desc: "The bytes to encode.",
+                aliases: &[],
+                ty: ParameterType::list_of(ParameterType::Byte),
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::String,
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(BODY, "__encoding_base64Encode"),
+        }],
+    });
+}

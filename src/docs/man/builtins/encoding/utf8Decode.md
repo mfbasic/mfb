@@ -67,7 +67,7 @@ bytes as UTF-8. Selected when the argument is a `List OF Integer`.
 
 | Type | Description |
 | --- | --- |
-| `String` | The decoded text; the empty string for an empty input list. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `String` | The decoded text; the empty string for an empty input list. [[src/codegen/builtins/encoding/func_utf8_decode.rs:register]] |
 
 ## Errors
 
@@ -80,7 +80,7 @@ bytes as UTF-8. Selected when the argument is a `List OF Integer`.
 `utf8Decode` takes exactly one argument, either a `List OF Byte` or a
 `List OF Integer`, and returns a `String`. The argument type selects the overload
 at compile time; any other argument type is a compile-time error.
-[[src/monomorph/lower.rs:resolve_overload]] [[src/codegen/builtins/encoding/mod.rs:ENCODING]]
+[[src/monomorph/lower.rs:resolve_overload]] [[src/codegen/builtins/encoding/func_utf8_decode.rs:register]]
 
 ## Examples
 

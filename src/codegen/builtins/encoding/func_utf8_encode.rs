@@ -5,8 +5,10 @@
 //! `src/docs/man/builtins/encoding/utf8Encode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ov, p, BYTES, VALTEXT};
-use crate::target::shared::registry::BuiltinFunction;
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str = r#"Encode a `String` to its UTF-8 bytes."#;
 const DESC: &str = r#"`encoding::utf8Encode` returns the UTF-8 encoding of `value` — the exact bytes
@@ -51,12 +53,31 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const UTF8_ENCODE: BuiltinFunction = BuiltinFunction::custom(
-    "encoding.utf8Encode",
-    "utf8Encode",
-    INTRO,
-    DESC,
-    &[],
-    &[ov(&[p("value", VALTEXT, "String")], BYTES)],
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "utf8Encode",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "value",
+                desc: "The string to encode.",
+                aliases: &["text"],
+                ty: ParameterType::String,
+                default: DefaultValue::None,
+            }],
+            // Return-type overload: the pre-monomorph default is `List OF Byte`; the
+            // `List OF Integer` form is selected by the call-site expected type in
+            // syntaxcheck and mangled by the monomorphizer.
+            return_type: ParameterType::list_of(ParameterType::Byte),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            // `Body::Intrinsic` carries no registry rewrite target, so IR lowering
+            // leaves the canonical `encoding.utf8Encode` in place for the
+            // monomorphizer to resolve to `#encoding_utf8Encode`. The two
+            // `__encoding_utf8Encode` bodies live in `package.mfb`.
+            body: Body::Intrinsic,
+        }],
+    });
+}

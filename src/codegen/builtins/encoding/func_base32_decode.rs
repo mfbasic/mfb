@@ -5,8 +5,10 @@
 //! `src/docs/man/builtins/encoding/base32Decode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ov, p, BYTES};
-use crate::target::shared::registry::BuiltinFunction;
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str = r#"Decode a standard Base32 `String` into a `List OF Byte`."#;
 const DESC: &str = r#"`encoding::base32Decode` parses `text` as standard Base32 (RFC 4648 §6) and
@@ -89,13 +91,24 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const BASE32_DECODE: BuiltinFunction = BuiltinFunction::mfb(
-    "encoding.base32Decode",
-    "base32Decode",
-    INTRO,
-    DESC,
-    &[],
-    &[ov(&[p("text", &[], "String")], BYTES)],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "base32Decode",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "text",
+                desc: "The Base32 text to decode.",
+                aliases: &[],
+                ty: ParameterType::String,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::list_of(ParameterType::Byte),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(BODY, "__encoding_base32Decode"),
+        }],
+    });
+}

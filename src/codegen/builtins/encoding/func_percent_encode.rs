@@ -5,8 +5,10 @@
 //! `src/docs/man/builtins/encoding/percentEncode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ov, p, VALTEXT};
-use crate::target::shared::registry::BuiltinFunction;
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str = r#"Percent-encode (URL-encode) a `String` per RFC 3986."#;
 const DESC: &str = r#"`encoding::percentEncode` percent-encodes `text` following the RFC 3986 rules for
@@ -70,13 +72,24 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const PERCENT_ENCODE: BuiltinFunction = BuiltinFunction::mfb(
-    "encoding.percentEncode",
-    "percentEncode",
-    INTRO,
-    DESC,
-    &[],
-    &[ov(&[p("value", VALTEXT, "String")], "String")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "percentEncode",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "value",
+                desc: "The string to encode.",
+                aliases: &["text"],
+                ty: ParameterType::String,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::String,
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(BODY, "__encoding_percentEncode"),
+        }],
+    });
+}

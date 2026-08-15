@@ -26,7 +26,7 @@ dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project
 `encoding::htmlEscape` produces a form of `text` that is safe to embed inside
 HTML/XML element content and attribute values. It replaces each of the five
 metacharacters with its named character reference:
-[[src/codegen/builtins/encoding/mod.rs:__encoding_htmlEscape]]
+[[src/codegen/builtins/encoding/func_html_escape.rs:__encoding_htmlEscape]]
 
 - `&` (ampersand) becomes `&amp;`
 - `<` (less-than) becomes `&lt;`
@@ -37,7 +37,7 @@ metacharacters with its named character reference:
 The ampersand is substituted **first**, before the other four, so that the `&`
 introduced by each replacement entity is not escaped a second time; the result
 is therefore a single, correct level of escaping.
-[[src/codegen/builtins/encoding/mod.rs:__encoding_htmlEscape]]
+[[src/codegen/builtins/encoding/func_html_escape.rs:__encoding_htmlEscape]]
 
 Every other character — including whitespace, digits, letters, and non-ASCII
 code points — passes through unchanged; only the five characters above are
@@ -47,7 +47,7 @@ raises a runtime error.
 
 The inverse operation is `encoding::htmlUnescape`, which parses named and
 numeric character references back into text.
-[[src/codegen/builtins/encoding/mod.rs:__encoding_htmlUnescape]]
+[[src/codegen/builtins/encoding/func_html_unescape.rs:__encoding_htmlUnescape]]
 
 ## Parameters
 
@@ -59,7 +59,7 @@ numeric character references back into text.
 
 | Type | Description |
 | --- | --- |
-| `String` | A copy of `text` with `&`, `<`, `>`, `"`, and `'` replaced by `&amp;`, `&lt;`, `&gt;`, `&quot;`, and `&apos;` respectively; all other characters unchanged. The empty string for empty input. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `String` | A copy of `text` with `&`, `<`, `>`, `"`, and `'` replaced by `&amp;`, `&lt;`, `&gt;`, `&quot;`, and `&apos;` respectively; all other characters unchanged. The empty string for empty input. [[src/codegen/builtins/encoding/func_html_escape.rs:register]] |
 
 ## Errors
 

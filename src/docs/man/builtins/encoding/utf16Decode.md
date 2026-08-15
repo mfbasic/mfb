@@ -28,11 +28,11 @@ returns the corresponding text. Each element is examined in order: a unit in the
 Basic Multilingual Plane decodes to a single Unicode scalar, while a high
 surrogate in `55296..56319` is combined with the following low surrogate in
 `56320..57343` to reconstruct one astral scalar. The empty list decodes to the
-empty string. [[src/codegen/builtins/encoding/mod.rs:__encoding_utf16Decode]]
+empty string. [[src/codegen/builtins/encoding/func_utf16_decode.rs:__encoding_utf16Decode]]
 
 A surrogate pair is recombined by subtracting the surrogate offsets, shifting the
 high unit up by ten bits, adding the low ten bits, and adding `65536`, yielding a
-scalar above `65535`. [[src/codegen/builtins/encoding/mod.rs:__encoding_utf16Decode]]
+scalar above `65535`. [[src/codegen/builtins/encoding/func_utf16_decode.rs:__encoding_utf16Decode]]
 
 Every element must lie in `0..65535`; a value outside that range is rejected. A
 high surrogate that is the last element, or is followed by a unit that is not a
@@ -40,7 +40,7 @@ low surrogate, is an unpaired surrogate, as is a low surrogate that does not
 follow a high surrogate — all of these fail rather than producing replacement
 text. The units are treated as numeric code units, not a byte serialization, so
 no byte order (endianness) or byte-order mark applies.
-[[src/codegen/builtins/encoding/mod.rs:__encoding_utf16Decode]]
+[[src/codegen/builtins/encoding/func_utf16_decode.rs:__encoding_utf16Decode]]
 
 `utf16Decode` is the inverse of `encoding::utf16Encode`: decoding the code units
 that `utf16Encode` produced reconstructs the original string, and any string
@@ -57,13 +57,13 @@ round-trips losslessly through the two functions.
 
 | Type | Description |
 | --- | --- |
-| `String` | The decoded text; the empty string for an empty input list. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `String` | The decoded text; the empty string for an empty input list. [[src/codegen/builtins/encoding/func_utf16_decode.rs:register]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | An element is outside `0..65535`, or the code units contain an unpaired surrogate. [[src/codegen/builtins/encoding/mod.rs:__encoding_utf16Decode]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | An element is outside `0..65535`, or the code units contain an unpaired surrogate. [[src/codegen/builtins/encoding/func_utf16_decode.rs:__encoding_utf16Decode]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

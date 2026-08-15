@@ -2088,6 +2088,15 @@ fn expression_type(
             // calls resolve at this point is byte-for-byte unchanged. The
             // shared `resolve_call_return_type` dispatches in the same order as
             // `ir::verify`, keeping the two return-type oracles in lockstep.
+            //
+            // `encoding` migrated to the clean-room registry, so it now matches
+            // `registry::is_member`; it is excluded here so it keeps resolving via
+            // the static `call_return_type_name` fallthrough (its fixed nominal
+            // return type is reported even for an argument-invalid call, which is
+            // the byte-identical pre-migration behavior — see the encoding
+            // `func_*_invalid` acceptance goldens).
+            let migrated_arg_typed = crate::codegen::registry::is_member(&canonical_callee)
+                && crate::codegen::registry::owning_package(&canonical_callee) != Some("encoding");
             if builtins::strings::is_strings_call(&canonical_callee)
                 || builtins::astrings::is_astrings_call(&canonical_callee)
                 || builtins::math::is_math_call(&canonical_callee)
@@ -2100,7 +2109,7 @@ fn expression_type(
                 || builtins::tls::is_tls_call(&canonical_callee)
                 || builtins::audio::is_audio_call(&canonical_callee)
                 || builtins::http::is_http_call(&canonical_callee)
-                || crate::codegen::registry::is_member(&canonical_callee)
+                || migrated_arg_typed
                 || crate::codegen::builtins::datetime::is_datetime_call(&canonical_callee)
                 || builtins::crypto::is_crypto_call(&canonical_callee)
                 || builtins::thread::is_thread_call(&canonical_callee)
@@ -2980,13 +2989,13 @@ fn lower_expression_with_expected(
                         .map(crate::internal_name::internalize)
                 })
                 .or_else(|| {
+                    // `encoding`'s non-overloaded members carry a `Body::mfb` rewrite
+                    // target, so `registry::rewrite_target` internalizes them; its two
+                    // overloaded names (`utf8Encode`/`utf8Decode`) are `Body::Intrinsic`
+                    // and intentionally yield no target here, so the canonical name
+                    // reaches the monomorphizer.
                     crate::codegen::registry::rewrite_target(&canonical_callee)
                         .or_else(|| builtins::net::implementation_name(&canonical_callee))
-                        .or_else(|| {
-                            crate::codegen::builtins::encoding::implementation_name(
-                                &canonical_callee,
-                            )
-                        })
                         .or_else(|| builtins::strings::implementation_name(&canonical_callee))
                         .map(crate::internal_name::internalize)
                 })

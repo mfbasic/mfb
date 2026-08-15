@@ -25,7 +25,7 @@ dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project
 
 `encoding::percentEncode` percent-encodes `text` following the RFC 3986 rules for
 the *unreserved* character set. The input is first converted to its UTF-8 byte
-sequence, then each byte is emitted in order. [[src/codegen/builtins/encoding/mod.rs:__encoding_percentEncode]]
+sequence, then each byte is emitted in order. [[src/codegen/builtins/encoding/func_percent_encode.rs:__encoding_percentEncode]]
 
 A byte passes through unchanged when it is a member of the unreserved set:
 the ASCII letters `A`–`Z` (65–90) and `a`–`z` (97–122), the digits `0`–`9`
@@ -43,7 +43,7 @@ string), encodes successfully and it never raises a runtime error.
 
 The inverse operation is `encoding::percentDecode`, which parses `%XX` escapes
 back into text. For `application/x-www-form-urlencoded` data, where space is
-encoded as `+`, use `encoding::formUrlEncode` instead. [[src/codegen/builtins/encoding/mod.rs:__encoding_formUrlEncode]]
+encoded as `+`, use `encoding::formUrlEncode` instead. [[src/codegen/builtins/encoding/func_form_url_encode.rs:__encoding_formUrlEncode]]
 
 ## Parameters
 
@@ -55,7 +55,7 @@ encoded as `+`, use `encoding::formUrlEncode` instead. [[src/codegen/builtins/en
 
 | Type | Description |
 | --- | --- |
-| `String` | The percent-encoded form of `text`: unreserved bytes verbatim, all others as `%XX` with uppercase hex. The empty string for empty input. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `String` | The percent-encoded form of `text`: unreserved bytes verbatim, all others as `%XX` with uppercase hex. The empty string for empty input. [[src/codegen/builtins/encoding/func_percent_encode.rs:register]] |
 
 ## Errors
 

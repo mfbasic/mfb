@@ -25,27 +25,27 @@ dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project
 
 `encoding::sleb128Decode` reads one signed [LEB128](https://en.wikipedia.org/wiki/LEB128)
 sequence from `data` and returns the `Integer` it represents. It is the inverse
-of `encoding::sleb128Encode`. [[src/codegen/builtins/encoding/mod.rs:__encoding_sleb128Decode]]
+of `encoding::sleb128Encode`. [[src/codegen/builtins/encoding/func_sleb128_decode.rs:__encoding_sleb128Decode]]
 
 Bytes are consumed least-significant group first. The low seven bits of each
 byte contribute the next 7-bit group; the high bit (`0x80`) is the continuation
 flag. Decoding accumulates groups — shifting each successive group left by seven
 more bits — and stops at the first byte whose high bit is clear (byte value
 below `128`), which terminates the sequence. Any bytes after that terminator are
-ignored. [[src/codegen/builtins/encoding/mod.rs:__encoding_sleb128Decode]]
+ignored. [[src/codegen/builtins/encoding/func_sleb128_decode.rs:__encoding_sleb128Decode]]
 
 Unlike `encoding::uleb128Decode`, the terminating group carries the sign. When
 the final byte's sign bit (`0x40`) is set and the accumulated shift is still
 below `64`, the result is sign-extended by filling every higher bit with ones, so
 the value decodes as negative. A clear `0x40` leaves the value non-negative. This
 mirrors the arithmetic (sign-extending) shift used by `encoding::sleb128Encode`.
-[[src/codegen/builtins/encoding/mod.rs:__encoding_sleb128Decode]]
+[[src/codegen/builtins/encoding/func_sleb128_decode.rs:__encoding_sleb128Decode]]
 
 `data` must contain at least one byte, and the sequence must be terminated
 within it: if the bytes run out before a byte with a clear high bit is seen, the
 input is treated as truncated. The accumulated shift may not exceed `63` bits;
 a sequence encoding more than 64 significant bits overflows.
-[[src/codegen/builtins/encoding/mod.rs:__encoding_sleb128Decode]]
+[[src/codegen/builtins/encoding/func_sleb128_decode.rs:__encoding_sleb128Decode]]
 
 ## Parameters
 
@@ -57,13 +57,13 @@ a sequence encoding more than 64 significant bits overflows.
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The decoded signed value, sign-extended from the terminating group. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `Integer` | The decoded signed value, sign-extended from the terminating group. [[src/codegen/builtins/encoding/func_sleb128_decode.rs:register]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `data` is empty, the sequence is truncated (the bytes end before a terminator with a clear high bit), or the value overflows 64 bits (the shift exceeds `63`). [[src/codegen/builtins/encoding/mod.rs:__encoding_sleb128Decode]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | `data` is empty, the sequence is truncated (the bytes end before a terminator with a clear high bit), or the value overflows 64 bits (the shift exceeds `63`). [[src/codegen/builtins/encoding/func_sleb128_decode.rs:__encoding_sleb128Decode]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

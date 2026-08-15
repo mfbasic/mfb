@@ -5,8 +5,10 @@
 //! `src/docs/man/builtins/encoding/utf32Encode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ov, p, INTS, VALTEXT};
-use crate::target::shared::registry::BuiltinFunction;
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str = r#"Encode a `String` to its UTF-32 code points."#;
 const DESC: &str = r#"`encoding::utf32Encode` returns the UTF-32 encoding of `value` as a list of
@@ -56,13 +58,24 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const UTF32_ENCODE: BuiltinFunction = BuiltinFunction::mfb(
-    "encoding.utf32Encode",
-    "utf32Encode",
-    INTRO,
-    DESC,
-    &[],
-    &[ov(&[p("value", VALTEXT, "String")], INTS)],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "utf32Encode",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "value",
+                desc: "The string to encode.",
+                aliases: &["text"],
+                ty: ParameterType::String,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::list_of(ParameterType::Integer),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(BODY, "__encoding_utf32Encode"),
+        }],
+    });
+}

@@ -27,7 +27,7 @@ dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project
 and returns the corresponding text. Each element is a full Unicode scalar value:
 because UTF-32 is a fixed-width encoding, one list element decodes directly to
 one scalar, with no multi-unit sequences or surrogate pairs to combine. The empty
-list decodes to the empty string. [[src/codegen/builtins/encoding/mod.rs:__encoding_utf32Decode]]
+list decodes to the empty string. [[src/codegen/builtins/encoding/func_utf32_decode.rs:__encoding_utf32Decode]]
 
 Every element must be a valid Unicode scalar. A code point is rejected when it is
 negative or greater than `1114111` (`0x10FFFF`), or when it lies in the surrogate
@@ -35,12 +35,12 @@ range `55296..57343` (`0xD800..0xDFFF`) — surrogates are not scalar values and
 cannot appear on their own in UTF-32. Any such element fails rather than
 producing replacement text. The elements are treated as numeric code points, not
 a byte serialization, so no byte order (endianness) or byte-order mark applies.
-[[src/codegen/builtins/encoding/mod.rs:__encoding_utf32Decode]]
+[[src/codegen/builtins/encoding/func_utf32_decode.rs:__encoding_utf32Decode]]
 
 `utf32Decode` is the inverse of `encoding::utf32Encode`: decoding the code points
 that `utf32Encode` produced reconstructs the original string, and any string
 round-trips losslessly through the two functions.
-[[src/codegen/builtins/encoding/mod.rs:__encoding_utf32Encode]]
+[[src/codegen/builtins/encoding/func_utf32_encode.rs:__encoding_utf32Encode]]
 
 ## Parameters
 
@@ -52,13 +52,13 @@ round-trips losslessly through the two functions.
 
 | Type | Description |
 | --- | --- |
-| `String` | The decoded text; the empty string for an empty input list. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `String` | The decoded text; the empty string for an empty input list. [[src/codegen/builtins/encoding/func_utf32_decode.rs:register]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | An element is negative, greater than `1114111`, or a surrogate code point in `55296..57343`. [[src/codegen/builtins/encoding/mod.rs:__encoding_utf32Decode]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | An element is negative, greater than `1114111`, or a surrogate code point in `55296..57343`. [[src/codegen/builtins/encoding/func_utf32_decode.rs:__encoding_utf32Decode]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

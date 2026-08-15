@@ -37,7 +37,7 @@ while `base64Url` is unpadded. The web codecs (`percentEncode`/`percentDecode`,
 `String`. The integer codecs (`uleb128`, `sleb128`, `varint`) serialize a single
 `Integer` to a `List OF Byte`; `varint` applies zig-zag mapping. `punycodeEncode`/
 `punycodeDecode` implement the RFC 3492 Bootstring transform per dot-separated
-label, adding or stripping the `xn--` prefix only on labels that need it. [[src/codegen/builtins/encoding/mod.rs:__encoding_punycodeEncode]]
+label, adding or stripping the `xn--` prefix only on labels that need it. [[src/codegen/builtins/encoding/func_punycode_encode.rs:__encoding_punycodeEncode]]
 
 `utf8Encode` and `utf8Decode` are overloaded. `utf8Encode` is a *return-type*
 overload: the same `String` argument yields either a `List OF Byte` or a

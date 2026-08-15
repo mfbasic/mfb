@@ -5,8 +5,10 @@
 //! `src/docs/man/builtins/encoding/utf16Decode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ov, p, INTS};
-use crate::target::shared::registry::BuiltinFunction;
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str = r#"Decode a `List OF Integer` of UTF-16 code units to a `String`."#;
 const DESC: &str = r#"`encoding::utf16Decode` interprets `value` as a sequence of UTF-16 code units and
@@ -89,13 +91,24 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const UTF16_DECODE: BuiltinFunction = BuiltinFunction::mfb(
-    "encoding.utf16Decode",
-    "utf16Decode",
-    INTRO,
-    DESC,
-    &[],
-    &[ov(&[p("value", &[], INTS)], "String")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "utf16Decode",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "value",
+                desc: "The UTF-16 code units to decode.",
+                aliases: &[],
+                ty: ParameterType::list_of(ParameterType::Integer),
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::String,
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(BODY, "__encoding_utf16Decode"),
+        }],
+    });
+}

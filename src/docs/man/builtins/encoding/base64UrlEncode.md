@@ -29,7 +29,7 @@ a continuous bit stream, most-significant bit first, and emitted six bits at a
 time; each 6-bit group selects one character from the alphabet
 `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_`, so the
 result uses `-` and `_` for the final two symbols instead of the `+` and `/`
-used by the standard variant. [[src/codegen/builtins/encoding/mod.rs:__encoding_base64UrlEncode]]
+used by the standard variant. [[src/codegen/builtins/encoding/func_base64_url_encode.rs:__encoding_base64UrlEncode]]
 
 Encoding operates on 24-bit (3-byte) groups, each producing four Base64
 characters. When the final group is short, the remaining data bits occupy the
@@ -42,7 +42,7 @@ string. [[src/codegen/builtins/encoding/package.mfb:__encoding_baseEncode]]
 The function is **total**: every `List OF Byte`, including the empty list,
 encodes successfully, and it never raises a runtime error. The inverse
 operation is `encoding::base64UrlDecode`, which parses a URL-safe Base64 string
-back into a `List OF Byte`. [[src/codegen/builtins/encoding/mod.rs:__encoding_base64UrlDecode]]
+back into a `List OF Byte`. [[src/codegen/builtins/encoding/func_base64_url_decode.rs:__encoding_base64UrlDecode]]
 
 ## Parameters
 
@@ -54,7 +54,7 @@ back into a `List OF Byte`. [[src/codegen/builtins/encoding/mod.rs:__encoding_ba
 
 | Type | Description |
 | --- | --- |
-| `String` | The URL-safe Base64 encoding of `data` with `-`/`_` symbols and no `=` padding; the empty string for an empty list. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `String` | The URL-safe Base64 encoding of `data` with `-`/`_` symbols and no `=` padding; the empty string for an empty list. [[src/codegen/builtins/encoding/func_base64_url_encode.rs:register]] |
 
 ## Errors
 

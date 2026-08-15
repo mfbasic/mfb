@@ -5,8 +5,10 @@
 //! `src/docs/man/builtins/encoding/hexDecode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ov, p, BYTES};
-use crate::target::shared::registry::BuiltinFunction;
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str = r#"Decode a hexadecimal `String` into a `List OF Byte`."#;
 const DESC: &str = r#"`encoding::hexDecode` parses `text` as base-16 and returns the bytes it encodes.
@@ -73,13 +75,24 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const HEX_DECODE: BuiltinFunction = BuiltinFunction::mfb(
-    "encoding.hexDecode",
-    "hexDecode",
-    INTRO,
-    DESC,
-    &[],
-    &[ov(&[p("text", &[], "String")], BYTES)],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "hexDecode",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "text",
+                desc: "The hexadecimal text to decode.",
+                aliases: &[],
+                ty: ParameterType::String,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::list_of(ParameterType::Byte),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(BODY, "__encoding_hexDecode"),
+        }],
+    });
+}

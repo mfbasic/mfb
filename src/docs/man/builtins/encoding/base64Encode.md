@@ -28,7 +28,7 @@ as defined by RFC 4648 §4. Input bytes are consumed as a continuous bit stream,
 most-significant bit first, and emitted six bits at a time; each 6-bit group
 selects one character from the alphabet
 `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/`, so the
-result uses `+` and `/` for the final two symbols. [[src/codegen/builtins/encoding/mod.rs:__encoding_base64Encode]]
+result uses `+` and `/` for the final two symbols. [[src/codegen/builtins/encoding/func_base64_encode.rs:__encoding_base64Encode]]
 
 Encoding operates on 24-bit (3-byte) groups, each producing four Base64
 characters. When the final group is short, the remaining data bits occupy the
@@ -41,7 +41,7 @@ The function is **total**: every `List OF Byte`, including the empty list,
 encodes successfully, and it never raises a runtime error. For the URL- and
 filename-safe variant that uses `-` and `_` without `=` padding, use
 `encoding::base64UrlEncode`. The inverse operation is `encoding::base64Decode`,
-which parses a Base64 string back into a `List OF Byte`. [[src/codegen/builtins/encoding/mod.rs:__encoding_base64Decode]]
+which parses a Base64 string back into a `List OF Byte`. [[src/codegen/builtins/encoding/func_base64_decode.rs:__encoding_base64Decode]]
 
 ## Parameters
 
@@ -53,7 +53,7 @@ which parses a Base64 string back into a `List OF Byte`. [[src/codegen/builtins/
 
 | Type | Description |
 | --- | --- |
-| `String` | The standard Base64 encoding of `data` with `+`/`/` symbols and `=` padding to a multiple of four characters; the empty string for an empty list. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `String` | The standard Base64 encoding of `data` with `+`/`/` symbols and `=` padding to a multiple of four characters; the empty string for an empty list. [[src/codegen/builtins/encoding/func_base64_encode.rs:register]] |
 
 ## Errors
 

@@ -5,8 +5,10 @@
 //! `src/docs/man/builtins/encoding/varintEncode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ov, p, BYTES};
-use crate::target::shared::registry::BuiltinFunction;
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str = r#"Encode a signed `Integer` as a ZigZag varint `List OF Byte`."#;
 const DESC: &str = r#"`encoding::varintEncode` returns the ZigZag [varint](https://protobuf.dev/programming-guides/encoding/#varints)
@@ -60,13 +62,24 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const VARINT_ENCODE: BuiltinFunction = BuiltinFunction::mfb(
-    "encoding.varintEncode",
-    "varintEncode",
-    INTRO,
-    DESC,
-    &[],
-    &[ov(&[p("value", &[], "Integer")], BYTES)],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "varintEncode",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "value",
+                desc: "The integer to encode.",
+                aliases: &[],
+                ty: ParameterType::Integer,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::list_of(ParameterType::Byte),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(BODY, "__encoding_varintEncode"),
+        }],
+    });
+}
