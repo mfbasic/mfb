@@ -17,7 +17,28 @@
 //! `encoding.utf8Decode` name in place and the monomorphizer resolves + mangles the
 //! selected overload to its private `#encoding_utf8Encode`/`#encoding_utf8Decode`
 //! implementation (see `monomorph::lower`). Those four `__encoding_utf8Encode` /
-//! `__encoding_utf8Decode` bodies live directly in `package.mfb`.
+//! `__encoding_utf8Decode` bodies live directly in `package.mfb`, which is
+//! registered as a shared [`add_helper_functions`](crate::codegen::registry::RegistryPackage::add_helper_functions)
+//! chunk (like csv's `package.mfb`).
+//!
+//! Injection is on the identical generic path as csv/json/regex: the package
+//! registers its `IMPORT`s ([`add_imports`](crate::codegen::registry::RegistryPackage::add_imports)),
+//! its shared helpers ([`add_helper_functions`](crate::codegen::registry::RegistryPackage::add_helper_functions)),
+//! and each member's [`Body::Mfb`](crate::codegen::registry::Body) body, so
+//! [`RegistryPackage::get_mfb`](crate::codegen::registry::RegistryPackage::get_mfb)
+//! assembles the injected source in the generic
+//! imports→records→unions→helpers→member-bodies order. The old byte-exact
+//! `assembled_source` splice (which reinserted each member body at a
+//! `'@@MFB_BODY:<name>@@` marker to preserve the pre-migration line numbers) is
+//! gone. The only thing that stays bespoke is the injection *position*: because
+//! `encoding` is a transitive dependency of the still-native `crypto`/`strings`
+//! packages — whose companion source (`crypto_hash.mfb`, `strings_package.mfb`)
+//! carries `IMPORT encoding` and calls `encoding::hexDecode`/`utf32Encode` — and
+//! those are injected *after* the generic `registry::augment_project` pass, the
+//! encoding source must be injected by a dedicated late pass ([`augmented_project`])
+//! that runs after them, so the generic pass deliberately skips `encoding` (see
+//! `Registry::augment_project`). The assembled source itself is now identical to
+//! what the generic pass would produce.
 //!
 //! `expected_arguments`/`argument_types`/`call_param_names` are retained: the
 //! generic registry renders one type per position, but `utf8Decode`'s
@@ -109,18 +130,24 @@ Decoders reject malformed input with `ErrInvalidFormat` (`77050003`)."#;
 
 /// Register the `encoding` package on the clean-room registry.
 ///
-/// `encoding` intentionally does NOT register `add_imports`/`add_helper_functions`
-/// and is NOT injected by the generic `registry::augment_project`
-/// ([`RegistryPackage::get_mfb`]). Its source is injected by the dedicated
-/// [`augmented_project`] below via [`assembled_source`], which splices each member's
-/// `Body::Mfb` body into `package.mfb` at its original `'@@MFB_BODY:<name>@@` marker
-/// position. This reproduces the pre-migration injected source **byte-for-byte** —
-/// keeping the migration codegen-neutral not just for `encoding`'s own goldens but
-/// for every package that transitively imports it (`csv`, `crypto`, `strings`, and
-/// everything importing `strings`). `get_mfb`'s helpers-then-members layout would
-/// reorder the injected functions and perturb all of those consumers' byte-identity.
+/// `encoding` injects through the identical generic path as csv/json/regex: it
+/// registers its `IMPORT`s and its shared `__encoding_*` helper chunk
+/// (`package.mfb`, which also holds the four overloaded
+/// `__encoding_utf8Encode`/`utf8Decode` bodies), and each member carries its own
+/// `Body::Mfb` body, so [`RegistryPackage::get_mfb`] assembles the injected source
+/// in the generic imports→helpers→member-bodies order. It is NOT injected by the
+/// generic `registry::augment_project` pass only because it is a transitive
+/// dependency of the still-native `crypto`/`strings` packages (injected *after*
+/// that pass); its own late [`augmented_project`] handles that (see the module docs
+/// and `Registry::augment_project`).
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("encoding", INTRO, DESC);
+
+    // Injected `IMPORT`s and shared helpers, rendered by `get_mfb` before the member
+    // bodies — mirroring `package.mfb`'s original leading `IMPORT`s and `__encoding_*`
+    // helper block (which also declares the four overloaded utf8 bodies).
+    pkg.add_imports(vec!["bits", "strings", "collections"]);
+    pkg.add_helper_functions(vec![include_str!("package.mfb")]);
 
     // The two overloaded names first, then the non-overloaded codecs, mirroring the
     // pre-migration descriptor order.
@@ -236,41 +263,18 @@ pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
         .is_some_and(|pkg| pkg.is_imported_by(ast))
 }
 
-/// The `encoding` package source, assembled from `package.mfb` (the external
-/// companion holding the imports, the shared `__encoding_*` helpers, and the two
-/// overloaded `__encoding_utf8Encode`/`utf8Decode` bodies) by splicing every member
-/// carrying a [`Body::Mfb`] body into place at its one-line `'@@MFB_BODY:<name>@@`
-/// marker. Splicing at the marker's original position keeps every helper's source
-/// line numbers unchanged, so the injected AST — and every derived golden, including
-/// those of packages that transitively import `encoding` — is byte-identical to the
-/// pre-migration companion. Mirrors the pre-migration `assembled_source`.
-fn assembled_source() -> String {
-    let package = registry()
-        .resolve_package("encoding")
-        .expect("encoding package is registered");
-    let mut source = String::from(include_str!("package.mfb"));
-    for function in package.functions() {
-        for implementation in function.implementations() {
-            if let crate::codegen::registry::Body::Mfb { body, .. } = &implementation.body {
-                let marker = format!("'@@MFB_BODY:{}@@", function.name);
-                debug_assert!(
-                    source.contains(&marker),
-                    "encoding package.mfb is missing the `{marker}` body marker",
-                );
-                source = source.replacen(&marker, body, 1);
-            }
-        }
-    }
-    source
-}
-
-/// Parse the built-in `encoding` package source (see [`assembled_source`]).
+/// Parse the built-in `encoding` package source — the generic
+/// [`RegistryPackage::get_mfb`] assembly (imports → shared helpers → member
+/// bodies), identical to the mechanism csv/json/regex use. The synthetic path/doc
+/// labels match the generic pass's convention (`<builtin-encoding>` /
+/// `builtins/encoding.mfb`), so the injected file is indistinguishable from one the
+/// generic `registry::augment_project` would have produced.
 fn source_file() -> Result<crate::ast::AstFile, ()> {
-    crate::ast::parse_source_internal(
-        std::path::Path::new(SOURCE_LABEL),
-        SOURCE_DOC,
-        &assembled_source(),
-    )
+    let source = registry()
+        .resolve_package("encoding")
+        .expect("encoding package is registered")
+        .get_mfb();
+    crate::ast::parse_source_internal(std::path::Path::new(SOURCE_LABEL), SOURCE_DOC, &source)
 }
 
 /// Inject the `encoding` package source when a program (or another injected
@@ -279,6 +283,8 @@ fn source_file() -> Result<crate::ast::AstFile, ()> {
 /// after those packages contribute their own `IMPORT encoding` — rather than by the
 /// generic `registry::augment_project`, which examines only the pre-injection AST.
 /// The generic pass therefore skips `encoding` (see `Registry::augment_project`).
+/// The injected *source* is the generic [`RegistryPackage::get_mfb`] assembly; only
+/// the injection *position* (this late pass) is bespoke.
 pub(crate) fn augmented_project(
     ast: &crate::ast::AstProject,
 ) -> Result<crate::ast::AstProject, ()> {

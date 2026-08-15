@@ -920,11 +920,14 @@ impl Registry {
         for package in self.packages() {
             // `encoding` is a transitive dependency of the non-migrated `crypto` and
             // `strings` packages, whose source is injected *after* this generic pass
-            // and contributes its own `IMPORT encoding`. A single pass over the
+            // and contributes its own `IMPORT encoding` (and calls
+            // `encoding::hexDecode`/`utf32Encode`). A single pass over the
             // pre-injection AST cannot see that transitive import, so `encoding` is
             // injected by its own dedicated late pass (`encoding::augmented_project`,
-            // run after crypto/strings in the lowering pipeline). Skipping it here
-            // also prevents a double injection when a program imports `encoding`
+            // run after crypto/strings in the lowering pipeline). That late pass now
+            // injects the *identical* generic `RegistryPackage::get_mfb` assembly this
+            // pass would produce — only the injection position differs. Skipping it
+            // here also prevents a double injection when a program imports `encoding`
             // directly.
             if package.import_name() == "encoding" {
                 continue;
