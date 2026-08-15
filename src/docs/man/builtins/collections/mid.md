@@ -68,9 +68,9 @@ the same. [[src/target/shared/code/builder_search.rs:lower_list_mid]]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to slice. Must be a `List`; a `String` first argument selects `strings::mid` instead. Also accepted under the name `list`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
-| `start` | `Integer` | Zero-based index of the first element to take. Must be `0` or greater and no greater than the length of `value`. Required — it has no default. There is no alternate name for this parameter. [[src/target/shared/code/builder_search.rs:lower_list_mid]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
-| `count` | `Integer` | How many elements to take. Must be `0` or greater, and `start + count` must not exceed the length of `value`. Required. There is no alternate name for this parameter. [[src/target/shared/code/builder_search.rs:lower_list_mid]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `value` | `List OF T` | The list to slice. Must be a `List`; a `String` first argument selects `strings::mid` instead. Also accepted under the name `list`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/registry/mod.rs:call_param_names]] |
+| `start` | `Integer` | Zero-based index of the first element to take. Must be `0` or greater and no greater than the length of `value`. Required — it has no default. There is no alternate name for this parameter. [[src/target/shared/code/builder_search.rs:lower_list_mid]] [[src/codegen/registry/mod.rs:call_param_names]] |
+| `count` | `Integer` | How many elements to take. Must be `0` or greater, and `start + count` must not exceed the length of `value`. Required. There is no alternate name for this parameter. [[src/target/shared/code/builder_search.rs:lower_list_mid]] [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

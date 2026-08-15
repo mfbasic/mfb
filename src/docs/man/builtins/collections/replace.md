@@ -65,9 +65,9 @@ error in this language. [[src/builtins/mod.rs:inline_builtin_is_infallible]]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to scan; left unchanged. Also accepted under the name `list`. Must be a list type; a `String` argument selects `strings::replace` instead and does not resolve here. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
-| `old` | `T` | The element value to look for. Every element equal to it is replaced. Also accepted under the name `needle`. Its type must be exactly the element type `T`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
-| `new` | `T` | The element value written in place of each match. Also accepted under the name `replacement`. Its type must be exactly the element type `T`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `value` | `List OF T` | The list to scan; left unchanged. Also accepted under the name `list`. Must be a list type; a `String` argument selects `strings::replace` instead and does not resolve here. [[src/codegen/registry/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `old` | `T` | The element value to look for. Every element equal to it is replaced. Also accepted under the name `needle`. Its type must be exactly the element type `T`. [[src/codegen/registry/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `new` | `T` | The element value written in place of each match. Also accepted under the name `replacement`. Its type must be exactly the element type `T`. [[src/codegen/registry/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Return value
 

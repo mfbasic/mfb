@@ -62,7 +62,7 @@ host state and has no side effects. [[src/codegen/builtins/datetime/package.mfb:
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The timestamp text. It must follow the RFC 3339 layout above position for position: each literal separator (`-`, `:`, the date/time separator, and the offset introducer) must appear where expected, and each numeric field must supply the digits it requires. The fractional-second part is the only optional element; the offset is required. [[src/codegen/builtins/datetime/mod.rs:call_param_names]] |
+| `value` | `String` | The timestamp text. It must follow the RFC 3339 layout above position for position: each literal separator (`-`, `:`, the date/time separator, and the offset introducer) must appear where expected, and each numeric field must supply the digits it requires. The fractional-second part is the only optional element; the offset is required. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

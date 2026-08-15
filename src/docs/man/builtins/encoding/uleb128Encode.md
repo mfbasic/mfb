@@ -45,7 +45,7 @@ an `Integer`. [[src/codegen/builtins/encoding/func_uleb128_decode.rs:__encoding_
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Integer` | The non-negative value to encode. Must be `>= 0`. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `value` | `Integer` | The non-negative value to encode. Must be `>= 0`. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

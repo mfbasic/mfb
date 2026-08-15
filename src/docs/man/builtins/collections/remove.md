@@ -53,8 +53,8 @@ rather than a failure, so no path raises a trappable domain error and an inline
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Set OF T` | The set to remove from; left unchanged. Also accepted under the name `set`. Must be a set type; passing a `List` or a scalar resolves no overload and is a compile-time error. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
-| `item` | `T` | The element to remove. Also accepted under the name `element`. Its type must be exactly the element type `T`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `value` | `Set OF T` | The set to remove from; left unchanged. Also accepted under the name `set`. Must be a set type; passing a `List` or a scalar resolves no overload and is a compile-time error. [[src/codegen/registry/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `item` | `T` | The element to remove. Also accepted under the name `element`. Its type must be exactly the element type `T`. [[src/codegen/registry/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Return value
 

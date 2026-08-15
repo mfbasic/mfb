@@ -467,29 +467,24 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
     // hand-authored phrasing — the `[optional]` bracket (`strings.find`'s
     // `"String, String[, Integer]"`), the `"or"`-union, or prose — that the
     // descriptor's per-position join cannot reproduce. Each returns `Some` only for
-    // its own calls, so the chain yields the owner's string; a package whose
-    // `expected_arguments` was deletable (renderable == `DefaultResolver`, i.e.
-    // `app`/`datetime`/`money`) falls through to the descriptor rendering below.
-    if let Some(text) = crate::codegen::builtins::encoding::expected_arguments(name)
-        .or_else(|| crypto::expected_arguments(name))
+    // its own calls, so the chain yields the owner's string. The migrated
+    // (clean-room registry) packages — csv/json/regex/collections/datetime/encoding/
+    // process — no longer own an `expected_arguments` seam: their bespoke phrasing
+    // rides on the `RegistryFunction::expected_arguments` descriptor field and is
+    // served by the generic `registry::expected_arguments` below.
+    if let Some(text) = crypto::expected_arguments(name)
         .or_else(|| math::expected_arguments(name))
         .or_else(|| net::expected_arguments(name))
         .or_else(|| tls::expected_arguments(name))
         .or_else(|| audio::expected_arguments(name))
-        .or_else(|| crate::codegen::builtins::process::expected_arguments(name))
         .or_else(|| http::expected_arguments(name))
         .or_else(|| vector::expected_arguments(name))
-        .or_else(|| crate::codegen::builtins::collections::expected_arguments(name))
         .or_else(|| general::expected_arguments(name))
         .or_else(|| thread::expected_arguments(name))
         .or_else(|| strings::expected_arguments(name))
         .or_else(|| fs::expected_arguments(name))
         .or_else(|| os::expected_arguments(name))
         .or_else(|| io::expected_arguments(name))
-        // datetime keeps its bespoke phrasing (`"1 to 5 Integer"`, `"()"`, the
-        // optional-tail brackets), which the generic per-position rendering cannot
-        // reproduce — so it precedes the registry fallback.
-        .or_else(|| crate::codegen::builtins::datetime::expected_arguments(name))
         .or_else(|| crate::codegen::registry::expected_arguments(name))
         .or_else(|| bits::expected_arguments(name))
     {
@@ -506,11 +501,14 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
 /// inlined, relocated here so the per-package reads live behind one aggregate.
 /// Packages carrying a machine-readable positional table are read directly;
 /// `collections`/`vector` are absent on purpose (every member is generic or
-/// overloaded, so the monomorphizer types them).
+/// overloaded, so the monomorphizer types them). The migrated
+/// (clean-room registry) packages — datetime/encoding, formerly read from a
+/// machine table here — now derive through the generic `registry::expected_arguments`
+/// path below: a member with a concrete positional signature renders one, and the
+/// non-signature shapes (variadic `"1 to 5 Integer"`, zero-arg `"()"`, the
+/// optional-tail brackets, `utf8Decode`'s `"or"`-union) decline via the guard.
 pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
     let machine_table = term::param_types(callee)
-        .or_else(|| crate::codegen::builtins::datetime::argument_types(callee))
-        .or_else(|| crate::codegen::builtins::encoding::argument_types(callee))
         .or_else(|| money::argument_types(callee))
         .or_else(|| app::argument_types(callee));
     if let Some(types) = machine_table {
@@ -531,10 +529,16 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| crypto::argument_types(callee))
         .or_else(|| http::expected_arguments(callee))
         .or_else(|| thread::expected_arguments(callee))?;
-    // Overloaded/optional-argument descriptions (e.g. `strings.find`'s
-    // `"String, String[, Integer]"`) are not a concrete positional signature; skip
-    // them so we don't hand the lowerer a bracket-mangled expected type.
-    if expected.contains('[') || expected.contains(" or ") {
+    // A description that is not a concrete positional signature is not a coercion
+    // table: an optional-argument bracket (`strings.find`'s
+    // `"String, String[, Integer]"`), an argument union (`" or "`), a variadic range
+    // (`datetime.instant`'s `"1 to 5 Integer"`), or a zero-argument `"()"`. Skip
+    // them so we don't hand the lowerer a mangled expected type.
+    if expected.contains('[')
+        || expected.contains(" or ")
+        || expected.contains(" to ")
+        || expected == "()"
+    {
         return None;
     }
     let params = expected.split(", ").map(str::to_string).collect::<Vec<_>>();
@@ -728,7 +732,10 @@ pub(crate) fn split_func_params_and_return(rest: &str) -> Option<(Vec<&str>, &st
 pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static [&'static str]]> {
     audio::call_param_name_overloads(name)
         .or_else(|| net::call_param_name_overloads(name))
-        .or_else(|| crate::codegen::builtins::datetime::call_param_name_overloads(name))
+        // datetime's front-dropping constructors (instant/duration/fixedOffset) are
+        // served by the generic registry, which derives the per-overload table from
+        // each implementation's parameters.
+        .or_else(|| crate::codegen::registry::call_param_name_overloads(name))
         .or_else(|| tls::call_param_name_overloads(name))
 }
 
@@ -764,15 +771,12 @@ pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
         .or_else(|| astrings::call_param_names(name))
         .or_else(|| audio::call_param_names(name))
         .or_else(|| general::call_param_names(name))
-        .or_else(|| crate::codegen::builtins::collections::call_param_names(name))
         .or_else(|| strings::call_param_names(name))
         .or_else(|| math::call_param_names(name))
         .or_else(|| bits::call_param_names(name))
         .or_else(|| crypto::call_param_names(name))
-        .or_else(|| crate::codegen::builtins::encoding::call_param_names(name))
         .or_else(|| fs::call_param_names(name))
         .or_else(|| io::call_param_names(name))
-        .or_else(|| crate::codegen::builtins::datetime::call_param_names(name))
         .or_else(|| money::call_param_names(name))
         .or_else(|| net::call_param_names(name))
         .or_else(|| os::call_param_names(name))

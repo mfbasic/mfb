@@ -100,6 +100,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         intro: INTO_REDUCE,
         desc: DESC_REDUCE,
         example: EX,
+        expected_arguments: Some("List OF T, U, FUNC(U, T) AS U"),
         implementations: vec![Implementation {
             params: vec![
                 super::param(

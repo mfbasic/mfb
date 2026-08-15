@@ -81,6 +81,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         intro: INTO_VALUES,
         desc: DESC_VALUES,
         example: EX,
+        expected_arguments: Some("Map OF K TO V"),
         implementations: vec![Implementation {
             params: vec![super::param(
                 "value",

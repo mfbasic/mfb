@@ -80,8 +80,8 @@ Returns the value stored under `key`. A key that is not present raises
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` or `Map OF K TO V` | The collection to read from. Also accepted under the name `collection`. Not copied and not mutated. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
-| `index` | `Integer` or `K` | The zero-based list index, or the map key. Also accepted under the name `key`. The spelling table is per position rather than per overload, so `index` and `key` are both accepted names under *either* overload — a map lookup may be written `collections::get(value := m, index := k)` and a list read may be written `collections::get(value := xs, key := 0)`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `value` | `List OF T` or `Map OF K TO V` | The collection to read from. Also accepted under the name `collection`. Not copied and not mutated. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `index` | `Integer` or `K` | The zero-based list index, or the map key. Also accepted under the name `key`. The spelling table is per position rather than per overload, so `index` and `key` are both accepted names under *either* overload — a map lookup may be written `collections::get(value := m, index := k)` and a list read may be written `collections::get(value := xs, key := 0)`. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

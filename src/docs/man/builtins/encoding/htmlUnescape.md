@@ -56,7 +56,7 @@ inverse of `encoding::htmlEscape`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `text` | `String` | The text to decode. Any string, including the empty string, is accepted; well-formed references are expanded and all other characters pass through. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `text` | `String` | The text to decode. Any string, including the empty string, is accepted; well-formed references are expanded and all other characters pass through. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

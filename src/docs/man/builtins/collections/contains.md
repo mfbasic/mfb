@@ -91,8 +91,8 @@ lookup strategy differs. [[src/codegen/registry/mod.rs:resolve_call]]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` or `Set OF T` | The collection to test. A list is examined left to right; a set is probed through its hash index. Also accepted under the name `collection`. Not copied and not mutated. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
-| `item` | `T` | The value to search for. Must be exactly the collection's element type. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `value` | `List OF T` or `Set OF T` | The collection to test. A list is examined left to right; a set is probed through its hash index. Also accepted under the name `collection`. Not copied and not mutated. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `item` | `T` | The value to search for. Must be exactly the collection's element type. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

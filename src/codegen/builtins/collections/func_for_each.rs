@@ -90,6 +90,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         intro: INTO_FOR_EACH,
         desc: DESC_FOR_EACH,
         example: EX,
+        expected_arguments: Some("List OF T, FUNC(T) AS Nothing"),
         implementations: vec![Implementation {
             params: vec![
                 super::param(

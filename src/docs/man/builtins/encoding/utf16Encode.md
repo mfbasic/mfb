@@ -41,13 +41,13 @@ The function is **total** — every string, including the empty string (which
 yields an empty list), encodes successfully, and it never raises a runtime
 error. The inverse operation is `encoding::utf16Decode`, which turns a
 `List OF Integer` of code units back into a `String` and rejects unpaired
-surrogates and out-of-range units. [[src/codegen/builtins/encoding/mod.rs:UTF16_ENCODE]]
+surrogates and out-of-range units. [[src/codegen/builtins/encoding/func_utf16_encode.rs:utf16Encode]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The text to encode. Any string, including the empty string, is accepted. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `value` | `String` | The text to encode. Any string, including the empty string, is accepted. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

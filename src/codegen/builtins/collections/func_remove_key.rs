@@ -85,6 +85,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         intro: INTO_REMOVE_KEY,
         desc: DESC_REMOVE_KEY,
         example: EX,
+        expected_arguments: Some("Map OF K TO V, K"),
         implementations: vec![Implementation {
             params: vec![
                 super::param(

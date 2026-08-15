@@ -45,7 +45,7 @@ being passed through or replaced. [[src/codegen/builtins/encoding/package.mfb:__
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `text` | `String` | The percent-encoded text to decode. Every `%` must be followed by two hexadecimal digits (`0`–`9`, `a`–`f`, `A`–`F`); all other bytes are literal. The empty string is accepted and decodes to the empty string. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `text` | `String` | The percent-encoded text to decode. Every `%` must be followed by two hexadecimal digits (`0`–`9`, `a`–`f`, `A`–`F`); all other bytes are literal. The empty string is accepted and decodes to the empty string. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

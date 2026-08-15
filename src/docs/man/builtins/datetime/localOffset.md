@@ -55,7 +55,7 @@ state.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `epochSeconds` | `Integer` | The absolute instant at which to evaluate the local offset, expressed as whole seconds since the Unix epoch (`1970-01-01T00:00:00Z`). The value selects the point on the timeline for which the host time zone is consulted; for a zone observing daylight saving it determines whether the standard or the daylight-saving offset is in force. [[src/codegen/builtins/datetime/mod.rs:call_param_names]] |
+| `epochSeconds` | `Integer` | The absolute instant at which to evaluate the local offset, expressed as whole seconds since the Unix epoch (`1970-01-01T00:00:00Z`). The value selects the point on the timeline for which the host time zone is consulted; for a zone observing daylight saving it determines whether the standard or the daylight-saving offset is in force. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

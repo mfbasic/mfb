@@ -45,13 +45,13 @@ no byte order (endianness) or byte-order mark applies.
 `utf16Decode` is the inverse of `encoding::utf16Encode`: decoding the code units
 that `utf16Encode` produced reconstructs the original string, and any string
 round-trips losslessly through the two functions.
-[[src/codegen/builtins/encoding/mod.rs:UTF16_DECODE]]
+[[src/codegen/builtins/encoding/func_utf16_decode.rs:utf16Decode]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF Integer` | The UTF-16 code units to decode. Every element must be in `0..65535`, and surrogates must be correctly paired. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `value` | `List OF Integer` | The UTF-16 code units to decode. Every element must be in `0..65535`, and surrogates must be correctly paired. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

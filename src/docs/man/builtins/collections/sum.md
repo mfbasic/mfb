@@ -92,7 +92,7 @@ with `ErrOverflow`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF Integer`, `List OF Float`, or `List OF Fixed` | The list to total. Any length is accepted, including the empty list. The element type selects the overload. Also accepted under the name `collection`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `value` | `List OF Integer`, `List OF Float`, or `List OF Fixed` | The list to total. Any length is accepted, including the empty list. The element type selects the overload. Also accepted under the name `collection`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

@@ -83,15 +83,15 @@ be in range; this overload can raise `ErrIndexOutOfRange`.
 Associates `item` with the key, overwriting an existing entry or inserting a new
 one. This overload cannot fail. Note that the key parameter is still spelled
 `index` canonically; `key` is accepted as an alternate name.
-[[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/mod.rs:call_param_names]]
+[[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/registry/mod.rs:call_param_names]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` or `Map OF K TO V` | The collection to update; left unchanged. Also accepted under the name `collection`. Its shape selects the overload. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
-| `index` | `Integer` or `K` | For a list, the zero-based position to overwrite, valid in `0` through `len(value) - 1`. For a map, the key to assign, which may or may not already be present. Also accepted under the name `key`. Its type must be exactly `Integer` for a list, or exactly the map's key type `K`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
-| `item` | `T` or `V` | The replacement element (list) or associated value (map). Its type must be exactly the list's element type `T` or the map's value type `V`. This parameter has no alternate spelling. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `value` | `List OF T` or `Map OF K TO V` | The collection to update; left unchanged. Also accepted under the name `collection`. Its shape selects the overload. [[src/codegen/registry/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `index` | `Integer` or `K` | For a list, the zero-based position to overwrite, valid in `0` through `len(value) - 1`. For a map, the key to assign, which may or may not already be present. Also accepted under the name `key`. Its type must be exactly `Integer` for a list, or exactly the map's key type `K`. [[src/codegen/registry/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `item` | `T` or `V` | The replacement element (list) or associated value (map). Its type must be exactly the list's element type `T` or the map's value type `V`. This parameter has no alternate spelling. [[src/codegen/registry/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Return value
 

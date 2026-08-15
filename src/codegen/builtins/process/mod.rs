@@ -59,8 +59,6 @@ pub(crate) const STREAM_TYPE: &str = "Stream";
 /// (plan-90-C).
 pub(crate) const SIGNAL_TYPE: &str = "Signal";
 
-const SPAWN: &str = "process.spawn";
-
 /// The internal scope-drop op registered as `Process`'s resource close function.
 ///
 /// Not user-callable: when a live `Process` goes out of scope the runtime
@@ -212,20 +210,6 @@ pub(crate) fn is_process_runtime_call(name: &str) -> bool {
     is_process_call(name) || name == DROP
 }
 
-/// A bespoke expected-argument phrasing for `spawn`, whose two overloads have
-/// structurally different positional layouts. The registry's per-position render
-/// only shows the FIRST overload (`List OF String`), which mis-describes a wrong
-/// 4-arg call; this `"or"`-joined string names both forms (the net/audio idiom for
-/// an overloaded call). Every other `process` call has a single signature the
-/// registry renders correctly, so this returns `None` for them and they fall
-/// through to the registry's `expected_arguments`.
-pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
-    match name {
-        SPAWN => Some("List OF String or List OF String, String, Map OF String TO String, Boolean"),
-        _ => None,
-    }
-}
-
 /// Whether `name` is a `process` value/opaque type (`Process`). The `Stream`/
 /// `Signal` value enums are recognized through the injected source companion, not
 /// here; only the descriptor-only opaque handle is claimed.
@@ -347,13 +331,18 @@ mod tests {
 
     #[test]
     fn spawn_expected_arguments_names_both_overloads() {
-        let text = super::expected_arguments("process.spawn").expect("spawn phrasing");
+        // `spawn`'s overloaded phrasing rides on its descriptor field, served by the
+        // generic `registry::expected_arguments`.
+        let text =
+            crate::codegen::registry::expected_arguments("process.spawn").expect("spawn phrasing");
         assert!(text.contains("List OF String"));
         assert!(text.contains(" or "));
         assert!(text.contains("Boolean"));
-        // Single-signature calls fall through to the registry renderer.
-        assert_eq!(super::expected_arguments("process.shell"), None);
-        assert_eq!(super::expected_arguments("process.close"), None);
+        // Single-signature calls render per-position from the registry.
+        assert_eq!(
+            crate::codegen::registry::expected_arguments("process.shell"),
+            Some("String")
+        );
     }
 
     #[test]

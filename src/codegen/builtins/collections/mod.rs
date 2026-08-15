@@ -411,6 +411,7 @@ fn register_find(pkg: &mut RegistryPackage) {
         intro: INTO_FIND,
         desc: DESC_FIND,
         example: EX_FIND,
+        expected_arguments: Some("List OF T, T[, Integer]"),
         implementations: vec![
             Implementation {
                 params: vec![
@@ -469,6 +470,7 @@ fn register_mid(pkg: &mut RegistryPackage) {
         intro: INTO_MID,
         desc: DESC_MID,
         example: EX_MID,
+        expected_arguments: Some("List OF T, Integer, Integer"),
         implementations: vec![Implementation {
             params: vec![
                 param(
@@ -495,6 +497,7 @@ fn register_replace(pkg: &mut RegistryPackage) {
         intro: INTO_REPLACE,
         desc: DESC_REPLACE,
         example: EX_REPLACE,
+        expected_arguments: Some("List OF T, T, T"),
         implementations: vec![Implementation {
             params: vec![
                 param(
@@ -676,92 +679,6 @@ pub(crate) fn native_member_bare(name: &str) -> Option<&str> {
         .filter(|member| is_native_member(member))
 }
 
-// `call_param_names` returns a `&'static` borrowed nested slice used by the
-// keyword-argument matcher. It stays a static literal (the registry's
-// `call_param_names` returns owned `Vec`s, which this borrowed shape cannot
-// produce). `expected_arguments` keeps its hand-authored "or"-phrased strings
-// (the descriptor's per-position types cannot express `List OF T, Integer or Map
-// OF K TO V, K`).
-pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
-    match native_member_bare(name)? {
-        "get" => Some(&[&["value", "collection"], &["index", "key"]]),
-        "getOr" => Some(&[
-            &["value", "collection"],
-            &["index", "key"],
-            &["default", "fallback"],
-        ]),
-        "set" => Some(&[&["value", "collection"], &["index", "key"], &["item"]]),
-        "append" => Some(&[&["value", "list"], &["item", "items"]]),
-        "prepend" => Some(&[&["value", "list"], &["item"]]),
-        "insert" => Some(&[&["value", "list"], &["index"], &["item"]]),
-        "removeAt" => Some(&[&["value", "list"], &["index"]]),
-        "removeKey" => Some(&[&["value", "map"], &["key"]]),
-        "keys" => Some(&[&["value", "map"]]),
-        "values" => Some(&[&["value", "map"]]),
-        "hasKey" => Some(&[&["value", "map"], &["key"]]),
-        "contains" => Some(&[&["value", "collection"], &["item"]]),
-        "forEach" => Some(&[&["value", "collection"], &["action"]]),
-        "transform" => Some(&[&["value", "collection"], &["f", "transform"]]),
-        "filter" => Some(&[&["value", "collection"], &["predicate"]]),
-        "reduce" => Some(&[
-            &["value", "collection"],
-            &["initial", "seed"],
-            &["f", "combine"],
-        ]),
-        "reduceRight" => Some(&[
-            &["value", "collection"],
-            &["initial", "seed"],
-            &["f", "combine"],
-        ]),
-        "sum" => Some(&[&["value", "collection"]]),
-        "find" => Some(&[&["value", "list"], &["item", "needle"], &["start"]]),
-        "mid" => Some(&[&["value", "list"], &["start"], &["count"]]),
-        "replace" => Some(&[
-            &["value", "list"],
-            &["old", "needle"],
-            &["new", "replacement"],
-        ]),
-        // Set members (plan-63-B).
-        "add" => Some(&[&["value", "set"], &["item", "element"]]),
-        "remove" => Some(&[&["value", "set"], &["item", "element"]]),
-        "toList" => Some(&[&["value", "set"]]),
-        _ => None,
-    }
-}
-
-pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
-    match native_member_bare(name)? {
-        "get" => Some("List OF T, Integer or Map OF K TO V, K"),
-        "getOr" => Some("List OF T, Integer, T or Map OF K TO V, K, V"),
-        "set" => Some("List OF T, Integer, T or Map OF K TO V, K, V"),
-        "append" => Some("List OF T, T or List OF T, List OF T"),
-        "prepend" => Some("List OF T, T"),
-        "insert" => Some("List OF T, Integer, T"),
-        "removeAt" => Some("List OF T, Integer"),
-        "removeKey" => Some("Map OF K TO V, K"),
-        "keys" => Some("Map OF K TO V"),
-        "values" => Some("Map OF K TO V"),
-        "hasKey" => Some("Map OF K TO V, K"),
-        "contains" => Some("List OF T, T"),
-        "forEach" => Some("List OF T, FUNC(T) AS Nothing"),
-        "transform" => Some("List OF T, FUNC(T) AS U"),
-        "filter" => Some("List OF T, FUNC(T) AS Boolean"),
-        "reduce" => Some("List OF T, U, FUNC(U, T) AS U"),
-        "reduceRight" => Some("List OF T, U, FUNC(U, T) AS U"),
-        "sum" => Some("List OF Integer, List OF Float, or List OF Fixed"),
-        "find" => Some("List OF T, T[, Integer]"),
-        "mid" => Some("List OF T, Integer, Integer"),
-        "replace" => Some("List OF T, T, T"),
-        // Set members (plan-63-B). `contains` also accepts `Set OF T, T` (its
-        // overload); the message above stays List-first to match its historical
-        // shape.
-        "add" => Some("Set OF T, T"),
-        "remove" => Some("Set OF T, T"),
-        "toList" => Some("Set OF T"),
-        _ => None,
-    }
-}
-
 /// Whether any file in `ast` imports the `collections` package.
 pub(crate) fn uses_package(ast: &AstProject) -> bool {
     ast.files.iter().any(|file| {
@@ -869,21 +786,34 @@ mod tests {
 
     #[test]
     fn call_param_names_all_members() {
+        // Every native member's keyword table is served by the generic registry
+        // union of its overloads' parameters.
         for member in NATIVE_MEMBERS {
             let name = format!("collections.{member}");
-            assert!(call_param_names(&name).is_some(), "{member}");
+            assert!(registry::call_param_names(&name).is_some(), "{member}");
         }
-        assert!(call_param_names("collections.sort").is_none());
-        assert!(call_param_names("get").is_none());
+        assert!(registry::call_param_names("collections.sort").is_none());
+        assert!(registry::call_param_names("get").is_none());
+        // A concrete union: `get`'s List and Map overloads agree on position 0.
+        assert_eq!(
+            registry::call_param_names("collections.get"),
+            Some(vec![vec!["value", "collection"], vec!["index", "key"]])
+        );
     }
 
     #[test]
     fn expected_arguments_all_members() {
+        // Every native member carries a bespoke `"or"`/generic phrasing on its
+        // descriptor, served by the generic `registry::expected_arguments`.
         for member in NATIVE_MEMBERS {
             let name = format!("collections.{member}");
-            assert!(expected_arguments(&name).is_some(), "{member}");
+            assert!(registry::expected_arguments(&name).is_some(), "{member}");
         }
-        assert!(expected_arguments("collections.sort").is_none());
+        assert!(registry::expected_arguments("collections.sort").is_none());
+        assert_eq!(
+            registry::expected_arguments("collections.get"),
+            Some("List OF T, Integer or Map OF K TO V, K")
+        );
     }
 
     #[test]

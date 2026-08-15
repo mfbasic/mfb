@@ -48,7 +48,7 @@ back into a signed `Integer`. [[src/codegen/builtins/encoding/func_varint_decode
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Integer` | The signed 64-bit value to encode. Any `Integer`, negative or non-negative, is accepted. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `value` | `Integer` | The signed 64-bit value to encode. Any `Integer`, negative or non-negative, is accepted. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

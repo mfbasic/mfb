@@ -19,11 +19,13 @@
 //! implementation (see `monomorph::lower`). Those four `__encoding_utf8Encode` /
 //! `__encoding_utf8Decode` bodies live directly in `package.mfb`.
 //!
-//! `expected_arguments`/`argument_types`/`call_param_names` are retained: the
-//! generic registry renders one type per position, but `utf8Decode`'s
-//! argument-mismatch diagnostic needs the bespoke union phrasing
-//! `"List OF Byte or List OF Integer"` and `utf8Decode` has no single positional
-//! signature.
+//! Argument-mismatch metadata routes entirely through the generic registry: every
+//! member's per-position render matches its old phrasing, and `utf8Decode`'s bespoke
+//! union phrasing `"List OF Byte or List OF Integer"` (which also makes it decline a
+//! single positional signature) rides on its
+//! [`RegistryFunction::expected_arguments`](crate::codegen::registry::RegistryFunction)
+//! descriptor field — no per-package `expected_arguments`/`argument_types`/
+//! `call_param_names` seam remains.
 
 use crate::codegen::registry::{registry, Registry, RegistryPackage};
 
@@ -55,39 +57,6 @@ mod func_utf8_decode;
 mod func_utf8_encode;
 mod func_varint_decode;
 mod func_varint_encode;
-
-// The qualified public names, shared by the retained diagnostic helpers below.
-const UTF8_ENCODE: &str = "encoding.utf8Encode";
-const UTF8_DECODE: &str = "encoding.utf8Decode";
-const UTF16_ENCODE: &str = "encoding.utf16Encode";
-const UTF16_DECODE: &str = "encoding.utf16Decode";
-const UTF32_ENCODE: &str = "encoding.utf32Encode";
-const UTF32_DECODE: &str = "encoding.utf32Decode";
-const HEX_ENCODE: &str = "encoding.hexEncode";
-const HEX_DECODE: &str = "encoding.hexDecode";
-const BASE32_ENCODE: &str = "encoding.base32Encode";
-const BASE32_DECODE: &str = "encoding.base32Decode";
-const BASE64_ENCODE: &str = "encoding.base64Encode";
-const BASE64_DECODE: &str = "encoding.base64Decode";
-const BASE64URL_ENCODE: &str = "encoding.base64UrlEncode";
-const BASE64URL_DECODE: &str = "encoding.base64UrlDecode";
-const PERCENT_ENCODE: &str = "encoding.percentEncode";
-const PERCENT_DECODE: &str = "encoding.percentDecode";
-const HTML_ESCAPE: &str = "encoding.htmlEscape";
-const HTML_UNESCAPE: &str = "encoding.htmlUnescape";
-const FORM_URL_ENCODE: &str = "encoding.formUrlEncode";
-const FORM_URL_DECODE: &str = "encoding.formUrlDecode";
-const PUNYCODE_ENCODE: &str = "encoding.punycodeEncode";
-const PUNYCODE_DECODE: &str = "encoding.punycodeDecode";
-const ULEB128_ENCODE: &str = "encoding.uleb128Encode";
-const ULEB128_DECODE: &str = "encoding.uleb128Decode";
-const SLEB128_ENCODE: &str = "encoding.sleb128Encode";
-const SLEB128_DECODE: &str = "encoding.sleb128Decode";
-const VARINT_ENCODE: &str = "encoding.varintEncode";
-const VARINT_DECODE: &str = "encoding.varintDecode";
-
-const BYTES: &str = "List OF Byte";
-const INTS: &str = "List OF Integer";
 
 const INTRO: &str = r#"Byte<->text and Unicode codecs: UTF-8/16/32, hex, base32/64, percent, HTML, form-url, punycode, and LEB128/varint."#;
 
@@ -154,71 +123,6 @@ pub(crate) fn register(r: &mut Registry) {
     func_varint_decode::register(&mut pkg);
 
     r.add_package(pkg);
-}
-
-// The human-readable expected-argument rendering for an argument-mismatch
-// diagnostic. Retained (not served by the generic registry) because `utf8Decode`
-// needs the union phrasing `"List OF Byte or List OF Integer"` the per-position
-// renderer cannot produce; every other member's string equals the generic render,
-// but keeping the whole table here pins the diagnostic byte-for-byte.
-pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
-    match name {
-        UTF8_ENCODE | UTF16_ENCODE | UTF32_ENCODE | PERCENT_ENCODE | PERCENT_DECODE
-        | HTML_ESCAPE | HTML_UNESCAPE | FORM_URL_ENCODE | FORM_URL_DECODE | PUNYCODE_ENCODE
-        | PUNYCODE_DECODE | HEX_DECODE | BASE32_DECODE | BASE64_DECODE | BASE64URL_DECODE => {
-            Some("String")
-        }
-        UTF8_DECODE => Some("List OF Byte or List OF Integer"),
-        UTF16_DECODE | UTF32_DECODE => Some(INTS),
-        HEX_ENCODE | BASE32_ENCODE | BASE64_ENCODE | BASE64URL_ENCODE | ULEB128_DECODE
-        | SLEB128_DECODE | VARINT_DECODE => Some(BYTES),
-        ULEB128_ENCODE | SLEB128_ENCODE | VARINT_ENCODE => Some("Integer"),
-        _ => None,
-    }
-}
-
-/// The machine-readable positional argument-type signature IR lowering reads for
-/// literal coercion (bug-340 A1). Every member is unary, so each entry is a
-/// one-element slice — except `utf8Decode`, which is overloaded on
-/// `List OF Byte | List OF Integer` and so has no single positional signature
-/// (`None`). Retained because the generic registry would hand back the first
-/// overload's `List OF Byte` for `utf8Decode`, wrongly coercing a
-/// `List OF Integer` literal.
-pub(crate) fn argument_types(name: &str) -> Option<&'static [&'static str]> {
-    match name {
-        UTF8_ENCODE | UTF16_ENCODE | UTF32_ENCODE | PERCENT_ENCODE | PERCENT_DECODE
-        | HTML_ESCAPE | HTML_UNESCAPE | FORM_URL_ENCODE | FORM_URL_DECODE | PUNYCODE_ENCODE
-        | PUNYCODE_DECODE | HEX_DECODE | BASE32_DECODE | BASE64_DECODE | BASE64URL_DECODE => {
-            Some(&["String"])
-        }
-        UTF8_DECODE => None,
-        UTF16_DECODE | UTF32_DECODE => Some(&[INTS]),
-        HEX_ENCODE | BASE32_ENCODE | BASE64_ENCODE | BASE64URL_ENCODE | ULEB128_DECODE
-        | SLEB128_DECODE | VARINT_DECODE => Some(&[BYTES]),
-        ULEB128_ENCODE | SLEB128_ENCODE | VARINT_ENCODE => Some(&["Integer"]),
-        _ => None,
-    }
-}
-
-/// The per-position `[name, alias…]` keyword-matching lists. The generic registry
-/// answers these identically (the aliases are mirrored onto each `Parameter`); this
-/// is retained as the provenance anchor the man pages cite and as a redundant
-/// fallback (the aggregate consults the registry first).
-pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
-    match name {
-        UTF8_ENCODE | UTF16_ENCODE | UTF32_ENCODE | PERCENT_ENCODE | PERCENT_DECODE
-        | HTML_ESCAPE | HTML_UNESCAPE | FORM_URL_ENCODE | FORM_URL_DECODE => {
-            Some(&[&["value", "text"]])
-        }
-        UTF8_DECODE | UTF16_DECODE | UTF32_DECODE => Some(&[&["value"]]),
-        HEX_ENCODE | BASE32_ENCODE | BASE64_ENCODE | BASE64URL_ENCODE => Some(&[&["data"]]),
-        HEX_DECODE | BASE32_DECODE | BASE64_DECODE | BASE64URL_DECODE => Some(&[&["text"]]),
-        PUNYCODE_ENCODE => Some(&[&["domain"]]),
-        PUNYCODE_DECODE => Some(&[&["asciiDomain"]]),
-        ULEB128_ENCODE | SLEB128_ENCODE | VARINT_ENCODE => Some(&[&["value"]]),
-        ULEB128_DECODE | SLEB128_DECODE | VARINT_DECODE => Some(&[&["data"]]),
-        _ => None,
-    }
 }
 
 /// Synthetic path/doc labels for the injected encoding source (preserved from the
@@ -379,23 +283,33 @@ mod tests {
     }
 
     #[test]
-    fn retained_diagnostic_helpers() {
+    fn diagnostic_metadata_via_registry() {
+        // `utf8Decode`'s overloaded phrasing is a descriptor hint; every other
+        // member's diagnostic equals the generic per-position render.
         assert_eq!(
-            expected_arguments(UTF8_DECODE),
+            registry::expected_arguments("encoding.utf8Decode"),
             Some("List OF Byte or List OF Integer")
         );
-        assert_eq!(expected_arguments(HEX_ENCODE), Some(BYTES));
-        assert_eq!(argument_types(UTF8_DECODE), None);
-        assert_eq!(argument_types(HEX_ENCODE), Some(&[BYTES][..]));
         assert_eq!(
-            call_param_names(UTF8_ENCODE),
-            Some(&[&["value", "text"][..]][..])
+            registry::expected_arguments("encoding.hexEncode"),
+            Some("List OF Byte")
+        );
+        // The overloaded member has no single positional signature; the per-position
+        // render of a unary member is its one argument type.
+        assert_eq!(crate::builtins::argument_types("encoding.utf8Decode"), None);
+        assert_eq!(
+            crate::builtins::argument_types("encoding.hexEncode"),
+            Some(vec!["List OF Byte".to_string()])
         );
         assert_eq!(
-            call_param_names(PUNYCODE_DECODE),
-            Some(&[&["asciiDomain"][..]][..])
+            registry::call_param_names("encoding.utf8Encode"),
+            Some(vec![vec!["value", "text"]])
         );
-        assert!(expected_arguments("encoding.nope").is_none());
+        assert_eq!(
+            registry::call_param_names("encoding.punycodeDecode"),
+            Some(vec![vec!["asciiDomain"]])
+        );
+        assert!(registry::expected_arguments("encoding.nope").is_none());
     }
 
     #[test]

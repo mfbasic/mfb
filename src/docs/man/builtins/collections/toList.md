@@ -45,7 +45,7 @@ error, so an inline `TRAP` written on a `toList` call has a dead handler.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Set OF T` | The set whose elements are listed, in insertion order. Also accepted under the name `set`. Must be a set type; passing a `List` or a scalar resolves no overload and is a compile-time error. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `value` | `Set OF T` | The set whose elements are listed, in insertion order. Also accepted under the name `set`. Must be a set type; passing a `List` or a scalar resolves no overload and is a compile-time error. [[src/codegen/registry/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Return value
 

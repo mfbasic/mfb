@@ -48,7 +48,7 @@ empty string. Hexadecimal digits in escapes may be upper- or lowercase.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `text` | `String` | The form-encoded text to decode. Any string, including the empty string, is accepted; it is read as its UTF-8 byte sequence. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `text` | `String` | The form-encoded text to decode. Any string, including the empty string, is accepted; it is read as its UTF-8 byte sequence. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

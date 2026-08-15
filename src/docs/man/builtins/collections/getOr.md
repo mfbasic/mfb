@@ -82,9 +82,9 @@ that key. [[src/codegen/builtins/collections/common/map.rs:lower_map_get_or]]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` or `Map OF K TO V` | The collection to read from. Also accepted under the name `collection`. Not copied and not mutated. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
-| `index` | `Integer` or `K` | The zero-based list index, or the map key. Also accepted under the name `key`. The spelling table is per position rather than per overload, so both names are accepted under either overload. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
-| `default` | `T` or `V` | The value to return when the element is absent. Also accepted under the name `fallback`. Must be exactly the list element type for the list overload, or the map value type for the map overload. Always evaluated. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `value` | `List OF T` or `Map OF K TO V` | The collection to read from. Also accepted under the name `collection`. Not copied and not mutated. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `index` | `Integer` or `K` | The zero-based list index, or the map key. Also accepted under the name `key`. The spelling table is per position rather than per overload, so both names are accepted under either overload. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `default` | `T` or `V` | The value to return when the element is absent. Also accepted under the name `fallback`. Must be exactly the list element type for the list overload, or the map value type for the map overload. Always evaluated. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

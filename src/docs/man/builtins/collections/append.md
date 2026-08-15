@@ -83,8 +83,8 @@ every element of `value`, both in their original order.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to append to; left unchanged. Also accepted under the name `list`. Must be a list type; passing a `Map` or a scalar resolves no overload and is a compile-time error. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
-| `item` | `T` or `List OF T` | The element to append, or a list of elements to concatenate. Also accepted under the name `items`. Its type must be exactly the element type `T` or exactly `List OF T`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `value` | `List OF T` | The list to append to; left unchanged. Also accepted under the name `list`. Must be a list type; passing a `Map` or a scalar resolves no overload and is a compile-time error. [[src/codegen/registry/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `item` | `T` or `List OF T` | The element to append, or a list of elements to concatenate. Also accepted under the name `items`. Its type must be exactly the element type `T` or exactly `List OF T`. [[src/codegen/registry/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Return value
 

@@ -421,6 +421,16 @@ pub(crate) struct RegistryFunction {
     pub(crate) desc: &'static str,
     /// A runnable documentation example.
     pub(crate) example: &'static str,
+    /// An optional hand-authored expected-argument phrasing for the
+    /// argument-mismatch diagnostic. `Some` only when the per-position render the
+    /// generic [`expected_arguments`] derives from the parameters cannot reproduce
+    /// the intended phrasing — an argument union (`"List OF Byte or List OF
+    /// Integer"`), a range (`"1 to 5 Integer"`), an optional-tail bracket
+    /// (`"String, String[, Zone]"`), a zero-argument `"()"`, or a generic
+    /// `"or"`-joined signature (`"List OF T, Integer or Map OF K TO V, K"`). `None`
+    /// for the packages whose diagnostic equals the parameter-derived render
+    /// (csv/json/regex), which keeps them byte-identical.
+    pub(crate) expected_arguments: Option<&'static str>,
     /// The function's implementations (`>= 1`); more than one means an overload set.
     pub(crate) implementations: Vec<Implementation>,
 }
@@ -1269,9 +1279,16 @@ pub(crate) fn native_lower(qualified: &str) -> Option<NativeLower> {
 /// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
     let function = &registry().resolve_func(qualified)?.function;
+    // A hand-authored phrasing on the descriptor wins — the union/range/bracket/
+    // zero-arg/generic-`or` forms the per-position render below cannot reproduce.
+    // This is the only place these strings live now (moved off the per-package
+    // `expected_arguments` seams).
+    if let Some(hint) = function.expected_arguments {
+        return Some(hint);
+    }
     // A multi-implementation (overloaded / variadic) member has no single
     // first-parameter rendering — its overloads disagree on position 0 — so it
-    // yields None here and keeps whatever bespoke phrasing its package supplies.
+    // yields None here (and a package needing a diagnostic supplies the hint above).
     if function.implementations.len() > 1 {
         return None;
     }
@@ -1283,31 +1300,97 @@ pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
     })
 }
 
+/// Whether a function's overloads disagree on their **position-0** parameter name
+/// — the front-dropping/variadic-from-the-left shape (datetime's
+/// `instant`/`duration`/`fixedOffset`) where a merged per-position table would
+/// misbind a named argument (bug-349/bug-94). Such members carry no merged
+/// [`call_param_names`] table (it returns `None`) and are normalized through the
+/// per-overload [`call_param_name_overloads`] table instead. A single-overload
+/// member, or overloads that all name position 0 the same (collections `get`'s
+/// `value`/`collection`, encoding `utf8Decode`'s `value`), agree here and merge.
+fn overloads_disagree_on_layout(function: &RegistryFunction) -> bool {
+    let mut first_name: Option<&str> = None;
+    for implementation in &function.implementations {
+        let name = implementation.params.first().map(|param| param.name);
+        match (first_name, name) {
+            (None, _) => first_name = name,
+            (Some(seen), Some(name)) if seen == name => {}
+            (Some(_), _) => return true,
+        }
+    }
+    false
+}
+
 /// The per-position `[name, alias…]` keyword-matching lists for the migrated call
 /// `qualified`, or `None`.
+///
+/// Overload-aware: position `i` is the union — first-seen order, deduped — of the
+/// `[name, alias…]` any overload allows at position `i`. A single-overload member
+/// unions to exactly its own per-position lists; an overload set that agrees on the
+/// position-0 name (collections `get`/`getOr`/`set`/`append`/`contains`/`sum`,
+/// encoding `utf8Encode`/`utf8Decode`) merges its overloads into one table. Members
+/// whose overloads disagree on position 0 ([`overloads_disagree_on_layout`]) yield
+/// `None` — a merged table would misbind (bug-349/bug-94) — and are normalized
+/// through [`call_param_name_overloads`].
 /// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn call_param_names(qualified: &str) -> Option<Vec<Vec<&'static str>>> {
     let function = &registry().resolve_func(qualified)?.function;
-    // Multi-implementation members whose overloads disagree on positional layout
-    // have no single merged per-position table (binding a name off a merged table
-    // would land it in the wrong slot — bug-349/bug-94); they yield None so the
-    // caller falls through to a per-overload table.
-    if function.implementations.len() > 1 {
+    if overloads_disagree_on_layout(function) {
         return None;
     }
-    let implementation = function.implementations.first()?;
-    Some(
-        implementation
-            .params
-            .iter()
-            .map(|param| {
-                let mut names = Vec::with_capacity(1 + param.aliases.len());
-                names.push(param.name);
-                names.extend_from_slice(param.aliases);
-                names
-            })
-            .collect(),
-    )
+    let width = function
+        .implementations
+        .iter()
+        .map(|implementation| implementation.params.len())
+        .max()
+        .unwrap_or(0);
+    let mut positions: Vec<Vec<&'static str>> = vec![Vec::new(); width];
+    for implementation in &function.implementations {
+        for (index, param) in implementation.params.iter().enumerate() {
+            let slot = &mut positions[index];
+            for name in std::iter::once(param.name).chain(param.aliases.iter().copied()) {
+                if !slot.contains(&name) {
+                    slot.push(name);
+                }
+            }
+        }
+    }
+    Some(positions)
+}
+
+/// Per-overload parameter-name tables for a migrated call whose overloads place
+/// names at structurally different positions ([`overloads_disagree_on_layout`] —
+/// datetime `instant`/`duration`/`fixedOffset`), or `None`. Each entry is one
+/// overload's parameter names, in order (no aliases: these members declare none).
+/// Normalization selects the overload first, then binds names within it, so a
+/// front-dropping constructor's named arguments bind to the right slot. Replaces
+/// the per-package `call_param_name_overloads`.
+///
+/// This leaks the assembled table (like the other deprecated boundary helpers here)
+/// — bounded: only the three constructor families qualify, and only at a call site
+/// that mixes named arguments. It goes away once the keyword matcher reads the
+/// registry directly.
+/// #[deprecated(note = "migrate registry().*")]
+pub(crate) fn call_param_name_overloads(
+    qualified: &str,
+) -> Option<&'static [&'static [&'static str]]> {
+    let function = &registry().resolve_func(qualified)?.function;
+    if !overloads_disagree_on_layout(function) {
+        return None;
+    }
+    let overloads: Vec<&'static [&'static str]> = function
+        .implementations
+        .iter()
+        .map(|implementation| {
+            let names: Vec<&'static str> = implementation
+                .params
+                .iter()
+                .map(|param| param.name)
+                .collect();
+            &*Box::leak(names.into_boxed_slice())
+        })
+        .collect();
+    Some(Box::leak(overloads.into_boxed_slice()))
 }
 
 /// The `(type, expr)` constants to append after `provided` real arguments so a
@@ -1354,6 +1437,7 @@ mod tests {
             intro: "i",
             desc: "d",
             example: "e",
+            expected_arguments: None,
             implementations,
         }
     }
@@ -1874,6 +1958,7 @@ mod tests {
             intro: "fn intro",
             desc: "fn desc",
             example: "fn example",
+            expected_arguments: None,
             implementations: vec![Implementation {
                 params: vec![
                     Parameter {

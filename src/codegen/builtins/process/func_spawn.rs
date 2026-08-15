@@ -90,6 +90,12 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
+        // The two overloads have structurally different positional layouts; the
+        // per-position render only shows the first (`List OF String`). The
+        // `"or"`-joined string names both forms (the net/audio overloaded idiom).
+        expected_arguments: Some(
+            "List OF String or List OF String, String, Map OF String TO String, Boolean",
+        ),
         implementations: vec![
             // Bare argv form.
             Implementation {

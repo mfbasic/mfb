@@ -53,7 +53,7 @@ than producing a partial result. [[src/codegen/builtins/encoding/package.mfb:__e
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `asciiDomain` | `String` | The ASCII Punycode hostname to decode. Split on `.` into labels; each `xn--`-prefixed label is Punycode-decoded and every other label is copied verbatim. [[src/codegen/builtins/encoding/mod.rs:call_param_names]] |
+| `asciiDomain` | `String` | The ASCII Punycode hostname to decode. Split on `.` into labels; each `xn--`-prefixed label is Punycode-decoded and every other label is copied verbatim. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
