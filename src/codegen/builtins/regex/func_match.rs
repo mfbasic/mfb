@@ -7,8 +7,7 @@
 //! (2-space indent → .ncode columns); do not reformat.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
-    RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
 };
 
 const INTRO: &str = r#"Test whether a regular expression matches anywhere in a string."#;
@@ -98,7 +97,6 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Boolean,
             errors: vec![],
-            lowering: Lowering::Helper,
             body: Body::mfb(FUNC_BODY, "__regex_match"),
         }],
     });

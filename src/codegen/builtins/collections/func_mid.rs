@@ -1,8 +1,7 @@
 //! `collections::mid` — descriptor entry + authored docs.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
-    RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
 };
 
 const INTO_MID: &str = "Return a new list holding a contiguous run of elements taken from a list";
@@ -122,7 +121,6 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Arg(0),
             errors: vec!["ErrIndexOutOfRange"],
-            lowering: Lowering::Helper,
             body: Body::Intrinsic,
         }],
     });

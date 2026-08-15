@@ -6,8 +6,7 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
-    RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
 };
 
 const INTRO: &str = r#"Decode a standard Base64 `String` into a `List OF Byte`."#;
@@ -88,7 +87,6 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::list_of(ParameterType::Byte),
             errors: vec![],
-            lowering: Lowering::Helper,
             body: Body::mfb(BODY, "__encoding_base64Decode"),
         }],
     });

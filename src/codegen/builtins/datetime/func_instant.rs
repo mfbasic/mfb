@@ -87,7 +87,6 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
                 }],
                 return_type: super::ParameterType::Named("Instant"),
                 errors: vec![],
-                lowering: super::Lowering::Helper,
                 body: super::Body::Rewrite("__datetime_instant1"),
             },
             super::Implementation {
@@ -109,7 +108,6 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
                 ],
                 return_type: super::ParameterType::Named("Instant"),
                 errors: vec![],
-                lowering: super::Lowering::Helper,
                 body: super::Body::Rewrite("__datetime_instant2"),
             },
             super::Implementation {
@@ -138,7 +136,6 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
                 ],
                 return_type: super::ParameterType::Named("Instant"),
                 errors: vec![],
-                lowering: super::Lowering::Helper,
                 body: super::Body::Rewrite("__datetime_instant3"),
             },
             super::Implementation {
@@ -174,7 +171,6 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
                 ],
                 return_type: super::ParameterType::Named("Instant"),
                 errors: vec![],
-                lowering: super::Lowering::Helper,
                 body: super::Body::Rewrite("__datetime_instant4"),
             },
             super::Implementation {
@@ -217,7 +213,6 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
                 ],
                 return_type: super::ParameterType::Named("Instant"),
                 errors: vec![],
-                lowering: super::Lowering::Helper,
                 body: super::Body::Rewrite("__datetime_instant5"),
             },
         ],

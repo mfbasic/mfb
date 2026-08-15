@@ -172,15 +172,21 @@ pub(crate) fn register(r: &mut Registry) {
     // The opaque `Process` resource handle. Semantic-only (no injectable source):
     // it makes `registry::qualified_builtin_type("process.Process")` and
     // `registry::resource_close_function("Process")` answer generically, replacing
-    // the deleted per-package `is_builtin_type`/`resource_close_function` seams.
-    // `export: false`: the qualified-type resolution and close-op lookup ignore this
-    // flag, and it is `false` only so the man2 `types` page does not render a
-    // "released with `process.__drop`" line exposing the internal scope-drop op — the
-    // `Process` handle is closed automatically by lexical scope, not a public close.
+    // the deleted per-package `is_builtin_type`/`resource_close_function` seams. The
+    // `close_function` is the internal `__drop` scope-drop op (SIGKILL + waitpid); a
+    // `Process` is released automatically by lexical scope, not a public `close`.
     pkg.add_resource(RegistryResource {
         name: PROCESS_TYPE,
-        export: false,
+        export: true,
+        description: "An opaque handle to a spawned child process, released automatically \
+                      when it leaves scope.",
         close_function: DROP,
+        // A Process owns child pipe fds and drives waitpid from its owning thread; not
+        // thread-sendable in v1 (plan-90-A; C revisits). The `__drop` op force-kills and
+        // reaps, so it does not fail.
+        sendable: false,
+        close_may_fail: false,
+        kind: crate::builtins::resource::ResourceKind::Builtin,
     });
 
     func_spawn::register(&mut pkg);

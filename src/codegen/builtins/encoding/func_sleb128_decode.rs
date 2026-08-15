@@ -6,8 +6,7 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
-    RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
 };
 
 const INTRO: &str = r#"Decode a signed LEB128 `List OF Byte` back into an `Integer`."#;
@@ -108,7 +107,6 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Integer,
             errors: vec![],
-            lowering: Lowering::Helper,
             body: Body::mfb(BODY, "__encoding_sleb128Decode"),
         }],
     });

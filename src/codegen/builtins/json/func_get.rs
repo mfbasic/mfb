@@ -6,8 +6,7 @@
 //! byte-significant (2-space indent → .ncode columns); do not reformat.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
-    RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
 };
 
 const INTRO: &str = r#"Read a nested `Json` value by following a path of object keys"#;
@@ -124,7 +123,6 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Named("Json"),
             errors: vec!["ErrNotFound"],
-            lowering: Lowering::Helper,
             body: Body::mfb(FUNC_BODY, "__json_get"),
         }],
     });

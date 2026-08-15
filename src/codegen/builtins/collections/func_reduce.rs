@@ -1,8 +1,7 @@
 //! `collections::reduce` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
-    RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
@@ -131,7 +130,6 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Arg(1),
             errors: vec![],
-            lowering: Lowering::Helper,
             body: Body::native(None, None, Some(lower_reduce)),
         }],
     });

@@ -83,7 +83,6 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![],
             return_type: super::ParameterType::Named("Zone"),
             errors: vec![],
-            lowering: super::Lowering::Helper,
             body: super::Body::mfb(BODY, "__datetime_local"),
         }],
     });

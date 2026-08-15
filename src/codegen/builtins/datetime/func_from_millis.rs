@@ -97,7 +97,6 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
             }],
             return_type: super::ParameterType::Named("Instant"),
             errors: vec![],
-            lowering: super::Lowering::Helper,
             body: super::Body::mfb(BODY, "__datetime_fromMillis"),
         }],
     });

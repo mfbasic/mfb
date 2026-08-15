@@ -6,8 +6,7 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
-    RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
 };
 
 const INTRO: &str = r#"Decode a UTF-8 byte or code-unit sequence to a `String`."#;
@@ -79,14 +78,12 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
                 params: vec![value(ParameterType::list_of(ParameterType::Byte))],
                 return_type: ParameterType::String,
                 errors: vec![],
-                lowering: Lowering::Helper,
                 body: Body::Intrinsic,
             },
             Implementation {
                 params: vec![value(ParameterType::list_of(ParameterType::Integer))],
                 return_type: ParameterType::String,
                 errors: vec![],
-                lowering: Lowering::Helper,
                 body: Body::Intrinsic,
             },
         ],

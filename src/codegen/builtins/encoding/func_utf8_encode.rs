@@ -6,8 +6,7 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
-    RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
 };
 
 const INTRO: &str = r#"Encode a `String` to its UTF-8 bytes."#;
@@ -73,7 +72,6 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             // syntaxcheck and mangled by the monomorphizer.
             return_type: ParameterType::list_of(ParameterType::Byte),
             errors: vec![],
-            lowering: Lowering::Helper,
             // `Body::Intrinsic` carries no registry rewrite target, so IR lowering
             // leaves the canonical `encoding.utf8Encode` in place for the
             // monomorphizer to resolve to `#encoding_utf8Encode`. The two

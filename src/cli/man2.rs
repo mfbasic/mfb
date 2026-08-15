@@ -9,8 +9,8 @@
 //!
 //! `mfb man2 <package> types` renders the package's consolidated *types* page — its
 //! exported records (with field tables), unions and enums (with their variants), and
-//! resources (with their close op) — the man2 analogue of the old
-//! `mfb man <package> types` record-type page.
+//! resources (opaque handles, shown with a description) — the man2 analogue of the
+//! old `mfb man <package> types` record-type page.
 
 use std::io::IsTerminal;
 
@@ -126,8 +126,9 @@ fn has_public_types(package: &RegistryPackage) -> bool {
 
 /// Build the consolidated *types* page for a package: every exported record (with a
 /// field table), union (with its variants), enum (with its variants), and resource
-/// (with its close op), each under a `pkg::Name` heading. Internal (non-`export`)
-/// types are omitted — they are not part of the package's public surface.
+/// (an opaque handle, shown with its description), each under a `pkg::Name` heading.
+/// Internal (non-`export`) types are omitted — they are not part of the package's
+/// public surface.
 fn render_types_markdown(package: &RegistryPackage) -> String {
     let mut md = String::new();
     let pkg = package.import_name();
@@ -179,10 +180,8 @@ fn render_types_markdown(package: &RegistryPackage) -> String {
         .filter(|resource| resource.export)
     {
         md.push_str(&format!("### {pkg}::{}\n\n", resource.name));
-        md.push_str(&format!(
-            "An opaque resource handle, released with `{}`.\n\n",
-            resource.close_function,
-        ));
+        md.push_str(resource.description);
+        md.push_str("\n\n");
     }
 
     md
@@ -452,6 +451,7 @@ mod tests {
 
     #[test]
     fn types_page_lists_enums_and_resources() {
+        use crate::builtins::resource::ResourceKind;
         use crate::codegen::registry::{EnumVariant, RegistryEnum, RegistryResource};
 
         let mut package = RegistryPackage::new("demo", "i", "d");
@@ -466,15 +466,21 @@ mod tests {
         package.add_resource(RegistryResource {
             name: "Handle",
             export: true,
+            description: "An opaque demo handle.",
             close_function: "demo.close",
+            sendable: true,
+            close_may_fail: true,
+            kind: ResourceKind::Builtin,
         });
 
         assert!(has_public_types(&package));
         let md = render_types_markdown(&package);
         assert!(md.contains("### demo::Stream"));
         assert!(md.contains("- `StdOut` — standard output"));
+        // A resource renders as its name + description only (no close op leaks out).
         assert!(md.contains("### demo::Handle"));
-        assert!(md.contains("released with `demo.close`"));
+        assert!(md.contains("An opaque demo handle."));
+        assert!(!md.contains("demo.close"));
     }
 
     #[test]

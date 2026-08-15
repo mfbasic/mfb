@@ -1,8 +1,7 @@
 //! `collections::replace` — descriptor entry + authored docs.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
-    RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
 };
 
 const INTO_REPLACE: &str = "Return a list with every element equal to a given value replaced";
@@ -114,7 +113,6 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Arg(0),
             errors: vec![],
-            lowering: Lowering::Helper,
             body: Body::Intrinsic,
         }],
     });

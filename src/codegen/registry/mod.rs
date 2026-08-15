@@ -269,18 +269,6 @@ pub(crate) struct Parameter {
     pub(crate) default: DefaultValue,
 }
 
-/// How an implementation reaches its code: a `bl` into a runtime helper, or emitted
-/// in place at the call site. Per-implementation on purpose — the standing "is
-/// `Lowering` redundant" question (`planning/todo.md`) is answered by making it a
-/// property of each version, not of the whole name.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Lowering {
-    /// Lowered as a call into a named runtime helper.
-    Helper,
-    /// Emitted inline at the call site.
-    Inline,
-}
-
 /// How one implementation is *realized* in codegen.
 ///
 /// The old enum's separate `Native(NativeLower)` (target-generic) and
@@ -432,8 +420,6 @@ pub(crate) struct Implementation {
     pub(crate) return_type: ParameterType,
     /// The error codes this overload can raise (rule ids), or empty.
     pub(crate) errors: Vec<&'static str>,
-    /// Whether this overload lowers via a helper `bl` or inline.
-    pub(crate) lowering: Lowering,
     /// How this overload is realized in codegen.
     pub(crate) body: Body,
 }
@@ -735,9 +721,20 @@ pub(crate) struct RegistryResource {
     /// Whether the resource type is `EXPORT`ed (visible to importers) or
     /// package-internal.
     pub(crate) export: bool,
+    /// One-line documentation of the handle. Shown on the man2 `types` page (a
+    /// resource is opaque, so its page is just this description).
+    pub(crate) description: &'static str,
     /// The qualified close op that releases the handle — the value the per-package
     /// `resource_close_function` returns (`fs.close`, `process.__drop`).
     pub(crate) close_function: &'static str,
+    /// Whether the handle may cross a thread boundary (the RES "sendable to thread"
+    /// bit — mirrors [`crate::builtins::resource::ResourceInfo::sendable`]).
+    pub(crate) sendable: bool,
+    /// Whether the close op can fail (mirrors
+    /// [`crate::builtins::resource::ResourceInfo::close_may_fail`]).
+    pub(crate) close_may_fail: bool,
+    /// Provenance of the registration (`Builtin` for a native package resource).
+    pub(crate) kind: crate::builtins::resource::ResourceKind,
 }
 
 /// One builtin package: its import name, documentation, the packages it imports, its
@@ -1905,7 +1902,11 @@ mod tests {
         RegistryResource {
             name,
             export,
+            description: "resource doc",
             close_function,
+            sendable: true,
+            close_may_fail: true,
+            kind: crate::builtins::resource::ResourceKind::Builtin,
         }
     }
 
@@ -1920,7 +1921,6 @@ mod tests {
             params: vec![],
             return_type: ParameterType::String,
             errors: vec![],
-            lowering: Lowering::Helper,
             body: Body::mfb(body, rewrite),
         }
     }
@@ -1930,7 +1930,6 @@ mod tests {
             params: vec![],
             return_type,
             errors: vec![],
-            lowering: Lowering::Inline,
             body: Body::Intrinsic,
         }
     }
@@ -1940,7 +1939,6 @@ mod tests {
             params: vec![],
             return_type: ParameterType::String,
             errors: vec![],
-            lowering: Lowering::Helper,
             body: Body::Rewrite(symbol),
         }
     }
@@ -1972,14 +1970,12 @@ mod tests {
                     params: vec![param("v", ParameterType::Integer)],
                     return_type: ParameterType::String,
                     errors: vec![],
-                    lowering: Lowering::Helper,
                     body: Body::Rewrite("__describe_int"),
                 },
                 Implementation {
                     params: vec![param("v", ParameterType::String)],
                     return_type: ParameterType::String,
                     errors: vec![],
-                    lowering: Lowering::Helper,
                     body: Body::Rewrite("__describe_str"),
                 },
             ],
@@ -2012,7 +2008,6 @@ mod tests {
             params: params.into_iter().map(|ty| param("x", ty)).collect(),
             return_type,
             errors: vec![],
-            lowering: Lowering::Helper,
             body: Body::Intrinsic,
         }
     }
@@ -2509,7 +2504,6 @@ mod tests {
                 ],
                 return_type: ParameterType::Nothing,
                 errors: vec!["SOME_ERROR"],
-                lowering: Lowering::Helper,
                 body: Body::Rewrite("__demo_fn1"),
             }],
         });

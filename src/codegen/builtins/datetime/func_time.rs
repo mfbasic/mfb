@@ -88,7 +88,7 @@ r#"FUNC __datetime_time(hour AS Integer, minute AS Integer, second AS Integer, n
 END FUNC"#;
 
 pub(super) fn register(pkg: &mut super::RegistryPackage) {
-    use super::{Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType};
+    use super::{Body, DefaultValue, Implementation, Parameter, ParameterType};
     // `second`/`nanos` are optional and default to `0`. They are `Fill` params, so
     // the generic `registry::default_argument_padding` injects the `("Integer","0")`
     // padding (consulted before the legacy table), and the 4-arg `__datetime_time`
@@ -119,7 +119,6 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
             ],
             return_type: ParameterType::Named("Time"),
             errors: vec![],
-            lowering: Lowering::Helper,
             body: Body::mfb(BODY, "__datetime_time"),
         }],
     });

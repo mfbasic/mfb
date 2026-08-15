@@ -1,8 +1,7 @@
 //! `collections::contains` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
-    RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{list_element_type, set_element_type};
@@ -131,7 +130,6 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Boolean,
                 errors: vec![],
-                lowering: Lowering::Helper,
                 body: Body::native(None, None, Some(lower_contains)),
             },
             Implementation {
@@ -153,7 +151,6 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Boolean,
                 errors: vec![],
-                lowering: Lowering::Helper,
                 body: Body::native(None, None, Some(lower_contains)),
             },
         ],

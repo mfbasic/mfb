@@ -100,7 +100,6 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
                 }],
                 return_type: super::ParameterType::Named("Duration"),
                 errors: vec![],
-                lowering: super::Lowering::Helper,
                 body: super::Body::Rewrite("__datetime_duration1"),
             },
             super::Implementation {
@@ -122,7 +121,6 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
                 ],
                 return_type: super::ParameterType::Named("Duration"),
                 errors: vec![],
-                lowering: super::Lowering::Helper,
                 body: super::Body::Rewrite("__datetime_duration2"),
             },
             super::Implementation {
@@ -151,7 +149,6 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
                 ],
                 return_type: super::ParameterType::Named("Duration"),
                 errors: vec![],
-                lowering: super::Lowering::Helper,
                 body: super::Body::Rewrite("__datetime_duration3"),
             },
             super::Implementation {
@@ -187,7 +184,6 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
                 ],
                 return_type: super::ParameterType::Named("Duration"),
                 errors: vec![],
-                lowering: super::Lowering::Helper,
                 body: super::Body::Rewrite("__datetime_duration4"),
             },
             super::Implementation {
@@ -230,7 +226,6 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
                 ],
                 return_type: super::ParameterType::Named("Duration"),
                 errors: vec![],
-                lowering: super::Lowering::Helper,
                 body: super::Body::Rewrite("__datetime_duration5"),
             },
         ],

@@ -17,7 +17,7 @@
 //! are gone.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, EnumVariant, Implementation, Lowering, Parameter, ParameterType, Registry,
+    Body, DefaultValue, EnumVariant, Implementation, Parameter, ParameterType, Registry,
     RegistryEnum, RegistryFunction, RegistryPackage,
 };
 

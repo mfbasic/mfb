@@ -10,8 +10,7 @@
 use std::collections::HashMap;
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
-    RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::code::native_helpers::emit_fail;
@@ -94,7 +93,6 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::String,
             errors: vec![],
-            lowering: Lowering::Helper,
             body: Body::native_os_seam(
                 Some(lower_process_receive_helper_posix),
                 Some(lower_process_receive_helper_win),

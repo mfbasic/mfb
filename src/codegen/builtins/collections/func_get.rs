@@ -9,8 +9,7 @@
 //! `codegen → target` edge until `CodeBuilder` itself relocates).
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
-    RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{list_element_type, map_type_parts};
@@ -115,7 +114,6 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Var("T"),
                 errors: vec!["ErrIndexOutOfRange", "ErrNotFound"],
-                lowering: Lowering::Helper,
                 body: Body::native(None, None, Some(lower_get)),
             },
             Implementation {
@@ -137,7 +135,6 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Var("V"),
                 errors: vec!["ErrIndexOutOfRange", "ErrNotFound"],
-                lowering: Lowering::Helper,
                 body: Body::native(None, None, Some(lower_get)),
             },
         ],

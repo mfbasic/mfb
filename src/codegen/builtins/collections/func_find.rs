@@ -1,8 +1,7 @@
 //! `collections::find` — descriptor entry + authored docs.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
-    RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
 };
 
 const INTO_FIND: &str =
@@ -132,7 +131,6 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Integer,
                 errors: vec!["ErrIndexOutOfRange", "ErrNotFound"],
-                lowering: Lowering::Helper,
                 body: Body::Intrinsic,
             },
             Implementation {
@@ -161,7 +159,6 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Integer,
                 errors: vec!["ErrIndexOutOfRange", "ErrNotFound"],
-                lowering: Lowering::Helper,
                 body: Body::Intrinsic,
             },
         ],

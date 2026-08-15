@@ -6,8 +6,7 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
-    RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
 };
 
 const INTRO: &str = r#"Encode a `List OF Byte` to a standard Base32 `String`."#;
@@ -76,7 +75,6 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::String,
             errors: vec![],
-            lowering: Lowering::Helper,
             body: Body::mfb(BODY, "__encoding_base32Encode"),
         }],
     });

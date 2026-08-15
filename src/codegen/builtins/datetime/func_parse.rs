@@ -123,7 +123,6 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
                 ],
                 return_type: super::ParameterType::Named("DateTime"),
                 errors: vec![],
-                lowering: super::Lowering::Helper,
                 body: super::Body::Rewrite("__datetime_parse2"),
             },
             super::Implementation {
@@ -152,7 +151,6 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
                 ],
                 return_type: super::ParameterType::Named("DateTime"),
                 errors: vec![],
-                lowering: super::Lowering::Helper,
                 body: super::Body::Rewrite("__datetime_parse3"),
             },
         ],
