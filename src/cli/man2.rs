@@ -8,8 +8,9 @@
 //! clean-room registry (today `csv`), reading the same fields off every descriptor.
 //!
 //! `mfb man2 <package> types` renders the package's consolidated *types* page — its
-//! exported records (with field tables) and unions (with their variants) — the man2
-//! analogue of the old `mfb man <package> types` record-type page.
+//! exported records (with field tables), unions and enums (with their variants), and
+//! resources (with their close op) — the man2 analogue of the old
+//! `mfb man <package> types` record-type page.
 
 use std::io::IsTerminal;
 
@@ -114,17 +115,19 @@ fn render_package_markdown(package: &RegistryPackage) -> String {
     md
 }
 
-/// Whether the package declares at least one *exported* record or union — i.e. it has
-/// a public types page worth rendering.
+/// Whether the package declares at least one *exported* record, union, enum, or
+/// resource — i.e. it has a public types page worth rendering.
 fn has_public_types(package: &RegistryPackage) -> bool {
     package.records().iter().any(|record| record.export)
         || package.unions().iter().any(|union| union.export)
+        || package.enums().iter().any(|r#enum| r#enum.export)
+        || package.resources().iter().any(|resource| resource.export)
 }
 
-/// Build the consolidated *types* page for a package: every exported record as a
-/// `pkg::Name` heading with a field table, followed by every exported union as a
-/// `pkg::Name` heading with its variants. Internal (non-`export`) records and unions
-/// are omitted — they are not part of the package's public surface.
+/// Build the consolidated *types* page for a package: every exported record (with a
+/// field table), union (with its variants), enum (with its variants), and resource
+/// (with its close op), each under a `pkg::Name` heading. Internal (non-`export`)
+/// types are omitted — they are not part of the package's public surface.
 fn render_types_markdown(package: &RegistryPackage) -> String {
     let mut md = String::new();
     let pkg = package.import_name();
@@ -159,6 +162,27 @@ fn render_types_markdown(package: &RegistryPackage) -> String {
             md.push_str(&format!("- `{}` — {}\n", variant.name, variant.description));
         }
         md.push('\n');
+    }
+
+    for r#enum in package.enums().iter().filter(|r#enum| r#enum.export) {
+        md.push_str(&format!("### {pkg}::{}\n\n", r#enum.name));
+        md.push_str("An enum of:\n\n");
+        for variant in &r#enum.variants {
+            md.push_str(&format!("- `{}` — {}\n", variant.name, variant.description));
+        }
+        md.push('\n');
+    }
+
+    for resource in package
+        .resources()
+        .iter()
+        .filter(|resource| resource.export)
+    {
+        md.push_str(&format!("### {pkg}::{}\n\n", resource.name));
+        md.push_str(&format!(
+            "An opaque resource handle, released with `{}`.\n\n",
+            resource.close_function,
+        ));
     }
 
     md
@@ -424,6 +448,33 @@ mod tests {
         let md = render_types_markdown(package);
         assert!(md.contains("### csv::CsvReader"));
         assert!(md.contains("### csv::CsvRow"));
+    }
+
+    #[test]
+    fn types_page_lists_enums_and_resources() {
+        use crate::codegen::registry::{EnumVariant, RegistryEnum, RegistryResource};
+
+        let mut package = RegistryPackage::new("demo", "i", "d");
+        package.add_enum(RegistryEnum {
+            name: "Stream",
+            export: true,
+            variants: vec![EnumVariant {
+                name: "StdOut",
+                description: "standard output",
+            }],
+        });
+        package.add_resource(RegistryResource {
+            name: "Handle",
+            export: true,
+            close_function: "demo.close",
+        });
+
+        assert!(has_public_types(&package));
+        let md = render_types_markdown(&package);
+        assert!(md.contains("### demo::Stream"));
+        assert!(md.contains("- `StdOut` — standard output"));
+        assert!(md.contains("### demo::Handle"));
+        assert!(md.contains("released with `demo.close`"));
     }
 
     #[test]

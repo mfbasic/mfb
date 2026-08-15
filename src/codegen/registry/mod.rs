@@ -666,6 +666,80 @@ impl RegistryUnion {
     }
 }
 
+/// One variant of a [`RegistryEnum`] — a bare value name (`StdOut`, `Kill`). Unlike a
+/// [`UnionVariant`] (which names another declared type), an enum variant is a scalar
+/// value whose ordinal is its declaration index.
+#[derive(Clone, Debug)]
+pub(crate) struct EnumVariant {
+    /// The variant's value name (`StdOut`).
+    pub(crate) name: &'static str,
+    /// One-line documentation of the variant. Retained for doc generation; **not**
+    /// rendered into the `ENUM` declaration [`RegistryPackage::get_mfb`] emits (the
+    /// declaration is a bare list of variant names, as in a hand-written companion).
+    pub(crate) description: &'static str,
+}
+
+/// A package value enum — an `[EXPORT] ENUM Name … END ENUM` declaration, e.g.
+///
+/// ```text
+/// EXPORT ENUM Stream
+///   StdOut
+///   StdErr
+/// END ENUM
+/// ```
+///
+/// The twin of [`RegistryRecord`] / [`RegistryUnion`] for the third package value-type
+/// kind. A variant's ordinal is its position, so [`variants`](Self::variants) order is
+/// significant. Construct with a named struct literal; add via
+/// [`RegistryPackage::add_enum`].
+#[derive(Debug)]
+pub(crate) struct RegistryEnum {
+    /// The enum's type name (`Stream`).
+    pub(crate) name: &'static str,
+    /// Whether the enum is `EXPORT`ed (visible to importers) or package-internal.
+    pub(crate) export: bool,
+    /// The enum's variants, in declaration order (`>= 1`); order fixes each variant's
+    /// ordinal value.
+    pub(crate) variants: Vec<EnumVariant>,
+}
+
+impl RegistryEnum {
+    /// Render the `[EXPORT] ENUM … END ENUM` declaration (no trailing newline).
+    fn render(&self) -> String {
+        let mut out = String::new();
+        if self.export {
+            out.push_str("EXPORT ");
+        }
+        out.push_str("ENUM ");
+        out.push_str(self.name);
+        for variant in &self.variants {
+            out.push_str("\n  ");
+            out.push_str(variant.name);
+        }
+        out.push_str("\nEND ENUM");
+        out
+    }
+}
+
+/// A package resource type — an opaque handle (`File`, `Socket`, `Process`) whose
+/// lifetime the RES ownership system tracks. Unlike a [`RegistryRecord`] /
+/// [`RegistryUnion`] / [`RegistryEnum`], a resource has **no injectable source
+/// declaration** (the handle is native), so it is not rendered by
+/// [`RegistryPackage::get_mfb`]; it is a set of semantic facts the type checker and
+/// codegen consult. Construct with a named struct literal; add via
+/// [`RegistryPackage::add_resource`].
+#[derive(Clone, Debug)]
+pub(crate) struct RegistryResource {
+    /// The resource type name (`File`, `Process`).
+    pub(crate) name: &'static str,
+    /// Whether the resource type is `EXPORT`ed (visible to importers) or
+    /// package-internal.
+    pub(crate) export: bool,
+    /// The qualified close op that releases the handle — the value the per-package
+    /// `resource_close_function` returns (`fs.close`, `process.__drop`).
+    pub(crate) close_function: &'static str,
+}
+
 /// One builtin package: its import name, documentation, the packages it imports, its
 /// records, unions, and functions. Fields are private — construct via
 /// [`Registry::add_package`] and fill with [`RegistryPackage::add_imports`] /
@@ -679,6 +753,10 @@ pub(crate) struct RegistryPackage {
     imports: Vec<&'static str>,
     records: Vec<RegistryRecord>,
     unions: Vec<RegistryUnion>,
+    enums: Vec<RegistryEnum>,
+    /// Opaque resource handle types. Semantic-only (not injectable source), so they are
+    /// not rendered by [`get_mfb`](Self::get_mfb).
+    resources: Vec<RegistryResource>,
     /// Shared `__pkg_*` helper functions the members call, as source chunks. Not
     /// callable members; rendered between the unions and the member bodies.
     helper_functions: Vec<&'static str>,
@@ -706,6 +784,8 @@ impl RegistryPackage {
             imports: Vec::new(),
             records: Vec::new(),
             unions: Vec::new(),
+            enums: Vec::new(),
+            resources: Vec::new(),
             helper_functions: Vec::new(),
             functions: Vec::new(),
             source_generics: Vec::new(),
@@ -748,6 +828,16 @@ impl RegistryPackage {
         &self.unions
     }
 
+    /// The package's enums, in declaration order.
+    pub(crate) fn enums(&self) -> &[RegistryEnum] {
+        &self.enums
+    }
+
+    /// The package's resource types, in declaration order.
+    pub(crate) fn resources(&self) -> &[RegistryResource] {
+        &self.resources
+    }
+
     /// The package's shared helper-function source chunks, in the order added.
     pub(crate) fn helper_functions(&self) -> &[&'static str] {
         &self.helper_functions
@@ -782,9 +872,11 @@ impl RegistryPackage {
     ///    `add_record` order);
     /// 3. every [`RegistryUnion`] as an `[EXPORT] UNION … END UNION` block (in
     ///    `add_union` order);
-    /// 4. the [`helper_functions`](Self::helper_functions) — the shared `__pkg_*`
+    /// 4. every [`RegistryEnum`] as an `[EXPORT] ENUM … END ENUM` block (in `add_enum`
+    ///    order);
+    /// 5. the [`helper_functions`](Self::helper_functions) — the shared `__pkg_*`
     ///    helpers the members call, in the order added;
-    /// 5. every [`Body::Mfb`] body across all functions (each overload counts — a
+    /// 6. every [`Body::Mfb`] body across all functions (each overload counts — a
     ///    same-named native-overload set like `encoding::utf8Encode` emits one `FUNC`
     ///    per overload), in registration order.
     ///
@@ -792,9 +884,10 @@ impl RegistryPackage {
     /// happens later when the assembled text is parsed.
     ///
     /// Returns the **empty string** only when the package has *nothing* to inject —
-    /// no records, no unions, no `Mfb` member, and no helper functions. Records and
-    /// unions are injectable source in their own right (a package whose functions are
-    /// all `Native`/`Rewrite` still emits its `TYPE`/`UNION` declarations here), and a
+    /// no records, no unions, no enums, no `Mfb` member, and no helper functions.
+    /// Records, unions, and enums are injectable source in their own right (a package
+    /// whose functions are all `Native`/`Rewrite` still emits its `TYPE`/`UNION`/`ENUM`
+    /// declarations here), and a
     /// helper-function chunk is likewise standalone injectable source — the native
     /// `process` package carries only its `Stream`/`Signal` `EXPORT ENUM` companion as
     /// a helper chunk, with no records, unions, or `Mfb` bodies. Pieces are
@@ -812,6 +905,7 @@ impl RegistryPackage {
             .collect();
         if self.records.is_empty()
             && self.unions.is_empty()
+            && self.enums.is_empty()
             && bodies.is_empty()
             && self.helper_functions.is_empty()
         {
@@ -819,7 +913,11 @@ impl RegistryPackage {
         }
 
         let mut pieces: Vec<String> = Vec::with_capacity(
-            1 + self.records.len() + self.unions.len() + self.helper_functions.len() + bodies.len(),
+            1 + self.records.len()
+                + self.unions.len()
+                + self.enums.len()
+                + self.helper_functions.len()
+                + bodies.len(),
         );
         if !self.imports.is_empty() {
             let imports = self
@@ -832,6 +930,7 @@ impl RegistryPackage {
         }
         pieces.extend(self.records.iter().map(RegistryRecord::render));
         pieces.extend(self.unions.iter().map(RegistryUnion::render));
+        pieces.extend(self.enums.iter().map(RegistryEnum::render));
         pieces.extend(
             self.helper_functions
                 .iter()
@@ -894,6 +993,27 @@ impl RegistryPackage {
         self
     }
 
+    /// Add a value enum (a `RegistryEnum { … }`). Enums render into
+    /// [`get_mfb`](Self::get_mfb) in the order they are added, between the unions and
+    /// the helper functions.
+    pub(crate) fn add_enum(&mut self, r#enum: RegistryEnum) -> &mut Self {
+        debug_assert!(
+            !r#enum.variants.is_empty(),
+            "enum `{}` needs at least one variant",
+            r#enum.name,
+        );
+        self.enums.push(r#enum);
+        self
+    }
+
+    /// Add an opaque resource type (a `RegistryResource { … }`). Resources carry no
+    /// injectable source, so they are recorded as semantic facts only and are not
+    /// rendered by [`get_mfb`](Self::get_mfb).
+    pub(crate) fn add_resource(&mut self, resource: RegistryResource) -> &mut Self {
+        self.resources.push(resource);
+        self
+    }
+
     /// Add a function (a `RegistryFunction { … }`).
     pub(crate) fn add_function(&mut self, function: RegistryFunction) -> &mut Self {
         debug_assert!(
@@ -914,6 +1034,8 @@ pub(crate) struct ResolvedFunc<'r> {
 pub(crate) enum ResolvedType<'r> {
     Record(&'r RegistryRecord),
     Union(&'r RegistryUnion),
+    Enum(&'r RegistryEnum),
+    Resource(&'r RegistryResource),
 }
 
 /// The registry: an ordered set of packages. Built imperatively, then
@@ -968,6 +1090,12 @@ impl Registry {
         }
         if let Some(union) = package.unions().iter().find(|u| u.name == type_name) {
             return Some(ResolvedType::Union(union));
+        }
+        if let Some(r#enum) = package.enums().iter().find(|e| e.name == type_name) {
+            return Some(ResolvedType::Enum(r#enum));
+        }
+        if let Some(resource) = package.resources().iter().find(|r| r.name == type_name) {
+            return Some(ResolvedType::Resource(resource));
         }
         None
     }
@@ -1286,13 +1414,14 @@ pub(crate) fn arity(qualified: &str) -> Option<(usize, usize)> {
     resolved.function.arity()
 }
 
-/// Whether `name` is a value type (`EXPORT TYPE`/`UNION`) declared by any migrated
-/// package (`CsvReader`/`CsvRow`).
+/// Whether `name` is a value type (`EXPORT TYPE`/`UNION`/`ENUM`) declared by any
+/// migrated package (`CsvReader`/`CsvRow`).
 /// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn is_builtin_type(name: &str) -> bool {
     registry().packages().iter().any(|package| {
         package.records().iter().any(|record| record.name == name)
             || package.unions().iter().any(|union| union.name == name)
+            || package.enums().iter().any(|r#enum| r#enum.name == name)
     })
 }
 
@@ -1305,6 +1434,8 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         .map(|resolved| match resolved {
             ResolvedType::Record(record) => record.name.to_string(),
             ResolvedType::Union(union) => union.name.to_string(),
+            ResolvedType::Enum(r#enum) => r#enum.name.to_string(),
+            ResolvedType::Resource(resource) => resource.name.to_string(),
         })
 }
 
@@ -1664,6 +1795,29 @@ mod tests {
             name,
             export,
             variants,
+        }
+    }
+
+    fn enum_variant(name: &'static str) -> EnumVariant {
+        EnumVariant {
+            name,
+            description: "variant doc",
+        }
+    }
+
+    fn enm(name: &'static str, export: bool, variants: Vec<EnumVariant>) -> RegistryEnum {
+        RegistryEnum {
+            name,
+            export,
+            variants,
+        }
+    }
+
+    fn res(name: &'static str, export: bool, close_function: &'static str) -> RegistryResource {
+        RegistryResource {
+            name,
+            export,
+            close_function,
         }
     }
 
@@ -2098,6 +2252,87 @@ mod tests {
             "EXPORT UNION Json\n  JsonNull\n  JsonNum\n  JsonStr\nEND UNION"
         );
         assert_eq!(pkg.unions()[1].render(), "UNION Internal\n  A\nEND UNION");
+    }
+
+    #[test]
+    fn add_enum_renders_the_enum_declaration() {
+        let mut r = Registry::new();
+        let mut pkg = RegistryPackage::new("process", "intro", "desc");
+        pkg.add_enum(enm(
+            "Stream",
+            true,
+            vec![enum_variant("StdOut"), enum_variant("StdErr")],
+        ));
+        pkg.add_enum(enm("Internal", false, vec![enum_variant("A")]));
+        r.add_package(pkg);
+
+        let pkg = r.resolve_package("process").unwrap();
+        assert_eq!(pkg.enums().len(), 2);
+        assert!(pkg.enums()[0].export);
+        assert!(!pkg.enums()[1].export);
+        assert_eq!(
+            pkg.enums()[0].render(),
+            "EXPORT ENUM Stream\n  StdOut\n  StdErr\nEND ENUM"
+        );
+        assert_eq!(pkg.enums()[1].render(), "ENUM Internal\n  A\nEND ENUM");
+    }
+
+    #[test]
+    fn enums_resolve_as_builtin_types() {
+        let mut r = Registry::new();
+        let mut pkg = RegistryPackage::new("process", "i", "d");
+        pkg.add_enum(enm("Stream", true, vec![enum_variant("StdOut")]));
+        r.add_package(pkg);
+
+        assert!(matches!(
+            r.resolve_type("process.Stream"),
+            Some(ResolvedType::Enum(e)) if e.name == "Stream"
+        ));
+        assert!(r.resolve_type("process.Nope").is_none());
+    }
+
+    #[test]
+    fn add_resource_records_name_export_and_close_function() {
+        let mut r = Registry::new();
+        let mut pkg = RegistryPackage::new("fs", "i", "d");
+        pkg.add_resource(res("File", true, "fs.close"));
+        pkg.add_resource(res("Internal", false, "fs.__drop"));
+        r.add_package(pkg);
+
+        let pkg = r.resolve_package("fs").unwrap();
+        assert_eq!(pkg.resources().len(), 2);
+        assert_eq!(pkg.resources()[0].name, "File");
+        assert!(pkg.resources()[0].export);
+        assert_eq!(pkg.resources()[0].close_function, "fs.close");
+        assert!(!pkg.resources()[1].export);
+        // Resources carry no injectable source, so they never render into get_mfb.
+        assert!(!pkg.get_mfb().contains("File"));
+        // resolve_type resolves a resource type by name.
+        assert!(matches!(
+            r.resolve_type("fs.File"),
+            Some(ResolvedType::Resource(resource)) if resource.close_function == "fs.close"
+        ));
+    }
+
+    #[test]
+    fn get_mfb_places_enums_between_unions_and_helpers() {
+        let mut r = Registry::new();
+        let mut pkg = RegistryPackage::new("process", "intro", "desc");
+        pkg.add_union(uni("U", true, vec![variant("A")]));
+        pkg.add_enum(enm(
+            "Stream",
+            true,
+            vec![enum_variant("StdOut"), enum_variant("StdErr")],
+        ));
+        pkg.add_helper_functions(vec!["FUNC __process_helper() AS Nothing\nEND FUNC"]);
+        r.add_package(pkg);
+
+        assert_eq!(
+            r.resolve_package("process").unwrap().get_mfb(),
+            "EXPORT UNION U\n  A\nEND UNION\n\n\
+             EXPORT ENUM Stream\n  StdOut\n  StdErr\nEND ENUM\n\n\
+             FUNC __process_helper() AS Nothing\nEND FUNC\n",
+        );
     }
 
     #[test]
