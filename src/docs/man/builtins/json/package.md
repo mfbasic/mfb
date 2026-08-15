@@ -20,7 +20,7 @@ complete JSON document into a `Json` value, `json::stringify` renders a `Json`
 value back into compact JSON text, and `json::get` and `json::getOr` walk a path
 of object keys to a nested member. `json` is a built-in package written in
 MFBASIC source over the `collections`, `strings`, and `encoding` packages, so
-`IMPORT json` needs no manifest dependency. [[src/codegen/builtins/json/mod.rs:augmented_project]]
+`IMPORT json` needs no manifest dependency. [[src/codegen/registry/mod.rs:augment_project]]
 
 The package defines the `Json` union and its six member types. `Json` is a
 `UNION` over `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, and

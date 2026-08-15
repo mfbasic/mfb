@@ -28,7 +28,7 @@ left-to-right order. It is the enumerating form of the package: `regex::match`
 reports only whether a match exists, `regex::find` reports where the first one
 begins, and `findAll` reports the start of every match. When there is no match,
 the result is the empty list `[]` rather than a failure.
-[[src/codegen/builtins/regex/mod.rs:REGEX]]
+[[src/codegen/builtins/regex/mod.rs:register]]
 
 Matches are found by the same leftmost, unanchored search as `regex::find`,
 applied repeatedly. After each match the scan resumes at the position just past
@@ -72,7 +72,7 @@ when both apply. [[src/codegen/builtins/regex/func_find_all.rs:__regex_findAll]]
 
 Scans from position `0`; equivalent to passing `start = 0`. The trailing `start`
 is supplied during lowering as a default of `0`.
-[[src/codegen/builtins/regex/mod.rs:default_argument_padding]]
+[[src/codegen/registry/mod.rs:default_argument_padding]]
 
 **`regex::findAll(value AS String, pattern AS String, start AS Integer) AS List OF Integer`**
 
@@ -90,7 +90,7 @@ Scans from the explicit scalar position `start`.
 
 | Type | Description |
 | --- | --- |
-| `List OF Integer` | The zero-based Unicode scalar start index of each non-overlapping match at or after `start`, in left-to-right order with strictly increasing values. The list is empty when there is no match. A zero-length match contributes its own start position. [[src/codegen/builtins/regex/mod.rs:REGEX]] |
+| `List OF Integer` | The zero-based Unicode scalar start index of each non-overlapping match at or after `start`, in left-to-right order with strictly increasing values. The list is empty when there is no match. A zero-length match contributes its own start position. [[src/codegen/builtins/regex/mod.rs:register]] |
 
 ## Errors
 

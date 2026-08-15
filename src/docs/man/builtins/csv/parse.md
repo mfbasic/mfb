@@ -55,21 +55,21 @@ Empty input parses to zero rows. There is no header concept — every parsed lin
 is an ordinary row, and cells are read positionally with `collections::get`. [[src/codegen/builtins/csv/func_parse.rs:__csv_parse]]
 
 The argument may also be supplied by the name `text`. `csv::parse` does not
-mutate `value` and has no side effects. [[src/codegen/builtins/csv/mod.rs:call_param_names]]
+mutate `value` and has no side effects. [[src/codegen/registry/mod.rs:call_param_names]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The UTF-8 CSV text to parse. May also be passed by the name `text`. It is never modified. [[src/codegen/builtins/csv/mod.rs:call_param_names]] |
-| `delimiter` | `String` | Optional. The single character that separates fields. Defaults to `,`. [[src/codegen/builtins/csv/mod.rs:default_argument_padding]] |
-| `quote` | `String` | Optional. The single character that wraps a field and, doubled, escapes itself. Defaults to `"`. [[src/codegen/builtins/csv/mod.rs:default_argument_padding]] |
+| `value` | `String` | The UTF-8 CSV text to parse. May also be passed by the name `text`. It is never modified. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `delimiter` | `String` | Optional. The single character that separates fields. Defaults to `,`. [[src/codegen/registry/mod.rs:default_argument_padding]] |
+| `quote` | `String` | Optional. The single character that wraps a field and, doubled, escapes itself. Defaults to `"`. [[src/codegen/registry/mod.rs:default_argument_padding]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF List OF String` | The grid of rows of String cells, in document order. Empty input yields an empty list; a single trailing record separator does not add an empty final row. [[src/codegen/builtins/csv/mod.rs:GRID_TYPE]] |
+| `List OF List OF String` | The grid of rows of String cells, in document order. Empty input yields an empty list; a single trailing record separator does not add an empty final row. [[src/codegen/builtins/csv/mod.rs:register]] |
 
 ## Errors
 

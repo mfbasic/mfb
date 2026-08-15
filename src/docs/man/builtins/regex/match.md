@@ -44,7 +44,7 @@ an ordinary runtime `String`, so it may be built or read at run time; because
 never reports absence as a failure; absence simply returns `FALSE`. Only an
 invalid pattern fails, with `ErrInvalidFormat`. Because `match` takes no `start`
 argument, it raises neither `ErrIndexOutOfRange` nor `ErrNotFound`.
-[[src/codegen/builtins/regex/mod.rs:REGEX]]
+[[src/codegen/builtins/regex/mod.rs:register]]
 
 `match` does not mutate `value` or `pattern` and has no side effects.
 

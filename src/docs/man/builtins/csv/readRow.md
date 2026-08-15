@@ -42,7 +42,7 @@ trailing empty row. The dialect is fixed when the reader is opened by
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `reader` | `CsvReader` | A reader from `csv::parseStream` or a previous `csv::readRow`. It is never modified. [[src/codegen/builtins/csv/mod.rs:call_param_names]] |
+| `reader` | `CsvReader` | A reader from `csv::parseStream` or a previous `csv::readRow`. It is never modified. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

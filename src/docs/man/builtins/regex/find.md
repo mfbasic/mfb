@@ -71,7 +71,7 @@ differs from `strings::find`, which fails with `ErrNotFound` on absence.)
 
 Searches from position `0`; equivalent to passing `start = 0`. The trailing
 `start` is supplied during lowering as a default of `0`.
-[[src/codegen/builtins/regex/mod.rs:default_argument_padding]]
+[[src/codegen/registry/mod.rs:default_argument_padding]]
 
 **`regex::find(value AS String, pattern AS String, start AS Integer) AS Integer`**
 
@@ -89,7 +89,7 @@ Searches from the explicit scalar position `start`.
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The zero-based Unicode scalar index where the first match at or after `start` begins, or `-1` when there is no match. A zero-length match reports its own start position. [[src/codegen/builtins/regex/mod.rs:REGEX]] |
+| `Integer` | The zero-based Unicode scalar index where the first match at or after `start` begins, or `-1` when there is no match. A zero-length match reports its own start position. [[src/codegen/builtins/regex/mod.rs:register]] |
 
 ## Errors
 

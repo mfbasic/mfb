@@ -19,7 +19,7 @@ IMPORT json
 ```
 
 `json` is a built-in package, so `IMPORT json` needs no manifest dependency.
-[[src/codegen/builtins/json/mod.rs:augmented_project]]
+[[src/codegen/registry/mod.rs:augment_project]]
 
 ## Description
 
@@ -67,7 +67,7 @@ therefore cannot be constructed around a non-finite value in the first place.
 The argument accepts the `Json` union or any one of its six member types
 (`JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, `JsonObj`) directly, so
 a scalar member value can be serialized without wrapping it.
-[[src/codegen/builtins/json/mod.rs:is_json_value_type]]
+[[src/codegen/registry/mod.rs:is_builtin_type]]
 
 The output is always re-readable by `json::parse`, which makes
 `parse`/`stringify` a lossless round trip for every value `parse` can produce.
@@ -76,7 +76,7 @@ The output is always re-readable by `json::parse`, which makes
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Json` | The value to serialize. Accepts the `Json` union or any of `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, `JsonObj`. [[src/codegen/builtins/json/mod.rs:call_param_names]] [[src/codegen/builtins/json/mod.rs:JSON]] |
+| `value` | `Json` | The value to serialize. Accepts the `Json` union or any of `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, `JsonObj`. [[src/codegen/registry/mod.rs:call_param_names]] [[src/codegen/builtins/json/mod.rs:JSON]] |
 
 ## Return value
 

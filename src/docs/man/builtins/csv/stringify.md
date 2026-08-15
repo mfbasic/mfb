@@ -41,7 +41,7 @@ The optional `delimiter`, `quote`, and `newline` arguments select a dialect:
 used to wrap and escape, and `newline` replaces the LF written between rows. Each
 defaults to the RFC-4180 value (`,`, `"`, and LF) when omitted, so the
 one-argument form is unchanged. `delimiter` and `quote` must each be a non-empty
-single character. [[src/codegen/builtins/csv/mod.rs:default_argument_padding]]
+single character. [[src/codegen/registry/mod.rs:default_argument_padding]]
 
 An empty outer list stringifies to the empty String. An empty row stringifies to
 an empty line, so a two-element outer list containing two empty rows produces a
@@ -55,16 +55,16 @@ text is normalized to LF on output.
 
 The sole argument is named `value`, so it can be supplied positionally or as the
 keyword argument `value :=`. `csv::stringify` does not mutate `value` and has no
-side effects. [[src/codegen/builtins/csv/mod.rs:call_param_names]]
+side effects. [[src/codegen/registry/mod.rs:call_param_names]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF List OF String` | The grid of rows of String cells to serialize. It is never modified. [[src/codegen/builtins/csv/mod.rs:call_param_names]] |
-| `delimiter` | `String` | Optional. The single character written between fields. Defaults to `,`. [[src/codegen/builtins/csv/mod.rs:default_argument_padding]] |
-| `quote` | `String` | Optional. The single character used to wrap a field and, doubled, to escape itself. Defaults to `"`. [[src/codegen/builtins/csv/mod.rs:default_argument_padding]] |
-| `newline` | `String` | Optional. The text written between rows. Defaults to a line feed. [[src/codegen/builtins/csv/mod.rs:default_argument_padding]] |
+| `value` | `List OF List OF String` | The grid of rows of String cells to serialize. It is never modified. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `delimiter` | `String` | Optional. The single character written between fields. Defaults to `,`. [[src/codegen/registry/mod.rs:default_argument_padding]] |
+| `quote` | `String` | Optional. The single character used to wrap a field and, doubled, to escape itself. Defaults to `"`. [[src/codegen/registry/mod.rs:default_argument_padding]] |
+| `newline` | `String` | Optional. The text written between rows. Defaults to a line feed. [[src/codegen/registry/mod.rs:default_argument_padding]] |
 
 ## Return value
 

@@ -723,121 +723,42 @@ pub(crate) fn register(r: &mut Registry) {
     r.add_package(pkg);
 }
 
-/*
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::codegen::registry::{self, registry};
 
-    fn project(src: &str) -> crate::ast::AstProject {
-        let file = crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", src)
-            .expect("parse source");
-        crate::ast::AstProject {
-            name: "test".to_string(),
-            files: vec![file],
-        }
+    #[test]
+    fn regex_registered_on_the_clean_room_registry() {
+        let pkg = registry().get_package("regex").expect("regex package");
+        assert_eq!(pkg.functions().len(), 4);
     }
 
     #[test]
-    fn is_call_and_reject() {
-        for n in [MATCH, FIND, FIND_ALL, REPLACE] {
-            assert!(is_regex_call(n), "{n}");
-        }
-        assert!(!is_regex_call("regex.nope"));
-        assert!(!is_regex_call(INTERNAL_MATCH));
-    }
-
-    #[test]
-    fn param_names_branches() {
+    fn generic_dispatch_reaches_regex() {
+        assert!(registry::is_member("regex.match"));
+        assert!(!registry::is_member("regex.nope"));
+        assert_eq!(registry::rewrite_target("regex.find"), Some("__regex_find"));
         assert_eq!(
-            call_param_names(MATCH),
-            Some(&[&["value"][..], &["pattern"]][..])
+            registry::rewrite_target("regex.findAll"),
+            Some("__regex_findAll")
         );
-        assert_eq!(
-            call_param_names(FIND),
-            Some(&[&["value"][..], &["pattern"], &["start"]][..])
-        );
-        assert_eq!(call_param_names(FIND), call_param_names(FIND_ALL));
-        assert_eq!(
-            call_param_names(REPLACE),
-            Some(&[&["value"][..], &["pattern"], &["replacement"]][..])
-        );
-        assert!(call_param_names("regex.nope").is_none());
+        assert_eq!(registry::call_return_type("regex.match"), Some("Boolean"));
+        assert_eq!(registry::call_return_type("regex.find"), Some("Integer"));
+        assert_eq!(registry::call_return_type("regex.replace"), Some("String"));
+        // match takes exactly 2 args; find/findAll's trailing `start` is optional.
+        assert_eq!(registry::arity("regex.match"), Some((2, 2)));
+        assert_eq!(registry::arity("regex.find"), Some((2, 3)));
+        assert_eq!(registry::arity("regex.replace"), Some((3, 3)));
     }
 
     #[test]
-    fn expected_arguments_branches() {
-        assert_eq!(expected_arguments(MATCH), Some("String, String"));
-        assert_eq!(expected_arguments(FIND), Some("String, String[, Integer]"));
-        assert_eq!(
-            expected_arguments(FIND_ALL),
-            Some("String, String[, Integer]")
-        );
-        assert_eq!(expected_arguments(REPLACE), Some("String, String, String"));
-        assert!(expected_arguments("regex.nope").is_none());
-    }
-
-    #[test]
-    fn implementation_name_branches() {
-        assert_eq!(implementation_name(MATCH), Some(INTERNAL_MATCH));
-        assert_eq!(implementation_name(FIND), Some(INTERNAL_FIND));
-        assert_eq!(implementation_name(FIND_ALL), Some(INTERNAL_FIND_ALL));
-        assert_eq!(implementation_name(REPLACE), Some(INTERNAL_REPLACE));
-        assert!(implementation_name("regex.nope").is_none());
-    }
-
-    #[test]
-    fn default_padding_branches() {
-        assert_eq!(default_argument_padding(FIND, 2).len(), 1);
-        assert_eq!(default_argument_padding(FIND, 3).len(), 0);
-        assert_eq!(default_argument_padding(FIND_ALL, 2).len(), 1);
-        assert_eq!(default_argument_padding(MATCH, 2), &[]);
-    }
-
-    #[test]
-    fn source_file_parses() {
-        assert!(source_file().is_ok());
-    }
-
-    #[test]
-    fn augmented_project_injects_when_imported() {
-        let ast = project("IMPORT regex\nSUB main\nEND SUB\n");
-        assert!(uses_package(&ast));
-        assert_eq!(
-            augmented_project(&ast).expect("a").files.len(),
-            ast.files.len() + 1
-        );
-    }
-
-    #[test]
-    fn augmented_project_noop_without_import() {
-        let ast = project("SUB main\nEND SUB\n");
-        assert!(!uses_package(&ast));
-        assert_eq!(
-            augmented_project(&ast).expect("a").files.len(),
-            ast.files.len()
-        );
-    }
-
-    #[test]
-    fn descriptor_owns_source_body_and_rewrite() {
-        // The member descriptor carries its MFBASIC body (Mfb) and rewrites to the
-        // internal `__regex_*` name via `IMPL_NAMES`, not a descriptor rewrite.
-        let m = func_match::MATCH;
-        assert_eq!(m.name, MATCH);
-        assert_eq!(m.doc_slug, "match");
-        assert!(matches!(m.implementation, Implementation::Mfb { .. }));
-        assert_eq!(implementation_name(MATCH), Some(INTERNAL_MATCH));
-    }
-
-    #[test]
-    fn augmented_project_pushes_injected_source_file() {
-        // Exercise the `augmented.files.push(source_file()?)` path and assert the
-        // appended file is the compiler-injected regex source companion.
-        let ast = project("IMPORT regex\nSUB main\nEND SUB\n");
-        let augmented = augmented_project(&ast).expect("augment");
-        let injected = augmented.files.last().expect("injected file");
-        assert_eq!(injected.path, "builtins/regex.mfb");
-        assert!(injected.internal);
+    fn reassembled_source_parses() {
+        let source = registry().get_package("regex").expect("regex").get_mfb();
+        crate::ast::parse_source_internal(
+            std::path::Path::new("<builtin-regex>"),
+            "builtins/regex.mfb",
+            &source,
+        )
+        .expect("reassembled regex source parses");
     }
 }
-*/

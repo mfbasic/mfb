@@ -19,7 +19,7 @@ IMPORT json
 ```
 
 `json` is a built-in package, so `IMPORT json` needs no manifest dependency.
-[[src/codegen/builtins/json/mod.rs:augmented_project]]
+[[src/codegen/registry/mod.rs:augment_project]]
 
 ## Description
 
@@ -49,15 +49,15 @@ a fallback instead of failing, use `json::getOr`.
 The first argument accepts the `Json` union or any one of its six member types
 directly, so a `JsonObj` value can be passed without wrapping it. The second
 argument may also be passed by the name `key`.
-[[src/codegen/builtins/json/mod.rs:is_json_value_type]]
-[[src/codegen/builtins/json/mod.rs:call_param_names]]
+[[src/codegen/registry/mod.rs:is_builtin_type]]
+[[src/codegen/registry/mod.rs:call_param_names]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Json` | The value to read from. Accepts the `Json` union or any of `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, `JsonObj`; traversal only succeeds through `JsonObj` members. [[src/codegen/builtins/json/mod.rs:call_param_names]] [[src/codegen/builtins/json/mod.rs:JSON]] |
-| `path` | `List OF String` | The object keys to follow, from the root inward. Each element selects a member by exact `String` key — no wildcards, globbing, or array indices. An empty list selects `value` itself. Also accepted under the name `key`. [[src/codegen/builtins/json/mod.rs:call_param_names]] |
+| `value` | `Json` | The value to read from. Accepts the `Json` union or any of `JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, `JsonArr`, `JsonObj`; traversal only succeeds through `JsonObj` members. [[src/codegen/registry/mod.rs:call_param_names]] [[src/codegen/builtins/json/mod.rs:JSON]] |
+| `path` | `List OF String` | The object keys to follow, from the root inward. Each element selects a member by exact `String` key — no wildcards, globbing, or array indices. An empty list selects `value` itself. Also accepted under the name `key`. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

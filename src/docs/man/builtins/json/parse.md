@@ -19,7 +19,7 @@ IMPORT json
 ```
 
 `json` is a built-in package, so `IMPORT json` needs no manifest dependency.
-[[src/codegen/builtins/json/mod.rs:augmented_project]]
+[[src/codegen/registry/mod.rs:augment_project]]
 
 ## Description
 
@@ -82,13 +82,13 @@ exists only so that adversarial deeply-nested input fails cleanly instead of
 crashing the process. [[src/codegen/builtins/json/package.mfb:__json_parseValue]]
 
 The argument may also be passed by the name `text`.
-[[src/codegen/builtins/json/mod.rs:call_param_names]]
+[[src/codegen/registry/mod.rs:call_param_names]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The JSON text to parse. Must contain exactly one complete JSON document, optionally surrounded by JSON whitespace. An empty or whitespace-only string is rejected. Also accepted under the name `text`. [[src/codegen/builtins/json/mod.rs:call_param_names]] |
+| `value` | `String` | The JSON text to parse. Must contain exactly one complete JSON document, optionally surrounded by JSON whitespace. An empty or whitespace-only string is rejected. Also accepted under the name `text`. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 

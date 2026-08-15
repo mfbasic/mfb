@@ -32,18 +32,18 @@ materialized. The rows a `parseStream`/`readRow` loop yields are identical to
 
 The optional `delimiter` and `quote` select the input dialect exactly as for
 `csv::parse` (defaults `,` and `"`); each must be a non-empty single character.
-The output-only dialect option (`newline`) does not apply to reading. [[src/codegen/builtins/csv/mod.rs:default_argument_padding]]
+The output-only dialect option (`newline`) does not apply to reading. [[src/codegen/registry/mod.rs:default_argument_padding]]
 
 The argument may also be supplied by the name `text`. `csv::parseStream` does not
-mutate `value` and has no side effects. [[src/codegen/builtins/csv/mod.rs:call_param_names]]
+mutate `value` and has no side effects. [[src/codegen/registry/mod.rs:call_param_names]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The UTF-8 CSV text to stream. May also be passed by the name `text`. It is never modified. [[src/codegen/builtins/csv/mod.rs:call_param_names]] |
-| `delimiter` | `String` | Optional. The single character that separates fields. Defaults to `,`. [[src/codegen/builtins/csv/mod.rs:default_argument_padding]] |
-| `quote` | `String` | Optional. The single character that wraps a field and, doubled, escapes itself. Defaults to `"`. [[src/codegen/builtins/csv/mod.rs:default_argument_padding]] |
+| `value` | `String` | The UTF-8 CSV text to stream. May also be passed by the name `text`. It is never modified. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `delimiter` | `String` | Optional. The single character that separates fields. Defaults to `,`. [[src/codegen/registry/mod.rs:default_argument_padding]] |
+| `quote` | `String` | Optional. The single character that wraps a field and, doubled, escapes itself. Defaults to `"`. [[src/codegen/registry/mod.rs:default_argument_padding]] |
 
 ## Return value
 

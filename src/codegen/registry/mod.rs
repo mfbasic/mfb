@@ -911,6 +911,57 @@ pub(crate) fn call_return_type(qualified: &str) -> Option<&'static str> {
     })
 }
 
+/// Whether a scalar type name is a primitive (non-container, non-nominal) type.
+fn is_scalar_type_name(name: &str) -> bool {
+    matches!(
+        name,
+        "Boolean" | "Byte" | "Integer" | "Fixed" | "Float" | "Money" | "Nothing" | "String"
+    )
+}
+
+/// Whether an actual argument type `arg` is compatible with a parameter type. An
+/// `Unknown` argument (unresolved) is always accepted, exact names match, and two
+/// *different known scalars* are the only definite incompatibility — container /
+/// nominal / union types are accepted conservatively (the type checker never emits a
+/// false rejection).
+fn arg_matches_param(arg: &str, ty: &ParameterType) -> bool {
+    if arg == "Unknown" {
+        return true;
+    }
+    let expected = ty.name();
+    if arg == expected.as_ref() {
+        return true;
+    }
+    !(is_scalar_type_name(&expected) && is_scalar_type_name(arg))
+}
+
+/// Resolve the migrated call `qualified` against `arg_types`, returning its return
+/// type only when the arguments are a valid arity and type match — the clean-room
+/// equivalent of the old `DefaultResolver::resolve_call`. `None` means "no migrated
+/// package accepts this call with these arguments" (a wrong arity or a scalar type
+/// mismatch), which the type checker turns into an arity / argument-type error.
+pub(crate) fn resolve_call(qualified: &str, arg_types: &[String]) -> Option<&'static str> {
+    let function = registry().resolve_func(qualified)?.function;
+    let implementation = function.implementations.first()?;
+    let required = implementation
+        .params
+        .iter()
+        .filter(|param| matches!(param.default, DefaultValue::None))
+        .count();
+    if arg_types.len() < required || arg_types.len() > implementation.params.len() {
+        return None;
+    }
+    for (arg, param) in arg_types.iter().zip(implementation.params.iter()) {
+        if !arg_matches_param(arg, &param.ty) {
+            return None;
+        }
+    }
+    Some(match implementation.return_type.name() {
+        Cow::Borrowed(s) => s,
+        Cow::Owned(s) => Box::leak(s.into_boxed_str()),
+    })
+}
+
 /// The `(min, max)` argument arity of the migrated call `qualified`, or `None`.
 /// `min` counts the required (non-defaulted) params; `max` is the widest overload.
 /// #[deprecated(note = "migrate registry().*")]

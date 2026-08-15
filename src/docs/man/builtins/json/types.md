@@ -25,7 +25,7 @@ IMPORT json
 ```
 
 `json` is a built-in package, so `IMPORT json` needs no manifest dependency.
-[[src/codegen/builtins/json/mod.rs:augmented_project]]
+[[src/codegen/registry/mod.rs:augment_project]]
 
 ## Description
 
@@ -48,7 +48,7 @@ write `JsonStr["x"]`, not `json::JsonStr["x"]`. The union type itself is written
 Anywhere a `Json` is accepted, a member type is accepted directly as well —
 `json::stringify`, `json::get`, and the `value`/`defaultValue` arguments of
 `json::getOr` all take the union or any one of the six records, so a scalar does
-not have to be widened by hand. [[src/codegen/builtins/json/mod.rs:is_json_value_type]]
+not have to be widened by hand. [[src/codegen/registry/mod.rs:is_builtin_type]]
 
 To take a value apart, `MATCH` on it and bind the variant, which is how the
 package's own code reads a tree. `json::get` and `json::getOr` are the shortcut

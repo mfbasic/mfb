@@ -23,7 +23,7 @@ A whole-document CSV is exactly a `List OF List OF String`: an ordered list of
 rows, each an ordered list of String cells. The parsed grid composes directly
 with the `collections` package and `FOR EACH`; cells are read positionally with
 `collections::get`; there is no header concept — every parsed line is an ordinary
-row. [[src/codegen/builtins/csv/mod.rs:GRID_TYPE]]
+row. [[src/codegen/builtins/csv/mod.rs:register]]
 
 For large inputs there is a streaming alternative that never materializes the
 whole grid: `csv::parseStream` returns a `CsvReader` holding the input and a scan
