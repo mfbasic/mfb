@@ -209,42 +209,24 @@ pub(crate) fn is_thread_sendable_resource_type(type_name: &str) -> bool {
 /// `None` for every other call (including the `collections::` source generics,
 /// which the monomorphizer rewrites to `__collections_X` instead).
 pub(crate) fn native_builtin_target(name: &str) -> Option<&'static str> {
-    if let Some(member) = name.strip_prefix("strings.") {
-        return match member {
-            "find" => Some("find"),
-            "mid" => Some("mid"),
-            "replace" => Some("replace"),
-            _ => None,
-        };
+    // `find`/`mid`/`replace` dequalify to the same bare native name for both their
+    // `strings::` (String) and `collections::` (List) overloads — the pair of
+    // `Body::Intrinsic` members the registry does not distinguish from any other
+    // intrinsic, so they are handled here by name rather than through the registry.
+    if let Some(member) = name
+        .strip_prefix("strings.")
+        .or_else(|| name.strip_prefix("collections."))
+    {
+        match member {
+            "find" => return Some("find"),
+            "mid" => return Some("mid"),
+            "replace" => return Some("replace"),
+            _ => {}
+        }
     }
-    match crate::codegen::builtins::collections::native_member_bare(name)? {
-        "get" => Some("get"),
-        "getOr" => Some("getOr"),
-        "set" => Some("set"),
-        "append" => Some("append"),
-        "prepend" => Some("prepend"),
-        "insert" => Some("insert"),
-        "removeAt" => Some("removeAt"),
-        "removeKey" => Some("removeKey"),
-        "keys" => Some("keys"),
-        "values" => Some("values"),
-        "hasKey" => Some("hasKey"),
-        "contains" => Some("contains"),
-        "forEach" => Some("forEach"),
-        "transform" => Some("transform"),
-        "filter" => Some("filter"),
-        "reduce" => Some("reduce"),
-        "reduceRight" => Some("reduceRight"),
-        "sum" => Some("sum"),
-        "find" => Some("find"),
-        "mid" => Some("mid"),
-        "replace" => Some("replace"),
-        // Set members (plan-63-B).
-        "add" => Some("add"),
-        "remove" => Some("remove"),
-        "toList" => Some("toList"),
-        _ => None,
-    }
+    // Every other migrated collections native member (`get`, `set`, `transform`, …)
+    // owns a `Body::Native` call-site lowering; the registry hands back its bare name.
+    crate::codegen::registry::native_bare_target(name)
 }
 
 /// Whether an inline `TRAP` on `target` would reach codegen's raw-`TRAP` path
@@ -623,7 +605,10 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
         || crate::target::shared::registry::REGISTRY
             .function(name)
             .is_some()
-        || crate::codegen::builtins::collections::is_collections_call(name)
+        // Migrated packages' injected source-generic members (`collections.sort`, …):
+        // `is_member` covers their registered native members, this their source
+        // generics, together reproducing the old `collections::is_collections_call`.
+        || crate::codegen::registry::is_source_generic_member(name)
         || vector::is_vector_call(name)
         || call_return_type_name(name).is_some()
 }

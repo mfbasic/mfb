@@ -77,10 +77,10 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::list_of(ParameterType::Byte),
             errors: vec![],
             lowering: Lowering::Helper,
-            body: Body::native(
+            body: Body::native_os_seam(
                 Some(lower_process_receivebytes_helper_posix),
                 Some(lower_process_receivebytes_helper_win),
-                None,
+                &["receiveBytesFrom"],
             ),
         }],
     });

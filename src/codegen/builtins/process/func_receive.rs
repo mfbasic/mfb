@@ -94,10 +94,10 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::String,
             errors: vec![],
             lowering: Lowering::Helper,
-            body: Body::native(
+            body: Body::native_os_seam(
                 Some(lower_process_receive_helper_posix),
                 Some(lower_process_receive_helper_win),
-                None,
+                &["receiveFrom"],
             ),
         }],
     });
