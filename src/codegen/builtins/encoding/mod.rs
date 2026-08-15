@@ -327,17 +327,17 @@ mod tests {
     #[test]
     fn non_overloaded_members_rewrite_to_their_internal_symbol() {
         assert_eq!(
-            registry::rewrite_target("encoding.hexEncode"),
+            registry::rewrite_target("encoding.hexEncode", &[]),
             Some("__encoding_hexEncode")
         );
         assert_eq!(
-            registry::rewrite_target("encoding.varintDecode"),
+            registry::rewrite_target("encoding.varintDecode", &[]),
             Some("__encoding_varintDecode")
         );
         // The overloaded names carry no registry rewrite target: IR lowering leaves
         // the canonical name in place for the monomorphizer.
-        assert_eq!(registry::rewrite_target("encoding.utf8Encode"), None);
-        assert_eq!(registry::rewrite_target("encoding.utf8Decode"), None);
+        assert_eq!(registry::rewrite_target("encoding.utf8Encode", &[]), None);
+        assert_eq!(registry::rewrite_target("encoding.utf8Decode", &[]), None);
     }
 
     #[test]

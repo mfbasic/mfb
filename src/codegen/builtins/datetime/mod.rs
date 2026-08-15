@@ -22,8 +22,9 @@ use crate::codegen::registry::{
 };
 
 // Public, documented surface. Each maps to an internal `__datetime_<name>`
-// implementation (see `implementation_name`), except the three OS-seam
-// intrinsics, which stay as runtime-helper calls.
+// implementation carried by its `Implementation`'s `Body` rewrite target (the
+// arity constructors carry one per overload, `__datetime_<name>{N}`), except the
+// three OS-seam intrinsics, which stay as runtime-helper calls.
 const NOW: &str = "datetime.now";
 const MONOTONIC: &str = "datetime.monotonic";
 const INSTANT: &str = "datetime.instant";
@@ -67,8 +68,9 @@ const PARSE_ISO: &str = "datetime.parseIso";
 const FORMAT_DURATION: &str = "datetime.formatDuration";
 
 // OS-seam intrinsics (§8.2). Not documented; callable but only return raw
-// integers. They lower to runtime helpers (`_mfb_rt_datetime_*`), so they are
-// deliberately excluded from `implementation_name`.
+// integers. They lower to runtime helpers (`_mfb_rt_datetime_*`), so their
+// `Implementation` bodies carry no rewrite target (the canonical name reaches the
+// native seam instead).
 const NOW_NANOS: &str = "datetime.nowNanos";
 const MONOTONIC_NANOS: &str = "datetime.monotonicNanos";
 const LOCAL_OFFSET: &str = "datetime.localOffset";
@@ -528,22 +530,6 @@ pub(crate) fn default_argument_padding(
     }
 }
 
-/// The internal `__datetime_*` implementation for a public call, given the
-/// supplied argument count. Returns `None` for the OS-seam intrinsics (runtime
-/// helpers). IR lowering reads this for the public→internal rewrite; the
-/// arity constructors route by COUNT to `__datetime_*{argc}`.
-pub(crate) fn implementation_name(name: &str, argc: usize) -> Option<String> {
-    let internal = match name {
-        NOW_NANOS | MONOTONIC_NANOS | LOCAL_OFFSET => return None,
-        INSTANT => format!("__datetime_instant{argc}"),
-        DURATION => format!("__datetime_duration{argc}"),
-        FIXED_OFFSET => format!("__datetime_fixedOffset{argc}"),
-        PARSE => format!("__datetime_parse{argc}"),
-        _ => format!("__datetime_{}", name.strip_prefix("datetime.")?),
-    };
-    Some(internal)
-}
-
 use crate::target::shared::runtime::{RuntimeHelper, RuntimeHelperAbi, RuntimeHelperSpec};
 
 mod native;
@@ -650,11 +636,11 @@ mod tests {
         assert!(!registry::is_member("datetime.nope"));
         assert_eq!(registry::owning_package("datetime.now"), Some("datetime"));
         assert_eq!(
-            registry::rewrite_target("datetime.now"),
+            registry::rewrite_target("datetime.now", &[]),
             Some("__datetime_now")
         );
         assert_eq!(
-            registry::rewrite_target("datetime.formatDuration"),
+            registry::rewrite_target("datetime.formatDuration", &[]),
             Some("__datetime_formatDuration")
         );
         assert_eq!(registry::arity("datetime.now"), Some((0, 0)));
@@ -776,38 +762,6 @@ mod tests {
             select_rewrite("parse", &["String", "String", "Zone"]),
             Some("__datetime_parse3")
         );
-    }
-
-    #[test]
-    fn implementation_name_routes_by_arg_count() {
-        assert_eq!(
-            implementation_name(INSTANT, 3),
-            Some("__datetime_instant3".to_string())
-        );
-        assert_eq!(
-            implementation_name(DURATION, 2),
-            Some("__datetime_duration2".to_string())
-        );
-        assert_eq!(
-            implementation_name(FIXED_OFFSET, 1),
-            Some("__datetime_fixedOffset1".to_string())
-        );
-        assert_eq!(
-            implementation_name(PARSE, 3),
-            Some("__datetime_parse3".to_string())
-        );
-        assert_eq!(
-            implementation_name(NOW, 0),
-            Some("__datetime_now".to_string())
-        );
-        assert_eq!(
-            implementation_name(FORMAT_DURATION, 1),
-            Some("__datetime_formatDuration".to_string())
-        );
-        // OS-seam intrinsics stay runtime helpers -> None.
-        assert_eq!(implementation_name(NOW_NANOS, 0), None);
-        assert_eq!(implementation_name(MONOTONIC_NANOS, 0), None);
-        assert_eq!(implementation_name(LOCAL_OFFSET, 1), None);
     }
 
     #[test]

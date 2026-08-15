@@ -1233,16 +1233,25 @@ pub(crate) fn declares_error(qualified: &str, error_name: &str) -> bool {
 }
 
 /// The internal symbol the migrated call `qualified` rewrites to at IR lowering, or
-/// `None`.
+/// `None`. Overload-aware: an arity-routed member (datetime's `instant`/`parse`, whose
+/// overloads rewrite to `__datetime_instant{N}`) carries a distinct rewrite target per
+/// overload, so the call's argument types select which one. A single-overload member
+/// resolves the same regardless of the arguments.
 /// #[deprecated(note = "migrate registry().*")]
-pub(crate) fn rewrite_target(qualified: &str) -> Option<&'static str> {
-    registry()
-        .resolve_func(qualified)?
-        .function
-        .implementations
-        .first()?
-        .body
-        .rewrite_target()
+pub(crate) fn rewrite_target(qualified: &str, arg_types: &[String]) -> Option<&'static str> {
+    let function = registry().resolve_func(qualified)?.function;
+    let call = CallShape {
+        args: arg_types
+            .iter()
+            .map(|arg| ParameterType::parse(arg))
+            .collect(),
+    };
+    if let Some(selection) = function.select(&call) {
+        return selection.implementation.body.rewrite_target();
+    }
+    // The call shape did not select an overload (e.g. unknown argument types); fall
+    // back to the sole/first implementation — unambiguous for a single-overload member.
+    function.implementations.first()?.body.rewrite_target()
 }
 
 /// The target-generic native lowering ([`Body::Native`]'s `common` slot) of the

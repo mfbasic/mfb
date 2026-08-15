@@ -153,9 +153,15 @@ mod tests {
             registry::call_return_type("csv.parse"),
             Some("List OF List OF String")
         );
-        assert_eq!(registry::rewrite_target("csv.parse"), Some("__csv_parse"));
+        assert_eq!(
+            registry::rewrite_target("csv.parse", &[]),
+            Some("__csv_parse")
+        );
         // The irregular pairing the public name cannot derive.
-        assert_eq!(registry::rewrite_target("csv.readRow"), Some("__csv_next"));
+        assert_eq!(
+            registry::rewrite_target("csv.readRow", &[]),
+            Some("__csv_next")
+        );
         assert_eq!(registry::arity("csv.parse"), Some((1, 3)));
         assert_eq!(registry::arity("csv.readRow"), Some((1, 1)));
     }

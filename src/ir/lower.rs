@@ -2865,13 +2865,6 @@ fn lower_expression_with_expected(
                         .map(str::to_string)
                 })
                 .or_else(|| {
-                    crate::codegen::builtins::datetime::implementation_name(
-                        &canonical_callee,
-                        args.len(),
-                    )
-                    .map(|name| crate::internal_name::internalize(&name))
-                })
-                .or_else(|| {
                     // `astrings::` Attribute-model + Tier-C members rewrite to their
                     // `__astrings_*` source-companion bodies; `clearAttributes`
                     // selects the whole vs ranged body by arity (plan-89-B).
@@ -2989,12 +2982,21 @@ fn lower_expression_with_expected(
                         .map(crate::internal_name::internalize)
                 })
                 .or_else(|| {
-                    // `encoding`'s non-overloaded members carry a `Body::mfb` rewrite
-                    // target, so `registry::rewrite_target` internalizes them; its two
-                    // overloaded names (`utf8Encode`/`utf8Decode`) are `Body::Intrinsic`
-                    // and intentionally yield no target here, so the canonical name
-                    // reaches the monomorphizer.
-                    crate::codegen::registry::rewrite_target(&canonical_callee)
+                    // The migrated (clean-room registry) packages rewrite through the
+                    // generic, overload-aware `registry::rewrite_target`: an arity-routed
+                    // member (datetime's `instant`/`parse`) selects the overload matching
+                    // the call's argument types and hands back that overload's target.
+                    // `encoding`'s two return-type-overloaded names (`utf8Encode`/
+                    // `utf8Decode`) are `Body::Intrinsic` and intentionally yield no
+                    // target, so the canonical name reaches the monomorphizer.
+                    let arg_types: Vec<String> = arguments
+                        .iter()
+                        .map(call_arg_value)
+                        .map(|argument| {
+                            expression_type(argument, locals, context).unwrap_or_default()
+                        })
+                        .collect();
+                    crate::codegen::registry::rewrite_target(&canonical_callee, &arg_types)
                         .or_else(|| builtins::net::implementation_name(&canonical_callee))
                         .or_else(|| builtins::strings::implementation_name(&canonical_callee))
                         .map(crate::internal_name::internalize)

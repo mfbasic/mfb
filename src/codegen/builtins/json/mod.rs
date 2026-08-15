@@ -205,8 +205,14 @@ mod tests {
     fn generic_dispatch_reaches_json() {
         assert!(registry::is_member("json.parse"));
         assert!(!registry::is_member("json.nope"));
-        assert_eq!(registry::rewrite_target("json.parse"), Some("__json_parse"));
-        assert_eq!(registry::rewrite_target("json.getOr"), Some("__json_getOr"));
+        assert_eq!(
+            registry::rewrite_target("json.parse", &[]),
+            Some("__json_parse")
+        );
+        assert_eq!(
+            registry::rewrite_target("json.getOr", &[]),
+            Some("__json_getOr")
+        );
         assert_eq!(registry::call_return_type("json.parse"), Some("Json"));
         assert_eq!(registry::call_return_type("json.stringify"), Some("String"));
         assert_eq!(registry::arity("json.parse"), Some((1, 1)));

@@ -737,9 +737,12 @@ mod tests {
     fn generic_dispatch_reaches_regex() {
         assert!(registry::is_member("regex.match"));
         assert!(!registry::is_member("regex.nope"));
-        assert_eq!(registry::rewrite_target("regex.find"), Some("__regex_find"));
         assert_eq!(
-            registry::rewrite_target("regex.findAll"),
+            registry::rewrite_target("regex.find", &[]),
+            Some("__regex_find")
+        );
+        assert_eq!(
+            registry::rewrite_target("regex.findAll", &[]),
             Some("__regex_findAll")
         );
         assert_eq!(registry::call_return_type("regex.match"), Some("Boolean"));
