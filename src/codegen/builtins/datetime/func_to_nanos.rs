@@ -64,7 +64,7 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: super::arg_hint("toNanos"),
+        expected_arguments: Some("Instant"),
         implementations: vec![super::Implementation {
             params: vec![super::Parameter {
                 name: "at",

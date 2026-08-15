@@ -308,7 +308,13 @@ mod tests {
 
     #[test]
     fn reassembled_source_parses() {
-        assert!(source_file().is_ok());
+        let source = registry().resolve_package("encoding").unwrap().get_mfb();
+        assert!(crate::ast::parse_source_internal(
+            std::path::Path::new(SOURCE_LABEL),
+            SOURCE_DOC,
+            &source,
+        )
+        .is_ok());
     }
 
     #[test]

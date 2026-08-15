@@ -134,7 +134,7 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: super::arg_hint("parseIso"),
+        expected_arguments: Some("String"),
         implementations: vec![super::Implementation {
             params: vec![super::Parameter {
                 name: "value",

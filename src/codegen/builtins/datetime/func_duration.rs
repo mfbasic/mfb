@@ -88,7 +88,7 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
         intro: INTRO,
         desc: DESC,
         example: EX,
-        expected_arguments: super::arg_hint("duration"),
+        expected_arguments: Some("1 to 5 Integer"),
         implementations: vec![
             super::Implementation {
                 params: vec![super::Parameter {
