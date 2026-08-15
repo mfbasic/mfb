@@ -213,6 +213,21 @@ impl ParameterType {
             ParameterType::Unknown => Cow::Borrowed("Unknown"),
         }
     }
+
+    /// Whether this is a scalar primitive (non-container, non-nominal).
+    pub(crate) fn is_scalar(&self) -> bool {
+        matches!(
+            self,
+            ParameterType::Boolean
+                | ParameterType::Byte
+                | ParameterType::Integer
+                | ParameterType::Fixed
+                | ParameterType::Float
+                | ParameterType::Money
+                | ParameterType::Nothing
+                | ParameterType::String
+        )
+    }
 }
 
 impl fmt::Display for ParameterType {
@@ -1019,21 +1034,6 @@ pub(crate) fn call_return_type(qualified: &str) -> Option<&'static str> {
     })
 }
 
-/// Whether a type is a scalar primitive (non-container, non-nominal).
-fn is_scalar(ty: &ParameterType) -> bool {
-    matches!(
-        ty,
-        ParameterType::Boolean
-            | ParameterType::Byte
-            | ParameterType::Integer
-            | ParameterType::Fixed
-            | ParameterType::Float
-            | ParameterType::Money
-            | ParameterType::Nothing
-            | ParameterType::String
-    )
-}
-
 /// Whether a concrete leaf type is compatible with a *scalar or nominal* parameter
 /// type (the [`unify`] leaf case). Exact types match, and two *different known scalars*
 /// are the only definite incompatibility — a nominal vs anything else is accepted
@@ -1041,7 +1041,7 @@ fn is_scalar(ty: &ParameterType) -> bool {
 /// [`Var`](ParameterType::Var), and [`Unknown`](ParameterType::Unknown) cases never
 /// reach here; [`unify`] handles them first.
 fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType) -> bool {
-    pattern == concrete || !(is_scalar(pattern) && is_scalar(concrete))
+    pattern == concrete || !(pattern.is_scalar() && concrete.is_scalar())
 }
 
 /// Structurally unify a parameter-type `pattern` — which may contain
