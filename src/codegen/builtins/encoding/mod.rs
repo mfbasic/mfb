@@ -159,40 +159,32 @@ pub(crate) fn register(r: &mut Registry) {
 const SOURCE_LABEL: &str = "<builtin-encoding>";
 const SOURCE_DOC: &str = "builtins/encoding.mfb";
 
-/// Parse the built-in `encoding` package source — the generic
-/// [`RegistryPackage::get_mfb`] assembly (imports → shared helpers → member
-/// bodies), identical to the mechanism csv/json/regex use. The synthetic path/doc
-/// labels match the generic pass's convention (`<builtin-encoding>` /
-/// `builtins/encoding.mfb`), so the injected file is indistinguishable from one the
-/// generic `registry::augment_project` would have produced.
-fn source_file() -> Result<crate::ast::AstFile, ()> {
-    let source = registry()
-        .resolve_package("encoding")
-        .expect("encoding package is registered")
-        .get_mfb();
-    crate::ast::parse_source_internal(std::path::Path::new(SOURCE_LABEL), SOURCE_DOC, &source)
-}
-
 /// Inject the `encoding` package source when a program (or another injected
 /// built-in) imports it. `encoding` is a transitive dependency of the non-migrated
 /// `crypto`/`strings` packages, so it is injected by this dedicated late pass —
 /// after those packages contribute their own `IMPORT encoding` — rather than by the
 /// generic `registry::augment_project`, which examines only the pre-injection AST.
 /// The generic pass therefore skips `encoding` (see `Registry::augment_project`).
-/// The injected *source* is the generic [`RegistryPackage::get_mfb`] assembly; only
-/// the injection *position* (this late pass) is bespoke.
+/// The injected *source* is the generic [`RegistryPackage::get_mfb`] assembly
+/// (imports → shared helpers → member bodies), identical to what the generic pass
+/// would produce for csv/json/regex; only the injection *position* is bespoke.
 /// #[deprecated(note = "migrate registry().augment_project once crypto/strings move")]
 pub(crate) fn augmented_project(
     ast: &crate::ast::AstProject,
 ) -> Result<crate::ast::AstProject, ()> {
-    let imported = registry()
-        .resolve_package("encoding")
-        .is_some_and(|pkg| pkg.is_imported_by(ast));
-    if !imported {
+    let Some(pkg) = registry().resolve_package("encoding") else {
+        return Ok(ast.clone());
+    };
+    if !pkg.is_imported_by(ast) {
         return Ok(ast.clone());
     }
+    let file = crate::ast::parse_source_internal(
+        std::path::Path::new(SOURCE_LABEL),
+        SOURCE_DOC,
+        &pkg.get_mfb(),
+    )?;
     let mut augmented = ast.clone();
-    augmented.files.push(source_file()?);
+    augmented.files.push(file);
     Ok(augmented)
 }
 

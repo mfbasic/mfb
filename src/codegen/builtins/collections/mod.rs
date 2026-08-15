@@ -1,4 +1,4 @@
-use crate::ast::{AstFile, AstProject};
+use crate::ast::AstProject;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, Registry,
     RegistryFunction, RegistryPackage,
@@ -625,22 +625,12 @@ pub(crate) fn register(r: &mut Registry) {
     r.add_package(pkg);
 }
 
-/// Parses the built-in `collections` package source. `package.mfb` is now
-/// self-contained (all source-generic bodies inlined at their original marker
-/// positions), so it is parsed directly with no body-splicing step.
-fn source_file() -> Result<AstFile, ()> {
-    crate::ast::parse_source_internal(
-        Path::new(SOURCE_PATH),
-        SOURCE_PATH,
-        include_str!("package.mfb"),
-    )
-}
-
 /// Injects the `collections` package source into `ast` when the project imports
 /// it. The source is appended last (so the monomorphizer's first-file emission
 /// target is unchanged) and is filtered out of `-ast` output by its sentinel
 /// path. Call rewriting (`collections.sort` -> `__collections_sort`) happens in
-/// the monomorphizer.
+/// the monomorphizer. `package.mfb` is self-contained (all source-generic bodies
+/// inlined at their original marker positions), so it is parsed directly.
 ///
 /// `collections` is injected by this dedicated late pass (not the generic
 /// `registry::augment_project`) because its members are source generics with no
@@ -655,8 +645,10 @@ pub(crate) fn augmented_project(ast: AstProject) -> Result<AstProject, ()> {
     if !imported {
         return Ok(ast);
     }
+    let file =
+        crate::ast::parse_source_internal(Path::new(SOURCE_PATH), SOURCE_PATH, include_str!("package.mfb"))?;
     let mut augmented = ast;
-    augmented.files.push(source_file()?);
+    augmented.files.push(file);
     Ok(augmented)
 }
 
@@ -789,7 +781,12 @@ mod tests {
 
     #[test]
     fn source_file_parses() {
-        assert!(source_file().is_ok());
+        assert!(crate::ast::parse_source_internal(
+            Path::new(SOURCE_PATH),
+            SOURCE_PATH,
+            include_str!("package.mfb")
+        )
+        .is_ok());
     }
 
     #[test]
