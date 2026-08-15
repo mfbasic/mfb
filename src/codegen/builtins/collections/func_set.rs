@@ -1,13 +1,14 @@
 //! `collections::set` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{list_element_type, map_type_parts};
 use crate::target::shared::code::{
     list_element_is_fixed_width, CodeBuilder, CollectionValueSlot, PayloadSlot, ValueResult,
 };
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_SET: &str = "Return a collection with one element replaced, or one map key assigned";
 const DESC_SET: &str = r#"`collections::set` returns a new collection with one position updated. It takes
@@ -91,20 +92,46 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const SET: BuiltinFunction = BuiltinFunction::native(
-    "collections.set",
-    "set",
-    INTO_SET,
-    DESC_SET,
-    &["ErrIndexOutOfRange"],
-    &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("index", &["key"], "Integer"),
-        req("item", &[], "T"),
-    ])],
-    lower_set,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "set",
+        intro: INTO_SET,
+        desc: DESC_SET,
+        example: EX,
+        implementations: vec![
+            Implementation {
+                params: vec![
+                    super::param(
+                        "value",
+                        &["collection"],
+                        ParameterType::list_of(ParameterType::Var("T")),
+                    ),
+                    super::param("index", &["key"], ParameterType::Integer),
+                    super::param("item", &[], ParameterType::Var("T")),
+                ],
+                return_type: ParameterType::Arg(0),
+                errors: vec!["ErrIndexOutOfRange"],
+                lowering: Lowering::Helper,
+                body: Body::native(None, None, Some(lower_set)),
+            },
+            Implementation {
+                params: vec![
+                    super::param(
+                        "value",
+                        &["collection"],
+                        ParameterType::map_of(ParameterType::Var("K"), ParameterType::Var("V")),
+                    ),
+                    super::param("index", &["key"], ParameterType::Var("K")),
+                    super::param("item", &[], ParameterType::Var("V")),
+                ],
+                return_type: ParameterType::Arg(0),
+                errors: vec!["ErrIndexOutOfRange"],
+                lowering: Lowering::Helper,
+                body: Body::native(None, None, Some(lower_set)),
+            },
+        ],
+    });
+}
 
 /// `collections::set` — replace a list element (range-checked) or assign a map
 /// key (always succeeds). List path: tight copy + in-place overwrite for a

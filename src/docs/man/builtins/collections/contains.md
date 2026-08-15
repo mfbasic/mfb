@@ -41,7 +41,7 @@ compiler picks the overload from the static type of the first argument. On a
 probe for a probe-eligible element type and a linear scan otherwise. It does not
 accept a `Map`, and it is not the substring test: the `String` form of
 `contains` lives in the `strings::` package, not here.
-[[src/codegen/builtins/collections/mod.rs:resolve_contains]]
+[[src/codegen/registry/mod.rs:resolve_call]]
 [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 Equality is payload comparison, resolved by the element type:
@@ -75,7 +75,7 @@ position of the match is needed.
 The list form scans `value` from index `0` upward, comparing each stored element
 payload against `item`, and returns `TRUE` on the first match or `FALSE` after
 examining every element. It is O(n) in the list length.
-[[src/codegen/builtins/collections/mod.rs:resolve_contains]]
+[[src/codegen/registry/mod.rs:resolve_call]]
 [[src/codegen/builtins/collections/func_contains.rs:lower_contains]]
 
 **`collections::contains OF T(value AS Set OF T, item AS T) AS Boolean`**
@@ -84,7 +84,7 @@ The set form tests membership through the set's hash index: an O(1)-average
 FNV-1a probe for the probe-eligible element types (`Integer`, `Float`, `Fixed`,
 `Byte`, `Boolean`, `String`), falling back to a linear scan over the live entries
 for any other element type. The answer is identical to the list form's; only the
-lookup strategy differs. [[src/codegen/builtins/collections/mod.rs:resolve_contains]]
+lookup strategy differs. [[src/codegen/registry/mod.rs:resolve_call]]
 [[src/codegen/builtins/collections/common/set.rs:emit_key_membership]]
 
 ## Parameters
@@ -98,7 +98,7 @@ lookup strategy differs. [[src/codegen/builtins/collections/mod.rs:resolve_conta
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when some element of `value` matches `item`; `FALSE` when none does, including for an empty list or set. [[src/codegen/builtins/collections/mod.rs:resolve_contains]] |
+| `Boolean` | `TRUE` when some element of `value` matches `item`; `FALSE` when none does, including for an empty list or set. [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Errors
 
@@ -113,7 +113,7 @@ The first must be a `List OF T` or a `Set OF T`; a `Map`, a `String`, or any
 other value is a compile-time type error. The second must be exactly the element
 type `T` — a `List OF Integer` cannot be searched with a `String`, and there is
 no implicit conversion between numeric element types. The result is always
-`Boolean`. [[src/codegen/builtins/collections/mod.rs:resolve_contains]]
+`Boolean`. [[src/codegen/registry/mod.rs:resolve_call]]
 
 ## Examples
 

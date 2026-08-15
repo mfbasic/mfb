@@ -1,117 +1,14 @@
 //! `collections::mapValues` — descriptor entry + MFBASIC source body (Implementation::Mfb).
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{custom, req};
 use crate::target::shared::abi;
 use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
-
-const INTRO: &str = "Transform every value of a map, leaving the keys unchanged";
-
-#[rustfmt::skip]
-const BODY: &str =
-"FUNC __collections_mapValues OF K, V, U(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U
-  MUT result AS Map OF K TO U = Map OF K TO U {}
-  FOR EACH e IN value
-    result = collections::set(result, e.key, f(e.value))
-  NEXT
-  RETURN result
-END FUNC";
-
-const DESC: &str = r#"`collections::mapValues` builds a new `Map OF K TO U` by iterating `value` with
-`FOR EACH` and, for each entry, storing the original `e.key` together with the
-transformed value `f(e.value)`. The keys are copied through untouched, so the
-result has exactly the same key set as `value` and the same number of entries.
-Only the value type changes, from `V` to `U`.
-
-`f` is applied exactly once per entry in `value`. Because entries are written in
-the order `FOR EACH` yields them, the result is built by inserting keys in the
-source map's traversal order. Map traversal order is implementation-defined but
-stable for a given unchanged map value during one program run, so no ordering
-guarantee beyond that should be relied on; see `mfb man types map`.
-
-`value` is not modified — the source map is read, and a separate result map is
-constructed and returned. When `value` is empty, `f` is never called and the
-result is an empty map.
-
-`f` is an ordinary MFBASIC function value invoked with an ordinary call. If `f`
-fails on some entry, its error propagates out of `mapValues` to the caller and
-can be caught by the caller's `TRAP` block; the partially built result map is
-discarded. `mapValues` itself raises no error of its own.
-
-`f` may be a named `FUNC` or a `LAMBDA` expression, since both produce a function
-value of the required type."#;
-
-const EX: &str = r#"Double every value in a map:
-
-```
-IMPORT io
-IMPORT collections
-
-FUNC double(n AS Integer) AS Integer
-  RETURN n * 2
-END FUNC
-
-FUNC main AS Integer
-  LET scores AS Map OF String TO Integer = Map OF String TO Integer { "a" := 3, "b" := 4 }
-  LET doubled AS Map OF String TO Integer = collections::mapValues(scores, double)
-  io::print(toString(collections::get(doubled, "a")))
-  RETURN 0
-END FUNC
-```
-
-Change the value type, using a lambda and named arguments:
-
-```
-IMPORT io
-IMPORT collections
-
-FUNC main AS Integer
-  LET scores AS Map OF String TO Integer = Map OF String TO Integer { "a" := 3 }
-  LET labels AS Map OF String TO String = collections::mapValues(value := scores, f := LAMBDA(n AS Integer) -> toString(n))
-  io::print(collections::get(labels, "a"))
-  RETURN 0
-END FUNC
-```
-
-The source map is left unchanged:
-
-```
-IMPORT io
-IMPORT collections
-
-FUNC double(n AS Integer) AS Integer
-  RETURN n * 2
-END FUNC
-
-FUNC main AS Integer
-  LET scores AS Map OF String TO Integer = Map OF String TO Integer { "a" := 3 }
-  LET doubled AS Map OF String TO Integer = collections::mapValues(scores, double)
-  io::print(toString(collections::get(scores, "a")))
-  RETURN 0
-END FUNC
-```"#;
-
-pub(crate) const MAP_VALUES: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
-    "collections.mapValues",
-    "mapValues",
-    INTRO,
-    DESC,
-    &[],
-    &[custom(&[
-        req("value", &["map"], "Map OF K TO V"),
-        req("f", &["transform"], "FUNC(V) AS U"),
-    ])],
-    BODY,
-    map_values_fast_path,
-)
-.with_example(EX);
 
 /// Native fast path for `#collections_mapValues$K$V$U` with V == U and 8-byte
 /// fixed-width (rewrites value payloads in place over a tight copy). Other
 /// instantiations decline (`Ok(None)`). Free fn.
-fn map_values_fast_path(
+pub(super) fn map_values_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],

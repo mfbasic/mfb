@@ -8,12 +8,13 @@
 //! still live in `src/target` and are referenced here (the accepted temporary
 //! `codegen → target` edge until `CodeBuilder` itself relocates).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{list_element_type, map_type_parts};
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_GET: &str = "Read a list item by index or a map value by key.";
 const DESC_GET: &str = r#"`collections::get` reads one element out of a collection. The collection itself
@@ -86,19 +87,44 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const GET: BuiltinFunction = BuiltinFunction::native(
-    "collections.get",
-    "get",
-    INTO_GET,
-    DESC_GET,
-    &["ErrIndexOutOfRange", "ErrNotFound"],
-    &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("index", &["key"], "Integer"),
-    ])],
-    lower_get,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "get",
+        intro: INTO_GET,
+        desc: DESC_GET,
+        example: EX,
+        implementations: vec![
+            Implementation {
+                params: vec![
+                    super::param(
+                        "value",
+                        &["collection"],
+                        ParameterType::list_of(ParameterType::Var("T")),
+                    ),
+                    super::param("index", &["key"], ParameterType::Integer),
+                ],
+                return_type: ParameterType::Var("T"),
+                errors: vec!["ErrIndexOutOfRange", "ErrNotFound"],
+                lowering: Lowering::Helper,
+                body: Body::native(None, None, Some(lower_get)),
+            },
+            Implementation {
+                params: vec![
+                    super::param(
+                        "value",
+                        &["collection"],
+                        ParameterType::map_of(ParameterType::Var("K"), ParameterType::Var("V")),
+                    ),
+                    super::param("index", &["key"], ParameterType::Var("K")),
+                ],
+                return_type: ParameterType::Var("V"),
+                errors: vec!["ErrIndexOutOfRange", "ErrNotFound"],
+                lowering: Lowering::Helper,
+                body: Body::native(None, None, Some(lower_get)),
+            },
+        ],
+    });
+}
 
 /// Target-generic lowering for `collections::get` (moved verbatim from the former
 /// `CodeBuilder::lower_collection_get`). Emits through `abi::`; branches to the

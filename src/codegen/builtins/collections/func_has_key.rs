@@ -1,11 +1,12 @@
 //! `collections::hasKey` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{map_type_parts, set_element_type};
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_HAS_KEY: &str = "Test whether a map contains an entry for a key.";
 const DESC_HAS_KEY: &str = r#"`collections::hasKey` returns `TRUE` when `value` holds an entry whose key
@@ -78,19 +79,28 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const HAS_KEY: BuiltinFunction = BuiltinFunction::native(
-    "collections.hasKey",
-    "hasKey",
-    INTO_HAS_KEY,
-    DESC_HAS_KEY,
-    &[],
-    &[custom(&[
-        req("value", &["map"], "Map OF K TO V"),
-        req("key", &[], "K"),
-    ])],
-    lower_has_key,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "hasKey",
+        intro: INTO_HAS_KEY,
+        desc: DESC_HAS_KEY,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                super::param(
+                    "value",
+                    &["map"],
+                    ParameterType::map_of(ParameterType::Var("K"), ParameterType::Var("V")),
+                ),
+                super::param("key", &[], ParameterType::Var("K")),
+            ],
+            return_type: ParameterType::Boolean,
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::native(None, None, Some(lower_has_key)),
+        }],
+    });
+}
 
 /// `collections::hasKey(Map OF K TO V, K) AS Boolean`: key membership via the
 /// shared hash-probe / linear-scan (`emit_key_membership`).

@@ -1,10 +1,11 @@
 //! `collections::keys` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::code::type_utils::map_type_parts;
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_KEYS: &str = "Return a map's keys as a list.";
 const DESC_KEYS: &str = r#"`collections::keys` builds a new `List OF K` holding the key of every entry in
@@ -76,16 +77,25 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const KEYS: BuiltinFunction = BuiltinFunction::native(
-    "collections.keys",
-    "keys",
-    INTO_KEYS,
-    DESC_KEYS,
-    &[],
-    &[custom(&[req("value", &["map"], "Map OF K TO V")])],
-    lower_keys,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "keys",
+        intro: INTO_KEYS,
+        desc: DESC_KEYS,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![super::param(
+                "value",
+                &["map"],
+                ParameterType::map_of(ParameterType::Var("K"), ParameterType::Var("V")),
+            )],
+            return_type: ParameterType::list_of(ParameterType::Var("K")),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::native(None, None, Some(lower_keys)),
+        }],
+    });
+}
 
 /// `collections::keys(Map OF K TO V) AS List OF K`: project each entry's key.
 pub(crate) fn lower_keys(

@@ -7,109 +7,10 @@
 //! monomorph target and either lowers natively or declines (`Ok(None)`), in which
 //! case the codegen seam monomorphizes BODY instead.
 
-use super::{custom, req};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::list_element_type;
 use crate::target::shared::code::{CodeBuilder, Operand, ValueResult, COLLECTION_OFFSET_COUNT};
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
-
-const INTRO: &str = "Concatenate a list of lists into a single list, one level deep";
-
-#[rustfmt::skip]
-const BODY: &str =
-"FUNC __collections_flatten OF T(value AS List OF List OF T) AS List OF T
-  MUT result AS List OF T = []
-  MUT i AS Integer = 0
-  WHILE i < len(value)
-    LET inner AS List OF T = collections::get(value, i)
-    result = collections::append(result, inner)
-    i = i + 1
-  END WHILE
-  RETURN result
-END FUNC";
-
-const DESC: &str = r#"`collections::flatten` walks `value` from index 0 upward and concatenates each
-inner list onto an accumulating result. It does this by calling
-`collections::append(result, inner)` where `inner` is itself a `List OF T` — that
-is the list-concatenation overload of `append`, which accepts a second argument
-that is either the element type or the same list type as the first argument.
-Each inner list is therefore spliced in whole rather than nested as a single
-element.
-
-`flatten` removes exactly **one** level of nesting. Its parameter type is
-`List OF List OF T`, so applying it to a `List OF List OF List OF Integer`
-produces a `List OF List OF Integer` — the innermost lists survive as elements.
-Flattening further requires calling `flatten` again on the result. It is not
-recursive and there is no depth parameter.
-
-Order is fully preserved: the inner lists are consumed in their own order, and
-the items within each inner list keep their relative order, so the result reads
-as the inner lists laid end to end. Empty inner lists contribute nothing and are
-simply skipped over; they do not produce a placeholder element. When `value`
-itself is empty, the result is an empty list.
-
-`value` is not modified, and neither are the inner lists it holds; the result is
-a newly built list. `flatten` invokes no user callback and raises no error.
-
-Note that the template argument `T` is inferred from the argument, so a bare
-untyped `[]` literal cannot be passed directly — bind it to a
-`List OF List OF T` first, or pass an expression whose type is known."#;
-
-const EX: &str = r#"Concatenate three inner lists:
-
-```
-IMPORT io
-IMPORT collections
-
-FUNC main AS Integer
-  LET nested AS List OF List OF Integer = [[1, 2], [3], [4, 5]]
-  LET flat AS List OF Integer = collections::flatten(nested)
-  io::print(toString(len(flat)))
-  RETURN 0
-END FUNC
-```
-
-Empty inner lists contribute nothing:
-
-```
-IMPORT io
-IMPORT collections
-
-FUNC main AS Integer
-  LET nested AS List OF List OF String = [["a"], [], ["b", "c"]]
-  LET flat AS List OF String = collections::flatten(value := nested)
-  io::print(collections::get(flat, 1))
-  RETURN 0
-END FUNC
-```
-
-Only one level is removed, so flattening twice is two calls:
-
-```
-IMPORT io
-IMPORT collections
-
-FUNC main AS Integer
-  LET deep AS List OF List OF List OF Integer = [[[1, 2], [3]],]
-  LET once AS List OF List OF Integer = collections::flatten(deep)
-  LET twice AS List OF Integer = collections::flatten(once)
-  io::print(toString(len(once)) & " " & toString(len(twice)))
-  RETURN 0
-END FUNC
-```"#;
-
-pub(crate) const FLATTEN: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
-    "collections.flatten",
-    "flatten",
-    INTRO,
-    DESC,
-    &[],
-    &[custom(&[req("value", &["list"], "List OF List OF T")])],
-    BODY,
-    flatten_fast_path,
-)
-.with_example(EX);
 
 /// plan-86 A3: native `collections::flatten` (`#collections_flatten$T`, 1 arg)
 /// for a simple result element T (String or fixed-width) — the inner lists are
@@ -120,7 +21,7 @@ pub(crate) const FLATTEN: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
 /// A free function, not a method: an `impl` method does not coerce to the
 /// higher-ranked `MfbFastPath` fn-pointer type (E0308), the same reason the
 /// `Native` lowerings are free functions.
-fn flatten_fast_path(
+pub(super) fn flatten_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],

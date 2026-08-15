@@ -1,9 +1,8 @@
 use crate::ast::{AstFile, AstProject};
-use crate::target::shared::registry::{
-    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver, BuiltinSource,
-    DefaultValue, Implementation, InjectionRule, Lowering, Parameter, ParameterType, ReturnType,
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, Registry,
+    RegistryFunction, RegistryPackage,
 };
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -136,81 +135,25 @@ const NATIVE_MEMBERS: &[&str] = &[
     "toList",
 ];
 
-// plan-72-E: `COLLECTIONS` is the descriptor authority for this package's NATIVE
-// members (the source-generic `FUNCTIONS` above are resolved by the monomorphizer,
-// not here, so they are not descriptor functions). The descriptor owns
-// membership, per-position parameter names/aliases, and arity. Return-type
-// resolution is genuinely generic (`get(List OF T, Integer) → T`, map/set/
-// function-typed overloads), so it lives on a `BuiltinResolver` that delegates to
-// the existing `dispatch_resolve` (below). Parameter *types* are documentation
-// only — a member like `get` has List/Map overloads a single `ParameterType`
-// cannot express, and no delegating wrapper reads them (resolution is
-// resolver-owned; `expected_arguments` keeps its hand-authored "or"-phrased
-// strings). The `.mfb` source companion is modelled as `WhenImported`.
-const fn req(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
+/// One-line package intro (was `BuiltinModule::doc_intro`).
+const INTRO: &str = "Sequence and map helper functions";
+
+/// A required native-member parameter. The `collections` man pages are served by
+/// the static `.md` files, not the registry, so the per-parameter `desc` carries
+/// no documentation weight here — it is left empty.
+pub(super) fn param(
+    name: &'static str,
+    aliases: &'static [&'static str],
+    ty: ParameterType,
+) -> Parameter {
     Parameter {
         name,
+        desc: "",
         aliases,
-        ty: ParameterType::Named(ty),
+        ty,
         default: DefaultValue::None,
     }
 }
-
-/// An optional trailing parameter (only `find`'s `start`). The `Fill` is inert:
-/// collections has no default-argument padding, so nothing reads it — it exists
-/// solely so `DefaultResolver::arity` derives `find`'s `(2, 3)` range.
-const fn opt(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
-    Parameter {
-        name,
-        aliases,
-        ty: ParameterType::Named(ty),
-        default: DefaultValue::Fill {
-            type_name: ty,
-            expr: "",
-        },
-    }
-}
-
-const fn native(
-    name: &'static str,
-    slug: &'static str,
-    doc_intro: &'static str,
-    doc_desc: &'static str,
-    errors: &'static [&'static str],
-    overloads: &'static [BuiltinOverload],
-) -> BuiltinFunction {
-    BuiltinFunction {
-        name,
-        doc_slug: slug,
-        doc_intro,
-        doc_desc,
-        errors,
-        overloads,
-        doc_example: "",
-        implementation: Implementation::Same,
-        lowering: Lowering::Helper,
-        flags: BuiltinFlags {
-            internal_only: false,
-            return_type_overloaded: false,
-        },
-    }
-}
-
-// One overload per member, carrying the merged parameter-name table; the resolver
-// owns the actual per-overload (List/Map/Set) type resolution, so `return_type` is
-// `Custom` throughout and the parameter *types* are documentation only.
-const fn custom(params: &'static [Parameter]) -> BuiltinOverload {
-    BuiltinOverload {
-        params,
-        return_type: ReturnType::Custom,
-    }
-}
-
-// Authored documentation strings for the native `collections::` members,
-// derived from src/docs/man/builtins/collections/*.md (one-line summary + the
-// Description section, citation markers stripped). See the `doc_intro`/`doc_desc`
-// fields on `BuiltinFunction`.
-// (`get`'s doc consts + entry moved to func_get.rs, plan-95.)
 
 // ---- find ----
 const INTO_FIND: &str =
@@ -458,120 +401,117 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-// (`add`/`remove`/`toList` doc consts + entries moved to their func_*.rs, plan-96.)
-// (`findIndex`/`findLastIndex` doc consts + entries moved to func_find_index.rs /
-// func_find_last_index.rs when they migrated to Implementation::Mfb.)
-
-const COLLECTIONS_FUNCTIONS: &[BuiltinFunction] = &[
-    func_get::GET,
-    func_get_or::GET_OR,
-    func_set::SET,
-    func_append::APPEND,
-    func_prepend::PREPEND,
-    func_insert::INSERT,
-    func_remove_at::REMOVE_AT,
-    func_remove_key::REMOVE_KEY,
-    func_keys::KEYS,
-    func_values::VALUES,
-    func_has_key::HAS_KEY,
-    func_contains::CONTAINS,
-    func_for_each::FOR_EACH,
-    func_transform::TRANSFORM,
-    func_filter::FILTER,
-    func_reduce::REDUCE,
-    func_reduce_right::REDUCE_RIGHT,
-    func_sum::SUM,
-    native(
-        "collections.find",
-        "find",
-        INTO_FIND,
-        DESC_FIND,
-        &["ErrIndexOutOfRange", "ErrNotFound"],
-        &[custom(&[
-            req("value", &["list"], "List OF T"),
-            req("item", &["needle"], "T"),
-            opt("start", &[], "Integer"),
-        ])],
-    )
-    .with_example(EX_FIND),
-    native(
-        "collections.mid",
-        "mid",
-        INTO_MID,
-        DESC_MID,
-        &["ErrIndexOutOfRange"],
-        &[custom(&[
-            req("value", &["list"], "List OF T"),
-            req("start", &[], "Integer"),
-            req("count", &[], "Integer"),
-        ])],
-    )
-    .with_example(EX_MID),
-    native(
-        "collections.replace",
-        "replace",
-        INTO_REPLACE,
-        DESC_REPLACE,
-        &[],
-        &[custom(&[
-            req("value", &["list"], "List OF T"),
-            req("old", &["needle"], "T"),
-            req("new", &["replacement"], "T"),
-        ])],
-    )
-    .with_example(EX_REPLACE),
-    func_add::ADD,
-    func_remove::REMOVE,
-    func_to_list::TO_LIST,
-    // Source-generic members (Implementation::Mfb): body owned by the descriptor,
-    // assembled into the injected package source by `assembled_source()`.
-    func_distinct::DISTINCT,
-    func_take::TAKE,
-    func_drop::DROP,
-    func_any::ANY,
-    func_all::ALL,
-    func_flatten::FLATTEN,
-    func_map_values::MAP_VALUES,
-    func_zip::ZIP,
-    func_chunks::CHUNKS,
-    func_window::WINDOW,
-    func_merge::MERGE,
-    func_partition::PARTITION,
-    func_to_set::TO_SET,
-    func_union::UNION,
-    func_intersection::INTERSECTION,
-    func_difference::DIFFERENCE,
-    func_symmetric_difference::SYMMETRIC_DIFFERENCE,
-    func_is_subset::IS_SUBSET,
-    func_is_superset::IS_SUPERSET,
-    func_is_disjoint::IS_DISJOINT,
-    func_sort::SORT,
-    func_sort_by::SORT_BY,
-    func_group_by::GROUP_BY,
-    // `findIndex`/`findLastIndex` carry Implementation::Mfb like the rest, but are
-    // deliberately kept out of `NATIVE_MEMBERS` so `is_native_member_call` still
-    // routes them through the source-generic path (findLastIndex has a native
-    // String-item fast path in `src/target`). Their entries + docs live in
-    // func_find_index.rs / func_find_last_index.rs.
-    func_find_index::FIND_INDEX,
-    func_find_last_index::FIND_LAST_INDEX,
-];
-
-/// Generic return-type resolution for collections native members. Delegates to
-/// the same `dispatch_resolve` logic the public `resolve_call` used pre-migration,
-/// so every List/Map/Set/function-typed overload resolves byte-identically.
-struct CollectionsResolver;
-impl BuiltinResolver for CollectionsResolver {
-    fn resolve_return_type(
-        &self,
-        _module: &BuiltinModule,
-        name: &str,
-        arg_types: &[String],
-    ) -> Option<String> {
-        dispatch_resolve(name, arg_types).map(|resolved| resolved.return_type.into_owned())
-    }
+/// `collections::find` — List element/sublist search. Reached through the
+/// `native_builtin_target` bare-name dispatch (`lower_find`), so its `Body` is
+/// [`Body::Intrinsic`] (no `native_lower`, no rewrite); the descriptor exists only
+/// for return-type resolution, arity, errors, and parameter names.
+fn register_find(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "find",
+        intro: INTO_FIND,
+        desc: DESC_FIND,
+        example: EX_FIND,
+        implementations: vec![
+            Implementation {
+                params: vec![
+                    param(
+                        "value",
+                        &["list"],
+                        ParameterType::list_of(ParameterType::Var("T")),
+                    ),
+                    param("item", &["needle"], ParameterType::Var("T")),
+                    Parameter {
+                        name: "start",
+                        desc: "",
+                        aliases: &[],
+                        ty: ParameterType::Integer,
+                        default: DefaultValue::Optional,
+                    },
+                ],
+                return_type: ParameterType::Integer,
+                errors: vec!["ErrIndexOutOfRange", "ErrNotFound"],
+                lowering: Lowering::Helper,
+                body: Body::Intrinsic,
+            },
+            Implementation {
+                params: vec![
+                    param(
+                        "value",
+                        &["list"],
+                        ParameterType::list_of(ParameterType::Var("T")),
+                    ),
+                    param(
+                        "item",
+                        &["needle"],
+                        ParameterType::list_of(ParameterType::Var("T")),
+                    ),
+                    Parameter {
+                        name: "start",
+                        desc: "",
+                        aliases: &[],
+                        ty: ParameterType::Integer,
+                        default: DefaultValue::Optional,
+                    },
+                ],
+                return_type: ParameterType::Integer,
+                errors: vec!["ErrIndexOutOfRange", "ErrNotFound"],
+                lowering: Lowering::Helper,
+                body: Body::Intrinsic,
+            },
+        ],
+    });
 }
-static COLLECTIONS_RESOLVER: CollectionsResolver = CollectionsResolver;
+
+/// `collections::mid` — List slice. Bare-name dispatch (`lower_mid`); [`Body::Intrinsic`].
+fn register_mid(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "mid",
+        intro: INTO_MID,
+        desc: DESC_MID,
+        example: EX_MID,
+        implementations: vec![Implementation {
+            params: vec![
+                param(
+                    "value",
+                    &["list"],
+                    ParameterType::list_of(ParameterType::Var("T")),
+                ),
+                param("start", &[], ParameterType::Integer),
+                param("count", &[], ParameterType::Integer),
+            ],
+            return_type: ParameterType::Arg(0),
+            errors: vec!["ErrIndexOutOfRange"],
+            lowering: Lowering::Helper,
+            body: Body::Intrinsic,
+        }],
+    });
+}
+
+/// `collections::replace` — List element replacement. Bare-name dispatch
+/// (`lower_replace`); [`Body::Intrinsic`].
+fn register_replace(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "replace",
+        intro: INTO_REPLACE,
+        desc: DESC_REPLACE,
+        example: EX_REPLACE,
+        implementations: vec![Implementation {
+            params: vec![
+                param(
+                    "value",
+                    &["list"],
+                    ParameterType::list_of(ParameterType::Var("T")),
+                ),
+                param("old", &["needle"], ParameterType::Var("T")),
+                param("new", &["replacement"], ParameterType::Var("T")),
+            ],
+            return_type: ParameterType::Arg(0),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::Intrinsic,
+        }],
+    });
+}
 
 /// Package-overview description, from `src/docs/man/builtins/collections/package.md`
 /// (its Description section, citation markers stripped).
@@ -608,18 +548,67 @@ unmatched elements. See `mfb man types pair` and `mfb man types partition`.
 The List-only overloads of `find`, `mid`, and `replace` live here; their String
 overloads live in `strings::`."#;
 
-pub(crate) static COLLECTIONS: BuiltinModule = BuiltinModule {
-    name: "collections",
-    doc_intro: "Sequence and map helper functions",
-    doc_desc: COLLECTIONS_DESC,
-    functions: COLLECTIONS_FUNCTIONS,
-    types: &[],
-    source: Some(BuiltinSource {
-        rule: InjectionRule::WhenImported,
-        loader: source_file,
-    }),
-    resolver: Some(&COLLECTIONS_RESOLVER),
-};
+/// Register the `collections` package on the clean-room registry. Only the NATIVE
+/// members are registered here (the source-generic members — `sort`, `zip`, … —
+/// keep their manifest-injected MFBASIC bodies and are resolved by the
+/// monomorphizer, so they are deliberately absent). No records/unions/helpers are
+/// added and no `Body::Mfb` member is registered, so `get_mfb()` is empty and
+/// `registry().augment_project` does NOT inject `collections` — it stays injected
+/// through [`augmented_project`].
+pub(crate) fn register(r: &mut Registry) {
+    let mut pkg = RegistryPackage::new("collections", INTRO, COLLECTIONS_DESC);
+
+    func_get::register(&mut pkg);
+    func_get_or::register(&mut pkg);
+    func_set::register(&mut pkg);
+    func_append::register(&mut pkg);
+    func_prepend::register(&mut pkg);
+    func_insert::register(&mut pkg);
+    func_remove_at::register(&mut pkg);
+    func_remove_key::register(&mut pkg);
+    func_keys::register(&mut pkg);
+    func_values::register(&mut pkg);
+    func_has_key::register(&mut pkg);
+    func_contains::register(&mut pkg);
+    func_for_each::register(&mut pkg);
+    func_transform::register(&mut pkg);
+    func_filter::register(&mut pkg);
+    func_reduce::register(&mut pkg);
+    func_reduce_right::register(&mut pkg);
+    func_sum::register(&mut pkg);
+    register_find(&mut pkg);
+    register_mid(&mut pkg);
+    register_replace(&mut pkg);
+    func_add::register(&mut pkg);
+    func_remove::register(&mut pkg);
+    func_to_list::register(&mut pkg);
+
+    r.add_package(pkg);
+}
+
+/// The native fast-path dispatch for the SOURCE-GENERIC members: a
+/// `#collections_<member>$<TypeArgs>` monomorph target is routed to the member's
+/// `<member>_fast_path` fn, which either lowers the instantiation natively or
+/// declines (`Ok(None)`), in which case the caller instantiates the injected
+/// `.mfb` body instead. Only the source-generic members with a native accelerator
+/// appear here; every other member returns `None` (no fast path).
+pub(crate) fn mfb_fast_path(target: &str) -> Option<crate::codegen::registry::MfbFastPath> {
+    let member = target.strip_prefix("#collections_")?.split('$').next()?;
+    Some(match member {
+        "sort" => func_sort::sort_fast_path,
+        "sortBy" => func_sort_by::sort_by_fast_path,
+        "mapValues" => func_map_values::map_values_fast_path,
+        "groupBy" => func_group_by::group_by_fast_path,
+        "chunks" => func_chunks::chunks_fast_path,
+        "window" => func_window::window_fast_path,
+        "merge" => func_merge::merge_fast_path,
+        "partition" => func_partition::partition_fast_path,
+        "flatten" => func_flatten::flatten_fast_path,
+        "findLastIndex" => func_find_last_index::find_last_index_fast_path,
+        "zip" => func_zip::zip_fast_path,
+        _ => return None,
+    })
+}
 
 /// The internal generic-function name implementing a public `collections::`
 /// member, e.g. `sort` -> `#collections_sort`. The injected package is lexed in
@@ -652,11 +641,10 @@ pub(crate) fn is_collections_call(name: &str) -> bool {
 /// (`collections.get`, ...). Used to route the call into `general`'s resolve
 /// logic and to dequalify the IR target back to the bare native name.
 pub(crate) fn is_native_member_call(name: &str) -> bool {
-    // Keyed off `NATIVE_MEMBERS`, NOT `DefaultResolver::contains(&COLLECTIONS, ..)`:
-    // `findIndex`/`findLastIndex` are descriptor functions (for their errors/doc
-    // metadata) but are source-generic, so they must NOT be routed as native
-    // members here. `native_member_bare` consults `NATIVE_MEMBERS`, which
-    // deliberately excludes them.
+    // Keyed off `NATIVE_MEMBERS`, NOT the registry: `findIndex`/`findLastIndex`
+    // are source-generic, so they must NOT be routed as native members here.
+    // `native_member_bare` consults `NATIVE_MEMBERS`, which deliberately excludes
+    // them.
     native_member_bare(name).is_some()
 }
 
@@ -688,405 +676,12 @@ pub(crate) fn native_member_bare(name: &str) -> Option<&str> {
         .filter(|member| is_native_member(member))
 }
 
-/// Resolves a `collections.<member>` native-member call by routing through the
-/// descriptor's `BuiltinResolver` (plan-72-E), which delegates to
-/// `dispatch_resolve`. The returned type string is identical to the pre-migration
-/// path; only the `Cow` variant changes (`Owned` vs `Borrowed`), which no
-/// consumer observes. Production dispatch goes through
-/// `CollectionsResolver::resolve_return_type`; this wrapper exists only to let the
-/// module tests exercise the full descriptor → resolver → `dispatch_resolve` path.
-#[cfg(test)]
-pub(crate) fn resolve_call<'a>(
-    name: &str,
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    let return_type = COLLECTIONS
-        .resolver?
-        .resolve_return_type(&COLLECTIONS, name, arg_types)?;
-    Some(crate::builtins::general::ResolvedCall {
-        return_type: Cow::Owned(return_type),
-    })
-}
-
-/// The generic per-member resolution, delegating to the granular
-/// `general::resolve_*`/local `resolve_*` helpers (which carry the original
-/// bare-name semantics). `find`/`mid`/`replace` use the List-only overload here;
-/// their String overloads live in `strings::`. Invoked through the descriptor
-/// resolver by `resolve_call`.
-fn dispatch_resolve<'a>(
-    name: &str,
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    match native_member_bare(name)? {
-        "get" => resolve_get(arg_types),
-        "getOr" => resolve_get_or(arg_types),
-        "set" => resolve_set(arg_types),
-        "append" => resolve_append(arg_types),
-        "prepend" => resolve_prepend(arg_types),
-        "insert" => resolve_insert(arg_types),
-        "removeAt" => resolve_remove_at(arg_types),
-        "removeKey" => resolve_remove_key(arg_types),
-        "keys" => resolve_keys(arg_types),
-        "values" => resolve_values(arg_types),
-        "hasKey" => resolve_has_key(arg_types),
-        "contains" => resolve_contains(arg_types),
-        "forEach" => resolve_for_each(arg_types),
-        "transform" => resolve_transform(arg_types),
-        "filter" => resolve_filter(arg_types),
-        "reduce" => resolve_reduce(arg_types),
-        "reduceRight" => resolve_reduce(arg_types),
-        "sum" => resolve_sum(arg_types),
-        "find" => resolve_find_list(arg_types),
-        "mid" => resolve_mid_list(arg_types),
-        "replace" => resolve_replace_list(arg_types),
-        "add" => resolve_set_add(arg_types),
-        "remove" => resolve_set_remove(arg_types),
-        "toList" => resolve_set_to_list(arg_types),
-        _ => None,
-    }
-}
-
-/// `collections::add(Set OF T, T) AS Set OF T` (plan-63-B): insert an element,
-/// idempotent (a duplicate is dropped). Set-only — a List uses `append`.
-fn resolve_set_add<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 2 {
-        return None;
-    }
-    let element = crate::builtins::general::set_element(&arg_types[0])?;
-    (arg_types[1] == element).then_some(crate::builtins::general::ResolvedCall {
-        return_type: Cow::Borrowed(&arg_types[0]),
-    })
-}
-
-/// `collections::remove(Set OF T, T) AS Set OF T` (plan-63-B): remove an element;
-/// removing an absent element is a no-op. Set-only.
-fn resolve_set_remove<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 2 {
-        return None;
-    }
-    let element = crate::builtins::general::set_element(&arg_types[0])?;
-    (arg_types[1] == element).then_some(crate::builtins::general::ResolvedCall {
-        return_type: Cow::Borrowed(&arg_types[0]),
-    })
-}
-
-/// `collections::toList(Set OF T) AS List OF T` (plan-63-B): the elements in
-/// stable insertion order. Set-only.
-fn resolve_set_to_list<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 1 {
-        return None;
-    }
-    let element = crate::builtins::general::set_element(&arg_types[0])?;
-    Some(crate::builtins::general::ResolvedCall {
-        return_type: Cow::Owned(format!("List OF {element}")),
-    })
-}
-
-/// List-overload resolvers for `find`/`mid`/`replace`, migrated to `collections::`
-/// (plan-01-functions.md §5). These keep the original bare-name overload logic so
-/// `collections::` can reuse it; the String overloads live in `strings::`.
-fn resolve_find_list<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if !(2..=3).contains(&arg_types.len()) {
-        return None;
-    }
-    let element = crate::builtins::general::list_element(&arg_types[0])?;
-    (arg_types.get(2).is_none_or(|type_| type_ == "Integer")
-        && (arg_types[1] == element || arg_types[1] == arg_types[0]))
-        .then_some(crate::builtins::general::ResolvedCall {
-            return_type: Cow::Borrowed("Integer"),
-        })
-}
-
-fn resolve_mid_list<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    (arg_types.len() == 3
-        && crate::builtins::general::list_element(&arg_types[0]).is_some()
-        && arg_types[1] == "Integer"
-        && arg_types[2] == "Integer")
-        .then_some(crate::builtins::general::ResolvedCall {
-            return_type: Cow::Borrowed(&arg_types[0]),
-        })
-}
-
-fn resolve_replace_list<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    // Arity first: `arg_types[0]`/`list_element` must not be indexed before the
-    // length is known, or an empty/short slice panics (bug-98).
-    if arg_types.len() != 3 {
-        return None;
-    }
-    let element = crate::builtins::general::list_element(&arg_types[0])?;
-    (arg_types[1] == element && arg_types[2] == element).then_some(
-        crate::builtins::general::ResolvedCall {
-            return_type: Cow::Borrowed(&arg_types[0]),
-        },
-    )
-}
-
-fn resolve_get<'a>(arg_types: &'a [String]) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 2 {
-        return None;
-    }
-    if let Some(element) = crate::builtins::general::list_element(&arg_types[0]) {
-        return (arg_types[1] == "Integer").then_some(crate::builtins::general::ResolvedCall {
-            return_type: Cow::Borrowed(element),
-        });
-    }
-    let (key, value) = crate::builtins::general::map_parts(&arg_types[0])?;
-    (arg_types[1] == key).then_some(crate::builtins::general::ResolvedCall {
-        return_type: Cow::Borrowed(value),
-    })
-}
-
-fn resolve_get_or<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 3 {
-        return None;
-    }
-    if let Some(element) = crate::builtins::general::list_element(&arg_types[0]) {
-        return (arg_types[1] == "Integer"
-            && crate::builtins::general::element_accepts_item(element, &arg_types[2]))
-        .then_some(crate::builtins::general::ResolvedCall {
-            return_type: Cow::Borrowed(element),
-        });
-    }
-    let (key, value) = crate::builtins::general::map_parts(&arg_types[0])?;
-    (arg_types[1] == key && crate::builtins::general::element_accepts_item(value, &arg_types[2]))
-        .then_some(crate::builtins::general::ResolvedCall {
-            return_type: Cow::Borrowed(value),
-        })
-}
-
-fn resolve_set<'a>(arg_types: &'a [String]) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 3 {
-        return None;
-    }
-    if let Some(element) = crate::builtins::general::list_element(&arg_types[0]) {
-        return (arg_types[1] == "Integer"
-            && crate::builtins::general::element_accepts_item(element, &arg_types[2]))
-        .then_some(crate::builtins::general::ResolvedCall {
-            return_type: Cow::Borrowed(&arg_types[0]),
-        });
-    }
-    let (key, value) = crate::builtins::general::map_parts(&arg_types[0])?;
-    (arg_types[1] == key && crate::builtins::general::element_accepts_item(value, &arg_types[2]))
-        .then_some(crate::builtins::general::ResolvedCall {
-            return_type: Cow::Borrowed(&arg_types[0]),
-        })
-}
-
-fn resolve_append<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 2 {
-        return None;
-    }
-    let element = crate::builtins::general::list_element(&arg_types[0])?;
-    (crate::builtins::general::element_accepts_item(element, &arg_types[1])
-        || arg_types[1] == arg_types[0])
-        .then_some(crate::builtins::general::ResolvedCall {
-            return_type: Cow::Borrowed(&arg_types[0]),
-        })
-}
-
-fn resolve_prepend<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 2 {
-        return None;
-    }
-    let element = crate::builtins::general::list_element(&arg_types[0])?;
-    crate::builtins::general::element_accepts_item(element, &arg_types[1]).then_some(
-        crate::builtins::general::ResolvedCall {
-            return_type: Cow::Borrowed(&arg_types[0]),
-        },
-    )
-}
-
-fn resolve_insert<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 3 {
-        return None;
-    }
-    let element = crate::builtins::general::list_element(&arg_types[0])?;
-    (arg_types[1] == "Integer"
-        && crate::builtins::general::element_accepts_item(element, &arg_types[2]))
-    .then_some(crate::builtins::general::ResolvedCall {
-        return_type: Cow::Borrowed(&arg_types[0]),
-    })
-}
-
-fn resolve_remove_at<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    (arg_types.len() == 2
-        && crate::builtins::general::list_element(&arg_types[0]).is_some()
-        && arg_types[1] == "Integer")
-        .then_some(crate::builtins::general::ResolvedCall {
-            return_type: Cow::Borrowed(&arg_types[0]),
-        })
-}
-
-fn resolve_remove_key<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 2 {
-        return None;
-    }
-    let (key, _) = crate::builtins::general::map_parts(&arg_types[0])?;
-    (arg_types[1] == key).then_some(crate::builtins::general::ResolvedCall {
-        return_type: Cow::Borrowed(&arg_types[0]),
-    })
-}
-
-fn resolve_keys<'a>(arg_types: &'a [String]) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 1 {
-        return None;
-    }
-    let (key, _) = crate::builtins::general::map_parts(&arg_types[0])?;
-    Some(crate::builtins::general::ResolvedCall {
-        return_type: Cow::Owned(format!("List OF {key}")),
-    })
-}
-
-fn resolve_values<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 1 {
-        return None;
-    }
-    let (_, value) = crate::builtins::general::map_parts(&arg_types[0])?;
-    Some(crate::builtins::general::ResolvedCall {
-        return_type: Cow::Owned(format!("List OF {value}")),
-    })
-}
-
-fn resolve_has_key<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 2 {
-        return None;
-    }
-    let (key, _) = crate::builtins::general::map_parts(&arg_types[0])?;
-    (arg_types[1] == key).then_some(crate::builtins::general::ResolvedCall {
-        return_type: Cow::Borrowed("Boolean"),
-    })
-}
-
-fn resolve_contains<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 2 {
-        return None;
-    }
-    // `contains` has a List overload (linear scan) and a Set overload (hash
-    // probe, plan-63-B); both take `(collection, element) AS Boolean`.
-    let element = crate::builtins::general::list_element(&arg_types[0])
-        .or_else(|| crate::builtins::general::set_element(&arg_types[0]))?;
-    (arg_types[1] == element).then_some(crate::builtins::general::ResolvedCall {
-        return_type: Cow::Borrowed("Boolean"),
-    })
-}
-
-fn resolve_sum<'a>(arg_types: &'a [String]) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 1 {
-        return None;
-    }
-    match arg_types[0].as_str() {
-        "List OF Integer" => Some(crate::builtins::general::ResolvedCall {
-            return_type: Cow::Borrowed("Integer"),
-        }),
-        "List OF Float" => Some(crate::builtins::general::ResolvedCall {
-            return_type: Cow::Borrowed("Float"),
-        }),
-        "List OF Fixed" => Some(crate::builtins::general::ResolvedCall {
-            return_type: Cow::Borrowed("Fixed"),
-        }),
-        _ => None,
-    }
-}
-
-fn resolve_for_each<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 2 {
-        return None;
-    }
-    let element = crate::builtins::general::list_element(&arg_types[0])?;
-    let (params, returns) = crate::builtins::general::function_parts(&arg_types[1])?;
-    (params.len() == 1 && params[0] == element && returns == "Nothing").then_some(
-        crate::builtins::general::ResolvedCall {
-            return_type: Cow::Borrowed("Nothing"),
-        },
-    )
-}
-
-fn resolve_transform<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 2 {
-        return None;
-    }
-    let element = crate::builtins::general::list_element(&arg_types[0])?;
-    let (params, returns) = crate::builtins::general::function_parts(&arg_types[1])?;
-    (params.len() == 1 && params[0] == element && returns != "Nothing").then_some(
-        crate::builtins::general::ResolvedCall {
-            return_type: Cow::Owned(format!("List OF {returns}")),
-        },
-    )
-}
-
-fn resolve_filter<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 2 {
-        return None;
-    }
-    let element = crate::builtins::general::list_element(&arg_types[0])?;
-    let (params, returns) = crate::builtins::general::function_parts(&arg_types[1])?;
-    (params.len() == 1 && params[0] == element && returns == "Boolean").then_some(
-        crate::builtins::general::ResolvedCall {
-            return_type: Cow::Borrowed(&arg_types[0]),
-        },
-    )
-}
-
-fn resolve_reduce<'a>(
-    arg_types: &'a [String],
-) -> Option<crate::builtins::general::ResolvedCall<'a>> {
-    if arg_types.len() != 3 {
-        return None;
-    }
-    let element = crate::builtins::general::list_element(&arg_types[0])?;
-    let (params, returns) = crate::builtins::general::function_parts(&arg_types[2])?;
-    (params.len() == 2
-        && params[0] == arg_types[1]
-        && params[1] == element
-        && returns == arg_types[1])
-        .then_some(crate::builtins::general::ResolvedCall {
-            return_type: Cow::Borrowed(&arg_types[1]),
-        })
-}
-
-// `call_param_names` returns a `&'static` borrowed nested slice the owned
-// `DefaultResolver::param_names` cannot produce, so it stays a static literal
-// PINNED equal to `COLLECTIONS` by `parity_matches_descriptor` until plan-72-BB.
-// `expected_arguments` keeps its hand-authored "or"-phrased strings (the
-// descriptor's per-position types cannot express `List OF T, Integer or Map OF K
-// TO V, K`), and `call_return_type_name` delegates to `general` — neither is
-// descriptor-derivable, so both stay as-is (documented in the plan Corrections).
+// `call_param_names` returns a `&'static` borrowed nested slice used by the
+// keyword-argument matcher. It stays a static literal (the registry's
+// `call_param_names` returns owned `Vec`s, which this borrowed shape cannot
+// produce). `expected_arguments` keeps its hand-authored "or"-phrased strings
+// (the descriptor's per-position types cannot express `List OF T, Integer or Map
+// OF K TO V, K`).
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match native_member_bare(name)? {
         "get" => Some(&[&["value", "collection"], &["index", "key"]]),
@@ -1176,38 +771,15 @@ pub(crate) fn uses_package(ast: &AstProject) -> bool {
     })
 }
 
-/// Parses the built-in `collections` package source.
+/// Parses the built-in `collections` package source. `package.mfb` is now
+/// self-contained (all source-generic bodies inlined at their original marker
+/// positions), so it is parsed directly with no body-splicing step.
 pub(crate) fn source_file() -> Result<AstFile, ()> {
-    crate::ast::parse_source_internal(Path::new(SOURCE_PATH), SOURCE_PATH, &assembled_source())
-}
-
-/// The `collections` package source, assembled from the dual path: the external
-/// `package.mfb` companion is the base, and every member migrated to carry
-/// [`Implementation::Mfb`] contributes its `FUNC __collections_<name> ... END
-/// FUNC` body.
-///
-/// A migrated member's `FUNC` is replaced in `package.mfb` by a one-line marker
-/// `'@@MFB_BODY:<slug>@@` at its original position; this loader substitutes the
-/// body back in place of that marker. Splicing at the original position (rather
-/// than appending) keeps every other function's source line numbers unchanged, so
-/// the injected AST — and every `.ast`/`.ir` golden derived from it — is identical
-/// to the pre-migration companion. The body's own indentation is irrelevant
-/// (MFBASIC is not whitespace-sensitive) as long as its line count matches the
-/// `FUNC ... END FUNC` it replaced. An un-migrated member still comes from the
-/// companion verbatim.
-fn assembled_source() -> String {
-    let mut source = String::from(include_str!("package.mfb"));
-    for func in COLLECTIONS_FUNCTIONS {
-        if let Implementation::Mfb { body, .. } = func.implementation {
-            let marker = format!("'@@MFB_BODY:{}@@", func.doc_slug);
-            debug_assert!(
-                source.contains(&marker),
-                "collections package.mfb is missing the '{marker}' body marker",
-            );
-            source = source.replacen(&marker, body, 1);
-        }
-    }
-    source
+    crate::ast::parse_source_internal(
+        Path::new(SOURCE_PATH),
+        SOURCE_PATH,
+        include_str!("package.mfb"),
+    )
 }
 
 /// Injects the `collections` package source into `ast` when the project imports
@@ -1242,13 +814,10 @@ pub(crate) fn collections_bindings(ast: &AstProject) -> HashMap<String, ()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codegen::registry::{self, registry};
 
     fn strings(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
-    }
-
-    fn rc(r: Option<crate::builtins::general::ResolvedCall>) -> Option<String> {
-        r.map(|r| r.return_type.into_owned())
     }
 
     fn project(src: &str) -> AstProject {
@@ -1296,136 +865,6 @@ mod tests {
     fn internal_name_shape() {
         let name = internal_name("sort");
         assert!(name.contains("collections_sort"), "{name}");
-    }
-
-    fn rt(name: &str, args: &[&str]) -> Option<String> {
-        resolve_call(name, &strings(args)).map(|r| r.return_type.into_owned())
-    }
-
-    #[test]
-    fn resolve_call_delegates_every_member() {
-        assert_eq!(
-            rt("collections.get", &["List OF Integer", "Integer"]),
-            Some("Integer".to_string())
-        );
-        assert_eq!(
-            rt(
-                "collections.getOr",
-                &["List OF Integer", "Integer", "Integer"]
-            ),
-            Some("Integer".to_string())
-        );
-        assert_eq!(
-            rt(
-                "collections.set",
-                &["List OF Integer", "Integer", "Integer"]
-            ),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rt("collections.append", &["List OF Integer", "Integer"]),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rt("collections.prepend", &["List OF Integer", "Integer"]),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rt(
-                "collections.insert",
-                &["List OF Integer", "Integer", "Integer"]
-            ),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rt("collections.removeAt", &["List OF Integer", "Integer"]),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rt(
-                "collections.removeKey",
-                &["Map OF String TO Integer", "String"]
-            ),
-            Some("Map OF String TO Integer".to_string())
-        );
-        assert_eq!(
-            rt("collections.keys", &["Map OF String TO Integer"]),
-            Some("List OF String".to_string())
-        );
-        assert_eq!(
-            rt("collections.values", &["Map OF String TO Integer"]),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rt(
-                "collections.hasKey",
-                &["Map OF String TO Integer", "String"]
-            ),
-            Some("Boolean".to_string())
-        );
-        assert_eq!(
-            rt("collections.contains", &["List OF Integer", "Integer"]),
-            Some("Boolean".to_string())
-        );
-        assert_eq!(
-            rt(
-                "collections.forEach",
-                &["List OF Integer", "FUNC(Integer) AS Nothing"]
-            ),
-            Some("Nothing".to_string())
-        );
-        assert_eq!(
-            rt(
-                "collections.transform",
-                &["List OF Integer", "FUNC(Integer) AS String"]
-            ),
-            Some("List OF String".to_string())
-        );
-        assert_eq!(
-            rt(
-                "collections.filter",
-                &["List OF Integer", "FUNC(Integer) AS Boolean"]
-            ),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rt(
-                "collections.reduce",
-                &[
-                    "List OF Integer",
-                    "String",
-                    "FUNC(String, Integer) AS String"
-                ]
-            ),
-            Some("String".to_string())
-        );
-        assert_eq!(
-            rt("collections.sum", &["List OF Integer"]),
-            Some("Integer".to_string())
-        );
-        assert_eq!(
-            rt("collections.find", &["List OF Integer", "Integer"]),
-            Some("Integer".to_string())
-        );
-        assert_eq!(
-            rt(
-                "collections.mid",
-                &["List OF Integer", "Integer", "Integer"]
-            ),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rt(
-                "collections.replace",
-                &["List OF Integer", "Integer", "Integer"]
-            ),
-            Some("List OF Integer".to_string())
-        );
-        // Non-native member and unknown name.
-        assert!(resolve_call("collections.sort", &strings(&["List OF Integer"])).is_none());
-        assert!(resolve_call("get", &strings(&["List OF Integer", "Integer"])).is_none());
-        // Wrong types -> None.
-        assert_eq!(rt("collections.get", &["List OF Integer", "String"]), None);
     }
 
     #[test]
@@ -1479,660 +918,81 @@ mod tests {
     }
 
     #[test]
-    fn resolve_replace_list_arity_checks_before_indexing() {
-        // bug-98: an empty or short arg slice must not panic (index OOB) before
-        // the arity is verified.
-        let empty: Vec<String> = Vec::new();
-        assert!(resolve_replace_list(&empty).is_none());
-        let one = strings(&["List OF Integer"]);
-        assert!(resolve_replace_list(&one).is_none());
-        let two = strings(&["List OF Integer", "Integer"]);
-        assert!(resolve_replace_list(&two).is_none());
-        // The valid 3-arg form still resolves.
-        let three = strings(&["List OF Integer", "Integer", "Integer"]);
-        let ok = resolve_replace_list(&three).map(|r| r.return_type.into_owned());
-        assert_eq!(ok, Some("List OF Integer".to_string()));
+    fn collections_registered_on_the_clean_room_registry() {
+        let pkg = registry()
+            .resolve_package("collections")
+            .expect("collections package");
+        // Exactly the 24 native members (source generics are not registered here).
+        assert_eq!(pkg.functions().len(), NATIVE_MEMBERS.len());
+        assert!(registry::is_member("collections.get"));
+        assert!(!registry::is_member("collections.sort")); // source generic
+        assert!(!registry::is_member("collections.nope"));
+    }
+
+    fn rt(name: &str, args: &[&str]) -> Option<String> {
+        registry::resolve_call(name, &strings(args))
     }
 
     #[test]
-    fn resolve_find_list_cases() {
+    fn generic_dispatch_resolves_native_members() {
         assert_eq!(
-            rc(resolve_find_list(&strings(&["List OF Integer", "Integer"]))),
+            rt("collections.get", &["List OF Integer", "Integer"]),
             Some("Integer".to_string())
         );
         assert_eq!(
-            rc(resolve_find_list(&strings(&[
-                "List OF Integer",
-                "Integer",
-                "Integer"
-            ]))),
-            Some("Integer".to_string())
-        );
-        // sublist search (arg1 == whole list type)
-        assert_eq!(
-            rc(resolve_find_list(&strings(&[
-                "List OF Integer",
-                "List OF Integer"
-            ]))),
+            rt("collections.get", &["Map OF String TO Integer", "String"]),
             Some("Integer".to_string())
         );
         assert_eq!(
-            rc(resolve_find_list(&strings(&["List OF Integer", "String"]))),
-            None
-        );
-        assert_eq!(
-            rc(resolve_find_list(&strings(&["Integer", "Integer"]))),
-            None
-        );
-        assert_eq!(rc(resolve_find_list(&strings(&["List OF Integer"]))), None);
-        assert_eq!(
-            rc(resolve_find_list(&strings(&[
-                "List OF Integer",
-                "Integer",
-                "String"
-            ]))),
-            None
-        );
-    }
-
-    #[test]
-    fn resolve_mid_list_cases() {
-        assert_eq!(
-            rc(resolve_mid_list(&strings(&[
-                "List OF Integer",
-                "Integer",
-                "Integer"
-            ]))),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rc(resolve_mid_list(&strings(&[
-                "List OF Integer",
-                "Integer",
-                "String"
-            ]))),
-            None
-        );
-        assert_eq!(
-            rc(resolve_mid_list(&strings(&[
-                "Integer", "Integer", "Integer"
-            ]))),
-            None
-        );
-    }
-
-    #[test]
-    fn resolve_replace_list_cases() {
-        assert_eq!(
-            rc(resolve_replace_list(&strings(&[
-                "List OF Integer",
-                "Integer",
-                "Integer"
-            ]))),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rc(resolve_replace_list(&strings(&[
-                "List OF Integer",
-                "Integer",
-                "String"
-            ]))),
-            None
-        );
-        assert_eq!(rc(resolve_replace_list(&strings(&["Integer"]))), None);
-    }
-
-    #[test]
-    fn resolve_get_and_getor() {
-        assert_eq!(
-            rc(resolve_get(&strings(&["List OF Integer", "Integer"]))),
-            Some("Integer".to_string())
-        );
-        assert_eq!(
-            rc(resolve_get(&strings(&["List OF Integer", "String"]))),
-            None
-        );
-        assert_eq!(
-            rc(resolve_get(&strings(&[
-                "Map OF String TO Integer",
-                "String"
-            ]))),
-            Some("Integer".to_string())
-        );
-        assert_eq!(
-            rc(resolve_get(&strings(&[
-                "Map OF String TO Integer",
-                "Integer"
-            ]))),
-            None
-        );
-        assert_eq!(rc(resolve_get(&strings(&["Integer", "Integer"]))), None);
-        assert_eq!(rc(resolve_get(&strings(&["List OF Integer"]))), None);
-
-        assert_eq!(
-            rc(resolve_get_or(&strings(&[
-                "List OF Integer",
-                "Integer",
-                "Integer"
-            ]))),
-            Some("Integer".to_string())
-        );
-        assert_eq!(
-            rc(resolve_get_or(&strings(&[
-                "List OF Integer",
-                "Integer",
-                "String"
-            ]))),
-            None
-        );
-        assert_eq!(
-            rc(resolve_get_or(&strings(&[
-                "Map OF String TO Integer",
-                "String",
-                "Integer"
-            ]))),
-            Some("Integer".to_string())
-        );
-        assert_eq!(
-            rc(resolve_get_or(&strings(&[
-                "Map OF String TO Integer",
-                "String",
-                "String"
-            ]))),
-            None
-        );
-        assert_eq!(rc(resolve_get_or(&strings(&["List OF Integer"]))), None);
-    }
-
-    #[test]
-    fn resolve_set_cases() {
-        assert_eq!(
-            rc(resolve_set(&strings(&[
-                "List OF Integer",
-                "Integer",
-                "Integer"
-            ]))),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rc(resolve_set(&strings(&[
-                "List OF Integer",
-                "String",
-                "Integer"
-            ]))),
-            None
-        );
-        assert_eq!(
-            rc(resolve_set(&strings(&[
-                "Map OF String TO Integer",
-                "String",
-                "Integer"
-            ]))),
-            Some("Map OF String TO Integer".to_string())
-        );
-        assert_eq!(
-            rc(resolve_set(&strings(&[
-                "Map OF String TO Integer",
-                "Integer",
-                "Integer"
-            ]))),
-            None
-        );
-        assert_eq!(rc(resolve_set(&strings(&["Integer", "a", "b"]))), None);
-        assert_eq!(rc(resolve_set(&strings(&["List OF Integer"]))), None);
-    }
-
-    #[test]
-    fn resolve_append_prepend_insert() {
-        assert_eq!(
-            rc(resolve_append(&strings(&["List OF Integer", "Integer"]))),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rc(resolve_append(&strings(&[
-                "List OF Integer",
-                "List OF Integer"
-            ]))),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rc(resolve_append(&strings(&["List OF Integer", "String"]))),
-            None
-        );
-        assert_eq!(rc(resolve_append(&strings(&["Integer", "Integer"]))), None);
-        assert_eq!(rc(resolve_append(&strings(&["List OF Integer"]))), None);
-
-        assert_eq!(
-            rc(resolve_prepend(&strings(&["List OF Integer", "Integer"]))),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rc(resolve_prepend(&strings(&["List OF Integer", "String"]))),
-            None
-        );
-        assert_eq!(rc(resolve_prepend(&strings(&["Integer", "Integer"]))), None);
-        assert_eq!(rc(resolve_prepend(&strings(&["List OF Integer"]))), None);
-
-        assert_eq!(
-            rc(resolve_insert(&strings(&[
-                "List OF Integer",
-                "Integer",
-                "Integer"
-            ]))),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rc(resolve_insert(&strings(&[
-                "List OF Integer",
-                "String",
-                "Integer"
-            ]))),
-            None
-        );
-        assert_eq!(rc(resolve_insert(&strings(&["Integer", "a", "b"]))), None);
-        assert_eq!(rc(resolve_insert(&strings(&["List OF Integer"]))), None);
-    }
-
-    #[test]
-    fn resolve_collection_element_is_state_agnostic() {
-        // bug-427: a `List OF RES <union> STATE S` element keeps its STATE clause
-        // in the list type string (so an extracted element can read `.state`),
-        // but the two resolver callers normalize the *item* argument differently:
-        // syntaxcheck passes the item WITH its STATE clause, while `ir::verify`
-        // strips the STATE off resource arguments. Both must resolve, so element
-        // insertion compares element and item by their bare resource type.
-        let list = "List OF RES File STATE Cursor";
-
-        // Item carrying its STATE (syntaxcheck's shape) resolves.
-        assert_eq!(
-            rc(resolve_append(&strings(&[list, "File STATE Cursor"]))),
-            Some(list.to_string())
-        );
-        // Item stripped to the bare handle (`ir::verify`'s shape) also resolves.
-        assert_eq!(
-            rc(resolve_append(&strings(&[list, "File"]))),
-            Some(list.to_string())
-        );
-        // A genuinely different resource is still rejected.
-        assert_eq!(rc(resolve_append(&strings(&[list, "Socket"]))), None);
-
-        // `get` returns the element type WITH its STATE clause, so an extracted
-        // element's `.state` types against the union's uniform STATE.
-        assert_eq!(
-            rc(resolve_get(&strings(&[list, "Integer"]))),
-            Some("File STATE Cursor".to_string())
-        );
-
-        // prepend / insert / set share the same STATE-agnostic item compare.
-        assert_eq!(
-            rc(resolve_prepend(&strings(&[list, "File"]))),
-            Some(list.to_string())
-        );
-        assert_eq!(
-            rc(resolve_insert(&strings(&[
-                list,
-                "Integer",
-                "File STATE Cursor"
-            ]))),
-            Some(list.to_string())
-        );
-        assert_eq!(
-            rc(resolve_set(&strings(&[list, "Integer", "File"]))),
-            Some(list.to_string())
-        );
-
-        // Map values carry the same treatment.
-        let map = "Map OF String TO RES File STATE Cursor";
-        assert_eq!(
-            rc(resolve_set(&strings(&[map, "String", "File"]))),
-            Some(map.to_string())
-        );
-        assert_eq!(
-            rc(resolve_get_or(&strings(&[
-                map,
-                "String",
-                "File STATE Cursor"
-            ]))),
-            Some("File STATE Cursor".to_string())
-        );
-    }
-
-    #[test]
-    fn resolve_remove_at_and_key() {
-        assert_eq!(
-            rc(resolve_remove_at(&strings(&["List OF Integer", "Integer"]))),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rc(resolve_remove_at(&strings(&["List OF Integer", "String"]))),
-            None
-        );
-        assert_eq!(
-            rc(resolve_remove_at(&strings(&["Integer", "Integer"]))),
-            None
-        );
-
-        assert_eq!(
-            rc(resolve_remove_key(&strings(&[
-                "Map OF String TO Integer",
-                "String"
-            ]))),
-            Some("Map OF String TO Integer".to_string())
-        );
-        assert_eq!(
-            rc(resolve_remove_key(&strings(&[
-                "Map OF String TO Integer",
-                "Integer"
-            ]))),
-            None
-        );
-        assert_eq!(rc(resolve_remove_key(&strings(&["Integer", "a"]))), None);
-        assert_eq!(
-            rc(resolve_remove_key(&strings(&["Map OF String TO Integer"]))),
-            None
-        );
-    }
-
-    #[test]
-    fn resolve_keys_values() {
-        assert_eq!(
-            rc(resolve_keys(&strings(&["Map OF String TO Integer"]))),
-            Some("List OF String".to_string())
-        );
-        assert_eq!(rc(resolve_keys(&strings(&["Integer"]))), None);
-        assert_eq!(
-            rc(resolve_keys(&strings(&["Map OF String TO Integer", "x"]))),
-            None
-        );
-        assert_eq!(
-            rc(resolve_values(&strings(&["Map OF String TO Integer"]))),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(rc(resolve_values(&strings(&["Integer"]))), None);
-        assert_eq!(
-            rc(resolve_values(&strings(&["Map OF String TO Integer", "x"]))),
-            None
-        );
-    }
-
-    #[test]
-    fn resolve_has_key_contains() {
-        assert_eq!(
-            rc(resolve_has_key(&strings(&[
-                "Map OF String TO Integer",
-                "String"
-            ]))),
-            Some("Boolean".to_string())
-        );
-        assert_eq!(
-            rc(resolve_has_key(&strings(&[
-                "Map OF String TO Integer",
-                "Integer"
-            ]))),
-            None
-        );
-        assert_eq!(rc(resolve_has_key(&strings(&["Integer", "a"]))), None);
-        assert_eq!(
-            rc(resolve_has_key(&strings(&["Map OF String TO Integer"]))),
-            None
-        );
-
-        assert_eq!(
-            rc(resolve_contains(&strings(&["List OF Integer", "Integer"]))),
-            Some("Boolean".to_string())
-        );
-        assert_eq!(
-            rc(resolve_contains(&strings(&["List OF Integer", "String"]))),
-            None
-        );
-        assert_eq!(
-            rc(resolve_contains(&strings(&["Integer", "Integer"]))),
-            None
-        );
-        assert_eq!(rc(resolve_contains(&strings(&["List OF Integer"]))), None);
-    }
-
-    #[test]
-    fn resolve_sum_cases() {
-        assert_eq!(
-            rc(resolve_sum(&strings(&["List OF Integer"]))),
-            Some("Integer".to_string())
-        );
-        assert_eq!(
-            rc(resolve_sum(&strings(&["List OF Float"]))),
-            Some("Float".to_string())
-        );
-        assert_eq!(
-            rc(resolve_sum(&strings(&["List OF Fixed"]))),
-            Some("Fixed".to_string())
-        );
-        assert_eq!(rc(resolve_sum(&strings(&["List OF String"]))), None);
-        assert_eq!(rc(resolve_sum(&strings(&["List OF Integer", "x"]))), None);
-    }
-
-    #[test]
-    fn resolve_for_each_transform_filter_reduce() {
-        assert_eq!(
-            rc(resolve_for_each(&strings(&[
-                "List OF Integer",
-                "FUNC(Integer) AS Nothing"
-            ]))),
-            Some("Nothing".to_string())
-        );
-        // wrong return
-        assert_eq!(
-            rc(resolve_for_each(&strings(&[
-                "List OF Integer",
-                "FUNC(Integer) AS Boolean"
-            ]))),
-            None
-        );
-        // wrong element
-        assert_eq!(
-            rc(resolve_for_each(&strings(&[
-                "List OF Integer",
-                "FUNC(String) AS Nothing"
-            ]))),
-            None
-        );
-        assert_eq!(rc(resolve_for_each(&strings(&["Integer", "x"]))), None);
-        assert_eq!(rc(resolve_for_each(&strings(&["List OF Integer"]))), None);
-
-        assert_eq!(
-            rc(resolve_transform(&strings(&[
-                "List OF Integer",
-                "FUNC(Integer) AS String"
-            ]))),
+            rt("collections.keys", &["Map OF String TO Integer"]),
             Some("List OF String".to_string())
         );
         assert_eq!(
-            rc(resolve_transform(&strings(&[
-                "List OF Integer",
-                "FUNC(Integer) AS Nothing"
-            ]))),
-            None
-        );
-        assert_eq!(rc(resolve_transform(&strings(&["Integer", "x"]))), None);
-        assert_eq!(rc(resolve_transform(&strings(&["List OF Integer"]))), None);
-
-        assert_eq!(
-            rc(resolve_filter(&strings(&[
-                "List OF Integer",
-                "FUNC(Integer) AS Boolean"
-            ]))),
+            rt("collections.append", &["List OF Integer", "Integer"]),
             Some("List OF Integer".to_string())
         );
+        // RES marker preserved + STATE-agnostic (bug-427).
         assert_eq!(
-            rc(resolve_filter(&strings(&[
-                "List OF Integer",
-                "FUNC(Integer) AS Integer"
-            ]))),
-            None
-        );
-        assert_eq!(rc(resolve_filter(&strings(&["Integer", "x"]))), None);
-        assert_eq!(rc(resolve_filter(&strings(&["List OF Integer"]))), None);
-
-        assert_eq!(
-            rc(resolve_reduce(&strings(&[
-                "List OF Integer",
-                "String",
-                "FUNC(String, Integer) AS String"
-            ]))),
-            Some("String".to_string())
-        );
-        assert_eq!(
-            rc(resolve_reduce(&strings(&[
-                "List OF Integer",
-                "String",
-                "FUNC(String, Integer) AS Integer"
-            ]))),
-            None
-        );
-        assert_eq!(rc(resolve_reduce(&strings(&["Integer", "a", "b"]))), None);
-        assert_eq!(
-            rc(resolve_reduce(&strings(&["List OF Integer", "String"]))),
-            None
-        );
-    }
-
-    #[test]
-    fn higher_order_resolvers_accept_function_valued_elements() {
-        // `transform` over a list of two-argument function values: the mapper's
-        // sole parameter *is* the element type, so the call must resolve.
-        let element = "FUNC(Integer, Integer) AS Integer";
-        let mapper = strings(&[
-            &format!("List OF {element}"),
-            &format!("FUNC({element}) AS String"),
-        ]);
-        let resolved =
-            resolve_transform(&mapper).expect("transform over function-valued elements resolves");
-        assert_eq!(resolved.return_type, "List OF String");
-
-        let predicate = strings(&[
-            &format!("List OF {element}"),
-            &format!("FUNC({element}) AS Boolean"),
-        ]);
-        let resolved =
-            resolve_filter(&predicate).expect("filter over function-valued elements resolves");
-        assert_eq!(resolved.return_type, format!("List OF {element}"));
-
-        // A mapper whose parameter is a *different* function type still fails.
-        let mismatched = strings(&[
-            &format!("List OF {element}"),
-            "FUNC(FUNC(String) AS Integer) AS String",
-        ]);
-        assert!(resolve_transform(&mismatched).is_none());
-    }
-
-    /// The `const fn` descriptor constructors (`req`/`opt`/`native`/`custom`) are
-    /// only invoked in `const` context by `COLLECTIONS_FUNCTIONS`, so they carry
-    /// no runtime coverage. Call each at runtime and assert the fields it builds.
-    #[test]
-    fn const_constructors_build_expected_fields() {
-        let r = req("value", &["collection"], "List OF T");
-        assert_eq!(r.name, "value");
-        assert_eq!(r.aliases, &["collection"]);
-        assert_eq!(r.ty, ParameterType::Named("List OF T"));
-        assert_eq!(r.default, DefaultValue::None);
-
-        // `opt`'s `Fill` is inert (empty `expr`); it exists only so `arity`
-        // derives `find`'s `(2, 3)` range.
-        let o = opt("start", &[], "Integer");
-        assert_eq!(o.name, "start");
-        assert!(o.aliases.is_empty());
-        assert_eq!(o.ty, ParameterType::Named("Integer"));
-        assert_eq!(
-            o.default,
-            DefaultValue::Fill {
-                type_name: "Integer",
-                expr: ""
-            }
-        );
-
-        // `custom` takes a `&'static [Parameter]`; a runtime temporary would be
-        // E0716, so the parameter slice is a `const`.
-        const PARAMS: &[Parameter] = &[req("value", &[], "List OF T")];
-        let overload = custom(PARAMS);
-        assert_eq!(overload.return_type, ReturnType::Custom);
-        assert_eq!(overload.params.len(), 1);
-        assert_eq!(overload.params[0].name, "value");
-
-        // `native` takes a `&'static [BuiltinOverload]`; the overloads are a `const`.
-        const OVS: &[BuiltinOverload] = &[custom(&[req("value", &[], "List OF T")])];
-        let f = native("collections.get", "get", "into", "desc", &[], OVS);
-        assert_eq!(f.name, "collections.get");
-        assert_eq!(f.doc_slug, "get");
-        assert_eq!(f.doc_intro, "into");
-        assert_eq!(f.doc_desc, "desc");
-        assert_eq!(f.overloads.len(), 1);
-        assert_eq!(f.implementation, Implementation::Same);
-        assert_eq!(f.lowering, Lowering::Helper);
-        assert_eq!(f.flags, BuiltinFlags::default());
-    }
-
-    #[test]
-    fn resolve_set_members() {
-        // `add(Set OF T, T) AS Set OF T` — element must match.
-        assert_eq!(
-            rc(resolve_set_add(&strings(&["Set OF Integer", "Integer"]))),
-            Some("Set OF Integer".to_string())
-        );
-        assert_eq!(
-            rc(resolve_set_add(&strings(&["Set OF Integer", "String"]))),
-            None
-        );
-        // A List is not a Set here — `set_element` returns None.
-        assert_eq!(
-            rc(resolve_set_add(&strings(&["List OF Integer", "Integer"]))),
-            None
-        );
-        assert_eq!(rc(resolve_set_add(&strings(&["Set OF Integer"]))), None);
-
-        // `remove(Set OF T, T) AS Set OF T`.
-        assert_eq!(
-            rc(resolve_set_remove(&strings(&["Set OF Integer", "Integer"]))),
-            Some("Set OF Integer".to_string())
-        );
-        assert_eq!(
-            rc(resolve_set_remove(&strings(&["Set OF Integer", "String"]))),
-            None
-        );
-        assert_eq!(
-            rc(resolve_set_remove(&strings(&[
-                "List OF Integer",
-                "Integer"
-            ]))),
-            None
-        );
-        assert_eq!(rc(resolve_set_remove(&strings(&["Set OF Integer"]))), None);
-
-        // `toList(Set OF T) AS List OF T`.
-        assert_eq!(
-            rc(resolve_set_to_list(&strings(&["Set OF Integer"]))),
-            Some("List OF Integer".to_string())
-        );
-        assert_eq!(
-            rc(resolve_set_to_list(&strings(&["List OF Integer"]))),
-            None
-        );
-        assert_eq!(
-            rc(resolve_set_to_list(&strings(&["Set OF Integer", "x"]))),
-            None
-        );
-
-        // Through the full descriptor -> resolver -> `dispatch_resolve` path
-        // (the `add`/`remove`/`toList` arms).
-        assert_eq!(
-            rt("collections.add", &["Set OF Integer", "Integer"]),
-            Some("Set OF Integer".to_string())
-        );
-        assert_eq!(
-            rt("collections.remove", &["Set OF Integer", "Integer"]),
-            Some("Set OF Integer".to_string())
+            rt(
+                "collections.append",
+                &["List OF RES File STATE Cursor", "File"]
+            ),
+            Some("List OF RES File STATE Cursor".to_string())
         );
         assert_eq!(
             rt("collections.toList", &["Set OF Integer"]),
             Some("List OF Integer".to_string())
         );
+        assert_eq!(
+            rt(
+                "collections.transform",
+                &["List OF Integer", "FUNC(Integer) AS String"]
+            ),
+            Some("List OF String".to_string())
+        );
+        assert_eq!(
+            rt(
+                "collections.reduce",
+                &[
+                    "List OF Integer",
+                    "String",
+                    "FUNC(String, Integer) AS String"
+                ]
+            ),
+            Some("String".to_string())
+        );
+        assert_eq!(
+            rt(
+                "collections.filter",
+                &["List OF Integer", "FUNC(Integer) AS Boolean"]
+            ),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rt("collections.sum", &["List OF Integer"]),
+            Some("Integer".to_string())
+        );
+        // Wrong-type rejection.
+        assert_eq!(rt("collections.get", &["List OF Integer", "String"]), None);
     }
 }

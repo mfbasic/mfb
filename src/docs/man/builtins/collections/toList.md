@@ -45,13 +45,13 @@ error, so an inline `TRAP` written on a `toList` call has a dead handler.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Set OF T` | The set whose elements are listed, in insertion order. Also accepted under the name `set`. Must be a set type; passing a `List` or a scalar resolves no overload and is a compile-time error. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/builtins/collections/mod.rs:resolve_set_to_list]] |
+| `value` | `Set OF T` | The set whose elements are listed, in insertion order. Also accepted under the name `set`. Must be a set type; passing a `List` or a scalar resolves no overload and is a compile-time error. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF T` | A new list with the elements of `value` in insertion order; its length equals `len(value)`, and it holds no duplicates. [[src/codegen/builtins/collections/mod.rs:resolve_set_to_list]] |
+| `List OF T` | A new list with the elements of `value` in insertion order; its length equals `len(value)`, and it holds no duplicates. [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Errors
 
@@ -62,7 +62,7 @@ No errors.
 The single argument must be a `Set OF T`; a `List`, a `Map`, or any other value
 resolves no overload and is rejected at compile time. The result type is
 `List OF T` for the set's element type `T`.
-[[src/codegen/builtins/collections/mod.rs:resolve_set_to_list]]
+[[src/codegen/registry/mod.rs:resolve_call]]
 [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 ## Examples

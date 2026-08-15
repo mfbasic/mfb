@@ -1028,16 +1028,17 @@ impl BuiltinRegistry {
 /// legacy per-package helper (the `mod.rs` adapters fall back on a registry
 /// miss). BB then deletes the legacy helpers the adapters fall back to.
 ///
-/// Migrated so far: `app` (B), `bits` (D), `collections` (E), `csv` (G),
+/// Migrated so far: `app` (B), `bits` (D), `csv` (G),
 /// `crypto` (F), `audio` (C), `datetime` (H), `encoding` (I), `errorCode` (J),
 /// `fs` (K), `general` (L), `http` (M), `io` (N), `json` (O), `math` (P),
 /// `money` (Q), `net` (R), `os` (S), `regex` (T), `resource` (U), `strings` (V),
-/// `term` (W), `testing` (X).
+/// `term` (W), `testing` (X). `collections`, `csv`, `json`, and `regex` have moved
+/// on to the clean-room registry (`crate::codegen::registry`) and are no longer held here.
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
     &crate::builtins::astrings::ASTRINGS,
     &crate::builtins::bits::BITS,
-    &crate::codegen::builtins::collections::COLLECTIONS,
+    // collections migrated to the clean-room registry (crate::codegen::registry).
     // csv migrated to the clean-room registry (crate::codegen::registry).
     &crate::builtins::crypto::CRYPTO,
     &crate::builtins::audio::AUDIO,
@@ -1752,13 +1753,14 @@ mod tests {
         // plan-90-A: the `process` package (opaque Process resource). Its callable
         // surface lands in Phase 2/sub-plans, so only the module is asserted here.
         assert!(REGISTRY.module("process").is_some());
-        // csv / json / regex have migrated onto the clean-room registry
-        // (`crate::codegen::registry`) and are no longer held here.
+        // collections / csv / json / regex have migrated onto the clean-room
+        // registry (`crate::codegen::registry`) and are no longer held here.
+        assert!(REGISTRY.module("collections").is_none());
         assert!(REGISTRY.module("csv").is_none());
         assert!(REGISTRY.module("json").is_none());
         assert!(REGISTRY.module("regex").is_none());
-        // The 28 builtin packages minus the 3 migrated to the clean-room registry.
-        assert_eq!(REGISTRY.modules().len(), 25);
+        // The 28 builtin packages minus the 4 migrated to the clean-room registry.
+        assert_eq!(REGISTRY.modules().len(), 24);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);
@@ -1777,30 +1779,6 @@ mod tests {
                     function.name,
                     function.doc_intro.len()
                 );
-            }
-        }
-    }
-
-    #[test]
-    fn native_lowering_only_in_collections() {
-        // plan-95/96: migrated members carry `Implementation::Native` (reached by the
-        // codegen dual-path seam). The set grows one batch at a time as `collections`
-        // members migrate; the stable invariant is that EVERY `Native`-lowered
-        // function is a `collections` member (no other package has migrated yet), and
-        // `get` (the first) is among them.
-        let (_, get) = REGISTRY
-            .function("collections.get")
-            .expect("collections.get is registered");
-        assert!(get.native_lower().is_some());
-        for module in REGISTRY.modules() {
-            for function in module.functions {
-                if function.native_lower().is_some() {
-                    assert_eq!(
-                        module.name, "collections",
-                        "{} is Native-lowered but not a collections member",
-                        function.name
-                    );
-                }
             }
         }
     }

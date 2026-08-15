@@ -1,11 +1,12 @@
 //! `collections::remove` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::set_element_type;
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_REMOVE: &str = "Return a set with one element removed, leaving the argument unchanged";
 const DESC_REMOVE: &str = r#"`collections::remove` returns a new `Set OF T` containing every element of
@@ -54,19 +55,28 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const REMOVE: BuiltinFunction = BuiltinFunction::native(
-    "collections.remove",
-    "remove",
-    INTO_REMOVE,
-    DESC_REMOVE,
-    &[],
-    &[custom(&[
-        req("value", &["set"], "Set OF T"),
-        req("item", &["element"], "T"),
-    ])],
-    lower_remove,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "remove",
+        intro: INTO_REMOVE,
+        desc: DESC_REMOVE,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                super::param(
+                    "value",
+                    &["set"],
+                    ParameterType::set_of(ParameterType::Var("T")),
+                ),
+                super::param("item", &["element"], ParameterType::Var("T")),
+            ],
+            return_type: ParameterType::Arg(0),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::native(None, None, Some(lower_remove)),
+        }],
+    });
+}
 
 /// `collections::remove(Set OF T, T) AS Set OF T` (plan-63-B): remove an element
 /// (no-op if absent). Reuses `lower_map_remove_key` with the element as the key.

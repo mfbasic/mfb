@@ -1,13 +1,14 @@
 //! `collections::transform` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{callable_return_type, list_element_type};
 use crate::target::shared::code::{
     CodeBuilder, Operand, ValueResult, RESULT_OK_TAG, RESULT_TAG_REGISTER, RESULT_VALUE_REGISTER,
 };
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_TRANSFORM: &str =
     "Map every element of a list through a function and collect the results";
@@ -96,19 +97,32 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const TRANSFORM: BuiltinFunction = BuiltinFunction::native(
-    "collections.transform",
-    "transform",
-    INTO_TRANSFORM,
-    DESC_TRANSFORM,
-    &[],
-    &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("f", &["transform"], "FUNC(T) AS U"),
-    ])],
-    lower_transform,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "transform",
+        intro: INTO_TRANSFORM,
+        desc: DESC_TRANSFORM,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                super::param(
+                    "value",
+                    &["collection"],
+                    ParameterType::list_of(ParameterType::Var("T")),
+                ),
+                super::param(
+                    "f",
+                    &["transform"],
+                    ParameterType::func(vec![ParameterType::Var("T")], ParameterType::Var("U")),
+                ),
+            ],
+            return_type: ParameterType::list_of(ParameterType::Var("U")),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::native(None, None, Some(lower_transform)),
+        }],
+    });
+}
 
 /// `collections::transform(List OF T, FUNC(T) AS U) AS List OF U`: map each
 /// element through `f`, appending the results to a pre-sized output list.

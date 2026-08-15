@@ -1514,10 +1514,7 @@ impl CodeBuilder<'_> {
         target: &str,
         args: &[NirValue],
     ) -> Option<Result<ValueResult, String>> {
-        let lower = crate::target::shared::registry::REGISTRY
-            .function(target)?
-            .1
-            .native_lower()?;
+        let lower = crate::codegen::registry::native_lower(target)?;
         Some(lower(self, args))
     }
 
@@ -1533,12 +1530,7 @@ impl CodeBuilder<'_> {
         target: &str,
         args: &[NirValue],
     ) -> Option<Result<ValueResult, String>> {
-        let member = target.strip_prefix("#collections_")?.split('$').next()?;
-        let qualified = format!("collections.{member}");
-        let fast_path = crate::target::shared::registry::REGISTRY
-            .function(&qualified)?
-            .1
-            .mfb_fast_path()?;
+        let fast_path = crate::codegen::builtins::collections::mfb_fast_path(target)?;
         fast_path(self, target, args).transpose()
     }
 

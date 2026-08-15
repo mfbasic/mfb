@@ -29,7 +29,7 @@ and `valFn` over every item to produce the value stored in that group's bucket.
 Both projections run over the entire list up front, via `collections::transform`,
 before any bucket is written. It then walks the two projected lists in parallel
 in list order, appending each projected value to the bucket for its key, creating
-the bucket on first use. [[src/codegen/builtins/collections/func_group_by.rs:__collections_groupBy]]
+the bucket on first use. [[src/codegen/builtins/collections/package.mfb:__collections_groupBy]]
 
 Because the walk proceeds in list order and each value is appended to the end of
 its bucket, the items inside a bucket appear in the same relative order they had
@@ -40,7 +40,7 @@ two items that produce equal keys *and* equal values both appear.
 groups items by a key and stores the original items — pass an identity `FUNC` as
 `valFn` to get that behavior. Calling it with two arguments is a compile-time
 error, because the compiler cannot infer the template argument `V` (it appears
-only in the return type). [[src/codegen/builtins/collections/func_group_by.rs:__collections_groupBy]]
+only in the return type). [[src/codegen/builtins/collections/package.mfb:__collections_groupBy]]
 
 `value` is not modified; the result is a newly built map. The key type `K` must
 be a usable map key type, since the result is a `Map OF K TO List OF V`.
@@ -49,7 +49,7 @@ be a usable map key type, since the result is a `Map OF K TO List OF V`.
 ordinary calls. If either callback fails, its error propagates out of `groupBy`
 to the caller and can be caught by the caller's `TRAP` block; the partially built
 map is discarded. `groupBy` itself raises no error of its own.
-[[src/codegen/builtins/collections/func_group_by.rs:__collections_groupBy]]
+[[src/codegen/builtins/collections/package.mfb:__collections_groupBy]]
 
 Either callback may be a named `FUNC` or a `LAMBDA` expression, since both
 produce a function value of the required type.
@@ -59,15 +59,15 @@ produce a function value of the required type.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to group. May be empty, in which case the result is an empty map. Not modified. [[src/codegen/builtins/collections/func_group_by.rs:__collections_groupBy]] |
-| `keyFn` | `FUNC(T) AS K` | Projection producing the group key for an item. Applied to every item of `value`, including items whose key already exists. [[src/codegen/builtins/collections/func_group_by.rs:__collections_groupBy]] |
-| `valFn` | `FUNC(T) AS V` | Projection producing the value stored in the group's bucket for an item. Applied to every item of `value`. [[src/codegen/builtins/collections/func_group_by.rs:__collections_groupBy]] |
+| `value` | `List OF T` | The list to group. May be empty, in which case the result is an empty map. Not modified. [[src/codegen/builtins/collections/package.mfb:__collections_groupBy]] |
+| `keyFn` | `FUNC(T) AS K` | Projection producing the group key for an item. Applied to every item of `value`, including items whose key already exists. [[src/codegen/builtins/collections/package.mfb:__collections_groupBy]] |
+| `valFn` | `FUNC(T) AS V` | Projection producing the value stored in the group's bucket for an item. Applied to every item of `value`. [[src/codegen/builtins/collections/package.mfb:__collections_groupBy]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Map OF K TO List OF V` | A new map holding one entry per distinct key produced by `keyFn`. Each entry's value is the list of `valFn` results for the items that produced that key, in their original list order. Empty when `value` is empty. [[src/codegen/builtins/collections/func_group_by.rs:__collections_groupBy]] |
+| `Map OF K TO List OF V` | A new map holding one entry per distinct key produced by `keyFn`. Each entry's value is the list of `valFn` results for the items that produced that key, in their original list order. Empty when `value` is empty. [[src/codegen/builtins/collections/package.mfb:__collections_groupBy]] |
 
 ## Errors
 
@@ -80,7 +80,7 @@ No errors.
 by `valFn`. All three are inferred from the argument types, so every one of them
 must be determined by an argument — `V` cannot be supplied from the annotation on
 the binding that receives the result. `K` must be a valid map key type.
-[[src/codegen/builtins/collections/func_group_by.rs:__collections_groupBy]]
+[[src/codegen/builtins/collections/package.mfb:__collections_groupBy]]
 
 ## Examples
 

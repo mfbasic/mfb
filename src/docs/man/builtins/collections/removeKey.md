@@ -71,7 +71,7 @@ is not a trappable domain error in this language.
 
 | Type | Description |
 | --- | --- |
-| `Map OF K TO V` | A new owned map of the same type, holding every entry of `value` except the one for `key`. Has one fewer entry than `value` when `key` was present, and the same entries as `value` when it was not. [[src/codegen/builtins/collections/mod.rs:resolve_remove_key]] |
+| `Map OF K TO V` | A new owned map of the same type, holding every entry of `value` except the one for `key`. Has one fewer entry than `value` when `key` was present, and the same entries as `value` when it was not. [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Errors
 
@@ -86,7 +86,7 @@ The first must be a `Map OF K TO V`; a `List` or any non-map value is a
 compile-time type error, and there is no list counterpart here — use
 `collections::removeAt` to drop a list item by index. The second must be exactly
 the map key type `K`. The result has the same map type as the first argument.
-[[src/codegen/builtins/collections/mod.rs:resolve_remove_key]]
+[[src/codegen/registry/mod.rs:resolve_call]]
 
 ## Examples
 

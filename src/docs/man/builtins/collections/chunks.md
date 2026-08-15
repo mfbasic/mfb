@@ -29,7 +29,7 @@ forward, stopping early at the end of the list. The result is a list of those
 blocks. It is a generic function written in MFBASIC source, rewritten to the
 internal `__collections_chunks` generic and instantiated for the element type
 `T` during monomorphization. [[src/codegen/builtins/collections/mod.rs:internal_name]]
-[[src/codegen/builtins/collections/func_chunks.rs:__collections_chunks]]
+[[src/codegen/builtins/collections/package.mfb:__collections_chunks]]
 
 Because the step and the block length are both `chunkSize`, the blocks are
 consecutive and never overlap, and concatenating them reproduces `value`
@@ -37,16 +37,16 @@ exactly. Every block holds exactly `chunkSize` elements except possibly the
 last: when the length of `value` is not a multiple of `chunkSize`, the final
 block holds the remainder, which is between 1 and `chunkSize - 1` elements. No
 padding element is ever inserted.
-[[src/codegen/builtins/collections/func_chunks.rs:__collections_chunks]]
+[[src/codegen/builtins/collections/package.mfb:__collections_chunks]]
 
 An empty `value` produces an empty result — the loop never runs, so there is no
 empty leading block. A `value` shorter than `chunkSize` produces exactly one
 block holding the whole list.
-[[src/codegen/builtins/collections/func_chunks.rs:__collections_chunks]]
+[[src/codegen/builtins/collections/package.mfb:__collections_chunks]]
 
 `chunkSize` must be at least 1. A `chunkSize` below 1 is rejected at runtime
 with `ErrInvalidArgument`; there is no clamping and no default, so the argument
-is always required. [[src/codegen/builtins/collections/func_chunks.rs:__collections_chunks]]
+is always required. [[src/codegen/builtins/collections/package.mfb:__collections_chunks]]
 
 Each block is built by the internal slice helper, which is lowered natively as a
 bulk range copy, so element payloads are copied into freshly allocated lists and
@@ -58,20 +58,20 @@ no block shares storage with `value`. `value` is not modified.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to split. Any length is accepted; the empty list yields an empty result. Named-argument spelling is `value`. [[src/codegen/builtins/collections/func_chunks.rs:__collections_chunks]] |
-| `chunkSize` | `Integer` | The block length and the step between blocks. Must be 1 or greater; there is no default. Named-argument spelling is `chunkSize`. [[src/codegen/builtins/collections/func_chunks.rs:__collections_chunks]] |
+| `value` | `List OF T` | The list to split. Any length is accepted; the empty list yields an empty result. Named-argument spelling is `value`. [[src/codegen/builtins/collections/package.mfb:__collections_chunks]] |
+| `chunkSize` | `Integer` | The block length and the step between blocks. Must be 1 or greater; there is no default. Named-argument spelling is `chunkSize`. [[src/codegen/builtins/collections/package.mfb:__collections_chunks]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF List OF T` | The consecutive blocks of `value` in order, each of length `chunkSize` except possibly a shorter final block. The empty list when `value` is empty. Its length is `len(value)` divided by `chunkSize`, rounded up. [[src/codegen/builtins/collections/func_chunks.rs:__collections_chunks]] |
+| `List OF List OF T` | The consecutive blocks of `value` in order, each of length `chunkSize` except possibly a shorter final block. The empty list when `value` is empty. Its length is `len(value)` divided by `chunkSize`, rounded up. [[src/codegen/builtins/collections/package.mfb:__collections_chunks]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `chunkSize` is less than 1. [[src/codegen/builtins/collections/func_chunks.rs:__collections_chunks]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050002` | `ErrInvalidArgument` | `chunkSize` is less than 1. [[src/codegen/builtins/collections/package.mfb:__collections_chunks]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
 | `77010001` | `ErrOutOfMemory` | The arena cannot allocate a block or the result list, or a computed size overflows. [[src/codegen/builtins/collections/common/slice.rs:lower_list_slice_range]] [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Type checking

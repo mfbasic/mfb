@@ -44,7 +44,7 @@ the result is equal to `value`.
 Only the **List** overload of `replace` lives in `collections`. The `String`
 overload — replacing a substring within a `String` — is a different function that
 lives in `strings::`. A `String` first argument does not resolve here.
-[[src/codegen/builtins/collections/mod.rs:resolve_replace_list]]
+[[src/codegen/registry/mod.rs:resolve_call]]
 
 `replace` is value-semantic. The list named by `value` is unchanged; the modified
 list is the returned value, and a program observes the update only through what
@@ -65,15 +65,15 @@ error in this language. [[src/builtins/mod.rs:inline_builtin_is_infallible]]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to scan; left unchanged. Also accepted under the name `list`. Must be a list type; a `String` argument selects `strings::replace` instead and does not resolve here. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/builtins/collections/mod.rs:resolve_replace_list]] |
-| `old` | `T` | The element value to look for. Every element equal to it is replaced. Also accepted under the name `needle`. Its type must be exactly the element type `T`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/builtins/collections/mod.rs:resolve_replace_list]] |
-| `new` | `T` | The element value written in place of each match. Also accepted under the name `replacement`. Its type must be exactly the element type `T`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/builtins/collections/mod.rs:resolve_replace_list]] |
+| `value` | `List OF T` | The list to scan; left unchanged. Also accepted under the name `list`. Must be a list type; a `String` argument selects `strings::replace` instead and does not resolve here. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `old` | `T` | The element value to look for. Every element equal to it is replaced. Also accepted under the name `needle`. Its type must be exactly the element type `T`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `new` | `T` | The element value written in place of each match. Also accepted under the name `replacement`. Its type must be exactly the element type `T`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF T` | A new list of the same type and the same length as `value`, with every occurrence of `old` replaced by `new`. Equal to `value` when `old` does not occur, and empty when `value` is empty. [[src/codegen/builtins/collections/mod.rs:resolve_replace_list]] |
+| `List OF T` | A new list of the same type and the same length as `value`, with every occurrence of `old` replaced by `new`. Equal to `value` when `old` does not occur, and empty when `value` is empty. [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Errors
 
@@ -86,7 +86,7 @@ exactly that list's element type `T`. There is no implicit widening or
 conversion, so `replace` on a `List OF Float` does not accept an `Integer`
 needle. Any other combination — a non-list first argument, a mismatched `old` or
 `new`, or a wrong argument count — resolves to no overload and is rejected at
-compile time. [[src/codegen/builtins/collections/mod.rs:resolve_replace_list]]
+compile time. [[src/codegen/registry/mod.rs:resolve_call]]
 
 ## Examples
 

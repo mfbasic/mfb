@@ -1,9 +1,10 @@
 //! `collections::reduceRight` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_REDUCE_RIGHT: &str =
     "Fold a list into a single value, walking from the last item to the first";
@@ -86,20 +87,36 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const REDUCE_RIGHT: BuiltinFunction = BuiltinFunction::native(
-    "collections.reduceRight",
-    "reduceRight",
-    INTO_REDUCE_RIGHT,
-    DESC_REDUCE_RIGHT,
-    &[],
-    &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("initial", &["seed"], "U"),
-        req("f", &["combine"], "FUNC(U, T) AS U"),
-    ])],
-    lower_reduce_right,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "reduceRight",
+        intro: INTO_REDUCE_RIGHT,
+        desc: DESC_REDUCE_RIGHT,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                super::param(
+                    "value",
+                    &["collection"],
+                    ParameterType::list_of(ParameterType::Var("T")),
+                ),
+                super::param("initial", &["seed"], ParameterType::Var("U")),
+                super::param(
+                    "f",
+                    &["combine"],
+                    ParameterType::func(
+                        vec![ParameterType::Var("U"), ParameterType::Var("T")],
+                        ParameterType::Var("U"),
+                    ),
+                ),
+            ],
+            return_type: ParameterType::Arg(1),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::native(None, None, Some(lower_reduce_right)),
+        }],
+    });
+}
 
 /// `collections::reduceRight(List OF T, U, FUNC(U, T) AS U) AS U`: right fold.
 /// The shared fold machinery, walked tail-to-head.

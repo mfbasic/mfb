@@ -31,11 +31,11 @@ instantiating an MFBASIC generic. [[src/codegen/builtins/collections/mod.rs:is_n
 
 This page documents the `List` form only. `collections::mid` accepts nothing but
 a `List` as its first argument; the `String` slice of the same name lives in
-`strings::`. [[src/codegen/builtins/collections/mod.rs:resolve_mid_list]]
+`strings::`. [[src/codegen/registry/mod.rs:resolve_call]]
 
 All three arguments are required — there is no two-argument "to the end" form —
 and `start` and `count` must both be exactly `Integer`.
-[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]] [[src/codegen/builtins/collections/mod.rs:resolve_mid_list]]
+[[src/codegen/builtins/collections/mod.rs:COLLECTIONS]] [[src/codegen/registry/mod.rs:resolve_call]]
 
 The range is **validated, not clamped**. Before any element is copied the
 lowering checks, in order, that `start` is not negative, that `count` is not
@@ -54,7 +54,7 @@ returns an empty list.
 The result is a freshly allocated, independently owned list of the same type as
 `value`; `value` itself is neither modified nor consumed, and element payloads
 are copied into the new list's own data region rather than shared.
-[[src/codegen/builtins/collections/mod.rs:resolve_mid_list]]
+[[src/codegen/registry/mod.rs:resolve_call]]
 [[src/target/shared/code/builder_search.rs:lower_list_mid]]
 
 `mid` copies the selected run using a fast contiguous path when the source
@@ -68,7 +68,7 @@ the same. [[src/target/shared/code/builder_search.rs:lower_list_mid]]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to slice. Must be a `List`; a `String` first argument selects `strings::mid` instead. Also accepted under the name `list`. [[src/codegen/builtins/collections/mod.rs:resolve_mid_list]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `value` | `List OF T` | The list to slice. Must be a `List`; a `String` first argument selects `strings::mid` instead. Also accepted under the name `list`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
 | `start` | `Integer` | Zero-based index of the first element to take. Must be `0` or greater and no greater than the length of `value`. Required — it has no default. There is no alternate name for this parameter. [[src/target/shared/code/builder_search.rs:lower_list_mid]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
 | `count` | `Integer` | How many elements to take. Must be `0` or greater, and `start + count` must not exceed the length of `value`. Required. There is no alternate name for this parameter. [[src/target/shared/code/builder_search.rs:lower_list_mid]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
 
@@ -76,7 +76,7 @@ the same. [[src/target/shared/code/builder_search.rs:lower_list_mid]]
 
 | Type | Description |
 | --- | --- |
-| `List OF T` | A new list of the same type as `value` holding exactly `count` elements starting at index `start`, in their original order. An empty list when `count` is `0`. [[src/codegen/builtins/collections/mod.rs:resolve_mid_list]] [[src/target/shared/code/builder_search.rs:lower_list_mid]] |
+| `List OF T` | A new list of the same type as `value` holding exactly `count` elements starting at index `start`, in their original order. An empty list when `count` is `0`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/target/shared/code/builder_search.rs:lower_list_mid]] |
 
 ## Errors
 
@@ -90,7 +90,7 @@ the same. [[src/target/shared/code/builder_search.rs:lower_list_mid]]
 must both be exactly `Integer`; no other numeric type is accepted and no
 conversion is applied. The call takes exactly three arguments, and the result
 type is the same `List OF T` as the input.
-[[src/codegen/builtins/collections/mod.rs:resolve_mid_list]] [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
+[[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 ## Examples
 

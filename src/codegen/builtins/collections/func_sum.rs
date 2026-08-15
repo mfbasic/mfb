@@ -1,6 +1,8 @@
 //! `collections::sum` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::list_element_type;
 use crate::target::shared::code::{
@@ -8,7 +10,6 @@ use crate::target::shared::code::{
     COLLECTION_ENTRY_SIZE, COLLECTION_HEADER_SIZE, COLLECTION_OFFSET_COUNT,
 };
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_SUM: &str = "Add up the elements of an Integer, Float, or Fixed list";
 const DESC_SUM: &str = r#"`collections::sum` walks `value` from the first element to the last and adds
@@ -87,16 +88,49 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const SUM: BuiltinFunction = BuiltinFunction::native(
-    "collections.sum",
-    "sum",
-    INTO_SUM,
-    DESC_SUM,
-    &["ErrOverflow"],
-    &[custom(&[req("value", &["collection"], "List OF Number")])],
-    lower_sum,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "sum",
+        intro: INTO_SUM,
+        desc: DESC_SUM,
+        example: EX,
+        implementations: vec![
+            Implementation {
+                params: vec![super::param(
+                    "value",
+                    &["collection"],
+                    ParameterType::list_of(ParameterType::Integer),
+                )],
+                return_type: ParameterType::Integer,
+                errors: vec!["ErrOverflow"],
+                lowering: Lowering::Helper,
+                body: Body::native(None, None, Some(lower_sum)),
+            },
+            Implementation {
+                params: vec![super::param(
+                    "value",
+                    &["collection"],
+                    ParameterType::list_of(ParameterType::Float),
+                )],
+                return_type: ParameterType::Float,
+                errors: vec!["ErrOverflow"],
+                lowering: Lowering::Helper,
+                body: Body::native(None, None, Some(lower_sum)),
+            },
+            Implementation {
+                params: vec![super::param(
+                    "value",
+                    &["collection"],
+                    ParameterType::list_of(ParameterType::Fixed),
+                )],
+                return_type: ParameterType::Fixed,
+                errors: vec!["ErrOverflow"],
+                lowering: Lowering::Helper,
+                body: Body::native(None, None, Some(lower_sum)),
+            },
+        ],
+    });
+}
 
 /// `collections::sum(List OF Integer|Float|Fixed)` — the accumulation loop; the
 /// Integer/Fixed paths use checked addition (`ErrOverflow`), Float uses IEEE-754.

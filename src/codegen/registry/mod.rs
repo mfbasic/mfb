@@ -97,6 +97,21 @@ pub(crate) enum ParameterType {
     /// expresses `collections::get(List OF T, Integer) AS T` with no per-package
     /// resolver. Renders as its bare name in documentation.
     Var(&'static str),
+    /// A function-value type — `FUNC(<params>) AS <return>`. The parameter and return
+    /// types may themselves contain [`Var`](Self::Var)s, so a higher-order member like
+    /// `collections::transform(List OF T, FUNC(T) AS U) AS List OF U` unifies the
+    /// callback's shape structurally (binding `T`/`U`) instead of matching an opaque
+    /// `Named("FUNC(Integer) AS String")` blob. Built by [`parse`](Self::parse) from a
+    /// concrete `FUNC(...)` argument, and written in a descriptor with [`func`](Self::func).
+    Func(Vec<ParameterType>, Box<ParameterType>),
+    /// A return-type marker meaning "the concrete type of argument `n`, echoed
+    /// **verbatim**". Only valid in a return position. Unlike a substituted [`Var`],
+    /// which is reconstructed from parsed pieces (and so drops a `RES ` ownership
+    /// marker), this hands back the caller's original argument-type string unchanged —
+    /// so `collections::append(List OF RES File STATE Cursor, x)` returns exactly
+    /// `List OF RES File STATE Cursor`. Resolved by [`resolve_call`], which alone holds
+    /// the raw argument strings.
+    Arg(usize),
     /// An unresolved concrete argument type. Only appears on the concrete side (from
     /// [`parse`](Self::parse)); it unifies with any pattern as a wildcard.
     Unknown,
@@ -111,6 +126,9 @@ impl ParameterType {
     }
     pub(crate) fn set_of(elem: ParameterType) -> Self {
         ParameterType::SetOf(Box::new(elem))
+    }
+    pub(crate) fn func(params: Vec<ParameterType>, ret: ParameterType) -> Self {
+        ParameterType::Func(params, Box::new(ret))
     }
 
     /// Parse a concrete type *name* — the currency the type checker still speaks at
@@ -137,6 +155,17 @@ impl ParameterType {
             .and_then(|rest| rest.split_once(" TO "))
         {
             return ParameterType::map_of(ParameterType::parse(key), ParameterType::parse(value));
+        }
+        if let Some(rest) = name.strip_prefix("FUNC(") {
+            // Split `<params>) AS <return>` at paren depth 0: the closing paren and the
+            // separating commas are the ones at depth 0 (a parameter may itself be a
+            // `FUNC(...)`). Mirrors `builtins::general::function_parts`.
+            if let Some((params, ret)) = crate::builtins::split_func_params_and_return(rest) {
+                return ParameterType::func(
+                    params.into_iter().map(ParameterType::parse).collect(),
+                    ParameterType::parse(ret),
+                );
+            }
         }
         match name {
             "AttributeString" => ParameterType::AttributeString,
@@ -171,6 +200,16 @@ impl ParameterType {
             ParameterType::SetOf(elem) => Cow::Owned(format!("Set OF {}", elem.name())),
             ParameterType::Named(elem) => Cow::Borrowed(elem),
             ParameterType::Var(name) => Cow::Borrowed(name),
+            ParameterType::Func(params, ret) => Cow::Owned(format!(
+                "FUNC({}) AS {}",
+                params
+                    .iter()
+                    .map(|p| p.name())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                ret.name()
+            )),
+            ParameterType::Arg(n) => Cow::Owned(format!("Arg{n}")),
             ParameterType::Unknown => Cow::Borrowed("Unknown"),
         }
     }
@@ -903,6 +942,7 @@ fn build() -> Registry {
     crate::codegen::builtins::csv::register(&mut r);
     crate::codegen::builtins::json::register(&mut r);
     crate::codegen::builtins::regex::register(&mut r);
+    crate::codegen::builtins::collections::register(&mut r);
     r
 }
 
@@ -1007,7 +1047,12 @@ fn unify(
 
     match (pattern, concrete) {
         (ParameterType::Var(name), _) => match bindings.get(name) {
-            Some(bound) => bound == concrete,
+            // A re-occurring variable must match its binding — but resource element
+            // types compare STATE/ownership-agnostically (bug-427): a bound element
+            // `Handle STATE Cursor` accepts an item spelled `Handle`, mirroring
+            // `general::element_accepts_item`. `resource_base_eq` is plain `==` for
+            // every non-resource type.
+            Some(bound) => resource_base_eq(bound, concrete),
             None => {
                 bindings.insert(name, concrete.clone());
                 true
@@ -1019,17 +1064,41 @@ fn unify(
         (ParameterType::SetOf(elem), ParameterType::SetOf(concrete_elem)) => {
             unify(elem, concrete_elem, bindings)
         }
-        (
-            ParameterType::MapOf(key, value),
-            ParameterType::MapOf(concrete_key, concrete_value),
-        ) => unify(key, concrete_key, bindings) && unify(value, concrete_value, bindings),
-        // A container pattern against a non-matching concrete container/leaf fails.
-        (ParameterType::ListOf(_) | ParameterType::SetOf(_) | ParameterType::MapOf(_, _), _) => {
-            false
+        (ParameterType::MapOf(key, value), ParameterType::MapOf(concrete_key, concrete_value)) => {
+            unify(key, concrete_key, bindings) && unify(value, concrete_value, bindings)
         }
+        (ParameterType::Func(params, ret), ParameterType::Func(concrete_params, concrete_ret)) => {
+            params.len() == concrete_params.len()
+                && params
+                    .iter()
+                    .zip(concrete_params.iter())
+                    .all(|(p, c)| unify(p, c, bindings))
+                && unify(ret, concrete_ret, bindings)
+        }
+        // A container/function pattern against a non-matching concrete fails.
+        (
+            ParameterType::ListOf(_)
+            | ParameterType::SetOf(_)
+            | ParameterType::MapOf(_, _)
+            | ParameterType::Func(_, _),
+            _,
+        ) => false,
         // Scalar or nominal leaf.
         (leaf, _) => leaf_matches(leaf, concrete),
     }
+}
+
+/// STATE/ownership-agnostic type equality, matching
+/// `general::element_accepts_item`: two resource types with the same base name (a
+/// trailing `STATE T` clause stripped) are compatible, and every non-resource type
+/// reduces to plain `==` (`base_resource_name` is the identity there).
+fn resource_base_eq(a: &ParameterType, b: &ParameterType) -> bool {
+    if a == b {
+        return true;
+    }
+    let (an, bn) = (a.name(), b.name());
+    crate::builtins::resource::base_resource_name(&an)
+        == crate::builtins::resource::base_resource_name(&bn)
 }
 
 /// Substitute `bindings` into a (possibly generic) type `pattern`, producing a
@@ -1046,6 +1115,13 @@ fn substitute(
         ParameterType::MapOf(key, value) => {
             ParameterType::map_of(substitute(key, bindings)?, substitute(value, bindings)?)
         }
+        ParameterType::Func(params, ret) => ParameterType::func(
+            params
+                .iter()
+                .map(|p| substitute(p, bindings))
+                .collect::<Option<Vec<_>>>()?,
+            substitute(ret, bindings)?,
+        ),
         other => other.clone(),
     })
 }
@@ -1054,9 +1130,12 @@ fn substitute(
 /// single static nominal type independent of a call's arguments.
 fn contains_var(ty: &ParameterType) -> bool {
     match ty {
-        ParameterType::Var(_) => true,
+        // `Var` is arg-dependent; `Arg(_)` echoes an argument verbatim — neither has a
+        // single static nominal type independent of the call.
+        ParameterType::Var(_) | ParameterType::Arg(_) => true,
         ParameterType::ListOf(elem) | ParameterType::SetOf(elem) => contains_var(elem),
         ParameterType::MapOf(key, value) => contains_var(key) || contains_var(value),
+        ParameterType::Func(params, ret) => params.iter().any(contains_var) || contains_var(ret),
         _ => false,
     }
 }
@@ -1077,11 +1156,20 @@ fn contains_var(ty: &ParameterType) -> bool {
 pub(crate) fn resolve_call(qualified: &str, arg_types: &[String]) -> Option<String> {
     let function = registry().resolve_func(qualified)?.function;
     let call = CallShape {
-        args: arg_types.iter().map(|arg| ParameterType::parse(arg)).collect(),
+        args: arg_types
+            .iter()
+            .map(|arg| ParameterType::parse(arg))
+            .collect(),
     };
     function
         .select(&call)
-        .map(|selection| selection.return_type.name().into_owned())
+        .map(|selection| match selection.return_type {
+            // Echo the caller's original argument-type string verbatim, preserving a
+            // `RES ` ownership marker that a parse/reconstruct round-trip would drop
+            // (`collections::append(List OF RES File STATE Cursor, x)`).
+            ParameterType::Arg(n) => arg_types[n].clone(),
+            other => other.name().into_owned(),
+        })
 }
 
 /// The `(min, max)` argument arity of the migrated call `qualified`, or `None`.
@@ -1135,6 +1223,24 @@ pub(crate) fn rewrite_target(qualified: &str) -> Option<&'static str> {
         .first()?
         .body
         .rewrite_target()
+}
+
+/// The target-generic native lowering ([`Body::Native`]'s `common` slot) of the
+/// migrated call `qualified`, or `None` when the call is not natively lowered
+/// (source-backed / not migrated). The codegen dual-path seam (`try_native_lower`)
+/// consults this before the legacy `src/target` ladder, so a migrated member owns
+/// its own call-site lowering.
+pub(crate) fn native_lower(qualified: &str) -> Option<NativeLower> {
+    for implementation in &registry().resolve_func(qualified)?.function.implementations {
+        if let Body::Native {
+            common: Some(lower),
+            ..
+        } = &implementation.body
+        {
+            return Some(*lower);
+        }
+    }
+    None
 }
 
 /// The primary expected argument type (first parameter) of the migrated call

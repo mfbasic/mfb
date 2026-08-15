@@ -1,11 +1,12 @@
 //! `collections::removeKey` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::map_type_parts;
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_REMOVE_KEY: &str = "Return a copy of a map with the entry for one key removed.";
 const DESC_REMOVE_KEY: &str = r#"`collections::removeKey` produces a **new** map containing every entry of
@@ -78,19 +79,28 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const REMOVE_KEY: BuiltinFunction = BuiltinFunction::native(
-    "collections.removeKey",
-    "removeKey",
-    INTO_REMOVE_KEY,
-    DESC_REMOVE_KEY,
-    &[],
-    &[custom(&[
-        req("value", &["map"], "Map OF K TO V"),
-        req("key", &[], "K"),
-    ])],
-    lower_remove_key,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "removeKey",
+        intro: INTO_REMOVE_KEY,
+        desc: DESC_REMOVE_KEY,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                super::param(
+                    "value",
+                    &["map"],
+                    ParameterType::map_of(ParameterType::Var("K"), ParameterType::Var("V")),
+                ),
+                super::param("key", &[], ParameterType::Var("K")),
+            ],
+            return_type: ParameterType::Arg(0),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::native(None, None, Some(lower_remove_key)),
+        }],
+    });
+}
 
 /// `collections::removeKey` — a new map with the entry for `key` dropped (no-op
 /// if absent). Reuses `lower_map_remove_key`.

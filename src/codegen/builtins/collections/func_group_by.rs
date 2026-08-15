@@ -1,153 +1,15 @@
 //! `collections::groupBy` — descriptor entry + MFBASIC source body (Implementation::Mfb).
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{custom, req};
 use crate::target::shared::abi;
 use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
-
-const INTRO: &str = "Group the items of a list into a map of lists keyed by a projection";
-
-#[rustfmt::skip]
-const BODY: &str =
-"FUNC __collections_groupBy OF T, K, V(value AS List OF T, keyFn AS FUNC(T) AS K, valFn AS FUNC(T) AS V) AS Map OF K TO List OF V
-  LET keys AS List OF K = collections::transform(value, keyFn)
-  LET vals AS List OF V = collections::transform(value, valFn)
-  MUT result AS Map OF K TO List OF V = Map OF K TO List OF V {}
-  MUT i AS Integer = 0
-  WHILE i < len(keys)
-    LET k AS K = collections::get(keys, i)
-    LET v AS V = collections::get(vals, i)
-    IF collections::hasKey(result, k) THEN
-      MUT bucket AS List OF V = collections::get(result, k)
-      bucket = collections::append(bucket, v)
-      result = collections::set(result, k, bucket)
-    ELSE
-      MUT bucket AS List OF V = []
-      bucket = collections::append(bucket, v)
-      result = collections::set(result, k, bucket)
-    END IF
-    i = i + 1
-  END WHILE
-  RETURN result
-END FUNC";
-
-const DESC: &str = r#"`collections::groupBy` builds a `Map OF K TO List OF V` from `value`. It first
-projects the whole list twice: `keyFn` over every item to produce the group key,
-and `valFn` over every item to produce the value stored in that group's bucket.
-Both projections run over the entire list up front, via `collections::transform`,
-before any bucket is written. It then walks the two projected lists in parallel
-in list order, appending each projected value to the bucket for its key, creating
-the bucket on first use.
-
-Because the walk proceeds in list order and each value is appended to the end of
-its bucket, the items inside a bucket appear in the same relative order they had
-in `value`. `groupBy` never merges, reorders, or deduplicates within a bucket:
-two items that produce equal keys *and* equal values both appear.
-
-`groupBy` takes three arguments. There is no single-argument-projection form that
-groups items by a key and stores the original items — pass an identity `FUNC` as
-`valFn` to get that behavior. Calling it with two arguments is a compile-time
-error, because the compiler cannot infer the template argument `V` (it appears
-only in the return type).
-
-`value` is not modified; the result is a newly built map. The key type `K` must
-be a usable map key type, since the result is a `Map OF K TO List OF V`.
-
-`keyFn` and `valFn` are ordinary MFBASIC function values and are called with
-ordinary calls. If either callback fails, its error propagates out of `groupBy`
-to the caller and can be caught by the caller's `TRAP` block; the partially built
-map is discarded. `groupBy` itself raises no error of its own.
-
-Either callback may be a named `FUNC` or a `LAMBDA` expression, since both
-produce a function value of the required type."#;
-
-const EX: &str = r#"Group numbers by parity, keeping the numbers themselves:
-
-```
-IMPORT io
-IMPORT collections
-
-FUNC parity(n AS Integer) AS Integer
-  RETURN n MOD 2
-END FUNC
-
-FUNC identity(n AS Integer) AS Integer
-  RETURN n
-END FUNC
-
-FUNC main AS Integer
-  LET nums AS List OF Integer = [1, 2, 3, 4]
-  LET groups AS Map OF Integer TO List OF Integer = collections::groupBy(nums, parity, identity)
-  io::print(toString(len(collections::get(groups, 0))))
-  RETURN 0
-END FUNC
-```
-
-The same grouping written with lambdas and named arguments:
-
-```
-IMPORT io
-IMPORT collections
-
-FUNC main AS Integer
-  LET nums AS List OF Integer = [1, 2, 3, 4]
-  LET groups AS Map OF Integer TO List OF Integer = collections::groupBy(value := nums, keyFn := LAMBDA(n AS Integer) -> n MOD 2, valFn := LAMBDA(n AS Integer) -> n)
-  io::print(toString(len(collections::keys(groups))))
-  RETURN 0
-END FUNC
-```
-
-A failing projection propagates its error to the caller's `TRAP`:
-
-```
-IMPORT io
-IMPORT collections
-
-FUNC strictKey(n AS Integer) AS Integer
-  IF n < 0 THEN
-    FAIL error(77050002, "negative item")
-  END IF
-  RETURN n MOD 2
-END FUNC
-
-FUNC identity(n AS Integer) AS Integer
-  RETURN n
-END FUNC
-
-FUNC main AS Integer
-  LET groups AS Map OF Integer TO List OF Integer = collections::groupBy([1, -2, 3], strictKey, identity)
-  io::print(toString(len(collections::keys(groups))))
-  RETURN 0
-  TRAP(err)
-    io::print("failed: " & toString(err.code))
-    RETURN 1
-  END TRAP
-END FUNC
-```"#;
-
-pub(crate) const GROUP_BY: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
-    "collections.groupBy",
-    "groupBy",
-    INTRO,
-    DESC,
-    &[],
-    &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("keyFn", &["key"], "FUNC(T) AS K"),
-        req("valFn", &["value"], "FUNC(T) AS V"),
-    ])],
-    BODY,
-    group_by_fast_path,
-)
-.with_example(EX);
 
 /// Native fast path for `#collections_groupBy$T$K$V` (Integer key, fixed-width or
 /// String T/V, re-eval-safe value). Every other instantiation declines
 /// (`Ok(None)`) and runs the `.mfb` body. Free fn (an `impl` method would not
 /// coerce to `MfbFastPath`).
-fn group_by_fast_path(
+pub(super) fn group_by_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],

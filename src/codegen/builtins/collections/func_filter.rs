@@ -1,13 +1,14 @@
 //! `collections::filter` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{callable_return_type, list_element_type};
 use crate::target::shared::code::{
     CodeBuilder, Operand, ValueResult, RESULT_OK_TAG, RESULT_TAG_REGISTER, RESULT_VALUE_REGISTER,
 };
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_FILTER: &str = "Keep the elements of a list for which a predicate returns TRUE";
 const DESC_FILTER: &str = r#"`collections::filter` walks `value` from the first element to the last, calls
@@ -84,19 +85,32 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const FILTER: BuiltinFunction = BuiltinFunction::native(
-    "collections.filter",
-    "filter",
-    INTO_FILTER,
-    DESC_FILTER,
-    &[],
-    &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("predicate", &[], "FUNC(T) AS Boolean"),
-    ])],
-    lower_filter,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "filter",
+        intro: INTO_FILTER,
+        desc: DESC_FILTER,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                super::param(
+                    "value",
+                    &["collection"],
+                    ParameterType::list_of(ParameterType::Var("T")),
+                ),
+                super::param(
+                    "predicate",
+                    &[],
+                    ParameterType::func(vec![ParameterType::Var("T")], ParameterType::Boolean),
+                ),
+            ],
+            return_type: ParameterType::Arg(0),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::native(None, None, Some(lower_filter)),
+        }],
+    });
+}
 
 /// `collections::filter(List OF T, FUNC(T) AS Boolean) AS List OF T`: keep the
 /// elements for which `predicate` returns TRUE, appending to a pre-sized output.

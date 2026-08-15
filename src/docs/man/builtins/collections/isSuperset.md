@@ -27,7 +27,7 @@ IMPORT collections
 `a`, and `FALSE` otherwise. It is `isSubset` with the arguments swapped: it walks
 the elements of `b` and returns `FALSE` as soon as `collections::contains` reports
 one that is absent from `a`, returning `TRUE` if the walk finds no such element.
-[[src/codegen/builtins/collections/func_is_superset.rs:__collections_isSuperset]]
+[[src/codegen/builtins/collections/package.mfb:__collections_isSuperset]]
 
 `isSuperset` is **pure**: it inspects both arguments and mutates neither. Every
 set is a superset of the empty set, so `isSuperset(a, Set OF T { })` is always
@@ -44,14 +44,14 @@ type like any other generic function. [[src/codegen/builtins/collections/mod.rs:
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Set OF T` | The candidate superset, tested against every element of `b`. Not modified. `T` must be a comparable type. [[src/codegen/builtins/collections/func_is_superset.rs:__collections_isSuperset]] |
-| `b` | `Set OF T` | The candidate subset, of the same type as `a`, whose elements are each tested for membership in `a`. Not modified. [[src/codegen/builtins/collections/func_is_superset.rs:__collections_isSuperset]] |
+| `a` | `Set OF T` | The candidate superset, tested against every element of `b`. Not modified. `T` must be a comparable type. [[src/codegen/builtins/collections/package.mfb:__collections_isSuperset]] |
+| `b` | `Set OF T` | The candidate subset, of the same type as `a`, whose elements are each tested for membership in `a`. Not modified. [[src/codegen/builtins/collections/package.mfb:__collections_isSuperset]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when every element of `b` is in `a` (including when `b` is empty); `FALSE` when some element of `b` is not in `a`. [[src/codegen/builtins/collections/func_is_superset.rs:__collections_isSuperset]] |
+| `Boolean` | `TRUE` when every element of `b` is in `a` (including when `b` is empty); `FALSE` when some element of `b` is not in `a`. [[src/codegen/builtins/collections/package.mfb:__collections_isSuperset]] |
 
 ## Errors
 
@@ -62,7 +62,7 @@ No errors.
 Both arguments must be the same `Set OF T`. `T` is inferred from the element type
 and **must be comparable**, which every `Set OF T` already requires. A call whose
 arguments are not both sets of the same element type does not resolve and is
-rejected at compile time. [[src/codegen/builtins/collections/func_is_superset.rs:__collections_isSuperset]]
+rejected at compile time. [[src/codegen/builtins/collections/package.mfb:__collections_isSuperset]]
 
 ## Examples
 

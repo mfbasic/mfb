@@ -35,7 +35,7 @@ There are exactly **three** overloads — `List OF Integer`, `List OF Float`, an
 `List OF Fixed` — and the return type always matches the element type. There is
 no `List OF Byte`, no `List OF Money`, and no general "any numeric list" form:
 any other element type fails to resolve at compile time, and the lowering
-rejects it a second time. [[src/codegen/builtins/collections/mod.rs:resolve_sum]]
+rejects it a second time. [[src/codegen/registry/mod.rs:resolve_call]]
 [[src/codegen/builtins/collections/func_sum.rs:lower_sum]]
 
 The accumulator is initialized to zero of the element type and the elements are
@@ -92,13 +92,13 @@ with `ErrOverflow`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF Integer`, `List OF Float`, or `List OF Fixed` | The list to total. Any length is accepted, including the empty list. The element type selects the overload. Also accepted under the name `collection`. [[src/codegen/builtins/collections/mod.rs:resolve_sum]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `value` | `List OF Integer`, `List OF Float`, or `List OF Fixed` | The list to total. Any length is accepted, including the empty list. The element type selects the overload. Also accepted under the name `collection`. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer`, `Float`, or `Fixed` | The total of every element, matching the element type of `value`. For an empty list, the zero of that type. [[src/codegen/builtins/collections/mod.rs:resolve_sum]] [[src/codegen/builtins/collections/func_sum.rs:lower_sum]] |
+| `Integer`, `Float`, or `Fixed` | The total of every element, matching the element type of `value`. For an empty list, the zero of that type. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/func_sum.rs:lower_sum]] |
 
 ## Errors
 

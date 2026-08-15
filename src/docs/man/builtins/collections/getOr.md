@@ -90,7 +90,7 @@ that key. [[src/codegen/builtins/collections/common/map.rs:lower_map_get_or]]
 
 | Type | Description |
 | --- | --- |
-| `T` (list overload) or `V` (map overload) | The selected element when it exists, otherwise `default`. Owned by the caller on both paths. [[src/codegen/builtins/collections/mod.rs:resolve_get_or]] |
+| `T` (list overload) or `V` (map overload) | The selected element when it exists, otherwise `default`. Owned by the caller on both paths. [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Errors
 
@@ -107,7 +107,7 @@ argument must be a `Map OF K TO V`, the second must be exactly `K`, the third
 must be exactly `V`, and the call has type `V`. A `default` whose type differs
 from the element or value type is a compile-time type error — there is no
 widening or conversion.
-[[src/codegen/builtins/collections/mod.rs:resolve_get_or]]
+[[src/codegen/registry/mod.rs:resolve_call]]
 
 ## Examples
 

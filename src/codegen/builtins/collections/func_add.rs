@@ -1,11 +1,12 @@
 //! `collections::add` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::set_element_type;
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_ADD: &str = "Return a set with one element inserted, leaving the argument unchanged";
 const DESC_ADD: &str = r#"`collections::add` returns a new `Set OF T` containing every element of `value`
@@ -70,19 +71,28 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const ADD: BuiltinFunction = BuiltinFunction::native(
-    "collections.add",
-    "add",
-    INTO_ADD,
-    DESC_ADD,
-    &[],
-    &[custom(&[
-        req("value", &["set"], "Set OF T"),
-        req("item", &["element"], "T"),
-    ])],
-    lower_add,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "add",
+        intro: INTO_ADD,
+        desc: DESC_ADD,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                super::param(
+                    "value",
+                    &["set"],
+                    ParameterType::set_of(ParameterType::Var("T")),
+                ),
+                super::param("item", &["element"], ParameterType::Var("T")),
+            ],
+            return_type: ParameterType::Arg(0),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::native(None, None, Some(lower_add)),
+        }],
+    });
+}
 
 /// `collections::add(Set OF T, T) AS Set OF T` (plan-63-B): insert an element,
 /// idempotent. Copy the set (tight, uniquely owned), then insert into the copy.

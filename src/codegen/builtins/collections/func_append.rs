@@ -1,9 +1,10 @@
 //! `collections::append` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_APPEND: &str =
     "Return a list with one element, or every element of another list, added at the end";
@@ -82,19 +83,48 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const APPEND: BuiltinFunction = BuiltinFunction::native(
-    "collections.append",
-    "append",
-    INTO_APPEND,
-    DESC_APPEND,
-    &[],
-    &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("item", &["items"], "T"),
-    ])],
-    lower_append,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "append",
+        intro: INTO_APPEND,
+        desc: DESC_APPEND,
+        example: EX,
+        implementations: vec![
+            Implementation {
+                params: vec![
+                    super::param(
+                        "value",
+                        &["list"],
+                        ParameterType::list_of(ParameterType::Var("T")),
+                    ),
+                    super::param("item", &["items"], ParameterType::Var("T")),
+                ],
+                return_type: ParameterType::Arg(0),
+                errors: vec![],
+                lowering: Lowering::Helper,
+                body: Body::native(None, None, Some(lower_append)),
+            },
+            Implementation {
+                params: vec![
+                    super::param(
+                        "value",
+                        &["list"],
+                        ParameterType::list_of(ParameterType::Var("T")),
+                    ),
+                    super::param(
+                        "item",
+                        &["items"],
+                        ParameterType::list_of(ParameterType::Var("T")),
+                    ),
+                ],
+                return_type: ParameterType::Arg(0),
+                errors: vec![],
+                lowering: Lowering::Helper,
+                body: Body::native(None, None, Some(lower_append)),
+            },
+        ],
+    });
+}
 
 /// `collections::append` — splice `item` (single element or a whole list) at the
 /// end of the list. The shared end-insert body with append's index (`count`).

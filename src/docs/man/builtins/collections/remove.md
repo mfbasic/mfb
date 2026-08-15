@@ -53,14 +53,14 @@ rather than a failure, so no path raises a trappable domain error and an inline
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Set OF T` | The set to remove from; left unchanged. Also accepted under the name `set`. Must be a set type; passing a `List` or a scalar resolves no overload and is a compile-time error. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/builtins/collections/mod.rs:resolve_set_remove]] |
-| `item` | `T` | The element to remove. Also accepted under the name `element`. Its type must be exactly the element type `T`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/builtins/collections/mod.rs:resolve_set_remove]] |
+| `value` | `Set OF T` | The set to remove from; left unchanged. Also accepted under the name `set`. Must be a set type; passing a `List` or a scalar resolves no overload and is a compile-time error. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `item` | `T` | The element to remove. Also accepted under the name `element`. Its type must be exactly the element type `T`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Set OF T` | A new set without `item`, of the same type as `value`. Removing an element not in `value` returns a set equal to `value`. [[src/codegen/builtins/collections/mod.rs:resolve_set_remove]] |
+| `Set OF T` | A new set without `item`, of the same type as `value`. Removing an element not in `value` returns a set equal to `value`. [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Errors
 
@@ -73,7 +73,7 @@ element type `T`; there is no implicit widening or conversion. A call on a
 non-set first argument, or with an element type that does not match, resolves to
 no overload and is rejected at compile time. Because a set requires a comparable
 element type, `T` must be comparable.
-[[src/codegen/builtins/collections/mod.rs:resolve_set_remove]]
+[[src/codegen/registry/mod.rs:resolve_call]]
 [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 ## Examples

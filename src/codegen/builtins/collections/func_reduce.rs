@@ -1,9 +1,10 @@
 //! `collections::reduce` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_REDUCE: &str = "Fold a list left to right into a single accumulated value";
 const DESC_REDUCE: &str = r#"`collections::reduce` folds `value` into one value. The accumulator starts as
@@ -93,20 +94,36 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const REDUCE: BuiltinFunction = BuiltinFunction::native(
-    "collections.reduce",
-    "reduce",
-    INTO_REDUCE,
-    DESC_REDUCE,
-    &[],
-    &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("initial", &["seed"], "U"),
-        req("f", &["combine"], "FUNC(U, T) AS U"),
-    ])],
-    lower_reduce,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "reduce",
+        intro: INTO_REDUCE,
+        desc: DESC_REDUCE,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                super::param(
+                    "value",
+                    &["collection"],
+                    ParameterType::list_of(ParameterType::Var("T")),
+                ),
+                super::param("initial", &["seed"], ParameterType::Var("U")),
+                super::param(
+                    "f",
+                    &["combine"],
+                    ParameterType::func(
+                        vec![ParameterType::Var("U"), ParameterType::Var("T")],
+                        ParameterType::Var("U"),
+                    ),
+                ),
+            ],
+            return_type: ParameterType::Arg(1),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::native(None, None, Some(lower_reduce)),
+        }],
+    });
+}
 
 /// `collections::reduce(List OF T, U, FUNC(U, T) AS U) AS U`: left fold. The
 /// shared fold machinery, walked head-to-tail.
