@@ -1,7 +1,3 @@
-IMPORT bits
-IMPORT strings
-IMPORT collections
-
 ' ===========================================================================
 ' encoding — byte<->text and Unicode codecs (plan-02-encoding.md Part B).
 '
@@ -222,15 +218,11 @@ END FUNC
 
 ' --- utf16 ---------------------------------------------------------------
 
-'@@MFB_BODY:utf16Encode@@
 
-'@@MFB_BODY:utf16Decode@@
 
 ' --- utf32 ---------------------------------------------------------------
 
-'@@MFB_BODY:utf32Encode@@
 
-'@@MFB_BODY:utf32Decode@@
 
 ' --- hex -----------------------------------------------------------------
 
@@ -251,9 +243,7 @@ FUNC __encoding_hexValue(c AS Integer) AS Integer
   RETURN -1
 END FUNC
 
-'@@MFB_BODY:hexEncode@@
 
-'@@MFB_BODY:hexDecode@@
 
 ' --- base32 / base64 / base64url -----------------------------------------
 
@@ -346,11 +336,8 @@ FUNC __encoding_base32Value(c AS Integer) AS Integer
   RETURN -1
 END FUNC
 
-'@@MFB_BODY:base64Encode@@
 
-'@@MFB_BODY:base64UrlEncode@@
 
-'@@MFB_BODY:base32Encode@@
 
 ' Collect 6-/5-bit symbol values from `text`, validating the alphabet and that
 ' '=' padding appears only as a trailing run. Returns the values; the symbol
@@ -382,11 +369,8 @@ FUNC __encoding_base64Symbols(text AS String, urlSafe AS Boolean) AS List OF Int
   RETURN values
 END FUNC
 
-'@@MFB_BODY:base64Decode@@
 
-'@@MFB_BODY:base64UrlDecode@@
 
-'@@MFB_BODY:base32Decode@@
 
 ' --- percent / form-url --------------------------------------------------
 
@@ -416,7 +400,6 @@ FUNC __encoding_percentByte(c AS Integer) AS String
   RETURN "%" & strings::upper(__encoding_hexDigit(c / 16) & __encoding_hexDigit(c - (c / 16) * 16))
 END FUNC
 
-'@@MFB_BODY:percentEncode@@
 
 ' Decode percent escapes (and, when `plusSpace`, '+' as space) into raw bytes,
 ' then validate UTF-8 and return the decoded String.
@@ -456,15 +439,11 @@ FUNC __encoding_percentDecodeBytes(text AS String, plusSpace AS Boolean) AS Stri
   RETURN toString(result)
 END FUNC
 
-'@@MFB_BODY:percentDecode@@
 
-'@@MFB_BODY:formUrlEncode@@
 
-'@@MFB_BODY:formUrlDecode@@
 
 ' --- html escape / unescape ----------------------------------------------
 
-'@@MFB_BODY:htmlEscape@@
 
 ' Map a named HTML entity (without the surrounding & and ;) to its code point,
 ' or -1 when unknown. Covers the core five plus the common HTML named set.
@@ -656,7 +635,6 @@ FUNC __encoding_parseHex(text AS String) AS Integer
   RETURN value
 END FUNC
 
-'@@MFB_BODY:htmlUnescape@@
 
 ' --- leb128 / varint -----------------------------------------------------
 
@@ -683,20 +661,14 @@ FUNC __encoding_leb128Emit(seed AS Integer) AS List OF Byte
   RETURN result
 END FUNC
 
-'@@MFB_BODY:uleb128Encode@@
 
-'@@MFB_BODY:uleb128Decode@@
 
-'@@MFB_BODY:sleb128Encode@@
 
-'@@MFB_BODY:sleb128Decode@@
 
 ' bug-339 C4: zigzag-map to unsigned, then share the LEB128 emit. Cannot delegate
 ' to __encoding_uleb128Encode: the zigzag is negative as a signed Integer for
 ' |value| >= 2^62 and that would trip uleb128's negativity guard.
-'@@MFB_BODY:varintEncode@@
 
-'@@MFB_BODY:varintDecode@@
 
 ' --- punycode (RFC 3492 Bootstring) --------------------------------------
 
@@ -911,6 +883,4 @@ FUNC __encoding_labelHasNonAscii(points AS List OF Integer) AS Boolean
   RETURN FALSE
 END FUNC
 
-'@@MFB_BODY:punycodeEncode@@
 
-'@@MFB_BODY:punycodeDecode@@
