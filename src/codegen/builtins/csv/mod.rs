@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn csv_registered_on_the_clean_room_registry() {
-        let pkg = registry().get_package("csv").expect("csv package");
+        let pkg = registry().resolve_package("csv").expect("csv package");
         assert_eq!(pkg.functions().len(), 4);
         // The two EXPORT records are visible to the generic type query.
         assert!(registry::is_builtin_type("CsvReader"));
@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     fn reassembled_source_parses() {
-        let source = registry().get_package("csv").expect("csv").get_mfb();
+        let source = registry().resolve_package("csv").expect("csv").get_mfb();
         crate::ast::parse_source_internal(
             std::path::Path::new("<builtin-csv>"),
             "builtins/csv.mfb",

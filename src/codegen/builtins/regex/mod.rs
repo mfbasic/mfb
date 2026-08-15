@@ -729,7 +729,7 @@ mod tests {
 
     #[test]
     fn regex_registered_on_the_clean_room_registry() {
-        let pkg = registry().get_package("regex").expect("regex package");
+        let pkg = registry().resolve_package("regex").expect("regex package");
         assert_eq!(pkg.functions().len(), 4);
     }
 
@@ -753,7 +753,10 @@ mod tests {
 
     #[test]
     fn reassembled_source_parses() {
-        let source = registry().get_package("regex").expect("regex").get_mfb();
+        let source = registry()
+            .resolve_package("regex")
+            .expect("regex")
+            .get_mfb();
         crate::ast::parse_source_internal(
             std::path::Path::new("<builtin-regex>"),
             "builtins/regex.mfb",

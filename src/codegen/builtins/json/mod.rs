@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn json_registered_on_the_clean_room_registry() {
-        let pkg = registry().get_package("json").expect("json package");
+        let pkg = registry().resolve_package("json").expect("json package");
         assert_eq!(pkg.functions().len(), 4);
         // The Json union and its member records are visible to the generic type query.
         assert!(registry::is_builtin_type("Json"));
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn reassembled_source_parses() {
-        let source = registry().get_package("json").expect("json").get_mfb();
+        let source = registry().resolve_package("json").expect("json").get_mfb();
         crate::ast::parse_source_internal(
             std::path::Path::new("<builtin-json>"),
             "builtins/json.mfb",

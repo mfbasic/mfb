@@ -728,8 +728,13 @@ impl Registry {
     }
 
     // Lookup functions
-    pub(crate) fn resolve_package(&self, qualified: &str) -> Option<&RegistryPackage> {
-        let (pkg_name, _) = qualified.split_once('.')?;
+
+    /// The package addressed by `name` — either a bare import name (`"csv"`) or the
+    /// package half of a qualified call/type (`"csv.parse"` → `csv`). Membership of
+    /// the function/type after the dot is not checked here; use [`resolve_func`] /
+    /// [`resolve_type`] for that.
+    pub(crate) fn resolve_package(&self, name: &str) -> Option<&RegistryPackage> {
+        let pkg_name = name.split_once('.').map_or(name, |(pkg, _)| pkg);
         self.packages.iter().find(|p| p.import_name == pkg_name)
     }
 
@@ -799,44 +804,6 @@ impl Registry {
         let mut augmented = ast.clone();
         augmented.files.extend(synthetic_files);
         Ok(augmented)
-    }
-
-    //
-    // Blow this line exists for the old compiler
-    // interface and should be removed when the compiler
-    // directly uses the above 3 resovle_* functions
-    //
-
-    /// The package with this import name, or `None`.
-    /// #[deprecated(note = "remove when other function are migrated")]
-    pub(crate) fn get_package(&self, import_name: &str) -> Option<&RegistryPackage> {
-        self.packages.iter().find(|p| p.import_name == import_name)
-    }
-
-    /// The function named `qualified` — a `<import_name>.<function>` call name such
-    /// as `"csv.parse"` — or `None` if no migrated package declares it.
-    /// #[deprecated(note = "remove when other function are migrated")]
-    pub(crate) fn function_by_qualified(&self, qualified: &str) -> Option<&RegistryFunction> {
-        let (package, function) = qualified.split_once('.')?;
-        self.get_package(package)?.function(function)
-    }
-
-    /// The package that declares the function named `qualified` — a
-    /// `<import_name>.<function>` call name such as `"csv.parse"` — or `None` if no
-    /// migrated package declares it.
-    ///
-    /// This is the registry's single membership query, replacing the per-package
-    /// `is_<pkg>_call` checks: a `csv.parse` call is a csv call iff this returns the
-    /// csv package. Because it hands back the whole [`RegistryPackage`], the caller
-    /// can reach the function's [`Implementation`] from the same lookup (via
-    /// [`RegistryPackage::function`]) for the return type and rewrite target — the two
-    /// other facts the old `resolve_call_return_type` / `implementation_name` hooks
-    /// answered separately.
-    /// #[deprecated(note = "remove when other function are migrated")]
-    pub(crate) fn get_package_by_func_name(&self, qualified: &str) -> Option<&RegistryPackage> {
-        let (package, function) = qualified.split_once('.')?;
-        let package = self.get_package(package)?;
-        package.function(function).map(|_| package)
     }
 }
 
@@ -1007,7 +974,8 @@ pub(crate) fn declares_error(qualified: &str, error_name: &str) -> bool {
 /// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn rewrite_target(qualified: &str) -> Option<&'static str> {
     registry()
-        .function_by_qualified(qualified)?
+        .resolve_func(qualified)?
+        .function
         .implementations
         .first()?
         .body
@@ -1020,7 +988,8 @@ pub(crate) fn rewrite_target(qualified: &str) -> Option<&'static str> {
 /// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
     let name = registry()
-        .function_by_qualified(qualified)?
+        .resolve_func(qualified)?
+        .function
         .implementations
         .first()?
         .params
@@ -1039,7 +1008,8 @@ pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
 /// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn call_param_names(qualified: &str) -> Option<Vec<Vec<&'static str>>> {
     let implementation = registry()
-        .function_by_qualified(qualified)?
+        .resolve_func(qualified)?
+        .function
         .implementations
         .first()?;
     Some(
@@ -1065,10 +1035,10 @@ pub(crate) fn default_argument_padding(
     qualified: &str,
     provided: usize,
 ) -> Vec<(&'static str, &'static str)> {
-    let Some(function) = registry().function_by_qualified(qualified) else {
+    let Some(resolved) = registry().resolve_func(qualified) else {
         return Vec::new();
     };
-    let Some(implementation) = function.implementations.first() else {
+    let Some(implementation) = resolved.function.implementations.first() else {
         return Vec::new();
     };
     implementation
@@ -1183,10 +1153,10 @@ mod tests {
 
     #[test]
     fn frozen_registry_exposes_the_csv_package() {
-        let pkg = registry().get_package("csv").expect("csv registered");
+        let pkg = registry().resolve_package("csv").expect("csv registered");
         assert_eq!(pkg.import_name(), "csv");
         assert_eq!(pkg.functions().len(), 4);
-        assert!(registry().get_package("nope").is_none());
+        assert!(registry().resolve_package("nope").is_none());
     }
 
     #[test]
@@ -1223,29 +1193,29 @@ mod tests {
         pkg.add_function(func("f", vec![intrinsic(ParameterType::Nothing)]));
         r.add_package(pkg);
         assert_eq!(r.packages().len(), 1);
-        assert_eq!(r.get_package("t").unwrap().functions().len(), 1);
+        assert_eq!(r.resolve_package("t").unwrap().functions().len(), 1);
     }
 
     #[test]
-    fn get_package_by_func_name_finds_the_owning_package() {
+    fn resolve_func_finds_the_owning_package() {
         let mut r = Registry::new();
         let mut pkg = RegistryPackage::new("csv", "i", "d");
         pkg.add_function(func("parse", vec![rewrite_impl("__csv_parse")]));
         r.add_package(pkg);
 
         assert_eq!(
-            r.get_package_by_func_name("csv.parse")
-                .map(RegistryPackage::import_name),
+            r.resolve_func("csv.parse")
+                .map(|resolved| resolved.package.import_name()),
             Some("csv"),
         );
-        assert!(r.get_package_by_func_name("csv.nope").is_none());
-        assert!(r.get_package_by_func_name("nope.parse").is_none());
-        assert!(r.get_package_by_func_name("toString").is_none());
+        assert!(r.resolve_func("csv.nope").is_none());
+        assert!(r.resolve_func("nope.parse").is_none());
+        assert!(r.resolve_func("toString").is_none());
         // Works against the frozen registry too (a real migrated member).
         assert_eq!(
             registry()
-                .get_package_by_func_name("csv.parse")
-                .map(RegistryPackage::import_name),
+                .resolve_func("csv.parse")
+                .map(|resolved| resolved.package.import_name()),
             Some("csv"),
         );
     }
@@ -1346,7 +1316,7 @@ mod tests {
         ));
         r.add_package(pkg);
 
-        let src = r.get_package("demo").unwrap().get_mfb();
+        let src = r.resolve_package("demo").unwrap().get_mfb();
         assert_eq!(
             src,
             "FUNC __demo_helper() AS Nothing\nEND FUNC\n\n\
@@ -1364,14 +1334,14 @@ mod tests {
         let mut pkg = RegistryPackage::new("nomfb", "i", "d");
         pkg.add_function(func("a", vec![rewrite_impl("__a")]));
         empty.add_package(pkg);
-        assert_eq!(empty.get_package("nomfb").unwrap().get_mfb(), "");
+        assert_eq!(empty.resolve_package("nomfb").unwrap().get_mfb(), "");
 
         let mut r = Registry::new();
         let mut pkg = RegistryPackage::new("bare", "i", "d");
         pkg.add_imports(vec!["strings"]);
         pkg.add_helper_functions(vec!["FUNC __helper() AS Nothing\nEND FUNC"]);
         r.add_package(pkg);
-        assert_eq!(r.get_package("bare").unwrap().get_mfb(), "");
+        assert_eq!(r.resolve_package("bare").unwrap().get_mfb(), "");
     }
 
     #[test]
@@ -1393,7 +1363,7 @@ mod tests {
         ));
         r.add_package(pkg);
 
-        let pkg = r.get_package("json").unwrap();
+        let pkg = r.resolve_package("json").unwrap();
         assert_eq!(pkg.records().len(), 2);
         assert!(pkg.records()[0].export);
         assert!(!pkg.records()[1].export);
@@ -1419,7 +1389,7 @@ mod tests {
         pkg.add_union(uni("Internal", false, vec![variant("A")]));
         r.add_package(pkg);
 
-        let pkg = r.get_package("json").unwrap();
+        let pkg = r.resolve_package("json").unwrap();
         assert_eq!(pkg.unions().len(), 2);
         assert!(pkg.unions()[0].export);
         assert!(!pkg.unions()[1].export);
@@ -1460,7 +1430,7 @@ mod tests {
         ));
         r.add_package(pkg);
 
-        let pkg = r.get_package("json").unwrap();
+        let pkg = r.resolve_package("json").unwrap();
         assert_eq!(pkg.imports(), &["collections", "strings"]);
         assert_eq!(
             pkg.get_mfb(),
@@ -1521,7 +1491,7 @@ mod tests {
         });
         r.add_package(pkg);
 
-        let pkg = r.get_package("demo").unwrap();
+        let pkg = r.resolve_package("demo").unwrap();
         assert_eq!(pkg.intro(), "pkg intro");
         assert_eq!(pkg.desc(), "pkg desc");
         assert_eq!(pkg.helper_functions(), &["FUNC __demo_helper()\nEND FUNC"]);
@@ -1558,7 +1528,7 @@ mod tests {
     fn is_imported_by_checks_the_program_imports() {
         let mut r = Registry::new();
         r.add_package(RegistryPackage::new("csv", "i", "d"));
-        let csv = r.get_package("csv").expect("csv package");
+        let csv = r.resolve_package("csv").expect("csv package");
 
         let parse = |src: &str| {
             let file = crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", src)

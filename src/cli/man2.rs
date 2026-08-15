@@ -41,7 +41,7 @@ pub(crate) fn show_man2(args: &[String]) -> Result<(), String> {
 /// Resolve a package name to its clean-room descriptor, or a user-facing error.
 fn lookup_package(package: &str) -> Result<&'static RegistryPackage, String> {
     registry()
-        .get_package(package)
+        .resolve_package(package)
         .ok_or_else(|| format!("mfb man2: unknown package `{package}`"))
 }
 
@@ -300,7 +300,7 @@ mod tests {
 
     #[test]
     fn markdown_includes_summary_description_and_parameters() {
-        let package = registry().get_package("csv").unwrap();
+        let package = registry().resolve_package("csv").unwrap();
         let function = package.function("parse").unwrap();
         let md = render_function_markdown(package, function);
         assert!(md.starts_with("# parse\n"));
@@ -321,7 +321,7 @@ mod tests {
 
     #[test]
     fn a_member_with_no_declared_errors_omits_the_errors_section() {
-        let package = registry().get_package("csv").unwrap();
+        let package = registry().resolve_package("csv").unwrap();
         // stringify declares no errors.
         let md = render_function_markdown(package, package.function("stringify").unwrap());
         assert!(!md.contains("## Errors"));
@@ -329,7 +329,7 @@ mod tests {
 
     #[test]
     fn no_function_renders_the_package_overview() {
-        let package = registry().get_package("csv").unwrap();
+        let package = registry().resolve_package("csv").unwrap();
         let md = render_package_markdown(package);
         assert!(md.starts_with("# csv\n"));
         assert!(md.contains("## Description"));
