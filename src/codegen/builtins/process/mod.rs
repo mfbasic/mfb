@@ -4,25 +4,25 @@
 //! a native resource (tag 10) whose 96-byte record tail holds the three pipe fds
 //! (stdin-write / stdout-read / stderr-read) plus the cached exit/signal state.
 //!
-//! Like `net`/`audio`, the callable metadata (arity, return types, overload
-//! selection) lives here in the front end and the OS mechanism (fork/exec/pipe/
-//! waitpid on Unix, `CreateProcess` on Windows) is emitted by the native backend
-//! in `src/target/shared/code/process/`. The opaque `Process` handle is declared
-//! only in the descriptor `types` list below (the net/audio idiom for an opaque
-//! resource — a companion `.mfb` carries value records/enums, never the handle).
+//! `process` is the first **native** package migrated onto the clean-room registry
+//! (`crate::codegen::registry`). Unlike the pure-MFBASIC packages already there
+//! (`csv`/`json`/`regex`), every member owns a per-platform OS-seam lowering: its
+//! `Body::Native` slots hold the `posix`/`win` runtime-helper emitters living in the
+//! member's `func_*.rs` (delegating to the arch-neutral `native::{unix,windows}`
+//! emission), which the runtime-call dispatch picks by `platform.family()`. The
+//! opaque `Process` handle is a descriptor-only nominal type (recognized by
+//! [`is_builtin_type`]); the source companion carries only the `Stream`/`Signal`
+//! value enums, injected as a helper-function chunk so the registry reassembles it.
 //!
 //! `process` is a fully data-only package: every call's return type is fixed per
 //! name (the overloading is on argument shape, not return), and no overload uses
-//! an argument *union*, so `DefaultResolver::resolve_call`'s exact per-position
-//! match answers arity/return/validation without a custom resolver.
-//!
-//! Landing across plan-90: **A** the plumbing + spawn/shell/pid/isRunning/
-//! waitFor/close; **B** streaming I/O; **C** signals & detach; **D** Windows.
+//! an argument *union*, so the registry's generic overload/return resolution
+//! answers arity/return/validation with no custom resolver.
 
-use crate::target::shared::registry::{
-    BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinSource, BuiltinType, DefaultResolver,
-    DefaultValue, InjectionRule, Parameter, ParameterType, ReturnType, TypeKind,
-};
+use std::collections::HashMap;
+
+use crate::codegen::registry::{Body, Registry, RegistryPackage};
+use crate::target::shared::code::{CodegenPlatform, HelperResult, PlatformFamily};
 
 mod func_close;
 mod func_detach;
@@ -31,8 +31,8 @@ mod native;
 pub(crate) mod specs;
 
 // `process.__drop` is not a descriptor member (no `func_*.rs`), so its helper is
-// still reached by name from the runtime-call dispatch; every other member now
-// lowers through its own `Implementation::Os` (`func_*.rs` → `native::{unix,windows}`).
+// still reached by name from the runtime-call dispatch; every other member lowers
+// through its own `Body::Native` (`func_*.rs` → `native::{unix,windows}`).
 pub(crate) use native::lower_process_drop_helper;
 mod func_did_signal;
 mod func_is_running;
@@ -60,21 +60,6 @@ pub(crate) const STREAM_TYPE: &str = "Stream";
 pub(crate) const SIGNAL_TYPE: &str = "Signal";
 
 const SPAWN: &str = "process.spawn";
-const SHELL: &str = "process.shell";
-const PID: &str = "process.pid";
-const IS_RUNNING: &str = "process.isRunning";
-const WAIT_FOR: &str = "process.waitFor";
-const CLOSE: &str = "process.close";
-// plan-90-B streaming I/O.
-const SEND: &str = "process.send";
-const SEND_BYTES: &str = "process.sendBytes";
-const RECEIVE: &str = "process.receive";
-const RECEIVE_BYTES: &str = "process.receiveBytes";
-const POLL: &str = "process.poll";
-// plan-90-C signals & detach.
-const SIGNAL: &str = "process.signal";
-const DID_SIGNAL: &str = "process.didSignal";
-const DETACH: &str = "process.detach";
 
 /// The internal scope-drop op registered as `Process`'s resource close function.
 ///
@@ -85,108 +70,6 @@ const DETACH: &str = "process.detach";
 /// `process::close(p)` is not treated as an ownership transfer and scope-drop
 /// still runs `__drop`.
 pub(crate) const DROP: &str = "process.__drop";
-
-const fn ov(params: &'static [Parameter], ret: &'static str) -> BuiltinOverload {
-    BuiltinOverload {
-        params,
-        return_type: ReturnType::Fixed(ret),
-    }
-}
-
-const fn req(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
-    Parameter {
-        name,
-        aliases,
-        ty: ParameterType::Named(ty),
-        default: DefaultValue::None,
-    }
-}
-
-// `spawn` has two structurally distinct overloads: the bare argv, and the full
-// form adding a working directory, an environment map, and a replace-vs-merge
-// flag. Both return a `Process`.
-const P_SPAWN_ARGV: &[Parameter] = &[req("args", &[], "List OF String")];
-const P_SPAWN_FULL: &[Parameter] = &[
-    req("args", &[], "List OF String"),
-    req("cwd", &[], "String"),
-    req("env", &[], "Map OF String TO String"),
-    req("envReplace", &[], "Boolean"),
-];
-const P_SHELL: &[Parameter] = &[req("cmd", &["command"], "String")];
-// The lifecycle queries all take the `Process` receiver.
-const P_PROC: &[Parameter] = &[req("p", &["process"], PROCESS_TYPE)];
-// plan-90-B streaming I/O parameter lists.
-const P_SEND: &[Parameter] = &[
-    req("p", &["process"], PROCESS_TYPE),
-    req("text", &[], "String"),
-];
-const P_SEND_T: &[Parameter] = &[
-    req("p", &["process"], PROCESS_TYPE),
-    req("text", &[], "String"),
-    req("timeoutMs", &[], "Integer"),
-];
-const P_SENDB: &[Parameter] = &[
-    req("p", &["process"], PROCESS_TYPE),
-    req("data", &[], "List OF Byte"),
-];
-const P_SENDB_T: &[Parameter] = &[
-    req("p", &["process"], PROCESS_TYPE),
-    req("data", &[], "List OF Byte"),
-    req("timeoutMs", &[], "Integer"),
-];
-const P_RECV: &[Parameter] = &[req("p", &["process"], PROCESS_TYPE)];
-const P_RECV_S: &[Parameter] = &[
-    req("p", &["process"], PROCESS_TYPE),
-    req("from", &[], STREAM_TYPE),
-];
-const P_POLL: &[Parameter] = &[
-    req("p", &["process"], PROCESS_TYPE),
-    req("ms", &[], "Integer"),
-];
-const P_POLL_S: &[Parameter] = &[
-    req("p", &["process"], PROCESS_TYPE),
-    req("ms", &[], "Integer"),
-    req("from", &[], STREAM_TYPE),
-];
-
-const OV_SEND: &[BuiltinOverload] = &[ov(P_SEND, "Nothing"), ov(P_SEND_T, "Nothing")];
-const OV_SEND_BYTES: &[BuiltinOverload] = &[ov(P_SENDB, "Nothing"), ov(P_SENDB_T, "Nothing")];
-const OV_RECEIVE: &[BuiltinOverload] = &[ov(P_RECV, "String"), ov(P_RECV_S, "String")];
-const OV_RECEIVE_BYTES: &[BuiltinOverload] =
-    &[ov(P_RECV, "List OF Byte"), ov(P_RECV_S, "List OF Byte")];
-const OV_POLL: &[BuiltinOverload] = &[ov(P_POLL, "Boolean"), ov(P_POLL_S, "Boolean")];
-const P_SIGNAL: &[Parameter] = &[
-    req("p", &["process"], PROCESS_TYPE),
-    req("sig", &["signal"], SIGNAL_TYPE),
-];
-
-const OV_SPAWN: &[BuiltinOverload] = &[
-    ov(P_SPAWN_ARGV, PROCESS_TYPE),
-    ov(P_SPAWN_FULL, PROCESS_TYPE),
-];
-
-const PROCESS_FUNCTIONS: &[BuiltinFunction] = &[
-    func_spawn::SPAWN,
-    func_shell::SHELL,
-    func_pid::PID,
-    func_is_running::IS_RUNNING,
-    func_wait_for::WAIT_FOR,
-    func_close::CLOSE,
-    func_send::SEND,
-    func_send_bytes::SEND_BYTES,
-    func_receive::RECEIVE,
-    func_receive_bytes::RECEIVE_BYTES,
-    func_poll::POLL,
-    func_signal::SIGNAL,
-    func_did_signal::DID_SIGNAL,
-    func_detach::DETACH,
-];
-
-const PROCESS_TYPES: &[BuiltinType] = &[BuiltinType {
-    name: PROCESS_TYPE,
-    kind: TypeKind::Opaque,
-    fields: &[],
-}];
 
 const MODULE_INTRO: &str =
     r#"Spawn and manage child processes: run a program, stream its standard I/O,"#;
@@ -242,28 +125,85 @@ and returns the exit code (`-1` on a signal death on Unix). `waitFor` and
 `isRunning` cache the exit status the first time they observe it, so `waitFor` is
 idempotent and `didSignal` can report the death cause after the fact."#;
 
-pub(crate) static PROCESS: BuiltinModule = BuiltinModule {
-    name: "process",
-    doc_intro: MODULE_INTRO,
-    doc_desc: MODULE_DESC,
-    functions: PROCESS_FUNCTIONS,
-    types: PROCESS_TYPES,
-    // The source companion carries the `Stream` (plan-90-B) and `Signal`
+/// Register the `process` package on the clean-room registry.
+pub(crate) fn register(r: &mut Registry) {
+    let mut pkg = RegistryPackage::new("process", MODULE_INTRO, MODULE_DESC);
+
+    // The source companion carries only the `Stream` (plan-90-B) and `Signal`
     // (plan-90-C) value enums; the opaque `Process` handle stays descriptor-only.
-    source: Some(BuiltinSource {
-        rule: InjectionRule::WhenImported,
-        loader: source_file,
-    }),
-    // Fully data-only: `DefaultResolver` answers every metadata question.
-    resolver: None,
-};
+    // It imports nothing, so it has no source-ordering dependency.
+    pkg.add_helper_functions(vec![include_str!("package.mfb")]);
+
+    func_spawn::register(&mut pkg);
+    func_shell::register(&mut pkg);
+    func_pid::register(&mut pkg);
+    func_is_running::register(&mut pkg);
+    func_wait_for::register(&mut pkg);
+    func_close::register(&mut pkg);
+    func_send::register(&mut pkg);
+    func_send_bytes::register(&mut pkg);
+    func_receive::register(&mut pkg);
+    func_receive_bytes::register(&mut pkg);
+    func_poll::register(&mut pkg);
+    func_signal::register(&mut pkg);
+    func_did_signal::register(&mut pkg);
+    func_detach::register(&mut pkg);
+
+    r.add_package(pkg);
+}
+
+/// Emit the `_mfb_rt_process_*` runtime-helper body for `call` from the owning
+/// member's `Body::Native` lowering, chosen by `platform.family()`. `call` is the
+/// member's own runtime-call name or one of the auxiliary code-form symbols the
+/// `builder_values` overload split synthesizes (`process.spawnEnv`,
+/// `process.sendTimeout`, `process.receiveFrom`, …); each aux form shares its
+/// primary member's lowering fn, which branches on `call` internally. Returns
+/// `None` for a `call` no `process` member owns.
+pub(crate) fn dispatch_os_helper(
+    call: &str,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Option<HelperResult> {
+    // Route every runtime-call form (primary + aux) to the public member whose
+    // `Body::Native` owns the emission — the migration's replacement for the old
+    // `Implementation::Os { all }` covered-symbol list.
+    let member = match call {
+        "process.spawn" | "process.spawnEnv" => "process.spawn",
+        "process.shell" => "process.shell",
+        "process.pid" => "process.pid",
+        "process.isRunning" => "process.isRunning",
+        "process.waitFor" => "process.waitFor",
+        "process.close" => "process.close",
+        "process.send" | "process.sendTimeout" => "process.send",
+        "process.sendBytes" | "process.sendBytesTimeout" => "process.sendBytes",
+        "process.receive" | "process.receiveFrom" => "process.receive",
+        "process.receiveBytes" | "process.receiveBytesFrom" => "process.receiveBytes",
+        "process.poll" | "process.pollFrom" => "process.poll",
+        "process.signal" => "process.signal",
+        "process.didSignal" => "process.didSignal",
+        "process.detach" => "process.detach",
+        _ => return None,
+    };
+    let resolved = crate::codegen::registry::registry().resolve_func(member)?;
+    let implementation = resolved.function.implementations().first()?;
+    let Body::Native { posix, win, .. } = &implementation.body else {
+        return None;
+    };
+    let lower = if platform.family() == PlatformFamily::Windows {
+        (*win)?
+    } else {
+        (*posix)?
+    };
+    Some(lower(call, symbol, platform_imports, platform))
+}
 
 /// Whether `name` is a public `process` builtin call (`process.spawn`, …). The
-/// internal `__drop` op is not a descriptor call and is handled by the code layer
-/// directly, so it is excluded here; use [`is_process_runtime_call`] for the
-/// runtime-helper dispatch that includes it.
+/// internal `__drop` op and the `builder_values` aux code-form symbols are not
+/// descriptor calls, so they are excluded here; use [`is_process_runtime_call`]
+/// for the runtime-helper dispatch that includes `__drop`.
 pub(crate) fn is_process_call(name: &str) -> bool {
-    DefaultResolver::contains(&PROCESS, name)
+    crate::codegen::registry::owning_package(name) == Some("process")
 }
 
 /// Whether `name` is a `process` call that lowers to a `_mfb_rt_process_*`
@@ -273,12 +213,12 @@ pub(crate) fn is_process_runtime_call(name: &str) -> bool {
 }
 
 /// A bespoke expected-argument phrasing for `spawn`, whose two overloads have
-/// structurally different positional layouts. The descriptor's per-position
-/// render only shows the FIRST overload (`List OF String`), which mis-describes a
-/// wrong 4-arg call; this `"or"`-joined string names both forms (the net/audio
-/// idiom for an overloaded call). Every other `process` call has a single
-/// signature the descriptor renders correctly, so this returns `None` for them
-/// and they fall through to `DefaultResolver::expected_arguments`.
+/// structurally different positional layouts. The registry's per-position render
+/// only shows the FIRST overload (`List OF String`), which mis-describes a wrong
+/// 4-arg call; this `"or"`-joined string names both forms (the net/audio idiom for
+/// an overloaded call). Every other `process` call has a single signature the
+/// registry renders correctly, so this returns `None` for them and they fall
+/// through to the registry's `expected_arguments`.
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
         SPAWN => Some("List OF String or List OF String, String, Map OF String TO String, Boolean"),
@@ -286,9 +226,11 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     }
 }
 
-/// Whether `name` is a `process` value/opaque type (`Process`).
+/// Whether `name` is a `process` value/opaque type (`Process`). The `Stream`/
+/// `Signal` value enums are recognized through the injected source companion, not
+/// here; only the descriptor-only opaque handle is claimed.
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    PROCESS.types.iter().any(|ty| ty.name == name)
+    name == PROCESS_TYPE
 }
 
 /// The scope-drop close op for a `process` resource type, if any. `Process` is
@@ -301,253 +243,127 @@ pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
     }
 }
 
-/// Parses the built-in `process` source companion. process is a native package —
-/// every member lowers via the runtime-call seam, not a source body — so the
-/// companion carries only the `Stream`/`Signal` value enums and is parsed verbatim
-/// (no `assembled_source`/markers). Synthetic path label preserved byte-for-byte
-/// from the pre-migration `package_source_glue!`.
-pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
-    crate::ast::parse_source_internal(
-        std::path::Path::new("<builtin-process>"),
-        "builtins/process.mfb",
-        include_str!("package.mfb"),
-    )
-}
-
-pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
-    ast.files.iter().any(|file| {
-        file.imports
-            .iter()
-            .any(|import| import.package_name() == "process")
-    })
-}
-
-pub(crate) fn augmented_project(
-    ast: &crate::ast::AstProject,
-) -> Result<crate::ast::AstProject, ()> {
-    if !uses_package(ast) {
-        return Ok(ast.clone());
-    }
-    let mut augmented = ast.clone();
-    augmented.files.push(source_file()?);
-    Ok(augmented)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::codegen::registry::{self, registry};
 
-    fn strings(items: &[&str]) -> Vec<String> {
-        items.iter().map(|s| s.to_string()).collect()
+    #[test]
+    fn process_registered_on_the_clean_room_registry() {
+        let pkg = registry()
+            .resolve_package("process")
+            .expect("process package");
+        assert_eq!(pkg.functions().len(), 14);
+        // The opaque handle is descriptor-only (not an EXPORT TYPE/UNION), so the
+        // generic type query does not see it; the hand-written predicate does.
+        assert!(super::is_builtin_type("Process"));
+        assert!(!registry::is_builtin_type("Process"));
     }
 
     #[test]
-    fn const_builders_populate_their_descriptors() {
-        // `req`/`ov`/`nf` are `const fn` table builders, const-evaluated where the
-        // static tables use them and thus otherwise uncovered. Drive them at
-        // runtime with `black_box`'d ('static) inputs so the calls cannot be folded
-        // back to consts, and assert they populate each descriptor field.
-        use std::hint::black_box;
-        const ALIASES: &[&str] = &["command"];
-
-        let p = req(black_box("cmd"), black_box(ALIASES), black_box("String"));
-        assert_eq!(p.name, "cmd");
-        assert_eq!(p.aliases, ALIASES);
-        assert!(matches!(p.ty, ParameterType::Named("String")));
-        assert!(matches!(p.default, DefaultValue::None));
-
-        let o = ov(black_box(P_SHELL), black_box("Boolean"));
-        assert_eq!(o.params.len(), P_SHELL.len());
-        assert!(matches!(o.return_type, ReturnType::Fixed("Boolean")));
-
-        // The `BuiltinFunction::same` constructor is #[deprecated] (author new
-        // members with ::os/::native); this exercises that the legacy path still
-        // builds a valid descriptor for the packages not yet migrated off it.
-        #[allow(deprecated)]
-        let f = BuiltinFunction::same(
-            black_box("process.demo"),
-            black_box("demo"),
-            "",
-            "",
-            &[],
-            black_box(OV_POLL),
+    fn generic_dispatch_reaches_process() {
+        assert!(registry::is_member("process.spawn"));
+        assert!(registry::is_member("process.didSignal"));
+        assert!(!registry::is_member("process.nope"));
+        // Native members carry no rewrite target (they lower through Body::Native).
+        assert_eq!(registry::rewrite_target("process.spawn"), None);
+        // Fixed per-name return types.
+        assert_eq!(registry::call_return_type("process.pid"), Some("Integer"));
+        assert_eq!(
+            registry::call_return_type("process.isRunning"),
+            Some("Boolean")
         );
-        assert_eq!(f.name, "process.demo");
-        assert_eq!(f.doc_slug, "demo");
-        assert_eq!(f.overloads.len(), OV_POLL.len());
-        use crate::target::shared::registry::{Implementation, Lowering};
-        assert!(matches!(f.implementation, Implementation::Same));
-        assert!(matches!(f.lowering, Lowering::Helper));
-        assert!(!f.flags.internal_only);
-        assert!(!f.flags.return_type_overloaded);
-        // Every real member descriptor lives in its func file and carries an
-        // `Implementation::Os` (per-platform emission in `native::{unix,windows}`).
-        assert_eq!(func_spawn::SPAWN.name, SPAWN);
-        assert!(matches!(
-            func_spawn::SPAWN.implementation,
-            Implementation::Os { .. }
-        ));
-    }
-
-    fn ret(name: &str, args: &[&str]) -> Option<String> {
-        DefaultResolver::resolve_call(&PROCESS, name, &strings(args)).map(str::to_string)
-    }
-
-    #[test]
-    fn process_is_a_builtin_opaque_type() {
-        assert!(is_builtin_type(PROCESS_TYPE));
-        assert!(!is_builtin_type("Nothing"));
-        assert!(!is_builtin_type("Socket"));
-        let ty = PROCESS
-            .types
-            .iter()
-            .find(|t| t.name == PROCESS_TYPE)
-            .expect("Process registered");
-        assert_eq!(ty.kind, TypeKind::Opaque);
-        assert!(ty.fields.is_empty());
-    }
-
-    #[test]
-    fn process_close_op_is_drop() {
-        assert_eq!(resource_close_function(PROCESS_TYPE), Some(DROP));
-        assert_eq!(resource_close_function("Nothing"), None);
-    }
-
-    #[test]
-    fn module_shape() {
-        assert_eq!(PROCESS.name, "process");
-        assert_eq!(PROCESS.functions.len(), 14);
-        assert!(PROCESS.source.is_some());
-        assert!(PROCESS.resolver.is_none());
-    }
-
-    #[test]
-    fn call_membership() {
-        for f in [SPAWN, SHELL, PID, IS_RUNNING, WAIT_FOR, CLOSE] {
-            assert!(DefaultResolver::contains(&PROCESS, f), "{f}");
-        }
-        // `__drop` is the internal scope-drop op, not a descriptor call.
-        assert!(!DefaultResolver::contains(&PROCESS, DROP));
-        assert!(!DefaultResolver::contains(&PROCESS, "process.bogus"));
+        assert_eq!(registry::call_return_type("process.close"), Some("Nothing"));
+        assert_eq!(registry::call_return_type("process.spawn"), Some("Process"));
+        assert_eq!(
+            registry::call_return_type("process.receive"),
+            Some("String")
+        );
+        assert_eq!(
+            registry::call_return_type("process.didSignal"),
+            Some("Signal")
+        );
+        // Arity ranges: spawn's two structurally distinct overloads (1 and 4 args),
+        // the trailing-optional streaming forms, and the single-signature queries.
+        assert_eq!(registry::arity("process.spawn"), Some((1, 4)));
+        assert_eq!(registry::arity("process.shell"), Some((1, 1)));
+        assert_eq!(registry::arity("process.pid"), Some((1, 1)));
+        assert_eq!(registry::arity("process.send"), Some((2, 3)));
+        assert_eq!(registry::arity("process.receive"), Some((1, 2)));
+        assert_eq!(registry::arity("process.poll"), Some((2, 3)));
     }
 
     #[test]
     fn spawn_overloads_resolve() {
-        assert_eq!(ret(SPAWN, &["List OF String"]), Some("Process".to_string()));
+        let s = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         assert_eq!(
-            ret(
-                SPAWN,
-                &[
+            registry::resolve_call("process.spawn", &s(&["List OF String"])),
+            Some("Process".to_string())
+        );
+        assert_eq!(
+            registry::resolve_call(
+                "process.spawn",
+                &s(&[
                     "List OF String",
                     "String",
                     "Map OF String TO String",
                     "Boolean"
-                ]
+                ])
             ),
             Some("Process".to_string())
         );
-        // Wrong arity / wrong types are rejected.
-        assert_eq!(ret(SPAWN, &[]), None);
-        assert_eq!(ret(SPAWN, &["String"]), None);
-        assert_eq!(ret(SPAWN, &["List OF String", "String"]), None);
+        // The structural gap between the 1-arg and 4-arg overloads is rejected.
+        assert_eq!(registry::resolve_call("process.spawn", &s(&[])), None);
         assert_eq!(
-            ret(
-                SPAWN,
-                &[
-                    "List OF String",
-                    "String",
-                    "Map OF String TO String",
-                    "Integer"
-                ]
-            ),
+            registry::resolve_call("process.spawn", &s(&["List OF String", "String"])),
             None
         );
     }
 
     #[test]
-    fn lifecycle_return_types() {
-        assert_eq!(ret(SHELL, &["String"]), Some("Process".to_string()));
-        assert_eq!(ret(PID, &["Process"]), Some("Integer".to_string()));
-        assert_eq!(ret(IS_RUNNING, &["Process"]), Some("Boolean".to_string()));
-        assert_eq!(ret(WAIT_FOR, &["Process"]), Some("Integer".to_string()));
-        assert_eq!(ret(CLOSE, &["Process"]), Some("Nothing".to_string()));
-        // Wrong receiver type is rejected.
-        assert_eq!(ret(PID, &["Integer"]), None);
-        assert_eq!(ret(CLOSE, &[]), None);
-        assert_eq!(ret(SHELL, &["Integer"]), None);
+    fn reassembled_source_parses() {
+        let source = registry()
+            .resolve_package("process")
+            .expect("process")
+            .get_mfb();
+        // The reassembled companion is the `Stream`/`Signal` EXPORT ENUM source.
+        assert!(source.contains("EXPORT ENUM Stream"));
+        assert!(source.contains("EXPORT ENUM Signal"));
+        crate::ast::parse_source_internal(
+            std::path::Path::new("<builtin-process>"),
+            "builtins/process.mfb",
+            &source,
+        )
+        .expect("reassembled process source parses");
     }
 
     #[test]
-    fn arity_ranges() {
-        assert_eq!(DefaultResolver::arity(&PROCESS, SPAWN), Some((1, 4)));
-        assert_eq!(DefaultResolver::arity(&PROCESS, SHELL), Some((1, 1)));
-        assert_eq!(DefaultResolver::arity(&PROCESS, PID), Some((1, 1)));
-        assert_eq!(DefaultResolver::arity(&PROCESS, SEND), Some((2, 3)));
-        assert_eq!(DefaultResolver::arity(&PROCESS, RECEIVE), Some((1, 2)));
-        assert_eq!(DefaultResolver::arity(&PROCESS, POLL), Some((2, 3)));
-    }
-
-    #[test]
-    fn streaming_io_resolves() {
+    fn process_close_op_is_drop() {
         assert_eq!(
-            ret(SEND, &["Process", "String"]),
-            Some("Nothing".to_string())
+            super::resource_close_function(super::PROCESS_TYPE),
+            Some(super::DROP)
         );
-        assert_eq!(
-            ret(SEND, &["Process", "String", "Integer"]),
-            Some("Nothing".to_string())
-        );
-        assert_eq!(
-            ret(SEND_BYTES, &["Process", "List OF Byte"]),
-            Some("Nothing".to_string())
-        );
-        assert_eq!(ret(RECEIVE, &["Process"]), Some("String".to_string()));
-        assert_eq!(
-            ret(RECEIVE, &["Process", "Stream"]),
-            Some("String".to_string())
-        );
-        assert_eq!(
-            ret(RECEIVE_BYTES, &["Process"]),
-            Some("List OF Byte".to_string())
-        );
-        assert_eq!(
-            ret(POLL, &["Process", "Integer"]),
-            Some("Boolean".to_string())
-        );
-        assert_eq!(
-            ret(POLL, &["Process", "Integer", "Stream"]),
-            Some("Boolean".to_string())
-        );
-        // Wrong types rejected.
-        assert_eq!(ret(SEND, &["Process", "Integer"]), None);
-        assert_eq!(ret(RECEIVE, &["Process", "Integer"]), None);
-    }
-
-    #[test]
-    fn source_companion_parses() {
-        assert!(source_file().is_ok());
+        assert_eq!(super::resource_close_function("Nothing"), None);
     }
 
     #[test]
     fn spawn_expected_arguments_names_both_overloads() {
-        let text = expected_arguments(SPAWN).expect("spawn phrasing");
+        let text = super::expected_arguments("process.spawn").expect("spawn phrasing");
         assert!(text.contains("List OF String"));
         assert!(text.contains(" or "));
         assert!(text.contains("Boolean"));
-        // Single-signature calls fall through to the descriptor renderer.
-        assert_eq!(expected_arguments(SHELL), None);
-        assert_eq!(expected_arguments(CLOSE), None);
+        // Single-signature calls fall through to the registry renderer.
+        assert_eq!(super::expected_arguments("process.shell"), None);
+        assert_eq!(super::expected_arguments("process.close"), None);
     }
 
     #[test]
-    fn return_type_name_is_fixed() {
-        assert_eq!(
-            DefaultResolver::return_type_name(&PROCESS, SPAWN),
-            Some("Process")
-        );
-        assert_eq!(
-            DefaultResolver::return_type_name(&PROCESS, CLOSE),
-            Some("Nothing")
-        );
+    fn runtime_call_membership() {
+        assert!(super::is_process_call("process.spawn"));
+        assert!(super::is_process_runtime_call("process.spawn"));
+        // `__drop` is the internal scope-drop op: a runtime call, not a descriptor call.
+        assert!(!super::is_process_call(super::DROP));
+        assert!(super::is_process_runtime_call(super::DROP));
+        assert!(!super::is_process_call("process.bogus"));
+        assert!(!super::is_process_runtime_call("process.bogus"));
     }
 }

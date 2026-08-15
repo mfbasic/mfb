@@ -45,7 +45,7 @@ detached makes `close` raise `ErrResourceClosed`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `p` | `Process` | The child process handle. Borrowed, not consumed; the child keeps running. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/mod.rs:P_PROC]] |
+| `p` | `Process` | The child process handle. Borrowed, not consumed; the child keeps running. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/func_close.rs:register]] |
 
 ## Return value
 

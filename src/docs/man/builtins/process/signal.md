@@ -47,8 +47,8 @@ detached raises `ErrResourceClosed`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/mod.rs:P_SIGNAL]] |
-| `sig` | `Signal` | The bucket to deliver: `Signal.None` (no-op), `Signal.Kill`, `Signal.Terminate`, or `Signal.Error`. Also accepts the alternate named-argument spelling `signal`. [[src/codegen/builtins/process/mod.rs:P_SIGNAL]] |
+| `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/func_signal.rs:register]] |
+| `sig` | `Signal` | The bucket to deliver: `Signal.None` (no-op), `Signal.Kill`, `Signal.Terminate`, or `Signal.Error`. Also accepts the alternate named-argument spelling `signal`. [[src/codegen/builtins/process/func_signal.rs:register]] |
 
 ## Return value
 

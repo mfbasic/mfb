@@ -679,10 +679,12 @@ impl RegistryPackage {
     /// happens later when the assembled text is parsed.
     ///
     /// Returns the **empty string** only when the package has *nothing* to inject —
-    /// no records, no unions, and no `Mfb` member — even if imports or helper
-    /// functions are present, because then they support nothing. (Records and unions
-    /// are injectable source in their own right: a package whose functions are all
-    /// `Native`/`Rewrite` still emits its `TYPE`/`UNION` declarations here.) Pieces are
+    /// no records, no unions, no `Mfb` member, and no helper functions. Records and
+    /// unions are injectable source in their own right (a package whose functions are
+    /// all `Native`/`Rewrite` still emits its `TYPE`/`UNION` declarations here), and a
+    /// helper-function chunk is likewise standalone injectable source — the native
+    /// `process` package carries only its `Stream`/`Signal` `EXPORT ENUM` companion as
+    /// a helper chunk, with no records, unions, or `Mfb` bodies. Pieces are
     /// separated by a blank line and the result ends with a newline, so the output is
     /// directly parseable.
     pub(crate) fn get_mfb(&self) -> String {
@@ -695,7 +697,11 @@ impl RegistryPackage {
                 _ => None,
             })
             .collect();
-        if self.records.is_empty() && self.unions.is_empty() && bodies.is_empty() {
+        if self.records.is_empty()
+            && self.unions.is_empty()
+            && bodies.is_empty()
+            && self.helper_functions.is_empty()
+        {
             return String::new();
         }
 
@@ -903,6 +909,7 @@ fn build() -> Registry {
     crate::codegen::builtins::csv::register(&mut r);
     crate::codegen::builtins::json::register(&mut r);
     crate::codegen::builtins::regex::register(&mut r);
+    crate::codegen::builtins::process::register(&mut r);
     r
 }
 
@@ -1019,10 +1026,9 @@ fn unify(
         (ParameterType::SetOf(elem), ParameterType::SetOf(concrete_elem)) => {
             unify(elem, concrete_elem, bindings)
         }
-        (
-            ParameterType::MapOf(key, value),
-            ParameterType::MapOf(concrete_key, concrete_value),
-        ) => unify(key, concrete_key, bindings) && unify(value, concrete_value, bindings),
+        (ParameterType::MapOf(key, value), ParameterType::MapOf(concrete_key, concrete_value)) => {
+            unify(key, concrete_key, bindings) && unify(value, concrete_value, bindings)
+        }
         // A container pattern against a non-matching concrete container/leaf fails.
         (ParameterType::ListOf(_) | ParameterType::SetOf(_) | ParameterType::MapOf(_, _), _) => {
             false
@@ -1077,7 +1083,10 @@ fn contains_var(ty: &ParameterType) -> bool {
 pub(crate) fn resolve_call(qualified: &str, arg_types: &[String]) -> Option<String> {
     let function = registry().resolve_func(qualified)?.function;
     let call = CallShape {
-        args: arg_types.iter().map(|arg| ParameterType::parse(arg)).collect(),
+        args: arg_types
+            .iter()
+            .map(|arg| ParameterType::parse(arg))
+            .collect(),
     };
     function
         .select(&call)
@@ -1611,20 +1620,26 @@ mod tests {
 
     #[test]
     fn get_mfb_is_empty_when_the_package_has_no_mfb_member() {
-        // A package with only Intrinsic/Rewrite members and no records/unions injects
-        // nothing.
+        // A package with only Intrinsic/Rewrite members and no records/unions/helpers
+        // injects nothing.
         let mut empty = Registry::new();
         let mut pkg = RegistryPackage::new("nomfb", "i", "d");
         pkg.add_function(func("a", vec![rewrite_impl("__a")]));
         empty.add_package(pkg);
         assert_eq!(empty.resolve_package("nomfb").unwrap().get_mfb(), "");
 
+        // A package whose only injectable content is a helper-function chunk (the
+        // native `process` shape: an `EXPORT ENUM` companion, no records/unions/bodies)
+        // still emits that chunk — helper chunks are standalone injectable source.
         let mut r = Registry::new();
         let mut pkg = RegistryPackage::new("bare", "i", "d");
         pkg.add_imports(vec!["strings"]);
         pkg.add_helper_functions(vec!["FUNC __helper() AS Nothing\nEND FUNC"]);
         r.add_package(pkg);
-        assert_eq!(r.resolve_package("bare").unwrap().get_mfb(), "");
+        assert_eq!(
+            r.resolve_package("bare").unwrap().get_mfb(),
+            "IMPORT strings\n\nFUNC __helper() AS Nothing\nEND FUNC\n",
+        );
     }
 
     #[test]

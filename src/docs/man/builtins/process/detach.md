@@ -43,7 +43,7 @@ purposes: every later `process::` call on it — including a second `detach` —
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `p` | `Process` | The child process handle. After the call the handle is closed and unusable, but the child keeps running. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/mod.rs:P_PROC]] |
+| `p` | `Process` | The child process handle. After the call the handle is closed and unusable, but the child keeps running. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/func_detach.rs:register]] |
 
 ## Return value
 

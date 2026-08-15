@@ -63,9 +63,9 @@ milliseconds (best-effort on Windows). [[src/codegen/builtins/process/native/uni
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/mod.rs:P_SENDB]] |
+| `p` | `Process` | The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/func_send_bytes.rs:register]] |
 | `data` | `List OF Byte` | The bytes to write, in list order, with no newline appended. An empty list writes nothing. [[src/codegen/builtins/process/native/unix.rs:lower_process_send_helper]] |
-| `timeoutMs` | `Integer` | Optional. The maximum time to wait for room in the child's input pipe, in milliseconds; on expiry the call raises `ErrTimeout`. Best-effort on Windows. [[src/codegen/builtins/process/mod.rs:P_SENDB_T]] |
+| `timeoutMs` | `Integer` | Optional. The maximum time to wait for room in the child's input pipe, in milliseconds; on expiry the call raises `ErrTimeout`. Best-effort on Windows. [[src/codegen/builtins/process/func_send_bytes.rs:register]] |
 
 ## Return value
 

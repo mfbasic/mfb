@@ -57,9 +57,9 @@ The same, for the selected stream — `Stream.StdOut` or `Stream.StdErr`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `p` | `Process` | The child process handle. Borrowed and inspected for readiness only; no data is read. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/mod.rs:P_POLL]] |
+| `p` | `Process` | The child process handle. Borrowed and inspected for readiness only; no data is read. Also accepts the alternate named-argument spelling `process`. [[src/codegen/builtins/process/func_poll.rs:register]] |
 | `ms` | `Integer` | The maximum time to wait, in milliseconds. `0` is an immediate non-blocking check; a positive value waits up to that long. [[src/codegen/builtins/process/func_poll.rs:lower_process_poll_helper_posix]] |
-| `from` | `Stream` | Optional. Which output stream to inspect: `Stream.StdOut` (the default) or `Stream.StdErr`. [[src/codegen/builtins/process/mod.rs:P_POLL_S]] |
+| `from` | `Stream` | Optional. Which output stream to inspect: `Stream.StdOut` (the default) or `Stream.StdErr`. [[src/codegen/builtins/process/func_poll.rs:register]] |
 
 ## Return value
 

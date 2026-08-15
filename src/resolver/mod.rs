@@ -132,7 +132,8 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     let augmented = builtins::http::augmented_project(&augmented)?;
     let augmented = builtins::net::augmented_project(&augmented)?;
     let augmented = builtins::audio::augmented_project(&augmented)?;
-    let augmented = crate::codegen::builtins::process::augmented_project(&augmented)?;
+    // `process` (its `Stream`/`Signal` enum companion) is injected by the generic
+    // clean-room `registry::augment_project` above.
     // `crypto` is injected before `encoding`: `crypto_package.mfb` imports
     // `encoding`, so the encoding source companion must be added only after
     // crypto's source is present for `encoding::uses_package` to see the

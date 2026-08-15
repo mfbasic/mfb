@@ -9,10 +9,13 @@
 
 use std::collections::HashMap;
 
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::native_helpers::emit_fail;
 use crate::target::shared::code::*;
-use crate::target::shared::registry::BuiltinFunction;
 
 use super::native::*;
 
@@ -39,18 +42,31 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const PID: BuiltinFunction = BuiltinFunction::os(
-    super::PID,
-    "pid",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(super::P_PROC, "Integer")],
-    lower_process_pid_helper_posix,
-    lower_process_pid_helper_win,
-    &["process.pid"],
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "pid",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "p",
+                desc: "The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`.",
+                aliases: &["process"],
+                ty: ParameterType::Named(super::PROCESS_TYPE),
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::Integer,
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::native(
+                Some(lower_process_pid_helper_posix),
+                Some(lower_process_pid_helper_win),
+                None,
+            ),
+        }],
+    });
+}
 
 pub(crate) fn lower_process_pid_helper_posix(
     _call: &str,

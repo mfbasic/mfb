@@ -178,7 +178,8 @@ pub fn check_project_collect(
     let augmented = builtins::http::augmented_project(&augmented)?;
     let augmented = builtins::net::augmented_project(&augmented)?;
     let augmented = builtins::audio::augmented_project(&augmented)?;
-    let augmented = crate::codegen::builtins::process::augmented_project(&augmented)?;
+    // `process` (its `Stream`/`Signal` enum companion) is injected by the generic
+    // clean-room `registry::augment_project` above.
     // `crypto` before `encoding`: `crypto_package.mfb` imports `encoding`
     // (mirrors `http` before `net`; plan-04-crypto.md Part C).
     let augmented = builtins::crypto::augmented_project(&augmented)?;
