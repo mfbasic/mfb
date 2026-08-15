@@ -27,7 +27,7 @@ dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project
 Every two hexadecimal characters produce one byte: the first character is the
 high nibble and the second is the low nibble, so the byte value is
 `high * 16 + low`. Characters are consumed in order with no separators, prefix,
-or padding recognized. [[src/codegen/builtins/encoding/mod.rs:__encoding_hexDecode]]
+or padding recognized. [[src/codegen/builtins/encoding/func_hex_decode.rs:__encoding_hexDecode]]
 
 Both cases are accepted for the letter digits: `0`–`9`, `a`–`f`, and `A`–`F` are
 valid, and lowercase and uppercase may be mixed freely within the same string.
@@ -37,7 +37,7 @@ The input length must be even, because each byte needs a pair of digits. The
 empty string decodes to the empty list. The result always contains exactly half
 as many bytes as there are input characters. This is the inverse of
 `encoding::hexEncode`, which emits lowercase hex; decoding then re-encoding a
-valid string reproduces its lowercase form. [[src/codegen/builtins/encoding/mod.rs:ENCODING]]
+valid string reproduces its lowercase form. [[src/codegen/builtins/encoding/func_hex_decode.rs:register]]
 
 ## Parameters
 
@@ -49,13 +49,13 @@ valid string reproduces its lowercase form. [[src/codegen/builtins/encoding/mod.
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The decoded bytes, one per pair of input digits; the empty list for the empty string. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `List OF Byte` | The decoded bytes, one per pair of input digits; the empty list for the empty string. [[src/codegen/builtins/encoding/func_hex_decode.rs:register]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `text` has an odd number of characters, or contains a character that is not a hexadecimal digit (`0`–`9`, `a`–`f`, `A`–`F`). [[src/codegen/builtins/encoding/mod.rs:__encoding_hexDecode]] |
+| `77050003` | `ErrInvalidFormat` | `text` has an odd number of characters, or contains a character that is not a hexadecimal digit (`0`–`9`, `a`–`f`, `A`–`F`). [[src/codegen/builtins/encoding/func_hex_decode.rs:__encoding_hexDecode]] |
 
 ## Examples
 

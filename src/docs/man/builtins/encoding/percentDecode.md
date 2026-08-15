@@ -34,7 +34,7 @@ The two hex digits after a `%` accept either case (`0`–`9`, `a`–`f`, `A`–`
 may be mixed. Unlike `encoding::formUrlDecode`, a literal `+` (byte 43) is *not*
 translated to a space — it passes through verbatim — because plus-as-space is an
 `application/x-www-form-urlencoded` convention, not part of RFC 3986 percent
-encoding. [[src/codegen/builtins/encoding/mod.rs:__encoding_percentDecode]] [[src/codegen/builtins/encoding/package.mfb:__encoding_hexValue]]
+encoding. [[src/codegen/builtins/encoding/func_percent_decode.rs:__encoding_percentDecode]] [[src/codegen/builtins/encoding/package.mfb:__encoding_hexValue]]
 
 The empty string decodes to the empty string. The function is a strict decoder:
 a `%` with fewer than two following bytes, a `%` followed by a non-hex digit, or
@@ -51,7 +51,7 @@ being passed through or replaced. [[src/codegen/builtins/encoding/package.mfb:__
 
 | Type | Description |
 | --- | --- |
-| `String` | The decoded text: each `%XX` escape replaced by its byte, all other bytes verbatim, and the whole interpreted as UTF-8. The empty string for empty input. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `String` | The decoded text: each `%XX` escape replaced by its byte, all other bytes verbatim, and the whole interpreted as UTF-8. The empty string for empty input. [[src/codegen/builtins/encoding/func_percent_decode.rs:register]] |
 
 ## Errors
 

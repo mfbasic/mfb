@@ -5,8 +5,10 @@
 //! `src/docs/man/builtins/encoding/punycodeDecode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ov, p};
-use crate::target::shared::registry::BuiltinFunction;
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str = r#"Decode an ASCII Punycode hostname back to its Unicode form."#;
 const DESC: &str = r#"`encoding::punycodeDecode` converts an ASCII hostname in the internationalized
@@ -78,13 +80,24 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const PUNYCODE_DECODE: BuiltinFunction = BuiltinFunction::mfb(
-    "encoding.punycodeDecode",
-    "punycodeDecode",
-    INTRO,
-    DESC,
-    &[],
-    &[ov(&[p("asciiDomain", &[], "String")], "String")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "punycodeDecode",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "asciiDomain",
+                desc: "The ASCII (Punycode) domain name to decode.",
+                aliases: &[],
+                ty: ParameterType::String,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::String,
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(BODY, "__encoding_punycodeDecode"),
+        }],
+    });
+}

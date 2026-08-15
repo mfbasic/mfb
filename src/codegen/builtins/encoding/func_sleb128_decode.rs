@@ -5,8 +5,10 @@
 //! `src/docs/man/builtins/encoding/sleb128Decode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ov, p, BYTES};
-use crate::target::shared::registry::BuiltinFunction;
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str = r#"Decode a signed LEB128 `List OF Byte` back into an `Integer`."#;
 const DESC: &str = r#"`encoding::sleb128Decode` reads one signed [LEB128](https://en.wikipedia.org/wiki/LEB128)
@@ -89,13 +91,24 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const SLEB128_DECODE: BuiltinFunction = BuiltinFunction::mfb(
-    "encoding.sleb128Decode",
-    "sleb128Decode",
-    INTRO,
-    DESC,
-    &[],
-    &[ov(&[p("data", &[], BYTES)], "Integer")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "sleb128Decode",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "data",
+                desc: "The SLEB128 bytes to decode.",
+                aliases: &[],
+                ty: ParameterType::list_of(ParameterType::Byte),
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::Integer,
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(BODY, "__encoding_sleb128Decode"),
+        }],
+    });
+}

@@ -27,7 +27,7 @@ dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project
 `application/x-www-form-urlencoded` data — the format HTML forms apply to
 query-string values — back into text. The input is read as its UTF-8 byte
 sequence and scanned left to right, producing a sequence of decoded bytes.
-[[src/codegen/builtins/encoding/mod.rs:__encoding_formUrlDecode]] [[src/codegen/builtins/encoding/package.mfb:__encoding_percentDecodeBytes]]
+[[src/codegen/builtins/encoding/func_form_url_decode.rs:__encoding_formUrlDecode]] [[src/codegen/builtins/encoding/package.mfb:__encoding_percentDecodeBytes]]
 
 Each byte is handled as follows:
 
@@ -36,7 +36,7 @@ Each byte is handled as follows:
   single byte and the scan advances past all three characters.
 - A `+` (byte 43) is replaced by a single space (byte 32). This is the one
   behavior that distinguishes form decoding from `encoding::percentDecode`,
-  which leaves `+` untouched. [[src/codegen/builtins/encoding/mod.rs:__encoding_percentDecode]]
+  which leaves `+` untouched. [[src/codegen/builtins/encoding/func_percent_decode.rs:__encoding_percentDecode]]
 - Every other byte is copied through unchanged.
 
 After the whole input has been decoded, the resulting byte sequence is
@@ -54,7 +54,7 @@ empty string. Hexadecimal digits in escapes may be upper- or lowercase.
 
 | Type | Description |
 | --- | --- |
-| `String` | The decoded text: `%XX` escapes turned into their bytes, `+` turned into space, all other bytes verbatim, with the whole result validated as UTF-8. The empty string for empty input. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `String` | The decoded text: `%XX` escapes turned into their bytes, `+` turned into space, all other bytes verbatim, with the whole result validated as UTF-8. The empty string for empty input. [[src/codegen/builtins/encoding/func_form_url_decode.rs:register]] |
 
 ## Errors
 

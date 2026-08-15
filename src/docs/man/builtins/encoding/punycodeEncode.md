@@ -27,7 +27,7 @@ dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project
 representation used by internationalized domain names (IDNA), applying the
 Punycode Bootstring algorithm of RFC 3492. The hostname is split on `.` into
 labels, and each label is processed independently; the results are rejoined with
-`.` so the dot structure of the input is preserved. [[src/codegen/builtins/encoding/mod.rs:__encoding_punycodeEncode]]
+`.` so the dot structure of the input is preserved. [[src/codegen/builtins/encoding/func_punycode_encode.rs:__encoding_punycodeEncode]]
 
 Each label is examined for non-ASCII code points. A label whose code points are
 all below `128` is emitted verbatim, unchanged. A label containing any code
@@ -45,7 +45,7 @@ decoder before encoding. [[src/codegen/builtins/encoding/package.mfb:__encoding_
 The function is **total**: every `String`, including the empty string and
 all-ASCII hostnames, encodes successfully, and it never raises a runtime error.
 The inverse operation is `encoding::punycodeDecode`, which converts an ASCII
-Punycode hostname back to its Unicode form. [[src/codegen/builtins/encoding/mod.rs:__encoding_punycodeDecode]]
+Punycode hostname back to its Unicode form. [[src/codegen/builtins/encoding/func_punycode_decode.rs:__encoding_punycodeDecode]]
 
 ## Parameters
 
@@ -57,7 +57,7 @@ Punycode hostname back to its Unicode form. [[src/codegen/builtins/encoding/mod.
 
 | Type | Description |
 | --- | --- |
-| `String` | The ASCII Punycode hostname: all-ASCII labels are copied verbatim, and labels with non-ASCII code points become `xn--`-prefixed Punycode. The empty string maps to the empty string. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `String` | The ASCII Punycode hostname: all-ASCII labels are copied verbatim, and labels with non-ASCII code points become `xn--`-prefixed Punycode. The empty string maps to the empty string. [[src/codegen/builtins/encoding/func_punycode_encode.rs:register]] |
 
 ## Errors
 

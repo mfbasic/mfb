@@ -1029,10 +1029,11 @@ impl BuiltinRegistry {
 /// miss). BB then deletes the legacy helpers the adapters fall back to.
 ///
 /// Migrated so far: `app` (B), `bits` (D), `collections` (E), `csv` (G),
-/// `crypto` (F), `audio` (C), `datetime` (H), `encoding` (I), `errorCode` (J),
+/// `crypto` (F), `audio` (C), `datetime` (H), `errorCode` (J),
 /// `fs` (K), `general` (L), `http` (M), `io` (N), `json` (O), `math` (P),
 /// `money` (Q), `net` (R), `os` (S), `regex` (T), `resource` (U), `strings` (V),
-/// `term` (W), `testing` (X).
+/// `term` (W), `testing` (X). (`encoding`, letter I, has since moved to the
+/// clean-room registry `crate::codegen::registry` and is no longer held here.)
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
     &crate::builtins::astrings::ASTRINGS,
@@ -1042,7 +1043,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::crypto::CRYPTO,
     &crate::builtins::audio::AUDIO,
     &crate::codegen::builtins::datetime::DATETIME,
-    &crate::codegen::builtins::encoding::ENCODING,
+    // encoding migrated to the clean-room registry (crate::codegen::registry).
     &crate::builtins::errorcode::ERRORCODE,
     &crate::builtins::io::IO,
     &crate::builtins::general::GENERAL,
@@ -1752,13 +1753,14 @@ mod tests {
         // plan-90-A: the `process` package (opaque Process resource). Its callable
         // surface lands in Phase 2/sub-plans, so only the module is asserted here.
         assert!(REGISTRY.module("process").is_some());
-        // csv / json / regex have migrated onto the clean-room registry
+        // csv / json / regex / encoding have migrated onto the clean-room registry
         // (`crate::codegen::registry`) and are no longer held here.
         assert!(REGISTRY.module("csv").is_none());
         assert!(REGISTRY.module("json").is_none());
         assert!(REGISTRY.module("regex").is_none());
-        // The 28 builtin packages minus the 3 migrated to the clean-room registry.
-        assert_eq!(REGISTRY.modules().len(), 25);
+        assert!(REGISTRY.module("encoding").is_none());
+        // The 28 builtin packages minus the 4 migrated to the clean-room registry.
+        assert_eq!(REGISTRY.modules().len(), 24);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);

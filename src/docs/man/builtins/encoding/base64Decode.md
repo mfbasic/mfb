@@ -28,7 +28,7 @@ returns the bytes it encodes. Each character selects a 6-bit value from the
 alphabet `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/`; the
 values are concatenated most-significant bit first into a continuous bit stream
 and emitted eight bits at a time, so leftover bits that do not fill a final byte
-are discarded. This is the inverse of `encoding::base64Encode`. [[src/codegen/builtins/encoding/mod.rs:__encoding_base64Decode]] [[src/codegen/builtins/encoding/package.mfb:__encoding_baseDecodeBits]]
+are discarded. This is the inverse of `encoding::base64Encode`. [[src/codegen/builtins/encoding/func_base64_decode.rs:__encoding_base64Decode]] [[src/codegen/builtins/encoding/package.mfb:__encoding_baseDecodeBits]]
 
 The alphabet is the standard variant using `+` and `/` for values `62` and `63`;
 it is case-sensitive (`A`–`Z` map to `0`–`25`, `a`–`z` to `26`–`51`, `0`–`9` to
@@ -41,7 +41,7 @@ characters. In addition, the number of non-padding symbols cannot be exactly one
 more than a multiple of four (a symbol count whose remainder modulo four is `1`),
 because no well-formed Base64 group ends on a single 6-bit symbol. The empty
 string decodes to the empty list. For the URL- and filename-safe variant that
-uses `-` and `_`, use `encoding::base64UrlDecode`. [[src/codegen/builtins/encoding/mod.rs:__encoding_base64Decode]]
+uses `-` and `_`, use `encoding::base64UrlDecode`. [[src/codegen/builtins/encoding/func_base64_decode.rs:__encoding_base64Decode]]
 
 ## Parameters
 
@@ -53,13 +53,13 @@ uses `-` and `_`, use `encoding::base64UrlDecode`. [[src/codegen/builtins/encodi
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The decoded bytes; the empty list for the empty string. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `List OF Byte` | The decoded bytes; the empty list for the empty string. [[src/codegen/builtins/encoding/func_base64_decode.rs:register]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `text` has a length that is not a multiple of four; contains a character outside the Base64 alphabet (`A`–`Z`, `a`–`z`, `0`–`9`, `+`, `/`, `=`); has a non-padding character following a `=` padding character; or has a non-padding symbol count whose remainder modulo four is `1`. [[src/codegen/builtins/encoding/mod.rs:__encoding_base64Decode]] [[src/codegen/builtins/encoding/package.mfb:__encoding_base64Symbols]] |
+| `77050003` | `ErrInvalidFormat` | `text` has a length that is not a multiple of four; contains a character outside the Base64 alphabet (`A`–`Z`, `a`–`z`, `0`–`9`, `+`, `/`, `=`); has a non-padding character following a `=` padding character; or has a non-padding symbol count whose remainder modulo four is `1`. [[src/codegen/builtins/encoding/func_base64_decode.rs:__encoding_base64Decode]] [[src/codegen/builtins/encoding/package.mfb:__encoding_base64Symbols]] |
 
 ## Examples
 

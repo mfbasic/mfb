@@ -28,7 +28,7 @@ representation of `value`. It first maps the signed value onto an unsigned one
 with ZigZag encoding — `(value << 1) XOR (value >> 63)`, an arithmetic
 right shift — so that small-magnitude negatives become small unsigned numbers,
 then writes that unsigned result as base-128 [LEB128](https://en.wikipedia.org/wiki/LEB128).
-[[src/codegen/builtins/encoding/mod.rs:__encoding_varintEncode]]
+[[src/codegen/builtins/encoding/func_varint_encode.rs:__encoding_varintEncode]]
 
 The ZigZag mapping interleaves signs: `0` maps to `0`, `-1` to `1`, `1` to `2`,
 `-2` to `3`, and so on. The mapped value is then split into 7-bit groups,
@@ -37,12 +37,12 @@ seven bits; the high bit (`0x80`) is set on every byte except the last, where it
 is clear, marking the end of the sequence. Because the intermediate value is
 shifted right logically, encoding always terminates and at least one byte is
 always emitted: `0` encodes as the single byte `[0]`.
-[[src/codegen/builtins/encoding/mod.rs:__encoding_varintEncode]]
+[[src/codegen/builtins/encoding/func_varint_encode.rs:__encoding_varintEncode]]
 
 Unlike `encoding::uleb128Encode`, `value` may be negative — ZigZag gives every
 signed value a compact unsigned form, so no value is rejected. The inverse
 operation is `encoding::varintDecode`, which reads one ZigZag varint sequence
-back into a signed `Integer`. [[src/codegen/builtins/encoding/mod.rs:__encoding_varintDecode]]
+back into a signed `Integer`. [[src/codegen/builtins/encoding/func_varint_decode.rs:__encoding_varintDecode]]
 
 ## Parameters
 
@@ -54,7 +54,7 @@ back into a signed `Integer`. [[src/codegen/builtins/encoding/mod.rs:__encoding_
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The ZigZag varint bytes, least-significant group first, with the continuation bit set on all but the final byte. Always contains at least one byte. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `List OF Byte` | The ZigZag varint bytes, least-significant group first, with the continuation bit set on all but the final byte. Always contains at least one byte. [[src/codegen/builtins/encoding/func_varint_encode.rs:register]] |
 
 ## Errors
 

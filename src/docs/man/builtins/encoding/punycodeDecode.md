@@ -26,14 +26,14 @@ dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project
 `encoding::punycodeDecode` converts an ASCII hostname in the internationalized
 domain name (IDNA) representation back to Unicode, reversing the Punycode
 Bootstring algorithm of RFC 3492. It is the inverse of
-`encoding::punycodeEncode`. [[src/codegen/builtins/encoding/mod.rs:__encoding_punycodeDecode]]
+`encoding::punycodeEncode`. [[src/codegen/builtins/encoding/func_punycode_decode.rs:__encoding_punycodeDecode]]
 
 The hostname is split on `.` into labels, and each label is processed
 independently; the results are rejoined with `.` so the dot structure of the
 input is preserved. A label that begins with the ACE marker `xn--` is decoded:
 the `xn--` prefix is stripped and the remainder is run through the Punycode
 label decoder. A label without the `xn--` prefix is emitted verbatim, unchanged.
-[[src/codegen/builtins/encoding/mod.rs:__encoding_punycodeDecode]]
+[[src/codegen/builtins/encoding/func_punycode_decode.rs:__encoding_punycodeDecode]]
 
 Within an encoded label, the basic (ASCII) code points up to and including the
 last `-` delimiter are copied out first, and the trailing generalized
@@ -59,7 +59,7 @@ than producing a partial result. [[src/codegen/builtins/encoding/package.mfb:__e
 
 | Type | Description |
 | --- | --- |
-| `String` | The decoded Unicode hostname. All-ASCII (non-`xn--`) labels are copied verbatim, and `xn--`-prefixed labels are expanded to their Unicode form. The empty string maps to the empty string. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `String` | The decoded Unicode hostname. All-ASCII (non-`xn--`) labels are copied verbatim, and `xn--`-prefixed labels are expanded to their Unicode form. The empty string maps to the empty string. [[src/codegen/builtins/encoding/func_punycode_decode.rs:register]] |
 
 ## Errors
 

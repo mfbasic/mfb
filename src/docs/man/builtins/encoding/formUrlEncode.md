@@ -26,7 +26,7 @@ dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project
 `encoding::formUrlEncode` encodes `text` using the
 `application/x-www-form-urlencoded` rules that HTML forms apply to query-string
 values. The input is first converted to its UTF-8 byte sequence, then each byte
-is emitted in order. [[src/codegen/builtins/encoding/mod.rs:__encoding_formUrlEncode]]
+is emitted in order. [[src/codegen/builtins/encoding/func_form_url_encode.rs:__encoding_formUrlEncode]]
 
 A byte passes through unchanged only when it is an ASCII alphanumeric: the
 letters `A`–`Z` (65–90) and `a`–`z` (97–122) and the digits `0`–`9` (48–57).
@@ -45,7 +45,7 @@ and symbol characters, three or four for higher code points).
 The function is **total**: every `String`, including the empty string (which
 yields the empty string), encodes successfully and it never raises a runtime
 error. The inverse operation is `encoding::formUrlDecode`, which parses `%XX`
-escapes and `+` back into text. [[src/codegen/builtins/encoding/mod.rs:__encoding_formUrlDecode]]
+escapes and `+` back into text. [[src/codegen/builtins/encoding/func_form_url_decode.rs:__encoding_formUrlDecode]]
 
 ## Parameters
 
@@ -57,7 +57,7 @@ escapes and `+` back into text. [[src/codegen/builtins/encoding/mod.rs:__encodin
 
 | Type | Description |
 | --- | --- |
-| `String` | The form-encoded form of `text`: ASCII alphanumeric bytes verbatim, space as `+`, all other bytes as `%XX` with uppercase hex. The empty string for empty input. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `String` | The form-encoded form of `text`: ASCII alphanumeric bytes verbatim, space as `+`, all other bytes as `%XX` with uppercase hex. The empty string for empty input. [[src/codegen/builtins/encoding/func_form_url_encode.rs:register]] |
 
 ## Errors
 

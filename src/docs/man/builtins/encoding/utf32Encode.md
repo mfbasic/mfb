@@ -27,7 +27,7 @@ dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project
 numeric code points, one element per Unicode scalar value. Each scalar is a
 number in the range `0..1114111` (`0x10FFFF`); because a valid `String` holds no
 surrogate scalars, the result never contains a value in the surrogate range
-`55296..57343`. [[src/codegen/builtins/encoding/mod.rs:__encoding_utf32Encode]]
+`55296..57343`. [[src/codegen/builtins/encoding/func_utf32_encode.rs:__encoding_utf32Encode]]
 
 The scalars are produced by decoding the string's UTF-8 bytes in order: each
 1-to-4-byte sequence contributes exactly one code point, so the returned list
@@ -40,7 +40,7 @@ The function is **total** — every string, including the empty string (which
 yields an empty list), encodes successfully, and it never raises a runtime
 error. The inverse operation is `encoding::utf32Decode`, which turns a
 `List OF Integer` of code points back into a `String` and rejects out-of-range
-or surrogate code points. [[src/codegen/builtins/encoding/mod.rs:__encoding_utf32Decode]]
+or surrogate code points. [[src/codegen/builtins/encoding/func_utf32_decode.rs:__encoding_utf32Decode]]
 
 ## Parameters
 
@@ -52,7 +52,7 @@ or surrogate code points. [[src/codegen/builtins/encoding/mod.rs:__encoding_utf3
 
 | Type | Description |
 | --- | --- |
-| `List OF Integer` | The Unicode scalar values of `value`, each in `0..1114111` and never a surrogate; empty for the empty string. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `List OF Integer` | The Unicode scalar values of `value`, each in `0..1114111` and never a surrogate; empty for the empty string. [[src/codegen/builtins/encoding/func_utf32_encode.rs:register]] |
 
 ## Errors
 

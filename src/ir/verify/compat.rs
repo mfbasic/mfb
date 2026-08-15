@@ -291,12 +291,19 @@ impl TypeEnv {
         // which resolves each of these packages byte-identically to its own
         // `resolve_call` (proven by the descriptor parity tests + artifact-gate).
         type IsCall = fn(&str) -> bool;
+        // `encoding` migrated to the clean-room registry; its membership is the
+        // narrow `owning_package == "encoding"` (not the broad `registry::is_member`,
+        // which would widen this set to every migrated package and reject programs
+        // codegen accepts — see the note above).
+        fn is_encoding_call(name: &str) -> bool {
+            crate::codegen::registry::owning_package(name) == Some("encoding")
+        }
         let checked: [IsCall; 9] = [
             builtins::math::is_math_call,
             builtins::bits::is_bits_call,
             builtins::vector::is_vector_call,
             builtins::strings::is_strings_call,
-            crate::codegen::builtins::encoding::is_encoding_call,
+            is_encoding_call,
             builtins::io::is_io_call,
             builtins::fs::is_fs_call,
             builtins::net::is_net_call,

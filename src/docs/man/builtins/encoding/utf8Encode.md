@@ -65,8 +65,8 @@ when the call is used where a `List OF Integer` is expected. [[src/codegen/built
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The UTF-8 bytes of `value`, one element per byte (`0..255`); empty for the empty string. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
-| `List OF Integer` | The same UTF-8 byte values as `Integer` elements (`0..255`). [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `List OF Byte` | The UTF-8 bytes of `value`, one element per byte (`0..255`); empty for the empty string. [[src/codegen/builtins/encoding/func_utf8_encode.rs:register]] |
+| `List OF Integer` | The same UTF-8 byte values as `Integer` elements (`0..255`). [[src/codegen/builtins/encoding/func_utf8_encode.rs:register]] |
 
 ## Errors
 
@@ -77,7 +77,7 @@ No errors.
 `utf8Encode` takes exactly one `String` argument. The return type is a return-type
 overload resolved to `List OF Byte` or `List OF Integer` from the expected type;
 with no expected type to disambiguate, the call is a compile-time
-`TYPE_OVERLOAD_AMBIGUOUS` error. [[src/monomorph/lower.rs:resolve_overload]] [[src/codegen/builtins/encoding/mod.rs:ENCODING]]
+`TYPE_OVERLOAD_AMBIGUOUS` error. [[src/monomorph/lower.rs:resolve_overload]] [[src/codegen/builtins/encoding/func_utf8_encode.rs:register]]
 
 ## Examples
 

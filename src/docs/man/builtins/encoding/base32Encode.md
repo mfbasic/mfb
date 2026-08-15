@@ -27,7 +27,7 @@ dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project
 as defined by RFC 4648 §6. Input bytes are consumed as a continuous bit stream,
 most-significant bit first, and emitted five bits at a time; each 5-bit group
 selects one character from the uppercase alphabet
-`ABCDEFGHIJKLMNOPQRSTUVWXYZ234567`. [[src/codegen/builtins/encoding/mod.rs:__encoding_base32Encode]]
+`ABCDEFGHIJKLMNOPQRSTUVWXYZ234567`. [[src/codegen/builtins/encoding/func_base32_encode.rs:__encoding_base32Encode]]
 
 Encoding operates on 40-bit (5-byte) groups, each producing eight Base32
 characters. When the final group is short, its remaining bits become the high
@@ -39,7 +39,7 @@ string. [[src/codegen/builtins/encoding/package.mfb:__encoding_baseEncode]]
 The function is **total**: every `List OF Byte`, including the empty list,
 encodes successfully, and it never raises a runtime error. The inverse operation
 is `encoding::base32Decode`, which parses a Base32 string back into a
-`List OF Byte`. [[src/codegen/builtins/encoding/mod.rs:__encoding_base32Decode]]
+`List OF Byte`. [[src/codegen/builtins/encoding/func_base32_decode.rs:__encoding_base32Decode]]
 
 ## Parameters
 
@@ -51,7 +51,7 @@ is `encoding::base32Decode`, which parses a Base32 string back into a
 
 | Type | Description |
 | --- | --- |
-| `String` | The uppercase Base32 encoding of `data` with `=` padding to a multiple of eight characters; the empty string for an empty list. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `String` | The uppercase Base32 encoding of `data` with `=` padding to a multiple of eight characters; the empty string for an empty list. [[src/codegen/builtins/encoding/func_base32_encode.rs:register]] |
 
 ## Errors
 

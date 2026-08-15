@@ -5,8 +5,10 @@
 //! `src/docs/man/builtins/encoding/htmlEscape.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ov, p, VALTEXT};
-use crate::target::shared::registry::BuiltinFunction;
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str = r#"Escape the five HTML/XML metacharacters in a `String`."#;
 const DESC: &str = r#"`encoding::htmlEscape` produces a form of `text` that is safe to embed inside
@@ -68,13 +70,24 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const HTML_ESCAPE: BuiltinFunction = BuiltinFunction::mfb(
-    "encoding.htmlEscape",
-    "htmlEscape",
-    INTRO,
-    DESC,
-    &[],
-    &[ov(&[p("value", VALTEXT, "String")], "String")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "htmlEscape",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "value",
+                desc: "The string to escape.",
+                aliases: &["text"],
+                ty: ParameterType::String,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::String,
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(BODY, "__encoding_htmlEscape"),
+        }],
+    });
+}

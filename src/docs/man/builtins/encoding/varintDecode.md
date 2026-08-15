@@ -25,7 +25,7 @@ dependency is required. [[src/codegen/builtins/encoding/mod.rs:augmented_project
 
 `encoding::varintDecode` reads one ZigZag [varint](https://protobuf.dev/programming-guides/encoding/#varints)
 sequence from `data` and returns the signed `Integer` it represents. It is the
-inverse of `encoding::varintEncode`. [[src/codegen/builtins/encoding/mod.rs:__encoding_varintDecode]]
+inverse of `encoding::varintEncode`. [[src/codegen/builtins/encoding/func_varint_decode.rs:__encoding_varintDecode]]
 
 Decoding proceeds in two steps. First the bytes are read as an unsigned
 [LEB128](https://en.wikipedia.org/wiki/LEB128) sequence — least-significant 7-bit
@@ -35,13 +35,13 @@ mapping is reversed — `(u >> 1) XOR -(u AND 1)` — turning the unsigned value
 into the original signed value, so that small-magnitude negatives round-trip
 correctly. Because the ZigZag reversal is pure arithmetic on the decoded value,
 it never fails on its own; every error surfaces from the underlying LEB128 read.
-[[src/codegen/builtins/encoding/mod.rs:__encoding_varintDecode]]
+[[src/codegen/builtins/encoding/func_varint_decode.rs:__encoding_varintDecode]]
 
 `data` must contain at least one byte, and the sequence must be terminated within
 it: if the bytes run out before a byte with a clear high bit is seen, the input
 is treated as truncated. The accumulated shift may not exceed 63 bits; a sequence
 encoding more than 64 significant bits overflows. Any bytes after the terminator
-are ignored. [[src/codegen/builtins/encoding/mod.rs:__encoding_uleb128Decode]]
+are ignored. [[src/codegen/builtins/encoding/func_uleb128_decode.rs:__encoding_uleb128Decode]]
 
 ## Parameters
 
@@ -53,13 +53,13 @@ are ignored. [[src/codegen/builtins/encoding/mod.rs:__encoding_uleb128Decode]]
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The decoded signed value, negative or non-negative, reproduced from the ZigZag mapping. [[src/codegen/builtins/encoding/mod.rs:ENCODING]] |
+| `Integer` | The decoded signed value, negative or non-negative, reproduced from the ZigZag mapping. [[src/codegen/builtins/encoding/func_varint_decode.rs:register]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `data` is empty, the sequence is truncated (the bytes end before a terminator with a clear high bit), or the value overflows 64 bits (the shift exceeds 63). [[src/codegen/builtins/encoding/mod.rs:__encoding_uleb128Decode]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | `data` is empty, the sequence is truncated (the bytes end before a terminator with a clear high bit), or the value overflows 64 bits (the shift exceeds 63). [[src/codegen/builtins/encoding/func_uleb128_decode.rs:__encoding_uleb128Decode]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
 
 ## Examples
 

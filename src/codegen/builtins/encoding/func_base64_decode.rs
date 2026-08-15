@@ -5,8 +5,10 @@
 //! `src/docs/man/builtins/encoding/base64Decode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ov, p, BYTES};
-use crate::target::shared::registry::BuiltinFunction;
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str = r#"Decode a standard Base64 `String` into a `List OF Byte`."#;
 const DESC: &str = r#"`encoding::base64Decode` parses `text` as standard Base64 (RFC 4648 §4) and
@@ -69,13 +71,24 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const BASE64_DECODE: BuiltinFunction = BuiltinFunction::mfb(
-    "encoding.base64Decode",
-    "base64Decode",
-    INTRO,
-    DESC,
-    &[],
-    &[ov(&[p("text", &[], "String")], BYTES)],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "base64Decode",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "text",
+                desc: "The Base64 text to decode.",
+                aliases: &[],
+                ty: ParameterType::String,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::list_of(ParameterType::Byte),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(BODY, "__encoding_base64Decode"),
+        }],
+    });
+}

@@ -858,6 +858,17 @@ impl Registry {
         let mut synthetic_files = Vec::new();
 
         for package in self.packages() {
+            // `encoding` is a transitive dependency of the non-migrated `crypto` and
+            // `strings` packages, whose source is injected *after* this generic pass
+            // and contributes its own `IMPORT encoding`. A single pass over the
+            // pre-injection AST cannot see that transitive import, so `encoding` is
+            // injected by its own dedicated late pass (`encoding::augmented_project`,
+            // run after crypto/strings in the lowering pipeline). Skipping it here
+            // also prevents a double injection when a program imports `encoding`
+            // directly.
+            if package.import_name() == "encoding" {
+                continue;
+            }
             if !package.is_imported_by(ast) {
                 continue;
             }
@@ -903,6 +914,7 @@ fn build() -> Registry {
     crate::codegen::builtins::csv::register(&mut r);
     crate::codegen::builtins::json::register(&mut r);
     crate::codegen::builtins::regex::register(&mut r);
+    crate::codegen::builtins::encoding::register(&mut r);
     r
 }
 
@@ -1019,10 +1031,9 @@ fn unify(
         (ParameterType::SetOf(elem), ParameterType::SetOf(concrete_elem)) => {
             unify(elem, concrete_elem, bindings)
         }
-        (
-            ParameterType::MapOf(key, value),
-            ParameterType::MapOf(concrete_key, concrete_value),
-        ) => unify(key, concrete_key, bindings) && unify(value, concrete_value, bindings),
+        (ParameterType::MapOf(key, value), ParameterType::MapOf(concrete_key, concrete_value)) => {
+            unify(key, concrete_key, bindings) && unify(value, concrete_value, bindings)
+        }
         // A container pattern against a non-matching concrete container/leaf fails.
         (ParameterType::ListOf(_) | ParameterType::SetOf(_) | ParameterType::MapOf(_, _), _) => {
             false
@@ -1077,7 +1088,10 @@ fn contains_var(ty: &ParameterType) -> bool {
 pub(crate) fn resolve_call(qualified: &str, arg_types: &[String]) -> Option<String> {
     let function = registry().resolve_func(qualified)?.function;
     let call = CallShape {
-        args: arg_types.iter().map(|arg| ParameterType::parse(arg)).collect(),
+        args: arg_types
+            .iter()
+            .map(|arg| ParameterType::parse(arg))
+            .collect(),
     };
     function
         .select(&call)

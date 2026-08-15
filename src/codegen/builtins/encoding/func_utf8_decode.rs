@@ -5,8 +5,10 @@
 //! `src/docs/man/builtins/encoding/utf8Decode.md`. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{ov, p, BYTES};
-use crate::target::shared::registry::BuiltinFunction;
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str = r#"Decode a UTF-8 byte or code-unit sequence to a `String`."#;
 const DESC: &str = r#"`encoding::utf8Decode` interprets `value` as a UTF-8 byte sequence and returns the
@@ -51,12 +53,39 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const UTF8_DECODE: BuiltinFunction = BuiltinFunction::custom(
-    "encoding.utf8Decode",
-    "utf8Decode",
-    INTRO,
-    DESC,
-    &[],
-    &[ov(&[p("value", &[], BYTES)], "String")],
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    // Parameter overload selected by the argument's element type. Both
+    // implementations carry `Body::Intrinsic` (no registry rewrite target), so IR
+    // lowering leaves the canonical `encoding.utf8Decode` for the monomorphizer to
+    // resolve to `#encoding_utf8Decode`. The two `__encoding_utf8Decode` bodies live
+    // in `package.mfb`.
+    let value = |ty: ParameterType| Parameter {
+        name: "value",
+        desc: "The UTF-8 byte or code-unit sequence to decode.",
+        aliases: &[],
+        ty,
+        default: DefaultValue::None,
+    };
+    pkg.add_function(RegistryFunction {
+        name: "utf8Decode",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![
+            Implementation {
+                params: vec![value(ParameterType::list_of(ParameterType::Byte))],
+                return_type: ParameterType::String,
+                errors: vec![],
+                lowering: Lowering::Helper,
+                body: Body::Intrinsic,
+            },
+            Implementation {
+                params: vec![value(ParameterType::list_of(ParameterType::Integer))],
+                return_type: ParameterType::String,
+                errors: vec![],
+                lowering: Lowering::Helper,
+                body: Body::Intrinsic,
+            },
+        ],
+    });
+}
