@@ -1,135 +1,16 @@
 //! `collections::window` — descriptor entry + MFBASIC source body (Implementation::Mfb).
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{custom, opt, req};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::list_element_type;
 use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
-
-const INTRO: &str = "Produce the sliding windows of a list, each of exactly `size` elements";
-
-#[rustfmt::skip]
-const BODY: &str =
-"FUNC __collections_window OF T(value AS List OF T, size AS Integer, stride AS Integer = 1) AS List OF List OF T
-  IF size < 1 OR stride < 1 THEN
-    FAIL error(77050002, \"Argument value is not valid for the requested operation.\")
-  END IF
-  MUT result AS List OF List OF T = []
-  MUT i AS Integer = 0
-  WHILE i + size <= len(value)
-    LET piece AS List OF T = __collections_slice(value, i, i + size)
-    result = collections::append(result, piece)
-    i = i + stride
-  END WHILE
-  RETURN result
-END FUNC";
-
-const DESC: &str = r#"`collections::window` walks `value` from index 0 in steps of `stride`, and at
-each position where a full run of `size` consecutive elements still fits, emits
-that run as a window. The result is the list of those windows, in order. It is a
-generic function written in MFBASIC source, rewritten to the internal
-`__collections_window` generic and instantiated for the element type `T` during
-monomorphization.
-
-Every window has exactly `size` elements — there is no short final window. The
-loop advances only while `i + size` is still within the length of `value`, so a
-trailing partial run is simply not emitted, and the elements it would have
-contained are dropped from the result. This is the key difference from
-`collections::chunks`, which does emit a short final block.
-
-`stride` controls the overlap and defaults to 1, so the common call
-`collections::window(value, size)` produces maximally overlapping windows that
-advance one element at a time. A `stride` equal to `size` produces
-non-overlapping windows, and a `stride` greater than `size` skips elements
-between them.
-
-When `size` is greater than the length of `value`, no window fits and the result
-is the empty list; an empty `value` likewise produces an empty result. Both
-`size` and `stride` must be at least 1, and either being below 1 is rejected at
-runtime with `ErrInvalidArgument`. Note the parameter is named `stride`, not
-`step`.
-
-Each window is built by the internal slice helper, which is lowered natively as
-a bulk range copy, so element payloads are copied into freshly allocated lists
-and no window shares storage with `value`. Overlapping windows therefore hold
-independent copies of the elements they share. `value` is not modified."#;
-
-const EX: &str = r#"Overlapping pairs, with the default stride of 1:
-
-```
-IMPORT collections
-IMPORT io
-
-FUNC main AS Integer
-  LET windows AS List OF List OF Integer = collections::window([1, 2, 3, 4], 2)
-  io::print(toString(len(windows)))
-  RETURN 0
-END FUNC
-```
-
-A stride equal to the size gives non-overlapping windows — and unlike `chunks`,
-a trailing partial run is dropped:
-
-```
-IMPORT collections
-IMPORT io
-
-FUNC main AS Integer
-  LET pairs AS List OF List OF Integer = collections::window([1, 2, 3, 4, 5], 2, 2)
-  io::print(toString(len(pairs)))
-  RETURN 0
-END FUNC
-```
-
-Name the stride explicitly; the parameter is `stride`, not `step`:
-
-```
-IMPORT collections
-IMPORT io
-
-FUNC main AS Integer
-  LET spaced AS List OF List OF Integer = collections::window([1, 2, 3, 4, 5, 6], 2, stride := 3)
-  io::print(toString(len(spaced)))
-  RETURN 0
-END FUNC
-```
-
-A size larger than the list yields no windows at all:
-
-```
-IMPORT collections
-IMPORT io
-
-FUNC main AS Integer
-  LET none AS List OF List OF Integer = collections::window([1, 2], 5)
-  io::print(toString(len(none)))
-  RETURN 0
-END FUNC
-```"#;
-
-pub(crate) const WINDOW: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
-    "collections.window",
-    "window",
-    INTRO,
-    DESC,
-    &["ErrInvalidArgument"],
-    &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("size", &[], "Integer"),
-        opt("stride", &[], "Integer"),
-    ])],
-    BODY,
-    window_fast_path,
-)
-.with_example(EX);
 
 /// Native fast path for `#collections_window$T` with constant `size >= 1` /
 /// `stride >= 1`: fixed-width (stride 1) via the contiguous-block builder, String
 /// (any stride) via per-window slice construction. Everything else declines
 /// (`Ok(None)`). Free fn.
-fn window_fast_path(
+pub(super) fn window_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],

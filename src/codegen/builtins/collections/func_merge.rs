@@ -1,123 +1,17 @@
 //! `collections::merge` — descriptor entry + MFBASIC source body (Implementation::Mfb).
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{custom, req};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{
     collection_has_buckets, list_element_type, map_type_parts,
 };
 use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
-
-const INTRO: &str = "Combine two maps into one, choosing which side wins on a key collision";
-
-#[rustfmt::skip]
-const BODY: &str =
-"FUNC __collections_merge OF K, V(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V
-  MUT result AS Map OF K TO V = a
-  FOR EACH e IN b
-    IF preferB OR NOT collections::hasKey(result, e.key) THEN
-      result = collections::set(result, e.key, e.value)
-    END IF
-  NEXT
-  RETURN result
-END FUNC";
-
-const DESC: &str = r#"`collections::merge` starts the result as a copy of `a`, then iterates `b` with
-`FOR EACH` and considers each of its entries in turn. An entry of `b` is written
-into the result only when `preferB` is `TRUE`, or when the entry's key is not
-already present in the result. Every other entry of `b` is skipped, leaving the
-value that came from `a` in place.
-
-The result therefore always contains the union of the two key sets: every key of
-`a` and every key of `b` appears exactly once. `preferB` decides only what
-happens on a collision — a key present in both maps:
-
-- `preferB = TRUE` — `b`'s value overwrites `a`'s value for that key.
-- `preferB = FALSE` — `a`'s value is kept and `b`'s value is discarded.
-
-`preferB` is a required `Boolean` parameter. It has no default, so all three
-arguments must be supplied; there is no two-argument form of `merge`.
-
-Neither `a` nor `b` is modified. The result is a distinct map value, so writing
-to it afterwards does not disturb either input.
-
-Because the result is seeded from `a` and then extended by iterating `b`, keys of
-`a` are inserted first and keys unique to `b` are inserted afterwards, each side
-in its own traversal order. Map traversal order is implementation-defined but
-stable for a given unchanged map value during one program run, so no ordering
-guarantee beyond that should be relied on; see `mfb man types map`. Note that
-overwriting an existing key when `preferB` is `TRUE` replaces its value and does
-not move the key to the end.
-
-`merge` invokes no user callback and raises no error."#;
-
-const EX: &str = r#"Let the second map win on a collision:
-
-```
-IMPORT io
-IMPORT collections
-
-FUNC main AS Integer
-  LET a AS Map OF String TO Integer = Map OF String TO Integer { "x" := 1 }
-  LET b AS Map OF String TO Integer = Map OF String TO Integer { "x" := 2, "y" := 9 }
-  LET merged AS Map OF String TO Integer = collections::merge(a, b, TRUE)
-  io::print(toString(collections::get(merged, "x")))
-  RETURN 0
-END FUNC
-```
-
-Keep the first map's value instead, while still gaining `b`'s new keys:
-
-```
-IMPORT io
-IMPORT collections
-
-FUNC main AS Integer
-  LET defaults AS Map OF String TO Integer = Map OF String TO Integer { "retries" := 3 }
-  LET overrides AS Map OF String TO Integer = Map OF String TO Integer { "retries" := 9, "timeout" := 30 }
-  LET settings AS Map OF String TO Integer = collections::merge(a := defaults, b := overrides, preferB := FALSE)
-  io::print(toString(collections::get(settings, "retries")) & " " & toString(collections::get(settings, "timeout")))
-  RETURN 0
-END FUNC
-```
-
-Both inputs are left unchanged:
-
-```
-IMPORT io
-IMPORT collections
-
-FUNC main AS Integer
-  LET a AS Map OF String TO Integer = Map OF String TO Integer { "x" := 1 }
-  LET b AS Map OF String TO Integer = Map OF String TO Integer { "x" := 2 }
-  LET merged AS Map OF String TO Integer = collections::merge(a, b, TRUE)
-  io::print(toString(collections::get(a, "x")))
-  RETURN 0
-END FUNC
-```"#;
-
-pub(crate) const MERGE: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
-    "collections.merge",
-    "merge",
-    INTRO,
-    DESC,
-    &[],
-    &[custom(&[
-        req("a", &["first"], "Map OF K TO V"),
-        req("b", &["second"], "Map OF K TO V"),
-        req("preferB", &[], "Boolean"),
-    ])],
-    BODY,
-    merge_fast_path,
-)
-.with_example(EX);
 
 /// Native fast path for `#collections_merge$K$V` with a String key, fixed-width
 /// value, and compile-time-`TRUE` `preferB` (presized copy + in-place bulk
 /// insert). Other shapes decline (`Ok(None)`). Free fn.
-fn merge_fast_path(
+pub(super) fn merge_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],

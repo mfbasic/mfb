@@ -35,7 +35,7 @@ element type `T`, and passing another `List OF T` resolves no overload and is a
 compile-time error. The lowering rejects a list-typed item explicitly as well.
 To place a whole list in front of another, use `collections::append` with the
 operands reversed — `collections::append(front, back)`.
-[[src/codegen/builtins/collections/mod.rs:resolve_prepend]]
+[[src/codegen/registry/mod.rs:resolve_call]]
 [[src/codegen/builtins/collections/func_prepend.rs:lower_prepend]]
 
 Internally the element is wrapped as a one-element list and spliced into `value`
@@ -68,14 +68,14 @@ Prepending to an empty list yields a one-element list.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to prepend to; left unchanged. Also accepted under the name `list`. Must be a list type; passing a `Map` or a scalar resolves no overload and is a compile-time error. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/builtins/collections/mod.rs:resolve_prepend]] |
-| `item` | `T` | The single element to place at the front. Its type must be exactly the list's element type `T`; a `List OF T` is not accepted. This parameter has no alternate spelling. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/builtins/collections/mod.rs:resolve_prepend]] |
+| `value` | `List OF T` | The list to prepend to; left unchanged. Also accepted under the name `list`. Must be a list type; passing a `Map` or a scalar resolves no overload and is a compile-time error. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
+| `item` | `T` | The single element to place at the front. Its type must be exactly the list's element type `T`; a `List OF T` is not accepted. This parameter has no alternate spelling. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF T` | A new list of the same type as `value`, one element longer, with `item` at index `0` and the elements of `value` shifted up by one. [[src/codegen/builtins/collections/mod.rs:resolve_prepend]] |
+| `List OF T` | A new list of the same type as `value`, one element longer, with `item` at index `0` and the elements of `value` shifted up by one. [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Errors
 
@@ -88,7 +88,7 @@ element type `T`. There is no implicit widening or conversion, so prepending an
 `Integer` to a `List OF Float` does not resolve. A call on a non-list first
 argument, with a mismatched element type, or with a `List OF T` second argument,
 resolves to no overload and is rejected at compile time.
-[[src/codegen/builtins/collections/mod.rs:resolve_prepend]]
+[[src/codegen/registry/mod.rs:resolve_call]]
 
 ## Examples
 

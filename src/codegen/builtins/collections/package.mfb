@@ -13,7 +13,55 @@ IMPORT collections
 ' Stable bottom-up merge sort — O(n log n). Equal elements keep their original
 ' order (a right-run element is taken only when strictly less than the left-run
 ' element), matching the previous insertion sort's stability and ascending order.
-'@@MFB_BODY:sort@@
+FUNC __collections_sort OF T(value AS List OF T) AS List OF T
+  LET n AS Integer = len(value)
+  IF n < 2 THEN
+    RETURN value
+  END IF
+  MUT src AS List OF T = value
+  MUT width AS Integer = 1
+  WHILE width < n
+    MUT dst AS List OF T = src
+    MUT lo AS Integer = 0
+    WHILE lo < n
+      MUT mid AS Integer = lo + width
+      IF mid > n THEN
+        mid = n
+      END IF
+      MUT hi AS Integer = lo + width + width
+      IF hi > n THEN
+        hi = n
+      END IF
+      MUT i AS Integer = lo
+      MUT j AS Integer = mid
+      MUT k AS Integer = lo
+      WHILE i < mid AND j < hi
+        IF collections::get(src, j) < collections::get(src, i) THEN
+          dst = collections::set(dst, k, collections::get(src, j))
+          j = j + 1
+        ELSE
+          dst = collections::set(dst, k, collections::get(src, i))
+          i = i + 1
+        END IF
+        k = k + 1
+      END WHILE
+      WHILE i < mid
+        dst = collections::set(dst, k, collections::get(src, i))
+        i = i + 1
+        k = k + 1
+      END WHILE
+      WHILE j < hi
+        dst = collections::set(dst, k, collections::get(src, j))
+        j = j + 1
+        k = k + 1
+      END WHILE
+      lo = lo + width + width
+    END WHILE
+    src = dst
+    width = width + width
+  END WHILE
+  RETURN src
+END FUNC
 
 ' --- internal helpers ---------------------------------------------------------
 
@@ -36,7 +84,62 @@ END FUNC
 ' Stable bottom-up merge sort keyed by keyFn. keyFn is evaluated exactly once per
 ' element (via transform, as before); the merge carries items and their keys in
 ' parallel and is stable on equal keys.
-'@@MFB_BODY:sortBy@@
+FUNC __collections_sortBy OF T, U(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T
+  LET n AS Integer = len(value)
+  IF n < 2 THEN
+    RETURN value
+  END IF
+  MUT items AS List OF T = value
+  MUT keys AS List OF U = collections::transform(value, keyFn)
+  MUT width AS Integer = 1
+  WHILE width < n
+    MUT itemsDst AS List OF T = items
+    MUT keysDst AS List OF U = keys
+    MUT lo AS Integer = 0
+    WHILE lo < n
+      MUT mid AS Integer = lo + width
+      IF mid > n THEN
+        mid = n
+      END IF
+      MUT hi AS Integer = lo + width + width
+      IF hi > n THEN
+        hi = n
+      END IF
+      MUT i AS Integer = lo
+      MUT j AS Integer = mid
+      MUT k AS Integer = lo
+      WHILE i < mid AND j < hi
+        IF collections::get(keys, j) < collections::get(keys, i) THEN
+          itemsDst = collections::set(itemsDst, k, collections::get(items, j))
+          keysDst = collections::set(keysDst, k, collections::get(keys, j))
+          j = j + 1
+        ELSE
+          itemsDst = collections::set(itemsDst, k, collections::get(items, i))
+          keysDst = collections::set(keysDst, k, collections::get(keys, i))
+          i = i + 1
+        END IF
+        k = k + 1
+      END WHILE
+      WHILE i < mid
+        itemsDst = collections::set(itemsDst, k, collections::get(items, i))
+        keysDst = collections::set(keysDst, k, collections::get(keys, i))
+        i = i + 1
+        k = k + 1
+      END WHILE
+      WHILE j < hi
+        itemsDst = collections::set(itemsDst, k, collections::get(items, j))
+        keysDst = collections::set(keysDst, k, collections::get(keys, j))
+        j = j + 1
+        k = k + 1
+      END WHILE
+      lo = lo + width + width
+    END WHILE
+    items = itemsDst
+    keys = keysDst
+    width = width + width
+  END WHILE
+  RETURN items
+END FUNC
 
 ' bug-339 C9: take and drop are the two halves of one API — kept together here
 ' under the §6.4 banner (take used to sit above the internal-helpers banner).
@@ -46,9 +149,13 @@ END FUNC
 ' bounds exactly: take(count) = slice(0, count) (count<0 or >len both collapse the
 ' same way), drop(count) = slice(count, len). Do not read the dead MFBASIC
 ' __collections_slice body as the spec of that clamping.
-'@@MFB_BODY:take@@
+FUNC __collections_take OF T(value AS List OF T, count AS Integer) AS List OF T
+  RETURN __collections_slice(value, 0, count)
+END FUNC
 
-'@@MFB_BODY:drop@@
+FUNC __collections_drop OF T(value AS List OF T, count AS Integer) AS List OF T
+  RETURN __collections_slice(value, count, len(value))
+END FUNC
 
 ' __collections_reduceRight was removed here: `reduceRight` is now lowered as a
 ' native member (plan-86-B, B2), the reverse-walk twin of native `reduce`, so it
@@ -60,31 +167,194 @@ END FUNC
 ' `src/target/shared/code/builder_collection_queries.rs`.
 ' (line-span preserved: 9 comment lines + 1 blank == the removed 10-line body.)
 
-'@@MFB_BODY:any@@
+FUNC __collections_any OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Boolean
+  MUT i AS Integer = 0
+  WHILE i < len(value)
+    IF predicate(collections::get(value, i)) THEN
+      RETURN TRUE
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN FALSE
+END FUNC
 
-'@@MFB_BODY:all@@
+FUNC __collections_all OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Boolean
+  MUT i AS Integer = 0
+  WHILE i < len(value)
+    IF NOT predicate(collections::get(value, i)) THEN
+      RETURN FALSE
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN TRUE
+END FUNC
 
-'@@MFB_BODY:findIndex@@
+FUNC __collections_findIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean, start AS Integer = 0) AS Integer
+  IF start < 0 OR start > len(value) THEN
+    FAIL error(77050001, "List or string index/range is outside valid bounds.")
+  END IF
+  MUT i AS Integer = start
+  WHILE i < len(value)
+    IF predicate(collections::get(value, i)) THEN
+      RETURN i
+    END IF
+    i = i + 1
+  END WHILE
+  FAIL error(77050004, "Requested item, key, file, or resource was not found.")
+END FUNC
 
-'@@MFB_BODY:findLastIndex@@
+FUNC __collections_findLastIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean, endIndex AS Integer = -1) AS Integer
+  MUT e AS Integer = endIndex
+  IF e < 0 THEN
+    e = len(value) + e
+  END IF
+  IF e < 0 OR e >= len(value) THEN
+    FAIL error(77050001, "List or string index/range is outside valid bounds.")
+  END IF
+  MUT i AS Integer = e
+  WHILE i >= 0
+    IF predicate(collections::get(value, i)) THEN
+      RETURN i
+    END IF
+    i = i - 1
+  END WHILE
+  FAIL error(77050004, "Requested item, key, file, or resource was not found.")
+END FUNC
 
-'@@MFB_BODY:groupBy@@
+FUNC __collections_groupBy OF T, K, V(value AS List OF T, keyFn AS FUNC(T) AS K, valFn AS FUNC(T) AS V) AS Map OF K TO List OF V
+  LET keys AS List OF K = collections::transform(value, keyFn)
+  LET vals AS List OF V = collections::transform(value, valFn)
+  MUT result AS Map OF K TO List OF V = Map OF K TO List OF V {}
+  MUT i AS Integer = 0
+  WHILE i < len(keys)
+    LET k AS K = collections::get(keys, i)
+    LET v AS V = collections::get(vals, i)
+    IF collections::hasKey(result, k) THEN
+      MUT bucket AS List OF V = collections::get(result, k)
+      bucket = collections::append(bucket, v)
+      result = collections::set(result, k, bucket)
+    ELSE
+      MUT bucket AS List OF V = []
+      bucket = collections::append(bucket, v)
+      result = collections::set(result, k, bucket)
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN result
+END FUNC
 
-'@@MFB_BODY:mapValues@@
+FUNC __collections_mapValues OF K, V, U(value AS Map OF K TO V, f AS FUNC(V) AS U) AS Map OF K TO U
+  MUT result AS Map OF K TO U = Map OF K TO U {}
+  FOR EACH e IN value
+    result = collections::set(result, e.key, f(e.value))
+  NEXT
+  RETURN result
+END FUNC
 
-'@@MFB_BODY:flatten@@
+FUNC __collections_flatten OF T(value AS List OF List OF T) AS List OF T
+  MUT result AS List OF T = []
+  MUT i AS Integer = 0
+  WHILE i < len(value)
+    LET inner AS List OF T = collections::get(value, i)
+    result = collections::append(result, inner)
+    i = i + 1
+  END WHILE
+  RETURN result
+END FUNC
 
-'@@MFB_BODY:zip@@
+FUNC __collections_zip OF A, B(a AS List OF A, b AS List OF B) AS List OF Pair OF A, B
+  MUT result AS List OF Pair OF A, B = []
+  MUT n AS Integer = len(a)
+  IF len(b) < n THEN
+    n = len(b)
+  END IF
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET p AS Pair OF A, B = Pair[collections::get(a, i), collections::get(b, i)]
+    result = collections::append(result, p)
+    i = i + 1
+  END WHILE
+  RETURN result
+END FUNC
 
-'@@MFB_BODY:chunks@@
+FUNC __collections_chunks OF T(value AS List OF T, chunkSize AS Integer) AS List OF List OF T
+  IF chunkSize < 1 THEN
+    FAIL error(77050002, "Argument value is not valid for the requested operation.")
+  END IF
+  MUT result AS List OF List OF T = []
+  MUT i AS Integer = 0
+  WHILE i < len(value)
+    MUT stop AS Integer = i + chunkSize
+    IF stop > len(value) THEN
+      stop = len(value)
+    END IF
+    LET piece AS List OF T = __collections_slice(value, i, stop)
+    result = collections::append(result, piece)
+    i = i + chunkSize
+  END WHILE
+  RETURN result
+END FUNC
 
-'@@MFB_BODY:window@@
+FUNC __collections_window OF T(value AS List OF T, size AS Integer, stride AS Integer = 1) AS List OF List OF T
+  IF size < 1 OR stride < 1 THEN
+    FAIL error(77050002, "Argument value is not valid for the requested operation.")
+  END IF
+  MUT result AS List OF List OF T = []
+  MUT i AS Integer = 0
+  WHILE i + size <= len(value)
+    LET piece AS List OF T = __collections_slice(value, i, i + size)
+    result = collections::append(result, piece)
+    i = i + stride
+  END WHILE
+  RETURN result
+END FUNC
 
-'@@MFB_BODY:distinct@@
+FUNC __collections_distinct OF T(value AS List OF T) AS List OF T
+  MUT result AS List OF T = []
+  MUT i AS Integer = 0
+  WHILE i < len(value)
+    LET item AS T = collections::get(value, i)
+    IF NOT collections::contains(result, item) THEN
+      result = collections::append(result, item)
+    END IF
+    i = i + 1
+  END WHILE
+  RETURN result
+END FUNC
 
-'@@MFB_BODY:merge@@
+FUNC __collections_merge OF K, V(a AS Map OF K TO V, b AS Map OF K TO V, preferB AS Boolean) AS Map OF K TO V
+  MUT result AS Map OF K TO V = a
+  FOR EACH e IN b
+    IF preferB OR NOT collections::hasKey(result, e.key) THEN
+      result = collections::set(result, e.key, e.value)
+    END IF
+  NEXT
+  RETURN result
+END FUNC
 
-'@@MFB_BODY:partition@@
+FUNC __collections_partition OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Partition OF T
+  ' `predicate` is evaluated once per element through `collections::transform`,
+  ' whose callback loop checks the result tag and PROPAGATES a runtime failure —
+  ' a directly-called `IF predicate(item)` silently swallows it (the same reason
+  ' `sortBy`/`groupBy` build their keys via `transform`). The native
+  ' `lower_collection_partition_call` covers the fixed-width fast path; this body
+  ' serves the String/Scalar/Byte and inline-TRAP cases.
+  LET flags AS List OF Boolean = collections::transform(value, predicate)
+  MUT matched AS List OF T = []
+  MUT unmatched AS List OF T = []
+  MUT i AS Integer = 0
+  WHILE i < len(value)
+    LET item AS T = collections::get(value, i)
+    IF collections::get(flags, i) THEN
+      matched = collections::append(matched, item)
+    ELSE
+      unmatched = collections::append(unmatched, item)
+    END IF
+    i = i + 1
+  END WHILE
+  LET result AS Partition OF T = Partition[matched, unmatched]
+  RETURN result
+END FUNC
 
 ' ─── Set algebra (plan-63-C) ───────────────────────────────────────────────
 ' Eight source generics over B's native Set primitives (`add`/`contains`/
@@ -92,25 +362,87 @@ END FUNC
 ' Instantiated only for comparable `T`, since `Set OF T` already requires it.
 
 ' Build a set from a list's distinct elements (first-occurrence order).
-'@@MFB_BODY:toSet@@
+FUNC __collections_toSet OF T(value AS List OF T) AS Set OF T
+  MUT result AS Set OF T = Set OF T { }
+  FOR EACH x IN value
+    result = collections::add(result, x)
+  NEXT
+  RETURN result
+END FUNC
 
 ' Every element of `a` and `b` (add is idempotent, so duplicates collapse).
-'@@MFB_BODY:union@@
+FUNC __collections_union OF T(a AS Set OF T, b AS Set OF T) AS Set OF T
+  MUT result AS Set OF T = a
+  FOR EACH x IN b
+    result = collections::add(result, x)
+  NEXT
+  RETURN result
+END FUNC
 
 ' Every element present in both `a` and `b`.
-'@@MFB_BODY:intersection@@
+FUNC __collections_intersection OF T(a AS Set OF T, b AS Set OF T) AS Set OF T
+  MUT result AS Set OF T = Set OF T { }
+  FOR EACH x IN a
+    IF collections::contains(b, x) THEN
+      result = collections::add(result, x)
+    END IF
+  NEXT
+  RETURN result
+END FUNC
 
 ' Every element of `a` not present in `b`.
-'@@MFB_BODY:difference@@
+FUNC __collections_difference OF T(a AS Set OF T, b AS Set OF T) AS Set OF T
+  MUT result AS Set OF T = Set OF T { }
+  FOR EACH x IN a
+    IF NOT collections::contains(b, x) THEN
+      result = collections::add(result, x)
+    END IF
+  NEXT
+  RETURN result
+END FUNC
 
 ' Every element in exactly one of `a` or `b` (an inline two-pass fold).
-'@@MFB_BODY:symmetricDifference@@
+FUNC __collections_symmetricDifference OF T(a AS Set OF T, b AS Set OF T) AS Set OF T
+  MUT result AS Set OF T = Set OF T { }
+  FOR EACH x IN a
+    IF NOT collections::contains(b, x) THEN
+      result = collections::add(result, x)
+    END IF
+  NEXT
+  FOR EACH y IN b
+    IF NOT collections::contains(a, y) THEN
+      result = collections::add(result, y)
+    END IF
+  NEXT
+  RETURN result
+END FUNC
 
 ' TRUE iff every element of `a` is in `b`.
-'@@MFB_BODY:isSubset@@
+FUNC __collections_isSubset OF T(a AS Set OF T, b AS Set OF T) AS Boolean
+  FOR EACH x IN a
+    IF NOT collections::contains(b, x) THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
 
 ' TRUE iff every element of `b` is in `a` (isSubset with arguments swapped).
-'@@MFB_BODY:isSuperset@@
+FUNC __collections_isSuperset OF T(a AS Set OF T, b AS Set OF T) AS Boolean
+  FOR EACH x IN b
+    IF NOT collections::contains(a, x) THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
 
 ' TRUE iff `a` and `b` share no element.
-'@@MFB_BODY:isDisjoint@@
+FUNC __collections_isDisjoint OF T(a AS Set OF T, b AS Set OF T) AS Boolean
+  FOR EACH x IN a
+    IF collections::contains(b, x) THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC

@@ -52,20 +52,20 @@ the result block is allocated, so a rejected index allocates nothing.
 
 `removeAt` operates on lists only. To drop a key from a `Map OF K TO V`, use
 `collections::removeKey`, which takes a key rather than an index and does not
-raise when the key is absent. [[src/codegen/builtins/collections/mod.rs:resolve_remove_key]]
+raise when the key is absent. [[src/codegen/registry/mod.rs:resolve_call]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to remove from; left unchanged. Also accepted under the name `list`. Must be a list type; a `Map` or scalar resolves no overload and is a compile-time error. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/builtins/collections/mod.rs:resolve_remove_at]] |
+| `value` | `List OF T` | The list to remove from; left unchanged. Also accepted under the name `list`. Must be a list type; a `Map` or scalar resolves no overload and is a compile-time error. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/codegen/registry/mod.rs:resolve_call]] |
 | `index` | `Integer` | Zero-based position of the element to remove. Valid range is `0` through `len(value) - 1` inclusive. Must be declared `Integer` exactly — no other numeric type resolves. This parameter has no alternate spelling. [[src/codegen/builtins/collections/mod.rs:call_param_names]] [[src/target/shared/code/list_mutate.rs:lower_list_remove_at]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF T` | A new list of the same type as `value`, one element shorter, without the element that was at `index`. Removing index `0` drops the first element; removing `len(value) - 1` drops the last. [[src/codegen/builtins/collections/mod.rs:resolve_remove_at]] |
+| `List OF T` | A new list of the same type as `value`, one element shorter, without the element that was at `index`. Removing index `0` drops the first element; removing `len(value) - 1` drops the last. [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Errors
 
@@ -79,7 +79,7 @@ The first argument must be a `List OF T` and the second must be `Integer`. There
 is no implicit widening or conversion. The result has the same list type as
 `value`. A call on a non-list first argument or a non-`Integer` index resolves to
 no overload and is rejected at compile time; the index range itself is a runtime
-check, not a compile-time one. [[src/codegen/builtins/collections/mod.rs:resolve_remove_at]]
+check, not a compile-time one. [[src/codegen/registry/mod.rs:resolve_call]]
 
 ## Examples
 

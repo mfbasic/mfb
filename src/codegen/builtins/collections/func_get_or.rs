@@ -1,11 +1,12 @@
 //! `collections::getOr` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{list_element_type, map_type_parts};
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_GET_OR: &str =
     "Read a list item or map value, returning a supplied default when it is absent.";
@@ -82,20 +83,46 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const GET_OR: BuiltinFunction = BuiltinFunction::native(
-    "collections.getOr",
-    "getOr",
-    INTO_GET_OR,
-    DESC_GET_OR,
-    &[],
-    &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("index", &["key"], "Integer"),
-        req("default", &["fallback"], "T"),
-    ])],
-    lower_get_or,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "getOr",
+        intro: INTO_GET_OR,
+        desc: DESC_GET_OR,
+        example: EX,
+        implementations: vec![
+            Implementation {
+                params: vec![
+                    super::param(
+                        "value",
+                        &["collection"],
+                        ParameterType::list_of(ParameterType::Var("T")),
+                    ),
+                    super::param("index", &["key"], ParameterType::Integer),
+                    super::param("default", &["fallback"], ParameterType::Var("T")),
+                ],
+                return_type: ParameterType::Var("T"),
+                errors: vec![],
+                lowering: Lowering::Helper,
+                body: Body::native(None, None, Some(lower_get_or)),
+            },
+            Implementation {
+                params: vec![
+                    super::param(
+                        "value",
+                        &["collection"],
+                        ParameterType::map_of(ParameterType::Var("K"), ParameterType::Var("V")),
+                    ),
+                    super::param("index", &["key"], ParameterType::Var("K")),
+                    super::param("default", &["fallback"], ParameterType::Var("V")),
+                ],
+                return_type: ParameterType::Var("V"),
+                errors: vec![],
+                lowering: Lowering::Helper,
+                body: Body::native(None, None, Some(lower_get_or)),
+            },
+        ],
+    });
+}
 
 /// `collections::getOr` — total lookup returning `default` on miss (list index or
 /// map key overload). Reuses the get-or helpers; no domain error is raised.

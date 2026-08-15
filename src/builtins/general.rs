@@ -520,38 +520,6 @@ use super::exact;
 fn exact_one_of(arg_types: &[String], expected: &[&str]) -> bool {
     arg_types.len() == 1 && expected.iter().any(|expected| arg_types[0] == *expected)
 }
-/// The element type of a `List`, with any `RES` ownership-axis marker stripped:
-/// a `List OF RES File` yields the pointer element type `File`, since reading or
-/// inserting an element works with the bare resource value (§15.6).
-pub(crate) fn list_element(type_name: &str) -> Option<&str> {
-    let element = type_name.strip_prefix("List OF ")?;
-    Some(element.strip_prefix("RES ").unwrap_or(element))
-}
-
-pub(crate) fn map_parts(type_name: &str) -> Option<(&str, &str)> {
-    let (key, value) = type_name.strip_prefix("Map OF ")?.split_once(" TO ")?;
-    Some((key, value.strip_prefix("RES ").unwrap_or(value)))
-}
-
-/// Whether a collection element type accepts a candidate item type, ignoring a
-/// uniform `STATE T` clause either side may carry (bug-427). A stateful
-/// resource-union element (`Stream STATE PendingState`) keeps its STATE clause in
-/// the list's type string so an extracted element can read `.state`, but a
-/// resource item is compared by its bare handle type (the STATE is opaque at the
-/// insertion position, and `ir::verify` already strips it from arguments). For a
-/// non-resource element both sides pass through `base_resource_name` unchanged,
-/// so this is an exact-match compare there.
-pub(crate) fn element_accepts_item(element: &str, item: &str) -> bool {
-    crate::builtins::resource::base_resource_name(element)
-        == crate::builtins::resource::base_resource_name(item)
-}
-
-/// The element type of a `Set OF T` (plan-63). A Set element is always
-/// comparable and never `RES`-marked, so there is no marker to strip.
-pub(crate) fn set_element(type_name: &str) -> Option<&str> {
-    type_name.strip_prefix("Set OF ")
-}
-
 /// Splits a `FUNC(<params>) AS <return>` type into its parameter types and its
 /// return type.
 ///
@@ -884,19 +852,6 @@ mod tests {
 
     #[test]
     fn helpers_list_map_function_parts() {
-        assert_eq!(list_element("List OF Integer"), Some("Integer"));
-        assert_eq!(list_element("List OF RES File"), Some("File"));
-        assert_eq!(list_element("Integer"), None);
-        assert_eq!(
-            map_parts("Map OF String TO Integer"),
-            Some(("String", "Integer"))
-        );
-        assert_eq!(
-            map_parts("Map OF String TO RES File"),
-            Some(("String", "File"))
-        );
-        assert_eq!(map_parts("Integer"), None);
-        assert_eq!(map_parts("Map OF String"), None);
         assert_eq!(
             function_parts("FUNC(Integer, String) AS Boolean"),
             Some((vec!["Integer", "String"], "Boolean"))

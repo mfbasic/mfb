@@ -1,6 +1,8 @@
 //! `collections::contains` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{list_element_type, set_element_type};
 use crate::target::shared::code::{
@@ -9,7 +11,6 @@ use crate::target::shared::code::{
     COLLECTION_OFFSET_COUNT,
 };
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_CONTAINS: &str = "Test whether a list holds an item equal to a given value.";
 const DESC_CONTAINS: &str = r#"`collections::contains` scans `value` from index `0` upward and returns `TRUE`
@@ -102,19 +103,44 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const CONTAINS: BuiltinFunction = BuiltinFunction::native(
-    "collections.contains",
-    "contains",
-    INTO_CONTAINS,
-    DESC_CONTAINS,
-    &[],
-    &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("item", &[], "T"),
-    ])],
-    lower_contains,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "contains",
+        intro: INTO_CONTAINS,
+        desc: DESC_CONTAINS,
+        example: EX,
+        implementations: vec![
+            Implementation {
+                params: vec![
+                    super::param(
+                        "value",
+                        &["collection"],
+                        ParameterType::list_of(ParameterType::Var("T")),
+                    ),
+                    super::param("item", &[], ParameterType::Var("T")),
+                ],
+                return_type: ParameterType::Boolean,
+                errors: vec![],
+                lowering: Lowering::Helper,
+                body: Body::native(None, None, Some(lower_contains)),
+            },
+            Implementation {
+                params: vec![
+                    super::param(
+                        "value",
+                        &["collection"],
+                        ParameterType::set_of(ParameterType::Var("T")),
+                    ),
+                    super::param("item", &[], ParameterType::Var("T")),
+                ],
+                return_type: ParameterType::Boolean,
+                errors: vec![],
+                lowering: Lowering::Helper,
+                body: Body::native(None, None, Some(lower_contains)),
+            },
+        ],
+    });
+}
 
 /// `collections::contains(collection, element) AS Boolean`: a `Set` membership
 /// probe (shared `emit_key_membership`) or a linear list scan.

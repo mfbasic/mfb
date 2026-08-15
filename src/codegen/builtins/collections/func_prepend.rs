@@ -1,9 +1,10 @@
 //! `collections::prepend` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_PREPEND: &str = "Return a list with one element added at the start";
 const DESC_PREPEND: &str = r#"`collections::prepend` returns a new list whose first element is `item` and whose
@@ -80,19 +81,28 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const PREPEND: BuiltinFunction = BuiltinFunction::native(
-    "collections.prepend",
-    "prepend",
-    INTO_PREPEND,
-    DESC_PREPEND,
-    &[],
-    &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("item", &[], "T"),
-    ])],
-    lower_prepend,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "prepend",
+        intro: INTO_PREPEND,
+        desc: DESC_PREPEND,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                super::param(
+                    "value",
+                    &["list"],
+                    ParameterType::list_of(ParameterType::Var("T")),
+                ),
+                super::param("item", &[], ParameterType::Var("T")),
+            ],
+            return_type: ParameterType::Arg(0),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::native(None, None, Some(lower_prepend)),
+        }],
+    });
+}
 
 /// `collections::prepend` — splice `item` at index `0`. The shared end-insert
 /// body with prepend's index (`0`) and its reject-a-list guard.

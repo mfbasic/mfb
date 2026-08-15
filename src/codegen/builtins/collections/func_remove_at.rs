@@ -1,11 +1,12 @@
 //! `collections::removeAt` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::list_element_type;
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_REMOVE_AT: &str = "Return a list with the element at a given index removed";
 const DESC_REMOVE_AT: &str = r#"`collections::removeAt` returns a new list containing every element of `value`
@@ -74,19 +75,28 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const REMOVE_AT: BuiltinFunction = BuiltinFunction::native(
-    "collections.removeAt",
-    "removeAt",
-    INTO_REMOVE_AT,
-    DESC_REMOVE_AT,
-    &["ErrIndexOutOfRange"],
-    &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("index", &[], "Integer"),
-    ])],
-    lower_remove_at,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "removeAt",
+        intro: INTO_REMOVE_AT,
+        desc: DESC_REMOVE_AT,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                super::param(
+                    "value",
+                    &["list"],
+                    ParameterType::list_of(ParameterType::Var("T")),
+                ),
+                super::param("index", &[], ParameterType::Integer),
+            ],
+            return_type: ParameterType::Arg(0),
+            errors: vec!["ErrIndexOutOfRange"],
+            lowering: Lowering::Helper,
+            body: Body::native(None, None, Some(lower_remove_at)),
+        }],
+    });
+}
 
 /// `collections::removeAt(List OF T, Integer) AS List OF T`: drop the element at
 /// `index` (range-checked -> `ErrIndexOutOfRange`).

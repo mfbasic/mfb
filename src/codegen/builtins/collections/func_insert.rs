@@ -1,11 +1,12 @@
 //! `collections::insert` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::list_element_type;
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_INSERT: &str = "Return a list with one element inserted before a given index";
 const DESC_INSERT: &str = r#"`collections::insert` returns a new list in which `item` occupies position
@@ -76,20 +77,29 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const INSERT: BuiltinFunction = BuiltinFunction::native(
-    "collections.insert",
-    "insert",
-    INTO_INSERT,
-    DESC_INSERT,
-    &["ErrIndexOutOfRange"],
-    &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("index", &[], "Integer"),
-        req("item", &[], "T"),
-    ])],
-    lower_insert,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "insert",
+        intro: INTO_INSERT,
+        desc: DESC_INSERT,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                super::param(
+                    "value",
+                    &["list"],
+                    ParameterType::list_of(ParameterType::Var("T")),
+                ),
+                super::param("index", &[], ParameterType::Integer),
+                super::param("item", &[], ParameterType::Var("T")),
+            ],
+            return_type: ParameterType::Arg(0),
+            errors: vec!["ErrIndexOutOfRange"],
+            lowering: Lowering::Helper,
+            body: Body::native(None, None, Some(lower_insert)),
+        }],
+    });
+}
 
 /// `collections::insert(List OF T, Integer, T) AS List OF T`: splice `item` at
 /// `index` (`0 <= index <= len`, range-checked -> `ErrIndexOutOfRange`).

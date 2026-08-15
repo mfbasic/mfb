@@ -1028,17 +1028,17 @@ impl BuiltinRegistry {
 /// legacy per-package helper (the `mod.rs` adapters fall back on a registry
 /// miss). BB then deletes the legacy helpers the adapters fall back to.
 ///
-/// Migrated so far: `app` (B), `bits` (D), `collections` (E), `csv` (G),
-/// `crypto` (F), `audio` (C), `datetime` (H), `errorCode` (J),
-/// `fs` (K), `general` (L), `http` (M), `io` (N), `json` (O), `math` (P),
-/// `money` (Q), `net` (R), `os` (S), `regex` (T), `resource` (U), `strings` (V),
-/// `term` (W), `testing` (X). (`encoding`, letter I, has since moved to the
-/// clean-room registry `crate::codegen::registry` and is no longer held here.)
+/// Migrated so far: `app` (B), `bits` (D), `crypto` (F), `audio` (C),
+/// `errorCode` (J), `fs` (K), `general` (L), `http` (M), `io` (N), `math` (P),
+/// `money` (Q), `net` (R), `os` (S), `resource` (U), `strings` (V), `term` (W),
+/// `testing` (X). (`collections` E, `csv` G, `datetime` H, `encoding` I, `json` O,
+/// `regex` T, and `process` have since moved to the clean-room registry
+/// `crate::codegen::registry` and are no longer held here.)
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
     &crate::builtins::astrings::ASTRINGS,
     &crate::builtins::bits::BITS,
-    &crate::codegen::builtins::collections::COLLECTIONS,
+    // collections migrated to the clean-room registry (crate::codegen::registry).
     // csv migrated to the clean-room registry (crate::codegen::registry).
     &crate::builtins::crypto::CRYPTO,
     &crate::builtins::audio::AUDIO,
@@ -1750,16 +1750,18 @@ mod tests {
         // plan-89-A: the `astrings` package (opaque AttributedString + fromString).
         assert!(REGISTRY.module("astrings").is_some());
         assert!(REGISTRY.function("astrings.fromString").is_some());
-        // csv / json / regex / process / datetime / encoding have migrated onto the
-        // clean-room registry (`crate::codegen::registry`) and are no longer held here.
+        // csv / json / regex / process / datetime / encoding / collections have
+        // migrated onto the clean-room registry (`crate::codegen::registry`) and are
+        // no longer held here.
         assert!(REGISTRY.module("csv").is_none());
         assert!(REGISTRY.module("json").is_none());
         assert!(REGISTRY.module("regex").is_none());
         assert!(REGISTRY.module("process").is_none());
         assert!(REGISTRY.module("datetime").is_none());
         assert!(REGISTRY.module("encoding").is_none());
+        assert!(REGISTRY.module("collections").is_none());
         // The 28 builtin packages minus the migrated ones.
-        assert_eq!(REGISTRY.modules().len(), 22);
+        assert_eq!(REGISTRY.modules().len(), 21);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);
@@ -1778,30 +1780,6 @@ mod tests {
                     function.name,
                     function.doc_intro.len()
                 );
-            }
-        }
-    }
-
-    #[test]
-    fn native_lowering_only_in_collections() {
-        // plan-95/96: migrated members carry `Implementation::Native` (reached by the
-        // codegen dual-path seam). The set grows one batch at a time as `collections`
-        // members migrate; the stable invariant is that EVERY `Native`-lowered
-        // function is a `collections` member (no other package has migrated yet), and
-        // `get` (the first) is among them.
-        let (_, get) = REGISTRY
-            .function("collections.get")
-            .expect("collections.get is registered");
-        assert!(get.native_lower().is_some());
-        for module in REGISTRY.modules() {
-            for function in module.functions {
-                if function.native_lower().is_some() {
-                    assert_eq!(
-                        module.name, "collections",
-                        "{} is Native-lowered but not a collections member",
-                        function.name
-                    );
-                }
             }
         }
     }

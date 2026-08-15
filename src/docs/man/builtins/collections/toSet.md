@@ -27,7 +27,7 @@ IMPORT collections
 of the list `value`. It folds over `value` in order and adds each element to a
 fresh set; because `collections::add` is idempotent, a repeated element is stored
 only once, so the result holds each distinct element exactly once.
-[[src/codegen/builtins/collections/func_to_set.rs:__collections_toSet]]
+[[src/codegen/builtins/collections/package.mfb:__collections_toSet]]
 
 `toSet` is **pure**: it returns a new value and does not mutate `value`. Element
 insertion order follows first occurrence in the list, so `toSet([2, 1, 2, 3])`
@@ -48,13 +48,13 @@ any other generic function. [[src/codegen/builtins/collections/mod.rs:FUNCTIONS]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to draw elements from. Not modified. `T` must be a comparable type, since a `Set OF T` requires a comparable element. [[src/codegen/builtins/collections/func_to_set.rs:__collections_toSet]] |
+| `value` | `List OF T` | The list to draw elements from. Not modified. `T` must be a comparable type, since a `Set OF T` requires a comparable element. [[src/codegen/builtins/collections/package.mfb:__collections_toSet]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Set OF T` | A new set of the list's distinct elements, in first-occurrence order; its length is between `0` and `len(value)`. [[src/codegen/builtins/collections/func_to_set.rs:__collections_toSet]] |
+| `Set OF T` | A new set of the list's distinct elements, in first-occurrence order; its length is between `0` and `len(value)`. [[src/codegen/builtins/collections/package.mfb:__collections_toSet]] |
 
 ## Errors
 
@@ -65,7 +65,7 @@ No errors.
 The argument must be a `List OF T` whose element type `T` is comparable (every
 `Set OF T` requires it). A call on a non-list argument, or on a list whose element
 type is not comparable, does not resolve and is rejected at compile time.
-[[src/codegen/builtins/collections/func_to_set.rs:__collections_toSet]]
+[[src/codegen/builtins/collections/package.mfb:__collections_toSet]]
 
 ## Examples
 

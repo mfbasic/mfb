@@ -34,7 +34,7 @@ directly rather than instantiating an MFBASIC generic.
 Relative order is preserved: kept elements appear in the result in the same
 order they had in `value`. The result has the same type as `value`, so filtering
 a `List OF String` yields a `List OF String`, and its length is between zero and
-the length of `value`. [[src/codegen/builtins/collections/mod.rs:resolve_filter]]
+the length of `value`. [[src/codegen/registry/mod.rs:resolve_call]]
 
 `value` is neither modified nor consumed; the result is a freshly allocated
 list, pre-sized to the source so the per-element append never has to regrow.
@@ -42,7 +42,7 @@ list, pre-sized to the source so the per-element append never has to regrow.
 
 `predicate` must accept exactly one argument of the element type `T` and return
 `Boolean`. This is enforced both when the call is resolved and again in the
-lowering. [[src/codegen/builtins/collections/mod.rs:resolve_filter]]
+lowering. [[src/codegen/registry/mod.rs:resolve_call]]
 [[src/codegen/builtins/collections/func_filter.rs:lower_filter]]
 
 The single-argument `general` predicates — `isEven`, `isOdd`, `isPositive`,
@@ -69,13 +69,13 @@ the call site rather than letting it auto-propagate.
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `value` | `List OF T` | The list to filter. Any length is accepted, including the empty list. Also accepted under the name `collection`. [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
-| `predicate` | `FUNC(T) AS Boolean` | Called once per element with that element; the element is kept when it returns `TRUE`. Must take exactly one parameter of the element type `T` and return `Boolean`. There is no alternate name for this parameter. [[src/codegen/builtins/collections/mod.rs:resolve_filter]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
+| `predicate` | `FUNC(T) AS Boolean` | Called once per element with that element; the element is kept when it returns `TRUE`. Must take exactly one parameter of the element type `T` and return `Boolean`. There is no alternate name for this parameter. [[src/codegen/registry/mod.rs:resolve_call]] [[src/codegen/builtins/collections/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF T` | A new list of the same type as `value`, holding the elements for which `predicate` returned `TRUE`, in their original relative order. Empty when no element is kept or when `value` is empty. [[src/codegen/builtins/collections/mod.rs:resolve_filter]] |
+| `List OF T` | A new list of the same type as `value`, holding the elements for which `predicate` returned `TRUE`, in their original relative order. Empty when no element is kept or when `value` is empty. [[src/codegen/registry/mod.rs:resolve_call]] |
 
 ## Errors
 
@@ -91,7 +91,7 @@ whose success type is exactly `Boolean`. The result type is the same
 `List OF T`. Passing a non-list first argument, a `predicate` of the wrong
 arity, a `predicate` whose parameter type differs from `T`, or a `predicate`
 that returns anything other than `Boolean` is a compile-time type error — no
-overload resolves. [[src/codegen/builtins/collections/mod.rs:resolve_filter]]
+overload resolves. [[src/codegen/registry/mod.rs:resolve_call]]
 [[src/codegen/builtins/collections/mod.rs:COLLECTIONS]]
 
 ## Examples

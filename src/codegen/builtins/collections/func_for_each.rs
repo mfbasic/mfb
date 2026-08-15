@@ -1,6 +1,8 @@
 //! `collections::forEach` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::list_element_type;
 use crate::target::shared::code::{
@@ -9,7 +11,6 @@ use crate::target::shared::code::{
     COLLECTION_OFFSET_COUNT, RESULT_OK_TAG, RESULT_TAG_REGISTER,
 };
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_FOR_EACH: &str = "Call an action once for each element of a list, in order";
 const DESC_FOR_EACH: &str = r#"`collections::forEach` walks `value` from the first element to the last and
@@ -83,19 +84,32 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const FOR_EACH: BuiltinFunction = BuiltinFunction::native(
-    "collections.forEach",
-    "forEach",
-    INTO_FOR_EACH,
-    DESC_FOR_EACH,
-    &[],
-    &[custom(&[
-        req("value", &["collection"], "List OF T"),
-        req("action", &[], "FUNC(T) AS Nothing"),
-    ])],
-    lower_for_each,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "forEach",
+        intro: INTO_FOR_EACH,
+        desc: DESC_FOR_EACH,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                super::param(
+                    "value",
+                    &["collection"],
+                    ParameterType::list_of(ParameterType::Var("T")),
+                ),
+                super::param(
+                    "action",
+                    &[],
+                    ParameterType::func(vec![ParameterType::Var("T")], ParameterType::Nothing),
+                ),
+            ],
+            return_type: ParameterType::Nothing,
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::native(None, None, Some(lower_for_each)),
+        }],
+    });
+}
 
 /// `collections::forEach(List OF T, FUNC(T) AS Nothing)`: call `action` per
 /// element in order, yielding `Nothing`. A failing callback propagates.

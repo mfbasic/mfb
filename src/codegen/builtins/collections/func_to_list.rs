@@ -1,10 +1,11 @@
 //! `collections::toList` — descriptor entry + target-generic lowering (plan-96).
 
-use super::{custom, req};
+use crate::codegen::registry::{
+    Body, Implementation, Lowering, ParameterType, RegistryFunction, RegistryPackage,
+};
 use crate::target::shared::code::type_utils::set_element_type;
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
 
 const INTO_TO_LIST: &str = "Return the elements of a set as a list, in insertion order";
 const DESC_TO_LIST: &str = r#"`collections::toList` returns a new `List OF T` holding every element of the set
@@ -46,16 +47,25 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(crate) const TO_LIST: BuiltinFunction = BuiltinFunction::native(
-    "collections.toList",
-    "toList",
-    INTO_TO_LIST,
-    DESC_TO_LIST,
-    &[],
-    &[custom(&[req("value", &["set"], "Set OF T")])],
-    lower_to_list,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "toList",
+        intro: INTO_TO_LIST,
+        desc: DESC_TO_LIST,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![super::param(
+                "value",
+                &["set"],
+                ParameterType::set_of(ParameterType::Var("T")),
+            )],
+            return_type: ParameterType::list_of(ParameterType::Var("T")),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::native(None, None, Some(lower_to_list)),
+        }],
+    });
+}
 
 /// `collections::toList(Set OF T) AS List OF T` (plan-63-B): the elements in
 /// stable insertion order. Reuses the Map key projection (the Set's elements

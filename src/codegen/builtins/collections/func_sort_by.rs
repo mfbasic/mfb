@@ -1,155 +1,15 @@
 //! `collections::sortBy` — descriptor entry + MFBASIC source body (Implementation::Mfb).
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{custom, req};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{callable_return_type, list_element_type};
 use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
-
-const INTRO: &str = "Return a new list ordered ascending by a key computed from each element";
-
-#[rustfmt::skip]
-const BODY: &str =
-"FUNC __collections_sortBy OF T, U(value AS List OF T, keyFn AS FUNC(T) AS U) AS List OF T
-  LET n AS Integer = len(value)
-  IF n < 2 THEN
-    RETURN value
-  END IF
-  MUT items AS List OF T = value
-  MUT keys AS List OF U = collections::transform(value, keyFn)
-  MUT width AS Integer = 1
-  WHILE width < n
-    MUT itemsDst AS List OF T = items
-    MUT keysDst AS List OF U = keys
-    MUT lo AS Integer = 0
-    WHILE lo < n
-      MUT mid AS Integer = lo + width
-      IF mid > n THEN
-        mid = n
-      END IF
-      MUT hi AS Integer = lo + width + width
-      IF hi > n THEN
-        hi = n
-      END IF
-      MUT i AS Integer = lo
-      MUT j AS Integer = mid
-      MUT k AS Integer = lo
-      WHILE i < mid AND j < hi
-        IF collections::get(keys, j) < collections::get(keys, i) THEN
-          itemsDst = collections::set(itemsDst, k, collections::get(items, j))
-          keysDst = collections::set(keysDst, k, collections::get(keys, j))
-          j = j + 1
-        ELSE
-          itemsDst = collections::set(itemsDst, k, collections::get(items, i))
-          keysDst = collections::set(keysDst, k, collections::get(keys, i))
-          i = i + 1
-        END IF
-        k = k + 1
-      END WHILE
-      WHILE i < mid
-        itemsDst = collections::set(itemsDst, k, collections::get(items, i))
-        keysDst = collections::set(keysDst, k, collections::get(keys, i))
-        i = i + 1
-        k = k + 1
-      END WHILE
-      WHILE j < hi
-        itemsDst = collections::set(itemsDst, k, collections::get(items, j))
-        keysDst = collections::set(keysDst, k, collections::get(keys, j))
-        j = j + 1
-        k = k + 1
-      END WHILE
-      lo = lo + width + width
-    END WHILE
-    items = itemsDst
-    keys = keysDst
-    width = width + width
-  END WHILE
-  RETURN items
-END FUNC";
-
-const DESC: &str = r#"`collections::sortBy` returns a new list containing every element of `value`,
-arranged in ascending order of the key `keyFn(element)`. The elements themselves
-are never compared; only the keys are. It is a generic function written in
-MFBASIC source, rewritten to the internal `__collections_sortBy` generic and
-instantiated for the element type `T` and key type `U` during monomorphization.
-
-`keyFn` is applied to the whole list up front, in one pass, via
-`collections::transform`, producing a parallel list of keys. Each element's key
-is therefore computed **exactly once**, no matter how many comparisons that
-element takes part in. `keyFn` must be a function value — for example a named
-`FUNC` — and it is called once per element, in index order, before any
-comparison happens.
-
-The sort is a bottom-up merge sort with O(n log n) comparisons, merging runs of
-width 1, then 2, then 4, and so on. Items and their keys are carried through the
-merge in parallel, so an element always travels with its own key. The merge is
-**stable**: a right-run item is taken only when its key is *strictly less than*
-the left-run item's key, so elements whose keys compare equal keep their original
-relative order.
-
-When `value` has fewer than two elements, `sortBy` returns `value` unchanged.
-In that case `keyFn` is never called, because the key pass is skipped along with
-the sort.
-
-There is no descending form. To order descending by a numeric key, have `keyFn`
-return the negated key. `value` is not modified."#;
-
-const EX: &str = r#"Sort descending by negating an integer key:
-
-```
-IMPORT collections
-IMPORT io
-
-FUNC negated(n AS Integer) AS Integer
-  RETURN 0 - n
-END FUNC
-
-FUNC main AS Integer
-  LET ordered AS List OF Integer = collections::sortBy([1, 3, 2], negated)
-  io::print(toString(collections::get(ordered, 0)))
-  RETURN 0
-END FUNC
-```
-
-Order strings by length; equal lengths keep their input order:
-
-```
-IMPORT collections
-IMPORT io
-
-FUNC size(s AS String) AS Integer
-  RETURN len(s)
-END FUNC
-
-FUNC main AS Integer
-  LET words AS List OF String = ["pear", "fig", "kiwi", "date"]
-  LET byLength AS List OF String = collections::sortBy(words, size)
-  io::print(collections::get(byLength, 0))
-  RETURN 0
-END FUNC
-```"#;
-
-pub(crate) const SORT_BY: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
-    "collections.sortBy",
-    "sortBy",
-    INTRO,
-    DESC,
-    &[],
-    &[custom(&[
-        req("value", &["list"], "List OF T"),
-        req("keyFn", &["key"], "FUNC(T) AS U"),
-    ])],
-    BODY,
-    sort_by_fast_path,
-)
-.with_example(EX);
 
 /// Native fast path for `#collections_sortBy$T$U`: 8-byte fixed-width items and
 /// signed 8-byte keys (String items allowed when the source is re-eval-safe).
 /// Other shapes decline (`Ok(None)`). Free fn.
-fn sort_by_fast_path(
+pub(super) fn sort_by_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],

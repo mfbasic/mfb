@@ -1,152 +1,15 @@
 //! `collections::sort` — descriptor entry + MFBASIC source body (Implementation::Mfb).
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
-use super::{custom, req};
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::list_element_type;
 use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
-use crate::target::shared::registry::BuiltinFunction;
-
-const INTRO: &str = "Return a new list holding the elements of a list in ascending order";
-
-#[rustfmt::skip]
-const BODY: &str =
-"FUNC __collections_sort OF T(value AS List OF T) AS List OF T
-  LET n AS Integer = len(value)
-  IF n < 2 THEN
-    RETURN value
-  END IF
-  MUT src AS List OF T = value
-  MUT width AS Integer = 1
-  WHILE width < n
-    MUT dst AS List OF T = src
-    MUT lo AS Integer = 0
-    WHILE lo < n
-      MUT mid AS Integer = lo + width
-      IF mid > n THEN
-        mid = n
-      END IF
-      MUT hi AS Integer = lo + width + width
-      IF hi > n THEN
-        hi = n
-      END IF
-      MUT i AS Integer = lo
-      MUT j AS Integer = mid
-      MUT k AS Integer = lo
-      WHILE i < mid AND j < hi
-        IF collections::get(src, j) < collections::get(src, i) THEN
-          dst = collections::set(dst, k, collections::get(src, j))
-          j = j + 1
-        ELSE
-          dst = collections::set(dst, k, collections::get(src, i))
-          i = i + 1
-        END IF
-        k = k + 1
-      END WHILE
-      WHILE i < mid
-        dst = collections::set(dst, k, collections::get(src, i))
-        i = i + 1
-        k = k + 1
-      END WHILE
-      WHILE j < hi
-        dst = collections::set(dst, k, collections::get(src, j))
-        j = j + 1
-        k = k + 1
-      END WHILE
-      lo = lo + width + width
-    END WHILE
-    src = dst
-    width = width + width
-  END WHILE
-  RETURN src
-END FUNC";
-
-const DESC: &str = r#"`collections::sort` returns a new list containing every element of `value`
-arranged in ascending order. It is a generic function written in MFBASIC source:
-a call to `collections::sort` is rewritten to the internal
-`__collections_sort` generic and instantiated for the element type `T` during
-monomorphization.
-
-The algorithm is a bottom-up merge sort with O(n log n) comparisons. Runs of
-width 1 are merged into runs of width 2, then 4, and so on, until a single run
-covers the list. The merge is **stable**: when a left-run element and a
-right-run element compare equal, the left-run element is emitted first, because
-the right-run element is taken only when it is *strictly less than* the left-run
-element. Elements that compare equal therefore keep their original relative
-order.
-
-Ordering is determined entirely by the `<` operator applied to whole elements.
-For the numeric element types that is numeric order; for `String` it is the
-ordering the `<` operator defines on strings; for `Scalar` it is codepoint
-order. There is no descending form, no comparison-function parameter, and no
-locale or case-insensitivity option. To sort by something other than the element
-itself, use `collections::sortBy`, which orders by a computed key.
-
-When `value` has fewer than two elements — that is, when it is empty or holds a
-single element — `sort` returns `value` unchanged without performing any
-comparison.
-
-`value` is not modified. Like every `collections` helper, `sort` produces a new
-list value and leaves its argument intact."#;
-
-const EX: &str = r#"Sort a list of integers:
-
-```
-IMPORT collections
-IMPORT io
-
-FUNC main AS Integer
-  LET ordered AS List OF Integer = collections::sort([3, 1, 2])
-  io::print(toString(collections::get(ordered, 0)))
-  RETURN 0
-END FUNC
-```
-
-Sort strings, and observe that the input is untouched:
-
-```
-IMPORT collections
-IMPORT io
-
-FUNC main AS Integer
-  LET names AS List OF String = ["pear", "apple", "fig"]
-  LET ordered AS List OF String = collections::sort(names)
-  io::print(collections::get(ordered, 0))
-  io::print(collections::get(names, 0))
-  RETURN 0
-END FUNC
-```
-
-A list of fewer than two elements is returned as-is:
-
-```
-IMPORT collections
-IMPORT io
-
-FUNC main AS Integer
-  LET one AS List OF Integer = collections::sort([7])
-  io::print(toString(len(one)))
-  RETURN 0
-END FUNC
-```"#;
-
-pub(crate) const SORT: BuiltinFunction = BuiltinFunction::mfb_with_fast_path(
-    "collections.sort",
-    "sort",
-    INTRO,
-    DESC,
-    &[],
-    &[custom(&[req("value", &["list"], "List OF T")])],
-    BODY,
-    sort_fast_path,
-)
-.with_example(EX);
 
 /// Native fast path for `#collections_sort$T` (String or signed 8-byte
 /// fixed-width, 1 arg): an index-permutation merge. Float and everything else
 /// decline (`Ok(None)`). Free fn.
-fn sort_fast_path(
+pub(super) fn sort_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],
