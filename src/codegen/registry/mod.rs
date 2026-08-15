@@ -26,6 +26,7 @@
 //! struct literal plus a sidecar resolver.
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::OnceLock;
 
@@ -84,7 +85,21 @@ pub(crate) enum ParameterType {
     ListOf(Box<ParameterType>),
     MapOf(Box<ParameterType>, Box<ParameterType>),
     SetOf(Box<ParameterType>),
+    /// A concrete nominal type — a record, union, or user type named by the program.
+    /// Matched by name (unlike [`Var`], which is bound). A descriptor names one with a
+    /// static literal (`Named("CsvReader")`); a concrete nominal argument is built at
+    /// the boundary by [`parse`](Self::parse).
     Named(&'static str),
+    /// A bindable type variable in a generic signature (`T`, `K`, `V`) — always
+    /// `&'static`, because variables are only ever *declared* in a static descriptor.
+    /// It is *unified* against the concrete argument type at a call site (binding the
+    /// variable) and then *substituted* into the return type: this is how the registry
+    /// expresses `collections::get(List OF T, Integer) AS T` with no per-package
+    /// resolver. Renders as its bare name in documentation.
+    Var(&'static str),
+    /// An unresolved concrete argument type. Only appears on the concrete side (from
+    /// [`parse`](Self::parse)); it unifies with any pattern as a wildcard.
+    Unknown,
 }
 
 impl ParameterType {
@@ -96,6 +111,45 @@ impl ParameterType {
     }
     pub(crate) fn set_of(elem: ParameterType) -> Self {
         ParameterType::SetOf(Box::new(elem))
+    }
+
+    /// Parse a concrete type *name* — the currency the type checker still speaks at
+    /// the registry boundary (`"List OF Integer"`, `"Instant"`, `"Unknown"`) — into a
+    /// `ParameterType`. This is the *only* place a string becomes a `ParameterType`;
+    /// inside the registry everything is already a `ParameterType`. Scalars and
+    /// `List`/`Map`/`Set` are recognized structurally; anything else (a record, union,
+    /// or function type) becomes a [`Named`] whose runtime name is interned to
+    /// `&'static` — a deliberate leak, but only at this boundary. A leading `RES `
+    /// ownership marker is stripped (a collection element stores the bare type).
+    pub(crate) fn parse(name: &str) -> ParameterType {
+        let name = name.strip_prefix("RES ").unwrap_or(name);
+        if name == "Unknown" {
+            return ParameterType::Unknown;
+        }
+        if let Some(elem) = name.strip_prefix("List OF ") {
+            return ParameterType::list_of(ParameterType::parse(elem));
+        }
+        if let Some(elem) = name.strip_prefix("Set OF ") {
+            return ParameterType::set_of(ParameterType::parse(elem));
+        }
+        if let Some((key, value)) = name
+            .strip_prefix("Map OF ")
+            .and_then(|rest| rest.split_once(" TO "))
+        {
+            return ParameterType::map_of(ParameterType::parse(key), ParameterType::parse(value));
+        }
+        match name {
+            "AttributeString" => ParameterType::AttributeString,
+            "Boolean" => ParameterType::Boolean,
+            "Byte" => ParameterType::Byte,
+            "Integer" => ParameterType::Integer,
+            "Fixed" => ParameterType::Fixed,
+            "Float" => ParameterType::Float,
+            "Money" => ParameterType::Money,
+            "Nothing" => ParameterType::Nothing,
+            "String" => ParameterType::String,
+            other => ParameterType::Named(Box::leak(other.to_string().into_boxed_str())),
+        }
     }
 
     /// The parameter type's formatted name.
@@ -116,6 +170,8 @@ impl ParameterType {
             }
             ParameterType::SetOf(elem) => Cow::Owned(format!("Set OF {}", elem.name())),
             ParameterType::Named(elem) => Cow::Borrowed(elem),
+            ParameterType::Var(name) => Cow::Borrowed(name),
+            ParameterType::Unknown => Cow::Borrowed("Unknown"),
         }
     }
 }
@@ -293,10 +349,23 @@ pub(crate) struct Implementation {
     pub(crate) body: Body,
 }
 
+/// The concrete shape of a call site: the resolved argument types, in order. A
+/// descriptor parameter's (possibly generic) [`ParameterType`] pattern is unified
+/// against these concrete `ParameterType`s by [`RegistryFunction::select`]. The
+/// compiler still hands the boundary type *names*; [`ParameterType::parse`] turns them
+/// into `ParameterType`s so nothing inside the registry is a string.
 pub(crate) struct CallShape {
-    /// This overload's parameters, in signature order.
+    /// The call's concrete argument types, in order.
     pub(crate) args: Vec<ParameterType>,
-    /// This overload's return type name (`"Nothing"` for a statement-like call).
+}
+
+/// The outcome of [`RegistryFunction::select`]: the chosen overload paired with the
+/// concrete return type, formed by substituting the type variables bound while
+/// unifying the call's arguments into that overload's (possibly generic) return type.
+pub(crate) struct Selection<'a> {
+    /// The selected overload.
+    pub(crate) implementation: &'a Implementation,
+    /// The overload's return type with all type variables resolved to concrete types.
     pub(crate) return_type: ParameterType,
 }
 
@@ -323,29 +392,47 @@ impl RegistryFunction {
         &self.implementations
     }
 
-    /// The overload matching this call shape, if exactly one does.
-    pub(crate) fn select(&self, args: &CallShape) -> Option<&Implementation> {
-        let mut matches = self.implementations.iter().filter(|implementation| {
-            let required_params = implementation
+    /// Select the overload this call resolves to: the first implementation whose arity
+    /// and parameters [`unify`] with the call's argument types — binding any
+    /// [`ParameterType::Var`] type variables — paired with the concrete return type
+    /// from [`substitute`]-ing those bindings into the overload's return type. `None`
+    /// when no overload accepts the call (wrong arity or an argument-type mismatch),
+    /// which the type checker turns into an arity / argument-type error.
+    ///
+    /// This is the registry's single overload-and-return resolver — exact-type matching
+    /// is just the case with no type variables. `get(List OF T, Integer) AS T` called
+    /// with `["List OF Integer", "Integer"]` selects the list overload, binds
+    /// `T = Integer`, and reports the return type `Integer`, with no per-package
+    /// resolver — only unification over the descriptor.
+    pub(crate) fn select(&self, call: &CallShape) -> Option<Selection<'_>> {
+        for implementation in &self.implementations {
+            let required = implementation
                 .params
                 .iter()
                 .filter(|param| matches!(param.default, DefaultValue::None))
                 .count();
-
-            let arg_count = args.args.len();
-            if arg_count < required_params || arg_count > implementation.params.len() {
-                return false;
+            if call.args.len() < required || call.args.len() > implementation.params.len() {
+                continue;
             }
 
-            implementation
+            let mut bindings = BTreeMap::new();
+            let unifies = implementation
                 .params
                 .iter()
-                .zip(&args.args)
-                .all(|(param, arg_ty)| param.ty == *arg_ty)
-        });
+                .zip(call.args.iter())
+                .all(|(param, arg)| unify(&param.ty, arg, &mut bindings));
+            if !unifies {
+                continue;
+            }
 
-        let implementation = matches.next()?;
-        matches.next().is_none().then_some(implementation)
+            if let Some(return_type) = substitute(&implementation.return_type, &bindings) {
+                return Some(Selection {
+                    implementation,
+                    return_type,
+                });
+            }
+        }
+        None
     }
 
     // Facts that ARE uniform across overloads live here:
@@ -745,18 +832,6 @@ impl Registry {
         Some(ResolvedFunc { package, function })
     }
 
-    pub(crate) fn resolve_implementation(
-        &self,
-        qualified: &str,
-        args: &CallShape,
-    ) -> Option<&Implementation> {
-        let (pkg_name, func_name) = qualified.split_once('.')?;
-        let package = self.packages.iter().find(|p| p.import_name == pkg_name)?;
-        let function = package.function(func_name)?;
-
-        function.select(args)
-    }
-
     pub(crate) fn resolve_type(&self, qualified: &str) -> Option<ResolvedType<'_>> {
         let (pkg_name, type_name) = qualified.split_once('.')?;
         let package = self.packages.iter().find(|p| p.import_name == pkg_name)?;
@@ -859,74 +934,154 @@ pub(crate) fn owning_package(qualified: &str) -> Option<&'static str> {
         .map(|resolved| resolved.package.import_name)
 }
 
-/// The return type of the migrated call `qualified`, or `None`. (csv has one
-/// implementation per member; the return type is uniform across a name's overloads.)
+/// The *static* nominal return type of the migrated call `qualified`, independent of
+/// its arguments, or `None`. A generic member whose return type mentions a
+/// [`ParameterType::Var`] (`collections::get AS T`) has no static nominal — its return
+/// is only known once the arguments are known — so this yields `None` for it, and the
+/// argument-aware [`resolve_call`] is used instead.
 /// This leaks, once migration is complete it goes away
 /// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn call_return_type(qualified: &str) -> Option<&'static str> {
-    let name = registry()
+    let return_type = &registry()
         .resolve_func(qualified)?
         .function
         .implementations
         .first()?
-        .return_type
-        .name();
+        .return_type;
 
-    Some(match name {
+    if contains_var(return_type) {
+        return None;
+    }
+
+    Some(match return_type.name() {
         Cow::Borrowed(s) => s,
         Cow::Owned(s) => Box::leak(s.into_boxed_str()),
     })
 }
 
-/// Whether a scalar type name is a primitive (non-container, non-nominal) type.
-fn is_scalar_type_name(name: &str) -> bool {
+/// Whether a type is a scalar primitive (non-container, non-nominal).
+fn is_scalar(ty: &ParameterType) -> bool {
     matches!(
-        name,
-        "Boolean" | "Byte" | "Integer" | "Fixed" | "Float" | "Money" | "Nothing" | "String"
+        ty,
+        ParameterType::Boolean
+            | ParameterType::Byte
+            | ParameterType::Integer
+            | ParameterType::Fixed
+            | ParameterType::Float
+            | ParameterType::Money
+            | ParameterType::Nothing
+            | ParameterType::String
     )
 }
 
-/// Whether an actual argument type `arg` is compatible with a parameter type. An
-/// `Unknown` argument (unresolved) is always accepted, exact names match, and two
-/// *different known scalars* are the only definite incompatibility — container /
-/// nominal / union types are accepted conservatively (the type checker never emits a
-/// false rejection).
-fn arg_matches_param(arg: &str, ty: &ParameterType) -> bool {
-    if arg == "Unknown" {
-        return true;
-    }
-    let expected = ty.name();
-    if arg == expected.as_ref() {
-        return true;
-    }
-    !(is_scalar_type_name(&expected) && is_scalar_type_name(arg))
+/// Whether a concrete leaf type is compatible with a *scalar or nominal* parameter
+/// type (the [`unify`] leaf case). Exact types match, and two *different known scalars*
+/// are the only definite incompatibility — a nominal vs anything else is accepted
+/// conservatively (the type checker never emits a false rejection). Container,
+/// [`Var`](ParameterType::Var), and [`Unknown`](ParameterType::Unknown) cases never
+/// reach here; [`unify`] handles them first.
+fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType) -> bool {
+    pattern == concrete || !(is_scalar(pattern) && is_scalar(concrete))
 }
 
-/// Resolve the migrated call `qualified` against `arg_types`, returning its return
-/// type only when the arguments are a valid arity and type match — the clean-room
-/// equivalent of the old `DefaultResolver::resolve_call`. `None` means "no migrated
-/// package accepts this call with these arguments" (a wrong arity or a scalar type
-/// mismatch), which the type checker turns into an arity / argument-type error.
-pub(crate) fn resolve_call(qualified: &str, arg_types: &[String]) -> Option<&'static str> {
-    let function = registry().resolve_func(qualified)?.function;
-    let implementation = function.implementations.first()?;
-    let required = implementation
-        .params
-        .iter()
-        .filter(|param| matches!(param.default, DefaultValue::None))
-        .count();
-    if arg_types.len() < required || arg_types.len() > implementation.params.len() {
-        return None;
-    }
-    for (arg, param) in arg_types.iter().zip(implementation.params.iter()) {
-        if !arg_matches_param(arg, &param.ty) {
-            return None;
+/// Structurally unify a parameter-type `pattern` — which may contain
+/// [`ParameterType::Var`] type variables — against a `concrete` argument type,
+/// recording every variable binding in `bindings`. Returns `false` on a structural or
+/// scalar mismatch, or on a variable bound inconsistently to two different types
+/// (`get(List OF Integer, String)` fails: `T` is bound to `Integer` by arg 0, then
+/// contradicted by `String`). An [`Unknown`](ParameterType::Unknown) concrete (an
+/// unresolved argument) matches any pattern; a bare variable it meets is bound to
+/// `Unknown` so [`substitute`] propagates the unresolved-ness rather than inventing a
+/// type.
+fn unify(
+    pattern: &ParameterType,
+    concrete: &ParameterType,
+    bindings: &mut BTreeMap<&'static str, ParameterType>,
+) -> bool {
+    if matches!(concrete, ParameterType::Unknown) {
+        if let ParameterType::Var(name) = pattern {
+            bindings.entry(name).or_insert(ParameterType::Unknown);
         }
+        return true;
     }
-    Some(match implementation.return_type.name() {
-        Cow::Borrowed(s) => s,
-        Cow::Owned(s) => Box::leak(s.into_boxed_str()),
+
+    match (pattern, concrete) {
+        (ParameterType::Var(name), _) => match bindings.get(name) {
+            Some(bound) => bound == concrete,
+            None => {
+                bindings.insert(name, concrete.clone());
+                true
+            }
+        },
+        (ParameterType::ListOf(elem), ParameterType::ListOf(concrete_elem)) => {
+            unify(elem, concrete_elem, bindings)
+        }
+        (ParameterType::SetOf(elem), ParameterType::SetOf(concrete_elem)) => {
+            unify(elem, concrete_elem, bindings)
+        }
+        (
+            ParameterType::MapOf(key, value),
+            ParameterType::MapOf(concrete_key, concrete_value),
+        ) => unify(key, concrete_key, bindings) && unify(value, concrete_value, bindings),
+        // A container pattern against a non-matching concrete container/leaf fails.
+        (ParameterType::ListOf(_) | ParameterType::SetOf(_) | ParameterType::MapOf(_, _), _) => {
+            false
+        }
+        // Scalar or nominal leaf.
+        (leaf, _) => leaf_matches(leaf, concrete),
+    }
+}
+
+/// Substitute `bindings` into a (possibly generic) type `pattern`, producing a
+/// concrete type — or `None` if it names a variable that never got bound (a
+/// `List OF T` return whose `T` no argument pinned down, e.g. `get` on an `Unknown`).
+fn substitute(
+    pattern: &ParameterType,
+    bindings: &BTreeMap<&'static str, ParameterType>,
+) -> Option<ParameterType> {
+    Some(match pattern {
+        ParameterType::Var(name) => bindings.get(name)?.clone(),
+        ParameterType::ListOf(elem) => ParameterType::list_of(substitute(elem, bindings)?),
+        ParameterType::SetOf(elem) => ParameterType::set_of(substitute(elem, bindings)?),
+        ParameterType::MapOf(key, value) => {
+            ParameterType::map_of(substitute(key, bindings)?, substitute(value, bindings)?)
+        }
+        other => other.clone(),
     })
+}
+
+/// Whether a type mentions any [`ParameterType::Var`] — i.e. it is generic and has no
+/// single static nominal type independent of a call's arguments.
+fn contains_var(ty: &ParameterType) -> bool {
+    match ty {
+        ParameterType::Var(_) => true,
+        ParameterType::ListOf(elem) | ParameterType::SetOf(elem) => contains_var(elem),
+        ParameterType::MapOf(key, value) => contains_var(key) || contains_var(value),
+        _ => false,
+    }
+}
+
+/// Resolve the migrated call `qualified` against `arg_types`, returning its concrete
+/// return type only when the arguments are a valid arity and type match — the
+/// clean-room equivalent of the old `DefaultResolver::resolve_call` *and* every
+/// package's `BuiltinResolver::resolve_return_type`. Delegates to
+/// [`RegistryFunction::select`], which unifies the arguments against each overload
+/// (binding type variables) and substitutes them into the return type, so a generic
+/// member like `collections::get(List OF Integer, 0)` resolves to `Integer`. `None`
+/// means "no migrated package accepts this call with these arguments" (wrong arity or
+/// a type mismatch), which the type checker turns into an arity / argument-type error.
+///
+/// This is a boundary function: it takes/returns type-name strings because the type
+/// checker still speaks strings. The conversion happens here ([`ParameterType::parse`]
+/// in, [`ParameterType::name`] out); nothing inside the registry is a string.
+pub(crate) fn resolve_call(qualified: &str, arg_types: &[String]) -> Option<String> {
+    let function = registry().resolve_func(qualified)?.function;
+    let call = CallShape {
+        args: arg_types.iter().map(|arg| ParameterType::parse(arg)).collect(),
+    };
+    function
+        .select(&call)
+        .map(|selection| selection.return_type.name().into_owned())
 }
 
 /// The `(min, max)` argument arity of the migrated call `qualified`, or `None`.
@@ -1184,6 +1339,134 @@ mod tests {
         assert_eq!(impls.len(), 2);
         assert_eq!(impls[0].params[0].ty.name(), "Integer");
         assert_eq!(impls[1].params[0].ty.name(), "String");
+    }
+
+    /// A call shape from concrete argument type names.
+    fn call(args: &[&str]) -> CallShape {
+        CallShape {
+            args: args.iter().map(|arg| ParameterType::parse(arg)).collect(),
+        }
+    }
+
+    // Concise `ParameterType` constructors for the generic-resolution tests.
+    fn list_of(elem: ParameterType) -> ParameterType {
+        ParameterType::list_of(elem)
+    }
+    fn map_of(key: ParameterType, value: ParameterType) -> ParameterType {
+        ParameterType::map_of(key, value)
+    }
+
+    /// A minimal generic overload: parameter types (with type variables) and a return
+    /// type, no docs/body/errors.
+    fn generic_impl(params: Vec<ParameterType>, return_type: ParameterType) -> Implementation {
+        Implementation {
+            params: params.into_iter().map(|ty| param("x", ty)).collect(),
+            return_type,
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::Intrinsic,
+        }
+    }
+
+    #[test]
+    fn select_binds_type_variables_and_substitutes_the_return() {
+        use ParameterType::{Integer, Var};
+        // get(List OF T, Integer) AS T  |  get(Map OF K TO V, K) AS V
+        let get = func(
+            "get",
+            vec![
+                generic_impl(vec![list_of(Var("T")), Integer], Var("T")),
+                generic_impl(vec![map_of(Var("K"), Var("V")), Var("K")], Var("V")),
+            ],
+        );
+
+        // List overload: element type of arg 0.
+        assert_eq!(
+            get.select(&call(&["List OF Integer", "Integer"]))
+                .unwrap()
+                .return_type
+                .name(),
+            "Integer"
+        );
+        // Nested containers substitute structurally.
+        assert_eq!(
+            get.select(&call(&["List OF List OF String", "Integer"]))
+                .unwrap()
+                .return_type
+                .name(),
+            "List OF String"
+        );
+        // Map overload: the value type; the key overload's `List OF T` param rejects a
+        // `Map` arg, so this resolves against the second implementation.
+        assert_eq!(
+            get.select(&call(&["Map OF String TO Integer", "String"]))
+                .unwrap()
+                .return_type
+                .name(),
+            "Integer"
+        );
+    }
+
+    #[test]
+    fn select_rejects_inconsistent_variable_binding() {
+        use ParameterType::Var;
+        // set(List OF T, T) AS List OF T — the element must match the list's element.
+        let set = func(
+            "set",
+            vec![generic_impl(
+                vec![list_of(Var("T")), Var("T")],
+                list_of(Var("T")),
+            )],
+        );
+        assert!(set.select(&call(&["List OF Integer", "Integer"])).is_some());
+        // T is bound to Integer by arg 0, then contradicted by a String element.
+        assert!(set.select(&call(&["List OF Integer", "String"])).is_none());
+    }
+
+    #[test]
+    fn select_unknown_argument_is_a_wildcard() {
+        use ParameterType::{Integer, Var};
+        let get = func(
+            "get",
+            vec![generic_impl(vec![list_of(Var("T")), Integer], Var("T"))],
+        );
+        // An Unknown collection leaves `T` unbound, so there is no concrete return.
+        assert!(get.select(&call(&["Unknown", "Integer"])).is_none());
+        // An Unknown index still binds `T` from the concrete list.
+        assert_eq!(
+            get.select(&call(&["List OF Integer", "Unknown"]))
+                .unwrap()
+                .return_type
+                .name(),
+            "Integer"
+        );
+    }
+
+    #[test]
+    fn select_scalar_mismatch_and_wrong_arity_are_rejected() {
+        let f = func(
+            "f",
+            vec![generic_impl(
+                vec![ParameterType::String, ParameterType::Integer],
+                ParameterType::Boolean,
+            )],
+        );
+        assert!(f.select(&call(&["String", "Integer"])).is_some());
+        // Two different known scalars never unify.
+        assert!(f.select(&call(&["Boolean", "Integer"])).is_none());
+        // Too few / too many arguments.
+        assert!(f.select(&call(&["String"])).is_none());
+        assert!(f.select(&call(&["String", "Integer", "Integer"])).is_none());
+    }
+
+    #[test]
+    fn contains_var_detects_generic_types() {
+        use ParameterType::{Integer, Named, String, Var};
+        assert!(contains_var(&Var("T")));
+        assert!(contains_var(&list_of(Var("T"))));
+        assert!(contains_var(&map_of(String, Var("V"))));
+        assert!(!contains_var(&list_of(Integer)));
+        assert!(!contains_var(&Named("Instant")));
     }
 
     #[test]

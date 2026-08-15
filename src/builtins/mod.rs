@@ -391,7 +391,7 @@ pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Op
     // argument arity + types (returning None on a mismatch, which the type checker
     // turns into an error), so this cannot blindly hand back the return type.
     if crate::codegen::registry::is_member(callee) {
-        return crate::codegen::registry::resolve_call(callee, arg_types).map(str::to_string);
+        return crate::codegen::registry::resolve_call(callee, arg_types);
     }
     let (module, function) = crate::target::shared::registry::REGISTRY.function(callee)?;
     match module.resolver {
