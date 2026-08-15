@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/date.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Validate and build a calendar `Date` from year, month, and day components."#;
 const DESC: &str = r#"`datetime::date` builds a calendar `Date` on the proleptic-Gregorian calendar
 from its `year`, `month`, and `day` components. The calendar is *proleptic*: the
@@ -71,20 +69,20 @@ r#"FUNC __datetime_date(year AS Integer, month AS Integer, day AS Integer) AS Da
   RETURN Date[year, month, day]
 END FUNC"#;
 
-pub(crate) const DATE: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.date",
-    "date",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[
-            super::req("year", super::I),
-            super::req("month", super::I),
-            super::req("day", super::I),
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "date",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("year", super::int()),
+            super::req("month", super::int()),
+            super::req("day", super::int()),
         ],
-        "Date",
-    )],
-    BODY,
-)
-.with_example(EX);
+        super::named("Date"),
+        BODY,
+        "__datetime_date",
+    );
+}

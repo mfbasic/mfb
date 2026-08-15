@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/toIso.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Render a `DateTime` as an RFC 3339 / ISO 8601 timestamp."#;
 const DESC: &str = r#"`datetime::toIso` renders `dt` as an RFC 3339 (ISO 8601 profile) timestamp with
 fixed millisecond precision and an explicit UTC offset. The result is a freshly
@@ -67,13 +65,16 @@ r#"FUNC __datetime_toIso(dt AS DateTime) AS String
   RETURN __datetime_padN(dt.date.year, 4) & "-" & __datetime_pad2(dt.date.month) & "-" & __datetime_pad2(dt.date.day) & "T" & __datetime_pad2(dt.time.hour) & ":" & __datetime_pad2(dt.time.minute) & ":" & __datetime_pad2(dt.time.second) & "." & strings::left(__datetime_padN(dt.time.nanos, 9), 3) & __datetime_isoZone(dt.offset)
 END FUNC"#;
 
-pub(crate) const TO_ISO: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.toIso",
-    "toIso",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(&[super::req("dt", "DateTime")], "String")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "toIso",
+        INTRO,
+        DESC,
+        EX,
+        vec![super::req("dt", super::named("DateTime"))],
+        super::string(),
+        BODY,
+        "__datetime_toIso",
+    );
+}

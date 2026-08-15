@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/daysInMonth.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"The number of days in a calendar month."#;
 const DESC: &str = r#"`datetime::daysInMonth` returns the number of days in the given `month` of the
 given `year` under the proleptic-Gregorian calendar. The result is `31` for
@@ -86,16 +84,19 @@ r#"FUNC __datetime_daysInMonth(year AS Integer, month AS Integer) AS Integer
   RETURN 31
 END FUNC"#;
 
-pub(crate) const DAYS_IN_MONTH: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.daysInMonth",
-    "daysInMonth",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[super::req("year", super::I), super::req("month", super::I)],
-        super::I,
-    )],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "daysInMonth",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("year", super::int()),
+            super::req("month", super::int()),
+        ],
+        super::int(),
+        BODY,
+        "__datetime_daysInMonth",
+    );
+}

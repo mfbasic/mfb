@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/utc.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"The `Zone` representing Coordinated Universal Time."#;
 const DESC: &str = r#"`datetime::utc` returns the `Zone` that represents Coordinated Universal Time: a
 fixed zone whose offset from UTC is a constant zero seconds and whose label is
@@ -68,13 +66,16 @@ r#"FUNC __datetime_utc AS Zone
   RETURN Zone[0, 0, "UTC"]
 END FUNC"#;
 
-pub(crate) const UTC: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.utc",
-    "utc",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(&[], "Zone")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "utc",
+        INTRO,
+        DESC,
+        EX,
+        vec![],
+        super::named("Zone"),
+        BODY,
+        "__datetime_utc",
+    );
+}

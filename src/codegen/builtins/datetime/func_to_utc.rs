@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/toUtc.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Project an absolute `Instant` into UTC to produce a civil `DateTime`."#;
 const DESC: &str = r#"`datetime::toUtc` projects the absolute instant `at` into the UTC zone, yielding
 the calendar date and wall-clock time that an observer reading UTC sees at that
@@ -58,13 +56,16 @@ r#"FUNC __datetime_toUtc(at AS Instant) AS DateTime
   RETURN __datetime_inZone(at, __datetime_utc())
 END FUNC"#;
 
-pub(crate) const TO_UTC: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.toUtc",
-    "toUtc",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(&[super::req("at", "Instant")], "DateTime")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "toUtc",
+        INTRO,
+        DESC,
+        EX,
+        vec![super::req("at", super::named("Instant"))],
+        super::named("DateTime"),
+        BODY,
+        "__datetime_toUtc",
+    );
+}

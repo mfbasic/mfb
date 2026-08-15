@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/add.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Shift an `Instant` forward along the UTC timeline by a `Duration`."#;
 const DESC: &str = r#"`datetime::add` returns the `Instant` reached by advancing `at` forward along
 the UTC timeline by the span `by`. It adds the two `seconds` fields and the two
@@ -61,16 +59,19 @@ r#"FUNC __datetime_add(at AS Instant, by AS Duration) AS Instant
   RETURN __datetime_normInstant(at.seconds + by.seconds, at.nanos + by.nanos)
 END FUNC"#;
 
-pub(crate) const ADD: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.add",
-    "add",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[super::req("at", "Instant"), super::req("by", "Duration")],
-        "Instant",
-    )],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "add",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("at", super::named("Instant")),
+            super::req("by", super::named("Duration")),
+        ],
+        super::named("Instant"),
+        BODY,
+        "__datetime_add",
+    );
+}

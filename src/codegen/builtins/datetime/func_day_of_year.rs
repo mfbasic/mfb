@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/dayOfYear.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"The ordinal day within the year of a `DateTime`'s civil date."#;
 const DESC: &str = r#"`datetime::dayOfYear` returns the ordinal position of `dt`'s civil date within
 its calendar year: `1` for January 1, `2` for January 2, and so on through `365`
@@ -65,13 +63,16 @@ r#"FUNC __datetime_dayOfYear(dt AS DateTime) AS Integer
   RETURN here - start + 1
 END FUNC"#;
 
-pub(crate) const DAY_OF_YEAR: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.dayOfYear",
-    "dayOfYear",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(&[super::req("dt", "DateTime")], super::I)],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "dayOfYear",
+        INTRO,
+        DESC,
+        EX,
+        vec![super::req("dt", super::named("DateTime"))],
+        super::int(),
+        BODY,
+        "__datetime_dayOfYear",
+    );
+}

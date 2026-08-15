@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/subtract.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Shift an `Instant` backward along the UTC timeline by a `Duration`."#;
 const DESC: &str = r#"`datetime::subtract` returns the `Instant` reached by moving `at` backward along
 the UTC timeline by the span `by`. It subtracts the `seconds` field of `by` from
@@ -62,16 +60,19 @@ r#"FUNC __datetime_subtract(at AS Instant, by AS Duration) AS Instant
   RETURN __datetime_normInstant(at.seconds - by.seconds, at.nanos - by.nanos)
 END FUNC"#;
 
-pub(crate) const SUBTRACT: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.subtract",
-    "subtract",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[super::req("at", "Instant"), super::req("by", "Duration")],
-        "Instant",
-    )],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "subtract",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("at", super::named("Instant")),
+            super::req("by", super::named("Duration")),
+        ],
+        super::named("Instant"),
+        BODY,
+        "__datetime_subtract",
+    );
+}

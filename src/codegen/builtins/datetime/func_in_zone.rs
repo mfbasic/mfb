@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/inZone.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Project an absolute `Instant` into a `Zone` to produce a civil `DateTime`."#;
 const DESC: &str = r#"`datetime::inZone` is the primary "to civil time" call: it projects the absolute
 instant `at` through `zone`, yielding the calendar date and wall-clock time that
@@ -81,16 +79,19 @@ r#"FUNC __datetime_inZone(at AS Instant, z AS Zone) AS DateTime
   RETURN DateTime[date, time, z, off]
 END FUNC"#;
 
-pub(crate) const IN_ZONE: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.inZone",
-    "inZone",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[super::req("at", "Instant"), super::req("zone", "Zone")],
-        "DateTime",
-    )],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "inZone",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("at", super::named("Instant")),
+            super::req("zone", super::named("Zone")),
+        ],
+        super::named("DateTime"),
+        BODY,
+        "__datetime_inZone",
+    );
+}

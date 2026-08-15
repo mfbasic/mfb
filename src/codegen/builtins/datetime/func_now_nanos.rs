@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/nowNanos.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"The current wall-clock reading as nanoseconds since the Unix epoch."#;
 const DESC: &str = r#"`datetime::nowNanos` is the low-level OS-seam intrinsic behind `datetime::now`.
 It reads the host's real-time clock (`clock_gettime(CLOCK_REALTIME)` on the
@@ -55,12 +53,6 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const NOW_NANOS: BuiltinFunction = BuiltinFunction::custom(
-    "datetime.nowNanos",
-    "nowNanos",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(&[], super::I)],
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::intrinsic(pkg, "nowNanos", INTRO, DESC, EX, vec![]);
+}

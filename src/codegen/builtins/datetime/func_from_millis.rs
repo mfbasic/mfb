@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/fromMillis.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Build the `Instant` at a given epoch-millisecond count."#;
 const DESC: &str = r#"`datetime::fromMillis` builds an `Instant` on the UTC timeline (Unix epoch,
 leap-second-free) from a single count of whole milliseconds measured from
@@ -82,13 +80,16 @@ r#"FUNC __datetime_fromMillis(millis AS Integer) AS Instant
   RETURN Instant[q, r * 1000000]
 END FUNC"#;
 
-pub(crate) const FROM_MILLIS: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.fromMillis",
-    "fromMillis",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(&[super::req("millis", super::I)], "Instant")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "fromMillis",
+        INTRO,
+        DESC,
+        EX,
+        vec![super::req("millis", super::int())],
+        super::named("Instant"),
+        BODY,
+        "__datetime_fromMillis",
+    );
+}

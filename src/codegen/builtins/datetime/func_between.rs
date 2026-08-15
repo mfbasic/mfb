@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/between.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"The signed `Duration` span between two instants."#;
 const DESC: &str = r#"`datetime::between` returns the signed `Duration` `finish - start`: the length of
 elapsed time you would add to `start` to reach `finish`. The span is positive when
@@ -78,19 +76,19 @@ r#"FUNC __datetime_between(start AS Instant, finish AS Instant) AS Duration
   RETURN __datetime_normDuration(finish.seconds - start.seconds, finish.nanos - start.nanos)
 END FUNC"#;
 
-pub(crate) const BETWEEN: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.between",
-    "between",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[
-            super::req("start", "Instant"),
-            super::req("finish", "Instant"),
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "between",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("start", super::named("Instant")),
+            super::req("finish", super::named("Instant")),
         ],
-        "Duration",
-    )],
-    BODY,
-)
-.with_example(EX);
+        super::named("Duration"),
+        BODY,
+        "__datetime_between",
+    );
+}

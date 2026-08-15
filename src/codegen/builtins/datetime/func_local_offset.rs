@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/localOffset.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"The host's local UTC offset in seconds at a given epoch second."#;
 const DESC: &str = r#"`datetime::localOffset` returns the signed offset from UTC, in seconds, that the
 host's configured local time zone applies at the absolute instant named by
@@ -56,12 +54,13 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const LOCAL_OFFSET: BuiltinFunction = BuiltinFunction::custom(
-    "datetime.localOffset",
-    "localOffset",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(&[super::req("epochSeconds", super::I)], super::I)],
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::intrinsic(
+        pkg,
+        "localOffset",
+        INTRO,
+        DESC,
+        EX,
+        vec![super::req("epochSeconds", super::int())],
+    );
+}

@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/fixedOffset.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Build a `Zone` with a constant UTC offset."#;
 const DESC: &str = r#"`datetime::fixedOffset` builds a `Zone` whose offset from UTC is a constant
 value that does not vary with the instant being projected. Unlike
@@ -68,18 +66,26 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const FIXED_OFFSET: BuiltinFunction = BuiltinFunction::custom(
-    "datetime.fixedOffset",
-    "fixedOffset",
-    INTRO,
-    DESC,
-    &[],
-    &[
-        super::ov(&[super::req("offsetSeconds", super::I)], "Zone"),
-        super::ov(
-            &[super::req("hours", super::I), super::req("mins", super::I)],
-            "Zone",
-        ),
-    ],
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::arity_family(
+        pkg,
+        "fixedOffset",
+        INTRO,
+        DESC,
+        EX,
+        super::named("Zone"),
+        vec![
+            (
+                vec![super::req("offsetSeconds", super::int())],
+                "__datetime_fixedOffset1",
+            ),
+            (
+                vec![
+                    super::req("hours", super::int()),
+                    super::req("mins", super::int()),
+                ],
+                "__datetime_fixedOffset2",
+            ),
+        ],
+    );
+}

@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/toNanos.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Return the whole nanoseconds between the Unix epoch and an `Instant`."#;
 const DESC: &str = r#"`datetime::toNanos` collapses the absolute point `at` into a single `Integer`
 count of whole nanoseconds measured from the Unix epoch
@@ -60,13 +58,16 @@ r#"FUNC __datetime_toNanos(at AS Instant) AS Integer
   RETURN at.seconds * 1000000000 + at.nanos
 END FUNC"#;
 
-pub(crate) const TO_NANOS: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.toNanos",
-    "toNanos",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(&[super::req("at", "Instant")], super::I)],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "toNanos",
+        INTRO,
+        DESC,
+        EX,
+        vec![super::req("at", super::named("Instant"))],
+        super::int(),
+        BODY,
+        "__datetime_toNanos",
+    );
+}

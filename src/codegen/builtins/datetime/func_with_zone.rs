@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/withZone.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str =
     r#"Re-project a `DateTime` into a different `Zone`, preserving the absolute instant."#;
 const DESC: &str = r#"`datetime::withZone` returns the civil `DateTime` that an observer in `zone`
@@ -69,16 +67,19 @@ r#"FUNC __datetime_withZone(dt AS DateTime, z AS Zone) AS DateTime
   RETURN __datetime_inZone(__datetime_resolve(dt), z)
 END FUNC"#;
 
-pub(crate) const WITH_ZONE: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.withZone",
-    "withZone",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[super::req("dt", "DateTime"), super::req("zone", "Zone")],
-        "DateTime",
-    )],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "withZone",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("dt", super::named("DateTime")),
+            super::req("zone", super::named("Zone")),
+        ],
+        super::named("DateTime"),
+        BODY,
+        "__datetime_withZone",
+    );
+}

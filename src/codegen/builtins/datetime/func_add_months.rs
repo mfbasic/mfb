@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/addMonths.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Shift a civil `DateTime` by a whole number of calendar months, clamping the day-of-month to the target month's length."#;
 const DESC: &str = r#"`datetime::addMonths` advances `dt` by a whole number of calendar months and
 returns the resulting `DateTime`. It collapses `dt`'s year and month into a
@@ -80,16 +78,19 @@ r#"FUNC __datetime_addMonths(dt AS DateTime, months AS Integer) AS DateTime
   RETURN __datetime_civil(Date[y, m, day], dt.time, dt.zone)
 END FUNC"#;
 
-pub(crate) const ADD_MONTHS: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.addMonths",
-    "addMonths",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[super::req("dt", "DateTime"), super::req("months", super::I)],
-        "DateTime",
-    )],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "addMonths",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("dt", super::named("DateTime")),
+            super::req("months", super::int()),
+        ],
+        super::named("DateTime"),
+        BODY,
+        "__datetime_addMonths",
+    );
+}

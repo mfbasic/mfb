@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/toLocal.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str =
     r#"Project an absolute `Instant` into the host's local zone to produce a civil `DateTime`."#;
 const DESC: &str = r#"`datetime::toLocal` projects the absolute instant `at` into the host's local
@@ -63,13 +61,16 @@ r#"FUNC __datetime_toLocal(at AS Instant) AS DateTime
   RETURN __datetime_inZone(at, __datetime_local())
 END FUNC"#;
 
-pub(crate) const TO_LOCAL: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.toLocal",
-    "toLocal",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(&[super::req("at", "Instant")], "DateTime")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "toLocal",
+        INTRO,
+        DESC,
+        EX,
+        vec![super::req("at", super::named("Instant"))],
+        super::named("DateTime"),
+        BODY,
+        "__datetime_toLocal",
+    );
+}

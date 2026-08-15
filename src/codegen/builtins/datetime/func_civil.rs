@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/civil.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Build a zoned `DateTime` from a civil `Date`, `Time`, and `Zone`."#;
 const DESC: &str = r#"`datetime::civil` builds a `DateTime` by reading a calendar `date` and a
 wall-clock `time` as a local time in `zone`, resolving the UTC offset that
@@ -73,20 +71,20 @@ r#"FUNC __datetime_civil(d AS Date, t AS Time, z AS Zone) AS DateTime
   RETURN __datetime_inZone(Instant[epochSeconds, t.nanos], z)
 END FUNC"#;
 
-pub(crate) const CIVIL: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.civil",
-    "civil",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[
-            super::req("date", "Date"),
-            super::req("time", "Time"),
-            super::req("zone", "Zone"),
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "civil",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("date", super::named("Date")),
+            super::req("time", super::named("Time")),
+            super::req("zone", super::named("Zone")),
         ],
-        "DateTime",
-    )],
-    BODY,
-)
-.with_example(EX);
+        super::named("DateTime"),
+        BODY,
+        "__datetime_civil",
+    );
+}

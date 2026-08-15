@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/parseIso.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Parse an RFC 3339 / ISO 8601 timestamp into a `DateTime`."#;
 const DESC: &str = r#"`datetime::parseIso` reads an RFC 3339 (ISO 8601 profile) timestamp from `value`
 and returns the `DateTime` it names. It is the convenience inverse of
@@ -130,13 +128,16 @@ r#"FUNC __datetime_parseIso(value AS String) AS DateTime
   RETURN DateTime[d, t, __datetime_fixedOffset1(off.value), off.value]
 END FUNC"#;
 
-pub(crate) const PARSE_ISO: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.parseIso",
-    "parseIso",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(&[super::req("value", "String")], "DateTime")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "parseIso",
+        INTRO,
+        DESC,
+        EX,
+        vec![super::req("value", super::string())],
+        super::named("DateTime"),
+        BODY,
+        "__datetime_parseIso",
+    );
+}

@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/monotonic.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"A monotonically non-decreasing clock reading for measuring elapsed time."#;
 const DESC: &str = r#"`datetime::monotonic` reads the host's monotonic clock and returns the elapsed
 span, as a `Duration`, from an arbitrary fixed origin chosen by the operating
@@ -64,13 +62,16 @@ r#"FUNC __datetime_monotonic AS Duration
   RETURN __datetime_normDuration(ns / 1000000000, ns MOD 1000000000)
 END FUNC"#;
 
-pub(crate) const MONOTONIC: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.monotonic",
-    "monotonic",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(&[], "Duration")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "monotonic",
+        INTRO,
+        DESC,
+        EX,
+        vec![],
+        super::named("Duration"),
+        BODY,
+        "__datetime_monotonic",
+    );
+}

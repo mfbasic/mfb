@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/formatDuration.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Render a `Duration` as a human-readable `[-][Nd ]HH:MM:SS.mmm` span."#;
 const DESC: &str = r#"`datetime::formatDuration` renders the signed span `d` as a fixed-shape string of
 the form `[-][Nd ]HH:MM:SS.mmm`. The hour, minute, and second fields are always
@@ -89,13 +87,16 @@ r#"FUNC __datetime_formatDuration(d AS Duration) AS String
   RETURN out & __datetime_pad2(hh) & ":" & __datetime_pad2(mm) & ":" & __datetime_pad2(ss) & "." & strings::padLeft(toString(ms), 3, "0")
 END FUNC"#;
 
-pub(crate) const FORMAT_DURATION: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.formatDuration",
-    "formatDuration",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(&[super::req("d", "Duration")], "String")],
-    BODY,
-)
-.with_example(EX);
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    super::single(
+        pkg,
+        "formatDuration",
+        INTRO,
+        DESC,
+        EX,
+        vec![super::req("d", super::named("Duration"))],
+        super::string(),
+        BODY,
+        "__datetime_formatDuration",
+    );
+}

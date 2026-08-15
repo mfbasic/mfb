@@ -103,8 +103,7 @@ pub fn lower_project_with_external_functions(
         .expect("built-in astrings package source must parse");
     let augmented = builtins::app::augmented_project(&augmented)
         .expect("built-in app package source must parse");
-    let augmented = crate::codegen::builtins::datetime::augmented_project(&augmented)
-        .expect("built-in datetime package source must parse");
+    // datetime source is injected by the clean-room `registry::augment_project` above.
     let augmented = builtins::money::augmented_project(&augmented)
         .expect("built-in money package source must parse");
     let augmented = builtins::term::augmented_project(&augmented)

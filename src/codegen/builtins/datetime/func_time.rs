@@ -5,8 +5,6 @@
 //! source bodies live in the shared `package.mfb`. This file owns the
 //! descriptor + docs migrated from `src/docs/man/builtins/datetime/time.md`.
 
-use crate::target::shared::registry::BuiltinFunction;
-
 const INTRO: &str = r#"Validate and build a time-of-day `Time` from hour, minute, second, and sub-second components."#;
 const DESC: &str = r#"`datetime::time` builds a `Time` of day from its `hour`, `minute`, `second`, and
 sub-second (`nanos`) components. A `Time` names a position within a single
@@ -89,21 +87,24 @@ r#"FUNC __datetime_time(hour AS Integer, minute AS Integer, second AS Integer, n
   RETURN Time[hour, minute, second, nanos]
 END FUNC"#;
 
-pub(crate) const TIME: BuiltinFunction = BuiltinFunction::mfb(
-    "datetime.time",
-    "time",
-    INTRO,
-    DESC,
-    &[],
-    &[super::ov(
-        &[
-            super::req("hour", super::I),
-            super::req("minute", super::I),
-            super::opt("second", super::I, "0"),
-            super::opt("nanos", super::I, "0"),
+pub(super) fn register(pkg: &mut super::RegistryPackage) {
+    // `second`/`nanos` are optional (default 0). They widen arity here; the actual
+    // `0` padding is injected by the retained `default_argument_padding` so the
+    // 4-arg `__datetime_time` body always receives every component.
+    super::single(
+        pkg,
+        "time",
+        INTRO,
+        DESC,
+        EX,
+        vec![
+            super::req("hour", super::int()),
+            super::req("minute", super::int()),
+            super::optional("second", super::int()),
+            super::optional("nanos", super::int()),
         ],
-        "Time",
-    )],
-    BODY,
-)
-.with_example(EX);
+        super::named("Time"),
+        BODY,
+        "__datetime_time",
+    );
+}
