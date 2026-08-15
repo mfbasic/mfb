@@ -558,6 +558,12 @@ overloads live in `strings::`."#;
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("collections", INTRO, COLLECTIONS_DESC);
 
+    // The source-generic members (`sort`, `partition`, …) are not registered as
+    // `RegistryFunction`s (they are monomorphized from `package.mfb`), but their
+    // names are recorded as registry data so the shared pipeline recognizes a call
+    // like `collections.sort` as a builtin member without a per-package branch.
+    pkg.add_source_generics(FUNCTIONS);
+
     func_get::register(&mut pkg);
     func_get_or::register(&mut pkg);
     func_set::register(&mut pkg);
@@ -631,7 +637,14 @@ pub(crate) fn is_native_member(member: &str) -> bool {
 
 /// Whether `name` (a canonical `collections.<fn>` call) names a `collections::`
 /// builtin — either a source generic function (`sort`, ...) or a migrated native
-/// member (`get`, ...). Used by the resolver's builtin-member check.
+/// member (`get`, ...).
+///
+/// The shared pipeline no longer routes through this: builtin-membership goes
+/// through the generic `registry::is_member` (native members) + `registry::
+/// is_source_generic_member` (source generics), so `collections` needs no
+/// per-package dispatch branch. It is retained as the man-page provenance symbol
+/// (`man_citations_resolve` is symbol-level) and exercised by the unit tests below.
+#[allow(dead_code)]
 pub(crate) fn is_collections_call(name: &str) -> bool {
     name.strip_prefix("collections.")
         .is_some_and(|member| is_collections_function(member) || is_native_member(member))

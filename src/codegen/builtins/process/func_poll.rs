@@ -102,10 +102,10 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::Boolean,
             errors: vec![],
             lowering: Lowering::Helper,
-            body: Body::native(
+            body: Body::native_os_seam(
                 Some(lower_process_poll_helper_posix),
                 Some(lower_process_poll_helper_win),
-                None,
+                &["pollFrom"],
             ),
         }],
     });

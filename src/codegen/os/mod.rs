@@ -18,14 +18,15 @@ use crate::target::shared::code::{CodegenPlatform, HelperResult};
 /// Returns `None` when no migrated OS-seam member owns `call`, so the caller can
 /// fall back to the legacy runtime-call dispatch for not-yet-migrated packages.
 ///
-/// `process` is the sole OS-seam package on the clean-room registry, and its
-/// `Body::Native` posix/win slots have no generic covered-symbol (`all`) list, so
-/// the aux code-form routing lives in the package module; delegate to it.
+/// The aux code-form routing (`process.spawnEnv` → the `spawn` member's lowering) is
+/// registry data — each OS-seam member declares its aux runtime-call names in its
+/// `Body::Native` `os_aliases` — so this dispatch is a single generic
+/// `registry::os_helper` call with no per-package branch.
 pub(crate) fn dispatch_runtime_helper(
     call: &str,
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Option<HelperResult> {
-    crate::codegen::builtins::process::dispatch_os_helper(call, symbol, platform_imports, platform)
+    crate::codegen::registry::os_helper(call, symbol, platform_imports, platform)
 }

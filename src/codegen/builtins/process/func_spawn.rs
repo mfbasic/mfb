@@ -97,10 +97,10 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
                 return_type: ParameterType::Named(super::PROCESS_TYPE),
                 errors: vec![],
                 lowering: Lowering::Helper,
-                body: Body::native(
+                body: Body::native_os_seam(
                     Some(lower_process_spawn_helper_posix),
                     Some(lower_process_spawn_helper_win),
-                    None,
+                    &["spawnEnv"],
                 ),
             },
             // Full form: working directory + environment map + replace/merge flag.
@@ -132,10 +132,10 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
                 return_type: ParameterType::Named(super::PROCESS_TYPE),
                 errors: vec![],
                 lowering: Lowering::Helper,
-                body: Body::native(
+                body: Body::native_os_seam(
                     Some(lower_process_spawn_helper_posix),
                     Some(lower_process_spawn_helper_win),
-                    None,
+                    &["spawnEnv"],
                 ),
             },
         ],

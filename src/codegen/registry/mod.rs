@@ -304,6 +304,14 @@ pub(crate) enum Body {
         posix: Option<OsLower>,
         win: Option<OsLower>,
         common: Option<NativeLower>,
+        /// Auxiliary runtime-call member names this OS-seam member also emits for —
+        /// the `builder_values` overload-split code forms (`spawnEnv`, `sendTimeout`,
+        /// `receiveFrom`, …) that share this member's `posix`/`win` lowering, which
+        /// each emitter branches on internally. Empty for a member with no overload
+        /// split. The generic OS dispatch ([`os_helper`]) routes an aux runtime call
+        /// to this member's lowering through these aliases, so the aux→primary map is
+        /// registry **data** rather than a per-package dispatch branch.
+        os_aliases: &'static [&'static str],
     },
     /// A fixed internal rewrite target: the call becomes a call to this `__`-symbol.
     Rewrite(&'static str),
@@ -368,7 +376,34 @@ impl Body {
             posix.is_some() || win.is_some() || common.is_some(),
             "Body::native requires at least one of posix/win/common to be Some",
         );
-        Body::Native { posix, win, common }
+        Body::Native {
+            posix,
+            win,
+            common,
+            os_aliases: &[],
+        }
+    }
+
+    /// An OS-seam `Native` lowering (`posix`/`win` only, no `common`) that also
+    /// serves the auxiliary runtime-call code forms named in `os_aliases` — the
+    /// `builder_values` overload-split names (`spawnEnv`, `sendTimeout`, …) whose
+    /// emission shares this member's `posix`/`win` lowering. The aux→primary routing
+    /// is thereby registry data ([`os_helper`]) instead of a per-package branch.
+    pub(crate) fn native_os_seam(
+        posix: Option<OsLower>,
+        win: Option<OsLower>,
+        os_aliases: &'static [&'static str],
+    ) -> Self {
+        debug_assert!(
+            posix.is_some() || win.is_some(),
+            "Body::native_os_seam requires at least one of posix/win to be Some",
+        );
+        Body::Native {
+            posix,
+            win,
+            common: None,
+            os_aliases,
+        }
     }
 }
 
@@ -623,6 +658,14 @@ pub(crate) struct RegistryPackage {
     /// callable members; rendered between the unions and the member bodies.
     helper_functions: Vec<&'static str>,
     functions: Vec<RegistryFunction>,
+    /// Public member names implemented purely as injected MFBASIC **source
+    /// generics** — instantiated by the monomorphizer from the package's
+    /// `package.mfb`, not registered as [`RegistryFunction`]s (they carry no fixed
+    /// signature the registry can model, so [`function`](Self::function) does not see
+    /// them). Recorded here as data so the shared pipeline can recognize a call like
+    /// `collections.sort` as a builtin member ([`is_source_generic_member`]) without a
+    /// per-package branch.
+    source_generics: Vec<&'static str>,
 }
 
 impl RegistryPackage {
@@ -640,6 +683,7 @@ impl RegistryPackage {
             unions: Vec::new(),
             helper_functions: Vec::new(),
             functions: Vec::new(),
+            source_generics: Vec::new(),
         }
     }
 
@@ -682,6 +726,11 @@ impl RegistryPackage {
     /// The package's shared helper-function source chunks, in the order added.
     pub(crate) fn helper_functions(&self) -> &[&'static str] {
         &self.helper_functions
+    }
+
+    /// The package's source-generic member names (see [`source_generics`](Self::source_generics)).
+    pub(crate) fn source_generics(&self) -> &[&'static str] {
+        &self.source_generics
     }
 
     /// Whether `ast` imports this package — the generic replacement for the old
@@ -784,6 +833,14 @@ impl RegistryPackage {
     /// [`get_mfb`](Self::get_mfb) between the unions and the member bodies.
     pub(crate) fn add_helper_functions(&mut self, helpers: Vec<&'static str>) -> &mut Self {
         self.helper_functions.extend(helpers);
+        self
+    }
+
+    /// Record the package's injected **source-generic** member names (see the
+    /// [`source_generics`](Self::source_generics) field). Additive; the names carry no
+    /// registry signature and are recognized only by [`is_source_generic_member`].
+    pub(crate) fn add_source_generics(&mut self, names: &[&'static str]) -> &mut Self {
+        self.source_generics.extend_from_slice(names);
         self
     }
 
@@ -984,6 +1041,22 @@ pub(crate) fn augment_project(ast: &crate::ast::AstProject) -> Result<crate::ast
 /// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn is_member(qualified: &str) -> bool {
     registry().resolve_func(qualified).is_some()
+}
+
+/// Whether `qualified` (`"collections.sort"`) names a migrated package's injected
+/// **source-generic** member — a member implemented as a monomorphized MFBASIC body
+/// rather than a registered [`RegistryFunction`], so [`is_member`] does not see it.
+/// The generic form of the old `collections::is_collections_call`'s source-generic
+/// half; the native-member half is covered by [`is_member`].
+pub(crate) fn is_source_generic_member(qualified: &str) -> bool {
+    let Some((pkg_name, member)) = qualified.split_once('.') else {
+        return false;
+    };
+    registry()
+        .packages()
+        .iter()
+        .find(|p| p.import_name == pkg_name)
+        .is_some_and(|package| package.source_generics.contains(&member))
 }
 
 /// The import name of the migrated package that owns `qualified`, or `None`.
@@ -1258,6 +1331,115 @@ pub(crate) fn native_lower(qualified: &str) -> Option<NativeLower> {
         } = &implementation.body
         {
             return Some(*lower);
+        }
+    }
+    None
+}
+
+/// The bare native-codegen name a migrated call `qualified` dequalifies to for the
+/// legacy bare-name native path (`collections.get` → `get`), or `None`. A member
+/// qualifies when it owns a [`Body::Native`] **call-site** lowering (a `common`
+/// slot) — the collections native members (`get`, `set`, `transform`, …). This is
+/// the generic form of the old `collections::native_member_bare`; it deliberately
+/// yields `None` for the OS-seam members (whose `Native` body has only `posix`/`win`
+/// and lowers to a runtime helper, not a bare inline op) and for the source-backed
+/// intrinsics (`encoding`), which are not bare-name native members. The three
+/// `Body::Intrinsic` List overloads (`find`/`mid`/`replace`) are handled by their
+/// caller (`crate::builtins::native_builtin_target`), which shares them with
+/// `strings::`.
+pub(crate) fn native_bare_target(qualified: &str) -> Option<&'static str> {
+    let function = registry().resolve_func(qualified)?.function;
+    for implementation in &function.implementations {
+        if matches!(
+            implementation.body,
+            Body::Native {
+                common: Some(_),
+                ..
+            }
+        ) {
+            return Some(function.name);
+        }
+    }
+    None
+}
+
+/// Whether the migrated call `qualified` takes a **unary callback** — a parameter
+/// whose type is a `FUNC(<one param>) AS <ret>` (a [`ParameterType::Func`] with
+/// exactly one parameter). These are the higher-order members whose callback
+/// parameter type is the collection's element type (not written at the call site),
+/// so a bare general built-in predicate at that position must be bound before it can
+/// be typed (bug-368): `collections::filter`/`transform`/`forEach`. A binary callback
+/// (`reduce`'s `FUNC(U, T) AS U`) has two parameters and is excluded. Generic form of
+/// the old `collections::unary_callback_member`.
+pub(crate) fn callback_member(qualified: &str) -> bool {
+    registry()
+        .resolve_func(qualified)
+        .is_some_and(|resolved| function_has_unary_callback(resolved.function))
+}
+
+/// The bare-member form of [`callback_member`], for the unqualified call spelling
+/// (`filter`, `transform`, `forEach`) that reaches `ir::lower` before
+/// canonicalization. Matches any migrated package's function of that bare name with a
+/// unary-callback parameter.
+pub(crate) fn callback_member_bare(member: &str) -> bool {
+    registry().packages().iter().any(|package| {
+        package
+            .function(member)
+            .is_some_and(function_has_unary_callback)
+    })
+}
+
+/// Whether any of `function`'s implementations declares a parameter of type
+/// `FUNC(<one param>) AS <ret>` (a unary function value).
+fn function_has_unary_callback(function: &RegistryFunction) -> bool {
+    function.implementations.iter().any(|implementation| {
+        implementation
+            .params
+            .iter()
+            .any(|param| matches!(&param.ty, ParameterType::Func(params, _) if params.len() == 1))
+    })
+}
+
+/// Emit the `_mfb_rt_<pkg>_*` runtime-helper body for the OS-seam runtime call
+/// `call`, chosen by `platform.family()`, from the owning migrated member's
+/// [`Body::Native`] `posix`/`win` lowering — the generic replacement for the old
+/// per-package `process::dispatch_os_helper`. `call` is a `pkg.member` runtime-call
+/// name: either a member's own name or one of the auxiliary code forms it declares
+/// in [`Body::Native::os_aliases`](Body::Native) (`process.spawnEnv`, …). Returns
+/// `None` when no migrated OS-seam member owns `call`, so the caller can fall back to
+/// the legacy runtime-call dispatch for not-yet-migrated packages.
+pub(crate) fn os_helper(
+    call: &str,
+    symbol: &str,
+    platform_imports: &std::collections::HashMap<String, String>,
+    platform: &dyn crate::target::shared::code::CodegenPlatform,
+) -> Option<crate::target::shared::code::HelperResult> {
+    use crate::target::shared::code::PlatformFamily;
+    let (pkg_name, member) = call.split_once('.')?;
+    let package = registry()
+        .packages()
+        .iter()
+        .find(|p| p.import_name == pkg_name)?;
+    for function in package.functions() {
+        for implementation in function.implementations() {
+            let Body::Native {
+                posix,
+                win,
+                os_aliases,
+                ..
+            } = &implementation.body
+            else {
+                continue;
+            };
+            if function.name != member && !os_aliases.contains(&member) {
+                continue;
+            }
+            let lower = if platform.family() == PlatformFamily::Windows {
+                (*win)?
+            } else {
+                (*posix)?
+            };
+            return Some(lower(call, symbol, platform_imports, platform));
         }
     }
     None
@@ -1685,7 +1867,9 @@ mod tests {
     #[test]
     fn native_holds_three_per_family_slots() {
         match Body::native(None, None, Some(sample_lower as NativeLower)) {
-            Body::Native { posix, win, common } => {
+            Body::Native {
+                posix, win, common, ..
+            } => {
                 assert!(posix.is_none() && win.is_none() && common.is_some());
             }
             _ => panic!("expected Body::Native"),
@@ -1695,7 +1879,9 @@ mod tests {
             Some(sample_os_lower as OsLower),
             None,
         ) {
-            Body::Native { posix, win, common } => {
+            Body::Native {
+                posix, win, common, ..
+            } => {
                 assert!(posix.is_some() && win.is_some() && common.is_none());
             }
             _ => panic!("expected Body::Native"),

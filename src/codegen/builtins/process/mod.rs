@@ -19,10 +19,7 @@
 //! an argument *union*, so the registry's generic overload/return resolution
 //! answers arity/return/validation with no custom resolver.
 
-use std::collections::HashMap;
-
-use crate::codegen::registry::{Body, Registry, RegistryPackage};
-use crate::target::shared::code::{CodegenPlatform, HelperResult, PlatformFamily};
+use crate::codegen::registry::{Registry, RegistryPackage};
 
 mod func_close;
 mod func_detach;
@@ -150,52 +147,6 @@ pub(crate) fn register(r: &mut Registry) {
     func_detach::register(&mut pkg);
 
     r.add_package(pkg);
-}
-
-/// Emit the `_mfb_rt_process_*` runtime-helper body for `call` from the owning
-/// member's `Body::Native` lowering, chosen by `platform.family()`. `call` is the
-/// member's own runtime-call name or one of the auxiliary code-form symbols the
-/// `builder_values` overload split synthesizes (`process.spawnEnv`,
-/// `process.sendTimeout`, `process.receiveFrom`, …); each aux form shares its
-/// primary member's lowering fn, which branches on `call` internally. Returns
-/// `None` for a `call` no `process` member owns.
-pub(crate) fn dispatch_os_helper(
-    call: &str,
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-) -> Option<HelperResult> {
-    // Route every runtime-call form (primary + aux) to the public member whose
-    // `Body::Native` owns the emission — the migration's replacement for the old
-    // `Implementation::Os { all }` covered-symbol list.
-    let member = match call {
-        "process.spawn" | "process.spawnEnv" => "process.spawn",
-        "process.shell" => "process.shell",
-        "process.pid" => "process.pid",
-        "process.isRunning" => "process.isRunning",
-        "process.waitFor" => "process.waitFor",
-        "process.close" => "process.close",
-        "process.send" | "process.sendTimeout" => "process.send",
-        "process.sendBytes" | "process.sendBytesTimeout" => "process.sendBytes",
-        "process.receive" | "process.receiveFrom" => "process.receive",
-        "process.receiveBytes" | "process.receiveBytesFrom" => "process.receiveBytes",
-        "process.poll" | "process.pollFrom" => "process.poll",
-        "process.signal" => "process.signal",
-        "process.didSignal" => "process.didSignal",
-        "process.detach" => "process.detach",
-        _ => return None,
-    };
-    let resolved = crate::codegen::registry::registry().resolve_func(member)?;
-    let implementation = resolved.function.implementations().first()?;
-    let Body::Native { posix, win, .. } = &implementation.body else {
-        return None;
-    };
-    let lower = if platform.family() == PlatformFamily::Windows {
-        (*win)?
-    } else {
-        (*posix)?
-    };
-    Some(lower(call, symbol, platform_imports, platform))
 }
 
 /// Whether `name` is a public `process` builtin call (`process.spawn`, …). The
