@@ -6,7 +6,8 @@
 //! byte-significant (2-space indent → .ncode columns); do not reformat.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
 };
 
 const INTRO: &str = r#"Open a streaming reader over UTF-8 CSV text."#;
@@ -48,7 +49,7 @@ r#"FUNC __csv_parseStream(value AS String, delimiter AS String, quote AS String)
   RETURN CsvReader[chars, len(chars), 0, __csv_firstCode(delimiter), __csv_firstCode(quote)]
 END FUNC"#;
 
-pub(super) fn add(pkg: &mut RegistryPackage) {
+pub(super) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "parseStream",
         intro: INTRO,
@@ -58,30 +59,33 @@ pub(super) fn add(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
+                    desc: "The UTF-8 CSV text to stream.",
                     aliases: &["text"],
-                    ty: "String",
+                    ty: ParameterType::String,
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "delimiter",
+                    desc: "The single character that separates fields. Defaults to ,.",
                     aliases: &[],
-                    ty: "String",
+                    ty: ParameterType::String,
                     default: DefaultValue::Fill {
-                        type_name: "String",
+                        type_name: ParameterType::String,
                         expr: super::DEFAULT_DELIMITER,
                     },
                 },
                 Parameter {
                     name: "quote",
+                    desc: "The single character that wraps a field and, doubled, escapes itself. Defaults to \".",
                     aliases: &[],
-                    ty: "String",
+                    ty: ParameterType::String,
                     default: DefaultValue::Fill {
-                        type_name: "String",
+                        type_name: ParameterType::String,
                         expr: super::DEFAULT_QUOTE,
                     },
                 },
             ],
-            return_type: "CsvReader",
+            return_type: ParameterType::Named("CsvReader"),
             errors: vec![],
             lowering: Lowering::Helper,
             body: Body::mfb(FUNC_BODY, "__csv_parseStream"),

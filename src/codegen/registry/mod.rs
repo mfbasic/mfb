@@ -25,6 +25,8 @@
 //! point: a package registers itself in one readable block instead of a nested
 //! struct literal plus a sidecar resolver.
 
+use std::borrow::Cow;
+use std::fmt;
 use std::sync::OnceLock;
 
 /// A member's target-generic native lowering — the plan-95
@@ -65,16 +67,75 @@ pub(crate) type MfbFastPath =
         &[crate::target::shared::nir::NirValue],
     ) -> Result<Option<crate::target::shared::code::ValueResult>, String>;
 
+/// A [`Parameter`]'s type. An enum rather than a bare `&'static str` so future kinds
+/// (argument unions, generic placeholders) can be added without touching every
+/// parameter. Mirrors `target::shared::registry::ParameterType`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ParameterType {
+    AttributeString,
+    Boolean,
+    Byte,
+    Integer,
+    Fixed,
+    Float,
+    Money,
+    Nothing,
+    String,
+    ListOf(Box<ParameterType>),
+    MapOf(Box<ParameterType>, Box<ParameterType>),
+    SetOf(Box<ParameterType>),
+    Named(&'static str),
+}
+
+impl ParameterType {
+    pub(crate) fn list_of(elem: ParameterType) -> Self {
+        ParameterType::ListOf(Box::new(elem))
+    }
+    pub(crate) fn map_of(key: ParameterType, val: ParameterType) -> Self {
+        ParameterType::MapOf(Box::new(key), Box::new(val))
+    }
+    pub(crate) fn set_of(elem: ParameterType) -> Self {
+        ParameterType::SetOf(Box::new(elem))
+    }
+
+    /// The parameter type's formatted name.
+    pub(crate) fn name(&self) -> Cow<'static, str> {
+        match self {
+            ParameterType::AttributeString => Cow::Borrowed("AttributeString"),
+            ParameterType::Boolean => Cow::Borrowed("Boolean"),
+            ParameterType::Byte => Cow::Borrowed("Byte"),
+            ParameterType::Integer => Cow::Borrowed("Integer"),
+            ParameterType::Fixed => Cow::Borrowed("Fixed"),
+            ParameterType::Float => Cow::Borrowed("Float"),
+            ParameterType::Money => Cow::Borrowed("Money"),
+            ParameterType::Nothing => Cow::Borrowed("Nothing"),
+            ParameterType::String => Cow::Borrowed("String"),
+            ParameterType::ListOf(elem) => Cow::Owned(format!("List OF {}", elem.name())),
+            ParameterType::MapOf(elem_a, elem_b) => {
+                Cow::Owned(format!("Map OF {} TO {}", elem_a.name(), elem_b.name()))
+            }
+            ParameterType::SetOf(elem) => Cow::Owned(format!("Set OF {}", elem.name())),
+            ParameterType::Named(elem) => Cow::Borrowed(elem),
+        }
+    }
+}
+
+impl fmt::Display for ParameterType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name())
+    }
+}
+
 /// Whether a [`Parameter`] is required, or optional with a default — mirrors
 /// `target::shared::registry::DefaultValue`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum DefaultValue {
     /// A required parameter — no default.
     None,
     /// An optional parameter padded with `(type_name, expr)` when omitted — the
     /// caller injects the literal (csv's `delimiter`/`quote`/`newline`).
     Fill {
-        type_name: &'static str,
+        type_name: ParameterType,
         expr: &'static str,
     },
     /// An optional parameter that widens arity but is NOT default-padded — the
@@ -84,14 +145,16 @@ pub(crate) enum DefaultValue {
 }
 
 /// One parameter of an [`Implementation`]'s signature.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Parameter {
     /// The canonical parameter name (as written in the source signature).
     pub(crate) name: &'static str,
+    /// The description
+    pub(crate) desc: &'static str,
     /// Accepted alternate spellings at a keyword-argument call site.
     pub(crate) aliases: &'static [&'static str],
-    /// The parameter's type name, e.g. `"Integer"` or `"List OF Byte"`.
-    pub(crate) ty: &'static str,
+    /// The parameter's type, e.g. `ParameterType::Integer`.
+    pub(crate) ty: ParameterType,
     /// Whether the parameter is required or optional (with how it defaults).
     pub(crate) default: DefaultValue,
 }
@@ -221,13 +284,20 @@ pub(crate) struct Implementation {
     /// This overload's parameters, in signature order.
     pub(crate) params: Vec<Parameter>,
     /// This overload's return type name (`"Nothing"` for a statement-like call).
-    pub(crate) return_type: &'static str,
+    pub(crate) return_type: ParameterType,
     /// The error codes this overload can raise (rule ids), or empty.
     pub(crate) errors: Vec<&'static str>,
     /// Whether this overload lowers via a helper `bl` or inline.
     pub(crate) lowering: Lowering,
     /// How this overload is realized in codegen.
     pub(crate) body: Body,
+}
+
+pub(crate) struct CallShape {
+    /// This overload's parameters, in signature order.
+    pub(crate) args: Vec<ParameterType>,
+    /// This overload's return type name (`"Nothing"` for a statement-like call).
+    pub(crate) return_type: ParameterType,
 }
 
 /// One function of a package: a public name, its documentation, and its
@@ -247,13 +317,70 @@ pub(crate) struct RegistryFunction {
     pub(crate) implementations: Vec<Implementation>,
 }
 
+impl RegistryFunction {
+    /// All overloads.
+    pub(crate) fn implementations(&self) -> &[Implementation] {
+        &self.implementations
+    }
+
+    /// The overload matching this call shape, if exactly one does.
+    pub(crate) fn select(&self, args: &CallShape) -> Option<&Implementation> {
+        let mut matches = self.implementations.iter().filter(|implementation| {
+            let required_params = implementation
+                .params
+                .iter()
+                .filter(|param| matches!(param.default, DefaultValue::None))
+                .count();
+
+            let arg_count = args.args.len();
+            if arg_count < required_params || arg_count > implementation.params.len() {
+                return false;
+            }
+
+            implementation
+                .params
+                .iter()
+                .zip(&args.args)
+                .all(|(param, arg_ty)| param.ty == *arg_ty)
+        });
+
+        let implementation = matches.next()?;
+        matches.next().is_none().then_some(implementation)
+    }
+
+    // Facts that ARE uniform across overloads live here:
+    pub(crate) fn arity(&self) -> Option<(usize, usize)> {
+        let mut min = usize::MAX;
+        let mut max = 0usize;
+
+        for implementation in &self.implementations {
+            let required = implementation
+                .params
+                .iter()
+                .filter(|param| matches!(param.default, DefaultValue::None))
+                .count();
+
+            min = min.min(required);
+            max = max.max(implementation.params.len());
+        }
+
+        (min != usize::MAX).then_some((min, max))
+    }
+
+    pub(crate) fn declares_error(&self, name: &str) -> bool {
+        self.implementations
+            .iter()
+            .any(|implementation| implementation.errors.iter().any(|error| *error == name))
+    }
+}
+
 /// One field of a [`RegistryRecord`], e.g. `value AS Float`.
 #[derive(Clone, Debug)]
 pub(crate) struct RecordProp {
     /// The field name (`value`).
     pub(crate) name: &'static str,
     /// The field's type name (`Float`, `List OF Byte`, `net.Url`, …).
-    pub(crate) ty: &'static str,
+    pub(crate) ty: ParameterType,
     /// One-line documentation of the field. Retained for doc generation; **not**
     /// rendered into the `TYPE` declaration [`RegistryPackage::get_mfb`] emits (the
     /// declaration is bare `name AS type`, as in a hand-written companion).
@@ -292,7 +419,7 @@ impl RegistryRecord {
             out.push_str("\n  ");
             out.push_str(prop.name);
             out.push_str(" AS ");
-            out.push_str(prop.ty);
+            out.push_str(&prop.ty.name());
         }
         out.push_str("\nEND TYPE");
         out
@@ -565,7 +692,17 @@ impl RegistryPackage {
     }
 }
 
-/// The clean-room registry: an ordered set of packages. Built imperatively, then
+pub(crate) struct ResolvedFunc<'r> {
+    pub(crate) package: &'r RegistryPackage,
+    pub(crate) function: &'r RegistryFunction,
+}
+
+pub(crate) enum ResolvedType<'r> {
+    Record(&'r RegistryRecord),
+    Union(&'r RegistryUnion),
+}
+
+/// The registry: an ordered set of packages. Built imperatively, then
 /// frozen (see [`registry`]).
 #[derive(Debug, Default)]
 pub(crate) struct Registry {
@@ -590,13 +727,95 @@ impl Registry {
         &self.packages
     }
 
+    // Lookup functions
+    pub(crate) fn resolve_package(&self, qualified: &str) -> Option<&RegistryPackage> {
+        let (pkg_name, _) = qualified.split_once('.')?;
+        self.packages.iter().find(|p| p.import_name == pkg_name)
+    }
+
+    pub(crate) fn resolve_func(&self, qualified: &str) -> Option<ResolvedFunc<'_>> {
+        let (pkg_name, func_name) = qualified.split_once('.')?;
+        let package = self.packages.iter().find(|p| p.import_name == pkg_name)?;
+        let function = package.function(func_name)?;
+        Some(ResolvedFunc { package, function })
+    }
+
+    pub(crate) fn resolve_implementation(
+        &self,
+        qualified: &str,
+        args: &CallShape,
+    ) -> Option<&Implementation> {
+        let (pkg_name, func_name) = qualified.split_once('.')?;
+        let package = self.packages.iter().find(|p| p.import_name == pkg_name)?;
+        let function = package.function(func_name)?;
+
+        function.select(args)
+    }
+
+    pub(crate) fn resolve_type(&self, qualified: &str) -> Option<ResolvedType<'_>> {
+        let (pkg_name, type_name) = qualified.split_once('.')?;
+        let package = self.packages.iter().find(|p| p.import_name == pkg_name)?;
+
+        if let Some(record) = package.records().iter().find(|r| r.name == type_name) {
+            return Some(ResolvedType::Record(record));
+        }
+        if let Some(union) = package.unions().iter().find(|u| u.name == type_name) {
+            return Some(ResolvedType::Union(union));
+        }
+        None
+    }
+
+    /// Inject every package's reassembled source into `ast`, for
+    /// each package the program imports — the registry-driven replacement for the
+    /// per-package `augmented_project` functions. A package that is not imported, or has
+    /// nothing to inject (empty [`get_mfb`](RegistryPackage::get_mfb)), contributes no
+    /// file. The synthetic path/doc labels match the pre-migration convention
+    /// (`<builtin-csv>` / `builtins/csv.mfb`).
+    pub(crate) fn augment_project(
+        &self,
+        ast: &crate::ast::AstProject,
+    ) -> Result<crate::ast::AstProject, ()> {
+        let mut synthetic_files = Vec::new();
+
+        for package in self.packages() {
+            if !package.is_imported_by(ast) {
+                continue;
+            }
+            let source = package.get_mfb();
+            if source.is_empty() {
+                continue;
+            }
+            let label = format!("<builtin-{}>", package.import_name());
+            let doc = format!("builtins/{}.mfb", package.import_name());
+            let file =
+                crate::ast::parse_source_internal(std::path::Path::new(&label), &doc, &source)?;
+            synthetic_files.push(file);
+        }
+
+        if synthetic_files.is_empty() {
+            return Ok(ast.clone());
+        }
+
+        let mut augmented = ast.clone();
+        augmented.files.extend(synthetic_files);
+        Ok(augmented)
+    }
+
+    //
+    // Blow this line exists for the old compiler
+    // interface and should be removed when the compiler
+    // directly uses the above 3 resovle_* functions
+    //
+
     /// The package with this import name, or `None`.
+    /// #[deprecated(note = "remove when other function are migrated")]
     pub(crate) fn get_package(&self, import_name: &str) -> Option<&RegistryPackage> {
         self.packages.iter().find(|p| p.import_name == import_name)
     }
 
     /// The function named `qualified` — a `<import_name>.<function>` call name such
     /// as `"csv.parse"` — or `None` if no migrated package declares it.
+    /// #[deprecated(note = "remove when other function are migrated")]
     pub(crate) fn function_by_qualified(&self, qualified: &str) -> Option<&RegistryFunction> {
         let (package, function) = qualified.split_once('.')?;
         self.get_package(package)?.function(function)
@@ -613,6 +832,7 @@ impl Registry {
     /// [`RegistryPackage::function`]) for the return type and rewrite target — the two
     /// other facts the old `resolve_call_return_type` / `implementation_name` hooks
     /// answered separately.
+    /// #[deprecated(note = "remove when other function are migrated")]
     pub(crate) fn get_package_by_func_name(&self, qualified: &str) -> Option<&RegistryPackage> {
         let (package, function) = qualified.split_once('.')?;
         let package = self.get_package(package)?;
@@ -620,7 +840,7 @@ impl Registry {
     }
 }
 
-/// The process-wide clean-room registry, built once on first access.
+/// The process-wide registry, built once on first access.
 ///
 /// Mirrors the `OnceLock` freeze idiom in `src/unicode/runtime_tables.rs`: the
 /// imperative [`build`] runs once, and every caller thereafter shares the frozen
@@ -630,82 +850,78 @@ pub(crate) fn registry() -> &'static Registry {
     REGISTRY.get_or_init(build)
 }
 
-/// Inject every migrated (clean-room) package's reassembled source into `ast`, for
-/// each package the program imports — the registry-driven replacement for the
-/// per-package `augmented_project` functions. A package that is not imported, or has
-/// nothing to inject (empty [`get_mfb`](RegistryPackage::get_mfb)), contributes no
-/// file. The synthetic path/doc labels match the pre-migration convention
-/// (`<builtin-csv>` / `builtins/csv.mfb`).
-pub(crate) fn augment_project(ast: &crate::ast::AstProject) -> Result<crate::ast::AstProject, ()> {
-    let mut augmented: Option<crate::ast::AstProject> = None;
-    for package in registry().packages() {
-        if !package.is_imported_by(ast) {
-            continue;
-        }
-        let source = package.get_mfb();
-        if source.is_empty() {
-            continue;
-        }
-        let label = format!("<builtin-{}>", package.import_name());
-        let doc = format!("builtins/{}.mfb", package.import_name());
-        let file = crate::ast::parse_source_internal(std::path::Path::new(&label), &doc, &source)?;
-        augmented
-            .get_or_insert_with(|| ast.clone())
-            .files
-            .push(file);
-    }
-    Ok(augmented.unwrap_or_else(|| ast.clone()))
+/// Construct the registry by registering every migrated package.
+///
+/// The `example` package is an illustrative entry that exercises the shape (a
+/// single-implementation function and a two-implementation overload); `csv` is the
+/// first real package migrated off `target::shared::registry` — it registers itself
+/// from its own module, `crate::codegen::builtins::csv`.
+fn build() -> Registry {
+    let mut r = Registry::new();
+    crate::codegen::builtins::csv::register(&mut r);
+    crate::codegen::builtins::json::register(&mut r);
+    crate::codegen::builtins::regex::register(&mut r);
+    r
 }
 
-// The generic-dispatch query surface. Each answers, for a migrated (clean-room)
+//
+// Everything below this should be depricated
+//
+
+/// #[deprecated(note = "migrate registry().*")]
+pub(crate) fn augment_project(ast: &crate::ast::AstProject) -> Result<crate::ast::AstProject, ()> {
+    registry().augment_project(ast)
+}
+
+// The generic-dispatch query surface. Each answers, for a
 // call, the fact the old `REGISTRY`-based generic dispatch answered — so a caller
-// can dual-path `registry::X(name).or(old(name))`. `None`/`false` means "no migrated
+// can dual-path `registry::X(name).or(old(name))`. `None`/`false` means "no
 // package owns this call", i.e. fall through to the old path.
 
 /// Whether a migrated package declares the call `qualified` (`"csv.parse"`).
+/// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn is_member(qualified: &str) -> bool {
-    registry().get_package_by_func_name(qualified).is_some()
+    registry().resolve_func(qualified).is_some()
 }
 
 /// The import name of the migrated package that owns `qualified`, or `None`.
+/// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn owning_package(qualified: &str) -> Option<&'static str> {
     registry()
-        .get_package_by_func_name(qualified)
-        .map(RegistryPackage::import_name)
+        .resolve_func(qualified)
+        .map(|resolved| resolved.package.import_name)
 }
 
 /// The return type of the migrated call `qualified`, or `None`. (csv has one
 /// implementation per member; the return type is uniform across a name's overloads.)
+/// This leaks, once migration is complete it goes away
+/// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn call_return_type(qualified: &str) -> Option<&'static str> {
-    Some(
-        registry()
-            .function_by_qualified(qualified)?
-            .implementations
-            .first()?
-            .return_type,
-    )
+    let name = registry()
+        .resolve_func(qualified)?
+        .function
+        .implementations
+        .first()?
+        .return_type
+        .name();
+
+    Some(match name {
+        Cow::Borrowed(s) => s,
+        Cow::Owned(s) => Box::leak(s.into_boxed_str()),
+    })
 }
 
 /// The `(min, max)` argument arity of the migrated call `qualified`, or `None`.
 /// `min` counts the required (non-defaulted) params; `max` is the widest overload.
+/// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn arity(qualified: &str) -> Option<(usize, usize)> {
-    let function = registry().function_by_qualified(qualified)?;
-    let mut min = usize::MAX;
-    let mut max = 0usize;
-    for implementation in &function.implementations {
-        let required = implementation
-            .params
-            .iter()
-            .filter(|param| matches!(param.default, DefaultValue::None))
-            .count();
-        min = min.min(required);
-        max = max.max(implementation.params.len());
-    }
-    (min != usize::MAX).then_some((min, max))
+    let resolved = registry().resolve_func(qualified)?;
+    resolved.function.arity()
 }
 
 /// Whether `name` is a value type (`EXPORT TYPE`/`UNION`) declared by any migrated
 /// package (`CsvReader`/`CsvRow`).
+/// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn is_builtin_type(name: &str) -> bool {
     registry().packages().iter().any(|package| {
         package.records().iter().any(|record| record.name == name)
@@ -713,32 +929,31 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
     })
 }
 
-/// A `package.Type` reference (`"csv.CsvReader"`) resolved to its bare member type
+/// A `package.Type` reference (`"csv.CsvReader"`) resolve_funcd to its bare member type
 /// id when the migrated package declares it, else `None`.
+/// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
-    let (package, member) = qualified.split_once('.')?;
-    let package = registry().get_package(package)?;
-    let declares = package.records().iter().any(|record| record.name == member)
-        || package.unions().iter().any(|union| union.name == member);
-    declares.then(|| member.to_string())
+    registry()
+        .resolve_type(qualified)
+        .map(|resolved| match resolved {
+            ResolvedType::Record(record) => record.name.to_string(),
+            ResolvedType::Union(union) => union.name.to_string(),
+        })
 }
 
 /// Whether the migrated call `qualified` declares `error_name` among any of its
-/// implementations' errors — the clean-room half of the `raise_error` "a builtin
+/// implementations' errors — the half of the `raise_error` "a builtin
 /// must declare the errors it raises" check.
+/// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn declares_error(qualified: &str, error_name: &str) -> bool {
     registry()
-        .function_by_qualified(qualified)
-        .is_some_and(|function| {
-            function
-                .implementations
-                .iter()
-                .any(|implementation| implementation.errors.iter().any(|e| *e == error_name))
-        })
+        .resolve_func(qualified)
+        .is_some_and(|resolved| resolved.function.declares_error(error_name))
 }
 
 /// The internal symbol the migrated call `qualified` rewrites to at IR lowering, or
 /// `None`.
+/// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn rewrite_target(qualified: &str) -> Option<&'static str> {
     registry()
         .function_by_qualified(qualified)?
@@ -750,20 +965,27 @@ pub(crate) fn rewrite_target(qualified: &str) -> Option<&'static str> {
 
 /// The primary expected argument type (first parameter) of the migrated call
 /// `qualified`, or `None`.
+/// This leaks, once migration is complete it goes away
+/// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
-    Some(
-        registry()
-            .function_by_qualified(qualified)?
-            .implementations
-            .first()?
-            .params
-            .first()?
-            .ty,
-    )
+    let name = registry()
+        .function_by_qualified(qualified)?
+        .implementations
+        .first()?
+        .params
+        .first()?
+        .ty
+        .name();
+
+    Some(match name {
+        Cow::Borrowed(s) => s,
+        Cow::Owned(s) => Box::leak(s.into_boxed_str()),
+    })
 }
 
 /// The per-position `[name, alias…]` keyword-matching lists for the migrated call
 /// `qualified`, or `None`.
+/// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn call_param_names(qualified: &str) -> Option<Vec<Vec<&'static str>>> {
     let implementation = registry()
         .function_by_qualified(qualified)?
@@ -786,6 +1008,8 @@ pub(crate) fn call_param_names(qualified: &str) -> Option<Vec<Vec<&'static str>>
 /// The `(type, expr)` constants to append after `provided` real arguments so a
 /// migrated call's injected body receives its full arity — the `Fill` params past
 /// `provided`. Empty when no migrated package owns `qualified`.
+/// This leaks, once migration is complete it goes away
+/// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn default_argument_padding(
     qualified: &str,
     provided: usize,
@@ -801,88 +1025,16 @@ pub(crate) fn default_argument_padding(
         .iter()
         .skip(provided)
         .filter_map(|param| match &param.default {
-            DefaultValue::Fill { type_name, expr } => Some((*type_name, *expr)),
+            DefaultValue::Fill { type_name, expr } => {
+                let name = match type_name.name() {
+                    Cow::Borrowed(s) => s,
+                    Cow::Owned(s) => Box::leak(s.into_boxed_str()),
+                };
+                Some((name, *expr))
+            }
             _ => None,
         })
         .collect()
-}
-
-/// Construct the registry by registering every migrated package.
-///
-/// The `example` package is an illustrative entry that exercises the shape (a
-/// single-implementation function and a two-implementation overload); `csv` is the
-/// first real package migrated off `target::shared::registry` — it registers itself
-/// from its own module, `crate::codegen::builtins::csv`.
-fn build() -> Registry {
-    let mut r = Registry::new();
-    register_example(&mut r);
-    crate::codegen::builtins::csv::register(&mut r);
-    r
-}
-
-/// Illustrative first package — NOT a real builtin. Shows a single-implementation
-/// function (`identity`) and a two-implementation parameter overload (`describe`),
-/// the shape that makes a resolver unnecessary. Delete when a real package migrates.
-fn register_example(r: &mut Registry) {
-    let mut pkg = RegistryPackage::new(
-        "example",
-        "An illustrative clean-room package.",
-        "Demonstrates the packages -> functions -> implementations shape; not a real builtin.",
-    );
-
-    pkg.add_function(RegistryFunction {
-        name: "identity",
-        intro: "Return the argument unchanged.",
-        desc: "`example::identity(x)` returns `x`.",
-        example: "example::identity(42)",
-        implementations: vec![Implementation {
-            params: vec![Parameter {
-                name: "x",
-                aliases: &[],
-                ty: "Integer",
-                default: DefaultValue::None,
-            }],
-            return_type: "Integer",
-            errors: vec![],
-            lowering: Lowering::Inline,
-            body: Body::Intrinsic,
-        }],
-    });
-
-    pkg.add_function(RegistryFunction {
-        name: "describe",
-        intro: "Describe a value as text.",
-        desc: "`example::describe(v)` renders an Integer or a String as text.",
-        example: "example::describe(1)",
-        implementations: vec![
-            Implementation {
-                params: vec![Parameter {
-                    name: "v",
-                    aliases: &[],
-                    ty: "Integer",
-                    default: DefaultValue::None,
-                }],
-                return_type: "String",
-                errors: vec![],
-                lowering: Lowering::Helper,
-                body: Body::Rewrite("__example_describe_int"),
-            },
-            Implementation {
-                params: vec![Parameter {
-                    name: "v",
-                    aliases: &[],
-                    ty: "String",
-                    default: DefaultValue::None,
-                }],
-                return_type: "String",
-                errors: vec![],
-                lowering: Lowering::Helper,
-                body: Body::Rewrite("__example_describe_str"),
-            },
-        ],
-    });
-
-    r.add_package(pkg);
 }
 
 #[cfg(test)]
@@ -901,7 +1053,7 @@ mod tests {
         }
     }
 
-    fn prop(name: &'static str, ty: &'static str) -> RecordProp {
+    fn prop(name: &'static str, ty: ParameterType) -> RecordProp {
         RecordProp {
             name,
             ty,
@@ -941,14 +1093,14 @@ mod tests {
             .expect("test body starts with `FUNC <name>`");
         Implementation {
             params: vec![],
-            return_type: "String",
+            return_type: ParameterType::String,
             errors: vec![],
             lowering: Lowering::Helper,
             body: Body::mfb(body, rewrite),
         }
     }
 
-    fn intrinsic(return_type: &'static str) -> Implementation {
+    fn intrinsic(return_type: ParameterType) -> Implementation {
         Implementation {
             params: vec![],
             return_type,
@@ -961,40 +1113,63 @@ mod tests {
     fn rewrite_impl(symbol: &'static str) -> Implementation {
         Implementation {
             params: vec![],
-            return_type: "String",
+            return_type: ParameterType::String,
             errors: vec![],
             lowering: Lowering::Helper,
             body: Body::Rewrite(symbol),
         }
     }
 
+    fn param(name: &'static str, ty: ParameterType) -> Parameter {
+        Parameter {
+            name,
+            desc: "",
+            aliases: &[],
+            ty,
+            default: DefaultValue::None,
+        }
+    }
+
     #[test]
-    fn frozen_registry_exposes_the_example_package() {
-        let pkg = registry()
-            .get_package("example")
-            .expect("example package registered");
-        assert_eq!(pkg.import_name(), "example");
-        assert_eq!(pkg.functions().len(), 2);
+    fn frozen_registry_exposes_the_csv_package() {
+        let pkg = registry().get_package("csv").expect("csv registered");
+        assert_eq!(pkg.import_name(), "csv");
+        assert_eq!(pkg.functions().len(), 4);
         assert!(registry().get_package("nope").is_none());
     }
 
     #[test]
     fn an_overload_is_two_implementations_differing_by_parameter_type() {
-        let describe = registry()
-            .get_package("example")
-            .and_then(|p| p.function("describe"))
-            .expect("describe function");
+        let describe = func(
+            "describe",
+            vec![
+                Implementation {
+                    params: vec![param("v", ParameterType::Integer)],
+                    return_type: ParameterType::String,
+                    errors: vec![],
+                    lowering: Lowering::Helper,
+                    body: Body::Rewrite("__describe_int"),
+                },
+                Implementation {
+                    params: vec![param("v", ParameterType::String)],
+                    return_type: ParameterType::String,
+                    errors: vec![],
+                    lowering: Lowering::Helper,
+                    body: Body::Rewrite("__describe_str"),
+                },
+            ],
+        );
         let impls = &describe.implementations;
         assert_eq!(impls.len(), 2);
-        assert_eq!(impls[0].params[0].ty, "Integer");
-        assert_eq!(impls[1].params[0].ty, "String");
+        assert_eq!(impls[0].params[0].ty.name(), "Integer");
+        assert_eq!(impls[1].params[0].ty.name(), "String");
     }
 
     #[test]
     fn add_function_takes_a_function_value() {
         let mut r = Registry::new();
         let mut pkg = RegistryPackage::new("t", "intro", "desc");
-        pkg.add_function(func("f", vec![intrinsic("Nothing")]));
+        pkg.add_function(func("f", vec![intrinsic(ParameterType::Nothing)]));
         r.add_package(pkg);
         assert_eq!(r.packages().len(), 1);
         assert_eq!(r.get_package("t").unwrap().functions().len(), 1);
@@ -1015,11 +1190,12 @@ mod tests {
         assert!(r.get_package_by_func_name("csv.nope").is_none());
         assert!(r.get_package_by_func_name("nope.parse").is_none());
         assert!(r.get_package_by_func_name("toString").is_none());
+        // Works against the frozen registry too (a real migrated member).
         assert_eq!(
             registry()
-                .get_package_by_func_name("example.identity")
+                .get_package_by_func_name("csv.parse")
                 .map(RegistryPackage::import_name),
-            Some("example"),
+            Some("csv"),
         );
     }
 
@@ -1131,7 +1307,13 @@ mod tests {
 
     #[test]
     fn get_mfb_is_empty_when_the_package_has_no_mfb_member() {
-        assert_eq!(registry().get_package("example").unwrap().get_mfb(), "");
+        // A package with only Intrinsic/Rewrite members and no records/unions injects
+        // nothing.
+        let mut empty = Registry::new();
+        let mut pkg = RegistryPackage::new("nomfb", "i", "d");
+        pkg.add_function(func("a", vec![rewrite_impl("__a")]));
+        empty.add_package(pkg);
+        assert_eq!(empty.get_package("nomfb").unwrap().get_mfb(), "");
 
         let mut r = Registry::new();
         let mut pkg = RegistryPackage::new("bare", "i", "d");
@@ -1145,11 +1327,18 @@ mod tests {
     fn add_record_renders_the_type_declaration() {
         let mut r = Registry::new();
         let mut pkg = RegistryPackage::new("json", "intro", "desc");
-        pkg.add_record(rec("JsonNum", true, vec![prop("value", "Float")]));
+        pkg.add_record(rec(
+            "JsonNum",
+            true,
+            vec![prop("value", ParameterType::Float)],
+        ));
         pkg.add_record(rec(
             "Pair",
             false,
-            vec![prop("key", "String"), prop("val", "Integer")],
+            vec![
+                prop("key", ParameterType::String),
+                prop("val", ParameterType::Integer),
+            ],
         ));
         r.add_package(pkg);
 
@@ -1196,8 +1385,16 @@ mod tests {
         let mut pkg = RegistryPackage::new("json", "intro", "desc");
         pkg.add_imports(vec!["collections"]);
         pkg.add_imports(vec!["strings"]);
-        pkg.add_record(rec("JsonNum", true, vec![prop("value", "Float")]));
-        pkg.add_record(rec("JsonBool", true, vec![prop("flag", "Boolean")]));
+        pkg.add_record(rec(
+            "JsonNum",
+            true,
+            vec![prop("value", ParameterType::Float)],
+        ));
+        pkg.add_record(rec(
+            "JsonBool",
+            true,
+            vec![prop("flag", ParameterType::Boolean)],
+        ));
         pkg.add_union(uni(
             "Json",
             true,
@@ -1231,7 +1428,7 @@ mod tests {
         let mut pkg = RegistryPackage::new("demo", "pkg intro", "pkg desc");
         pkg.add_imports(vec!["strings"]);
         pkg.add_helper_functions(vec!["FUNC __demo_helper()\nEND FUNC"]);
-        pkg.add_record(rec("Rec", true, vec![prop("f", "Integer")]));
+        pkg.add_record(rec("Rec", true, vec![prop("f", ParameterType::Integer)]));
         pkg.add_union(uni("Uni", false, vec![variant("V")]));
         pkg.add_function(RegistryFunction {
             name: "fn1",
@@ -1242,27 +1439,30 @@ mod tests {
                 params: vec![
                     Parameter {
                         name: "req",
+                        desc: "",
                         aliases: &["r"],
-                        ty: "String",
+                        ty: ParameterType::String,
                         default: DefaultValue::None,
                     },
                     Parameter {
                         name: "opt",
+                        desc: "",
                         aliases: &[],
-                        ty: "String",
+                        ty: ParameterType::String,
                         default: DefaultValue::Fill {
-                            type_name: "String",
+                            type_name: ParameterType::String,
                             expr: ",",
                         },
                     },
                     Parameter {
                         name: "zone",
+                        desc: "",
                         aliases: &[],
-                        ty: "String",
+                        ty: ParameterType::String,
                         default: DefaultValue::Optional,
                     },
                 ],
-                return_type: "Nothing",
+                return_type: ParameterType::Nothing,
                 errors: vec!["SOME_ERROR"],
                 lowering: Lowering::Helper,
                 body: Body::Rewrite("__demo_fn1"),
@@ -1296,7 +1496,7 @@ mod tests {
         assert!(matches!(
             imp.params[1].default,
             DefaultValue::Fill {
-                type_name: "String",
+                type_name: ParameterType::String,
                 expr: ","
             }
         ));

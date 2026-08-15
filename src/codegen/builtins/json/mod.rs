@@ -1,20 +1,9 @@
-//! Built-in `json` package (plan-72-O), migrated into the codegen layer
-//! (planning/migrate.md). Every member is source-backed: its `__json_*` body
-//! lives in its `func_*.rs` as `Implementation::Mfb` and is spliced into the
-//! injected package source by `assembled_source()` in place of a
-//! `'@@MFB_BODY:<slug>@@` marker; the private helpers, the seven `Json*` value
-//! types (`EXPORT TYPE`/`EXPORT UNION`), and the internal parse-node types stay in
-//! `package.mfb`. json is concrete (rewritten in IR lowering), so the `__json_*`
-//! rewrite target comes from the explicit `IMPL_NAMES` table. A retained
-//! `JsonResolver` validates the `Json` value-type argument unions the descriptor's
-//! per-position match cannot express.
+//! Package: json
+//! Type: Pure MFBasic
 
-use std::borrow::Cow;
-
-use crate::builtins::exact;
-use crate::target::shared::registry::{
-    BuiltinFunction, BuiltinModule, BuiltinResolver, BuiltinSource, BuiltinType, DefaultResolver,
-    DefaultValue, Implementation, InjectionRule, Parameter, ParameterType, TypeKind,
+use crate::codegen::registry::{
+    ParameterType, RecordProp, Registry, RegistryPackage, RegistryRecord, RegistryUnion,
+    UnionVariant,
 };
 
 mod func_get;
@@ -22,105 +11,9 @@ mod func_get_or;
 mod func_parse;
 mod func_stringify;
 
-const PARSE: &str = "json.parse";
-const STRINGIFY: &str = "json.stringify";
-const GET: &str = "json.get";
-const GET_OR: &str = "json.getOr";
-const INTERNAL_PARSE: &str = "__json_parse";
-const INTERNAL_STRINGIFY: &str = "__json_stringify";
-const INTERNAL_GET: &str = "__json_get";
-const INTERNAL_GET_OR: &str = "__json_getOr";
+const INTRO: &str = r#"Parse, build, serialize, and read JSON values as a `Json` tree"#;
 
-const fn req(name: &'static str, aliases: &'static [&'static str], ty: &'static str) -> Parameter {
-    Parameter {
-        name,
-        aliases,
-        ty: ParameterType::Named(ty),
-        default: DefaultValue::None,
-    }
-}
-
-pub(super) const P_PARSE: &[Parameter] = &[req("value", &["text"], "String")];
-pub(super) const P_STRINGIFY: &[Parameter] = &[req("value", &[], "Json")];
-pub(super) const P_GET: &[Parameter] = &[
-    req("value", &[], "Json"),
-    req("path", &["key"], "List OF String"),
-];
-pub(super) const P_GET_OR: &[Parameter] = &[
-    req("value", &[], "Json"),
-    req("path", &["key"], "List OF String"),
-    req("default", &["defaultValue", "fallback"], "Json"),
-];
-
-// plan-72-O: `JSON` is the descriptor authority. Each member owns its source body
-// in its `func_*.rs` (`Implementation::Mfb`); a call rewrites to the internal
-// `__json_*` name via `IMPL_NAMES` at IR lowering. `WhenImported` source.
-const JSON_FUNCTIONS: &[BuiltinFunction] = &[
-    func_parse::PARSE,
-    func_stringify::STRINGIFY,
-    func_get::GET,
-    func_get_or::GET_OR,
-];
-
-// The seven json value types are registered as opaque builtin types (bare names,
-// no record fields), matching the legacy flat `is_builtin_type` list.
-const JSON_TYPES: &[BuiltinType] = &[
-    BuiltinType {
-        name: "Json",
-        kind: TypeKind::Opaque,
-        fields: &[],
-    },
-    BuiltinType {
-        name: "JsonNull",
-        kind: TypeKind::Opaque,
-        fields: &[],
-    },
-    BuiltinType {
-        name: "JsonBool",
-        kind: TypeKind::Opaque,
-        fields: &[],
-    },
-    BuiltinType {
-        name: "JsonNum",
-        kind: TypeKind::Opaque,
-        fields: &[],
-    },
-    BuiltinType {
-        name: "JsonStr",
-        kind: TypeKind::Opaque,
-        fields: &[],
-    },
-    BuiltinType {
-        name: "JsonArr",
-        kind: TypeKind::Opaque,
-        fields: &[],
-    },
-    BuiltinType {
-        name: "JsonObj",
-        kind: TypeKind::Opaque,
-        fields: &[],
-    },
-];
-
-/// Return-type resolution for the json calls, delegating to the hand-authored
-/// `resolve_call` (which validates the `is_json_value_type` argument unions that
-/// the descriptor's per-position match cannot). Exposed through the descriptor so
-/// plan-72-BB can drive `json::` return types from the registry.
-struct JsonResolver;
-impl BuiltinResolver for JsonResolver {
-    fn resolve_return_type(
-        &self,
-        _module: &BuiltinModule,
-        name: &str,
-        arg_types: &[String],
-    ) -> Option<String> {
-        resolve_call(name, arg_types).map(|resolved| resolved.return_type.into_owned())
-    }
-}
-static JSON_RESOLVER: JsonResolver = JsonResolver;
-
-const MODULE_INTRO: &str = r#"Parse, build, serialize, and read JSON values as a `Json` tree"#;
-const MODULE_DESC: &str = r#"The `json` package converts between JSON text and a `Json` value tree and reads
+const DESC: &str = r#"The `json` package converts between JSON text and a `Json` value tree and reads
 members out of that tree. `json::parse` turns a UTF-8 `String` holding one
 complete JSON document into a `Json` value, `json::stringify` renders a `Json`
 value back into compact JSON text, and `json::get` and `json::getOr` walk a path
@@ -152,169 +45,149 @@ follow a `List OF String` of object keys left to right from `value`, requiring a
 key is missing or the current value is not an object, whereas `json::getOr`
 returns its default value in those cases instead of failing."#;
 
-pub(crate) static JSON: BuiltinModule = BuiltinModule {
-    name: "json",
-    doc_intro: MODULE_INTRO,
-    doc_desc: MODULE_DESC,
-    functions: JSON_FUNCTIONS,
-    types: JSON_TYPES,
-    source: Some(BuiltinSource {
-        rule: InjectionRule::WhenImported,
-        loader: source_file,
-    }),
-    resolver: Some(&JSON_RESOLVER),
-};
+/// Register the `json` package on the registry.
+pub(crate) fn register(r: &mut Registry) {
+    let mut pkg = RegistryPackage::new("json", INTRO, DESC);
 
-#[derive(Clone)]
-pub(crate) struct ResolvedCall<'a> {
-    pub(crate) return_type: Cow<'a, str>,
+    pkg.add_imports(vec!["collections", "strings", "encoding"]);
+
+    pkg.add_record(RegistryRecord {
+        name: "JsonNull",
+        export: true,
+        props: vec![RecordProp {
+            name: "value",
+            ty: ParameterType::Nothing,
+            description: "The JSON `null` value. The `Json` union variant carrying no data.",
+        }],
+    });
+
+    pkg.add_record(RegistryRecord {
+        name: "JsonBool",
+        export: true,
+        props: vec![RecordProp {
+            name: "value",
+            ty: ParameterType::Boolean,
+            description: "A JSON boolean (`true` or `false`).",
+        }],
+    });
+
+    pkg.add_record(RegistryRecord {
+        name: "JsonNum",
+        export: true,
+        props: vec![RecordProp {
+            name: "value",
+            ty: ParameterType::Float,
+            description: "A JSON number, held as a double-precision float.",
+        }],
+    });
+
+    pkg.add_record(RegistryRecord {
+        name: "JsonStr",
+        export: true,
+        props: vec![RecordProp {
+            name: "value",
+            ty: ParameterType::String,
+            description: "A JSON string.",
+        }],
+    });
+
+    pkg.add_record(RegistryRecord {
+        name: "JsonArr",
+        export: true,
+        props: vec![RecordProp {
+            name: "items",
+            ty: ParameterType::list_of(ParameterType::Named("Json")),
+            description: "A JSON array's elements.",
+        }],
+    });
+
+    pkg.add_record(RegistryRecord {
+        name: "JsonObj",
+        export: true,
+        props: vec![RecordProp {
+            name: "fields",
+            ty: ParameterType::map_of(ParameterType::String, ParameterType::Named("Json")),
+            description: "The object's members, keyed by field name.",
+        }],
+    });
+
+    pkg.add_record(RegistryRecord {
+        name: "__json_Node",
+        export: false,
+        props: vec![
+            RecordProp {
+                name: "value",
+                ty: ParameterType::Named("Json"),
+                description: "",
+            },
+            RecordProp {
+                name: "index",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+        ],
+    });
+
+    pkg.add_record(RegistryRecord {
+        name: "__json_StringNode",
+        export: false,
+        props: vec![
+            RecordProp {
+                name: "value",
+                ty: ParameterType::String,
+                description: "",
+            },
+            RecordProp {
+                name: "index",
+                ty: ParameterType::Integer,
+                description: "",
+            },
+        ],
+    });
+
+    pkg.add_union(RegistryUnion {
+        name: "Json",
+        export: true,
+        variants: vec![
+            UnionVariant {
+                name: "JsonNull",
+                description: "The JSON `null`.",
+            },
+            UnionVariant {
+                name: "JsonBool",
+                description: "A JSON boolean.",
+            },
+            UnionVariant {
+                name: "JsonNum",
+                description: "The JSON number.",
+            },
+            UnionVariant {
+                name: "JsonStr",
+                description: "The JSON string.",
+            },
+            UnionVariant {
+                name: "JsonArr",
+                description: "The JSON array.",
+            },
+            UnionVariant {
+                name: "JsonObj",
+                description: "The JSON object.",
+            },
+        ],
+    });
+
+    // The shared private `__json_*` helpers the member bodies call.
+    pkg.add_helper_functions(vec![include_str!("package.mfb")]);
+
+    func_get::register(&mut pkg);
+    func_get_or::register(&mut pkg);
+    func_parse::register(&mut pkg);
+    func_stringify::register(&mut pkg);
+
+    r.add_package(pkg);
 }
 
-pub(crate) fn is_builtin_type(name: &str) -> bool {
-    JSON.types.iter().any(|ty| ty.name == name)
-}
-
-pub(crate) fn is_json_call(name: &str) -> bool {
-    DefaultResolver::contains(&JSON, name)
-}
-
-// `call_param_names` returns a `&'static` borrowed shape the owned
-// `DefaultResolver` (which yields `Vec`) cannot produce, and its consumers require
-// the borrow, so it stays a static literal PINNED equal to `JSON` by
-// `parity_matches_descriptor` until plan-72-BB.
-pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
-    match name {
-        PARSE => Some(&[&["value", "text"]]),
-        STRINGIFY => Some(&[&["value"]]),
-        GET => Some(&[&["value"], &["path", "key"]]),
-        GET_OR => Some(&[
-            &["value"],
-            &["path", "key"],
-            &["default", "defaultValue", "fallback"],
-        ]),
-        _ => None,
-    }
-}
-
-pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
-    let return_type = match name {
-        PARSE if exact(arg_types, &["String"]) => Cow::Borrowed("Json"),
-        STRINGIFY if arg_types.len() == 1 && is_json_value_type(&arg_types[0]) => {
-            Cow::Borrowed("String")
-        }
-        GET if arg_types.len() == 2
-            && is_json_value_type(&arg_types[0])
-            && arg_types[1] == "List OF String" =>
-        {
-            Cow::Borrowed("Json")
-        }
-        GET_OR
-            if arg_types.len() == 3
-                && is_json_value_type(&arg_types[0])
-                && arg_types[1] == "List OF String"
-                && is_json_value_type(&arg_types[2]) =>
-        {
-            Cow::Borrowed("Json")
-        }
-        _ => return None,
-    };
-    Some(ResolvedCall { return_type })
-}
-
-// `expected_arguments` returns a `&'static str` the owned `DefaultResolver`
-// (which yields `String`) cannot produce, so it stays a static literal PINNED
-// equal to `JSON`'s per-position type rendering by `parity_matches_descriptor`.
-pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
-    match name {
-        PARSE => Some("String"),
-        STRINGIFY => Some("Json"),
-        GET => Some("Json, List OF String"),
-        GET_OR => Some("Json, List OF String, Json"),
-        _ => None,
-    }
-}
-
-/// The internal `__json_*` symbol each public member rewrites to during IR
-/// lowering. The members carry `Implementation::Mfb` (whose descriptor
-/// `implementation_name` is `None`), so the rewrite target is provided here.
-const IMPL_NAMES: &[(&str, &str)] = &[
-    (PARSE, INTERNAL_PARSE),
-    (STRINGIFY, INTERNAL_STRINGIFY),
-    (GET, INTERNAL_GET),
-    (GET_OR, INTERNAL_GET_OR),
-];
-
-pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
-    IMPL_NAMES
-        .iter()
-        .find(|(public, _)| *public == name)
-        .map(|(_, internal)| *internal)
-}
-
-/// A member of the json value-type set: the umbrella `Json` or any of its
-/// concrete variants. `resolve_call` accepts any of these where the descriptor
-/// lists the umbrella `Json` type, so this stays a hand-authored predicate over
-/// `JSON.types` (the descriptor's exact per-position match cannot express a
-/// type set).
-fn is_json_value_type(type_name: &str) -> bool {
-    JSON.types.iter().any(|ty| ty.name == type_name)
-}
-
-/// Synthetic path label / doc path for the injected json source. Preserved
-/// byte-for-byte from the pre-migration `package_source_glue!` invocation so the
-/// injected AST is unchanged.
-const SOURCE_LABEL: &str = "<builtin-json>";
-const SOURCE_DOC: &str = "builtins/json.mfb";
-
-/// Parses the built-in `json` package source (the `package.mfb` companion plus
-/// every `Implementation::Mfb` member body, spliced in by `assembled_source`).
-pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
-    crate::ast::parse_source_internal(
-        std::path::Path::new(SOURCE_LABEL),
-        SOURCE_DOC,
-        &assembled_source(),
-    )
-}
-
-/// The `json` package source: the `package.mfb` companion (helpers + type decls)
-/// with each member's `FUNC __json_* ... END FUNC` body spliced in for its
-/// `'@@MFB_BODY:<slug>@@` marker at the body's original position, keeping every
-/// other line's number unchanged so the injected AST is byte-identical to the
-/// pre-migration companion.
-fn assembled_source() -> String {
-    let mut source = String::from(include_str!("package.mfb"));
-    for func in JSON_FUNCTIONS {
-        if let Implementation::Mfb { body, .. } = func.implementation {
-            let marker = format!("'@@MFB_BODY:{}@@", func.doc_slug);
-            debug_assert!(
-                source.contains(&marker),
-                "json package.mfb is missing the '{marker}' body marker",
-            );
-            source = source.replacen(&marker, body, 1);
-        }
-    }
-    source
-}
-
-pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
-    ast.files.iter().any(|file| {
-        file.imports
-            .iter()
-            .any(|import| import.package_name() == "json")
-    })
-}
-
-pub(crate) fn augmented_project(
-    ast: &crate::ast::AstProject,
-) -> Result<crate::ast::AstProject, ()> {
-    if !uses_package(ast) {
-        return Ok(ast.clone());
-    }
-    let mut augmented = ast.clone();
-    augmented.files.push(source_file()?);
-    Ok(augmented)
-}
-
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,3 +306,4 @@ mod tests {
         assert_eq!(augmented.files.len(), ast.files.len());
     }
 }
+*/

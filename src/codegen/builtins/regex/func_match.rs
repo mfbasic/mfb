@@ -6,23 +6,13 @@
 //! also appends the two generated Unicode tables). Body byte-significant
 //! (2-space indent → .ncode columns); do not reformat.
 
-use crate::target::shared::registry::{BuiltinFunction, BuiltinOverload, ReturnType};
-
-#[rustfmt::skip]
-const BODY: &str =
-r#"FUNC __regex_match(value AS String, pattern AS String) AS Boolean
-  LET prog AS __regex_Program = __regex_compile(pattern)
-  LET ctx AS __regex_Ctx = __regex_makeCtx(value)
-  LET r AS __regex_Result = __regex_searchFrom(prog, ctx, 0)
-  RETURN r.ok
-END FUNC"#;
-
-const OV: &[BuiltinOverload] = &[BuiltinOverload {
-    params: super::PARAMS_MATCH,
-    return_type: ReturnType::Fixed("Boolean"),
-}];
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str = r#"Test whether a regular expression matches anywhere in a string."#;
+
 const DESC: &str = r#"`regex::match` compiles `pattern` as a regular expression and returns `TRUE`
 when it matches anywhere in `value`, and `FALSE` otherwise. It is the existence
 test of the package: it reports only whether some match exists, not where (see
@@ -50,6 +40,7 @@ argument, it raises neither `ErrIndexOutOfRange` nor `ErrNotFound`.
 
 
 `match` does not mutate `value` or `pattern` and has no side effects."#;
+
 const EX: &str = r#"Test for a substring and an anchored pattern:
 
 ```
@@ -72,5 +63,42 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const MATCH: BuiltinFunction =
-    BuiltinFunction::mfb("regex.match", "match", INTRO, DESC, &[], OV, BODY).with_example(EX);
+#[rustfmt::skip]
+const FUNC_BODY: &str =
+r#"FUNC __regex_match(value AS String, pattern AS String) AS Boolean
+  LET prog AS __regex_Program = __regex_compile(pattern)
+  LET ctx AS __regex_Ctx = __regex_makeCtx(value)
+  LET r AS __regex_Result = __regex_searchFrom(prog, ctx, 0)
+  RETURN r.ok
+END FUNC"#;
+
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "match",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "value",
+                    desc: "The subject text searched for a match. It is never modified.",
+                    aliases: &[],
+                    ty: ParameterType::String,
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "pattern",
+                    desc: "The regular expression to compile and search for. It must be a valid pattern in the MFBASIC regex dialect; otherwise the call fails with ErrInvalidFormat.",
+                    aliases: &[],
+                    ty: ParameterType::String,
+                    default: DefaultValue::None,
+                },
+            ],
+            return_type: ParameterType::Boolean,
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(FUNC_BODY, "__regex_match"),
+        }],
+    });
+}

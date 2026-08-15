@@ -1,97 +1,5 @@
-IMPORT collections
-IMPORT strings
-IMPORT encoding
-
-DOC
-  TYPE JsonNull
-  DESC The JSON `null` value. The `Json` union variant carrying no data.
-  PROP value Always `Nothing`; present only so the variant is a record.
-END DOC
-EXPORT TYPE JsonNull
-  value AS Nothing
-END TYPE
-
-DOC
-  TYPE JsonBool
-  DESC A JSON boolean (`true` or `false`).
-  PROP value The boolean value.
-END DOC
-EXPORT TYPE JsonBool
-  value AS Boolean
-END TYPE
-
-DOC
-  TYPE JsonNum
-  DESC A JSON number, held as a double-precision float.
-  PROP value The numeric value.
-END DOC
-EXPORT TYPE JsonNum
-  value AS Float
-END TYPE
-
-DOC
-  TYPE JsonStr
-  DESC A JSON string.
-  PROP value The string value.
-END DOC
-EXPORT TYPE JsonStr
-  value AS String
-END TYPE
-
-DOC
-  TYPE JsonArr
-  DESC A JSON array: an ordered list of `Json` values.
-  PROP items The array elements, in order.
-END DOC
-EXPORT TYPE JsonArr
-  items AS List OF Json
-END TYPE
-
-DOC
-  TYPE JsonObj
-  DESC A JSON object: a mapping from string keys to `Json` values.
-  PROP fields The object's members, keyed by field name.
-END DOC
-EXPORT TYPE JsonObj
-  fields AS Map OF String TO Json
-END TYPE
-
-DOC
-  UNION Json
-  DESC A JSON value: exactly one of the six JSON kinds. Match on the variant to
-  DESC read the underlying value.
-  PROP JsonNull The JSON `null`.
-  PROP JsonBool A JSON boolean.
-  PROP JsonNum A JSON number.
-  PROP JsonStr A JSON string.
-  PROP JsonArr A JSON array.
-  PROP JsonObj A JSON object.
-END DOC
-EXPORT UNION Json
-  JsonNull
-  JsonBool
-  JsonNum
-  JsonStr
-  JsonArr
-  JsonObj
-END UNION
-
-TYPE __json_Node
-  value AS Json
-  index AS Integer
-END TYPE
-
-TYPE __json_StringNode
-  value AS String
-  index AS Integer
-END TYPE
-
-'@@MFB_BODY:get@@
-
-'@@MFB_BODY:getOr@@
-
-'@@MFB_BODY:stringify@@
-
+' Shared private helpers for the json package
+'
 ' bug-304: the fractional path used a fixed `toString(value, toByte(9))`. Nine
 ' decimal places cannot represent a general binary64, so significant digits were
 ' silently dropped and `json::parse` after `json::stringify` was NOT the identity
@@ -248,8 +156,6 @@ END FUNC
 ' still admitting any realistic document. Only genuine array/object nesting reaches
 ' it — the scalar scanners are iterative (bug-302) and unbounded at any length.
 LET __JSON_DEPTH_LIMIT AS Integer = 256
-
-'@@MFB_BODY:parse@@
 
 FUNC __json_parseValue(chars AS List OF String, index AS Integer, depth AS Integer) AS __json_Node
   ' bug-422: structural nesting-depth guard. Each nested array/object descends

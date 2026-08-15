@@ -91,8 +91,9 @@ pub fn lower_project_with_external_functions(
     external_function_params: &HashMap<String, Vec<ExternalFunctionParam>>,
     imported_types: &[ImportedTypeDef],
 ) -> IrProject {
-    let augmented = crate::codegen::builtins::json::augmented_project(ast)
-        .expect("built-in json package source must parse");
+    let augmented = crate::codegen::registry::augment_project(ast)
+        .expect("clean-room registry package source must parse");
+
     // The `term`↔`astrings` drawText bridge, injected only when a program imports
     // BOTH packages; it imports term/astrings/strings, so it precedes all three so
     // their `uses_package` sees the dependency (mirrors `http` before `net`).
@@ -102,11 +103,6 @@ pub fn lower_project_with_external_functions(
         .expect("built-in astrings package source must parse");
     let augmented = builtins::app::augmented_project(&augmented)
         .expect("built-in app package source must parse");
-    // csv is migrated to the clean-room registry (source injected by the registry).
-    let augmented = crate::codegen::registry::augment_project(&augmented)
-        .expect("clean-room registry package source must parse");
-    let augmented = crate::codegen::builtins::regex::augmented_project(&augmented)
-        .expect("built-in regex package source must parse");
     let augmented = crate::codegen::builtins::datetime::augmented_project(&augmented)
         .expect("built-in datetime package source must parse");
     let augmented = builtins::money::augmented_project(&augmented)
@@ -2105,9 +2101,7 @@ fn expression_type(
                 || builtins::tls::is_tls_call(&canonical_callee)
                 || builtins::audio::is_audio_call(&canonical_callee)
                 || builtins::http::is_http_call(&canonical_callee)
-                || crate::codegen::builtins::json::is_json_call(&canonical_callee)
                 || crate::codegen::registry::is_member(&canonical_callee)
-                || crate::codegen::builtins::regex::is_regex_call(&canonical_callee)
                 || crate::codegen::builtins::datetime::is_datetime_call(&canonical_callee)
                 || builtins::crypto::is_crypto_call(&canonical_callee)
                 || builtins::thread::is_thread_call(&canonical_callee)
@@ -2987,11 +2981,7 @@ fn lower_expression_with_expected(
                         .map(crate::internal_name::internalize)
                 })
                 .or_else(|| {
-                    crate::codegen::builtins::json::implementation_name(&canonical_callee)
-                        .or_else(|| crate::codegen::registry::rewrite_target(&canonical_callee))
-                        .or_else(|| {
-                            crate::codegen::builtins::regex::implementation_name(&canonical_callee)
-                        })
+                    crate::codegen::registry::rewrite_target(&canonical_callee)
                         .or_else(|| builtins::net::implementation_name(&canonical_callee))
                         .or_else(|| {
                             crate::codegen::builtins::encoding::implementation_name(

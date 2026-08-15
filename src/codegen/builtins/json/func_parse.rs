@@ -5,38 +5,21 @@
 //! `'@@MFB_BODY:parse@@` marker in package.mfb via assembled_source. Body
 //! byte-significant (2-space indent → .ncode columns); do not reformat.
 
-use crate::target::shared::registry::{BuiltinFunction, BuiltinOverload, ReturnType};
-
-#[rustfmt::skip]
-const BODY: &str =
-r#"FUNC __json_parse(value AS String) AS Json
-  LET chars AS List OF String = strings::graphemes(value)
-  ' bug-422: depth 0 seeds the structural nesting-depth guard threaded through
-  ' the value/array/object parsers below.
-  LET parsed AS __json_Node = __json_parseValue(chars, __json_skipWhitespace(chars, 0), 0)
-  LET endIndex AS Integer = __json_skipWhitespace(chars, parsed.index)
-  IF endIndex <> len(chars) THEN
-    FAIL error(77050003, "invalid JSON format")
-  END IF
-  RETURN parsed.value
-END FUNC"#;
-
-const OV: &[BuiltinOverload] = &[BuiltinOverload {
-    params: super::P_PARSE,
-    return_type: ReturnType::Fixed("Json"),
-}];
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str = r#"Parse a complete JSON document from text into a `Json` value"#;
+
 const DESC: &str = r#"`json::parse` reads exactly one complete JSON document from `value` and returns
 it as a `Json` union value. Leading and trailing JSON whitespace is skipped, and
 anything other than whitespace after the first complete document is rejected — so
 a string holding two documents, or a document followed by stray text, fails
 rather than parsing the first and ignoring the rest.
 
-
 Whitespace means exactly the four characters JSON allows: space, tab, carriage
 return, and line feed. No other character is skippable, anywhere.
-
 
 The input is scanned as a grapheme sequence, so the text is interpreted as
 Unicode rather than bytes. Each JSON form maps to one variant of the `Json`
@@ -59,9 +42,6 @@ surrogate, an unknown escape letter, a truncated escape, or a code point outside
 `0`–`1114111` is rejected. A raw control character (code point below `32`) that
 appears unescaped inside a string is also rejected, as JSON requires.
 
-
-
-
 **Numbers.** The token is validated against the JSON number grammar before it is
 converted: an optional leading `-`, then either a single `0` or a nonzero digit
 followed by further digits, then an optional `.` with at least one digit, then an
@@ -71,7 +51,6 @@ JavaScript spellings `NaN` and `Infinity` are all rejected. The accepted token i
 then converted to a `Float` (IEEE 754 binary64), so a value with more precision
 or magnitude than binary64 can carry is approximated at parse time rather than
 rejected.
-
 
 The parser is iterative rather than recursive at every *scanning* level —
 whitespace runs, digit runs, string bodies, and the sibling elements of a single
@@ -86,6 +65,7 @@ exists only so that adversarial deeply-nested input fails cleanly instead of
 crashing the process.
 
 The argument may also be passed by the name `text`."#;
+
 const EX: &str = r#"Parse an object and read a nested value out of it:
 
 ```
@@ -124,5 +104,38 @@ FUNC parseOrNull(text AS String) AS json::Json
 END FUNC
 ```"#;
 
-pub(crate) const PARSE: BuiltinFunction =
-    BuiltinFunction::mfb("json.parse", "parse", INTRO, DESC, &[], OV, BODY).with_example(EX);
+#[rustfmt::skip]
+const FUNC_BODY: &str =
+r#"FUNC __json_parse(value AS String) AS Json
+  LET chars AS List OF String = strings::graphemes(value)
+  ' bug-422: depth 0 seeds the structural nesting-depth guard threaded through
+  ' the value/array/object parsers below.
+  LET parsed AS __json_Node = __json_parseValue(chars, __json_skipWhitespace(chars, 0), 0)
+  LET endIndex AS Integer = __json_skipWhitespace(chars, parsed.index)
+  IF endIndex <> len(chars) THEN
+    FAIL error(77050003, "invalid JSON format")
+  END IF
+  RETURN parsed.value
+END FUNC"#;
+
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "parse",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "value",
+                desc: "The JSON text to parse. Must contain exactly one complete JSON document, optionally surrounded by JSON whitespace. An empty or whitespace-only string is rejected.",
+                aliases: &["text"],
+                ty: ParameterType::String,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::Named("Json"),
+            errors: vec!["ErrInvalidFormat"],
+            lowering: Lowering::Helper,
+            body: Body::mfb(FUNC_BODY, "__json_parse"),
+        }],
+    });
+}

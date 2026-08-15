@@ -6,26 +6,12 @@
 //! byte-significant (2-space indent → .ncode columns); do not reformat.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
 };
 
-#[rustfmt::skip]
-const FUNC_BODY: &str =
-r#"FUNC __csv_stringify(value AS List OF List OF String, delimiter AS String, quote AS String, newline AS String) AS String
-  MUT out AS String = ""
-  MUT firstRow AS Boolean = TRUE
-  FOR EACH row IN value
-    IF firstRow THEN
-      firstRow = FALSE
-    ELSE
-      out = out & newline
-    END IF
-    out = out & __csv_stringifyRow(row, delimiter, quote)
-  NEXT
-  RETURN out
-END FUNC"#;
-
 const INTRO: &str = r#"Encode a grid of String cells as RFC-4180-aligned CSV text."#;
+
 const DESC: &str = r#"`csv::stringify` renders a grid — a `List OF List OF String` of rows of String
 cells — into a single CSV text. Rows are joined with one line feed (LF) with no
 trailing newline, and the fields within a row are joined with a comma. Rows and
@@ -59,6 +45,7 @@ text is normalized to LF on output.
 The sole argument is named `value`, so it can be supplied positionally or as the
 keyword argument `value :=`. `csv::stringify` does not mutate `value` and has no
 side effects."#;
+
 const EX: &str = r#"Serialize a grid, quoting only the cell that needs it:
 
 ```
@@ -75,11 +62,27 @@ Pass the argument by name:
 IMPORT csv
 
 SUB main()
-  LET out AS String = csv::stringify(value :=)
+  LET out AS String = csv::stringify(value := [["name", "age"], ["Grace", "Hop,per"]])
 END SUB
 ```"#;
 
-pub(super) fn add(pkg: &mut RegistryPackage) {
+#[rustfmt::skip]
+const FUNC_BODY: &str =
+r#"FUNC __csv_stringify(value AS List OF List OF String, delimiter AS String, quote AS String, newline AS String) AS String
+  MUT out AS String = ""
+  MUT firstRow AS Boolean = TRUE
+  FOR EACH row IN value
+    IF firstRow THEN
+      firstRow = FALSE
+    ELSE
+      out = out & newline
+    END IF
+    out = out & __csv_stringifyRow(row, delimiter, quote)
+  NEXT
+  RETURN out
+END FUNC"#;
+
+pub(super) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "stringify",
         intro: INTRO,
@@ -89,39 +92,43 @@ pub(super) fn add(pkg: &mut RegistryPackage) {
             params: vec![
                 Parameter {
                     name: "value",
+                    desc: "The grid of rows of String cells to serialize.",
                     aliases: &[],
-                    ty: "List OF List OF String",
+                    ty: ParameterType::list_of(ParameterType::list_of(ParameterType::String)),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "delimiter",
+                    desc: "The single character that separates fields. Defaults to `,`.",
                     aliases: &[],
-                    ty: "String",
+                    ty: ParameterType::String,
                     default: DefaultValue::Fill {
-                        type_name: "String",
+                        type_name: ParameterType::String,
                         expr: super::DEFAULT_DELIMITER,
                     },
                 },
                 Parameter {
                     name: "quote",
+                    desc: "The single character that wraps a field and, doubled, escapes itself. Defaults to `\"`.",
                     aliases: &[],
-                    ty: "String",
+                    ty: ParameterType::String,
                     default: DefaultValue::Fill {
-                        type_name: "String",
+                        type_name: ParameterType::String,
                         expr: super::DEFAULT_QUOTE,
                     },
                 },
                 Parameter {
                     name: "newline",
+                    desc: "The text written between rows. Defaults to a line feed.",
                     aliases: &[],
-                    ty: "String",
+                    ty: ParameterType::String,
                     default: DefaultValue::Fill {
-                        type_name: "String",
+                        type_name: ParameterType::String,
                         expr: super::DEFAULT_NEWLINE,
                     },
                 },
             ],
-            return_type: "String",
+            return_type: ParameterType::String,
             errors: vec![],
             lowering: Lowering::Helper,
             body: Body::mfb(FUNC_BODY, "__csv_stringify"),

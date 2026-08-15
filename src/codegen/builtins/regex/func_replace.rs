@@ -6,32 +6,14 @@
 //! also appends the two generated Unicode tables). Body byte-significant
 //! (2-space indent → .ncode columns); do not reformat.
 
-use crate::target::shared::registry::{BuiltinFunction, BuiltinOverload, ReturnType};
-
-#[rustfmt::skip]
-const BODY: &str =
-r#"FUNC __regex_replace(value AS String, pattern AS String, replacement AS String) AS String
-  LET prog AS __regex_Program = __regex_compile(pattern)
-  LET ctx AS __regex_Ctx = __regex_makeCtx(value)
-  MUT out AS String = ""
-  MUT cursor AS Integer = 0
-  FOR EACH r IN __regex_matchResults(prog, ctx, 0)
-    LET mstart AS Integer = collections::get(r.caps, 0)
-    out = out & strings::mid(value, cursor, mstart - cursor)
-    out = out & __regex_expand(replacement, r, value, prog)
-    cursor = r.pos
-  NEXT
-  out = out & strings::mid(value, cursor, ctx.n - cursor)
-  RETURN out
-END FUNC"#;
-
-const OV: &[BuiltinOverload] = &[BuiltinOverload {
-    params: super::PARAMS_REPLACE,
-    return_type: ReturnType::Fixed("String"),
-}];
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str =
     r#"Replace every non-overlapping regular-expression match using a replacement template."#;
+
 const DESC: &str = r##"`regex::replace` compiles `pattern` as a regular expression and returns a new
 `String` in which every non-overlapping match in `value` is replaced by the
 expansion of `replacement`. The text before, between, and after matches is copied
@@ -75,6 +57,7 @@ invalid pattern fails with `ErrInvalidFormat`. When `pattern` matches nothing in
 
 `replace` does not mutate `value`, `pattern`, or `replacement` and has no side
 effects."##;
+
 const EX: &str = r##"Replace every match, and reorder capture groups (note the doubled backslashes):
 
 ```
@@ -96,5 +79,57 @@ SUB main()
 END SUB
 ```"##;
 
-pub(crate) const REPLACE: BuiltinFunction =
-    BuiltinFunction::mfb("regex.replace", "replace", INTRO, DESC, &[], OV, BODY).with_example(EX);
+#[rustfmt::skip]
+const FUNC_BODY: &str =
+r#"FUNC __regex_replace(value AS String, pattern AS String, replacement AS String) AS String
+  LET prog AS __regex_Program = __regex_compile(pattern)
+  LET ctx AS __regex_Ctx = __regex_makeCtx(value)
+  MUT out AS String = ""
+  MUT cursor AS Integer = 0
+  FOR EACH r IN __regex_matchResults(prog, ctx, 0)
+    LET mstart AS Integer = collections::get(r.caps, 0)
+    out = out & strings::mid(value, cursor, mstart - cursor)
+    out = out & __regex_expand(replacement, r, value, prog)
+    cursor = r.pos
+  NEXT
+  out = out & strings::mid(value, cursor, ctx.n - cursor)
+  RETURN out
+END FUNC"#;
+
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "replace",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "value",
+                    desc: "The subject text searched for a match. It is never modified.",
+                    aliases: &[],
+                    ty: ParameterType::String,
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "pattern",
+                    desc: "The regular expression to compile and search for. It must be a valid pattern in the MFBASIC regex dialect; otherwise the call fails with ErrInvalidFormat.",
+                    aliases: &[],
+                    ty: ParameterType::String,
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "replacement",
+                    desc: "The replacement template: literal text plus $ capture references as described above. Always well-formed; never a source of failure.",
+                    aliases: &[],
+                    ty: ParameterType::String,
+                    default: DefaultValue::None,
+                },
+            ],
+            return_type: ParameterType::String,
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(FUNC_BODY, "__regex_replace"),
+        }],
+    });
+}

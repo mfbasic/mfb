@@ -1,4 +1,4 @@
-' MFBASIC regex package — implements src/docs/spec/stdlib/01_regex.md (mfb spec stdlib regex).
+' Shared private helpers for the regex package
 '
 ' Strategy: parse the pattern into an AST of __regex_Node values, then run a
 ' continuation-passing backtracking matcher (leftmost-first / preference order,
@@ -9,178 +9,6 @@
 ' Error codes (regex.md §14): ErrInvalidFormat 77050003, ErrNotFound 77050004,
 ' ErrIndexOutOfRange 77050001.
 
-IMPORT collections
-IMPORT strings
-IMPORT encoding
-
-' ---------------------------------------------------------------------------
-' Types
-' ---------------------------------------------------------------------------
-
-TYPE __regex_Flags
-  ci AS Boolean
-  ml AS Boolean
-  dotall AS Boolean
-  ungreedy AS Boolean
-  verbose AS Boolean
-END TYPE
-
-' Character-class items.
-TYPE __regex_Range
-  lo AS String
-  hi AS String
-END TYPE
-TYPE __regex_Single
-  ch AS String
-END TYPE
-TYPE __regex_Short
-  kind AS Integer
-END TYPE
-TYPE __regex_Prop
-  name AS String
-  neg AS Boolean
-END TYPE
-UNION __regex_ClassItem
-  __regex_Range
-  __regex_Single
-  __regex_Short
-  __regex_Prop
-END UNION
-
-' Regex AST nodes.
-TYPE __regex_Lit
-  ch AS String
-  fold AS Boolean
-END TYPE
-TYPE __regex_Any
-  dotall AS Boolean
-END TYPE
-TYPE __regex_Class
-  neg AS Boolean
-  fold AS Boolean
-  items AS List OF __regex_ClassItem
-  ascii AS List OF Boolean
-END TYPE
-TYPE __regex_Anchor
-  kind AS Integer
-  ml AS Boolean
-END TYPE
-TYPE __regex_Concat
-  parts AS List OF __regex_Node
-END TYPE
-TYPE __regex_Alt
-  opts AS List OF __regex_Node
-END TYPE
-TYPE __regex_Repeat
-  child AS __regex_Node
-  lo AS Integer
-  hi AS Integer
-  greedy AS Boolean
-END TYPE
-TYPE __regex_Group
-  child AS __regex_Node
-  slot AS Integer
-END TYPE
-UNION __regex_Node
-  __regex_Lit
-  __regex_Any
-  __regex_Class
-  __regex_Anchor
-  __regex_Concat
-  __regex_Alt
-  __regex_Repeat
-  __regex_Group
-END UNION
-
-' Match continuations.
-TYPE __regex_ContDone
-  dummy AS Boolean
-END TYPE
-TYPE __regex_ContSeq
-  parts AS List OF __regex_Node
-  idx AS Integer
-  nxt AS __regex_Cont
-END TYPE
-TYPE __regex_ContCap
-  slot AS Integer
-  nxt AS __regex_Cont
-END TYPE
-TYPE __regex_ContRep
-  rep AS __regex_Repeat
-  count AS Integer
-  startPos AS Integer
-  nxt AS __regex_Cont
-END TYPE
-UNION __regex_Cont
-  __regex_ContDone
-  __regex_ContSeq
-  __regex_ContCap
-  __regex_ContRep
-END UNION
-
-TYPE __regex_Result
-  ok AS Boolean
-  pos AS Integer
-  caps AS List OF Integer
-END TYPE
-
-TYPE __regex_Ctx
-  text AS List OF String
-  cps AS List OF Integer
-  n AS Integer
-END TYPE
-
-TYPE __regex_Program
-  root AS __regex_Node
-  groups AS Integer
-  names AS Map OF String TO Integer
-END TYPE
-
-' Parser return values.
-TYPE __regex_Parse
-  node AS __regex_Node
-  nxt AS Integer
-  groups AS Integer
-  names AS Map OF String TO Integer
-END TYPE
-TYPE __regex_Paren
-  isDir AS Boolean
-  flags AS __regex_Flags
-  node AS __regex_Node
-  nxt AS Integer
-  groups AS Integer
-  names AS Map OF String TO Integer
-END TYPE
-TYPE __regex_Count
-  lo AS Integer
-  hi AS Integer
-  nxt AS Integer
-END TYPE
-TYPE __regex_LitScalar
-  ch AS String
-  nxt AS Integer
-END TYPE
-TYPE __regex_PropParse
-  name AS String
-  neg AS Boolean
-  nxt AS Integer
-END TYPE
-TYPE __regex_Endpoint
-  kind AS Integer
-  ch AS String
-  item AS __regex_ClassItem
-  nxt AS Integer
-END TYPE
-TYPE __regex_FlagSpec
-  flags AS __regex_Flags
-  any AS Boolean
-  term AS String
-  nxt AS Integer
-END TYPE
-TYPE __regex_Name
-  name AS String
-  nxt AS Integer
-END TYPE
 
 ' ---------------------------------------------------------------------------
 ' Scalar / code-point helpers
@@ -1796,14 +1624,6 @@ FUNC __regex_expand(repl AS String, r AS __regex_Result, value AS String, prog A
   RETURN out
 END FUNC
 
-' ---------------------------------------------------------------------------
-' Public functions
-' ---------------------------------------------------------------------------
-
-'@@MFB_BODY:match@@
-
-'@@MFB_BODY:find@@
-
 ' bug-339 C3: the global-match walk — including the zero-width-match rule (a
 ' match ending where the previous one did is skipped by advancing one position,
 ' otherwise it is recorded and the cursor jumps past it) — lived identically in
@@ -1836,10 +1656,6 @@ FUNC __regex_matchResults(prog AS __regex_Program, ctx AS __regex_Ctx, start AS 
   LOOP
   RETURN out
 END FUNC
-
-'@@MFB_BODY:findAll@@
-
-'@@MFB_BODY:replace@@
 
 ' plan-77 R4: precompute a 0..127 ASCII membership table for a character class so
 ' __regex_classMatch does an O(1) lookup per input position instead of an

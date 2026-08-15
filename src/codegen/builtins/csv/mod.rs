@@ -1,14 +1,9 @@
-//! The built-in `csv` package — migrated onto the clean-room registry
-//! (`crate::codegen::registry`). csv registers itself here: the package, its imports,
-//! the two `EXPORT` records, the shared `__csv_*` helpers (`package.mfb`), and its
-//! four members, each owning its `FUNC __csv_* … END FUNC` body in its `func_*.rs`
-//! (`Body::mfb`, carrying the rewrite target — `readRow` → `__csv_next`, irregular).
-//! [`RegistryPackage::get_mfb`] reassembles the injectable source; the frontend and
-//! IR lowering reach csv through the *generic* clean-room dispatch (the
-//! `get_package_by_func_name` dual-path in `builtins::` / `ir::lower`), so this module
-//! is pure registration — no per-package `is_csv_call`/`implementation_name` seams.
+//! Package: csv
+//! Type: Pure MFBasic
 
-use crate::codegen::registry::{RecordProp, Registry, RegistryPackage, RegistryRecord};
+use crate::codegen::registry::{
+    ParameterType, RecordProp, Registry, RegistryPackage, RegistryRecord,
+};
 
 mod func_parse;
 mod func_parse_stream;
@@ -21,15 +16,54 @@ pub(super) const DEFAULT_DELIMITER: &str = ",";
 pub(super) const DEFAULT_QUOTE: &str = "\"";
 pub(super) const DEFAULT_NEWLINE: &str = "\n";
 
-/// Register the `csv` package on the clean-room registry.
+const INTRO: &str = r#"Parse and serialize CSV text as a grid of String cells"#;
+
+const DESC: &str = r#"The `csv` package converts between CSV text and a grid of rows of String cells.
+`csv::parse` turns a UTF-8 `String` holding CSV text into a
+`List OF List OF String`, and `csv::stringify` renders such a grid back into CSV
+text. `csv` is a built-in package: `IMPORT csv` needs no manifest dependency.
+
+A whole-document CSV is exactly a `List OF List OF String`: an ordered list of
+rows, each an ordered list of String cells. The parsed grid composes directly
+with the `collections` package and `FOR EACH`; cells are read positionally with
+`collections::get`; there is no header concept — every parsed line is an ordinary
+row.
+
+For large inputs there is a streaming alternative that never materializes the
+whole grid: `csv::parseStream` returns a `CsvReader` holding the input and a scan
+cursor, and each `csv::readRow` parses exactly one record and returns a `CsvRow`
+(`fields AS List OF String`, `reader AS CsvReader` advanced past the record, and
+`done AS Boolean`). A caller loops `WHILE row.done = FALSE` (see `mfb man csv
+readRow`). The rows are identical to `csv::parse`'s.
+
+Cells are plain Strings. There is no type inference and no null: `42`, `true`,
+and an empty field are just the Strings `"42"`, `"true"`, and `""`. Callers that
+want numbers convert explicitly with `toFloat` or `toInteger`. Rows are not
+required to be rectangular: `csv::parse` preserves whatever field count each row
+had.
+
+The dialect is RFC-4180-aligned by default, but the field delimiter and quote
+character are configurable: `parse`/`parseStream` take optional `delimiter` and
+`quote`, and `stringify` also takes an optional output `newline`, each defaulting
+to `,`, `"`, and LF. On input, a record separator is a line feed (LF) or a
+carriage-return/line-feed pair (CRLF); a bare CR not followed by LF is ordinary
+data. A field may be wrapped in the quote character, inside which a literal quote
+is written by doubling it and delimiters, CR, and LF are ordinary data.
+Whitespace is significant and never trimmed. A single trailing record separator does not
+create an empty final row, but two consecutive separators do produce an empty
+row in the middle. Empty input parses to zero rows.
+
+`csv::stringify` renders deterministically: rows are joined with a single LF
+with no trailing newline, fields within a row are joined with a comma, and a
+field is quoted only when it contains a comma, a double quote, a CR, or an LF.
+For any grid `x`, `csv::parse(csv::stringify(x))` yields a grid whose cells
+equal those of `x`, except that a trailing empty row produced only by separator
+placement is not reintroduced and a CRLF separator is normalized to LF."#;
+
+/// Register the `csv` package on the registry.
 pub(crate) fn register(r: &mut Registry) {
-    let mut pkg = RegistryPackage::new(
-        "csv",
-        "Parse and serialize CSV text as a grid of String cells",
-        "The `csv` package converts between CSV text and a grid of rows of String \
-         cells: `csv::parse` / `csv::stringify` for the whole document, and \
-         `csv::parseStream` / `csv::readRow` for row-by-row streaming.",
-    );
+    let mut pkg = RegistryPackage::new("csv", INTRO, DESC);
+
     pkg.add_imports(vec!["collections", "strings", "encoding"]);
 
     // plan-77 C4: the streaming reader/row records (EXPORT so callers can name them).
@@ -39,48 +73,49 @@ pub(crate) fn register(r: &mut Registry) {
         props: vec![
             RecordProp {
                 name: "chars",
-                ty: "List OF Integer",
+                ty: ParameterType::list_of(ParameterType::Integer),
                 description: "The decoded input as Unicode scalars.",
             },
             RecordProp {
                 name: "count",
-                ty: "Integer",
+                ty: ParameterType::Integer,
                 description: "The scalar count.",
             },
             RecordProp {
                 name: "index",
-                ty: "Integer",
+                ty: ParameterType::Integer,
                 description: "The scan cursor.",
             },
             RecordProp {
                 name: "delimCode",
-                ty: "Integer",
+                ty: ParameterType::Integer,
                 description: "The field-delimiter scalar.",
             },
             RecordProp {
                 name: "quoteCode",
-                ty: "Integer",
+                ty: ParameterType::Integer,
                 description: "The quote-character scalar.",
             },
         ],
     });
+
     pkg.add_record(RegistryRecord {
         name: "CsvRow",
         export: true,
         props: vec![
             RecordProp {
                 name: "fields",
-                ty: "List OF String",
+                ty: ParameterType::list_of(ParameterType::String),
                 description: "The record's cells.",
             },
             RecordProp {
                 name: "reader",
-                ty: "CsvReader",
+                ty: ParameterType::Named("CsvReader"),
                 description: "The reader advanced past this record.",
             },
             RecordProp {
                 name: "done",
-                ty: "Boolean",
+                ty: ParameterType::Boolean,
                 description: "TRUE when the reader was already at end of input.",
             },
         ],
@@ -89,10 +124,10 @@ pub(crate) fn register(r: &mut Registry) {
     // The shared private `__csv_*` helpers the member bodies call.
     pkg.add_helper_functions(vec![include_str!("package.mfb")]);
 
-    func_parse::add(&mut pkg);
-    func_stringify::add(&mut pkg);
-    func_parse_stream::add(&mut pkg);
-    func_read_row::add(&mut pkg);
+    func_parse::register(&mut pkg);
+    func_stringify::register(&mut pkg);
+    func_parse_stream::register(&mut pkg);
+    func_read_row::register(&mut pkg);
 
     r.add_package(pkg);
 }

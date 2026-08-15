@@ -6,8 +6,44 @@
 //! byte-significant (2-space indent → .ncode columns); do not reformat.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Lowering, Parameter, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
 };
+
+const INTRO: &str = r#"Read the next record from a streaming CSV reader."#;
+
+const DESC: &str = r#"`csv::readRow` parses exactly one record starting at `reader`'s cursor and returns
+a `CsvRow` with three fields: `fields` (the record's cells, a `List OF String`),
+`reader` (a new `CsvReader` advanced past the record, to pass to the next
+`csv::readRow`), and `done` (`TRUE` when the reader was already at end of input,
+in which case `fields` is empty). Reading is purely functional — the input
+`reader` is not modified; each call returns the advanced reader to thread into the
+next call.
+
+The records `readRow` yields, in order, are identical to those `csv::parse`
+produces for the same input and dialect, including the RFC-4180 rules for quoting,
+doubled quotes, CR/LF and CRLF record separators, and the suppression of a
+trailing empty row. The dialect is fixed when the reader is opened by
+`csv::parseStream`.
+
+`csv::readRow` has no side effects."#;
+
+const EX: &str = r#"Count the rows of a large CSV without materializing the grid:
+
+```
+IMPORT csv
+IMPORT io
+
+SUB main()
+  MUT count AS Integer = 0
+  MUT row AS CsvRow = csv::readRow(csv::parseStream("1,a\n2,b\n3,c"))
+  WHILE row.done = FALSE
+    count = count + 1
+    row = csv::readRow(row.reader)
+  END WHILE
+  io::print("rows=" & toString(count))
+END SUB
+```"#;
 
 #[rustfmt::skip]
 const FUNC_BODY: &str =
@@ -71,40 +107,7 @@ r#"FUNC __csv_next(reader AS CsvReader) AS CsvRow
   RETURN CsvRow[row, CsvReader[chars, count, index, delimCode, quoteCode], FALSE]
 END FUNC"#;
 
-const INTRO: &str = r#"Read the next record from a streaming CSV reader."#;
-const DESC: &str = r#"`csv::readRow` parses exactly one record starting at `reader`'s cursor and returns
-a `CsvRow` with three fields: `fields` (the record's cells, a `List OF String`),
-`reader` (a new `CsvReader` advanced past the record, to pass to the next
-`csv::readRow`), and `done` (`TRUE` when the reader was already at end of input,
-in which case `fields` is empty). Reading is purely functional — the input
-`reader` is not modified; each call returns the advanced reader to thread into the
-next call.
-
-The records `readRow` yields, in order, are identical to those `csv::parse`
-produces for the same input and dialect, including the RFC-4180 rules for quoting,
-doubled quotes, CR/LF and CRLF record separators, and the suppression of a
-trailing empty row. The dialect is fixed when the reader is opened by
-`csv::parseStream`.
-
-`csv::readRow` has no side effects."#;
-const EX: &str = r#"Count the rows of a large CSV without materializing the grid:
-
-```
-IMPORT csv
-IMPORT io
-
-SUB main()
-  MUT count AS Integer = 0
-  MUT row AS CsvRow = csv::readRow(csv::parseStream("1,a\n2,b\n3,c"))
-  WHILE row.done = FALSE
-    count = count + 1
-    row = csv::readRow(row.reader)
-  END WHILE
-  io::print("rows=" & toString(count))
-END SUB
-```"#;
-
-pub(super) fn add(pkg: &mut RegistryPackage) {
+pub(super) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "readRow",
         intro: INTRO,
@@ -113,11 +116,12 @@ pub(super) fn add(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "reader",
+                desc: "A reader from `csv::parseStream` or a previous `csv::readRow`.",
                 aliases: &[],
-                ty: "CsvReader",
+                ty: ParameterType::Named("CsvReader"),
                 default: DefaultValue::None,
             }],
-            return_type: "CsvRow",
+            return_type: ParameterType::Named("CsvRow"),
             errors: vec!["ErrInvalidFormat"],
             lowering: Lowering::Helper,
             body: Body::mfb(FUNC_BODY, "__csv_next"),

@@ -6,30 +6,14 @@
 //! also appends the two generated Unicode tables). Body byte-significant
 //! (2-space indent → .ncode columns); do not reformat.
 
-use crate::target::shared::registry::{BuiltinFunction, BuiltinOverload, ReturnType};
-
-#[rustfmt::skip]
-const BODY: &str =
-r#"FUNC __regex_findAll(value AS String, pattern AS String, start AS Integer) AS List OF Integer
-  LET prog AS __regex_Program = __regex_compile(pattern)
-  LET ctx AS __regex_Ctx = __regex_makeCtx(value)
-  IF start < 0 OR start > ctx.n THEN
-    FAIL error(77050001, "List or string index/range is outside valid bounds.")
-  END IF
-  MUT out AS List OF Integer = []
-  FOR EACH r IN __regex_matchResults(prog, ctx, start)
-    out = collections::append(out, collections::get(r.caps, 0))
-  NEXT
-  RETURN out
-END FUNC"#;
-
-const OV: &[BuiltinOverload] = &[BuiltinOverload {
-    params: super::PARAMS_FIND,
-    return_type: ReturnType::Fixed("List OF Integer"),
-}];
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str =
     r#"Locate every non-overlapping regular-expression match and return their start indices."#;
+
 const DESC: &str = r#"`regex::findAll` compiles `pattern` as a regular expression, scans `value` for
 every non-overlapping match beginning at or after the position `start`, and
 returns a `List OF Integer` holding the zero-based start index of each match in
@@ -74,6 +58,7 @@ compilation is checked before `start`, so `ErrInvalidFormat` takes precedence
 when both apply.
 
 `findAll` does not mutate `value` or `pattern` and has no side effects."#;
+
 const EX: &str = r#"List the start of every digit (note the doubled backslash in the String literal):
 
 ```
@@ -108,5 +93,58 @@ SUB main()
 END SUB
 ```"#;
 
-pub(crate) const FIND_ALL: BuiltinFunction =
-    BuiltinFunction::mfb("regex.findAll", "findAll", INTRO, DESC, &[], OV, BODY).with_example(EX);
+#[rustfmt::skip]
+const FUNC_BODY: &str =
+r#"FUNC __regex_findAll(value AS String, pattern AS String, start AS Integer) AS List OF Integer
+  LET prog AS __regex_Program = __regex_compile(pattern)
+  LET ctx AS __regex_Ctx = __regex_makeCtx(value)
+  IF start < 0 OR start > ctx.n THEN
+    FAIL error(77050001, "List or string index/range is outside valid bounds.")
+  END IF
+  MUT out AS List OF Integer = []
+  FOR EACH r IN __regex_matchResults(prog, ctx, start)
+    out = collections::append(out, collections::get(r.caps, 0))
+  NEXT
+  RETURN out
+END FUNC"#;
+
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "findAll",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "value",
+                    desc: "The subject text searched for a match. It is never modified.",
+                    aliases: &[],
+                    ty: ParameterType::String,
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "pattern",
+                    desc: "The regular expression to compile and search for. It must be a valid pattern in the MFBASIC regex dialect; otherwise the call fails with ErrInvalidFormat.",
+                    aliases: &[],
+                    ty: ParameterType::String,
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "start",
+                    desc: "The zero-based scalar index at or after which the match must begin. Defaults to 0. Must be between 0 and the scalar length of value inclusive; start == len(value) is allowed and can match a zero-length or end-anchored pattern. May be passed by name.",
+                    aliases: &[],
+                    ty: ParameterType::Integer,
+                    default: DefaultValue::Fill {
+                        type_name: ParameterType::Integer,
+                        expr: "0",
+                    },
+                },
+            ],
+            return_type: ParameterType::list_of(ParameterType::Integer),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(FUNC_BODY, "__regex_findAll"),
+        }],
+    });
+}

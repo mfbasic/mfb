@@ -5,42 +5,18 @@
 //! `'@@MFB_BODY:getOr@@` marker in package.mfb via assembled_source. Body
 //! byte-significant (2-space indent → .ncode columns); do not reformat.
 
-use crate::target::shared::registry::{BuiltinFunction, BuiltinOverload, ReturnType};
-
-#[rustfmt::skip]
-const BODY: &str =
-r#"FUNC __json_getOr(value AS Json, path AS List OF String, defaultValue AS Json) AS Json
-  MUT current AS Json = value
-  FOR EACH key IN path
-    MUT nextValue AS Json = current
-    LET currentValue AS Json = current
-    MATCH currentValue
-      CASE JsonObj(obj)
-        IF collections::hasKey(obj.fields, key) THEN
-          nextValue = collections::get(obj.fields, key)
-        ELSE
-          RETURN defaultValue
-        END IF
-      CASE ELSE
-        RETURN defaultValue
-    END MATCH
-    current = nextValue
-  NEXT
-  RETURN current
-END FUNC"#;
-
-const OV: &[BuiltinOverload] = &[BuiltinOverload {
-    params: super::P_GET_OR,
-    return_type: ReturnType::Fixed("Json"),
-}];
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Lowering, Parameter, ParameterType, RegistryFunction,
+    RegistryPackage,
+};
 
 const INTRO: &str = r#"Read a nested `Json` value by key path, falling back to a default"#;
+
 const DESC: &str = r#"`json::getOr` walks `path` through nested JSON objects exactly as `json::get`
 does, but returns `defaultValue` instead of failing whenever traversal cannot
 continue. Starting from `value`, each element of `path` is treated as an object
 key: the current value must be a `JsonObj` that has that key, and the member
 stored under it becomes the current value before the next element is applied.
-
 
 Traversal stops and `defaultValue` is returned in exactly two situations: a path
 element names a key that is absent from the current `JsonObj`, or traversal
@@ -58,10 +34,10 @@ indistinguishable from a value that was genuinely present. In particular
 was absent or was present with the JSON value `null`. When that distinction
 matters, use `json::get` and catch the failure instead.
 
-
 The `value` and `defaultValue` arguments each accept the `Json` union or any one
 of its six member types directly. `path` may also be passed by the name `key`,
 and `defaultValue` under the names `default` or `fallback`."#;
+
 const EX: &str = r#"Read a configuration flag with a fallback:
 
 ```
@@ -99,5 +75,62 @@ SUB main
 END SUB
 ```"#;
 
-pub(crate) const GET_OR: BuiltinFunction =
-    BuiltinFunction::mfb("json.getOr", "getOr", INTRO, DESC, &[], OV, BODY).with_example(EX);
+#[rustfmt::skip]
+const FUNC_BODY: &str =
+r#"FUNC __json_getOr(value AS Json, path AS List OF String, defaultValue AS Json) AS Json
+  MUT current AS Json = value
+  FOR EACH key IN path
+    MUT nextValue AS Json = current
+    LET currentValue AS Json = current
+    MATCH currentValue
+      CASE JsonObj(obj)
+        IF collections::hasKey(obj.fields, key) THEN
+          nextValue = collections::get(obj.fields, key)
+        ELSE
+          RETURN defaultValue
+        END IF
+      CASE ELSE
+        RETURN defaultValue
+    END MATCH
+    current = nextValue
+  NEXT
+  RETURN current
+END FUNC"#;
+
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "getOr",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        implementations: vec![Implementation {
+            params: vec![
+                Parameter {
+                    name: "value",
+                    desc: "The value to read from. Accepts the Json union or any of JsonNull, JsonBool, JsonNum, JsonStr, JsonArr, JsonObj; traversal only succeeds through JsonObj members.",
+                    aliases: &[],
+                    ty: ParameterType::Named("Json"),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "path",
+                    desc: "The object keys to follow, from the root inward. Each element selects a member by exact String key. An empty list selects value itself.",
+                    aliases: &["key"],
+                    ty: ParameterType::list_of(ParameterType::String),
+                    default: DefaultValue::None,
+                },
+                Parameter {
+                    name: "default",
+                    desc: "Returned when traversal cannot continue. Accepts the Json union or any member type.",
+                    aliases: &["defaultValue", "fallback"],
+                    ty: ParameterType::Named("Json"),
+                    default: DefaultValue::None,
+                },
+            ],
+            return_type: ParameterType::Named("Json"),
+            errors: vec![],
+            lowering: Lowering::Helper,
+            body: Body::mfb(FUNC_BODY, "__json_getOr"),
+        }],
+    });
+}

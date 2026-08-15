@@ -187,7 +187,7 @@ fn referenced_functions(text: &str, current: &str) -> Vec<String> {
 }
 
 /// The parameter table, taken from the first implementation's parameters. Optional
-/// (defaulted) parameters are flagged, alias spellings are listed, and the fixed
+/// (defaulted) parameters are flagged, alias spellings are listed if present, and the fixed
 /// return type is shown.
 fn render_parameters(md: &mut String, function: &RegistryFunction) {
     let Some(implementation) = function.implementations.first() else {
@@ -196,38 +196,61 @@ fn render_parameters(md: &mut String, function: &RegistryFunction) {
     if implementation.params.is_empty() {
         md.push_str(&format!(
             "Takes no arguments and returns `{}`.\n\n",
-            implementation.return_type,
+            implementation.return_type.name(),
         ));
         return;
     }
 
+    let has_aliases = implementation.params.iter().any(|p| !p.aliases.is_empty());
+
     md.push_str("## Parameters\n\n");
-    md.push_str("| Parameter | Type | Also accepted as |\n| --- | --- | --- |\n");
+    if has_aliases {
+        md.push_str("| Parameter | Type | Alternate | Description |\n| --- | --- | --- | --- |\n");
+    } else {
+        md.push_str("| Parameter | Type | Description |\n| --- | --- | --- |\n");
+    }
+
     for param in &implementation.params {
         let optional = matches!(
             param.default,
             DefaultValue::Fill { .. } | DefaultValue::Optional
         );
         let name = if optional {
-            format!("`{}` (optional)", param.name)
+            format!("`{}` (opt)", param.name)
         } else {
             format!("`{}`", param.name)
         };
-        let aliases = if param.aliases.is_empty() {
-            "—".to_string()
+
+        if has_aliases {
+            let aliases = if param.aliases.is_empty() {
+                "—".to_string()
+            } else {
+                param
+                    .aliases
+                    .iter()
+                    .map(|alias| format!("`{alias}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            md.push_str(&format!(
+                "| {name} | `{}` | {aliases} | {} |\n",
+                param.ty.name(),
+                param.desc
+            ));
         } else {
-            param
-                .aliases
-                .iter()
-                .map(|alias| format!("`{alias}`"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
-        md.push_str(&format!("| {name} | `{}` | {aliases} |\n", param.ty));
+            md.push_str(&format!(
+                "| {name} | `{}` | {} |\n",
+                param.ty.name(),
+                param.desc
+            ));
+        }
     }
     md.push('\n');
 
-    md.push_str(&format!("Returns `{}`.\n\n", implementation.return_type));
+    md.push_str(&format!(
+        "Returns `{}`.\n\n",
+        implementation.return_type.name()
+    ));
 }
 
 /// Render an Errors table for a set of `errorCode` names, resolving each to its
@@ -287,7 +310,7 @@ mod tests {
         assert!(md.contains("## Parameters"));
         assert!(md.contains("`value`"));
         assert!(md.contains("`text`")); // alias of `value`
-        assert!(md.contains("`delimiter` (optional)")); // Fill-defaulted
+        assert!(md.contains("`delimiter` (opt)")); // Fill-defaulted
         assert!(md.contains("Returns `List OF List OF String`."));
         assert!(md.contains("## Examples"));
         // The Errors table is rendered from the descriptor's declared errors.
