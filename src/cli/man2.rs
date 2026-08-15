@@ -6,6 +6,10 @@
 //!
 //! man2 is registry-generic: it renders any package that has migrated onto the
 //! clean-room registry (today `csv`), reading the same fields off every descriptor.
+//!
+//! `mfb man2 <package> types` renders the package's consolidated *types* page — its
+//! exported records (with field tables) and unions (with their variants) — the man2
+//! analogue of the old `mfb man <package> types` record-type page.
 
 use std::io::IsTerminal;
 
@@ -19,6 +23,13 @@ pub(crate) fn show_man2(args: &[String]) -> Result<(), String> {
     match positional.as_slice() {
         [package, function_name] => {
             let package = lookup_package(package)?;
+            // `types` is a reserved page name (matching the old `mfb man <pkg> types`),
+            // intercepted only for packages that actually declare a public record or
+            // union; otherwise it falls through to the normal function lookup below.
+            if *function_name == "types" && has_public_types(package) {
+                print_markdown(&render_types_markdown(package));
+                return Ok(());
+            }
             let function = package.function(function_name).ok_or_else(|| {
                 format!(
                     "unknown {} function `{function_name}`\n\nRun `mfb man2 {}` to list functions.",
@@ -99,6 +110,56 @@ fn render_package_markdown(package: &RegistryPackage) -> String {
         }
     }
     render_errors_table(&mut md, &names);
+
+    md
+}
+
+/// Whether the package declares at least one *exported* record or union — i.e. it has
+/// a public types page worth rendering.
+fn has_public_types(package: &RegistryPackage) -> bool {
+    package.records().iter().any(|record| record.export)
+        || package.unions().iter().any(|union| union.export)
+}
+
+/// Build the consolidated *types* page for a package: every exported record as a
+/// `pkg::Name` heading with a field table, followed by every exported union as a
+/// `pkg::Name` heading with its variants. Internal (non-`export`) records and unions
+/// are omitted — they are not part of the package's public surface.
+fn render_types_markdown(package: &RegistryPackage) -> String {
+    let mut md = String::new();
+    let pkg = package.import_name();
+
+    md.push_str("# Types\n\n");
+    md.push_str(&format!("The `{pkg}` package types.\n\n"));
+
+    md.push_str("## Package\n\n");
+    md.push_str(pkg);
+    md.push_str("\n\n");
+
+    md.push_str("## Types\n\n");
+
+    for record in package.records().iter().filter(|record| record.export) {
+        md.push_str(&format!("### {pkg}::{}\n\n", record.name));
+        md.push_str("| Field | Type | Description |\n| --- | --- | --- |\n");
+        for prop in &record.props {
+            md.push_str(&format!(
+                "| `{}` | `{}` | {} |\n",
+                prop.name,
+                prop.ty.name(),
+                prop.description,
+            ));
+        }
+        md.push('\n');
+    }
+
+    for union in package.unions().iter().filter(|union| union.export) {
+        md.push_str(&format!("### {pkg}::{}\n\n", union.name));
+        md.push_str("A union of:\n\n");
+        for variant in &union.variants {
+            md.push_str(&format!("- `{}` — {}\n", variant.name, variant.description));
+        }
+        md.push('\n');
+    }
 
     md
 }
@@ -337,6 +398,44 @@ mod tests {
         assert!(md.contains("| `csv::parse` |"));
         assert!(md.contains("| `csv::readRow` |"));
         assert!(show_man2(&s(&["csv"])).is_ok());
+    }
+
+    #[test]
+    fn renders_a_types_page_with_records_and_unions() {
+        assert!(show_man2(&s(&["json", "types"])).is_ok());
+        let package = registry().resolve_package("json").unwrap();
+        let md = render_types_markdown(package);
+        assert!(md.starts_with("# Types\n"));
+        assert!(md.contains("## Package\n\njson"));
+        // Exported records render as `pkg::Name` with a field table.
+        assert!(md.contains("### json::JsonObj"));
+        assert!(md.contains("| Field | Type | Description |"));
+        // The exported union renders with its variants.
+        assert!(md.contains("### json::Json"));
+        assert!(md.contains("- `JsonNull`"));
+        // Internal (non-export) records are omitted from the public page.
+        assert!(!md.contains("__json_Node"));
+        assert!(!md.contains("__json_StringNode"));
+    }
+
+    #[test]
+    fn types_page_renders_a_record_only_package() {
+        let package = registry().resolve_package("csv").unwrap();
+        let md = render_types_markdown(package);
+        assert!(md.contains("### csv::CsvReader"));
+        assert!(md.contains("### csv::CsvRow"));
+    }
+
+    #[test]
+    fn types_is_a_normal_function_lookup_when_the_package_has_no_public_types() {
+        // `process` declares only value enums (not modeled as records/unions), so it
+        // has no public types page — `types` falls through to a function lookup.
+        assert!(!has_public_types(
+            registry().resolve_package("process").unwrap()
+        ));
+        assert!(show_man2(&s(&["process", "types"]))
+            .unwrap_err()
+            .contains("unknown process function"));
     }
 
     #[test]
