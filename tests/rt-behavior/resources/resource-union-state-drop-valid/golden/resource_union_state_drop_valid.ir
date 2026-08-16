@@ -94,7 +94,7 @@
         "guard": null,
         "body": [
         { "op": "bind", "line": 29, "mutable": false, "name": "f", "type": "fs.File STATE Cursor", "value": { "kind": "unionExtract", "type": "fs.File", "value": { "kind": "local", "name": "$match0" } } },
-        { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Unknown", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } }
+        { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } }
         ]
       },
       {

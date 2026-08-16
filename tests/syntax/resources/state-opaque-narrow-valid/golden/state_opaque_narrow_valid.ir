@@ -70,7 +70,7 @@
     { "op": "bind", "line": 35, "mutable": false, "name": "h", "type": "fs.File STATE Cursor", "value": { "kind": "call", "type": "fs.File STATE Cursor", "target": "make", "args": [] } },
     { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "passThrough", "args": [{ "kind": "local", "name": "h" }] } },
     { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "adopt", "args": [{ "kind": "local", "name": "h" }] } },
-    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Unknown", "target": "fs.close", "args": [{ "kind": "local", "name": "h" }] } },
+    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "h" }] } },
     { "op": "return", "line": 39, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }

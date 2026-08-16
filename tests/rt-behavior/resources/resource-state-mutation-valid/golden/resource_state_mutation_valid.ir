@@ -52,7 +52,7 @@
     { "op": "stateAssign", "line": 20, "resource": "f", "value": { "kind": "with", "type": "FileState", "target": { "kind": "memberAccess", "type": "FileState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "len", "value": { "kind": "const", "type": "Integer", "value": "99" } }] } },
     { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "FileState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "pos" }] }] } },
     { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "FileState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "len" }] }] } },
-    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Unknown", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
     { "op": "return", "line": 24, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }

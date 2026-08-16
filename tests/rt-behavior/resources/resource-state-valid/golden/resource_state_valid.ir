@@ -30,8 +30,8 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 10, "mutable": false, "name": "f", "type": "fs.File STATE FileState", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } },
-    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Unknown", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "data" }] } },
-    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Unknown", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "data" }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
     { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "stated" }] } },
     { "op": "return", "line": 14, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
