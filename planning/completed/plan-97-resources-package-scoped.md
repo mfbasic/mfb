@@ -211,66 +211,70 @@ identity keying.
       `pkg::Type` parses everywhere; the qualified→bare collapse is centralized at
       `ast/expr.rs:353` + `:901` (`qualified_builtin_type().unwrap_or()`);
       classification is `ResourceRegistry`-keyed by bare name in syntaxcheck/ir.
-- [~] Failing tests: (a) user `TYPE Process` compiles, (b) `process::Process`
-      resolves as the resource, (c) two-package same-named no-cross-wire. Deferred
-      to land WITH the fix — under hard cutover the change is atomic (no green
-      intermediate), so these assert the end state and go RED→GREEN only when
-      Phases 2–5 land together; they cannot be committed RED in isolation without a
-      red suite. Repro is already confirmed live (bug-441 `/tmp/collide`).
+- [x] Failing tests: (a) user `TYPE Process` compiles, (b) `process::Process`
+      resolves as the resource, (c) two-package same-named no-cross-wire. Landed
+      WITH the fix — under hard cutover the change is atomic (no green
+      intermediate), so these assert the end state and went RED→GREEN as each
+      resource slice landed. Repro confirmed live (bug-441 `/tmp/collide`).
 
-Acceptance: routing premise confirmed (met); end-state tests authored alongside the
-atomic fix.
+Acceptance: routing premise confirmed (met); end-state tests landed alongside the
+atomic per-resource fixes.
 Commit: — (spike findings recorded in plan; no code landed this phase)
 
 ### Phase 2 — package-scoped resource identity (registry + resource table)
 
-- [ ] Make `src/codegen/registry/mod.rs resource_close_function` (and any
+- [x] Make `src/codegen/registry/mod.rs resource_close_function` (and any
       resource accessor) package-scoped — resolve within the owning package, not
       first-match.
-- [ ] Key `ResourceRegistry` / `BUILTIN_RESOURCES` by `"pkg::Name"`; update the
+- [x] Key `ResourceRegistry` / `BUILTIN_RESOURCES` by `"pkg::Name"`; update the
       seed sites (9 entries) and `is_resource`/`close_function`/`is_sendable`/
-      `close_may_fail`.
+      `close_may_fail`. (`BUILTIN_RESOURCES` now keyed by `*_TYPE_ID` for all 9:
+      `FILE_TYPE_ID`, `SOCKET_TYPE_ID`, `LISTENER_TYPE_ID`, `UDP_SOCKET_TYPE_ID`,
+      `AUDIO_INPUT/OUTPUT_TYPE_ID`, `TLS_SOCKET/LISTENER_TYPE_ID`, `PROCESS_TYPE_ID`.)
 
 Acceptance: registry + resource unit tests show `process::Process` resolves and a
 same-named resource in another package does not cross-wire; suite green.
-Commit: —
+Commit: per-resource slices — process `eb010b7d8`, fs `8a0bd49c2`, net/tls/audio `b61003c20`.
 
 ### Phase 3 — resolver: qualified references + collision diagnostic
 
-- [ ] `resolve_type_name`/`resolve_package_qualified_name`: route `pkg::Name` to
+- [x] `resolve_type_name`/`resolve_package_qualified_name`: route `pkg::Name` to
       the resource; let a bare user `TYPE Name` win; emit the "collides with
       builtin resource `pkg::Name`" diagnostic for a bare resource name.
-- [ ] This subsumes bug-441 Phase 2a.
+      (`builtins::is_qualified_builtin_resource` keeps the qualified identity at
+      `src/syntaxcheck/types.rs:32`, so a bare `TYPE Process`/`TYPE File` no longer
+      collides.)
+- [x] This subsumes bug-441 Phase 2a.
 
 Acceptance: bug-441 repro builds & prints `42`; a bare resource-name TYPE with the
 intent to use the builtin yields the clear diagnostic; suite green.
-Commit: —
+Commit: per-resource slices — process `eb010b7d8`, fs `8a0bd49c2`, net/tls/audio `b61003c20`.
 
 ### Phase 4 — thread the qualifier through parsing, consumers, binary_repr (blast radius)
 
-- [ ] `base_resource_name`/`state_type_name` carry `pkg::` through `STATE`/thread
+- [x] `base_resource_name`/`state_type_name` carry `pkg::` through `STATE`/thread
       parsing (`src/builtins/resource.rs`, thread helpers).
-- [ ] Update the 57 `resource_close_function` consumers and 21 `is_resource`
+- [x] Update the 57 `resource_close_function` consumers and 21 `is_resource`
       consumers to pass qualified type strings (`target/shared/**`, `ir/verify/**`,
       `binary_repr/**`). Close-op lookup unchanged.
 
 Acceptance: full `cargo test` green; NIR/drop-wiring for resource programs
 correct; no bare-name resource lookup remains (`grep` audit).
-Commit: —
+Commit: per-resource slices — process `eb010b7d8`, fs `8a0bd49c2`, net/tls/audio `b61003c20`.
 
 ### Phase 5 — migrate user syntax + spec + man + goldens (largest blast radius, last)
 
-- [ ] Measure the *narrow* set of explicit resource-type spellings (params,
+- [x] Measure the *narrow* set of explicit resource-type spellings (params,
       `STATE`, `List OF RES`, thread planes) — `grep` the actual sites, don't
       touch inferred `RES` bindings.
-- [ ] Update those `.mfb` sources, `language/15_resource-management.md`,
+- [x] Update those `.mfb` sources, `language/15_resource-management.md`,
       `04_types.md`, and resource man pages to `pkg::Name`.
-- [ ] Regenerate affected goldens/`.ncode`/binary_repr snapshots; diff and
+- [x] Regenerate affected goldens/`.ncode`/binary_repr snapshots; diff and
       confirm the delta is ONLY the type-string qualification.
 
 Acceptance: full suite green; golden deltas are exactly the qualification;
 migrated example programs build and run.
-Commit: —
+Commit: per-resource slices — process `eb010b7d8`, fs `8a0bd49c2`, net/tls/audio `b61003c20`; spec/man docs `36fbb17c3`; marked FIXED + archived `ab474af19`.
 
 ## Validation Plan
 

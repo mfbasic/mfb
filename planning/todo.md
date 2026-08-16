@@ -62,7 +62,7 @@ Here's the order I'd follow, with the gating reason for each boundary:
 
 Neither of these touches the compiler's string currency, so they're low-risk and unlock the rest.
 
-## Phase 0.5 — package-scope resources ([plan-97], bug-441) — BEFORE the resource-owning packages migrate
+## Phase 0.5 — package-scope resources ([plan-97], bug-441) — BEFORE the resource-owning packages migrate (done)
 
 Builtin resource type names (`File`, `Socket`, `Process`, …) are a global, unqualified **bare-name** reservation, so a user `TYPE Process` collides with the builtin (bug-441). Make them `pkg::Name` (`process::Process`), like every other builtin surface. See `planning/plan-97-resources-package-scoped.md`.
 
