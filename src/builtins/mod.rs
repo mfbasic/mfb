@@ -146,13 +146,15 @@ pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str,
 /// builtin dispatch symbol. Keyed by `(builtin, arg_type)`; the only row today is
 /// the `toString(net::Url)` renderer (plan-03-http.md §A.3).
 pub(crate) fn general_override_target(builtin: &str, arg_type: &str) -> Option<&'static str> {
-    match (builtin, arg_type) {
-        ("toString", t) if t == net::URL_TYPE => Some("__net_urlToString"),
-        // The nine `vector::` value records render `"(x, y, z)"` via a companion
-        // renderer (plan-06-vector.md §4.18).
-        ("toString", t) if vector::is_builtin_type(t) => vector::tostring_override_target(t),
-        _ => None,
-    }
+    crate::codegen::registry::general_override_target(builtin, arg_type).or_else(|| {
+        match (builtin, arg_type) {
+            ("toString", t) if t == net::URL_TYPE => Some("__net_urlToString"),
+            // The nine `vector::` value records render `"(x, y, z)"` via a companion
+            // renderer (plan-06-vector.md §4.18).
+            ("toString", t) if vector::is_builtin_type(t) => vector::tostring_override_target(t),
+            _ => None,
+        }
+    })
 }
 
 /// Whether `qualified` (dot form, `process.Process`, `fs.File`) names a built-in
@@ -657,19 +659,23 @@ pub(crate) fn is_builtin_member(name: &str) -> bool {
 /// friends (`Float`/`Fixed`) or an `errorCode::Err*` registry value (`Integer`).
 /// These are keyed package-qualified (`"math.pi"`, `"errorCode.ErrNotFound"`).
 pub(crate) fn is_package_constant(name: &str) -> bool {
-    math::is_math_constant(name)
+    crate::codegen::registry::is_package_constant(name)
+        || math::is_math_constant(name)
         || errorcode::is_errorcode_constant(name)
         || vector::is_vector_constant(name)
 }
 
 pub(crate) fn package_constant_type_name(name: &str) -> Option<&'static str> {
-    math::constant_type_name(name)
+    crate::codegen::registry::constant_type_name(name)
+        .or_else(|| math::constant_type_name(name))
         .or_else(|| errorcode::constant_type_name(name))
         .or_else(|| vector::constant_type_name(name))
 }
 
 pub(crate) fn package_constant_value(name: &str) -> Option<&'static str> {
-    math::constant_value(name).or_else(|| errorcode::constant_value(name))
+    crate::codegen::registry::constant_value(name)
+        .or_else(|| math::constant_value(name))
+        .or_else(|| errorcode::constant_value(name))
 }
 
 /// Split a comma-separated type list on the commas at paren depth 0.

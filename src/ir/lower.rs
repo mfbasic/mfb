@@ -2468,6 +2468,59 @@ fn filter_predicate_arg_type(predicate: &str, collection_type: &str) -> Option<S
         .and_then(|element| builtins::general::filter_predicate_type(predicate, element))
 }
 
+/// The constructor a **migrated** package's record constant `name`
+/// (`"vector.zeroFloat3"`) inlines to, reconstructed from its
+/// [`RegistryConstant`](crate::codegen::registry) — the flat per-field literals paired
+/// with the element types read from the package's record fields, in order. `None` for a
+/// scalar constant or an un-migrated package (the registry is empty until a
+/// record-constant-bearing package migrates), so the caller falls back to
+/// [`vector_record_constant`].
+fn registry_record_constant(name: &str) -> Option<IrValue> {
+    use crate::codegen::registry;
+    let components = registry::constant_components(name)?;
+    let type_name = registry::constant_type_name(name)?;
+    // Each component's element type comes from the record's declared fields, in order.
+    let (package, _) = name.split_once('.')?;
+    let field_types: Vec<String> =
+        match registry::registry().resolve_type(&format!("{package}.{type_name}"))? {
+            registry::ResolvedType::Record(record) => record
+                .props
+                .iter()
+                .map(|prop| prop.ty.name().into_owned())
+                .collect(),
+            _ => return None,
+        };
+    Some(IrValue::Constructor {
+        type_: type_name.to_string(),
+        args: components
+            .iter()
+            .enumerate()
+            .map(|(index, value)| IrValue::Const {
+                type_: field_types.get(index).cloned().unwrap_or_default(),
+                value: value.to_string(),
+            })
+            .collect(),
+    })
+}
+
+/// The constructor the `vector` hand table's [`constant_components`] emits for a record
+/// constant `name` — the pre-migration path, tried after [`registry_record_constant`].
+///
+/// [`constant_components`]: crate::builtins::vector::constant_components
+fn vector_record_constant(name: &str) -> Option<IrValue> {
+    let (type_, components) = builtins::vector::constant_components(name)?;
+    Some(IrValue::Constructor {
+        type_,
+        args: components
+            .into_iter()
+            .map(|(component_type, component_value)| IrValue::Const {
+                type_: component_type,
+                value: component_value,
+            })
+            .collect(),
+    })
+}
+
 /// The function type to give a general built-in predicate named in a value
 /// position, when `expected` is a concrete unary Boolean function type it
 /// accepts (bug-368).
@@ -2565,23 +2618,15 @@ fn lower_expression_with_expected(
         },
         Expression::Identifier(value) => {
             let canonical_value = canonical_import_name(value, context);
-            // A `vector::` record constant (`vector::upFloat3`) inlines a record
-            // constructor at every use site, copying by value (plan-06-vector.md
-            // §4.19). It must be handled before the scalar-fold path below, which
-            // expects a single literal value.
-            if let Some((type_, components)) =
-                builtins::vector::constant_components(&canonical_value)
+            // A record constant (`vector::upFloat3`) inlines a record constructor at
+            // every use site, copying by value (plan-06-vector.md §4.19). Prefer a
+            // migrated package's registry entry, falling back to the vector hand table
+            // (the registry is empty until vector migrates). Handled before the
+            // scalar-fold path below, which expects a single literal value.
+            if let Some(constructor) = registry_record_constant(&canonical_value)
+                .or_else(|| vector_record_constant(&canonical_value))
             {
-                return IrValue::Constructor {
-                    type_,
-                    args: components
-                        .into_iter()
-                        .map(|(component_type, component_value)| IrValue::Const {
-                            type_: component_type,
-                            value: component_value,
-                        })
-                        .collect(),
-                };
+                return constructor;
             }
             if builtins::is_package_constant(&canonical_value) {
                 let type_ = builtins::package_constant_type_name(&canonical_value)
