@@ -5,7 +5,7 @@ Close an open `File` resource and release its operating-system handle
 ## Synopsis
 
 ```
-fs::close(file AS File) AS Nothing
+fs::close(file AS fs::File) AS Nothing
 ```
 
 ## Package

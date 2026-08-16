@@ -89,7 +89,7 @@ SUB main()
   LET note = AudioNote[440.0, 48000, env, 0.8]
   LET tone = audio::render(note)
 
-  RES out AS AudioOutput = audio::openOutput(48000, 1, 512)
+  RES out AS audio::AudioOutput = audio::openOutput(48000, 1, 512)
   audio::write(out, tone)
   audio::close(out)
 END SUB

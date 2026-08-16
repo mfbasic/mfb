@@ -5,7 +5,7 @@ Queue raw `s16le` PCM to an output stream, blocking until every byte is enqueued
 ## Synopsis
 
 ```
-audio::write(output AS AudioOutput, bytes AS List OF Byte) AS Nothing
+audio::write(output AS audio::AudioOutput, bytes AS List OF Byte) AS Nothing
 ```
 
 ## Package
@@ -94,7 +94,7 @@ Open a stereo output at 48 kHz and play a buffer of PCM:
 IMPORT audio
 
 SUB main()
-  RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
+  RES out AS audio::AudioOutput = audio::openOutput(48000, 2, 512)
   LET pcm AS List OF Byte = [0, 0, 0, 0]
   audio::write(out, pcm)
   audio::close(out)

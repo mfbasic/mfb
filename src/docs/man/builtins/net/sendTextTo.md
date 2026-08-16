@@ -5,7 +5,7 @@ Send a single UDP datagram of UTF-8 text to a destination address.
 ## Synopsis
 
 ```
-net::sendTextTo(sock AS UdpSocket, address AS Address, value AS String) AS Nothing
+net::sendTextTo(sock AS net::UdpSocket, address AS Address, value AS String) AS Nothing
 ```
 
 ## Package
@@ -109,7 +109,7 @@ Echo received text back to its sender:
 ```
 IMPORT net
 
-FUNC echoOne(RES sock AS UdpSocket) AS Integer
+FUNC echoOne(RES sock AS net::UdpSocket) AS Integer
   LET dg = net::receiveTextFrom(sock, 1024)
   net::sendTextTo(sock, dg.from, dg.value)
   RETURN len(dg.value)

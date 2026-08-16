@@ -5,7 +5,7 @@ Write all of a `String` to an open `File` as UTF-8 text
 ## Synopsis
 
 ```
-fs::writeAll(file AS File, value AS String) AS Nothing
+fs::writeAll(file AS fs::File, value AS String) AS Nothing
 ```
 
 ## Package

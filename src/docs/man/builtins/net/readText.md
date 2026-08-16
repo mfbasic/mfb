@@ -5,7 +5,7 @@ Read available bytes from a connected socket as UTF-8 text.
 ## Synopsis
 
 ```
-net::readText(sock AS Socket, maxBytes AS Integer) AS String
+net::readText(sock AS net::Socket, maxBytes AS Integer) AS String
 ```
 
 ## Package
@@ -103,7 +103,7 @@ Report the error code when a read times out:
 IMPORT net
 IMPORT io
 
-FUNC readOrCode(RES sock AS Socket) AS String
+FUNC readOrCode(RES sock AS net::Socket) AS String
   RETURN net::readText(sock, 64)
   TRAP(e)
     RETURN toString(e.code)

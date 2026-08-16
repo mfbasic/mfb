@@ -5,7 +5,7 @@ Write a `List OF Byte` to an open `File`
 ## Synopsis
 
 ```
-fs::writeAllBytes(file AS File, bytes AS List OF Byte) AS Nothing
+fs::writeAllBytes(file AS fs::File, bytes AS List OF Byte) AS Nothing
 ```
 
 ## Package

@@ -5,8 +5,8 @@ Frames an open stream can move immediately without blocking.
 ## Synopsis
 
 ```
-audio::available(stream AS AudioInput) AS Integer
-audio::available(stream AS AudioOutput) AS Integer
+audio::available(stream AS audio::AudioInput) AS Integer
+audio::available(stream AS audio::AudioOutput) AS Integer
 ```
 
 ## Package
@@ -55,11 +55,11 @@ a host without alsa-lib, but a call to `available` there raises
 
 ## Overloads
 
-**`audio::available(stream AS AudioInput)`**
+**`audio::available(stream AS audio::AudioInput)`**
 
 Frames currently readable from the capture stream without blocking. [[src/builtins/audio.rs:AUDIO]]
 
-**`audio::available(stream AS AudioOutput)`**
+**`audio::available(stream AS audio::AudioOutput)`**
 
 Frames writable to the playback stream before `audio::write` would block. Both
 overloads share one internal body; the direction is read from the handle at
@@ -91,7 +91,7 @@ Read exactly what is available, without blocking:
 IMPORT audio
 
 SUB main()
-  RES mic AS AudioInput = audio::openInput(48000, 1, 512)
+  RES mic AS audio::AudioInput = audio::openInput(48000, 1, 512)
   LET n = audio::available(mic)
   IF n > 0 THEN
     LET pcm = audio::read(mic, n)
@@ -106,7 +106,7 @@ Write only as much as the output can accept right now:
 IMPORT audio
 
 SUB main()
-  RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
+  RES out AS audio::AudioOutput = audio::openOutput(48000, 2, 512)
   LET pcm AS List OF Byte = [0, 0, 0, 0]
   IF audio::available(out) > 0 THEN
     audio::write(out, pcm)

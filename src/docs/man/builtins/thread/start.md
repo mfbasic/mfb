@@ -150,8 +150,8 @@ IMPORT fs
 IMPORT thread_file_sink
 
 FUNC main AS Integer
-  LET t AS Thread OF RES File TO Integer = thread::start(thread_file_sink::sizeOfReceived, "seed")
-  RES f AS File = fs::openFile("data/input.txt")
+  LET t AS Thread OF RES fs::File TO Integer = thread::start(thread_file_sink::sizeOfReceived, "seed")
+  RES f AS fs::File = fs::openFile("data/input.txt")
   thread::transfer(t, f)
   LET size AS Integer = thread::waitFor(t)
   RETURN 0

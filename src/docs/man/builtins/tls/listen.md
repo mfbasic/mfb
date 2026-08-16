@@ -5,8 +5,8 @@ Bind a local port and load a server certificate to terminate TLS.
 ## Synopsis
 
 ```
-tls::listen(host AS String, port AS Integer, certPath AS String, keyPath AS String) AS TlsListener
-tls::listen(host AS String, port AS Integer, certPath AS String, keyPath AS String, backlog AS Integer) AS TlsListener
+tls::listen(host AS String, port AS Integer, certPath AS String, keyPath AS String) AS tls::TlsListener
+tls::listen(host AS String, port AS Integer, certPath AS String, keyPath AS String, backlog AS Integer) AS tls::TlsListener
 ```
 
 ## Package
@@ -59,11 +59,11 @@ with `tls::close`. Draw connections from a listener with `tls::accept`.
 
 ## Overloads
 
-**`tls::listen(host AS String, port AS Integer, certPath AS String, keyPath AS String) AS TlsListener`**
+**`tls::listen(host AS String, port AS Integer, certPath AS String, keyPath AS String) AS tls::TlsListener`**
 
 Binds `host`/`port` with the host default backlog and loads the identity.
 
-**`tls::listen(host AS String, port AS Integer, certPath AS String, keyPath AS String, backlog AS Integer) AS TlsListener`**
+**`tls::listen(host AS String, port AS Integer, certPath AS String, keyPath AS String, backlog AS Integer) AS tls::TlsListener`**
 
 As above, with an explicit pending-connection `backlog` hint (`0` uses the host
 default). [[src/builtins/tls.rs:TLS]]

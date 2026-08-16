@@ -5,9 +5,9 @@ Report the local endpoint bound to a network resource.
 ## Synopsis
 
 ```
-net::localAddress(sock AS Socket) AS Address
-net::localAddress(listener AS Listener) AS Address
-net::localAddress(sock AS UdpSocket) AS Address
+net::localAddress(sock AS net::Socket) AS Address
+net::localAddress(listener AS net::Listener) AS Address
+net::localAddress(sock AS net::UdpSocket) AS Address
 ```
 
 ## Package
@@ -49,16 +49,16 @@ because only a connected socket has a peer.
 
 ## Overloads
 
-**`net::localAddress(sock AS Socket) AS Address`**
+**`net::localAddress(sock AS net::Socket) AS Address`**
 
 Reports the local endpoint of a connected TCP socket, including the local port
 the host assigned to an outbound connection.
 
-**`net::localAddress(listener AS Listener) AS Address`**
+**`net::localAddress(listener AS net::Listener) AS Address`**
 
 Reports the endpoint a TCP listener is accepting on.
 
-**`net::localAddress(sock AS UdpSocket) AS Address`**
+**`net::localAddress(sock AS net::UdpSocket) AS Address`**
 
 Reports the endpoint a UDP socket is bound to.
 

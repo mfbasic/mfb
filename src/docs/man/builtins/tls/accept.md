@@ -5,8 +5,8 @@ Accept one inbound connection and complete the server-side TLS handshake.
 ## Synopsis
 
 ```
-tls::accept(listener AS TlsListener) AS TlsSocket
-tls::accept(listener AS TlsListener, timeoutMs AS Integer) AS TlsSocket
+tls::accept(listener AS tls::TlsListener) AS tls::TlsSocket
+tls::accept(listener AS tls::TlsListener, timeoutMs AS Integer) AS tls::TlsSocket
 ```
 
 ## Package
@@ -53,11 +53,11 @@ client certificate (no mutual TLS). [[src/builtins/tls.rs:consumes_argument]]
 
 ## Overloads
 
-**`tls::accept(listener AS TlsListener) AS TlsSocket`**
+**`tls::accept(listener AS tls::TlsListener) AS tls::TlsSocket`**
 
 Blocks until a connection is ready and the handshake completes.
 
-**`tls::accept(listener AS TlsListener, timeoutMs AS Integer) AS TlsSocket`**
+**`tls::accept(listener AS tls::TlsListener, timeoutMs AS Integer) AS tls::TlsSocket`**
 
 As above, but fails with `ErrTimeout` if a connection and handshake do not
 complete within `timeoutMs` milliseconds. [[src/builtins/tls.rs:TLS]]

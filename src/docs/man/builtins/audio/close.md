@@ -5,8 +5,8 @@ Close an audio stream and release its operating-system resources, consuming the 
 ## Synopsis
 
 ```
-audio::close(stream AS AudioInput) AS Nothing
-audio::close(stream AS AudioOutput) AS Nothing
+audio::close(stream AS audio::AudioInput) AS Nothing
+audio::close(stream AS audio::AudioOutput) AS Nothing
 ```
 
 ## Package
@@ -98,14 +98,14 @@ no alsa-lib at all.
 
 ## Overloads
 
-**`audio::close(stream AS AudioInput)`**
+**`audio::close(stream AS audio::AudioInput)`**
 
 Close a capture stream. Any buffered capture is dropped immediately; the stream
 is not drained, so the call does not block. Lowers to the internal
 `audio.closeInput` body and its own symbol, using `snd_pcm_drop` on Linux.
 [[src/builtins/audio.rs:implementation_name]][[src/target/shared/code/audio/macos.rs:lower_close_input]][[src/target/shared/code/audio/alsa.rs:lower_close]]
 
-**`audio::close(stream AS AudioOutput)`**
+**`audio::close(stream AS audio::AudioOutput)`**
 
 Close a playback stream. Queued playback is drained to completion before
 teardown, so the call blocks until the audio already written has finished
@@ -139,7 +139,7 @@ Close an output stream explicitly after playback:
 IMPORT audio
 
 SUB main()
-  RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
+  RES out AS audio::AudioOutput = audio::openOutput(48000, 2, 512)
   LET pcm AS List OF Byte = [0, 0, 0, 0]
   audio::write(out, pcm)
   audio::close(out)
@@ -152,7 +152,7 @@ Close a capture stream, dropping any buffered audio:
 IMPORT audio
 
 SUB main()
-  RES mic AS AudioInput = audio::openInput(48000, 1, 512)
+  RES mic AS audio::AudioInput = audio::openInput(48000, 1, 512)
   LET pcm = audio::read(mic, 480)
   audio::close(mic)
 END SUB

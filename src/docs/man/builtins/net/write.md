@@ -5,7 +5,7 @@ Write bytes to a connected socket.
 ## Synopsis
 
 ```
-net::write(sock AS Socket, bytes AS List OF Byte) AS Nothing
+net::write(sock AS net::Socket, bytes AS List OF Byte) AS Nothing
 ```
 
 ## Package
@@ -94,7 +94,7 @@ Echo one chunk back to the peer that sent it:
 ```
 IMPORT net
 
-FUNC echoOnce(RES peer AS Socket) AS Integer
+FUNC echoOnce(RES peer AS net::Socket) AS Integer
   LET chunk = net::read(peer, 4096)
   net::write(peer, chunk)
   RETURN len(chunk)

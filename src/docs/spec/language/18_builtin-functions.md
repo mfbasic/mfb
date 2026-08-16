@@ -131,9 +131,9 @@ freedom is whether a given function is a *readiness query* or a *producing call*
   `tls::poll` (scalar `TlsSocket → Boolean` form), `audio::poll`, `io::pollInput`.
 - A **producing call** yields a resource, message, connection, or bytes and has
   no not-ready value, so an unmet deadline is an error: `net::accept`,
-  `net::connectTcp`, `net::poll` (the multiplex `List OF RES Socket → Socket`
+  `net::connectTcp`, `net::poll` (the multiplex `List OF RES net::Socket → Socket`
   form, which yields the first ready socket), `tls::poll` (the multiplex
-  `List OF RES TlsSocket → TlsSocket` form), `net::read`/`readText`/`write`/`writeText`
+  `List OF RES tls::TlsSocket → TlsSocket` form), `net::read`/`readText`/`write`/`writeText`
   (under a socket read/write timeout), `tls::connect`, `tls::accept`, `audio::read`,
   `thread::send`, `thread::receive`, `thread::transfer`, `thread::accept`.
 - **Expiry raises exactly one error, `ErrTimeout` (77050008)**, for every

@@ -5,8 +5,8 @@ Open a TCP listening socket bound to a local address.
 ## Synopsis
 
 ```
-net::listenTcp(host AS String, port AS Integer) AS Listener
-net::listenTcp(host AS String, port AS Integer, backlog AS Integer) AS Listener
+net::listenTcp(host AS String, port AS Integer) AS net::Listener
+net::listenTcp(host AS String, port AS Integer, backlog AS Integer) AS net::Listener
 ```
 
 ## Package
@@ -58,11 +58,11 @@ results are released before the error is raised.
 
 ## Overloads
 
-**`net::listenTcp(host AS String, port AS Integer) AS Listener`**
+**`net::listenTcp(host AS String, port AS Integer) AS net::Listener`**
 
 Binds `host` on `port` and listens with the default backlog of `128`.
 
-**`net::listenTcp(host AS String, port AS Integer, backlog AS Integer) AS Listener`**
+**`net::listenTcp(host AS String, port AS Integer, backlog AS Integer) AS net::Listener`**
 
 Binds `host` on `port` and listens with the given backlog hint.
 

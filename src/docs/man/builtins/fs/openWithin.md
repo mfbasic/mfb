@@ -5,8 +5,8 @@ Open a file resolved beneath a trusted root directory, refusing any escape
 ## Synopsis
 
 ```
-fs::openWithin(root AS String, relPath AS String) AS File
-fs::openWithin(root AS String, relPath AS String, mode AS String) AS File
+fs::openWithin(root AS String, relPath AS String) AS fs::File
+fs::openWithin(root AS String, relPath AS String, mode AS String) AS fs::File
 ```
 
 ## Package
@@ -79,14 +79,14 @@ it leaves scope, or explicitly with `fs::close`.
 
 ## Overloads
 
-**`fs::openWithin(root AS String, relPath AS String) AS File`**
+**`fs::openWithin(root AS String, relPath AS String) AS fs::File`**
 
 Opens `relPath` beneath `root` for reading. Equivalent to calling the
 three-argument overload with `mode` set to `"read"`; the implicit mode is
 appended before lowering.
 [[src/target/shared/nir/lower.rs:apply_default_args]]
 
-**`fs::openWithin(root AS String, relPath AS String, mode AS String) AS File`**
+**`fs::openWithin(root AS String, relPath AS String, mode AS String) AS fs::File`**
 
 Opens `relPath` beneath `root` using the explicitly named access mode.
 [[src/builtins/fs.rs:OPEN_WITHIN]]
@@ -125,7 +125,7 @@ IMPORT fs
 
 SUB main()
   LET userName AS String = "alice.txt"
-  RES f AS File = fs::openWithin("/srv/data", userName)
+  RES f AS fs::File = fs::openWithin("/srv/data", userName)
   fs::close(f)
 END SUB
 ```
@@ -138,7 +138,7 @@ IMPORT errorCode
 IMPORT io
 
 SUB main()
-  RES f AS File = fs::openWithin("/srv/data", "../../etc/passwd") TRAP(e)
+  RES f AS fs::File = fs::openWithin("/srv/data", "../../etc/passwd") TRAP(e)
     io::print(toString(e.code = errorCode::ErrInvalidArgument))
     EXIT SUB
   END TRAP
@@ -151,7 +151,7 @@ Write beneath the root; a symlinked component makes the open fail:
 IMPORT fs
 
 SUB main()
-  RES w AS File = fs::openWithin("/srv/data", "reports/today.txt", "write")
+  RES w AS fs::File = fs::openWithin("/srv/data", "reports/today.txt", "write")
   fs::writeAll(w, "hello")
   fs::close(w)
 END SUB

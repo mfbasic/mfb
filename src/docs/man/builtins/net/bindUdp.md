@@ -5,7 +5,7 @@ Open a UDP datagram socket bound to a local address.
 ## Synopsis
 
 ```
-net::bindUdp(host AS String, port AS Integer) AS UdpSocket
+net::bindUdp(host AS String, port AS Integer) AS net::UdpSocket
 ```
 
 ## Package

@@ -5,7 +5,7 @@ Write a String to a connected socket as UTF-8 text.
 ## Synopsis
 
 ```
-net::writeText(sock AS Socket, value AS String) AS Nothing
+net::writeText(sock AS net::Socket, value AS String) AS Nothing
 ```
 
 ## Package
@@ -92,7 +92,7 @@ Echo one chunk of text back to the peer that sent it:
 ```
 IMPORT net
 
-FUNC echoOnce(RES peer AS Socket) AS Integer
+FUNC echoOnce(RES peer AS net::Socket) AS Integer
   LET chunk = net::readText(peer, 4096)
   net::writeText(peer, chunk)
   RETURN len(chunk)

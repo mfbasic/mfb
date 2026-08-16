@@ -5,8 +5,8 @@ Open a file resource, defaulting to read mode when no mode is given
 ## Synopsis
 
 ```
-fs::openFile(path AS String) AS File
-fs::openFile(path AS String, mode AS String) AS File
+fs::openFile(path AS String) AS fs::File
+fs::openFile(path AS String, mode AS String) AS fs::File
 ```
 
 ## Package
@@ -66,13 +66,13 @@ resource. [[src/target/shared/code/fs/io.rs:lower_fs_open_helper]]
 
 ## Overloads
 
-**`fs::openFile(path AS String) AS File`**
+**`fs::openFile(path AS String) AS fs::File`**
 
 Opens `path` for reading. Equivalent to calling the two-argument overload with
 `mode` set to `"read"`; the implicit mode is appended before lowering.
 [[src/target/shared/nir/lower.rs:apply_default_args]]
 
-**`fs::openFile(path AS String, mode AS String) AS File`**
+**`fs::openFile(path AS String, mode AS String) AS fs::File`**
 
 Opens `path` using the explicitly named access mode.
 [[src/builtins/fs.rs:OPEN_FILE]]
@@ -109,7 +109,7 @@ Open a file for reading using the default mode:
 IMPORT fs
 
 SUB main()
-  RES f AS File = fs::openFile("data.txt")
+  RES f AS fs::File = fs::openFile("data.txt")
   fs::close(f)
 END SUB
 ```
@@ -120,7 +120,7 @@ Open a file for writing, truncating any previous contents:
 IMPORT fs
 
 SUB main()
-  RES w AS File = fs::openFile("out.txt", "write")
+  RES w AS fs::File = fs::openFile("out.txt", "write")
   fs::writeAll(w, "hello")
   fs::close(w)
 END SUB
@@ -132,7 +132,7 @@ Open a file for appending so each write lands at the end:
 IMPORT fs
 
 SUB main()
-  RES log AS File = fs::openFile("app.log", "a")
+  RES log AS fs::File = fs::openFile("app.log", "a")
   fs::writeAll(log, "started\n")
   fs::close(log)
 END SUB

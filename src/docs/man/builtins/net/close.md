@@ -5,9 +5,9 @@ Close a network resource and release its OS handle.
 ## Synopsis
 
 ```
-net::close(sock AS Socket) AS Nothing
-net::close(listener AS Listener) AS Nothing
-net::close(sock AS UdpSocket) AS Nothing
+net::close(sock AS net::Socket) AS Nothing
+net::close(listener AS net::Listener) AS Nothing
+net::close(sock AS net::UdpSocket) AS Nothing
 ```
 
 ## Package
@@ -63,16 +63,16 @@ unrelated file. [[src/target/shared/code/fs/io.rs:lower_fs_close_helper]]
 
 ## Overloads
 
-**`net::close(sock AS Socket) AS Nothing`**
+**`net::close(sock AS net::Socket) AS Nothing`**
 
 Closes a connected TCP socket, tearing down the connection.
 
-**`net::close(listener AS Listener) AS Nothing`**
+**`net::close(listener AS net::Listener) AS Nothing`**
 
 Closes a TCP listener, stopping further accepts. Sockets already accepted from
 it are unaffected and stay open.
 
-**`net::close(sock AS UdpSocket) AS Nothing`**
+**`net::close(sock AS net::UdpSocket) AS Nothing`**
 
 Closes a bound UDP socket, releasing its binding.
 

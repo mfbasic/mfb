@@ -5,9 +5,9 @@ Open a TLS connection to a host and verify its certificate.
 ## Synopsis
 
 ```
-tls::connect(host AS String, port AS Integer) AS TlsSocket
-tls::connect(host AS String, port AS Integer, timeoutMs AS Integer) AS TlsSocket
-tls::connect(host AS String, port AS Integer, timeoutMs AS Integer, serverName AS String) AS TlsSocket
+tls::connect(host AS String, port AS Integer) AS tls::TlsSocket
+tls::connect(host AS String, port AS Integer, timeoutMs AS Integer) AS tls::TlsSocket
+tls::connect(host AS String, port AS Integer, timeoutMs AS Integer, serverName AS String) AS tls::TlsSocket
 ```
 
 ## Package
@@ -67,16 +67,16 @@ required symbol is missing — `connect` raises `ErrTlsFailed`.
 
 ## Overloads
 
-**`tls::connect(host AS String, port AS Integer) AS TlsSocket`**
+**`tls::connect(host AS String, port AS Integer) AS tls::TlsSocket`**
 
 Blocks until connected + handshaken (omitted `timeoutMs` = unbounded), validating
 the certificate against `host`.
 
-**`tls::connect(host AS String, port AS Integer, timeoutMs AS Integer) AS TlsSocket`**
+**`tls::connect(host AS String, port AS Integer, timeoutMs AS Integer) AS tls::TlsSocket`**
 
 As above, bounded by a timeout in milliseconds (see Description).
 
-**`tls::connect(host AS String, port AS Integer, timeoutMs AS Integer, serverName AS String) AS TlsSocket`**
+**`tls::connect(host AS String, port AS Integer, timeoutMs AS Integer, serverName AS String) AS tls::TlsSocket`**
 
 As above, but validates the certificate against `serverName` and sends it as the
 SNI host name when `serverName` is non-empty. [[src/builtins/tls.rs:TLS]]

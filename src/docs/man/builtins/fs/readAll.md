@@ -5,7 +5,7 @@ Read all remaining text from an open `File` into a `String`
 ## Synopsis
 
 ```
-fs::readAll(file AS File) AS String
+fs::readAll(file AS fs::File) AS String
 ```
 
 ## Package

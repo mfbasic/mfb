@@ -7,10 +7,10 @@ Raw interleaved `s16le` PCM capture and playback
 ```
 IMPORT audio
 LET devices = audio::devices()
-RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
+RES out AS audio::AudioOutput = audio::openOutput(48000, 2, 512)
 audio::write(out, pcmBytes)
 audio::close(out)
-RES mic AS AudioInput = audio::openInput(48000, 1, 512)
+RES mic AS audio::AudioInput = audio::openInput(48000, 1, 512)
 LET frames = audio::read(mic, 4800)
 audio::close(mic)
 ```

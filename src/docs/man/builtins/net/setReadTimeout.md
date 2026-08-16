@@ -5,8 +5,8 @@ Bound how long a receive on a socket may block.
 ## Synopsis
 
 ```
-net::setReadTimeout(sock AS Socket, timeoutMs AS Integer) AS Nothing
-net::setReadTimeout(sock AS UdpSocket, timeoutMs AS Integer) AS Nothing
+net::setReadTimeout(sock AS net::Socket, timeoutMs AS Integer) AS Nothing
+net::setReadTimeout(sock AS net::UdpSocket, timeoutMs AS Integer) AS Nothing
 ```
 
 ## Package
@@ -58,11 +58,11 @@ timeout installed as a backstop.
 
 ## Overloads
 
-**`net::setReadTimeout(sock AS Socket, timeoutMs AS Integer) AS Nothing`**
+**`net::setReadTimeout(sock AS net::Socket, timeoutMs AS Integer) AS Nothing`**
 
 Bounds `net::read` and `net::readText` on a connected TCP socket.
 
-**`net::setReadTimeout(sock AS UdpSocket, timeoutMs AS Integer) AS Nothing`**
+**`net::setReadTimeout(sock AS net::UdpSocket, timeoutMs AS Integer) AS Nothing`**
 
 Bounds `net::receiveFrom` and `net::receiveTextFrom` on a bound UDP socket.
 

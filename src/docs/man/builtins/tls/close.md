@@ -5,8 +5,8 @@ Close a TLS socket or listener and release its OS handle.
 ## Synopsis
 
 ```
-tls::close(sock AS TlsSocket) AS Nothing
-tls::close(listener AS TlsListener) AS Nothing
+tls::close(sock AS tls::TlsSocket) AS Nothing
+tls::close(listener AS tls::TlsListener) AS Nothing
 ```
 
 ## Package

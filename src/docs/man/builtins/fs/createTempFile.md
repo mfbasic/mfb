@@ -5,8 +5,8 @@ Securely create and open a unique, freshly named temporary file
 ## Synopsis
 
 ```
-fs::createTempFile() AS File
-fs::createTempFile(directory AS String) AS File
+fs::createTempFile() AS fs::File
+fs::createTempFile(directory AS String) AS fs::File
 ```
 
 ## Package
@@ -63,12 +63,12 @@ removing it is the caller's responsibility, for example with `fs::deleteFile`.
 
 ## Overloads
 
-**`fs::createTempFile() AS File`**
+**`fs::createTempFile() AS fs::File`**
 
 Creates the temporary file in the host temporary directory reported by
 `fs::tempDirectory`.
 
-**`fs::createTempFile(directory AS String) AS File`**
+**`fs::createTempFile(directory AS String) AS fs::File`**
 
 Creates the temporary file inside `directory` instead of the host temporary
 directory.

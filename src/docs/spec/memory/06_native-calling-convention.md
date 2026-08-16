@@ -87,7 +87,7 @@ composite types collapse to it: `String`, `Error`, every `List OF …`, `Map OF 
 `MapEntry OF …`, `Result OF …`, `Thread OF …`/`ThreadWorker OF …`, `FUNC(…)` /
 `ISOLATED FUNC(…)` closure types, the file/dir resource handles, and any
 user-declared record or union name. [[src/target/shared/plan/lower.rs:is_reference_type]] [[src/target/shared/plan/lower.rs:is_user_type_name]] A resource value (optionally
-`RES`-marked, e.g. `RES File`) is also a `Reference` — a pointer to its backing
+`RES`-marked, e.g. `RES fs::File`) is also a `Reference` — a pointer to its backing
 record — and an unknown type is a hard error. The byte layouts behind a
 `Reference` are owned by `./mfb spec memory heap-values`.
 

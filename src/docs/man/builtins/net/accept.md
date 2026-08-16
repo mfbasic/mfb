@@ -5,8 +5,8 @@ Accept the next pending connection on a TCP listener.
 ## Synopsis
 
 ```
-net::accept(listener AS Listener) AS Socket
-net::accept(listener AS Listener, timeoutMs AS Integer) AS Socket
+net::accept(listener AS net::Listener) AS net::Socket
+net::accept(listener AS net::Listener, timeoutMs AS Integer) AS net::Socket
 ```
 
 ## Package
@@ -62,12 +62,12 @@ earlier with `net::close`. Read and write it with `net::read`, `net::readText`,
 
 ## Overloads
 
-**`net::accept(listener AS Listener) AS Socket`**
+**`net::accept(listener AS net::Listener) AS net::Socket`**
 
 Blocks until a client connects and returns the connected `Socket` (omitted
 `timeoutMs` = unbounded wait).
 
-**`net::accept(listener AS Listener, timeoutMs AS Integer) AS Socket`**
+**`net::accept(listener AS net::Listener, timeoutMs AS Integer) AS net::Socket`**
 
 Waits at most `timeoutMs` milliseconds for a pending connection and raises
 `ErrTimeout` if none arrives. `0` is one immediate attempt (`ErrTimeout` when no

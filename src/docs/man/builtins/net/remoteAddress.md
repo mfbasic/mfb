@@ -5,7 +5,7 @@ Report the peer endpoint of a connected TCP socket.
 ## Synopsis
 
 ```
-net::remoteAddress(sock AS Socket) AS Address
+net::remoteAddress(sock AS net::Socket) AS Address
 ```
 
 ## Package

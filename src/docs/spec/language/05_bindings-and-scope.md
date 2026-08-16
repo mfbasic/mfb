@@ -14,7 +14,7 @@ LET x = 10
 MUT total AS Float = 0.0
 total = total + 1         ' OK
 ' x = 5                   ' ERROR: x is immutable
-RES f AS File = fs::open("app.db", "read")   ' a resource is bound with RES
+RES f AS fs::File = fs::open("app.db", "read")   ' a resource is bound with RES
 ```
 
 The binding keyword is **required and enforced**; it *surfaces* a type property,
@@ -25,10 +25,10 @@ it does not choose it:
 - `RES` binds **only** resources; `RES` on copyable data is an error
   (`TYPE_RES_REQUIRES_RESOURCE`).
 - A resource appears only in `RES` positions — binding, parameter (`RES f AS
-  File`), and return (`AS RES File`) — and **never inside a data type**: a record
+  File`), and return (`AS RES fs::File`) — and **never inside a data type**: a record
   field of a resource type is an error (`TYPE_RESOURCE_FIELD_FORBIDDEN`).
 - A `RES` binding may carry a copyable, defaultable data `STATE` (§15):
-  `RES f AS File STATE FileState = …`.
+  `RES f AS fs::File STATE FileState = …`.
 
 Rules:
 

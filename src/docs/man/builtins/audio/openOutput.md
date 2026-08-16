@@ -5,8 +5,8 @@ Open a playback stream and return an `AudioOutput` handle.
 ## Synopsis
 
 ```
-audio::openOutput(sampleRate AS Integer, channels AS Integer, bufferFrames AS Integer) AS AudioOutput
-audio::openOutput(device AS AudioDevice, sampleRate AS Integer, channels AS Integer, bufferFrames AS Integer) AS AudioOutput
+audio::openOutput(sampleRate AS Integer, channels AS Integer, bufferFrames AS Integer) AS audio::AudioOutput
+audio::openOutput(device AS AudioDevice, sampleRate AS Integer, channels AS Integer, bufferFrames AS Integer) AS audio::AudioOutput
 ```
 
 ## Package
@@ -105,7 +105,7 @@ Open the default mono output at 48 kHz and play a short MML tune:
 IMPORT audio
 
 SUB main()
-  RES out AS AudioOutput = audio::openOutput(48000, 1, 512)
+  RES out AS audio::AudioOutput = audio::openOutput(48000, 1, 512)
   audio::play(out, "T120 O4 L8 I sine C E G")
   audio::close(out)
 END SUB
@@ -119,7 +119,7 @@ IMPORT audio
 SUB main()
   FOR EACH d IN audio::devices()
     IF d.isDefaultOutput THEN
-      RES out AS AudioOutput = audio::openOutput(d, 48000, 2, 512)
+      RES out AS audio::AudioOutput = audio::openOutput(d, 48000, 2, 512)
       audio::play(out, "cde")
       audio::close(out)
     END IF

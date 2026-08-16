@@ -336,7 +336,7 @@ the 64 MiB cap → `413`.
 | `http::json(body AS String) AS Response` | `200` application/json |
 | `http::withHeader(resp, name, value) AS Response` | copy with one header set |
 | `http::bytes(text AS String) AS List OF Byte` | UTF-8 encode into a body |
-| `http::respondFile(file AS RES File, contentType AS String = "") AS Response` | serve an open file, closing it |
+| `http::respondFile(file AS RES fs::File, contentType AS String = "") AS Response` | serve an open file, closing it |
 | `http::respondPath(req, root AS String) AS Response` | serve a request path safely under `root` |
 
 `http::Response` is immutable in place (MFBASIC has no field-target assignment),

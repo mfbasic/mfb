@@ -105,12 +105,12 @@ scope-ownership transfers across a function boundary.
 
 | Position | Canonical form | Notes |
 |----------|----------------|-------|
-| List element | `List OF RES File` | `RES` consumed only for `List`, not `Result` |
-| Map value | `Map OF K TO RES File` | prefix sits after `" TO "` |
+| List element | `List OF RES fs::File` | `RES` consumed only for `List`, not `Result` |
+| Map value | `Map OF K TO RES fs::File` | prefix sits after `" TO "` |
 | Thread resource plane | `Thread OF Msg RES Res TO Out` | infix `RES` clause |
 
 `parse_type_name` accepts `RES` only after `List OF` and after `Map ... TO`. The
-`Result` base does *not* consume `RES`, so `Result OF RES File` is a parse error
+`Result` base does *not* consume `RES`, so `Result OF RES fs::File` is a parse error
 (`MFB_PARSE_INVALID_IDENTIFIER`), consistent with the table above. Consumers strip it with
 `strip_prefix("RES ").unwrap_or(...)` before resolving the underlying type.
 [[src/ast/expr.rs:parse_type_name]] [[src/resolver/resolution.rs:resolve_type_name]]
@@ -121,9 +121,9 @@ A `RES` collection element or map value may carry a trailing ` STATE T` clause �
 a stateful resource (typically a resource union with a uniform state type across
 its variants, [language resource-management](./mfb spec language
 resource-management) §15.6) — folded into the element type string
-(`List OF RES File STATE Cursor`, `Map OF K TO RES File STATE Cursor`). This
+(`List OF RES fs::File STATE Cursor`, `Map OF K TO RES fs::File STATE Cursor`). This
 mirrors the thread resource plane, whose `RES` element folds the same clause
-(`Thread OF RES File STATE Cursor TO Out`) via `parse_resource_plane_type`. The
+(`Thread OF RES fs::File STATE Cursor TO Out`) via `parse_resource_plane_type`. The
 STATE rides the *element* (not the binding), so an extracted element reads
 `.state` against `T`. A `STATE` clause is a parse error after a **non-`RES`**
 element (a `STATE` is only meaningful on a resource).

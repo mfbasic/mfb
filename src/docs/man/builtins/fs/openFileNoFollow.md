@@ -5,8 +5,8 @@ Open a file, refusing to traverse a symbolic link at any path component
 ## Synopsis
 
 ```
-fs::openFileNoFollow(path AS String) AS File
-fs::openFileNoFollow(path AS String, mode AS String) AS File
+fs::openFileNoFollow(path AS String) AS fs::File
+fs::openFileNoFollow(path AS String, mode AS String) AS fs::File
 ```
 
 ## Package
@@ -81,14 +81,14 @@ resource. [[src/target/shared/code/fs/io.rs:lower_fs_open_helper]]
 
 ## Overloads
 
-**`fs::openFileNoFollow(path AS String) AS File`**
+**`fs::openFileNoFollow(path AS String) AS fs::File`**
 
 Opens `path` for reading, refusing a symlink at any component. Equivalent to
 calling the two-argument overload with `mode` set to `"read"`; the implicit mode
 is appended before lowering.
 [[src/target/shared/nir/lower.rs:apply_default_args]]
 
-**`fs::openFileNoFollow(path AS String, mode AS String) AS File`**
+**`fs::openFileNoFollow(path AS String, mode AS String) AS fs::File`**
 
 Opens `path` using the explicitly named access mode, refusing a symlink at any
 component. [[src/builtins/fs.rs:OPEN_FILE_NO_FOLLOW]]
@@ -125,7 +125,7 @@ Open a file for reading using the default mode, refusing a symlinked path:
 IMPORT fs
 
 SUB main()
-  RES f AS File = fs::openFileNoFollow("data.txt")
+  RES f AS fs::File = fs::openFileNoFollow("data.txt")
   fs::close(f)
 END SUB
 ```
@@ -136,7 +136,7 @@ Open a file for writing; the open fails if any component of the path is a symlin
 IMPORT fs
 
 SUB main()
-  RES w AS File = fs::openFileNoFollow("out.txt", "write")
+  RES w AS fs::File = fs::openFileNoFollow("out.txt", "write")
   fs::writeAll(w, "hello")
   fs::close(w)
 END SUB
@@ -148,7 +148,7 @@ Open a file for appending so each write lands at the end:
 IMPORT fs
 
 SUB main()
-  RES log AS File = fs::openFileNoFollow("app.log", "a")
+  RES log AS fs::File = fs::openFileNoFollow("app.log", "a")
   fs::writeAll(log, "started\n")
   fs::close(log)
 END SUB

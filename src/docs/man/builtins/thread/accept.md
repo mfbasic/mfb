@@ -37,8 +37,8 @@ thread never re-reads its own transfer.
 
 The return type is the plane's element type, taken structurally from the handle's
 `RES` clause. Where the plane declares a state
-(`Thread OF RES File STATE Cursor TO Out`), `accept` returns `File STATE Cursor`,
-so the receiver binds `RES f AS File STATE Cursor` by agreement and a different
+(`Thread OF RES fs::File STATE Cursor TO Out`), `accept` returns `File STATE Cursor`,
+so the receiver binds `RES f AS fs::File STATE Cursor` by agreement and a different
 `STATE` is rejected; on a bare plane it returns a bare resource and attaching a
 `STATE` to that binding is the ordinary attach. The `STATE` payload arrives with
 the resource, deep-copied into the receiving thread's arena, so the accepted
@@ -128,8 +128,8 @@ Worker-side: accept a file the parent transferred, then use it:
 IMPORT thread
 IMPORT fs
 
-ISOLATED FUNC sizeOfReceived(t AS ThreadWorker OF RES File TO Integer, seed AS String) AS Integer
-  RES f AS File = thread::accept(t, 1000)
+ISOLATED FUNC sizeOfReceived(t AS ThreadWorker OF RES fs::File TO Integer, seed AS String) AS Integer
+  RES f AS fs::File = thread::accept(t, 1000)
   RETURN len(fs::readAll(f))
 END FUNC
 ```
@@ -142,10 +142,10 @@ IMPORT fs
 IMPORT xfer_bidi_worker
 
 FUNC main AS Integer
-  LET t AS Thread OF RES File TO Integer = thread::start(xfer_bidi_worker::exchange, "seed")
-  RES pf AS File = fs::openFile("data/parent.txt")
+  LET t AS Thread OF RES fs::File TO Integer = thread::start(xfer_bidi_worker::exchange, "seed")
+  RES pf AS fs::File = fs::openFile("data/parent.txt")
   thread::transfer(t, pf)
-  RES wf AS File = thread::accept(t)
+  RES wf AS fs::File = thread::accept(t)
   LET size AS Integer = len(fs::readAll(wf))
   fs::close(wf)
   RETURN thread::waitFor(t)
@@ -162,8 +162,8 @@ TYPE Cursor
   pos AS Integer
 END TYPE
 
-ISOLATED FUNC takeCursor(t AS ThreadWorker OF RES File STATE Cursor TO Integer, seed AS String) AS Integer
-  RES f AS File STATE Cursor = thread::accept(t, 1000)
+ISOLATED FUNC takeCursor(t AS ThreadWorker OF RES fs::File STATE Cursor TO Integer, seed AS String) AS Integer
+  RES f AS fs::File STATE Cursor = thread::accept(t, 1000)
   LET pos AS Integer = f.state.pos
   fs::close(f)
   RETURN pos

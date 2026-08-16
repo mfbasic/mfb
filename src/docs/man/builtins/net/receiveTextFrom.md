@@ -5,7 +5,7 @@ Receive a single UDP datagram as UTF-8 text together with its sender address.
 ## Synopsis
 
 ```
-net::receiveTextFrom(sock AS UdpSocket, maxBytes AS Integer) AS DatagramText
+net::receiveTextFrom(sock AS net::UdpSocket, maxBytes AS Integer) AS DatagramText
 ```
 
 ## Package
@@ -107,7 +107,7 @@ Bound the wait and report the error code on a timeout:
 ```
 IMPORT net
 
-FUNC recvOrCode(RES s AS UdpSocket) AS String
+FUNC recvOrCode(RES s AS net::UdpSocket) AS String
   LET dg = net::receiveTextFrom(s, 512)
   RETURN dg.value
   TRAP(e)

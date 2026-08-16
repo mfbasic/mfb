@@ -5,8 +5,8 @@ Serve the whole contents of an open `File` as a `200` response, consuming the ha
 ## Synopsis
 
 ```
-http::respondFile(file AS File) AS Response
-http::respondFile(file AS File, contentType AS String) AS Response
+http::respondFile(file AS fs::File) AS Response
+http::respondFile(file AS fs::File, contentType AS String) AS Response
 ```
 
 ## Package
@@ -59,14 +59,14 @@ type from the extension, and then calls this function.
 
 ## Overloads
 
-**`http::respondFile(file AS File) AS Response`**
+**`http::respondFile(file AS fs::File) AS Response`**
 
 Serves `file` with the content type `application/octet-stream`. This is not a
 separate implementation: the missing argument is filled in as the empty string
 during lowering, and an empty `contentType` is what selects the default.
 [[src/builtins/http.rs:default_argument_padding]]
 
-**`http::respondFile(file AS File, contentType AS String) AS Response`**
+**`http::respondFile(file AS fs::File, contentType AS String) AS Response`**
 
 Serves `file` with `contentType` as the `content-type` header value, stored
 lowercased under the key `content-type`. Passing `""` explicitly is identical to
@@ -106,7 +106,7 @@ IMPORT fs
 IMPORT http
 
 FUNC page(req AS http::Request) AS http::Response
-  RES f AS File = fs::openFile("./public/page.html")
+  RES f AS fs::File = fs::openFile("./public/page.html")
   RETURN http::respondFile(f, "text/html; charset=utf-8")
 END FUNC
 ```
@@ -118,7 +118,7 @@ IMPORT fs
 IMPORT http
 
 FUNC download(req AS http::Request) AS http::Response
-  RES f AS File = fs::openFile("./data/report.bin")
+  RES f AS fs::File = fs::openFile("./data/report.bin")
   RETURN http::respondFile(f)
 END FUNC
 ```
@@ -133,7 +133,7 @@ FUNC maybe(req AS http::Request) AS http::Response
   IF fs::fileExists("./public/page.html") = FALSE THEN
     RETURN http::status(404, "Not Found")
   END IF
-  RES f AS File = fs::openFile("./public/page.html")
+  RES f AS fs::File = fs::openFile("./public/page.html")
   RETURN http::respondFile(f, "text/html; charset=utf-8")
 END FUNC
 ```

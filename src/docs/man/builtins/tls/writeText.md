@@ -5,7 +5,7 @@ Send a `String` as UTF-8 text over a connected TLS socket.
 ## Synopsis
 
 ```
-tls::writeText(sock AS TlsSocket, value AS String) AS Nothing
+tls::writeText(sock AS tls::TlsSocket, value AS String) AS Nothing
 ```
 
 ## Package

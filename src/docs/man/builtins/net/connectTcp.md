@@ -5,10 +5,10 @@ Open a TCP connection to a host and port or to a resolved address.
 ## Synopsis
 
 ```
-net::connectTcp(host AS String, port AS Integer) AS Socket
-net::connectTcp(host AS String, port AS Integer, timeoutMs AS Integer) AS Socket
-net::connectTcp(address AS Address) AS Socket
-net::connectTcp(address AS Address, timeoutMs AS Integer) AS Socket
+net::connectTcp(host AS String, port AS Integer) AS net::Socket
+net::connectTcp(host AS String, port AS Integer, timeoutMs AS Integer) AS net::Socket
+net::connectTcp(address AS Address) AS net::Socket
+net::connectTcp(address AS Address, timeoutMs AS Integer) AS net::Socket
 ```
 
 ## Package
@@ -72,22 +72,22 @@ and write it with `net::read`, `net::readText`, `net::write`, and
 
 ## Overloads
 
-**`net::connectTcp(host AS String, port AS Integer) AS Socket`**
+**`net::connectTcp(host AS String, port AS Integer) AS net::Socket`**
 
 Resolves `host` and connects on `port`, blocking until the connection completes
 or the OS refuses it (omitted `timeoutMs` = unbounded).
 
-**`net::connectTcp(host AS String, port AS Integer, timeoutMs AS Integer) AS Socket`**
+**`net::connectTcp(host AS String, port AS Integer, timeoutMs AS Integer) AS net::Socket`**
 
 Resolves `host` and connects on `port`, failing with `ErrTimeout` if the attempt
 does not complete within `timeoutMs`.
 
-**`net::connectTcp(address AS Address) AS Socket`**
+**`net::connectTcp(address AS Address) AS net::Socket`**
 
 Connects to the `host` and `port` carried by `address`, blocking until the
 connection completes or the OS refuses it (omitted `timeoutMs` = unbounded). This is the form for an `Address` obtained from `net::lookup`.
 
-**`net::connectTcp(address AS Address, timeoutMs AS Integer) AS Socket`**
+**`net::connectTcp(address AS Address, timeoutMs AS Integer) AS net::Socket`**
 
 Connects to the `host` and `port` carried by `address`, failing with `ErrTimeout`
 if the attempt exceeds `timeoutMs`. Here `timeoutMs` is parameter 1, not 2.

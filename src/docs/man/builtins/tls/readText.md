@@ -5,7 +5,7 @@ Read available bytes from a connected TLS socket as UTF-8 text.
 ## Synopsis
 
 ```
-tls::readText(sock AS TlsSocket, maxBytes AS Integer) AS String
+tls::readText(sock AS tls::TlsSocket, maxBytes AS Integer) AS String
 ```
 
 ## Package

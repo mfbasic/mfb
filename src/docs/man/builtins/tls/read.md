@@ -5,7 +5,7 @@ Read available bytes from a connected TLS socket.
 ## Synopsis
 
 ```
-tls::read(sock AS TlsSocket, maxBytes AS Integer) AS List OF Byte
+tls::read(sock AS tls::TlsSocket, maxBytes AS Integer) AS List OF Byte
 ```
 
 ## Package

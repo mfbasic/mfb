@@ -5,7 +5,7 @@ Report whether opt-in output buffering is enabled for an open `File`
 ## Synopsis
 
 ```
-fs::isBuffered(file AS File) AS Boolean
+fs::isBuffered(file AS fs::File) AS Boolean
 ```
 
 ## Package

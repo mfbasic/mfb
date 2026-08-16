@@ -5,7 +5,7 @@ Read available bytes from a connected socket.
 ## Synopsis
 
 ```
-net::read(sock AS Socket, maxBytes AS Integer) AS List OF Byte
+net::read(sock AS net::Socket, maxBytes AS Integer) AS List OF Byte
 ```
 
 ## Package
@@ -103,7 +103,7 @@ Drain a connection until the peer closes it:
 ```
 IMPORT net
 
-FUNC drain(RES sock AS Socket) AS Integer
+FUNC drain(RES sock AS net::Socket) AS Integer
   MUT total AS Integer = 0
   MUT reading AS Boolean = TRUE
   WHILE reading

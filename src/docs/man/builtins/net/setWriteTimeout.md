@@ -5,8 +5,8 @@ Bound how long a send on a socket may block.
 ## Synopsis
 
 ```
-net::setWriteTimeout(sock AS Socket, timeoutMs AS Integer) AS Nothing
-net::setWriteTimeout(sock AS UdpSocket, timeoutMs AS Integer) AS Nothing
+net::setWriteTimeout(sock AS net::Socket, timeoutMs AS Integer) AS Nothing
+net::setWriteTimeout(sock AS net::UdpSocket, timeoutMs AS Integer) AS Nothing
 ```
 
 ## Package
@@ -56,11 +56,11 @@ unbounded cannot be re-established through it once a bound is set.
 
 ## Overloads
 
-**`net::setWriteTimeout(sock AS Socket, timeoutMs AS Integer) AS Nothing`**
+**`net::setWriteTimeout(sock AS net::Socket, timeoutMs AS Integer) AS Nothing`**
 
 Bounds `net::write` and `net::writeText` on a connected TCP socket.
 
-**`net::setWriteTimeout(sock AS UdpSocket, timeoutMs AS Integer) AS Nothing`**
+**`net::setWriteTimeout(sock AS net::UdpSocket, timeoutMs AS Integer) AS Nothing`**
 
 Bounds `net::sendTo` and `net::sendTextTo` on a bound UDP socket.
 

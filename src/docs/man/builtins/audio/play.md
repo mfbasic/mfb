@@ -5,8 +5,8 @@ Parse MML music text and play it on an open output stream.
 ## Synopsis
 
 ```
-audio::play(output AS AudioOutput, mml AS String) AS Nothing
-audio::play(output AS AudioOutput, tracks AS List OF String) AS Nothing
+audio::play(output AS audio::AudioOutput, mml AS String) AS Nothing
+audio::play(output AS audio::AudioOutput, tracks AS List OF String) AS Nothing
 ```
 
 ## Package
@@ -74,11 +74,11 @@ target (the `noise` instrument uses a fixed-seed LCG).
 
 ## Overloads
 
-**`audio::play(output AS AudioOutput, mml AS String) AS Nothing`**
+**`audio::play(output AS audio::AudioOutput, mml AS String) AS Nothing`**
 
 Plays a single MML track. [[src/builtins/audio_mml.mfb:__audio_play]]
 
-**`audio::play(output AS AudioOutput, tracks AS List OF String) AS Nothing`**
+**`audio::play(output AS audio::AudioOutput, tracks AS List OF String) AS Nothing`**
 
 Plays several MML tracks together on the same stream, mixing them frame-by-frame;
 shorter tracks are padded with silence. The overload is selected on the second
@@ -114,7 +114,7 @@ Play a single track on the default output:
 IMPORT audio
 
 SUB main()
-  RES out AS AudioOutput = audio::openOutput(48000, 1, 512)
+  RES out AS audio::AudioOutput = audio::openOutput(48000, 1, 512)
   audio::play(out, "T100 O4 L8 I sine C E G < C > [ C E G ] { C. D16 }2")
   audio::close(out)
 END SUB
@@ -129,7 +129,7 @@ SUB main()
   LET bass = "T100 O2 L4 I triangle { C G }4"
   LET lead = "T100 O4 L8 I sine C E G < C > [ C E G ] { C. D16 }2"
 
-  RES out AS AudioOutput = audio::openOutput(48000, 1, 512)
+  RES out AS audio::AudioOutput = audio::openOutput(48000, 1, 512)
   audio::play(out, [bass, lead])
   audio::close(out)
 END SUB

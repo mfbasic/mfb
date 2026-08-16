@@ -5,7 +5,7 @@ Read all remaining bytes from an open `File` into a `List OF Byte`
 ## Synopsis
 
 ```
-fs::readAllBytes(file AS File) AS List OF Byte
+fs::readAllBytes(file AS fs::File) AS List OF Byte
 ```
 
 ## Package

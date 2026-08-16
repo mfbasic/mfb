@@ -94,7 +94,7 @@ IMPORT audio
 SUB main()
   FOR EACH d IN audio::devices()
     IF d.isDefaultOutput THEN
-      RES out AS AudioOutput = audio::openOutput(d, 48000, 2, 512)
+      RES out AS audio::AudioOutput = audio::openOutput(d, 48000, 2, 512)
       audio::close(out)
     END IF
   NEXT

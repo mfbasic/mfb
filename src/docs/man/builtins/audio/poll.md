@@ -5,10 +5,10 @@ Test an open stream for readiness, optionally waiting up to a deadline.
 ## Synopsis
 
 ```
-audio::poll(stream AS AudioInput) AS Boolean
-audio::poll(stream AS AudioOutput) AS Boolean
-audio::poll(stream AS AudioInput, timeoutMs AS Integer) AS Boolean
-audio::poll(stream AS AudioOutput, timeoutMs AS Integer) AS Boolean
+audio::poll(stream AS audio::AudioInput) AS Boolean
+audio::poll(stream AS audio::AudioOutput) AS Boolean
+audio::poll(stream AS audio::AudioInput, timeoutMs AS Integer) AS Boolean
+audio::poll(stream AS audio::AudioOutput, timeoutMs AS Integer) AS Boolean
 ```
 
 ## Package
@@ -100,7 +100,7 @@ Drive a capture stream only when at least one frame is ready, waiting up to 50 m
 IMPORT audio
 
 SUB main()
-  RES mic AS AudioInput = audio::openInput(48000, 1, 512)
+  RES mic AS audio::AudioInput = audio::openInput(48000, 1, 512)
   IF audio::poll(mic, 50) THEN
     LET pcm = audio::read(mic, 480, 0)
   END IF
@@ -114,7 +114,7 @@ Non-blocking readiness check on an output stream:
 IMPORT audio
 
 SUB main()
-  RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
+  RES out AS audio::AudioOutput = audio::openOutput(48000, 2, 512)
   LET pcm AS List OF Byte = [0, 0, 0, 0]
   IF audio::poll(out) THEN
     audio::write(out, pcm)

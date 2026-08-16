@@ -5,8 +5,8 @@ Cumulative count of overrun/underrun events on a stream since it was opened.
 ## Synopsis
 
 ```
-audio::xruns(stream AS AudioInput) AS Integer
-audio::xruns(stream AS AudioOutput) AS Integer
+audio::xruns(stream AS audio::AudioInput) AS Integer
+audio::xruns(stream AS audio::AudioOutput) AS Integer
 ```
 
 ## Package
@@ -55,12 +55,12 @@ an overrun or underrun.
 
 ## Overloads
 
-**`audio::xruns(stream AS AudioInput)`**
+**`audio::xruns(stream AS audio::AudioInput)`**
 
 Capture overruns: the number of times the input ring dropped whole frames
 because it filled before the program read from it.
 
-**`audio::xruns(stream AS AudioOutput)`**
+**`audio::xruns(stream AS audio::AudioOutput)`**
 
 Playback underruns: the number of times the output starved because the program
 did not supply data fast enough — counted only once the stream has actually
@@ -96,7 +96,7 @@ IMPORT audio
 IMPORT io
 
 SUB main()
-  RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
+  RES out AS audio::AudioOutput = audio::openOutput(48000, 2, 512)
   LET pcm AS List OF Byte = [0, 0, 0, 0]
   audio::write(out, pcm)
   io::print("underruns: " & toString(audio::xruns(out)))
@@ -111,7 +111,7 @@ IMPORT audio
 IMPORT io
 
 SUB main()
-  RES mic AS AudioInput = audio::openInput(48000, 1, 512)
+  RES mic AS audio::AudioInput = audio::openInput(48000, 1, 512)
   LET before = audio::xruns(mic)
   LET pcm = audio::read(mic, 480, 0)
   IF audio::xruns(mic) > before THEN

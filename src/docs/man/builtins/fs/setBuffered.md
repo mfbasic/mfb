@@ -5,7 +5,7 @@ Enable or disable opt-in output buffering for an open `File`
 ## Synopsis
 
 ```
-fs::setBuffered(file AS File, enabled AS Boolean) AS Nothing
+fs::setBuffered(file AS fs::File, enabled AS Boolean) AS Nothing
 ```
 
 ## Package

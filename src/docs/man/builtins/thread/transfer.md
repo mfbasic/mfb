@@ -56,7 +56,7 @@ rather than `ErrResourceClosed`, because the handle is not closed — it belongs
 another thread now. [[src/syntaxcheck/types.rs:thread_argument_mode]]
 
 **A stateful resource must agree with the plane.** The plane's `RES` element may
-carry a `STATE T` clause (`Thread OF RES File STATE Cursor TO Out`). The front end
+carry a `STATE T` clause (`Thread OF RES fs::File STATE Cursor TO Out`). The front end
 resolves `transfer` on the *base* resource name only; the `STATE` agreement itself
 is checked by IR verification, which rejects a stateful resource on a bare plane,
 a bare resource on a stateful plane, and two disagreeing states, all with
@@ -138,8 +138,8 @@ IMPORT fs
 IMPORT thread_file_sink
 
 FUNC main AS Integer
-  LET t AS Thread OF RES File TO Integer = thread::start(thread_file_sink::sizeOfReceived, "seed")
-  RES f AS File = fs::openFile("data/input.txt")
+  LET t AS Thread OF RES fs::File TO Integer = thread::start(thread_file_sink::sizeOfReceived, "seed")
+  RES f AS fs::File = fs::openFile("data/input.txt")
   thread::transfer(t, f)
   LET size AS Integer = thread::waitFor(t)
   RETURN 0
@@ -158,8 +158,8 @@ TYPE Cursor
 END TYPE
 
 FUNC main AS Integer
-  LET t AS Thread OF RES File STATE Cursor TO Integer = thread::start(state_xfer_workers::takeCursor, "seed")
-  RES f AS File STATE Cursor = fs::openFile("data/input.txt")
+  LET t AS Thread OF RES fs::File STATE Cursor TO Integer = thread::start(state_xfer_workers::takeCursor, "seed")
+  RES f AS fs::File STATE Cursor = fs::openFile("data/input.txt")
   f.state.pos = 99
   thread::transfer(t, f, 10)
   RETURN thread::waitFor(t)

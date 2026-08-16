@@ -5,7 +5,7 @@ Receive a single UDP datagram as bytes together with its sender address.
 ## Synopsis
 
 ```
-net::receiveFrom(sock AS UdpSocket, maxBytes AS Integer) AS Datagram
+net::receiveFrom(sock AS net::UdpSocket, maxBytes AS Integer) AS Datagram
 ```
 
 ## Package
@@ -107,7 +107,7 @@ Report the error code when the datagram does not fit:
 ```
 IMPORT net
 
-FUNC recvCount(RES s AS UdpSocket, maxBytes AS Integer) AS Integer
+FUNC recvCount(RES s AS net::UdpSocket, maxBytes AS Integer) AS Integer
   LET dg = net::receiveFrom(s, maxBytes)
   RETURN len(dg.bytes)
   TRAP(e)

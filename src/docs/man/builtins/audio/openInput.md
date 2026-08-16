@@ -5,8 +5,8 @@ Open a capture stream and return an `AudioInput` handle.
 ## Synopsis
 
 ```
-audio::openInput(sampleRate AS Integer, channels AS Integer, bufferFrames AS Integer) AS AudioInput
-audio::openInput(device AS AudioDevice, sampleRate AS Integer, channels AS Integer, bufferFrames AS Integer) AS AudioInput
+audio::openInput(sampleRate AS Integer, channels AS Integer, bufferFrames AS Integer) AS audio::AudioInput
+audio::openInput(device AS AudioDevice, sampleRate AS Integer, channels AS Integer, bufferFrames AS Integer) AS audio::AudioInput
 ```
 
 ## Package
@@ -103,7 +103,7 @@ Capture 100 ms of mono audio at 48 kHz from the default input:
 IMPORT audio
 
 SUB main()
-  RES mic AS AudioInput = audio::openInput(48000, 1, 512)
+  RES mic AS audio::AudioInput = audio::openInput(48000, 1, 512)
   LET pcm = audio::read(mic, 4800)
   audio::close(mic)
 END SUB
@@ -117,7 +117,7 @@ IMPORT audio
 SUB main()
   FOR EACH d IN audio::devices()
     IF d.isDefaultInput THEN
-      RES mic AS AudioInput = audio::openInput(d, 48000, 2, 512)
+      RES mic AS audio::AudioInput = audio::openInput(d, 48000, 2, 512)
       LET pcm = audio::read(mic, 4800)
       audio::close(mic)
     END IF

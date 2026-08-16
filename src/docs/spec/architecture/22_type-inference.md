@@ -153,7 +153,7 @@ Key points:
   see below.)
 - **`RES` is stripped before comparing.** The `RES` element marker is an
   ownership-axis annotation, not a distinct value type, so a `File` fits a
-  `RES File` slot and vice versa. `./mfb spec language resource-management`.
+  `RES fs::File` slot and vice versa. `./mfb spec language resource-management`.
   [[src/syntaxcheck/helpers.rs:strip_res]]
 - **Containers are invariant.** `List`, `Map`, `Result`, `Thread`,
   `ThreadWorker` compare element-/component-wise via `compatible` recursively;

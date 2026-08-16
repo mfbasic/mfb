@@ -5,7 +5,7 @@ Send a single UDP datagram of bytes to a destination address.
 ## Synopsis
 
 ```
-net::sendTo(sock AS UdpSocket, address AS Address, bytes AS List OF Byte) AS Nothing
+net::sendTo(sock AS net::UdpSocket, address AS Address, bytes AS List OF Byte) AS Nothing
 ```
 
 ## Package
@@ -109,7 +109,7 @@ Reply to whoever sent a datagram:
 ```
 IMPORT net
 
-FUNC echoOne(RES sock AS UdpSocket) AS Integer
+FUNC echoOne(RES sock AS net::UdpSocket) AS Integer
   LET dg = net::receiveFrom(sock, 1024)
   net::sendTo(sock, dg.from, dg.bytes)
   RETURN len(dg.bytes)

@@ -5,7 +5,7 @@ Test whether an open `File` is at end of input
 ## Synopsis
 
 ```
-fs::eof(file AS File) AS Boolean
+fs::eof(file AS fs::File) AS Boolean
 ```
 
 ## Package

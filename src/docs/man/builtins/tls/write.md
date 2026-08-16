@@ -5,7 +5,7 @@ Send raw bytes over a connected TLS socket.
 ## Synopsis
 
 ```
-tls::write(sock AS TlsSocket, bytes AS List OF Byte) AS Nothing
+tls::write(sock AS tls::TlsSocket, bytes AS List OF Byte) AS Nothing
 ```
 
 ## Package

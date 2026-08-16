@@ -5,7 +5,7 @@ Drain an open `File`'s output buffer to its file descriptor
 ## Synopsis
 
 ```
-fs::flush(file AS File) AS Nothing
+fs::flush(file AS fs::File) AS Nothing
 ```
 
 ## Package

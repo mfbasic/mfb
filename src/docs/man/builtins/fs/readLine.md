@@ -5,7 +5,7 @@ Read one line of UTF-8 text from an open `File`
 ## Synopsis
 
 ```
-fs::readLine(file AS File) AS String
+fs::readLine(file AS fs::File) AS String
 ```
 
 ## Package
