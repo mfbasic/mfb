@@ -1,4 +1,4 @@
-# plan-98-B: Canvas scene model — union, deep copy, arena, hashing, resource table
+# plan-98-B: Canvas scene model — union, deep copy, arena, hashing, RES resources
 
 Last updated: 2026-08-15
 Effort: large (3h–1d)
@@ -8,8 +8,8 @@ This sub-plan builds the **worker-thread-side scene model** with no GPU and no
 graphics thread: the `DrawItem` UNION (closed variant set), the `canvas::present` /
 `canvas::presentLayers` calls, transitive deep-copy into a runtime-owned scene arena,
 per-item content hashing, the runtime-side geometry cache keyed on that hash, the
-zero-work frame-skip, and the `Image`/`Font` resource handle table with atomic
-refcounts. The single checkable outcome: `canvas::present(items)` in `Mode.Canvas`
+zero-work frame-skip, and `Image`/`Font` as **RES resources** (closed-flag lifetime,
+no refcounting). The single checkable outcome: `canvas::present(items)` in `Mode.Canvas`
 deep-copies a scene into runtime-owned storage (nothing points at caller memory),
 hashes each item, populates/reuses the geometry cache, and — this is all pure
 worker-thread logic — is fully unit-testable without a GPU or a graphics thread.
@@ -52,22 +52,37 @@ References:
   mechanics, hashing, and eviction are real).
 - **Zero-work frame skip:** if the incoming item-hash sequence is identical and
   same-length to the live scene's, `present()` returns without publishing.
-- `Image`/`Font` handles are `{u32 index; u32 generation;}` into a runtime table with
-  an **atomic refcount**; `present()` increments refcounts as it copies, using the
-  normative *increment-then-recheck-generation* sequence (invariant 4). `image::create`
-  / `font::load` allocate entries; `image::destroy` marks dead + bumps generation and
-  frees only at refcount zero.
+- `Image`/`Font` are a new **native RES backend** (the existing resource record
+  `tag@0 / handle@8 / closed@16 / STATE@24`, `handle@8` = OS-side texture id), owned by
+  MFB scope like a file — **no refcount, no generation table** (invariant 4).
+  `canvas::loadImage`/`createImage`/`loadFont` allocate a resource; `canvas::destroyImage`/
+  `destroyFont` (or scope-drop of the owner) set `closed@16` and mark the OS texture
+  pending-free. `present()` copies the resource **id** (an integer) into the scene; it
+  performs **no** refcount work. Using a closed resource is the existing
+  `ERR_RESOURCE_CLOSED` no-op (the stale-id safety net). Actual OS free is D's job,
+  gated on `closed AND lastUsedFrame < lastCompletedFrame` — a monotonic compare, not a
+  count.
+- **Image content is mutable independently of the scene.** Each image RES resource keeps
+  a **CPU-side shadow** of its RGBA8 pixels (also the re-upload source + device-lost
+  recovery copy). `canvas::getBytes(image)` returns the shadow (cheap — no GPU readback);
+  `canvas::setBytes(image, pixels)` deep-copies into the shadow and marks the texture
+  dirty — **fallible**, `ErrBadPixelCount` if `len(pixels) != width*height*4`;
+  `canvas::getSize(image)` returns its dimensions. Mutating content does **not** go
+  through `present()` (the scene layout is unchanged); the actual GPU upload + the redraw
+  trigger are D's job. `createImage` takes `List OF Byte` RGBA8. `canvas::rgb`/`rgba`
+  build `Color` values.
 
 ### Non-goals (explicit constraints)
 
 - **No graphics thread, no scene ring, no GPU, no rendering.** `present()` publishes
   into a single runtime-owned "live scene" slot read only by tests in this sub-plan.
-  The triple-buffer ring and fence-gated retirement are D.
+  The triple-buffer ring and the OS-side texture free (the `closed AND
+  lastUsedFrame < lastCompletedFrame` gate) are D.
 - **No geometry generation.** Tessellation, stroke expansion, and text shaping are
   stubbed (cache miss allocates a zero-length vertex range). C/G fill them. The cache
   *contract* (probe/insert/evict, hash keying) is real and tested now.
 - **The `DrawItem` variant set is frozen here and is a breaking change to extend
-  later** (invariant 6): Image, Rectangle, Line, Polygon, Text, RoundedRect (SDF).
+  later** (invariant 6): Image, Rectangle, Line, Polygon, Circle, Arc, Text, RoundedRect.
   No variant is added after this sub-plan without a deliberate breaking-change plan.
 - No change to `Mode` discriminants, the presentation slot, or non-canvas codegen.
 
@@ -83,9 +98,14 @@ References:
   mutation + present-diffs*; canvas deliberately differs (retained scene, content-hash
   cache) per the design summary, but the deep-copy-before-handoff discipline is the
   same lesson as the live→snapshot copy (`term_draw.rs:emit_term_snapshot_copy`).
-- **RES resource system** for `Image`/`Font` backing (see `.ai/resources-packages.md`)
-  — UNVERIFIED how closely the existing RES table matches the `{index, generation,
-  refcount}` shape needed; Phase 1 task reads it to decide reuse vs new table.
+- **RES resource system** is the model for `Image`/`Font` (`.ai/resources-packages.md`):
+  every resource is a 96-byte record `tag@0 / handle@8 / closed@16 / STATE@24`
+  (`RESOURCE_OFFSET_CLOSED = 16`, `RESOURCE_RECORD_SIZE_BYTES = 96`); `close ≠ drop`
+  (close releases the OS handle, scope-drop reclaims the record); a double-close/use is
+  a defined `ERR_RESOURCE_CLOSED` no-op. Canvas resources follow the doc's "Adding a NEW
+  native backend" recipe (reserve `tag@0/handle@8/closed@16/STATE@24`, put the texture id
+  in `handle@8`). This is scope-ownership, NOT refcounting — consistent with MFB having
+  no refs/GC.
 - **Scene arena:** there is no runtime-owned arena that outlives a call today
   (`term::` grids live in the program-entry frame). The scene arena is **new**,
   runtime-owned (not caller-frame-scoped), because scenes outlive `present()`.
@@ -94,9 +114,9 @@ References:
 
 | What | Count | Command |
 |---|---|---|
-| `DrawItem` variants to define | 6 | design summary variant set (Image, Rectangle, Line, Polygon, Text, RoundedRect) |
+| `DrawItem` variants to define | 8 | Image, Rectangle, Line, Polygon, Circle, Arc, Text, RoundedRect (see plan-98-api.md) |
 | Existing builtin packages in REGISTRY | UNMEASURED | `rg -c '&[a-z_]*::[A-Z_]*,' src/builtins/descriptor.rs` (run Phase 1) |
-| RES table shape vs needed handle shape | UNVERIFIED | read `.ai/resources-packages.md` + the RES table struct (Phase 1) |
+| RES record offsets to reserve for the canvas backend | 4 (`tag@0/handle@8/closed@16/STATE@24`) | `.ai/resources-packages.md` "Adding a NEW native backend" |
 
 ### Verified properties
 
@@ -106,9 +126,12 @@ References:
 - **Deep copy is mandatory** because the render thread reads at arbitrary times.
   VERIFIED from the design's `present()` semantics; enforced here even though the
   reader is only a test until D.
-- UNVERIFIED: whether the existing RES refcount (if any) is atomic. Phase 1 reads it;
-  if not atomic or not generation-tagged, this sub-plan adds the canvas resource table
-  rather than bending RES.
+- **The RES closed flag is sufficient for lifetime; no refcount is needed.** VERIFIED
+  from the model: `close ≠ drop` and scope-ownership floats to the outermost scope, so a
+  single owner ends the resource's life via `closed@16`. Scenes reference the id (an
+  integer) but do **not** own it — the only thing keeping the OS texture alive after
+  close is the GPU still reading it, which D gates with `lastUsedFrame`. No count is ever
+  required.
 
 ## 3. Design Overview
 
@@ -125,25 +148,26 @@ Four layered pieces, worker-thread only:
    `memcmp`-speed); probe `GeoCacheEntry{hash, vtxOffset, vtxCount, bounds, lastUsedRev}`;
    hit reuses, miss inserts (geometry stubbed empty), LRU-evict by `lastUsedRev` under
    arena pressure; identical whole-sequence hash → return without publishing.
-4. **Resource handle table.** `{index, generation}` handles, atomic refcount;
-   `image::create`/`font::load` allocate; `present()` increments via the normative
-   increment-then-recheck sequence; `image::destroy` marks dead + bumps generation,
-   frees at zero.
+4. **`Image`/`Font` as a native RES backend.** Reserve `tag@0/handle@8/closed@16/STATE@24`;
+   `handle@8` = OS texture id. `loadImage`/`createImage`/`loadFont` allocate a resource;
+   `destroyImage`/`destroyFont` (and scope-drop) close it via the existing resource
+   cleanup wiring. `present()` copies the **id** only — no refcount work at all.
 
-**Where correctness risk concentrates:** the resource refcount sequence (invariant 4).
-Even without the graphics thread, the *copy path* must already use
-increment-then-recheck-generation so that D can add a concurrent releaser without
-reworking `present()`. This is the piece the design doc says to write on paper first;
-land it last in this sub-plan, behind a test that drives create→present→destroy→
-retire ordering on a single thread (the multi-thread race is exercised in D).
+**Where correctness risk concentrates:** wiring `Image`/`Font` into the existing RES
+cleanup paths correctly (scope-drop reclaim, thread-transfer, the LINK-close-thunk /
+`resource_close_function` gating described in `.ai/resources-packages.md`) so a canvas
+resource closes and reclaims exactly like a file. There is **no** cross-thread refcount
+race to design here — the OS free is deferred to D and gated purely on the closed flag +
+frame drain, so B never frees an OS texture. Land the RES backend last in this sub-plan,
+behind tests that drive load→present→destroy and scope-drop reclaim on a single thread.
 
-**Where design uncertainty concentrates:** RES-table reuse vs a new canvas table
-(Phase 1 resolves), and the exact `params[]` encoding for variable-length payloads
-(polygon points, strings). Resolve the encoding before hashing, since the hash spans
-the copied bytes.
+**Where design uncertainty concentrates:** the exact `params[]` encoding for
+variable-length payloads (polygon points, strings). Resolve the encoding before hashing,
+since the hash spans the copied bytes. (The resource model is settled: RES closed-flag,
+no table decision to make.)
 
 **Byte-identity is not this sub-plan's gate.** This is new behavior; it is verified by
-unit tests over the copy/hash/cache/refcount logic (pure worker-thread, GPU-free — the
+unit tests over the copy/hash/cache/resource-close logic (pure worker-thread, GPU-free — the
 design's step-2 selling point). Non-canvas programs remain byte-identical (verified via
 the corpus), but that is a guardrail, not the acceptance criterion.
 
@@ -158,26 +182,31 @@ the corpus), but that is a guardrail, not the acceptance criterion.
 ## Compatibility / Format Impact
 
 - **Changes:** new `canvas::` package surface (`present`, `presentLayers`,
-  `image::create`/`load`/`destroy`, `font::load`, `canvas::size`), new user-visible
-  types (`DrawItem` union, `DrawLayer`, `Paint`, `Image`, `Font`, `Bounds`,
-  `TextMetrics`). New runtime scene arena + resource table (internal, not a wire
-  format). New per-backend advertised `runtime_calls`.
+  `loadImage`/`createImage`/`destroyImage`, `loadFont`/`destroyFont`,
+  `getBytes`/`setBytes`, `getSize` (canvas- and image-size overloads), `rgb`/`rgba`,
+  `measureText`), new user-visible
+  types (`DrawItem` union with 8 variants, `DrawLayer`, `Paint`, `Color`, `Point`, `Size`,
+  `Bounds`, `TextMetrics`, `Image`, `Font`; `Image`/`Font` are RES resources). New runtime
+  scene arena + a native RES backend for canvas textures with a CPU pixel shadow (internal,
+  not a wire format). New per-backend advertised `runtime_calls`.
 - **Unchanged:** everything non-canvas; `Mode` discriminants; presentation slot;
   `term::`/`io::` semantics.
 - **Frozen forever after this lands:** the `DrawItem` variant set (invariant 6).
 
 ## Phases
 
-### Phase 1 — `canvas::` package, closed types, present signatures, RES decision
+### Phase 1 — `canvas::` package, closed types, present signatures
 
-- [ ] Read `.ai/resources-packages.md` + the RES table struct; decide RES-reuse vs
-      a new canvas resource table for `{index, generation, atomic refcount}`. Record
-      the decision and evidence in Corrections.
-- [ ] Create `src/builtins/canvas_package.mfb` (`EXPORT UNION DrawItem` with the 6
-      frozen variants; `DrawLayer`, `Paint`, `Image`, `Font`, `Bounds`, `TextMetrics`
-      records; `present`/`presentLayers` signatures; helper bodies stay in the `.mfb`,
-      member codegen in `canvas.rs` per the migration pattern in
-      `.ai/resources-packages.md`).
+- [ ] Read `.ai/resources-packages.md` "Adding a NEW native backend"; confirm the
+      canvas resource record reserves `tag@0/handle@8/closed@16/STATE@24` and how close
+      dispatch / scope-drop reclaim are wired (`resource_close_function`, LINK thunks).
+      Record the offsets/wiring in Corrections.
+- [ ] Create `src/builtins/canvas_package.mfb` (`EXPORT UNION DrawItem` with the 8
+      frozen variants — Image, Rectangle, Line, Polygon, Circle, Arc, Text, RoundedRect;
+      `DrawLayer`, `Paint`, `Color`, `Point`, `Size`, `Bounds`, `TextMetrics` records;
+      `Image`/`Font` RES types; `present`/`presentLayers`/`rgb`/`rgba` signatures; helper
+      bodies stay in the `.mfb`, member codegen in `canvas.rs` per the migration pattern in
+      `.ai/resources-packages.md`). Field shapes per plan-98-api.md.
 - [ ] Create `src/builtins/canvas.rs` `CANVAS: BuiltinModule`; register in
       `descriptor.rs:REGISTRY` and `mod.rs:ALL_BUILTIN_PACKAGES`; advertise the new
       calls in each `--app` backend's `runtime_calls`; add runtime helper specs.
@@ -231,64 +260,86 @@ item invalidates exactly one cache entry; eviction is `lastUsedRev`-ordered — 
 test-proven, no GPU.
 Commit: —
 
-### Phase 4 — Resource handle table + refcount protocol (largest blast radius last)
+### Phase 4 — `Image`/`Font` as a native RES backend (largest blast radius last)
 
-- [ ] Implement the `{index, generation}` handle table with atomic refcount (RES-backed
-      or new per Phase 1).
-- [ ] `image::create`/`image::load`/`font::load` allocate an entry (fallible — return
-      per the result ABI: tag in x0, value in x1).
-- [ ] `present()` increments refcounts for referenced resources using the **normative
-      increment-then-recheck-generation sequence** (invariant 4): increment
-      unconditionally, re-read generation, if changed decrement and treat as dead handle.
-- [ ] `image::destroy` marks the entry dead + bumps generation; frees the backing only
-      at refcount zero. Live scene keeps it alive.
-- [ ] Single-thread retirement stub: publishing a new scene decrements the old scene's
-      resource refs (the *fence-gated* multi-thread version is D; here it is immediate,
-      single-thread, and correct for the no-graphics-thread world).
-- [ ] Tests: create→present→destroy leaves the resource alive while the live scene
-      references it, freed after the scene is replaced; a stale handle (old generation)
-      is rejected; the increment-then-recheck sequence rejects a resurrected slot
-      (drive it deterministically by bumping generation between increment and recheck).
+- [ ] Add the canvas resource record per the "Adding a NEW native backend" recipe
+      (`tag@0/handle@8/closed@16/STATE@24`, texture id in `handle@8`, tag in
+      `error_constants.rs`, zero STATE at construction, the `== RESOURCE_OFFSET_*`
+      asserts).
+- [ ] `canvas::loadImage`/`createImage`/`loadFont` allocate a resource (fallible — return
+      per the result ABI: tag in x0, value in x1); the OS-side texture is created by the
+      backend (software now; Metal/Vulkan in E/F). `createImage` takes `List OF Byte`
+      RGBA8; store the pixels in the image's **CPU shadow** (in STATE).
+- [ ] `canvas::destroyImage`/`destroyFont` close the resource (set `closed@16` + release
+      path); wire scope-drop reclaim, thread-transfer, and the `resource_close_function`
+      / LINK-thunk gating exactly like a file resource.
+- [ ] Image-content ops: `canvas::getBytes(image)` returns the CPU shadow (no GPU);
+      `canvas::setBytes(image, pixels)` deep-copies into the shadow + marks the texture
+      dirty, **fallible** `ErrBadPixelCount` when `len(pixels) != width*height*4`;
+      `canvas::getSize(image)` returns the dimensions. The GPU upload of a dirty texture
+      and the "in current scene → redraw" trigger are D's job; B only updates the shadow +
+      dirty flag.
+- [ ] Color helpers `canvas::rgb`/`rgba` build `Color` (clamp components 0..255).
+- [ ] `present()` copies only the resource **id** into the scene — **no** refcount work.
+- [ ] Mark-pending-free on close (a runtime-side flag the graphics thread reads in D);
+      B does **not** free the OS texture — that is D's `closed AND lastUsedFrame <
+      lastCompletedFrame` gate.
+- [ ] Tests: load→present→destroy closes the resource and marks the texture pending-free;
+      scope-drop of an un-destroyed image closes + reclaims the record; using a closed
+      image is `ERR_RESOURCE_CLOSED`; double-close is the defined no-op; `setBytes` with a
+      wrong-length list returns `ErrBadPixelCount`; `getBytes` round-trips the CPU shadow;
+      `getSize` matches `createImage`.
 
-Acceptance: destroying a referenced image mid-scene never frees it while live; a
-stale-generation handle is caught; the copy path uses increment-then-recheck (proven by
-a deterministic generation-bump test). Full `cargo test` green.
+Acceptance: canvas `Image`/`Font` load/close/scope-drop exactly like a file resource
+(reclaim, transfer, double-close no-op all correct); `present()` does zero refcount work;
+a closed image marks its texture pending-free without B freeing it; `setBytes` rejects a
+wrong pixel count and `getBytes`/`getSize` reflect the shadow. Full `cargo test` green.
 Commit: —
 
 ## Validation Plan
 
 - Tests: unit tests over deep copy, hashing, cache probe/insert/evict, frame-skip,
-  positional diff, and the resource refcount sequence — all in-process (`--bin mfb`
-  denominator per `.ai/build-tooling.md`), GPU-free.
-- Coverage check: confirm the scene/cache/refcount code is measured by in-process unit
+  positional diff, the RES resource lifecycle (load/close/scope-drop/double-close), and the
+  image-content ops (`getBytes`/`setBytes` round-trip, `setBytes` `ErrBadPixelCount`,
+  `getSize`, `rgb`/`rgba` clamping) — all in-process (`--bin mfb` denominator per
+  `.ai/build-tooling.md`), GPU-free.
+- Coverage check: confirm the scene/cache/resource code is measured by in-process unit
   tests (const-fn table builders need `black_box` runtime tests per the coverage memo).
 - Runtime proof: a headless `--app` program builds a scene, `present()`s it, mutates
   one item, re-`present()`s — observable via the published `revision` and cache-hit
   counters exposed to the test harness.
 - Doc sync: `src/docs/spec/app/` new `canvas` section (scene model, deep-copy rule,
-  the frozen variant set, resource lifetime); man pages for `canvas::present`,
-  `presentLayers`, `image::*`, `font::load`, `canvas::size` per the man templates.
+  the 8-variant frozen set, image-content-vs-scene orthogonality, RES resource lifetime —
+  closed-flag, no refcount); man pages for `canvas::present`, `presentLayers`, `loadImage`,
+  `createImage`, `destroyImage`, `loadFont`, `destroyFont`, `getBytes`, `setBytes`,
+  `getSize`, `rgb`, `rgba`, `measureText` per the man templates.
 - Acceptance: full `cargo test`; non-canvas byte-identity corpus unchanged; fmt.
 
 ## Open Decisions
 
-- **RES table reuse vs new canvas resource table** — recommended: reuse RES if its
-  refcount is already atomic and generation-tagged; else new table. Resolve in Phase 1.
 - **`params[]` encoding for variable-length payloads** — recommended: length-prefixed
   contiguous blobs per item so the hash spans a stable byte range. (§Design 2)
 - **Compute damage in B or defer to G** — recommended: **defer the bounds-union damage
   to G** (it has no consumer until damage-rect present); keep only the cheap
   whole-sequence frame-skip in B. Note the deferral in Phase 3 rather than computing
   unused work (invariant against per-frame waste). (§Phase 3)
+- **`DrawItem` variant constructor qualification** — bare `Circle[…]` (like the exported
+  `Mode` enum, verified in `tests/syntax/app/app_mode_surface_valid`) vs qualified
+  `canvas::Circle[…]` (the spec's *included* union-member rule shows `extras::Circle[…]`).
+  Recommended: confirm which applies to a directly-exported union variant against the
+  package/union addressing checker in Phase 1 and make the man-page examples match.
+  (surfaced by the plan-98-api.md smiley example)
 
 ## Corrections
 
-<Filled in during execution — especially the RES decision and payload encoding.>
+<Filled in during execution — especially the RES record wiring and payload encoding.>
 
 ## Summary
 
-Risk in B concentrates in Phase 4's refcount sequence, which must be written correct
-now (increment-then-recheck) even though the concurrent releaser arrives in D — getting
-it wrong here is the design doc's predicted source of intermittent crashes. Everything
-else (package, arena, copy, hash, cache) is pure worker-thread logic, fully testable
-without a GPU, and is the shippable foundation C renders and D threads.
+Risk in B concentrates in Phase 4's RES-backend wiring — getting `Image`/`Font` to
+close, reclaim, transfer, and double-close exactly like a file resource through the
+existing cleanup paths. There is deliberately **no** cross-thread refcount to design:
+MFB is not refcounted, `Image`/`Font` are plain RES values with closed-flag lifetime, and
+the only OS-side rule (defer the texture free past the GPU frame-drain) lives in D.
+Everything else (package, arena, copy, hash, cache) is pure worker-thread logic, fully
+testable without a GPU, and is the shippable foundation C renders and D threads.

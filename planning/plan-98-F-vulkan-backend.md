@@ -18,7 +18,8 @@ References:
 - The design summary — "Platform Surfaces" (Linux GTK4→`VK_KHR_xcb/wayland_surface`,
   Windows HWND→`VK_KHR_win32_surface`), "Resize handshake" (`vkDeviceWaitIdle` + recreate
   swapchain), "Shaders", the `dlopen("libvulkan.so.1")` + `vkGetInstanceProcAddr` note.
-- plan-98-A invariant 4 (Vulkan fence drives fence-gated retirement), invariant 5 (tolerance).
+- plan-98-A invariant 4 (Vulkan submit fence advances `lastCompletedFrame`, driving the
+  closed-flag texture free; no refcount), invariant 5 (tolerance).
 - plan-98-D resize handshake (the Vulkan swapchain-recreation path is the concrete case D
   abstracted), plan-98-E's proven shader pipeline + renderer seam.
 - `.ai/arch-abi.md` (Win64 PE/console; Windows app path is GDI today — Vulkan is new code).
@@ -130,14 +131,18 @@ Acceptance: one quad renders via Vulkan on Linux (both session types where testa
 the software reference within tolerance; software backend still byte-exact.
 Commit: —
 
-### Phase 2 — Linux full scene + resize/out-of-date + fence retirement
+### Phase 2 — Linux full scene + resize/out-of-date + texture free
 
-- [ ] Full primitive set from the `live` vertex buffer; atlas upload.
+- [ ] Full primitive set (incl. Circle/Arc SDF) from the `live` vertex buffer; atlas upload.
+- [ ] Dynamic-texture upload for `canvas::setBytes` (D's dirty flag): staging-buffer upload
+      at frame start via a per-texture ring or a transfer barrier, so uploading never races
+      an in-flight frame sampling the texture. Coalesce multiple `setBytes` to one upload.
 - [ ] Resize handshake: `resizePending` → `vkDeviceWaitIdle` + recreate swapchain; handle
       out-of-date/suboptimal (trigger 4).
-- [ ] Vulkan submit fence → D's fence-gated retirement.
-- [ ] Tests: the multi-primitive golden matches within tolerance; resize repaints worker-free;
-      the D race matrix passes on the Vulkan fence.
+- [ ] Vulkan submit fence advances D's `lastCompletedFrame` (drives the closed-flag texture free).
+- [ ] Tests: the multi-primitive golden (incl. the smiley scene) matches within tolerance;
+      a `setBytes` on an in-scene image updates next frame without tearing; resize repaints
+      worker-free; the D race matrix passes on the Vulkan fence.
 
 Acceptance: full scene tolerance-match on Linux; resize/out-of-date correct and worker-free;
 retirement driven by the Vulkan fence; race matrix green.

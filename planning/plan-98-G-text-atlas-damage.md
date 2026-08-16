@@ -41,7 +41,7 @@ References:
 - Render Text `DrawItem`s: shape (stb: positioning only, no complex shaping) and rasterise
   glyphs into the shared atlas, cached by `(font, size, codepoint)` with LRU eviction; emit
   tinted textured quads through the existing single pipeline.
-- `font::load` returns a `Font` handle (resource table, from B); `canvas::measureText` returns
+- `canvas::loadFont` returns a `Font` RES resource (from B); `canvas::measureText` returns
   `TextMetrics` — **shipped from day one** so swapping in a real shaper later doesn't change the
   API (design "return `TextMetrics` from `measureText` from day one").
 - Glyph atlas eviction: LRU by last-used revision under atlas pressure, mirroring the geometry
@@ -64,10 +64,10 @@ References:
 ## 2. Current State
 
 - **B** froze Text as a `DrawItem` variant and reserved the `measureText`/`TextMetrics` and
-  `font::load` signatures; **C/E/F** built the shared atlas (white pixel + images) and left Text
-  rendering stubbed. **D** computes positional-diff damage but has no consumer (deferred here).
-- **Font as a resource** uses B's `{index, generation, refcount}` table (Font handles retained by
-  present, freed at refcount zero) — same lifetime machinery as Image.
+  `canvas::loadFont` signatures; **C/E/F** built the shared atlas (white pixel + images) and left
+  Text rendering stubbed. **D** computes positional-diff damage but has no consumer (deferred here).
+- **Font is a RES resource** (from B): a `Font` id with closed-flag lifetime, freed by the same
+  closed + frame-drain rule as Image — no refcount. Same lifetime machinery as Image.
 - **The no-dependency bar is unresolved** (design "Open Items"): "vendorable single-header
   public-domain C" (stb_truetype) vs "not one line of third-party code" (hand-rolled) vs a
   build-time MSDF step (msdfgen). This decides Phase 1's approach and must be settled first.
@@ -133,8 +133,8 @@ stb raster proves machine-variant) and within tolerance on GPU. Damage-rect pres
 - [ ] Resolve the vendored-single-header policy (Prerequisite/Open Decision) and record it.
 - [ ] Integrate the chosen font rasteriser (stb path); implement Text rendering: shape
       (positioning) + per-`(font,size,codepoint)` glyph raster into the atlas + tinted quads.
-- [ ] Implement `font::load` (Font handle via B's table) and `canvas::measureText` →
-      `TextMetrics` (reserved API).
+- [ ] Implement `canvas::loadFont` (Font RES resource via B's backend) and `canvas::measureText`
+      → `TextMetrics` (reserved API).
 - [ ] Tests: a text scene renders byte-exact on the software oracle (or documented text
       tolerance); `measureText` returns expected metrics; Text renders within tolerance on
       Metal + Vulkan.
@@ -177,8 +177,8 @@ Commit: —
 - Runtime proof: a canvas program renders changing text (a clock/counter), presents per frame,
   and the atlas/eviction/damage counters show glyph reuse and region-limited present.
 - Doc sync: `src/docs/spec/app/` canvas text section (stb scope + limits, `TextMetrics`, the
-  shaper-swap note); man pages for `canvas::measureText`, `font::load`; a note recording the
-  resolved dependency policy.
+  shaper-swap note); man pages for `canvas::measureText`, `canvas::loadFont`,
+  `canvas::destroyFont`; a note recording the resolved dependency policy.
 - Acceptance: full `cargo test`; text + damage goldens pass; non-canvas byte-identity corpus
   unchanged; fmt.
 

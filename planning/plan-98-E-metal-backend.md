@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-15
 Effort: large (3h–1d) — re-estimate against the real scene format when D lands
-Depends on: plan-98-D (graphics thread, scene ring, fence-gated retirement)
+Depends on: plan-98-D (graphics thread, scene ring, deferred texture free)
 
 This sub-plan swaps the macOS renderer from the C software rasteriser to **Metal**,
 behind the unchanged thread/ring/retirement boundary from D. After it lands, a canvas
@@ -19,8 +19,8 @@ References:
 
 - The design summary — "Platform Surfaces" (macOS/Metal), "Rendering Notes" (one
   pipeline, premultiplied alpha, sRGB, SDF), "Shaders".
-- plan-98-A invariant 5 (tolerance comparator), invariant 4 (fence-gated retirement — the
-  Metal fence replaces D's software completion flag).
+- plan-98-A invariant 5 (tolerance comparator), invariant 4 (closed-flag texture free — the
+  Metal command-buffer completion advances D's `lastCompletedFrame`).
 - `.ai/arch-abi.md` — macOS AArch64 ABI/codegen; metal-cpp header-only integration.
 - plan-98-C rendering-conventions spec section (what E must match within tolerance).
 
@@ -28,8 +28,8 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-98-D complete (graphics thread + ring + fence-gated retire) | `ls planning/completed/plan-98-D-*` → hit | NOT MET |
-| D's fence abstraction is renderer-swappable | plan-98-D Phase 4 acceptance met | NOT MET |
+| plan-98-D complete (graphics thread + ring + deferred texture free) | `ls planning/completed/plan-98-D-*` → hit | NOT MET |
+| D's frame-completion signal is renderer-swappable | plan-98-D Phase 4 acceptance met | NOT MET |
 | C's tolerance comparator exists | plan-98-C Phase 2 acceptance met | NOT MET |
 | Full suite green at HEAD | `cargo test` → pass | UNVERIFIED |
 
@@ -61,12 +61,12 @@ References:
 - **A** built the layer-backed `NSView` (`wantsLayer = YES`) whose layer can host a
   `CAMetalLayer`. **C** defined the rendering conventions (premultiplied alpha, sRGB encode,
   Y-down) as a spec E must match within tolerance, and the tolerance comparator. **D** owns
-  the graphics thread, the scene ring, and fence-gated retirement with a renderer-swappable
-  fence.
+  the graphics thread, the scene ring, and the deferred texture free with a
+  renderer-swappable frame-completion signal.
 - **metal-cpp is header-only** (design note) — no SDK/link dependency; integrates under the
   no-shared-libs constraint.
 - UNVERIFIED until Phase 1 (post-D): the exact vertex-buffer layout D hands the renderer, the
-  fence/completion-handler hook shape, and how the atlas (white pixel + images) is uploaded.
+  frame-completion hook shape (`lastCompletedFrame`), and how the atlas (white pixel + images) is uploaded.
   These are read from D's real code, not assumed.
 
 ### Measured populations
@@ -91,15 +91,15 @@ References:
   glslang/SPIRV-Cross build dependency; decide in Phase 1.
 - **Metal renderer behind D's seam.** Device/queue/pipeline/atlas creation on graphics-thread
   start; per-frame command-buffer record from the `live` vertex buffer; `presentDrawable`;
-  completion handler → D's fence-gated retirement.
+  completion handler advances D's `lastCompletedFrame` (drives the closed-flag texture free).
 - **Atlas.** White pixel + images (+ glyphs in G) in one `MTLTexture`, so a whole scene can
   collapse to one draw call.
 
 **Where correctness risk concentrates:** matching C's sRGB/blend/AA within tolerance (the
 `RGBA8_UNORM_SRGB` texture + sRGB drawable + linear blend chain — "non-negotiable and painful
-to retrofit"), and hooking the Metal completion handler into D's retirement without changing
-D's ordering. Land the pipeline first (prove one tinted quad matches within tolerance), the
-completion-handler/retirement wiring last.
+to retrofit"), and hooking the Metal completion handler into D's frame-completion counter
+without changing D's ordering. Land the pipeline first (prove one tinted quad matches within tolerance), the
+completion-handler → frame-completion wiring last.
 
 **Gate:** tolerance-comparator match to the C golden (not byte-identity — invariant 5). A
 mismatch beyond tolerance is a blend/sRGB/coordinate bug to root-cause against the software
@@ -132,25 +132,30 @@ Commit: —
 
 ### Phase 2 — Full scene render + resize via drawableSize
 
-- [ ] Render the full primitive set (Rect/Line/Polygon/RoundedRect/Image) from the `live`
-      vertex buffer; atlas upload (white pixel + images).
+- [ ] Render the full primitive set (Rect/Line/Polygon/Circle/Arc/RoundedRect/Image) from
+      the `live` vertex buffer; atlas upload (white pixel + images).
+- [ ] Dynamic-texture upload for `canvas::setBytes` (D's dirty flag): upload a dirty
+      texture at frame start. To upload while a prior frame may still be sampling it, use a
+      **per-texture ring** (one `MTLTexture` per frame-in-flight) or a blit/barrier — the
+      GPU realisation of D's software staging. Coalesce multiple `setBytes` to one upload.
 - [ ] Resize via `CAMetalLayer.drawableSize` from main, picked up on the graphics thread.
-- [ ] Tests: the multi-primitive C golden scene matches within tolerance on Metal; resize
-      repaints at the new size with zero worker involvement.
+- [ ] Tests: the multi-primitive C golden scene (incl. the smiley Circle/Arc scene) matches
+      within tolerance on Metal; a `setBytes` on an in-scene image shows updated pixels next
+      frame with no tearing; resize repaints at the new size with zero worker involvement.
 
-Acceptance: the full software golden scene matches within tolerance on Metal; resize is
-correct and worker-free.
+Acceptance: the full software golden scene matches within tolerance on Metal; `setBytes`
+content updates appear next frame without tearing; resize is correct and worker-free.
 Commit: —
 
-### Phase 3 — Completion-handler → fence-gated retirement (largest blast radius last)
+### Phase 3 — Completion-handler → frame-completion counter (largest blast radius last)
 
-- [ ] Hook the Metal command-buffer completion handler into D's fence-gated retirement,
-      replacing the software completion flag; a referenced image is retired/freed only at
-      Metal completion.
-- [ ] Tests: the design race (publish → `image::destroy` → mid-record) on the Metal path frees
-      exactly once at completion; the D race matrix passes with the Metal fence.
+- [ ] Hook the Metal command-buffer completion handler to advance D's `lastCompletedFrame`,
+      replacing the software completion signal; a closed image's texture is freed only when
+      `closed AND lastUsedFrame < lastCompletedFrame` (real Metal completion).
+- [ ] Tests: the design race (publish → `canvas::destroyImage` → mid-record) on the Metal path
+      frees the texture exactly once after Metal completion; the D race matrix passes on Metal.
 
-Acceptance: retirement is driven by real Metal completion; no use-after-free across
+Acceptance: the texture free is driven by real Metal completion; no use-after-free across
 present/destroy/resize on Metal; D's race matrix green on the Metal path.
 Commit: —
 

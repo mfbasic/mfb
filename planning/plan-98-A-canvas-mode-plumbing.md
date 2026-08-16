@@ -2,7 +2,8 @@
 
 Last updated: 2026-08-15
 Overall Effort: huge (>3d)
-Effort: large (3h–1d)
+Effort: x-large (1d–3d) — split A-1 (enum + gate + surface, Phases 1–3) / A-2 (window
+keyboard input, Phase 4) if it exceeds one sitting
 Depends on: nothing
 
 This sub-plan adds `Mode.Canvas` (discriminant `2`) to the app-mode `Mode`
@@ -42,10 +43,10 @@ split by effort into lettered sub-plans; **letter order is implementation order*
 
 | Letter | Scope (design-doc build step) | Effort | Depends on |
 |---|---|---|---|
-| **A** | `Mode.Canvas` variant + reconcile-seam build/teardown of an empty surface (step 1) | large | — |
-| **B** | `DrawItem` union, deep copy, scene arena, content hashing, resource handle+refcount table (step 2) | large | A |
+| **A** | `Mode.Canvas` variant + reconcile-seam build/teardown of an empty surface + `io::` gate & window keyboard input (step 1) | x-large→split A-1/A-2 if it grows | — |
+| **B** | `DrawItem` union, deep copy, scene arena, content hashing, `Image`/`Font` as RES resources (step 2) | large | A |
 | **C** | Software rasteriser + golden-image harness w/ tolerance policy (step 3) | large | B |
-| **D** | Graphics thread + triple-buffer scene ring + resize handshake + **fence-gated retain/release protocol** (step 4) | x-large→split if it grows | C |
+| **D** | Graphics thread + triple-buffer scene ring + resize handshake + **deferred texture free** (closed-flag + frame-drain) (step 4) | x-large→split if it grows | C |
 | **E** | Metal backend (step 5) | large | D |
 | **F** | Vulkan backend — Linux + Windows (step 6) | x-large→split if it grows | E |
 | **G** | Text (stb path), atlas eviction, `measureText`/`TextMetrics`, damage-rect present (step 7) | large | F |
@@ -82,19 +83,24 @@ letter re-litigates them.
    the scene at arbitrary times after `present()` returns with no further program
    involvement.
 
-4. **Resource lifetime is refcount + generation, retirement is fence-gated.** `Image`/
-   `Font` handles are `{u32 index; u32 generation;}` into a runtime table with an
-   atomic refcount. Two hazards are normative and land in B (table/handles) and D
-   (retire/release):
-   - **Copy-vs-free race:** the generation check and the refcount increment in
-     `present()` must be a single atomic step. The normative sequence is *increment
-     refcount unconditionally, then re-read generation; if it changed, decrement and
-     treat the handle as dead.* Never check-then-increment (a slot can be freed and
-     resurrected in the window between).
-   - **Retirement is fence-gated, not swap-gated.** A scene decrements its resource
-     refs only when the **frame fence that referenced it signals**, not when it stops
-     being `live` — a command buffer recorded from a retired scene may still execute.
-     Each in-flight frame carries the set of scenes/resources it touched.
+4. **Resources are RES values; the closed flag drives lifetime; there is NO
+   refcounting.** MFB is not a refcounted/GC language — an `Image`/`Font` is a plain
+   **RES resource** (the existing native-resource record `tag@0 / handle@8 / closed@16
+   / STATE@24`, `handle@8` holding the OS-side texture id), owned by MFB scope exactly
+   like a file. `close ≠ drop`: `destroy*` (or scope-drop of the owner) sets `closed@16`
+   and the canvas close runtime helper marks the OS texture pending-free; the record
+   memory is reclaimed by the existing scope-drop path. Using a closed resource is the
+   existing `ERR_RESOURCE_CLOSED` no-op — that is the stale-id safety net (no separate
+   generation table needed). The one OS-side rule, entirely invisible to MFB:
+   - **Free is gated on closed AND drained, via a single monotonic compare — not a
+     count.** The graphics thread stamps each texture with `lastUsedFrame` when it
+     draws it (the same LRU marker the geometry cache uses with `lastUsedRev`). The OS
+     texture is freed only when **`closed AND lastUsedFrame < lastCompletedFrame`** —
+     i.e. MFB is done with it, it is no longer in the rendered scene (so `lastUsedFrame`
+     stopped advancing), and the GPU has drained the last frame that used it. No atomic
+     refcount, no per-frame reference set, no increment-then-recheck. Scenes do **not**
+     retain resources; the closed flag alone ends a resource's life. Lands in B (RES
+     backend + close helper) and D (the `lastUsedFrame`/`lastCompletedFrame` free gate).
 
 5. **GPU goldens are tolerance-based; the software backend is the byte-identity
    oracle.** Blending, AA, SDF `fwidth`, and sRGB rounding differ per driver/GPU, so
@@ -106,8 +112,9 @@ letter re-litigates them.
 
 6. **The `DrawItem` variant set is closed up front.** Adding a variant to a
    user-visible `UNION` is a breaking change (a `SELECT CASE` over it becomes
-   non-exhaustive). B freezes the full set — Image, Rectangle, Line, Polygon, Text,
-   and a rounded/SDF primitive — rather than shipping a subset and appending later.
+   non-exhaustive). B freezes the full set — Image, Rectangle, Line, Polygon, Circle,
+   Arc, Text, RoundedRect (8 variants; see plan-98-api.md) — rather than shipping a
+   subset and appending later.
 
 7. **Software backend is permanent and first-class**, not a fallback: it keeps the
    GPU backends honest via golden images, guarantees canvas mode can never fail for
@@ -139,8 +146,11 @@ This is sub-plan A; it has no plan dependency. Its preconditions are environment
 - A canvas-default program (one whose static default mode is `None`, since it
   necessarily calls `setMode`) starts windowless — no transcript flash — exactly
   as a `None`-default program does today.
-- No drawing occurs; there is no scene, no GPU device, no swapchain. This phase is
-  pure surface lifecycle.
+- **`io::` works in canvas mode:** outputs degrade to stdout/stderr; blocking reads
+  (`io::readByte`/`readChar`/`readLine`) are permitted and read the canvas window's key
+  events (the same input source `Console` uses). `term::` still traps in `Canvas`.
+- No drawing occurs; there is no scene, no GPU device, no swapchain. This sub-plan is
+  surface lifecycle + mode-gated I/O (including keyboard input).
 
 ### Non-goals (explicit constraints)
 
@@ -149,10 +159,16 @@ This is sub-plan A; it has no plan dependency. Its preconditions are environment
   the stored value with no remap (`app_package.mfb` enum comment).
 - **No new `Result`-typed surface in `app::`.** Mode entry failure surfaces via the
   existing trappable-error path, matching `term::` (which has no `Result` returns).
-- **Byte-identical output for every program that does not select `Canvas`.** The new
-  slot value, the appended enum variant, and any `Canvas`-arm gate must be inert for
-  console and existing app-mode programs — same discipline as `prepend_wrong_mode_gate`
-  being a no-op when `presentation_mode_offset` is `None`.
+- **Byte-identical output for every non-app (console) program**, and for app-mode
+  programs that use neither the changed `io::`-read gate nor `Canvas`. The new slot value,
+  the appended enum variant, and the `term::`/`canvas::` gate are inert when
+  `presentation_mode_offset` is `None`. **Expected diff (the plan working, not failing):**
+  the blocking-`io::`-read gate predicate at `mod.rs:2529` changes from "trap unless
+  `Console`" to "trap only in `None`", so **app-mode fixtures containing a blocking `io::`
+  read will have an intentional gate-codegen diff** — re-baseline those specific golden
+  lines with the behavior proof (io read now permitted in `Canvas`, still trapped in
+  `None`), per AGENTS.md. Console (`== 0`) and `None` (`== 1`) read behavior is unchanged;
+  only the emitted comparison differs.
 - No `canvas::` drawing package yet (that is B onward). This sub-plan may register
   the package *shell* only if needed to host `setMode` gating; drawing calls are not
   added here.
@@ -206,7 +222,16 @@ App mode already solved the hard structural problems this feature extends. Cited
   `src/target/shared/code/mod.rs:1977` (every app-mode `term::` helper) and `mod.rs:2529`
   (blocking `io::` reads). `io::print` **degrades to stdout** outside `Console`
   (`src/docs/spec/app/05_presentation-mode.md:88-91`, "universal I/O degrades,
-  specialized I/O hard-fails").
+  specialized I/O hard-fails"). This sub-plan **relaxes the read gate** so `Canvas` (not
+  just `Console`) permits reads.
+- **Window key events already feed the `io::` read path in app mode** (so Phase 4 is a
+  reuse, not new machinery): the read helpers `io::readChar`/`readByte`/`readLine`/`input`
+  read fd 0 and are **not** rewritten in app mode, while the window delivers keystrokes
+  into that path — Linux `_mfb_gtkapp_key_pressed` (main thread) feeds
+  `readChar`/`readByte` (`src/docs/spec/app/02_linux-runtime.md`,
+  `src/docs/spec/app/03_console-io.md`; the term keyboard-input work,
+  plan-69-term-keyboard-input). Canvas reuses this: its window's key handler feeds the same
+  path the term view does.
 - **Package registration seams (for the `canvas::` shell, used from B on):**
   `src/builtins/descriptor.rs:643:REGISTRY`, test mirror
   `src/builtins/mod.rs:1074:ALL_BUILTIN_PACKAGES`, per-backend advertised calls
@@ -257,11 +282,15 @@ Three independent pieces, layered:
    (Windows) with **no renderer attached**. Highest structural risk (three platforms,
    UI-thread marshaling), so it lands behind the enum and behind a teardown test.
 
-3. **The mode gate arm.** `canvas::` calls (none yet) will require `Canvas`; `term::`
-   calls already hard-fail outside `Console` and continue to. This sub-plan only needs
-   the gate to keep treating non-`Console` as wrong-mode for `term::`/blocking-`io::`
-   — no code change if the existing `!= 0` branch already covers `Canvas`. Confirm,
-   don't assume.
+3. **The mode gate arm + `io::` input from the window.** `term::` calls hard-fail outside
+   `Console` and continue to (they trap in `Canvas`). But **`io::` works fully in `Canvas`**:
+   outputs degrade to stdout/stderr as today, and blocking `io::` reads (`readByte`/`readChar`/
+   `readLine`) must **not** trap in `Canvas` — they read from the window's key events, the
+   same input source `Console` uses. This is a change from today's `!= 0 → ErrWrongMode`
+   gate for blocking reads: the read gate becomes "trap only in `None`" (`Console` and
+   `Canvas` both have an input source; `None` has no window). It requires wiring the canvas
+   window's key events into the `io::` input path — mirroring term keyboard input
+   (plan-69-term-keyboard-input). `term::` stays trap-in-`Canvas`.
 
 **Where correctness risk concentrates:** the per-platform teardown ordering (build a
 surface, switch away, ensure no leaked view/window/HWND and no dangling UI-thread
@@ -287,9 +316,11 @@ root-cause (objdump one fixture), never a signal the design is dead.
 
 - **Changes:** one appended enum variant `Mode.Canvas = 2` (additive; no existing
   discriminant moves). New per-platform reconcile arms. New presentation-slot value
-  `2` is now reachable.
+  `2` is now reachable. The blocking-`io::`-read gate predicate changes to "trap only in
+  `None`" so `Canvas` permits reads; canvas-window key events feed the `io::` input path.
 - **Unchanged:** `Console`/`None` discriminants and stored values; the presentation
-  slot layout and offset; `io::`/`term::` gate semantics; all console (non-app)
+  slot layout and offset; `term::` gate semantics (traps outside `Console`); `io::`
+  output degradation; `Console`/`None` `io::`-read behavior; all console (non-app)
   codegen (byte-identical); the `app::` `Result`-free error contract.
 
 ## Phases
@@ -320,23 +351,29 @@ Acceptance: a headless app program sets and reads back `Mode.Canvas`; the full
 non-canvas fixtures.
 Commit: —
 
-### Phase 2 — Presentation gate covers `Canvas` for `term::`/blocking-`io::`
+### Phase 2 — Mode gate: `term::` traps in `Canvas`, `io::` reads allowed in `Canvas`
 
-Confirm (and only if wrong, fix) that specialized I/O hard-fails in `Canvas` exactly
-as in `None`.
+`term::` hard-fails in `Canvas` (like `None`). But **`io::` reads must be allowed in
+`Canvas`** (input from the window), a change from the current "blocking reads trap outside
+`Console`" gate — so the read gate becomes "trap only in `None`". `io::` outputs still
+degrade to stdout/stderr.
 
-- [ ] Read `src/target/shared/code/app.rs:prepend_wrong_mode_gate`: verify its
-      "not Console" branch already raises `ErrWrongMode` for slot value `2`
-      (it branches on `== 0`, so `2` already falls to the raise). Record the read.
-- [ ] Confirm `io::print`/`io::write` still **degrade to stdout** in `Canvas`
-      (they are not gated by `prepend_wrong_mode_gate`; verify no `Console`-only
-      assumption elsewhere keys off the exact value `1`).
-- [ ] Tests: add cases asserting `term::sync` in `Mode.Canvas` traps `ErrWrongMode`
-      (trappable), and `io::print` in `Mode.Canvas` writes to stdout.
+- [ ] Read `src/target/shared/code/app.rs:prepend_wrong_mode_gate`: it raises `ErrWrongMode`
+      for any non-`Console` slot value. For `term::` (applied at `mod.rs:1977`) this is
+      correct for `Canvas` (value `2`) with no change.
+- [ ] For the blocking-`io::` read gate (`mod.rs:2529`), change the predicate from "trap
+      unless `Console` (`== 0`)" to "trap only in `None` (`== 1`)" so `Console` **and**
+      `Canvas` both permit reads. Keep it a no-op when `presentation_mode_offset` is `None`.
+- [ ] Confirm `io::print`/`io::write` (and error variants) still **degrade to stdout/stderr**
+      in `Canvas`.
+- [ ] Tests: `term::sync` in `Mode.Canvas` traps `ErrWrongMode`; `io::print` in `Mode.Canvas`
+      reaches stdout; a blocking `io::readByte` in `Mode.Canvas` does **not** trap (fed by
+      the test harness / window-input stub — full window-key wiring is Phase 4); `io::readByte`
+      in `Mode.None` still traps.
 
-Acceptance: `term::` in canvas mode raises trappable `ErrWrongMode`; `io::print` in
-canvas mode reaches stdout; both proven by tests. No codegen change unless the read
-finds a value-`1`-specific assumption, in which case fix it and cite the diff.
+Acceptance: in canvas mode `term::` raises trappable `ErrWrongMode`, `io::` outputs reach
+stdout/stderr, and blocking `io::` reads are permitted (do not trap); `None` still traps
+blocking reads — all proven by tests. Cite the `mod.rs:2529` predicate diff.
 Commit: —
 
 ### Phase 3 — Per-platform reconcile `Canvas` arm: build/teardown an empty surface (largest blast radius last)
@@ -371,11 +408,32 @@ retrievable while in canvas mode and released after exit; full `cargo test` gree
 non-canvas byte-identity corpus unchanged.
 Commit: —
 
+### Phase 4 — Window key events → `io::` input path (canvas keyboard input)
+
+Deliver the canvas window's key events into the worker's `io::` input source, so
+`io::readByte`/`readChar`/`readLine` in `Mode.Canvas` read real keystrokes. Mirrors term
+keyboard input (plan-69-term-keyboard-input); reuse its input-queue/marshaling machinery.
+
+- [ ] macOS: the layer-backed `NSView`'s `keyDown:` marshals bytes into the same input
+      channel the worker's `io::` reads drain (reuse the term keyboard-input path).
+- [ ] Linux: GTK key-event controller on the canvas window feeds the input pipe the worker
+      reads.
+- [ ] Windows: `WM_CHAR`/`WM_KEYDOWN` in the wndproc feeds the worker's input channel.
+- [ ] Tests: a headless test injects key events and asserts `io::readByte` in `Mode.Canvas`
+      returns them in order; EOF/close behaves like console input.
+
+Acceptance: with the canvas window focused, `io::readByte`/`readChar`/`readLine` return the
+window's keystrokes on all three platforms (injected-key headless test green); no busy-spin
+while waiting. Full `cargo test` green.
+Commit: —
+
 ## Validation Plan
 
-- Tests: app-mode integration cases for setMode/getMode round-trip (Phase 1), the
-  `ErrWrongMode`/`io::print`-degrade gate (Phase 2), and the enter/teardown lifecycle
-  (Phase 3), under `MFB_MACAPP_HEADLESS` / GTK-headless / `MFB_WINAPP_HEADLESS`.
+- Tests: app-mode integration cases for setMode/getMode round-trip (Phase 1); the mode
+  gate (Phase 2 — `term::` traps in `Canvas`, `io::` output degrades, `io::` reads
+  permitted in `Canvas` but still trap in `None`); the enter/teardown lifecycle (Phase 3);
+  and window-key → `io::` input (Phase 4), under `MFB_MACAPP_HEADLESS` / GTK-headless /
+  `MFB_WINAPP_HEADLESS`.
 - Coverage check: confirm the new reconcile arms are in the `--bin mfb` denominator
   (per `.ai/build-tooling.md` coverage mechanics — src/ coverage is in-process bin
   unit tests; the headless subprocess is integration and uncaptured). Add `.ncode`
@@ -385,11 +443,14 @@ Commit: —
   loop, launched headless on each platform, exits 0 with the surface built and torn
   down (observable via the lifecycle test's assertions / logs).
 - Doc sync: update `src/docs/spec/app/05_presentation-mode.md` (add `Canvas` to the
-  mode table and the I/O degrade/hard-fail matrix) and `app_package.mfb`'s enum doc.
+  mode table and the I/O matrix — note `io::` reads work in `Canvas` from the window,
+  `term::` traps) and `app_package.mfb`'s enum doc.
   Per `.ai/specifications.md`, keep the spec current with the compiler change.
-- Acceptance: full `cargo test`; `tests/byte-identity/` corpus unchanged for
-  non-canvas fixtures; `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup
-  run 1.96.0 cargo fmt)` at session end.
+- Acceptance: full `cargo test`; `tests/byte-identity/` corpus unchanged **except** the
+  intentional io-read-gate diff for app-mode fixtures containing a blocking `io::` read
+  (re-baseline those specific lines with the behavior proof — Phase 2); non-app fixtures
+  unchanged; `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0
+  cargo fmt)` at session end.
 
 ## Open Decisions
 
@@ -414,5 +475,5 @@ The real risk in A is the per-platform teardown ordering (Phase 3): three surfac
 lifecycles, UI-thread marshaling, and the requirement that switching modes leaves no
 leaked native object — the mirror of the implicit `term::off`. Everything before it
 (enum append, gate confirmation) is low-risk and independently valuable. Untouched by
-A: all scene/geometry/GPU machinery (B onward), the resource refcount table (B/D), and
-any drawing whatsoever.
+A: all scene/geometry/GPU machinery (B onward), the `Image`/`Font` RES resources and
+their deferred texture free (B/D), and any drawing whatsoever.

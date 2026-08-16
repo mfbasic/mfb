@@ -28,7 +28,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-98-B complete (scene arena, hashing, cache mechanics, resource table) | `ls planning/completed/plan-98-B-*` → hit | NOT MET |
+| plan-98-B complete (scene arena, hashing, cache mechanics, RES resources) | `ls planning/completed/plan-98-B-*` → hit | NOT MET |
 | Geometry cache miss reaches a generation hook | plan-98-B Phase 3 acceptance met | NOT MET |
 | Full suite green at HEAD | `cargo test` → pass | UNVERIFIED |
 
@@ -38,8 +38,9 @@ References:
   RGBA8 buffer for the current surface size using **premultiplied alpha, linear
   blending, Y-down top-left pixel coordinates** (design "Rendering Notes"). Rectangles,
   lines, polygons render via tessellation/stroke expansion (now real, feeding the B
-  cache); RoundedRect renders via analytic SDF (circles for free at `radius =
-  min(w,h)/2`). Text is still stubbed (G).
+  cache); RoundedRect, Circle, and Arc render via analytic SDF (Circle is the `radius`
+  SDF; Arc is the same SDF wedge-clipped to `startAngle..endAngle`, stroked). Text is
+  still stubbed (G).
 - The rendered buffer is blitted to the A-built surface on the UI thread (reusing the
   existing headless/real blit paths per platform).
 - A **golden-image harness** renders a fixed scene headless to the buffer and compares
@@ -58,7 +59,7 @@ References:
 - **No sRGB *hardware* linearisation** — the software path does sRGB encode/decode in
   code to match what the GPU sRGB surface will do, so the software golden is a faithful
   reference. Document the exact encode so E/F can match within tolerance.
-- No change to the scene model, resource table, or non-canvas codegen.
+- No change to the scene model, RES resource record, or non-canvas codegen.
 
 ## 2. Current State
 
@@ -79,7 +80,7 @@ References:
 
 | What | Count | Command |
 |---|---|---|
-| Primitive kinds needing a software rasteriser path | 5 (Rect, Line, Polygon, RoundedRect/SDF; Image blit) | design variant set minus Text |
+| Primitive kinds needing a software rasteriser path | 7 (Rect, Line, Polygon, RoundedRect, Circle, Arc — SDF; Image blit) | 8-variant set minus Text |
 | Platform blit entry points to add | 3 | A's three surfaces |
 | Existing golden-image diffs in the Rust suite | 0 | research §7 (`rg -n "golden" tests/ \| rg -i png`) — run to confirm |
 
@@ -133,20 +134,22 @@ wrong gate; C writes the tolerance comparator they will use.
   corpus (new `tests/` fixtures + a comparator). Rendering conventions (premultiplied
   alpha, sRGB encode, Y-down) become an observable contract that E/F must match within
   tolerance.
-- **Unchanged:** scene model, resource table, `Mode`/gate semantics, non-canvas codegen.
+- **Unchanged:** scene model, RES resource record, `Mode`/gate semantics, non-canvas codegen.
 
 ## Phases
 
 ### Phase 1 — Deterministic geometry generation + software rasteriser core
 
 - [ ] Implement geometry generation for Rect, Line (stroke expansion), Polygon
-      (tessellation), Image (textured quad), RoundedRect (SDF quad) — feeding B's cache
-      miss path with real `Vertex` ranges.
+      (tessellation), Image (textured quad), RoundedRect / Circle / Arc (SDF quad; Arc =
+      angle-wedge-clipped stroked ring) — feeding B's cache miss path with real `Vertex`
+      ranges.
 - [ ] Implement the software rasteriser: premultiplied-alpha linear-space over-blend,
       deterministic sRGB encode on store, Y-down top-left pixel coords, per-pixel SDF
       evaluation with **deterministic AA** (fixed-point/exact-coverage — pin the math).
 - [ ] Tests: unit tests rasterising each primitive to a small buffer with hand-checked
-      pixel values (corner AA, blend over a background, SDF circle at `radius=min(w,h)/2`).
+      pixel values (corner AA, blend over a background, SDF Circle, a stroked Arc sweeping
+      `0..PI`). The smiley scene from plan-98-api.md is a good golden fixture.
 
 Acceptance: each primitive rasterises to expected pixels deterministically on the test
 machine; AA and sRGB encode are reproducible (same bytes on re-run). No GPU, no blit yet.
