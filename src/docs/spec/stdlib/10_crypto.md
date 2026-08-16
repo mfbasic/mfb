@@ -30,7 +30,7 @@ Two categories bind the platform instead of computing in source:
   non-deprecated on macOS and Linux, glibc and musl). It is a native runtime
   helper. This is **distinct from
   `math::rand`** (PCG64, non-cryptographic; `./mfb spec stdlib math-rng`) and is
-  deliberately **not seedable**. [[src/target/shared/runtime/crypto_specs.rs:CRYPTO_RANDOM_BYTES_SPEC]]
+  deliberately **not seedable**. [[src/codegen/builtins/crypto/func_random_bytes.rs:randomBytes]]
 - **NIST-EC public-key** (P-256/384/521 key generation and ECDSA) binds the
   platform's key API — `SecKey` (Security.framework) on macOS, `EVP_PKEY`
   (libcrypto) on Linux — rather than a software core: generic NIST bignum

@@ -119,7 +119,6 @@ pub(crate) struct RuntimeHelperAbi {
 mod app_specs;
 mod audio_specs;
 mod catalog;
-mod crypto_specs;
 mod net_specs;
 mod perf_specs;
 mod term_specs;
@@ -132,7 +131,6 @@ pub(crate) use usage::{is_native_direct_call, required_helpers};
 
 use app_specs::*;
 use audio_specs::*;
-use crypto_specs::*;
 use net_specs::*;
 use perf_specs::*;
 use term_specs::*;
@@ -144,7 +142,7 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::App)
     } else if builtins::audio::is_audio_runtime_call(name) {
         Some(RuntimeHelper::Audio)
-    } else if builtins::crypto::is_native_crypto_call(name) {
+    } else if crate::codegen::builtins::crypto::is_native_crypto_call(name) {
         Some(RuntimeHelper::Crypto)
     } else if matches!(
         name,

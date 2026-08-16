@@ -18,10 +18,12 @@
 
 use std::collections::HashMap;
 
-use super::super::native_helpers::{emit_data_address, emit_zero_guarded, hex_encode_cstring};
-use super::super::*;
 use super::{call_fn, emit_build_byte_list, emit_fail, emit_read_byte_list, Curve, EcOp};
 use crate::target::shared::abi;
+use crate::target::shared::code::native_helpers::{
+    emit_data_address, emit_zero_guarded, hex_encode_cstring,
+};
+use crate::target::shared::code::*;
 
 const LIBCRYPTO3: &str = "libcrypto.so.3";
 const LIBCRYPTO11: &str = "libcrypto.so.1.1";

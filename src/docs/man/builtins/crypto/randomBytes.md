@@ -19,7 +19,7 @@ IMPORT crypto
 ```
 
 `crypto` is a built-in package, so no manifest dependency is required.
-[[src/builtins/crypto.rs:augmented_project]]
+[[src/codegen/registry/mod.rs:augment_project]]
 
 ## Description
 
@@ -28,14 +28,14 @@ system's cryptographically secure pseudo-random number generator (CSPRNG). The
 bytes are produced by `getentropy`, the non-deprecated OS entropy source present
 on both macOS and Linux (glibc and musl), so the output is suitable for keys,
 nonces, salts, tokens, and any other use where unpredictability is a security
-requirement. [[src/target/shared/code/crypto.rs:lower_crypto_random_bytes_helper]]
+requirement. [[src/codegen/builtins/crypto/native/random.rs:lower_crypto_random_bytes_helper]]
 
 Unlike the portable software cores in this package (the hashes, HMAC, HKDF,
 PBKDF2, and the AEADs), `randomBytes` is a **native runtime helper** rather than
 source: it routes to `_mfb_rt_crypto_crypto_randomBytes` and reads OS entropy
 directly, so its output is inherently non-reproducible and platform-provided
 rather than byte-identical across targets.
-[[src/builtins/crypto.rs:is_native_crypto_call]]
+[[src/codegen/builtins/crypto/mod.rs:is_native_crypto_call]]
 
 This generator is cryptographically secure and, by design, **not** seedable:
 there is no way to fix or replay its output. That is the deliberate contrast with
@@ -51,33 +51,33 @@ returns an empty list, while a negative `count` or one above the 16 MiB cap rais
 and rejects an absurd allocation before its size arithmetic can overflow.
 Internally the fill runs in chunks of at most 256 bytes (the per-call
 `getentropy` limit), transparent to the caller.
-[[src/target/shared/code/crypto.rs:GETENTROPY_MAX]] [[src/target/shared/code/crypto.rs:RANDOM_BYTES_MAX_COUNT]]
+[[src/codegen/builtins/crypto/native/random.rs:GETENTROPY_MAX]] [[src/codegen/builtins/crypto/native/random.rs:RANDOM_BYTES_MAX_COUNT]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `count` | `Integer` | The number of random bytes to return. Must be in `0` to `16777216` (16 MiB) inclusive; `0` yields an empty list. [[src/target/shared/code/crypto.rs:RANDOM_BYTES_MAX_COUNT]] |
+| `count` | `Integer` | The number of random bytes to return. Must be in `0` to `16777216` (16 MiB) inclusive; `0` yields an empty list. [[src/codegen/builtins/crypto/native/random.rs:RANDOM_BYTES_MAX_COUNT]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | Exactly `count` cryptographically secure random bytes. An empty list when `count` is `0`. [[src/builtins/crypto.rs:CRYPTO]] |
+| `List OF Byte` | Exactly `count` cryptographically secure random bytes. An empty list when `count` is `0`. [[src/codegen/builtins/crypto/mod.rs:CRYPTO]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `count` is negative or exceeds `16777216` (16 MiB). [[src/target/shared/code/crypto.rs:RANDOM_BYTES_MAX_COUNT]] |
-| `77050000` | `ErrUnknown` | The OS entropy call (`getentropy`) fails. [[src/target/shared/code/crypto.rs:lower_crypto_random_bytes_helper]] |
-| `77010001` | `ErrOutOfMemory` | The arena allocation for the result bytes fails. [[src/target/shared/code/crypto.rs:lower_crypto_random_bytes_helper]] |
+| `77050002` | `ErrInvalidArgument` | `count` is negative or exceeds `16777216` (16 MiB). [[src/codegen/builtins/crypto/native/random.rs:RANDOM_BYTES_MAX_COUNT]] |
+| `77050000` | `ErrUnknown` | The OS entropy call (`getentropy`) fails. [[src/codegen/builtins/crypto/native/random.rs:lower_crypto_random_bytes_helper]] |
+| `77010001` | `ErrOutOfMemory` | The arena allocation for the result bytes fails. [[src/codegen/builtins/crypto/native/random.rs:lower_crypto_random_bytes_helper]] |
 
 ## Type checking
 
 `randomBytes` takes exactly one `Integer` argument and returns `List OF Byte`; no
 other arity or argument type resolves.
-[[src/builtins/crypto.rs:CRYPTO]] [[src/builtins/crypto.rs:CRYPTO]]
+[[src/codegen/builtins/crypto/mod.rs:CRYPTO]] [[src/codegen/builtins/crypto/mod.rs:CRYPTO]]
 
 ## Examples
 

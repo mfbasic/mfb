@@ -120,10 +120,9 @@ pub fn lower_project_with_external_functions(
         .expect("built-in audio package source must parse");
     // `process` (its `Stream`/`Signal` enum companion) is injected by the generic
     // clean-room `registry::augment_project` above.
-    // `crypto` before `encoding`: `crypto_package.mfb` imports `encoding`
-    // (mirrors `http` before `net`; plan-04-crypto.md Part C).
-    let augmented = builtins::crypto::augmented_project(&augmented)
-        .expect("built-in crypto package source must parse");
+    // `crypto` source is injected by the clean-room `registry::augment_project` above
+    // (before the `strings`/`encoding` late passes, so `encoding::uses_package` still
+    // sees `crypto_package.mfb`'s `IMPORT encoding`).
     // `strings` before `encoding`: `strings_package.mfb` imports `encoding`
     // (plan-41-D scalar seam).
     let augmented = builtins::strings::augmented_project(&augmented)
@@ -2112,7 +2111,8 @@ fn expression_type(
                 || migrated_arg_typed
                 || crate::codegen::registry::registry().owning_package(&canonical_callee)
                     == Some("datetime")
-                || builtins::crypto::is_crypto_call(&canonical_callee)
+                // `crypto` migrated to the clean-room registry — covered by
+                // `migrated_arg_typed` (`registry::is_member`) above.
                 || builtins::thread::is_thread_call(&canonical_callee)
             {
                 let arg_types =
@@ -2932,25 +2932,6 @@ fn lower_expression_with_expected(
                         })
                         .collect();
                     builtins::vector::implementation_name(&canonical_callee, &arg_types)
-                        .map(|name| crate::internal_name::internalize(&name))
-                })
-                .or_else(|| {
-                    // `crypto::` maps most calls 1:1, but the hash/HMAC/PBKDF2
-                    // functions carry a `String` overload selected by the
-                    // relevant argument's type (plan-04-crypto.md §A.2). The
-                    // native entry points (`randomBytes`, NIST-EC) return `None`
-                    // and stay `crypto.*` runtime-helper calls.
-                    if !builtins::crypto::is_crypto_call(&canonical_callee) {
-                        return None;
-                    }
-                    let arg_types: Vec<String> = arguments
-                        .iter()
-                        .map(call_arg_value)
-                        .map(|argument| {
-                            expression_type(argument, locals, context).unwrap_or_default()
-                        })
-                        .collect();
-                    builtins::crypto::implementation_name(&canonical_callee, &arg_types)
                         .map(|name| crate::internal_name::internalize(&name))
                 })
                 .or_else(|| {

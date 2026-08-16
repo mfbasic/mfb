@@ -12,9 +12,9 @@
 
 use std::collections::HashMap;
 
-use super::native_helpers::{emit_build_byte_list, emit_fail};
-use super::*;
 use crate::target::shared::abi;
+use crate::target::shared::code::native_helpers::{emit_build_byte_list, emit_fail};
+use crate::target::shared::code::*;
 
 const GETENTROPY_MAX: usize = 256;
 
@@ -24,7 +24,7 @@ const GETENTROPY_MAX: usize = 256;
 /// is attempted (bug-177 D). A larger ask is reported as an invalid argument.
 const RANDOM_BYTES_MAX_COUNT: usize = 16 * 1024 * 1024;
 
-pub(super) fn lower_crypto_random_bytes_helper(
+pub(crate) fn lower_crypto_random_bytes_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,

@@ -14,10 +14,10 @@
 
 use std::collections::HashMap;
 
-use super::super::native_helpers::{emit_data_address, emit_zero_guarded};
-use super::super::*;
 use super::{emit_build_byte_list, emit_fail, emit_read_byte_list, Curve, EcOp};
 use crate::target::shared::abi;
+use crate::target::shared::code::native_helpers::{emit_data_address, emit_zero_guarded};
+use crate::target::shared::code::*;
 
 impl Curve {
     fn field_len(self) -> usize {

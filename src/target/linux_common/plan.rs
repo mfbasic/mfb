@@ -509,7 +509,7 @@ impl LinuxPlan<'_> {
                 imports.push(self.libc_import("__errno_location", required_by));
                 imports
             }
-            call if crate::builtins::crypto::is_native_crypto_call(call)
+            call if crate::codegen::builtins::crypto::is_native_crypto_call(call)
                 && call != "crypto.randomBytes" =>
             {
                 // The NIST-EC helpers resolve libcrypto at load time via

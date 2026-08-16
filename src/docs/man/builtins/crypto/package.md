@@ -18,7 +18,7 @@ crypto::generateEd25519()
 The `crypto` package provides cryptographic hashes, HMAC, key-derivation
 functions, authenticated encryption (AEAD), a cryptographically-secure random
 generator, public-key signatures, and constant-time comparison. It is a built-in
-package, so `IMPORT crypto` needs no manifest dependency. [[src/builtins/crypto.rs:augmented_project]]
+package, so `IMPORT crypto` needs no manifest dependency. [[src/codegen/registry/mod.rs:augment_project]]
 
 Inputs and outputs are `List OF Byte`; the hash/HMAC/PBKDF2 functions also accept
 a `String` overload that UTF-8-encodes internally. A digest, ciphertext, or key
@@ -34,7 +34,7 @@ primitive is a portable core written in MFBASIC source over the `bits` package
 its output is **byte-identical on every target** (macOS/Linux, aarch64/x86-64)
 and uses **no deprecated platform functions**. On macOS the only C-ABI
 symmetric/AEAD/EdDSA entry points are deprecated or Swift-only, so a software
-core is both the portable and the non-deprecated choice. [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmSeal]]
+core is both the portable and the non-deprecated choice. [[src/codegen/builtins/crypto/package.mfb:__crypto_aes256GcmSeal]]
 
 Two categories bind the platform instead of computing in source:
 
