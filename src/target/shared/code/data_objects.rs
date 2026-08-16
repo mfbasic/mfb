@@ -1297,7 +1297,7 @@ pub(super) fn static_type_name_for_fold_with_types(
                 .iter()
                 .map(|arg| static_type_name_for_fold_with_types(arg, types, fields))
                 .collect::<Option<Vec<_>>>()?;
-            builtins::resolve_call_return_type(target, &arg_types)
+            builtins::resolve_call_return_type(target, &arg_types, false)
         }
         _ => None,
     }
@@ -1460,6 +1460,7 @@ mod tests {
             let want = builtins::resolve_call_return_type(
                 target,
                 &arg_types.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
+                false,
             );
             let got =
                 static_type_name_for_fold_with_types(&call(target, arg_types), &types, &fields);

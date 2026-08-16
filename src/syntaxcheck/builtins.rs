@@ -29,7 +29,7 @@ fn resolve_table_call_with_byte_literals(
     arg_types: &[String],
     arguments: &[Expression],
 ) -> Option<String> {
-    if let Some(return_type) = builtins::resolve_call_return_type(callee, arg_types) {
+    if let Some(return_type) = builtins::resolve_call_return_type(callee, arg_types, true) {
         return Some(return_type);
     }
     let eligible: Vec<usize> = arg_types
@@ -53,7 +53,7 @@ fn resolve_table_call_with_byte_literals(
                 trial[index] = "Byte".to_string();
             }
         }
-        if let Some(return_type) = builtins::resolve_call_return_type(callee, &trial) {
+        if let Some(return_type) = builtins::resolve_call_return_type(callee, &trial, true) {
             return Some(return_type);
         }
     }
@@ -505,7 +505,7 @@ impl<'a> SyntaxChecker<'a> {
     }
 
     pub(super) fn term_return_type(&mut self, callee: &str) -> Type {
-        match builtins::resolve_call_return_type(callee, &[]) {
+        match builtins::resolve_call_return_type(callee, &[], true) {
             Some(return_type) => self.parse_type(&return_type),
             None => Type::Unknown,
         }
@@ -585,7 +585,8 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
-        let Some(resolved_return) = builtins::resolve_call_return_type(callee, &arg_type_names)
+        let Some(resolved_return) =
+            builtins::resolve_call_return_type(callee, &arg_type_names, true)
         else {
             let expected = builtins::expected_arguments(callee)
                 .unwrap_or_else(|| "supported overload".to_string());
@@ -663,7 +664,8 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
-        let Some(resolved_return) = builtins::resolve_call_return_type(callee, &arg_type_names)
+        let Some(resolved_return) =
+            builtins::resolve_call_return_type(callee, &arg_type_names, true)
         else {
             // The built-in rejected these argument types, so an override may fill
             // the gap (plan-01-overload.md §A.3.2). A *user* override has already
@@ -751,7 +753,7 @@ impl<'a> SyntaxChecker<'a> {
 
                     let arg_types = vec![collection_type_name, predicate_type];
                     let Some(resolved_return) =
-                        builtins::resolve_call_return_type(callee, &arg_types)
+                        builtins::resolve_call_return_type(callee, &arg_types, true)
                     else {
                         self.report(
                             "TYPE_CALL_ARGUMENT_MISMATCH",
@@ -816,7 +818,8 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
-        let Some(resolved_return) = builtins::resolve_call_return_type(callee, &arg_type_names)
+        let Some(resolved_return) =
+            builtins::resolve_call_return_type(callee, &arg_type_names, true)
         else {
             let expected = builtins::expected_arguments(callee)
                 .unwrap_or_else(|| "supported overload".to_string());

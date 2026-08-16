@@ -2039,6 +2039,7 @@ fn expression_type(
                                 return builtins::resolve_call_return_type(
                                     &canonical_callee,
                                     &arg_types,
+                                    false,
                                 );
                             }
                         }
@@ -2048,7 +2049,7 @@ fn expression_type(
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return builtins::resolve_call_return_type(&canonical_callee, &arg_types);
+                return builtins::resolve_call_return_type(&canonical_callee, &arg_types, false);
             }
             if crate::codegen::registry::native_lower(&canonical_callee).is_some() {
                 let normalized =
@@ -2067,6 +2068,7 @@ fn expression_type(
                                 return builtins::resolve_call_return_type(
                                     &canonical_callee,
                                     &arg_types,
+                                    false,
                                 );
                             }
                         }
@@ -2076,7 +2078,7 @@ fn expression_type(
                     .iter()
                     .map(|argument| expression_type(argument, locals, context))
                     .collect::<Option<Vec<_>>>()?;
-                return builtins::resolve_call_return_type(&canonical_callee, &arg_types);
+                return builtins::resolve_call_return_type(&canonical_callee, &arg_types, false);
             }
             // The remaining builtin packages share one arg-typed dispatch
             // (bug-342 A1 — was 17 byte-identical is_*_call → resolve_call
@@ -2121,7 +2123,7 @@ fn expression_type(
                         .iter()
                         .map(|argument| expression_type(argument, locals, context))
                         .collect::<Option<Vec<_>>>()?;
-                return builtins::resolve_call_return_type(&canonical_callee, &arg_types);
+                return builtins::resolve_call_return_type(&canonical_callee, &arg_types, false);
             }
             builtins::call_return_type_name(&canonical_callee)
                 .map(str::to_string)

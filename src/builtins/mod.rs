@@ -382,12 +382,19 @@ pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
 /// guarantees each qualified name is owned by exactly one module
 /// (`duplicate_function_name` is `None`), so this is order-independent — replacing
 /// the hand-ordered per-package `resolve_call` chain it grew from.
-pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Option<String> {
+pub(crate) fn resolve_call_return_type(
+    callee: &str,
+    arg_types: &[String],
+    strict: bool,
+) -> Option<String> {
     // Migrated (clean-room registry) packages first: resolve_call validates the
     // argument arity + types (returning None on a mismatch, which the type checker
-    // turns into an error), so this cannot blindly hand back the return type.
+    // turns into an error), so this cannot blindly hand back the return type. `strict`
+    // (argument validation, from syntaxcheck) rejects a scalar-for-nominal argument;
+    // the lenient callers (return-type inference feeding IR lowering / codegen) keep the
+    // coarse match so a nominally-spelled argument does not perturb type propagation.
     if crate::codegen::registry::registry().is_member(callee) {
-        return crate::codegen::registry::resolve_call(callee, arg_types);
+        return crate::codegen::registry::resolve_call(callee, arg_types, strict);
     }
     let (module, function) = crate::target::shared::registry::REGISTRY.function(callee)?;
     match module.resolver {

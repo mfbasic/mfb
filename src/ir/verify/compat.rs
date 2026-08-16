@@ -108,7 +108,7 @@ impl TypeEnv {
             else {
                 return;
             };
-            crate::builtins::resolve_call_return_type(target, &arg_types)
+            crate::builtins::resolve_call_return_type(target, &arg_types, false)
                 .and_then(|t| usable_type(Some(&t)))
         };
         let Some(declared) = declared else {
@@ -244,7 +244,7 @@ impl TypeEnv {
                     return;
                 }
             }
-            if builtins::resolve_call_return_type(target, &arg_types).is_none() {
+            if builtins::resolve_call_return_type(target, &arg_types, false).is_none() {
                 let expected = builtins::expected_arguments(target)
                     .unwrap_or_else(|| "supported overload".to_string());
                 self.emit(
@@ -263,7 +263,7 @@ impl TypeEnv {
                     return;
                 }
             }
-            if builtins::resolve_call_return_type(target, &arg_types).is_none() {
+            if builtins::resolve_call_return_type(target, &arg_types, false).is_none() {
                 // A package-provided override may accept what the built-in
                 // rejects (plan-01-overload §A.3.2) — never reject those.
                 if builtins::general::is_overridable(target)
@@ -316,7 +316,7 @@ impl TypeEnv {
             builtins::os::is_os_call,
         ];
         if checked.iter().any(|is_call| is_call(target))
-            && builtins::resolve_call_return_type(target, &arg_types).is_none()
+            && builtins::resolve_call_return_type(target, &arg_types, false).is_none()
         {
             self.emit(
                 "TYPE_CALL_ARGUMENT_MISMATCH",

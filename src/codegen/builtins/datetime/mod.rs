@@ -391,7 +391,7 @@ mod tests {
     fn argument_typed_return_resolution() {
         let r = |call: &str, args: &[&str]| {
             let types: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-            registry::resolve_call(call, &types)
+            registry::resolve_call(call, &types, false)
         };
         assert_eq!(r("datetime.now", &[]), Some("Instant".into()));
         assert_eq!(r("datetime.monotonic", &[]), Some("Duration".into()));
@@ -461,7 +461,7 @@ mod tests {
                     .collect(),
             };
             function
-                .select(&call)
+                .dispatch(&call)
                 .and_then(|s| s.implementation.body.rewrite_target())
         };
         assert_eq!(

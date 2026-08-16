@@ -242,30 +242,30 @@ mod tests {
     fn resolve_call_types_the_members() {
         let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
         assert_eq!(
-            registry::resolve_call("encoding.hexEncode", &s(&["List OF Byte"])),
+            registry::resolve_call("encoding.hexEncode", &s(&["List OF Byte"]), false),
             Some("String".to_string())
         );
         assert_eq!(
-            registry::resolve_call("encoding.hexDecode", &s(&["String"])),
+            registry::resolve_call("encoding.hexDecode", &s(&["String"]), false),
             Some("List OF Byte".to_string())
         );
         // utf8Encode default (pre-monomorph) return is List OF Byte.
         assert_eq!(
-            registry::resolve_call("encoding.utf8Encode", &s(&["String"])),
+            registry::resolve_call("encoding.utf8Encode", &s(&["String"]), false),
             Some("List OF Byte".to_string())
         );
         // utf8Decode is a parameter overload: both element types resolve.
         assert_eq!(
-            registry::resolve_call("encoding.utf8Decode", &s(&["List OF Byte"])),
+            registry::resolve_call("encoding.utf8Decode", &s(&["List OF Byte"]), false),
             Some("String".to_string())
         );
         assert_eq!(
-            registry::resolve_call("encoding.utf8Decode", &s(&["List OF Integer"])),
+            registry::resolve_call("encoding.utf8Decode", &s(&["List OF Integer"]), false),
             Some("String".to_string())
         );
         // A wrong argument type resolves to nothing.
         assert_eq!(
-            registry::resolve_call("encoding.utf8Encode", &s(&["Integer"])),
+            registry::resolve_call("encoding.utf8Encode", &s(&["Integer"]), false),
             None
         );
     }

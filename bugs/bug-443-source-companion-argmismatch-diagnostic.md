@@ -123,23 +123,42 @@ without Layer 1.
   `transform` silent-accept to Layer 1; it is Layer 3, see below — Layers 1+2 introduce no
   regression, verified by full `cargo test` + acceptance.)
 
-- **Layer 3 (nominal/callback argument-TYPE validation) — REMAINING.** The clean registry's
-  `select` is a *coarser* filter than the old per-package resolvers (json's `JsonResolver`,
-  etc.). `leaf_matches` (`src/codegen/registry/mod.rs:1261`) is
-  `pattern == concrete || !(pattern.is_scalar() && concrete.is_scalar())`: a **nominal**
-  pattern (`Named("Json")`, or a callback `Func(..)`) is non-scalar, so it accepts ANY
-  scalar/other arg. Hence `registry::resolve_call("json.get", ["String", "List OF String"])`
-  wrongly returns `Some`, so no `TYPE_CALL_ARGUMENT_MISMATCH` fires for
-  `json::get("bad", ["x"])`. Same root cause leaves these `*_invalid` fixtures red:
-  `json/{get,getOr,stringify}`, `regex/{find,findAll,match,replace}`,
-  `collections/transform` (a `SUB` where a value-returning `FUNC` is required), and
-  `encoding/utf8Encode_ambiguous` (a distinct overload-ambiguity wording). Fixing it means
-  tightening the registry matcher for nominal/callback leaves (or restoring per-package
-  strictness) — a core-matcher change with broad blast radius; verify against a full
-  `cargo test` + acceptance, since `select`/`unify` gate every migrated-package call.
-- **Optional (not yet done):** render resolver diagnostics through
-  `internal_name::display_name` (`src/resolver/resolution.rs:1236`) as defense-in-depth
-  against any future `#`-sigil leak.
+- **Layer 3 (nominal argument-TYPE validation) — FIXED via a strict/lenient matcher split.**
+  The clean registry's overload matcher `leaf_matches` was a *coarser* filter than the old
+  per-package resolvers: `pattern == concrete || !(pattern.is_scalar() && concrete.is_scalar())`
+  — a **nominal** pattern (`Named("Json")`) is non-scalar, so it accepted ANY scalar argument,
+  and `json::get("bad", ["x"])` passed with no `TYPE_CALL_ARGUMENT_MISMATCH`. A blanket tighten
+  regressed *valid*-program overload selection (`csv::stringify`'s nested-list arg degraded to
+  `List OF Unknown`), because the matcher is used both to VALIDATE args and to DISPATCH/infer.
+  Fix (option 1): thread a `strict` flag through `unify`/`leaf_matches` and split
+  `RegistryFunction::select` into **`resolve`** (strict — a scalar never satisfies a nominal
+  parameter) and **`dispatch`** (lenient — coarse, unchanged). `resolve_call` /
+  `resolve_call_return_type` carry `strict`; syntaxcheck's argument validation passes `true`,
+  every inference/codegen caller (`ir/lower`, `target/shared/code`, `ir/verify`) passes `false`.
+  Result: `json`/`regex`/`process` now correctly reject nominal-vs-scalar mismatches; `csv`/`json`
+  codegen `.ir` byte-identical (verified full acceptance). `process/*_invalid` goldens gained the
+  now-correct `expected process.Process` rejection (regenerated, purely additive).
+
+### Still remaining (smaller, separate)
+
+- **json/regex `*_invalid` "expected …" WORDING.** They now emit the correct
+  `TYPE_CALL_ARGUMENT_MISMATCH`, but the generic `expected_arguments`
+  (`registry/mod.rs`) renders only parameter 0 (`expected Json` instead of
+  `Json, List OF String`). **Blocked by a coupling:** `expected_arguments` is NOT
+  diagnostic-only — the coercion/inference path consumes it, so widening it to the full
+  parameter list (generic render OR a per-member `Some(hint)`) *changes codegen*
+  (`json.getOr`'s `Json`-union arg starts `unionWrap`-ing; `csv.stringify`'s grid degrades
+  to `List OF Unknown`). Fix = decouple `expected_arguments` from coercion (make it truly
+  diagnostic-only), THEN widen the render. This is also the root of the `csv`/`json` `.ir`
+  sensitivity seen while iterating.
+- **`collections/transform`** — a `SUB` (`FUNC(T) AS Nothing`) satisfies the callback
+  parameter `FUNC(T) AS U` because `unify` binds `U = Nothing`; needs a callback-return
+  strictness rule.
+- **`encoding/utf8Encode_ambiguous`** — the monomorph overload-ambiguity diagnostic
+  (`monomorph/lower.rs` ~718) prints the mangled `#encoding_utf8Encode` and a `{count}` the
+  golden omits; thread the public callee + drop the count.
+- **Optional:** render resolver diagnostics through `internal_name::display_name`
+  (`src/resolver/resolution.rs:1236`) as defense-in-depth against a future `#`-sigil leak.
 
 ## Notes
 

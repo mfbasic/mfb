@@ -276,7 +276,7 @@ mod tests {
     fn spawn_overloads_resolve() {
         let s = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         assert_eq!(
-            registry::resolve_call("process.spawn", &s(&["List OF String"])),
+            registry::resolve_call("process.spawn", &s(&["List OF String"]), false),
             Some("process.Process".to_string())
         );
         assert_eq!(
@@ -287,14 +287,18 @@ mod tests {
                     "String",
                     "Map OF String TO String",
                     "Boolean"
-                ])
+                ]),
+                false
             ),
             Some("process.Process".to_string())
         );
         // The structural gap between the 1-arg and 4-arg overloads is rejected.
-        assert_eq!(registry::resolve_call("process.spawn", &s(&[])), None);
         assert_eq!(
-            registry::resolve_call("process.spawn", &s(&["List OF String", "String"])),
+            registry::resolve_call("process.spawn", &s(&[]), false),
+            None
+        );
+        assert_eq!(
+            registry::resolve_call("process.spawn", &s(&["List OF String", "String"]), false),
             None
         );
     }

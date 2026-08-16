@@ -313,19 +313,36 @@ impl RegistryFunction {
         &self.implementations
     }
 
-    /// Select the overload this call resolves to: the first implementation whose arity
-    /// and parameters [`unify`] with the call's argument types — binding any
-    /// [`ParameterType::Var`] type variables — paired with the concrete return type
-    /// from [`substitute`]-ing those bindings into the overload's return type. `None`
-    /// when no overload accepts the call (wrong arity or an argument-type mismatch),
-    /// which the type checker turns into an arity / argument-type error.
+    /// STRICT overload resolution for **argument validation**: the first implementation
+    /// whose arity and parameters [`unify`] *strictly* with the call's argument types —
+    /// a scalar argument does NOT satisfy a nominal parameter (`String` ≠ `Named("Json")`).
+    /// `None` when no overload accepts the call, which the type checker turns into an
+    /// arity / argument-type error. Use this to answer "do these concrete args match?".
+    pub(crate) fn resolve(&self, call: &CallShape) -> Option<Selection<'_>> {
+        self.match_overload(call, true)
+    }
+
+    /// LENIENT overload resolution for **dispatch / return-type inference**: like
+    /// [`resolve`](Self::resolve) but a scalar argument coarsely satisfies a nominal
+    /// parameter. Used where a not-yet-resolved or nominally-spelled argument must not be
+    /// rejected — overload dispatch (rewrite targets) and the return-type oracle that
+    /// feeds IR lowering / codegen — because rejecting it there perturbs type propagation
+    /// on valid programs. Validation strictness belongs on [`resolve`](Self::resolve).
+    pub(crate) fn dispatch(&self, call: &CallShape) -> Option<Selection<'_>> {
+        self.match_overload(call, false)
+    }
+
+    /// The overload this call resolves to: the first implementation whose arity and
+    /// parameters [`unify`] with the call's argument types (binding any
+    /// [`ParameterType::Var`] type variables), paired with the concrete return type from
+    /// [`substitute`]-ing those bindings into the overload's return type. `strict` selects
+    /// the argument-matching mode ([`resolve`](Self::resolve) vs [`dispatch`](Self::dispatch)).
     ///
-    /// This is the registry's single overload-and-return resolver — exact-type matching
-    /// is just the case with no type variables. `get(List OF T, Integer) AS T` called
-    /// with `["List OF Integer", "Integer"]` selects the list overload, binds
-    /// `T = Integer`, and reports the return type `Integer`, with no per-package
-    /// resolver — only unification over the descriptor.
-    pub(crate) fn select(&self, call: &CallShape) -> Option<Selection<'_>> {
+    /// The registry's single overload-and-return resolver — exact-type matching is just
+    /// the case with no type variables. `get(List OF T, Integer) AS T` called with
+    /// `["List OF Integer", "Integer"]` selects the list overload, binds `T = Integer`,
+    /// and reports the return type `Integer`, with no per-package resolver.
+    fn match_overload(&self, call: &CallShape, strict: bool) -> Option<Selection<'_>> {
         for implementation in &self.implementations {
             let required = implementation
                 .params
@@ -341,7 +358,7 @@ impl RegistryFunction {
                 .params
                 .iter()
                 .zip(call.args.iter())
-                .all(|(param, arg)| unify(&param.ty, arg, &mut bindings));
+                .all(|(param, arg)| unify(&param.ty, arg, &mut bindings, strict));
             if !unifies {
                 continue;
             }
@@ -1257,8 +1274,24 @@ pub(crate) fn call_return_type(qualified: &str) -> Option<&'static str> {
 /// conservatively (the type checker never emits a false rejection). Container,
 /// [`Var`](ParameterType::Var), and [`Unknown`](ParameterType::Unknown) cases never
 /// reach here; [`unify`] handles them first.
-fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType) -> bool {
-    pattern == concrete || !(pattern.is_scalar() && concrete.is_scalar())
+fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool) -> bool {
+    if pattern == concrete {
+        return true;
+    }
+    // Two unequal scalars never match, in either mode.
+    if pattern.is_scalar() && concrete.is_scalar() {
+        return false;
+    }
+    // STRICT (argument validation): a scalar and a nominal/non-scalar leaf are never
+    // compatible either — a `Named("Json")` parameter cannot accept a `String` argument
+    // (bug-443). LENIENT (overload dispatch / return-type inference): stay coarse so a
+    // nominally-spelled or not-yet-resolved argument is not rejected, which would perturb
+    // overload selection and type propagation on valid programs (e.g. a `csv::stringify`
+    // nested-list argument degrading to `List OF Unknown`).
+    if strict && (pattern.is_scalar() || concrete.is_scalar()) {
+        return false;
+    }
+    true
 }
 
 /// Structurally unify a parameter-type `pattern` — which may contain
@@ -1274,6 +1307,7 @@ fn unify(
     pattern: &ParameterType,
     concrete: &ParameterType,
     bindings: &mut BTreeMap<&'static str, ParameterType>,
+    strict: bool,
 ) -> bool {
     if matches!(concrete, ParameterType::Unknown) {
         if let ParameterType::Var(name) = pattern {
@@ -1296,21 +1330,22 @@ fn unify(
             }
         },
         (ParameterType::ListOf(elem), ParameterType::ListOf(concrete_elem)) => {
-            unify(elem, concrete_elem, bindings)
+            unify(elem, concrete_elem, bindings, strict)
         }
         (ParameterType::SetOf(elem), ParameterType::SetOf(concrete_elem)) => {
-            unify(elem, concrete_elem, bindings)
+            unify(elem, concrete_elem, bindings, strict)
         }
         (ParameterType::MapOf(key, value), ParameterType::MapOf(concrete_key, concrete_value)) => {
-            unify(key, concrete_key, bindings) && unify(value, concrete_value, bindings)
+            unify(key, concrete_key, bindings, strict)
+                && unify(value, concrete_value, bindings, strict)
         }
         (ParameterType::Func(params, ret), ParameterType::Func(concrete_params, concrete_ret)) => {
             params.len() == concrete_params.len()
                 && params
                     .iter()
                     .zip(concrete_params.iter())
-                    .all(|(p, c)| unify(p, c, bindings))
-                && unify(ret, concrete_ret, bindings)
+                    .all(|(p, c)| unify(p, c, bindings, strict))
+                && unify(ret, concrete_ret, bindings, strict)
         }
         // A container/function pattern against a non-matching concrete fails.
         (
@@ -1321,7 +1356,7 @@ fn unify(
             _,
         ) => false,
         // Scalar or nominal leaf.
-        (leaf, _) => leaf_matches(leaf, concrete),
+        (leaf, _) => leaf_matches(leaf, concrete, strict),
     }
 }
 
@@ -1390,7 +1425,7 @@ fn contains_var(ty: &ParameterType) -> bool {
 /// This is a boundary function: it takes/returns type-name strings because the type
 /// checker still speaks strings. The conversion happens here ([`ParameterType::parse`]
 /// in, [`ParameterType::name`] out); nothing inside the registry is a string.
-pub(crate) fn resolve_call(qualified: &str, arg_types: &[String]) -> Option<String> {
+pub(crate) fn resolve_call(qualified: &str, arg_types: &[String], strict: bool) -> Option<String> {
     let function = registry().resolve_func(qualified)?.function;
     let call = CallShape {
         args: arg_types
@@ -1398,15 +1433,20 @@ pub(crate) fn resolve_call(qualified: &str, arg_types: &[String]) -> Option<Stri
             .map(|arg| ParameterType::parse(arg))
             .collect(),
     };
-    function
-        .select(&call)
-        .map(|selection| match selection.return_type {
-            // Echo the caller's original argument-type string verbatim, preserving a
-            // `RES ` ownership marker that a parse/reconstruct round-trip would drop
-            // (`collections::append(List OF RES File STATE Cursor, x)`).
-            ParameterType::Arg(n) => arg_types[n].clone(),
-            other => other.name().into_owned(),
-        })
+    // `strict` (argument validation) rejects a scalar-for-nominal argument; the lenient
+    // mode (return-type inference feeding IR lowering / codegen) coarsely accepts it.
+    let selection = if strict {
+        function.resolve(&call)
+    } else {
+        function.dispatch(&call)
+    };
+    selection.map(|selection| match selection.return_type {
+        // Echo the caller's original argument-type string verbatim, preserving a
+        // `RES ` ownership marker that a parse/reconstruct round-trip would drop
+        // (`collections::append(List OF RES File STATE Cursor, x)`).
+        ParameterType::Arg(n) => arg_types[n].clone(),
+        other => other.name().into_owned(),
+    })
 }
 
 /// The qualified close op that releases a migrated package's resource handle named
@@ -1438,7 +1478,7 @@ pub(crate) fn rewrite_target(qualified: &str, arg_types: &[String]) -> Option<&'
             .map(|arg| ParameterType::parse(arg))
             .collect(),
     };
-    if let Some(selection) = function.select(&call) {
+    if let Some(selection) = function.dispatch(&call) {
         return selection.implementation.body.rewrite_target();
     }
     // The call shape did not select an overload (e.g. unknown argument types); fall
@@ -1936,7 +1976,7 @@ mod tests {
 
         // List overload: element type of arg 0.
         assert_eq!(
-            get.select(&call(&["List OF Integer", "Integer"]))
+            get.dispatch(&call(&["List OF Integer", "Integer"]))
                 .unwrap()
                 .return_type
                 .name(),
@@ -1944,7 +1984,7 @@ mod tests {
         );
         // Nested containers substitute structurally.
         assert_eq!(
-            get.select(&call(&["List OF List OF String", "Integer"]))
+            get.dispatch(&call(&["List OF List OF String", "Integer"]))
                 .unwrap()
                 .return_type
                 .name(),
@@ -1953,7 +1993,7 @@ mod tests {
         // Map overload: the value type; the key overload's `List OF T` param rejects a
         // `Map` arg, so this resolves against the second implementation.
         assert_eq!(
-            get.select(&call(&["Map OF String TO Integer", "String"]))
+            get.dispatch(&call(&["Map OF String TO Integer", "String"]))
                 .unwrap()
                 .return_type
                 .name(),
@@ -1972,9 +2012,13 @@ mod tests {
                 list_of(Var("T")),
             )],
         );
-        assert!(set.select(&call(&["List OF Integer", "Integer"])).is_some());
+        assert!(set
+            .dispatch(&call(&["List OF Integer", "Integer"]))
+            .is_some());
         // T is bound to Integer by arg 0, then contradicted by a String element.
-        assert!(set.select(&call(&["List OF Integer", "String"])).is_none());
+        assert!(set
+            .dispatch(&call(&["List OF Integer", "String"]))
+            .is_none());
     }
 
     #[test]
@@ -1985,10 +2029,10 @@ mod tests {
             vec![generic_impl(vec![list_of(Var("T")), Integer], Var("T"))],
         );
         // An Unknown collection leaves `T` unbound, so there is no concrete return.
-        assert!(get.select(&call(&["Unknown", "Integer"])).is_none());
+        assert!(get.dispatch(&call(&["Unknown", "Integer"])).is_none());
         // An Unknown index still binds `T` from the concrete list.
         assert_eq!(
-            get.select(&call(&["List OF Integer", "Unknown"]))
+            get.dispatch(&call(&["List OF Integer", "Unknown"]))
                 .unwrap()
                 .return_type
                 .name(),
@@ -2005,12 +2049,14 @@ mod tests {
                 ParameterType::Boolean,
             )],
         );
-        assert!(f.select(&call(&["String", "Integer"])).is_some());
+        assert!(f.dispatch(&call(&["String", "Integer"])).is_some());
         // Two different known scalars never unify.
-        assert!(f.select(&call(&["Boolean", "Integer"])).is_none());
+        assert!(f.dispatch(&call(&["Boolean", "Integer"])).is_none());
         // Too few / too many arguments.
-        assert!(f.select(&call(&["String"])).is_none());
-        assert!(f.select(&call(&["String", "Integer", "Integer"])).is_none());
+        assert!(f.dispatch(&call(&["String"])).is_none());
+        assert!(f
+            .dispatch(&call(&["String", "Integer", "Integer"]))
+            .is_none());
     }
 
     #[test]

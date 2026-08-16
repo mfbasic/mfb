@@ -408,7 +408,7 @@ mod tests {
     }
 
     fn rt(name: &str, args: &[&str]) -> Option<String> {
-        registry::resolve_call(name, &strings(args))
+        registry::resolve_call(name, &strings(args), false)
     }
 
     #[test]

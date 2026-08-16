@@ -893,7 +893,7 @@ impl CodeBuilder<'_> {
                     .iter()
                     .map(|arg| self.static_type_name_for_fold(arg))
                     .collect::<Option<Vec<_>>>()?;
-                builtins::resolve_call_return_type(target, &arg_types)
+                builtins::resolve_call_return_type(target, &arg_types, false)
             }
             _ => None,
         }

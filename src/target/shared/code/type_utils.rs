@@ -47,7 +47,7 @@ pub(super) fn static_nir_value_type(
             // fall through to the nominal `call_return_type_name`, as before.
             match builtins::builtin_package_name(target) {
                 Some("general" | "collections" | "strings") => {
-                    builtins::resolve_call_return_type(target, &arg_types)
+                    builtins::resolve_call_return_type(target, &arg_types, false)
                 }
                 _ => None,
             }
