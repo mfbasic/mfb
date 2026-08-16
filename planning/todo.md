@@ -133,3 +133,10 @@ The 6 leak-adapters (`resolve_call`, `rewrite_target`, `call_return_type`, `expe
 
 - `os` is 14/15 members clean; `os.resourcePath` alone needs per-compilation build context (`build_mode` + `module_name`) that the OS-seam `OsLower` contract can't carry. Fix (greenlit, do BEFORE re-attempting os / io / fs / thread / tls, which likely share the need): extend `OsLower` (`src/codegen/registry/mod.rs:49`), `os_helper` (`:1640`), and `codegen/os/dispatch_runtime_helper` (`src/codegen/os/mod.rs:25`) to carry `build_mode: NativeBuildMode` + `module_name: &str`; thread from the two `code/mod.rs` dispatch sites (~2024 os, ~2382 process); update the ~18 existing OsLower emitters (process/datetime) to accept-and-ignore. Additive/mechanical; keeps os uniform with process. (`code/os/paths.rs:186-215` is the sole build-dependent member.)
 - **Infra sequencing (serial — all touch registry/mod.rs):** (1) constant + override API [in flight], (2) OS-seam build-context, THEN the blocked migrations: constant/override → vector/math/errorcode/net; OS-seam-context → os (and de-risks io/fs/thread/tls).
+
+### Phase 1 — constant/override infra LANDED (74c08e745)
+
+- DONE: registry package-constant API (`add_constant`/`is_package_constant`/`constant_type_name`/`constant_value`/`constant_components`) + general-override API (`add_override`/`general_override_target`), dual-pathed through `builtins/mod.rs` + `ir/lower.rs`, byte-identical (registry empty until a package migrates). Unblocks the constant/override half of `errorcode`/`math`/`net`/`vector`.
+- Migration note for `vector`/record-constants: a migrated package's record types (e.g. `Float3`) must register as a `RegistryRecord` with element-typed props (the registry record-constant path reads element types from the record's fields in declaration order).
+- Pre-existing: `net` has ~5 STALE byte-identity goldens on `worktree-builtin` (verified on clean base, unrelated to any migration) — regenerate when `net` migrates or as a standalone cleanup.
+- Still pending before os/io/fs/thread/tls: the OS-seam build-context extension (see previous note).
