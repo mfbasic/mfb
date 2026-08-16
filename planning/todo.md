@@ -139,4 +139,16 @@ The 6 leak-adapters (`resolve_call`, `rewrite_target`, `call_return_type`, `expe
 - DONE: registry package-constant API (`add_constant`/`is_package_constant`/`constant_type_name`/`constant_value`/`constant_components`) + general-override API (`add_override`/`general_override_target`), dual-pathed through `builtins/mod.rs` + `ir/lower.rs`, byte-identical (registry empty until a package migrates). Unblocks the constant/override half of `errorcode`/`math`/`net`/`vector`.
 - Migration note for `vector`/record-constants: a migrated package's record types (e.g. `Float3`) must register as a `RegistryRecord` with element-typed props (the registry record-constant path reads element types from the record's fields in declaration order).
 - Pre-existing: `net` has ~5 STALE byte-identity goldens on `worktree-builtin` (verified on clean base, unrelated to any migration) — regenerate when `net` migrates or as a standalone cleanup.
-- Still pending before os/io/fs/thread/tls: the OS-seam build-context extension (see previous note).
+
+### Phase 1 — remaining-package difficulty audit + fan-out plan (2026-08-16)
+
+Every remaining package is more entangled than `bits`/`money` (the easy leaves). Audited shapes:
+- **math** — NOT a leaf. ~280KB of SIMD lowering (`builder_{math,fixed_math,simd_math,simd_float_math,simd_fixed_math}.rs`) is **shared core numeric infra** — ~12 core files (`builder_pow`, `builder_numeric`, `mir`, `builder_value_semantics`, `entry`, `data_objects`…) call `math.*` helpers directly. Migration = decide what stays core vs. moves; only the descriptor + constants (`math.pi`… via `add_constant`, Float) + call-dispatch move. `builder_money_math.rs` is core Money-scalar operator codegen — stays. `vector` depends on math only by call-name (`math.sqrt`/`math.clamp`), safe. SERIAL, judgment-heavy.
+- **crypto** — custom `CryptoResolver` (arg-dependent `_bytes`/`_text` impl selection, `resolve_return_type`, `default_padding`), 5 `.mfb` companions, per-backend native (`crypto_ec/{cng,macos,openssl}`). SERIAL, resolver-modeling needed.
+- **Syscall batch** (all via `OsLower`/`native_os_seam`; all clash with the OS-seam signature change → land AFTER it, then fan out):
+  - `os` (220-line desc; env/introspect/paths; resource-owning) — needs the OS-seam build-context infra itself
+  - `io` (219; stdin/stdout/terminal; no resolver/resource) — stdin↔thread broadcast coupling (`stdin_broadcast.rs`)
+  - `fs` (568; fs/atomic/io/paths; resource-owning) — self-contained, tractable
+  - `thread` (1089; +resolver +resource +concurrency runtime +stdin broadcast) — HARDEST of the batch
+  - `tls` (715; +resolver +resource +per-backend macos/openssl/schannel; net-coupled) — backend-heavy
+- **FAN-OUT ORDER once OS-seam lands:** first wave (tractable, parallel) `os` + `fs` + `io`; second wave (resolver+coupling, more care) `thread`, `tls`. Then the serial infra-heavy set: `math`, `crypto`, `errorcode` (error-emission table → extend `RegistryConstant` with message+symbol, repoint `runtime_error*`), `net`/`http` (resource+`Url` type+`toString(Url)` override), `vector` (RegistryRecord + SIMD carrier home), `audio` (resource+MML source). Finally the specials: `general`/`resource`/`testing`.
