@@ -95,7 +95,7 @@ Tier 4 — descriptor / data-only:
 - [ ] `testing` — descriptor + desugar
 - [ ] `general` — overridable builtins (`toString`/`len`); touches every package's override table
 - [ ] `resource` — RES subsystem
-- [ ] `bits` — 3 files, inline bit ops
+- [x] `bits` — DONE (native-inline; Body::native common-slot; cc86a30a3)
 
 Tier 5 — heavy native leaves (do last; most code, highest byte-identity risk):
 - [ ] `os` — 5 files (syscalls)
