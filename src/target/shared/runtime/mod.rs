@@ -120,7 +120,6 @@ mod app_specs;
 mod audio_specs;
 mod catalog;
 mod crypto_specs;
-mod fs_specs;
 mod io_specs;
 mod net_specs;
 mod os_specs;
@@ -136,7 +135,6 @@ pub(crate) use usage::{is_native_direct_call, required_helpers};
 use app_specs::*;
 use audio_specs::*;
 use crypto_specs::*;
-use fs_specs::*;
 use io_specs::*;
 use net_specs::*;
 use os_specs::*;
@@ -157,7 +155,7 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset"
     ) {
         Some(RuntimeHelper::Datetime)
-    } else if builtins::fs::is_fs_call(name) {
+    } else if crate::codegen::registry::registry().owning_package(name) == Some("fs") {
         Some(RuntimeHelper::Fs)
     } else if builtins::general::is_general_call(name) {
         Some(RuntimeHelper::General)

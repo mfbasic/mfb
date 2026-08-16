@@ -2,8 +2,7 @@ use super::*;
 
 /// Symbol of the shared standalone string-list sort runtime helper (generic; not
 /// path-specific — moved here from `fs/paths.rs`, bug-331 §J).
-pub(in crate::target::shared::code) const SORT_STRING_LIST_SYMBOL: &str =
-    "_mfb_rt_sort_string_list";
+pub(crate) const SORT_STRING_LIST_SYMBOL: &str = "_mfb_rt_sort_string_list";
 
 /// Symbol of the shared standalone UTF-8 validation runtime helper (generic; not
 /// path-specific — moved here from `fs/paths.rs`, bug-331 §J).
@@ -482,7 +481,7 @@ pub(super) fn finalize_frame(
 /// them, and the call clobber model spills any vreg live across a `bl`/`svc`).
 /// The helper makes no use of eager hints; it has no declared params (it uses the
 /// ABI registers directly).
-pub(super) fn finalize_vreg_helper(
+pub(crate) fn finalize_vreg_helper(
     name: &str,
     symbol: &str,
     returns: &str,

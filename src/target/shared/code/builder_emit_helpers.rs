@@ -150,7 +150,7 @@ impl CodeBuilder<'_> {
         Ok(register)
     }
 
-    pub(super) fn load_string_constant(&mut self, value: &str) -> Result<VirtualRegister, String> {
+    pub(crate) fn load_string_constant(&mut self, value: &str) -> Result<VirtualRegister, String> {
         let register = self.allocate_register()?;
         self.emit_load_string_constant(&register, value)?;
         Ok(register)

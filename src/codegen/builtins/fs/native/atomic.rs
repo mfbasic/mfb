@@ -1,4 +1,5 @@
-use super::super::*;
+use super::*;
+use crate::target::shared::abi;
 
 /// Narrow a C `int` result in the return register to its true signed 64-bit
 /// value. Required before any signed relational compare (`branch_lt`): none of
@@ -27,7 +28,7 @@ fn normalize_c_int_result(instructions: &mut Vec<CodeInstruction>) {
     ));
 }
 
-pub(in crate::target::shared::code) fn lower_fs_create_temp_file_helper(
+pub(crate) fn lower_fs_create_temp_file_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -346,12 +347,12 @@ fn emit_hex_nibble_to_path(
 }
 
 #[derive(Clone, Copy)]
-pub(in crate::target::shared::code) enum AtomicWriteValueKind {
+pub(crate) enum AtomicWriteValueKind {
     String,
     Bytes,
 }
 
-pub(in crate::target::shared::code) fn lower_fs_atomic_write_helper(
+pub(crate) fn lower_fs_atomic_write_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -825,7 +826,7 @@ pub(in crate::target::shared::code) fn lower_fs_atomic_write_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_write_path_helper(
+pub(crate) fn lower_fs_write_path_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1061,7 +1062,7 @@ pub(in crate::target::shared::code) fn lower_fs_write_path_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_read_text_path_helper(
+pub(crate) fn lower_fs_read_text_path_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1326,7 +1327,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_text_path_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_read_bytes_path_helper(
+pub(crate) fn lower_fs_read_bytes_path_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,

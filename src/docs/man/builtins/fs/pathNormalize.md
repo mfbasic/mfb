@@ -19,7 +19,7 @@ IMPORT fs
 ```
 
 `fs` is a built-in package, so no manifest dependency is required.
-[[src/builtins/fs.rs:is_fs_call]]
+[[src/codegen/builtins/fs/mod.rs:register]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT fs
 consulting the filesystem. The normalization is purely syntactic: repeated `/`
 separators are collapsed to a single separator, every `.` component is removed, and
 each `..` component removes the preceding normal component when one is available to
-remove. [[src/target/shared/code/builder_fs_paths.rs:lower_fs_path_normalize]]
+remove. [[src/codegen/builtins/fs/native/paths_builder.rs:lower_fs_path_normalize]]
 
 A leading `/` is preserved, so an absolute path stays absolute and a `..`
 immediately after the root has nothing to remove and is dropped. In a relative path
@@ -35,7 +35,7 @@ a leading `..` (or a run of them) has no earlier component to cancel, so each su
 `..` is kept in place. When normalization would leave nothing at all — for example
 the inputs `""`, `"."`, or `"a/.."` — the result is `"."` so that the returned path
 always names something.
-[[src/target/shared/code/builder_fs_paths.rs:lower_fs_path_normalize]]
+[[src/codegen/builtins/fs/native/paths_builder.rs:lower_fs_path_normalize]]
 
 The operation is byte-oriented over the path syntax: only the `/` separator and the
 `.` and `..` spellings are interpreted, while all other bytes are copied through
@@ -44,19 +44,19 @@ resolves symbolic links, accesses any file, or checks whether any path exists. T
 resolve a path against the real directory tree instead, use `fs::canonicalPath`. The
 normalized output is never longer than the input, and the function has no side
 effects other than allocating the returned `String`.
-[[src/target/shared/code/builder_fs_paths.rs:lower_fs_path_normalize]]
+[[src/codegen/builtins/fs/native/paths_builder.rs:lower_fs_path_normalize]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `path` | `String` | The path to normalize, interpreted as raw UTF-8 bytes with `/` as the component separator. May be absolute or relative, and may be empty. [[src/builtins/fs.rs:call_param_names]] |
+| `path` | `String` | The path to normalize, interpreted as raw UTF-8 bytes with `/` as the component separator. May be absolute or relative, and may be empty. [[src/codegen/builtins/fs/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The lexically normalized path: redundant separators collapsed, `.` removed, and `..` applied against preceding normal components. A leading `/` is retained for absolute paths, unresolvable leading `..` components in relative paths are kept, and `"."` is returned whenever normalization leaves the path empty. [[src/builtins/fs.rs:FS]] |
+| `String` | The lexically normalized path: redundant separators collapsed, `.` removed, and `..` applied against preceding normal components. A leading `/` is retained for absolute paths, unresolvable leading `..` components in relative paths are kept, and `"."` is returned whenever normalization leaves the path empty. [[src/codegen/builtins/fs/mod.rs:register]] |
 
 ## Errors
 

@@ -36,9 +36,10 @@ pub(super) fn resolve_resource_close_name(
     close_function_id: u32,
 ) -> Result<Option<String>, String> {
     match close_function_id {
-        BUILTIN_FS_CLOSE_FUNCTION_ID => {
-            Ok(builtins::resource_close_function(builtins::fs::FILE_TYPE_ID).map(str::to_string))
-        }
+        BUILTIN_FS_CLOSE_FUNCTION_ID => Ok(builtins::resource_close_function(
+            crate::codegen::builtins::fs::FILE_TYPE_ID,
+        )
+        .map(str::to_string)),
         BUILTIN_NET_CLOSE_FUNCTION_ID => {
             Ok(builtins::resource_close_function(builtins::net::SOCKET_TYPE).map(str::to_string))
         }

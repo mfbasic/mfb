@@ -1,6 +1,7 @@
-use super::super::*;
+use super::*;
+use crate::target::shared::abi;
 
-pub(in crate::target::shared::code) fn lower_fs_exists_helper(
+pub(crate) fn lower_fs_exists_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -102,7 +103,7 @@ pub(in crate::target::shared::code) fn lower_fs_exists_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_kind_exists_helper(
+pub(crate) fn lower_fs_kind_exists_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -221,7 +222,7 @@ pub(in crate::target::shared::code) fn lower_fs_kind_exists_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_current_directory_helper(
+pub(crate) fn lower_fs_current_directory_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -332,7 +333,7 @@ pub(in crate::target::shared::code) fn lower_fs_current_directory_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_temp_directory_helper(
+pub(crate) fn lower_fs_temp_directory_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -448,7 +449,7 @@ pub(in crate::target::shared::code) fn lower_fs_temp_directory_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_path_operation_helper(
+pub(crate) fn lower_fs_path_operation_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -560,7 +561,7 @@ pub(in crate::target::shared::code) fn lower_fs_path_operation_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_create_directories_helper(
+pub(crate) fn lower_fs_create_directories_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -746,7 +747,7 @@ pub(in crate::target::shared::code) fn lower_fs_create_directories_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_list_directory_helper(
+pub(crate) fn lower_fs_list_directory_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1093,7 +1094,7 @@ pub(in crate::target::shared::code) fn lower_fs_list_directory_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_canonical_path_helper(
+pub(crate) fn lower_fs_canonical_path_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1270,7 +1271,7 @@ pub(in crate::target::shared::code) fn lower_fs_canonical_path_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
+pub(crate) fn lower_fs_is_within_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1523,7 +1524,7 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
 }
 
 /// Symbol of the shared standalone `fs::pathJoin` runtime helper.
-pub(in crate::target::shared::code) const FS_PATH_JOIN_SYMBOL: &str = "_mfb_rt_fs_path_join";
+pub(crate) const FS_PATH_JOIN_SYMBOL: &str = "_mfb_rt_fs_path_join";
 
 /// Lower the standalone `fs::pathJoin` helper. It takes a `List OF String`
 /// collection pointer in `x0` and returns a `Result`-shaped value: `x0` holds
@@ -1533,7 +1534,7 @@ pub(in crate::target::shared::code) const FS_PATH_JOIN_SYMBOL: &str = "_mfb_rt_f
 /// and imported-package binary_repr lower `pathJoin` identically. Components are
 /// joined with `/`, empty components are skipped, an absolute component discards
 /// everything accumulated so far, and duplicate separators are avoided.
-pub(in crate::target::shared::code) fn lower_fs_path_join_helper() -> CodeFunction {
+pub(crate) fn lower_fs_path_join_helper() -> CodeFunction {
     // Vreg-allocated (plan-00-G Phase 2). `parts` (the input List) is held across
     // the `arena_alloc` (spilled); the second pass builds into the allocated string
     // with no further call, so its working registers stay in registers.

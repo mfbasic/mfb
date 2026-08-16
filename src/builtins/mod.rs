@@ -3,7 +3,6 @@ pub(crate) mod astrings;
 pub(crate) mod audio;
 pub(crate) mod crypto;
 pub(crate) mod errorcode;
-pub(crate) mod fs;
 pub(crate) mod general;
 pub(crate) mod http;
 pub(crate) mod io;
@@ -184,7 +183,8 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         "crypto" => crypto::is_builtin_type(member),
         // `datetime`'s source-declared value types resolve via the migrated-registry
         // check above (`registry::qualified_builtin_type`), so no arm is needed here.
-        "fs" => fs::is_builtin_type(member),
+        // `fs`'s `File` resource likewise resolves via the migrated-registry check
+        // above, so it needs no arm here.
         "http" => http::is_builtin_type(member),
         // `money`'s `Rounding` enum resolves via the migrated-registry check above
         // (`registry::qualified_builtin_type`), so it needs no arm here.
@@ -493,7 +493,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
         .or_else(|| general::expected_arguments(name))
         .or_else(|| thread::expected_arguments(name))
         .or_else(|| strings::expected_arguments(name))
-        .or_else(|| fs::expected_arguments(name))
         .or_else(|| os::expected_arguments(name))
         .or_else(|| io::expected_arguments(name))
         .or_else(|| crate::codegen::registry::expected_arguments(name))
@@ -534,7 +533,6 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
     let expected = general::expected_arguments(callee)
         .or_else(|| strings::expected_arguments(callee))
         .or_else(|| math::expected_arguments(callee))
-        .or_else(|| fs::expected_arguments(callee))
         .or_else(|| os::expected_arguments(callee))
         .or_else(|| io::expected_arguments(callee))
         .or_else(|| net::argument_types(callee))
@@ -795,7 +793,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
         .or_else(|| strings::call_param_names(name))
         .or_else(|| math::call_param_names(name))
         .or_else(|| crypto::call_param_names(name))
-        .or_else(|| fs::call_param_names(name))
         .or_else(|| io::call_param_names(name))
         .or_else(|| net::call_param_names(name))
         .or_else(|| os::call_param_names(name))

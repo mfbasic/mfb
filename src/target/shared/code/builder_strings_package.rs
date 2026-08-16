@@ -392,7 +392,7 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn require_string(&self, label: &str, value: &ValueResult) -> Result<(), String> {
+    pub(crate) fn require_string(&self, label: &str, value: &ValueResult) -> Result<(), String> {
         if value.type_ == "String" {
             Ok(())
         } else {

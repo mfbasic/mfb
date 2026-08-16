@@ -19,7 +19,7 @@ IMPORT fs
 ```
 
 `fs` is a built-in package, so no manifest dependency is required.
-[[src/builtins/fs.rs:is_fs_call]]
+[[src/codegen/builtins/fs/mod.rs:register]]
 
 ## Description
 
@@ -28,7 +28,7 @@ resolution, then reports whether `child` names the same location as `base` or a
 location nested below it. It returns `TRUE` when the canonical `child` path
 equals the canonical `base` path, or when it begins with the canonical `base`
 path followed by a path separator; it returns `FALSE` otherwise.
-[[src/target/shared/code/fs/paths.rs:lower_fs_is_within_helper]]
+[[src/codegen/builtins/fs/native/paths.rs:lower_fs_is_within_helper]]
 
 Canonicalization collapses `.` and `..` components, removes redundant
 separators, and follows every symbolic link in both paths, resolving each
@@ -43,7 +43,7 @@ boundaries, so `base` contains `base/nested/file.txt` and equals `base`, but a
 sibling such as `base2` is reported as not within `base` even though its
 canonical text shares the `base` prefix. When the canonical `base` is the
 filesystem root (`/`), every canonical `child` is within it.
-[[src/target/shared/code/fs/paths.rs:lower_fs_is_within_helper]]
+[[src/codegen/builtins/fs/native/paths.rs:lower_fs_is_within_helper]]
 
 Because canonicalization walks the real directory tree, every component of both
 `base` and `child`, including the final one, must exist on the filesystem. Each
@@ -58,20 +58,20 @@ component of either path can be swapped for a symbolic link after `isWithin`
 returns but before a later `fs::open` acts on the result. When the goal is to
 open a caller-supplied name that cannot escape a trusted root, use
 `fs::openWithin`, which enforces containment atomically at open time
-(bug-259 / OS-03). [[src/target/shared/code/fs/io.rs:lower_fs_open_within_helper]]
+(bug-259 / OS-03). [[src/codegen/builtins/fs/native/io.rs:lower_fs_open_within_helper]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `base` | `String` | The containing path (also accepted as `path`). Interpreted as UTF-8 bytes; may be absolute or relative to the current working directory. Every named component, including the last, must exist. Must be non-empty and free of embedded NUL bytes. [[src/builtins/fs.rs:call_param_names]] |
-| `child` | `String` | The path tested for containment (also accepted as `parent`). Interpreted as UTF-8 bytes; may be absolute or relative to the current working directory. Every named component, including the last, must exist. Must be non-empty and free of embedded NUL bytes. [[src/builtins/fs.rs:call_param_names]] |
+| `base` | `String` | The containing path (also accepted as `path`). Interpreted as UTF-8 bytes; may be absolute or relative to the current working directory. Every named component, including the last, must exist. Must be non-empty and free of embedded NUL bytes. [[src/codegen/builtins/fs/mod.rs:register]] |
+| `child` | `String` | The path tested for containment (also accepted as `parent`). Interpreted as UTF-8 bytes; may be absolute or relative to the current working directory. Every named component, including the last, must exist. Must be non-empty and free of embedded NUL bytes. [[src/codegen/builtins/fs/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when the canonical `child` path equals the canonical `base` path or lies below it at a separator boundary; `FALSE` when `child` is a sibling, an ancestor, or otherwise outside `base`. [[src/target/shared/code/fs/paths.rs:lower_fs_is_within_helper]] |
+| `Boolean` | `TRUE` when the canonical `child` path equals the canonical `base` path or lies below it at a separator boundary; `FALSE` when `child` is a sibling, an ancestor, or otherwise outside `base`. [[src/codegen/builtins/fs/native/paths.rs:lower_fs_is_within_helper]] |
 
 ## Errors
 
@@ -79,10 +79,10 @@ open a caller-supplied name that cannot escape a trusted root, use
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | `base` or `child` is empty or contains an embedded NUL byte, so it cannot be turned into a valid NUL-terminated host path. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
 | `77010001` | `ErrOutOfMemory` | An internal NUL-terminated copy of an argument or a `realpath` resolution buffer cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
-| `77050004` | `ErrNotFound` | `base` or `child`, or a required component of either, does not exist (host `ENOENT`). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
-| `77030003` | `ErrAccessDenied` | The host denies access while canonicalizing `base` or `child` (host `EACCES`). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
-| `77050005` | `ErrAlreadyExists` | The host reports an existing-object conflict while canonicalizing `base` or `child` (host `EEXIST`). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
-| `77020002` | `ErrOutput` | Canonicalization of `base` or `child` fails for any other host reason not classified above, such as a non-directory used as a directory component or a symlink loop. [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
+| `77050004` | `ErrNotFound` | `base` or `child`, or a required component of either, does not exist (host `ENOENT`). [[src/codegen/builtins/fs/native/shared.rs:emit_errno_error_mapping]] |
+| `77030003` | `ErrAccessDenied` | The host denies access while canonicalizing `base` or `child` (host `EACCES`). [[src/codegen/builtins/fs/native/shared.rs:emit_errno_error_mapping]] |
+| `77050005` | `ErrAlreadyExists` | The host reports an existing-object conflict while canonicalizing `base` or `child` (host `EEXIST`). [[src/codegen/builtins/fs/native/shared.rs:emit_errno_error_mapping]] |
+| `77020002` | `ErrOutput` | Canonicalization of `base` or `child` fails for any other host reason not classified above, such as a non-directory used as a directory component or a symlink loop. [[src/codegen/builtins/fs/native/shared.rs:emit_errno_error_mapping]] |
 
 ## Examples
 
