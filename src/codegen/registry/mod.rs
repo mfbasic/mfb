@@ -1535,7 +1535,7 @@ fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool)
             ParameterType::ListOf(_)
                 | ParameterType::SetOf(_)
                 | ParameterType::MapOf(_, _)
-                | ParameterType::Func(_, _)
+                | ParameterType::Func(_, _, _)
         )
     {
         return pattern.name() == concrete.name();
@@ -1652,8 +1652,14 @@ fn unify(
             unify(key, concrete_key, bindings, strict)
                 && unify(value, concrete_value, bindings, strict)
         }
-        (ParameterType::Func(params, ret), ParameterType::Func(concrete_params, concrete_ret)) => {
-            params.len() == concrete_params.len()
+        (
+            ParameterType::Func(params, ret, isolated),
+            ParameterType::Func(concrete_params, concrete_ret, concrete_isolated),
+        ) => {
+            // An isolated worker entry (`thread::start`) only accepts an isolated
+            // concrete, and a plain callback param only a plain concrete.
+            isolated == concrete_isolated
+                && params.len() == concrete_params.len()
                 && params
                     .iter()
                     .zip(concrete_params.iter())
@@ -1692,7 +1698,7 @@ fn unify(
             ParameterType::ListOf(_)
             | ParameterType::SetOf(_)
             | ParameterType::MapOf(_, _)
-            | ParameterType::Func(_, _)
+            | ParameterType::Func(_, _, _)
             | ParameterType::ThreadHandle { .. },
             _,
         ) => false,
@@ -1749,13 +1755,18 @@ fn substitute(
         ParameterType::MapOf(key, value) => {
             ParameterType::map_of(substitute(key, bindings)?, substitute(value, bindings)?)
         }
-        ParameterType::Func(params, ret) => ParameterType::func(
-            params
+        ParameterType::Func(params, ret, isolated) => {
+            let params = params
                 .iter()
                 .map(|p| substitute(p, bindings))
-                .collect::<Option<Vec<_>>>()?,
-            substitute(ret, bindings)?,
-        ),
+                .collect::<Option<Vec<_>>>()?;
+            let ret = substitute(ret, bindings)?;
+            if *isolated {
+                ParameterType::func_isolated(params, ret)
+            } else {
+                ParameterType::func(params, ret)
+            }
+        }
         // A thread-handle return (only `start` builds one) rebuilds each slot with the
         // bindings unified from the call — the fresh parent `Thread` handle whose
         // `msg`/`res`/`out` echo the worker's, exactly like the `List`/`Map` arms.
@@ -1783,7 +1794,7 @@ fn contains_var(ty: &ParameterType) -> bool {
         ParameterType::Var(_) | ParameterType::Arg(_) => true,
         ParameterType::ListOf(elem) | ParameterType::SetOf(elem) => contains_var(elem),
         ParameterType::MapOf(key, value) => contains_var(key) || contains_var(value),
-        ParameterType::Func(params, ret) => params.iter().any(contains_var) || contains_var(ret),
+        ParameterType::Func(params, ret, _) => params.iter().any(contains_var) || contains_var(ret),
         ParameterType::ThreadHandle { msg, res, out, .. } => {
             contains_var(msg) || contains_var(res) || contains_var(out)
         }
@@ -1990,10 +2001,9 @@ pub(crate) fn callback_member_bare(member: &str) -> bool {
 /// `FUNC(<one param>) AS <ret>` (a unary function value).
 fn function_has_unary_callback(function: &RegistryFunction) -> bool {
     function.implementations.iter().any(|implementation| {
-        implementation
-            .params
-            .iter()
-            .any(|param| matches!(&param.ty, ParameterType::Func(params, _) if params.len() == 1))
+        implementation.params.iter().any(
+            |param| matches!(&param.ty, ParameterType::Func(params, _, _) if params.len() == 1),
+        )
     })
 }
 
@@ -2531,12 +2541,13 @@ mod tests {
     // --- thread ThreadHandle probe: empirical reproduction of the legacy resolver ---
     //
     // (`src/builtins/thread.rs:719-1006`) against the new `parse`/`unify`/`substitute`.
-    // These assert the LEGACY behavior; the four `#[ignore]`d cases FAIL and localize
-    // the exact obstacle the plan's six mechanical arms cannot express — the
-    // plan-flagged STOP conditions ("the start nested-Func extraction … a
-    // resource-plane routing the overloads can't express"). Kept in-tree as the
-    // reproduction for review; they must NOT be made green by hacking the bug-443
-    // `select`/`unify` beyond the planned `ThreadHandle` arm. See the migration report.
+    // These assert the LEGACY behavior and are the regression guard for the settled
+    // two-overload model (plan §"PART B obstacle resolution"): the resource plane is a
+    // SIGNATURE-LEVEL overload split on the existing `RES` spelling (`start` = a
+    // resource overload tried first + a data overload; `accept`/`transfer` =
+    // resource-only), the strict-`Nothing` guard rejects a data-only handle from the
+    // resource overload FOR us, and the `Var`-refines-`Unknown` rule (bug-443 latent
+    // fix) makes `send(Thread OF Unknown TO Out, Integer)` resolve.
     fn th(
         worker: bool,
         msg: ParameterType,
@@ -2547,9 +2558,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "OBSTACLE 4: send Unknown-message re-occur — a Var bound to Unknown fails \
-                the generic re-occur check; refining it is a bug-443 unify change beyond \
-                the planned arms"]
     fn thread_probe_waitfor_receive_send_poll() {
         use ParameterType::{Integer, Nothing, String, Unknown, Var};
         let data_handle = |m, o| th(false, m, Unknown, o);
@@ -2643,12 +2651,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "OBSTACLE 3: accept on a data-only handle — the uniform res-slot arm \
-                cannot both echo an optional Nothing plane (start) and reject it (accept)"]
     fn thread_probe_transfer_accept_resource_plane() {
         use ParameterType::{Integer, Nothing, String, Var};
         let file = ParameterType::Named("fs.File");
-        // transfer(Thread OF Msg RES Res TO Out, Res) AS Nothing
+        // transfer(Thread OF Msg RES Res TO Out, Res) AS Nothing — resource-ONLY overload.
         let transfer = func(
             "transfer",
             vec![generic_impl(
@@ -2665,17 +2671,18 @@ mod tests {
             Some("Nothing".into()),
             "transfer matching resource"
         );
-        // transfer on a data-only handle (no resource plane) is rejected.
+        // A data-only handle has no resource plane: STRICT validation rejects it (the
+        // resource overload's `res` Var can't bind `Nothing`) -> TYPE_CALL_ARGUMENT_MISMATCH.
         assert!(
             transfer
-                .dispatch(&CallShape {
+                .resolve(&CallShape {
                     args: vec![th(false, Integer, Nothing, String), file.clone()]
                 })
                 .is_none(),
-            "transfer on data-only handle rejected (LEGACY)"
+            "transfer on data-only handle rejected by strict validation (LEGACY)"
         );
 
-        // accept(Thread OF Msg RES Res TO Out) AS Res
+        // accept(Thread OF Msg RES Res TO Out) AS Res — resource-ONLY overload.
         let accept = func(
             "accept",
             vec![generic_impl(
@@ -2692,68 +2699,68 @@ mod tests {
             Some("fs.File".into()),
             "accept returns resource"
         );
-        // Legacy: accept on a data-only thread has no resource plane -> None (lenient path).
+        // A data-only handle is rejected by STRICT validation (the strict-`Nothing`
+        // guard), exactly as legacy `resolve_call` returns None on a data-only thread.
         assert!(
             accept
-                .dispatch(&CallShape {
+                .resolve(&CallShape {
                     args: vec![th(false, Integer, Nothing, String)]
                 })
                 .is_none(),
-            "accept on data-only handle returns None (LEGACY, lenient)"
+            "accept on data-only handle rejected by strict validation (LEGACY)"
         );
     }
 
     #[test]
-    #[ignore = "OBSTACLE 2: start STRICT-validates a data-only worker — the res Var \
-                cannot bind Nothing under the bug-443 strict-Nothing guard"]
     fn thread_probe_start_extraction_and_resource_echo() {
         use ParameterType::{Integer, Nothing, String, Var};
         let file = ParameterType::Named("fs.File");
-        // start(ISOLATED FUNC(ThreadWorker OF Msg RES Res TO Out, In) AS Out, In,
-        //       [inboundLimit], [outboundLimit]) AS Thread OF Msg RES Res TO Out
-        let worker = th(true, Var("Msg"), Var("Res"), Var("Out"));
+        // start = TWO overloads (resource first, data second), the settled model.
+        //   RESOURCE: ISOLATED FUNC(ThreadWorker OF Msg RES Res TO Out, In) AS Out
+        //             -> Thread OF Msg RES Res TO Out
+        //   DATA:     ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out
+        //             -> Thread OF Msg TO Out  (worker/return carry NO res var)
+        let opt_int = |name| Parameter {
+            name,
+            desc: "",
+            aliases: &[],
+            ty: Integer,
+            default: DefaultValue::Optional,
+        };
+        let overload = |worker_res: ParameterType, ret_res: ParameterType| Implementation {
+            params: vec![
+                param(
+                    "f",
+                    ParameterType::func_isolated(
+                        vec![th(true, Var("Msg"), worker_res, Var("Out")), Var("In")],
+                        Var("Out"),
+                    ),
+                ),
+                param("data", Var("In")),
+                opt_int("inboundLimit"),
+                opt_int("outboundLimit"),
+            ],
+            return_type: th(false, Var("Msg"), ret_res, Var("Out")),
+            errors: vec![],
+            body: Body::Intrinsic,
+        };
         let start = func(
             "start",
-            vec![Implementation {
-                params: vec![
-                    param(
-                        "f",
-                        ParameterType::func(vec![worker, Var("In")], Var("Out")),
-                    ),
-                    param("data", Var("In")),
-                    Parameter {
-                        name: "inboundLimit",
-                        desc: "",
-                        aliases: &[],
-                        ty: Integer,
-                        default: DefaultValue::Optional,
-                    },
-                    Parameter {
-                        name: "outboundLimit",
-                        desc: "",
-                        aliases: &[],
-                        ty: Integer,
-                        default: DefaultValue::Optional,
-                    },
-                ],
-                return_type: th(false, Var("Msg"), Var("Res"), Var("Out")),
-                errors: vec![],
-                body: Body::Intrinsic,
-            }],
+            vec![overload(Var("Res"), Var("Res")), overload(Nothing, Nothing)],
         );
 
-        // Data-only worker: strict validation MUST accept, dispatch MUST echo the
-        // (data-only) handle. Concrete FUNC arg built directly (parse can't decompose
-        // `ISOLATED FUNC(...)`).
+        // Data-only worker: strict validation MUST accept (via the data overload), and
+        // dispatch echoes a data-only parent handle (via the resource overload, whose
+        // `Res` binds `Nothing` under lenient and elides).
         let data_fn =
-            ParameterType::func(vec![th(true, Integer, Nothing, String), Integer], String);
+            ParameterType::func_isolated(vec![th(true, Integer, Nothing, String), Integer], String);
         assert!(
             start
                 .resolve(&CallShape {
                     args: vec![data_fn.clone(), Integer]
                 })
                 .is_some(),
-            "start STRICT-validates a data-only worker (LEGACY)"
+            "start STRICT-validates a data-only worker"
         );
         assert_eq!(
             start
@@ -2766,7 +2773,16 @@ mod tests {
         );
 
         // Resourced worker: start echoes the resource plane onto the parent handle.
-        let res_fn = ParameterType::func(vec![th(true, Integer, file, String), Integer], String);
+        let res_fn =
+            ParameterType::func_isolated(vec![th(true, Integer, file, String), Integer], String);
+        assert!(
+            start
+                .resolve(&CallShape {
+                    args: vec![res_fn.clone(), Integer]
+                })
+                .is_some(),
+            "start STRICT-validates a resourced worker"
+        );
         assert_eq!(
             start
                 .dispatch(&CallShape {
@@ -2776,21 +2792,36 @@ mod tests {
             Some("Thread OF Integer RES fs.File TO String".into()),
             "start echoes a resourced worker's plane"
         );
+
+        // A plain (non-isolated) worker is NOT accepted where start demands ISOLATED.
+        let plain_fn =
+            ParameterType::func(vec![th(true, Integer, Nothing, String), Integer], String);
+        assert!(
+            start
+                .resolve(&CallShape {
+                    args: vec![plain_fn, Integer]
+                })
+                .is_none(),
+            "start rejects a non-isolated worker"
+        );
     }
 
     #[test]
-    #[ignore = "OBSTACLE 1: parse cannot decompose ISOLATED FUNC(...) into a Func; \
-                stripping the ISOLATED marker loses it on name() round-trip"]
     fn thread_probe_parse_isolated_func_arg() {
-        // The type checker hands `start`'s callback arg as `ISOLATED FUNC(...) AS ...`.
-        // For `start` to select via the registry, `parse` must decompose it into a
-        // `Func` whose first param is a `ThreadHandle`.
-        let parsed = ParameterType::parse(
-            "ISOLATED FUNC(ThreadWorker OF Integer TO String, Integer) AS String",
-        );
+        // The type checker hands `start`'s callback arg as `ISOLATED FUNC(...) AS ...`;
+        // `parse` decomposes it into an isolated `Func` whose first param is a
+        // `ThreadHandle`, and `name()` round-trips the `ISOLATED ` marker byte-exactly.
+        let spelling = "ISOLATED FUNC(ThreadWorker OF Integer TO String, Integer) AS String";
+        let parsed = ParameterType::parse(spelling);
+        assert_eq!(parsed.name(), spelling, "ISOLATED FUNC round-trips");
+        let ParameterType::Func(params, _, isolated) = &parsed else {
+            panic!("parse decomposes ISOLATED FUNC into a Func (got {parsed:?})");
+        };
+        assert!(isolated, "the Func is marked isolated");
         assert!(
-            matches!(parsed, ParameterType::Func(_, _)),
-            "parse decomposes ISOLATED FUNC into a Func (got {parsed:?})"
+            matches!(&params[0], ParameterType::ThreadHandle { worker: true, .. }),
+            "the first param is a ThreadWorker handle (got {:?})",
+            params[0]
         );
     }
 

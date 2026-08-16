@@ -51,7 +51,12 @@ pub(crate) enum ParameterType {
     /// callback's shape structurally (binding `T`/`U`) instead of matching an opaque
     /// `Named("FUNC(Integer) AS String")` blob. Built by [`parse`](Self::parse) from a
     /// concrete `FUNC(...)` argument, and written in a descriptor with [`func`](Self::func).
-    Func(Vec<ParameterType>, Box<ParameterType>),
+    ///
+    /// The trailing `bool` is `isolated`: an `ISOLATED FUNC(...)` (a capture-free
+    /// worker entry — `thread::start`'s callback) renders and round-trips with the
+    /// `ISOLATED ` prefix, and only unifies against a matching-isolation concrete, so a
+    /// plain `FUNC` is not accepted where `thread::start` demands an isolated worker.
+    Func(Vec<ParameterType>, Box<ParameterType>, bool),
     /// A return-type marker meaning "the concrete type of argument `n`, echoed
     /// **verbatim**". Only valid in a return position. Unlike a substituted [`Var`],
     /// which is reconstructed from parsed pieces (and so drops a `RES ` ownership
@@ -93,7 +98,12 @@ impl ParameterType {
         ParameterType::SetOf(Box::new(elem))
     }
     pub(crate) fn func(params: Vec<ParameterType>, ret: ParameterType) -> Self {
-        ParameterType::Func(params, Box::new(ret))
+        ParameterType::Func(params, Box::new(ret), false)
+    }
+    /// An `ISOLATED FUNC(...)` value type — a capture-free worker entry
+    /// (`thread::start`'s callback).
+    pub(crate) fn func_isolated(params: Vec<ParameterType>, ret: ParameterType) -> Self {
+        ParameterType::Func(params, Box::new(ret), true)
     }
     /// A thread-handle type from its parts; `res` defaults to
     /// [`Nothing`](Self::Nothing) at the call site when the handle carries no
@@ -153,15 +163,26 @@ impl ParameterType {
         {
             return ParameterType::map_of(ParameterType::parse(key), ParameterType::parse(value));
         }
-        if let Some(rest) = name.strip_prefix("FUNC(") {
+        // `ISOLATED FUNC(...)` (a capture-free worker entry — `thread::start`'s
+        // callback) parses to an isolated [`Func`](Self::Func), so the `Func` arm can
+        // reach the nested `ThreadWorker` handle in its first parameter; the
+        // `ISOLATED ` marker is preserved for a byte-exact `name()` round-trip.
+        let (isolated, func_rest) = match name.strip_prefix("ISOLATED FUNC(") {
+            Some(rest) => (true, Some(rest)),
+            None => (false, name.strip_prefix("FUNC(")),
+        };
+        if let Some(rest) = func_rest {
             // Split `<params>) AS <return>` at paren depth 0: the closing paren and the
             // separating commas are the ones at depth 0 (a parameter may itself be a
             // `FUNC(...)`). Mirrors `builtins::general::function_parts`.
             if let Some((params, ret)) = crate::builtins::split_func_params_and_return(rest) {
-                return ParameterType::func(
-                    params.into_iter().map(ParameterType::parse).collect(),
-                    ParameterType::parse(ret),
-                );
+                let params = params.into_iter().map(ParameterType::parse).collect();
+                let ret = ParameterType::parse(ret);
+                return if isolated {
+                    ParameterType::func_isolated(params, ret)
+                } else {
+                    ParameterType::func(params, ret)
+                };
             }
         }
         match name {
@@ -197,8 +218,9 @@ impl ParameterType {
             ParameterType::SetOf(elem) => Cow::Owned(format!("Set OF {}", elem.name())),
             ParameterType::Named(elem) => Cow::Borrowed(elem),
             ParameterType::Var(name) => Cow::Borrowed(name),
-            ParameterType::Func(params, ret) => Cow::Owned(format!(
-                "FUNC({}) AS {}",
+            ParameterType::Func(params, ret, isolated) => Cow::Owned(format!(
+                "{}FUNC({}) AS {}",
+                if *isolated { "ISOLATED " } else { "" },
                 params
                     .iter()
                     .map(|p| p.name())
@@ -327,6 +349,35 @@ mod tests {
             "Thread OF Nothing TO String",
         ] {
             round_trip(spelling);
+        }
+    }
+
+    #[test]
+    fn isolated_func_round_trips_and_decomposes() {
+        // `thread::start`'s worker callback: the `ISOLATED ` marker round-trips, and the
+        // nested `ThreadWorker` handle is reachable through the `Func` params.
+        let spelling =
+            "ISOLATED FUNC(ThreadWorker OF Integer RES fs.File TO String, Integer) AS String";
+        assert_eq!(ParameterType::parse(spelling).name(), spelling);
+        assert_eq!(
+            ParameterType::parse("FUNC(Integer) AS String").name(),
+            "FUNC(Integer) AS String"
+        );
+        match ParameterType::parse(spelling) {
+            ParameterType::Func(params, ret, isolated) => {
+                assert!(isolated);
+                assert_eq!(ret.name(), "String");
+                assert_eq!(
+                    params[0],
+                    ParameterType::thread_handle(
+                        true,
+                        ParameterType::Integer,
+                        ParameterType::Named("fs.File"),
+                        ParameterType::String,
+                    )
+                );
+            }
+            other => panic!("expected Func, got {other:?}"),
         }
     }
 }
