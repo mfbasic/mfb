@@ -1271,6 +1271,7 @@ fn build() -> Registry {
     crate::codegen::builtins::os::register(&mut r);
     crate::codegen::builtins::fs::register(&mut r);
     crate::codegen::builtins::io::register(&mut r);
+    crate::codegen::builtins::crypto::register(&mut r);
     r
 }
 

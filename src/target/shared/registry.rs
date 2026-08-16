@@ -1040,7 +1040,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     // bits migrated to the clean-room registry (crate::codegen::registry).
     // collections migrated to the clean-room registry (crate::codegen::registry).
     // csv migrated to the clean-room registry (crate::codegen::registry).
-    &crate::builtins::crypto::CRYPTO,
+    // crypto migrated to the clean-room registry (crate::codegen::registry).
     &crate::builtins::audio::AUDIO,
     // datetime migrated to the clean-room registry (crate::codegen::registry).
     // encoding migrated to the clean-room registry (crate::codegen::registry).
@@ -1761,12 +1761,13 @@ mod tests {
         assert!(REGISTRY.module("collections").is_none());
         assert!(REGISTRY.module("money").is_none());
         assert!(REGISTRY.module("os").is_none());
-        // `fs` / `io` / `errorCode` have migrated onto the clean-room registry too.
+        // `fs` / `io` / `errorCode` / `crypto` have migrated onto the clean-room registry too.
         assert!(REGISTRY.module("fs").is_none());
         assert!(REGISTRY.module("io").is_none());
         assert!(REGISTRY.module("errorCode").is_none());
+        assert!(REGISTRY.module("crypto").is_none());
         // The 28 builtin packages minus the migrated ones.
-        assert_eq!(REGISTRY.modules().len(), 15);
+        assert_eq!(REGISTRY.modules().len(), 14);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);

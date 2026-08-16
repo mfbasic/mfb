@@ -18,7 +18,7 @@ use crate::target::shared::abi;
 /// Hex-encode `text` as a NUL-terminated C string payload (two hex digits per
 /// byte, then `00`). Used to lay down read-only C-string data objects (library
 /// sonames, `dlsym` names, framework paths).
-pub(super) fn hex_encode_cstring(text: &str) -> String {
+pub(crate) fn hex_encode_cstring(text: &str) -> String {
     let mut hex = String::new();
     for byte in text.bytes() {
         hex.push_str(&format!("{byte:02x}"));
@@ -28,7 +28,7 @@ pub(super) fn hex_encode_cstring(text: &str) -> String {
 }
 
 /// Load the address of a read-only data symbol into `dst` (adrp + add).
-pub(super) fn emit_data_address(
+pub(crate) fn emit_data_address(
     from: &str,
     // plan-85-B: accept a typed `Operand` (`abi::c_arg(1)`) or a legacy `&str`.
     dst: impl Into<Operand>,
@@ -141,7 +141,7 @@ pub(crate) fn emit_fail(
 /// freshly arena-allocated contiguous buffer. Stores the buffer pointer at
 /// `buf_off` and the byte count at `len_off`. Uses only vreg scratch (no calls).
 /// Branches to `alloc_fail` on allocation failure.
-pub(super) fn emit_read_byte_list(
+pub(crate) fn emit_read_byte_list(
     symbol: &str,
     tag: &str,
     coll_off: usize,
@@ -227,7 +227,7 @@ pub(super) fn emit_read_byte_list(
 /// All three knobs exist so every caller reproduces its previous instruction
 /// stream exactly. `scripts/artifact-gate.sh` covers all of them across
 /// macos-aarch64 / linux-aarch64 / linux-x86_64.
-pub(super) fn emit_build_byte_list(
+pub(crate) fn emit_build_byte_list(
     symbol: &str,
     entry_loop: &str,
     entry_done: &str,
@@ -323,7 +323,7 @@ pub(super) fn emit_build_byte_list(
 /// before the helper returns so a later same-program arena allocation cannot be
 /// handed a block still holding key bytes (bug-55, bug-177 D). Call-free (vreg
 /// scratch only). `tag` disambiguates the labels per call site.
-pub(super) fn emit_zero_guarded(
+pub(crate) fn emit_zero_guarded(
     symbol: &str,
     buf_off: usize,
     len_off: Option<usize>,

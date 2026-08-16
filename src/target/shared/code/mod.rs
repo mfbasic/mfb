@@ -125,8 +125,6 @@ mod builder_vector_inline;
 mod collection_buffer;
 pub(crate) mod native_helpers;
 
-mod crypto;
-mod crypto_ec;
 /// Consumer-side native-library locator resolution (plan-46-C). Shared with
 /// plan-46-D's vendor copy via `dlopen_name`, so the emitted string and the
 /// copied filename cannot diverge.
@@ -1045,8 +1043,9 @@ pub(crate) fn lower_module_for_platform(
     if native_plan
         .runtime_symbols
         .iter()
-        .any(|symbol| crypto_ec::is_ec_symbol(symbol))
+        .any(|symbol| crate::codegen::builtins::crypto::native::is_ec_symbol(symbol))
     {
+        use crate::codegen::builtins::crypto::native as crypto_ec;
         match platform.family() {
             PlatformFamily::MacOS => {
                 data_objects.extend(crypto_ec::macos::data_objects());
@@ -2025,8 +2024,6 @@ fn lower_runtime_helper(
                     platform,
                 )?,
             }
-        } else if crypto_ec::ec_call(spec.call).is_some() {
-            crypto_ec::lower_crypto_ec_helper(spec.call, symbol, platform_imports, platform)?
         } else {
             match spec.call {
                 "app.getMode" | "app.setMode" => {
@@ -2043,8 +2040,25 @@ fn lower_runtime_helper(
                         })?;
                     app::lower_app_helper(spec.call, symbol, presentation_mode_offset, platform)?
                 }
-                "crypto.randomBytes" => {
-                    crypto::lower_crypto_random_bytes_helper(symbol, platform_imports, platform)?
+                // Every `crypto.*` runtime helper (the `randomBytes` CSPRNG and the
+                // NIST-EC public-key ops) carries a `Body::native` OS-seam lowering in
+                // `codegen::builtins::crypto::native`; the generic registry-driven
+                // dispatch picks the per-family emission by `platform.family()`.
+                call if call.starts_with("crypto.") => {
+                    match crate::codegen::os::dispatch_runtime_helper(
+                        call,
+                        symbol,
+                        &os_ctx,
+                        platform_imports,
+                        platform,
+                    ) {
+                        Some(result) => result?,
+                        None => {
+                            return Err(format!(
+                                "native code plan does not emit runtime call '{call}'"
+                            ));
+                        }
+                    }
                 }
                 "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset" => {
                     crate::codegen::builtins::datetime::lower_datetime_helper(

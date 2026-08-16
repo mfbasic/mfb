@@ -5,10 +5,12 @@
 
 use std::collections::HashMap;
 
-use super::super::native_helpers::{emit_data_address, emit_zero_guarded, hex_encode_cstring};
-use super::super::*;
 use super::{call_fn, emit_build_byte_list, emit_fail, emit_read_byte_list, Curve, EcOp};
 use crate::target::shared::abi;
+use crate::target::shared::code::native_helpers::{
+    emit_data_address, emit_zero_guarded, hex_encode_cstring,
+};
+use crate::target::shared::code::*;
 
 impl Curve {
     /// Curve size in bits, passed as `kSecAttrKeySizeInBits` to SecKey.
@@ -971,7 +973,7 @@ fn verify(
     // validation (bug-317 T4).
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), PUBLEN),
-        abi::compare_immediate("%v9", &curve.point_len().to_string()),
+        abi::compare_immediate("%v9", curve.point_len().to_string()),
         abi::branch_ne(&invalid_fail),
     ]);
     emit_read_byte_list(
@@ -1269,6 +1271,7 @@ mod error_path_release_tests {
     // allocate on this host; the assertions pin the guarded-release cleanup and
     // zeroing so they cannot silently regress.
     use super::*;
+    use crate::arch::ops::CodeOp;
     use crate::target::shared::code::mir;
     use crate::target::shared::code::test_support::{has_label, TestPlatform};
 

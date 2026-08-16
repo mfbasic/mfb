@@ -22,16 +22,10 @@ static LEGACY_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     AUDIO_XRUNS_SPEC,
     AUDIO_CLOSE_INPUT_SPEC,
     AUDIO_CLOSE_OUTPUT_SPEC,
-    CRYPTO_RANDOM_BYTES_SPEC,
-    CRYPTO_GENERATE_P256_RAW_SPEC,
-    CRYPTO_GENERATE_P384_RAW_SPEC,
-    CRYPTO_GENERATE_P521_RAW_SPEC,
-    CRYPTO_P256_SIGN_SPEC,
-    CRYPTO_P384_SIGN_SPEC,
-    CRYPTO_P521_SIGN_SPEC,
-    CRYPTO_P256_VERIFY_SPEC,
-    CRYPTO_P384_VERIFY_SPEC,
-    CRYPTO_P521_VERIFY_SPEC,
+    // `crypto` is migrated: its ten native runtime helpers (`randomBytes`, the
+    // NIST-EC `generateP*Raw` / `p{256,384,521}{Sign,Verify}`) are DERIVED from the
+    // registry (`registry::runtime_specs`) and merged in by `supported_helper_specs`,
+    // so no hand-written `CRYPTO_*_SPEC` rows live here.
     // `datetime` is migrated: its three OS-seam intrinsics (`nowNanos`,
     // `monotonicNanos`, `localOffset`) are DERIVED from the registry
     // (`registry::runtime_specs`), so no hand-written `DATETIME_*_SPEC` rows here.

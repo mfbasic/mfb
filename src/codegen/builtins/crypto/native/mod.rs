@@ -26,13 +26,14 @@
 
 use std::collections::HashMap;
 
-use super::*;
+use crate::codegen::registry::OsLowerCtx;
 use crate::target::shared::abi;
+use crate::target::shared::code::*;
 
 /// The elliptic curve a helper targets. Only the input key size (keygen) and the
 /// ECDSA message-digest algorithm (sign/verify) vary between curves.
 #[derive(Clone, Copy)]
-pub(super) enum Curve {
+pub(crate) enum Curve {
     P256,
     P384,
     P521,
@@ -57,7 +58,7 @@ impl Curve {
 }
 
 /// Map a runtime-helper call name onto (operation, curve).
-pub(super) fn ec_call(call: &str) -> Option<(EcOp, Curve)> {
+pub(crate) fn ec_call(call: &str) -> Option<(EcOp, Curve)> {
     let (op, curve) = match call {
         "crypto.generateP256Raw" => (EcOp::Generate, Curve::P256),
         "crypto.generateP384Raw" => (EcOp::Generate, Curve::P384),
@@ -74,7 +75,7 @@ pub(super) fn ec_call(call: &str) -> Option<(EcOp, Curve)> {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-pub(super) enum EcOp {
+pub(crate) enum EcOp {
     Generate,
     Sign,
     Verify,
@@ -82,14 +83,14 @@ pub(super) enum EcOp {
 
 /// True for the runtime-helper symbols emitted by this module (used to gate the
 /// per-platform read-only data objects).
-pub(super) fn is_ec_symbol(symbol: &str) -> bool {
+pub(crate) fn is_ec_symbol(symbol: &str) -> bool {
     symbol.starts_with("_mfb_rt_crypto_crypto_generateP")
         || symbol.starts_with("_mfb_rt_crypto_crypto_p256")
         || symbol.starts_with("_mfb_rt_crypto_crypto_p384")
         || symbol.starts_with("_mfb_rt_crypto_crypto_p521")
 }
 
-pub(super) fn lower_crypto_ec_helper(
+pub(crate) fn lower_crypto_ec_helper(
     call: &str,
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -111,17 +112,48 @@ pub(super) fn lower_crypto_ec_helper(
 // keep importing them from their parent.
 // ---------------------------------------------------------------------------
 
-pub(super) use super::native_helpers::{emit_build_byte_list, emit_fail, emit_read_byte_list};
+pub(crate) use crate::target::shared::code::native_helpers::{
+    emit_build_byte_list, emit_fail, emit_read_byte_list,
+};
 
 /// Call the function pointer stored at `fn_off` (args already in x0..). Result
 /// left in the return register. Shared by both EC backends.
-pub(super) fn call_fn(fn_off: usize, ins: &mut Vec<CodeInstruction>) {
+pub(crate) fn call_fn(fn_off: usize, ins: &mut Vec<CodeInstruction>) {
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), fn_off),
         abi::branch_link_register("%v9"),
     ]);
 }
 
-pub(super) mod cng;
-pub(super) mod macos;
-pub(super) mod openssl;
+pub(crate) mod cng;
+pub(crate) mod macos;
+pub(crate) mod openssl;
+mod random;
+
+/// OsLower-shaped entry for `crypto::randomBytes` — the CSPRNG runtime helper.
+/// The per-compilation [`OsLowerCtx`] carries no state this helper needs; it is
+/// dispatched generically through `registry::os_helper` (`crypto/mod.rs`'s
+/// `Body::native` slots point here) exactly like `os`/`fs`/`io`.
+pub(crate) fn lower_crypto_random_bytes(
+    _call: &str,
+    symbol: &str,
+    _ctx: &OsLowerCtx,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    random::lower_crypto_random_bytes_helper(symbol, platform_imports, platform)
+}
+
+/// OsLower-shaped entry for the NIST-EC public-key helpers (`crypto::generateP*Raw`,
+/// `crypto::p{256,384,521}{Sign,Verify}`). `call` selects the (operation, curve);
+/// the per-backend emission (macOS `SecKey`, Linux `EVP_PKEY`, Windows CNG) is
+/// chosen by `platform.family()`. The [`OsLowerCtx`] is unused.
+pub(crate) fn lower_crypto_ec(
+    call: &str,
+    symbol: &str,
+    _ctx: &OsLowerCtx,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    lower_crypto_ec_helper(call, symbol, platform_imports, platform)
+}

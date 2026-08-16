@@ -14,10 +14,10 @@
 
 use std::collections::HashMap;
 
-use super::super::native_helpers::{emit_data_address, emit_zero_guarded};
-use super::super::*;
 use super::{emit_build_byte_list, emit_fail, emit_read_byte_list, Curve, EcOp};
 use crate::target::shared::abi;
+use crate::target::shared::code::native_helpers::{emit_data_address, emit_zero_guarded};
+use crate::target::shared::code::*;
 
 impl Curve {
     fn field_len(self) -> usize {
@@ -371,6 +371,7 @@ fn generate(
 }
 
 /// Destroy `hKey` (at `hkey_off`) and close `hAlg` (at `halg_off`), each null-guarded.
+#[allow(clippy::too_many_arguments)]
 fn emit_cleanup(
     symbol: &str,
     tag: &str,

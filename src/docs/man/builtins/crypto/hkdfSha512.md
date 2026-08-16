@@ -19,7 +19,7 @@ IMPORT crypto
 ```
 
 `crypto` is a built-in package, so no manifest dependency is required.
-[[src/builtins/crypto.rs:augmented_project]]
+[[src/codegen/registry/mod.rs:augment_project]]
 
 ## Description
 
@@ -29,24 +29,24 @@ or more cryptographically strong keys of a chosen length. HKDF runs in two
 phases: an **extract** step folds `ikm` and `salt` into a fixed-length
 pseudorandom key (the 64-byte HMAC-SHA-512 output), and an **expand** step
 stretches that key into `length` output bytes bound to the `info` context.
-[[src/builtins/crypto_hash.mfb:__crypto_hkdfSha512]]
+[[src/codegen/builtins/crypto/package.mfb:__crypto_hkdfSha512]]
 
 `salt` is optional in the RFC sense: passing an empty list selects HKDF's default
 all-zero salt of one hash block (64 bytes).
-[[src/builtins/crypto_hash.mfb:__crypto_hkdfSha512]] `info` may also be empty;
+[[src/codegen/builtins/crypto/package.mfb:__crypto_hkdfSha512]] `info` may also be empty;
 when non-empty it domain-separates derived keys, so the same `ikm` can safely
 produce independent keys for different purposes.
 
 `length` must be at least 1 and at most `255 * 64 = 16320` bytes — the ceiling
 imposed by HKDF-Expand's single-byte block counter over a 64-byte hash. A
 `length` of 0 or below, or above 16320, raises `ErrInvalidArgument`.
-[[src/builtins/crypto_hash.mfb:__crypto_hkdfSha512]]
+[[src/codegen/builtins/crypto/package.mfb:__crypto_hkdfSha512]]
 
 The function is deterministic and total within its `length` bound: the same four
 arguments always yield the same bytes. Because it is a portable software core
 computed over the `bits` package, its output is **byte-identical on every
 target** (macOS/Linux, aarch64/x86-64) and uses no platform crypto library.
-[[src/builtins/crypto.rs:implementation_name]]
+[[src/codegen/registry/mod.rs:rewrite_target]]
 
 HKDF is designed for high-entropy `ikm` (for example a Diffie-Hellman shared
 secret). To derive keys from a low-entropy password, use `crypto::pbkdf2Sha512`
@@ -60,19 +60,19 @@ with `encoding::hexEncode` or `encoding::base64Encode`.
 | `ikm` | `List OF Byte` | Input keying material to derive from. Any length is accepted, including the empty list. |
 | `salt` | `List OF Byte` | A non-secret salt. Pass an empty list to select HKDF's default all-zero 64-byte salt. |
 | `info` | `List OF Byte` | Optional context / application-specific information for domain separation. May be empty. |
-| `length` | `Integer` | Number of output bytes to produce. Must be in `1 .. 16320` (`255 * 64`). [[src/builtins/crypto_hash.mfb:__crypto_hkdfSha512]] |
+| `length` | `Integer` | Number of output bytes to produce. Must be in `1 .. 16320` (`255 * 64`). [[src/codegen/builtins/crypto/package.mfb:__crypto_hkdfSha512]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | Exactly `length` pseudorandom bytes of derived key material. [[src/builtins/crypto.rs:CRYPTO]] |
+| `List OF Byte` | Exactly `length` pseudorandom bytes of derived key material. [[src/codegen/builtins/crypto/mod.rs:CRYPTO]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `length` is less than 1 or greater than `16320` (`255 * 64`), the maximum output HKDF-Expand can produce for a 64-byte hash. [[src/builtins/crypto_hash.mfb:__crypto_hkdfSha512]] |
+| `77050002` | `ErrInvalidArgument` | `length` is less than 1 or greater than `16320` (`255 * 64`), the maximum output HKDF-Expand can produce for a 64-byte hash. [[src/codegen/builtins/crypto/package.mfb:__crypto_hkdfSha512]] |
 
 ## Examples
 

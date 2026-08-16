@@ -180,9 +180,8 @@ pub fn check_project_collect(
     let augmented = builtins::audio::augmented_project(&augmented)?;
     // `process` (its `Stream`/`Signal` enum companion) is injected by the generic
     // clean-room `registry::augment_project` above.
-    // `crypto` before `encoding`: `crypto_package.mfb` imports `encoding`
-    // (mirrors `http` before `net`; plan-04-crypto.md Part C).
-    let augmented = builtins::crypto::augmented_project(&augmented)?;
+    // `crypto` source is injected by the generic clean-room `registry::augment_project`
+    // above, before the `strings`/`encoding` late passes (plan-04-crypto.md Part C).
     // `strings` before `encoding`: `strings_package.mfb` imports `encoding`
     // (plan-41-D).
     let augmented = builtins::strings::augmented_project(&augmented)?;

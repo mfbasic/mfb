@@ -20,13 +20,13 @@ IMPORT crypto
 ```
 
 `crypto` is a built-in package, so `IMPORT crypto` needs no manifest
-dependency. [[src/builtins/crypto.rs:augmented_project]]
+dependency. [[src/codegen/registry/mod.rs:augment_project]]
 
 ## Description
 
 The `crypto` package defines two record types. Both are plain, copyable records
 whose fields are `List OF Byte` and are read with ordinary field access; they
-raise no errors of their own. [[src/builtins/crypto_hash.mfb:Sealed]]
+raise no errors of their own. [[src/codegen/builtins/crypto/package.mfb:Sealed]]
 
 `crypto::Sealed` is the output of authenticated encryption (AEAD): it pairs a
 ciphertext with its authentication tag. It is produced by `crypto::aes256GcmSeal`
@@ -57,7 +57,7 @@ distribute only `publicKey`.
 
 ### crypto::Sealed
 
-The result of AEAD sealing: an authenticated ciphertext. [[src/builtins/crypto_hash.mfb:Sealed]]
+The result of AEAD sealing: an authenticated ciphertext. [[src/codegen/builtins/crypto/package.mfb:Sealed]]
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -66,7 +66,7 @@ The result of AEAD sealing: an authenticated ciphertext. [[src/builtins/crypto_h
 
 ### crypto::KeyPair
 
-A generated public/private key pair. [[src/builtins/crypto_hash.mfb:KeyPair]]
+A generated public/private key pair. [[src/codegen/builtins/crypto/package.mfb:KeyPair]]
 
 | Field | Type | Description |
 | --- | --- | --- |

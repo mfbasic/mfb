@@ -20,7 +20,7 @@ IMPORT crypto
 ```
 
 `crypto` is a built-in package, so no manifest dependency is required.
-[[src/builtins/crypto.rs:augmented_project]]
+[[src/codegen/registry/mod.rs:augment_project]]
 
 ## Description
 
@@ -29,13 +29,13 @@ RFC 8018 instantiated over HMAC-SHA-256. It stretches a low-entropy `password`
 into `length` bytes of derived key material by iterating the HMAC core
 `iterations` times per output block, deliberately making brute-force guessing of
 the password proportionally more expensive.
-[[src/builtins/crypto_hash.mfb:__crypto_pbkdf2Sha256_bytes]]
+[[src/codegen/builtins/crypto/package.mfb:__crypto_pbkdf2Sha256_bytes]]
 
 The output is produced one 32-byte HMAC-SHA-256 block at a time until at least
 `length` bytes have accumulated, then truncated to exactly `length` bytes. Each
 block folds `salt` and the block index through `iterations` rounds of HMAC,
 XOR-accumulating every round into the block.
-[[src/builtins/crypto_hash.mfb:__crypto_pbkdf2Block]]
+[[src/codegen/builtins/crypto/package.mfb:__crypto_pbkdf2Block]]
 
 `salt` should be unique per password and need not be secret; a random salt from
 `crypto::randomBytes` (16 bytes or more) is recommended, stored alongside the
@@ -47,11 +47,11 @@ This cost is what distinguishes PBKDF2 from HKDF: use PBKDF2 for passwords, and
 
 `password` is overloaded: a `String` argument is UTF-8-encoded internally, so
 the `String` and `List OF Byte` forms agree for ASCII and UTF-8 text.
-[[src/builtins/crypto.rs:implementation_name]] The function is deterministic and
+[[src/codegen/registry/mod.rs:rewrite_target]] The function is deterministic and
 total within its argument bounds — the same inputs always yield the same bytes.
 Because it is a portable software core computed over the `bits` package, its
 output is **byte-identical on every target** (macOS/Linux, aarch64/x86-64) and
-uses no platform crypto library. [[src/builtins/crypto.rs:implementation_name]]
+uses no platform crypto library. [[src/codegen/registry/mod.rs:rewrite_target]]
 
 Derived key material is raw binary; to display or store it, stringify it with
 `encoding::hexEncode` or `encoding::base64Encode`.
@@ -67,7 +67,7 @@ Derives from the raw bytes of `password` exactly as given.
 Derives from the UTF-8 encoding of the string. It is equivalent to converting
 the string to its UTF-8 bytes and deriving from those; the concrete `password`
 type selects the `_text` implementation body.
-[[src/builtins/crypto.rs:implementation_name]]
+[[src/codegen/registry/mod.rs:rewrite_target]]
 
 ## Parameters
 
@@ -76,20 +76,20 @@ type selects the `_text` implementation body.
 | `password` | `List OF Byte` | The password to derive from, as raw bytes. Any length is accepted. |
 | `password` | `String` | A password string whose UTF-8 bytes are used. |
 | `salt` | `List OF Byte` | A per-password salt. Should be unique; need not be secret. Any length is accepted. |
-| `iterations` | `Integer` | The PBKDF2 iteration count (work factor). Must be at least 1. Larger values are more resistant to brute force and slower. [[src/builtins/crypto_hash.mfb:__crypto_pbkdf2Sha256_bytes]] |
-| `length` | `Integer` | Number of derived key bytes to produce. Must be at least 1. [[src/builtins/crypto_hash.mfb:__crypto_pbkdf2Sha256_bytes]] |
+| `iterations` | `Integer` | The PBKDF2 iteration count (work factor). Must be at least 1. Larger values are more resistant to brute force and slower. [[src/codegen/builtins/crypto/package.mfb:__crypto_pbkdf2Sha256_bytes]] |
+| `length` | `Integer` | Number of derived key bytes to produce. Must be at least 1. [[src/codegen/builtins/crypto/package.mfb:__crypto_pbkdf2Sha256_bytes]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | Exactly `length` bytes of derived key material. [[src/builtins/crypto.rs:CRYPTO]] |
+| `List OF Byte` | Exactly `length` bytes of derived key material. [[src/codegen/builtins/crypto/mod.rs:CRYPTO]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `iterations` is less than 1, or `length` is less than 1. [[src/builtins/crypto_hash.mfb:__crypto_pbkdf2Sha256_bytes]] |
+| `77050002` | `ErrInvalidArgument` | `iterations` is less than 1, or `length` is less than 1. [[src/codegen/builtins/crypto/package.mfb:__crypto_pbkdf2Sha256_bytes]] |
 
 ## Type checking
 
@@ -97,7 +97,7 @@ The first argument (`password`) must be either a `List OF Byte` or a `String`;
 no other type resolves. `salt` must be a `List OF Byte`, and both `iterations`
 and `length` must be `Integer`. Exactly four arguments are required. The return
 type is always `List OF Byte`.
-[[src/builtins/crypto.rs:CRYPTO]] [[src/builtins/crypto.rs:CRYPTO]]
+[[src/codegen/builtins/crypto/mod.rs:CRYPTO]] [[src/codegen/builtins/crypto/mod.rs:CRYPTO]]
 
 ## Examples
 

@@ -20,19 +20,19 @@ IMPORT crypto
 ```
 
 `crypto` is a built-in package, so no manifest dependency is required.
-[[src/builtins/crypto.rs:augmented_project]]
+[[src/codegen/registry/mod.rs:augment_project]]
 
 ## Description
 
 `crypto::hmacSha512` computes the keyed-hash message authentication code of
 `data` under `key`, using SHA-512 as the underlying hash, as specified by
 RFC 2104. It returns a fixed 64-byte (512-bit) MAC as a `List OF Byte`.
-[[src/builtins/crypto.rs:CRYPTO]]
+[[src/codegen/builtins/crypto/mod.rs:CRYPTO]]
 
 Keys of any length are accepted. Per RFC 2104, a key longer than the 128-byte
 SHA-512 block size is first hashed down to 64 bytes, and any key shorter than
 the block size is right-padded with zero bytes to 128 bytes before the inner and
-outer passes. [[src/builtins/crypto_hash.mfb:__crypto_hmacSha512_bytes]]
+outer passes. [[src/codegen/builtins/crypto/package.mfb:__crypto_hmacSha512_bytes]]
 
 The MAC is a deterministic function of `key` and `data` alone: the same key and
 message always produce the same 64 bytes, with no salting or randomness. The
@@ -41,7 +41,7 @@ empty message, yields a MAC and it never raises an error.
 
 The MAC is a portable software core computed over the `bits` package, so its
 output is **byte-identical on every target** (macOS/Linux, aarch64/x86-64) and
-uses no platform crypto library. [[src/builtins/crypto.rs:implementation_name]]
+uses no platform crypto library. [[src/codegen/registry/mod.rs:rewrite_target]]
 
 A MAC is raw binary, not text. To display or store it, stringify it with the
 `encoding` package — `encoding::hexEncode` for lowercase hex or
@@ -60,7 +60,7 @@ Authenticates the raw bytes of `data` exactly as given.
 Authenticates the UTF-8 encoding of the string. It is equivalent to converting
 the string to its UTF-8 bytes and authenticating those; the concrete `data` type
 selects the `_text` implementation body.
-[[src/builtins/crypto.rs:implementation_name]]
+[[src/codegen/registry/mod.rs:rewrite_target]]
 
 ## Parameters
 
@@ -74,7 +74,7 @@ selects the `_text` implementation body.
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The 64-byte HMAC-SHA-512 code of `data` under `key`. Always exactly 64 bytes regardless of input length. [[src/builtins/crypto.rs:CRYPTO]] |
+| `List OF Byte` | The 64-byte HMAC-SHA-512 code of `data` under `key`. Always exactly 64 bytes regardless of input length. [[src/codegen/builtins/crypto/mod.rs:CRYPTO]] |
 
 ## Errors
 
@@ -85,7 +85,7 @@ No errors.
 The first argument (`key`) must be a `List OF Byte`. The second argument (`data`)
 must be either a `List OF Byte` or a `String`; no other type resolves. Exactly
 two arguments are required. The return type is always `List OF Byte`.
-[[src/builtins/crypto.rs:CRYPTO]] [[src/builtins/crypto.rs:CRYPTO]]
+[[src/codegen/builtins/crypto/mod.rs:CRYPTO]] [[src/codegen/builtins/crypto/mod.rs:CRYPTO]]
 
 ## Examples
 

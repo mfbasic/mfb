@@ -19,7 +19,7 @@ IMPORT crypto
 ```
 
 `crypto` is a built-in package, so no manifest dependency is required.
-[[src/builtins/crypto.rs:augmented_project]]
+[[src/codegen/registry/mod.rs:augment_project]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT crypto
 on the NIST P-521 curve (FIPS 186), hashing the message with SHA-512 internally.
 The result is an ASN.1 DER `Ecdsa-Sig-Value` (X9.62) returned as a `List OF Byte`.
 Verify it later with `crypto::p521Verify` given the matching public key.
-[[src/target/shared/code/crypto_ec.rs:ec_call]]
+[[src/codegen/builtins/crypto/native/mod.rs:ec_call]]
 
 `privateKey` is the 199-byte wire form `0x04 || X || Y || K` — the 133-byte
 uncompressed point (`0x04` prefix plus the two 66-byte field elements `X` and `Y`)
@@ -36,7 +36,7 @@ returned by `crypto::generateP521`. `message` is the raw bytes to sign; it is
 hashed with SHA-512 as part of the platform signing call, so the caller does not
 pre-hash it. The DER-encoded signature is variable length (roughly 137–139 bytes),
 since the encoding of the two integers `r` and `s` depends on their leading bits.
-[[src/target/shared/code/crypto_ec/openssl.rs:params]]
+[[src/codegen/builtins/crypto/native/openssl.rs:params]]
 
 The NIST curves bind the platform key API: `SecKeyCreateSignature` with
 `kSecKeyAlgorithmECDSASignatureMessageX962SHA512` on macOS, and OpenSSL
@@ -44,7 +44,7 @@ The NIST curves bind the platform key API: `SecKeyCreateSignature` with
 platforms and with OpenSSL / pyca. Unlike Ed25519, ECDSA signing is
 **non-deterministic**: a fresh random nonce is drawn per call, so signing the same
 `(privateKey, message)` twice yields two different signatures. Both verify
-correctly. [[src/target/shared/code/crypto_ec.rs:macos_algorithm]]
+correctly. [[src/codegen/builtins/crypto/native/mod.rs:macos_algorithm]]
 
 **Secret safety.** `privateKey` embeds the secret scalar `K`. Anyone who holds it
 can forge signatures. Never log it, and treat `typeName` / `toString` /
@@ -55,22 +55,22 @@ its bytes with `encoding::hexEncode` (lowercase hex) or `encoding::base64Encode`
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `privateKey` | `List OF Byte` | The 199-byte P-521 private key in the `0x04 \|\| X \|\| Y \|\| K` wire form (the `privateKey` field of a `crypto::generateP521` key pair). Must be exactly 199 bytes: the 133-byte point followed by the 66-byte scalar. [[src/target/shared/code/crypto_ec/openssl.rs:params]] [[src/target/shared/code/crypto_ec.rs:20]] |
+| `privateKey` | `List OF Byte` | The 199-byte P-521 private key in the `0x04 \|\| X \|\| Y \|\| K` wire form (the `privateKey` field of a `crypto::generateP521` key pair). Must be exactly 199 bytes: the 133-byte point followed by the 66-byte scalar. [[src/codegen/builtins/crypto/native/openssl.rs:params]] [[src/codegen/builtins/crypto/native/mod.rs:20]] |
 | `message` | `List OF Byte` | The raw bytes to sign. Any length; hashed with SHA-512 internally, so no pre-hashing is required. |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The ASN.1 DER (X9.62) `Ecdsa-Sig-Value` ECDSA signature. Variable length (roughly 137–139 bytes) depending on the encoding of the `r` and `s` integers. [[src/builtins/crypto.rs:CRYPTO]] |
+| `List OF Byte` | The ASN.1 DER (X9.62) `Ecdsa-Sig-Value` ECDSA signature. Variable length (roughly 137–139 bytes) depending on the encoding of the `r` and `s` integers. [[src/codegen/builtins/crypto/mod.rs:CRYPTO]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `privateKey` is not exactly 199 bytes (the P-521 point length plus field length), or the 199 bytes do not decode to a valid P-521 private key. [[src/target/shared/code/crypto_ec/openssl.rs:sign]] [[src/target/shared/code/crypto_ec/macos.rs:sign]] |
-| `77050000` | `ErrUnknown` | The platform signing call itself fails (the OpenSSL / Security.framework signing operation returns an error, or a required library symbol cannot be loaded). [[src/target/shared/code/crypto_ec/openssl.rs:sign]] [[src/target/shared/code/crypto_ec/macos.rs:sign]] |
-| `77010001` | `ErrOutOfMemory` | An internal working buffer cannot be allocated. [[src/target/shared/code/crypto_ec/openssl.rs:sign]] [[src/target/shared/code/crypto_ec/macos.rs:sign]] |
+| `77050002` | `ErrInvalidArgument` | `privateKey` is not exactly 199 bytes (the P-521 point length plus field length), or the 199 bytes do not decode to a valid P-521 private key. [[src/codegen/builtins/crypto/native/openssl.rs:sign]] [[src/codegen/builtins/crypto/native/macos.rs:sign]] |
+| `77050000` | `ErrUnknown` | The platform signing call itself fails (the OpenSSL / Security.framework signing operation returns an error, or a required library symbol cannot be loaded). [[src/codegen/builtins/crypto/native/openssl.rs:sign]] [[src/codegen/builtins/crypto/native/macos.rs:sign]] |
+| `77010001` | `ErrOutOfMemory` | An internal working buffer cannot be allocated. [[src/codegen/builtins/crypto/native/openssl.rs:sign]] [[src/codegen/builtins/crypto/native/macos.rs:sign]] |
 
 ## Examples
 

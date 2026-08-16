@@ -1,7 +1,6 @@
 pub(crate) mod app;
 pub(crate) mod astrings;
 pub(crate) mod audio;
-pub(crate) mod crypto;
 pub(crate) mod general;
 pub(crate) mod http;
 pub(crate) mod math;
@@ -177,7 +176,8 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
     let belongs = match package {
         "app" => app::is_builtin_type(member),
         "audio" => audio::is_builtin_type(member),
-        "crypto" => crypto::is_builtin_type(member),
+        // `crypto`'s `Sealed`/`KeyPair` records resolve via the migrated-registry
+        // check above (`registry::qualified_builtin_type`), so no arm is needed here.
         // `datetime`'s source-declared value types resolve via the migrated-registry
         // check above (`registry::qualified_builtin_type`), so no arm is needed here.
         // `fs`'s `File` resource likewise resolves via the migrated-registry check
@@ -480,8 +480,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
     // process — no longer own an `expected_arguments` seam: their bespoke phrasing
     // rides on the `RegistryFunction::expected_arguments` descriptor field and is
     // served by the generic `registry::expected_arguments` below.
-    if let Some(text) = crypto::expected_arguments(name)
-        .or_else(|| math::expected_arguments(name))
+    if let Some(text) = math::expected_arguments(name)
         .or_else(|| net::expected_arguments(name))
         .or_else(|| tls::expected_arguments(name))
         .or_else(|| audio::expected_arguments(name))
@@ -531,7 +530,6 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| net::argument_types(callee))
         .or_else(|| tls::argument_types(callee))
         .or_else(|| audio::argument_types(callee))
-        .or_else(|| crypto::argument_types(callee))
         .or_else(|| http::expected_arguments(callee))
         .or_else(|| thread::expected_arguments(callee))?;
     // A description that is not a concrete positional signature is not a coercion
@@ -565,7 +563,6 @@ pub(crate) fn default_argument_padding(
 ) -> &'static [(&'static str, &'static str)] {
     for pad in [
         tls::default_argument_padding(callee, provided),
-        crypto::default_argument_padding(callee, provided),
         http::default_argument_padding(callee, provided),
     ] {
         if !pad.is_empty() {
@@ -609,7 +606,8 @@ pub(crate) fn is_nonescaping_callback_arg(callee: &str, index: usize) -> bool {
 /// source must not. The resolver applies this only when the calling file is not
 /// `AstFile::internal`, so the glue still resolves (bug-337-D9).
 pub(crate) fn is_internal_only_call(name: &str) -> bool {
-    crypto::is_crypto_internal_call(name) || astrings::is_astrings_internal_call(name)
+    crate::codegen::builtins::crypto::is_crypto_internal_call(name)
+        || astrings::is_astrings_internal_call(name)
 }
 
 pub(crate) fn is_builtin_call(name: &str) -> bool {
@@ -781,7 +779,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
         .or_else(|| general::call_param_names(name))
         .or_else(|| strings::call_param_names(name))
         .or_else(|| math::call_param_names(name))
-        .or_else(|| crypto::call_param_names(name))
         .or_else(|| net::call_param_names(name))
         .or_else(|| http::call_param_names(name))
         .or_else(|| term::call_param_names(name))
