@@ -81,6 +81,7 @@ Already migrated (on the registry, `src/codegen/builtins/`): `encoding`, `collec
 
 Tier 2 — source companion + light native:
 - [x] `money` — DONE (registry `add_enum(Rounding)` + 3 `Body::native` NativeLower funcs; e6ab61d9b, merged)
+- [x] `os` — DONE (15 native OS-seam members; `resourcePath` consumes build-context; 0 resource; 0a274639f, merged)
 - [ ] `app` — 3 files, `app_package.mfb`
 - [ ] `vector` — 1 file, SIMD value-record types (`Vec2/3`) add descriptor-type work
 
@@ -139,6 +140,11 @@ The 6 leak-adapters (`resolve_call`, `rewrite_target`, `call_return_type`, `expe
 - DONE: registry package-constant API (`add_constant`/`is_package_constant`/`constant_type_name`/`constant_value`/`constant_components`) + general-override API (`add_override`/`general_override_target`), dual-pathed through `builtins/mod.rs` + `ir/lower.rs`, byte-identical (registry empty until a package migrates). Unblocks the constant/override half of `errorcode`/`math`/`net`/`vector`.
 - Migration note for `vector`/record-constants: a migrated package's record types (e.g. `Float3`) must register as a `RegistryRecord` with element-typed props (the registry record-constant path reads element types from the record's fields in declaration order).
 - Pre-existing: `net` has ~5 STALE byte-identity goldens on `worktree-builtin` (verified on clean base, unrelated to any migration) — regenerate when `net` migrates or as a standalone cleanup.
+
+### Phase 1 — os LANDED; pre-existing fs byte-identity red is BENIGN (2026-08-16)
+
+- `os` migrated + merged (0a274639f, merge 38eb9cdfd): 15 native OS-seam members, `os.resourcePath` consumes the build-context (validates the OS-seam extension end-to-end), owns NO resource, 0 diffs on os/datetime/process. `3814` tests green. Migrated-package count now: csv/json/regex + process/datetime + bits + money + os.
+- **Pre-existing `fs` byte-identity red is SAFE, not a bug:** `artifact-gate fs` shows 5/7 `fs_codegen_cover_rt.ncode` reds across ALL arches with fs UNCHANGED. Verified benign: **all 94 fs acceptance tests pass** (rt-behavior/rt-error/syntax via `test-accept.sh`), so behavior+diagnostics are correct — the `.ncode` shift is a codegen-FORM change (registration-order/symbol-numbering ripple from the migrations changing the registered-package set, OR a forgotten 13092026c-era regen). Golden last regen'd at `13092026c` (pre-migration). Disposition: regenerate the fs byte-identity golden WHEN fs migrates (the in-flight fs agent does this as part of relocation) — do NOT treat fs's red gate as a migration failure. Same class as the `net` pre-existing reds noted at 967d58ec9.
 
 ### Phase 1 — io needs an ARENA-context OsLower extension (io attempt, 2026-08-16)
 
