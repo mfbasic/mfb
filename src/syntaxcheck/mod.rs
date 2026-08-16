@@ -169,8 +169,8 @@ pub fn check_project_collect(
     // `astrings` imports only `collections` (native members) + `astrings` itself.
     let augmented = builtins::astrings::augmented_project(&augmented)?;
     let augmented = builtins::app::augmented_project(&augmented)?;
-    // datetime source is injected by the clean-room `registry::augment_project` above.
-    let augmented = builtins::money::augmented_project(&augmented)?;
+    // datetime + money source is injected by the clean-room `registry::augment_project`
+    // above.
     let augmented = builtins::term::augmented_project(&augmented)?;
     // `vector` imports only intrinsic `math` (plan-06-vector.md §5).
     let augmented = builtins::vector::augmented_project(&augmented)?;

@@ -1133,6 +1133,7 @@ fn build() -> Registry {
     crate::codegen::builtins::datetime::register(&mut r);
     crate::codegen::builtins::encoding::register(&mut r);
     crate::codegen::builtins::collections::register(&mut r);
+    crate::codegen::builtins::money::register(&mut r);
     r
 }
 

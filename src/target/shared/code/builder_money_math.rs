@@ -31,7 +31,7 @@ impl CodeBuilder<'_> {
     /// (mode 1) does the same except the exact tie (`2*|rem| == |div|`) rounds to
     /// even (increment only when the truncated quotient is odd). Doubling is
     /// avoided (`|rem|` vs `|div| - |rem|`) so nothing overflows near i64::MAX.
-    pub(super) fn emit_apply_rounding(
+    pub(crate) fn emit_apply_rounding(
         &mut self,
         dst: impl Into<Operand>,
         quotient: impl Into<Operand>,

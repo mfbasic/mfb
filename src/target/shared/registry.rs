@@ -1054,7 +1054,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::term::TERM,
     &crate::builtins::testing::TESTING,
     &crate::builtins::math::MATH,
-    &crate::builtins::money::MONEY,
+    // money migrated to the clean-room registry (crate::codegen::registry).
     &crate::builtins::net::NET,
     &crate::builtins::os::OS,
     // process migrated to the clean-room registry (crate::codegen::registry).
@@ -1748,8 +1748,8 @@ mod tests {
         // plan-89-A: the `astrings` package (opaque AttributedString + fromString).
         assert!(REGISTRY.module("astrings").is_some());
         assert!(REGISTRY.function("astrings.fromString").is_some());
-        // bits / csv / json / regex / process / datetime / encoding / collections
-        // have migrated onto the clean-room registry (`crate::codegen::registry`)
+        // bits / csv / json / regex / process / datetime / encoding / collections /
+        // money have migrated onto the clean-room registry (`crate::codegen::registry`)
         // and are no longer held here.
         assert!(REGISTRY.module("bits").is_none());
         assert!(REGISTRY.module("csv").is_none());
@@ -1759,8 +1759,9 @@ mod tests {
         assert!(REGISTRY.module("datetime").is_none());
         assert!(REGISTRY.module("encoding").is_none());
         assert!(REGISTRY.module("collections").is_none());
+        assert!(REGISTRY.module("money").is_none());
         // The 28 builtin packages minus the migrated ones.
-        assert_eq!(REGISTRY.modules().len(), 20);
+        assert_eq!(REGISTRY.modules().len(), 19);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);

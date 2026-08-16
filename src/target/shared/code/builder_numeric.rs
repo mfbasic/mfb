@@ -1195,7 +1195,7 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    pub(super) fn emit_checked_integer_multiply(
+    pub(crate) fn emit_checked_integer_multiply(
         &mut self,
         dst: impl Into<Operand>,
         left: impl Into<Operand>,

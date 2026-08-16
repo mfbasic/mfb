@@ -8,7 +8,6 @@ pub(crate) mod general;
 pub(crate) mod http;
 pub(crate) mod io;
 pub(crate) mod math;
-pub(crate) mod money;
 pub(crate) mod net;
 pub(crate) mod os;
 pub(crate) mod resource;
@@ -185,7 +184,8 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         // check above (`registry::qualified_builtin_type`), so no arm is needed here.
         "fs" => fs::is_builtin_type(member),
         "http" => http::is_builtin_type(member),
-        "money" => money::is_builtin_type(member),
+        // `money`'s `Rounding` enum resolves via the migrated-registry check above
+        // (`registry::qualified_builtin_type`), so it needs no arm here.
         "net" => net::is_builtin_type(member),
         // `process` (the `Process` resource) is resolved by the migrated-registry
         // check above (`registry::qualified_builtin_type`), so it needs no arm here.
@@ -517,7 +517,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
 /// optional-tail brackets, `utf8Decode`'s `"or"`-union) decline via the guard.
 pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
     let machine_table = term::param_types(callee)
-        .or_else(|| money::argument_types(callee))
         .or_else(|| app::argument_types(callee));
     if let Some(types) = machine_table {
         return Some(types.iter().map(|type_| (*type_).to_string()).collect());
@@ -793,7 +792,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
         .or_else(|| crypto::call_param_names(name))
         .or_else(|| fs::call_param_names(name))
         .or_else(|| io::call_param_names(name))
-        .or_else(|| money::call_param_names(name))
         .or_else(|| net::call_param_names(name))
         .or_else(|| os::call_param_names(name))
         .or_else(|| http::call_param_names(name))
