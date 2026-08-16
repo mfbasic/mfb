@@ -93,7 +93,7 @@ arena when the module uses stdin), so an exited or crashed worker never permanen
 pins `base`. On process shutdown a worker parked in a blocking stdin read is
 terminated by process exit, exactly as for any other worker (§ arena teardown
 above), so shutdown never hangs on a parked reader.
-[[src/target/shared/code/stdin_broadcast.rs]] [[src/builtins/thread.rs:OPEN_STD_IN]]
+[[src/target/shared/code/stdin_broadcast.rs]] [[src/codegen/builtins/thread/mod.rs:openStdIn]]
 
 ## See Also
 

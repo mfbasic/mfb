@@ -22,7 +22,7 @@ IMPORT thread
 ```
 
 `thread` is a built-in package, so no manifest dependency is required.
-[[src/builtins/thread.rs:is_thread_call]]
+[[src/codegen/builtins/thread/mod.rs:is_thread_call]]
 
 ## Description
 
@@ -40,7 +40,7 @@ type that is a resource is rejected at compile time with a pointer to
 must equal the thread's message type `Msg` (a handle whose message type is
 `Unknown` accepts any value) and must be thread-sendable — every field, payload,
 element, key, and value type must itself be sendable.
-[[src/syntaxcheck/resources.rs:is_thread_sendable_type]] [[src/builtins/thread.rs:THREAD]]
+[[src/syntaxcheck/resources.rs:is_thread_sendable_type]] [[src/codegen/builtins/thread/mod.rs:register]]
 
 `data` is **moved** into the call rather than borrowed, and materialized in
 storage the receiving thread owns, so no sender and receiver ever observe the same
@@ -83,21 +83,21 @@ or cancellation was requested.
 
 Worker-side send onto the parent-visible outbound queue. Fails with
 `ErrInterrupted` when this worker is cancelled or the queue is closed.
-[[src/builtins/thread.rs:THREAD]] [[src/builtins/thread.rs:THREAD]]
+[[src/codegen/builtins/thread/mod.rs:register]] [[src/codegen/builtins/thread/mod.rs:register]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `t` (also `thread`) | `Thread OF Msg TO Out` or `ThreadWorker OF Msg TO Out` | The handle whose data-plane queue receives the message. A parent handle targets the worker's inbound queue; a worker handle targets the outbound queue the parent reads. Borrowed, not consumed. [[src/builtins/thread.rs:call_param_names]] |
-| `data` (also `value`) | `Msg` | The message to enqueue. Must equal the thread's `Msg` type (a handle typed `Unknown` accepts any value) and must be thread-sendable. Moved into the call. [[src/builtins/thread.rs:call_param_names]] |
+| `t` (also `thread`) | `Thread OF Msg TO Out` or `ThreadWorker OF Msg TO Out` | The handle whose data-plane queue receives the message. A parent handle targets the worker's inbound queue; a worker handle targets the outbound queue the parent reads. Borrowed, not consumed. [[src/codegen/builtins/thread/mod.rs:register]] |
+| `data` (also `value`) | `Msg` | The message to enqueue. Must equal the thread's `Msg` type (a handle typed `Unknown` accepts any value) and must be thread-sendable. Moved into the call. [[src/codegen/builtins/thread/mod.rs:register]] |
 | `timeoutMs` | `Integer` | Optional. Milliseconds to wait for queue space when the destination queue is full. Omit to block until space frees; `0` makes one immediate attempt and fails with `ErrTimeout` if full; a positive value waits that long; a negative value is rejected. |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | No value. Returns once the message has been enqueued and the queue's *not-empty* condition signalled. [[src/builtins/thread.rs:THREAD]] |
+| `Nothing` | No value. Returns once the message has been enqueued and the queue's *not-empty* condition signalled. [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Errors
 

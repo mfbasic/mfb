@@ -830,8 +830,7 @@ impl CodeBuilder<'_> {
             NirValue::MemberAccess { target, member } => {
                 let target_type = self.static_type_name(target)?;
                 if member == "result" {
-                    if let Some(output_type) = builtins::thread::parent_thread_output(&target_type)
-                    {
+                    if let Some(output_type) = crate::types::parent_thread_output(&target_type) {
                         return Some(format!("Result OF {output_type}"));
                     }
                 }
@@ -928,17 +927,17 @@ impl CodeBuilder<'_> {
             | "thread.closeStdIn" => Some("Nothing".to_string()),
             "thread.waitFor" => {
                 let thread_type = self.static_type_name(args.first()?)?;
-                builtins::thread::parent_thread_output(&thread_type).map(str::to_string)
+                crate::types::parent_thread_output(&thread_type).map(str::to_string)
             }
             "thread.receive" => {
                 let thread_type = self.static_type_name(args.first()?)?;
-                builtins::thread::thread_message(&thread_type).map(str::to_string)
+                crate::types::thread_message(&thread_type).map(str::to_string)
             }
             // The resource plane: accept yields the thread's resource type
             // (worker reads the inbound queue, parent reads the outbound queue).
             "thread.acceptResource" | "thread.readResource" => {
                 let thread_type = self.static_type_name(args.first()?)?;
-                builtins::thread::thread_resource(&thread_type).map(str::to_string)
+                crate::types::thread_resource(&thread_type).map(str::to_string)
             }
             _ => None,
         }

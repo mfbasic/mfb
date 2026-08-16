@@ -1538,7 +1538,7 @@ impl<'a> Monomorphizer<'a> {
         // A grouped type (`(T)`) is valid syntax the parser keeps verbatim;
         // unwrap it before matching so it isn't mis-parsed as a `(Map`-named
         // template and mangled into garbage (bug-105).
-        let type_name = crate::builtins::thread::strip_type_group(type_name);
+        let type_name = crate::types::strip_type_group(type_name);
         if let Some(value) = substitutions.get(type_name) {
             return value.clone();
         }
@@ -1575,12 +1575,11 @@ impl<'a> Monomorphizer<'a> {
                 );
             }
         }
-        if let Some((kind, message, resource, output)) =
-            crate::builtins::thread::thread_parts_full(type_name)
+        if let Some((kind, message, resource, output)) = crate::types::thread_parts_full(type_name)
         {
             let resource =
                 resource.map(|resource| self.concrete_type_name(resource, substitutions));
-            return crate::builtins::thread::format_thread_type(
+            return crate::types::format_thread_type(
                 kind,
                 &self.concrete_type_name(message, substitutions),
                 resource.as_deref(),
@@ -1614,7 +1613,7 @@ impl<'a> Monomorphizer<'a> {
     }
 
     fn template_view_type(&self, type_name: &str) -> String {
-        let type_name = crate::builtins::thread::strip_type_group(type_name);
+        let type_name = crate::types::strip_type_group(type_name);
         if let Some(element) = type_name.strip_prefix("List OF ") {
             return format!("List OF {}", self.template_view_type(element));
         }
@@ -1642,11 +1641,10 @@ impl<'a> Monomorphizer<'a> {
                 );
             }
         }
-        if let Some((kind, message, resource, output)) =
-            crate::builtins::thread::thread_parts_full(type_name)
+        if let Some((kind, message, resource, output)) = crate::types::thread_parts_full(type_name)
         {
             let resource = resource.map(|resource| self.template_view_type(resource));
-            return crate::builtins::thread::format_thread_type(
+            return crate::types::format_thread_type(
                 kind,
                 &self.template_view_type(message),
                 resource.as_deref(),

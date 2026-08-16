@@ -16,4 +16,5 @@ pub(crate) mod money;
 pub(crate) mod os;
 pub(crate) mod process;
 pub(crate) mod regex;
+pub(crate) mod thread;
 pub(crate) mod tls;

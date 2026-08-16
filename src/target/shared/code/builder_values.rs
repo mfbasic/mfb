@@ -1359,7 +1359,7 @@ impl CodeBuilder<'_> {
             NirValue::MemberAccess { target, member } => match target.as_ref() {
                 _ if member == "result" => {
                     if let Some(output_type) = self.static_type_name(target).and_then(|type_| {
-                        builtins::thread::parent_thread_output(&type_).map(str::to_string)
+                        crate::types::parent_thread_output(&type_).map(str::to_string)
                     }) {
                         self.emit_raw_call(
                             &runtime::symbol_for_call(
@@ -1842,7 +1842,7 @@ impl CodeBuilder<'_> {
                     .ok_or_else(|| {
                         "native runtime thread.send handle has unknown type".to_string()
                     })?;
-                if builtins::thread::is_worker_thread_type(&handle) {
+                if crate::types::is_worker_thread_type(&handle) {
                     "thread.emit"
                 } else {
                     "thread.send"
@@ -1856,7 +1856,7 @@ impl CodeBuilder<'_> {
                     .ok_or_else(|| {
                         "native runtime thread.receive handle has unknown type".to_string()
                     })?;
-                if builtins::thread::is_worker_thread_type(&handle) {
+                if crate::types::is_worker_thread_type(&handle) {
                     "thread.receive"
                 } else {
                     "thread.read"
@@ -1875,7 +1875,7 @@ impl CodeBuilder<'_> {
                     .ok_or_else(|| {
                         "native runtime thread.sleep handle has unknown type".to_string()
                     })?;
-                if builtins::thread::is_worker_thread_type(&handle) {
+                if crate::types::is_worker_thread_type(&handle) {
                     "thread.sleepWorker"
                 } else {
                     "thread.sleep"
@@ -1896,7 +1896,7 @@ impl CodeBuilder<'_> {
                     .ok_or_else(|| {
                         "native runtime thread.transfer handle has unknown type".to_string()
                     })?;
-                if builtins::thread::is_worker_thread_type(&handle) {
+                if crate::types::is_worker_thread_type(&handle) {
                     "thread.emitResource"
                 } else {
                     "thread.transferResource"
@@ -1910,7 +1910,7 @@ impl CodeBuilder<'_> {
                     .ok_or_else(|| {
                         "native runtime thread.accept handle has unknown type".to_string()
                     })?;
-                if builtins::thread::is_worker_thread_type(&handle) {
+                if crate::types::is_worker_thread_type(&handle) {
                     "thread.acceptResource"
                 } else {
                     "thread.readResource"

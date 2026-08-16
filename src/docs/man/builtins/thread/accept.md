@@ -22,7 +22,7 @@ IMPORT thread
 ```
 
 `thread` is a built-in package, so no manifest dependency is required.
-[[src/builtins/thread.rs:is_thread_call]]
+[[src/codegen/builtins/thread/mod.rs:is_thread_call]]
 
 ## Description
 
@@ -44,7 +44,7 @@ so the receiver binds `RES f AS fs::File STATE Cursor` by agreement and a differ
 the resource, deep-copied into the receiving thread's arena, so the accepted
 handle owns an independent copy with no cross-thread lifetime coupling. Calling
 `accept` on a data-only thread type — one with no `RES` clause — fails to resolve.
-[[src/builtins/thread.rs:thread_resource]] [[src/builtins/thread.rs:THREAD]]
+[[src/types.rs:thread_resource]] [[src/codegen/builtins/thread/mod.rs:register]]
 
 Dequeuing moves the resource out of the queue, frees a slot, and signals the
 queue's *not-full* condition, so a sender blocked on a full resource queue can
@@ -87,20 +87,20 @@ closes, or cancellation is observed.
 Bounded accept on either handle kind: `timeoutMs` must be `>= 0`; `0` is one
 immediate attempt that fails with `ErrTimeout` when the (still-open) queue is
 empty, a positive value waits that long and then fails with `ErrTimeout`.
-[[src/builtins/thread.rs:THREAD]] [[src/builtins/thread.rs:THREAD]]
+[[src/codegen/builtins/thread/mod.rs:register]] [[src/codegen/builtins/thread/mod.rs:register]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `t` (also `thread`) | `Thread OF Msg RES Res TO Out` or `ThreadWorker OF Msg RES Res TO Out` | The handle whose resource-plane queue is read. Must declare a `RES` plane. Borrowed, not consumed. [[src/builtins/thread.rs:call_param_names]] |
-| `timeoutMs` | `Integer` | Optional. Omit to block until a resource arrives, the queue closes, or cancellation is observed. When supplied it must be `>= 0`: `0` is one immediate attempt (`ErrTimeout` if the open queue is empty), a positive value waits that many milliseconds. A negative value is rejected with `ErrInvalidArgument`. [[src/builtins/thread.rs:call_param_names]] |
+| `t` (also `thread`) | `Thread OF Msg RES Res TO Out` or `ThreadWorker OF Msg RES Res TO Out` | The handle whose resource-plane queue is read. Must declare a `RES` plane. Borrowed, not consumed. [[src/codegen/builtins/thread/mod.rs:register]] |
+| `timeoutMs` | `Integer` | Optional. Omit to block until a resource arrives, the queue closes, or cancellation is observed. When supplied it must be `>= 0`: `0` is one immediate attempt (`ErrTimeout` if the open queue is empty), a positive value waits that many milliseconds. A negative value is rejected with `ErrInvalidArgument`. [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Res` | The dequeued resource, of the plane's element type including any `STATE` clause, moved to the caller under a `RES` binding and closed by lexical drop unless closed earlier. [[src/builtins/thread.rs:thread_resource]] |
+| `Res` | The dequeued resource, of the plane's element type including any `STATE` clause, moved to the caller under a `RES` binding and closed by lexical drop unless closed earlier. [[src/types.rs:thread_resource]] |
 
 ## Errors
 
@@ -118,7 +118,7 @@ Generic over `Msg`, `Res`, and `Out`. `t` must be a `Thread` or `ThreadWorker`
 carrying a `RES` plane; a data-only thread handle fails to resolve. The result is
 the plane's element type, including its `STATE` clause when the plane declares
 one, and the receiving binding must name the same `STATE`. `timeoutMs`, when
-supplied, must be `Integer`. [[src/builtins/thread.rs:thread_resource]]
+supplied, must be `Integer`. [[src/types.rs:thread_resource]]
 
 ## Examples
 

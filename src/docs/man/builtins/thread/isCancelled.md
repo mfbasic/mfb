@@ -19,7 +19,7 @@ IMPORT thread
 ```
 
 `thread` is a built-in package, so no manifest dependency is required.
-[[src/builtins/thread.rs:is_thread_call]]
+[[src/codegen/builtins/thread/mod.rs:is_thread_call]]
 
 ## Description
 
@@ -48,19 +48,19 @@ compile time, and the parent observes a worker's liveness with
 of the worker, so `isCancelled` never reverts from `TRUE` to `FALSE`. Dropping a
 still-running parent `Thread` handle also sets the flag, so a worker whose parent
 handle went out of scope sees cancellation just as it would after an explicit
-`thread::cancel`. [[src/builtins/thread.rs:THREAD]] [[src/target/shared/code/runtime_helpers_thread.rs:simple_thread_handle_helper]]
+`thread::cancel`. [[src/codegen/builtins/thread/mod.rs:register]] [[src/target/shared/code/runtime_helpers_thread.rs:simple_thread_handle_helper]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `t` (also `thread`) | `ThreadWorker OF Msg TO Out` | The running worker's own handle. Borrowed, not consumed. Used to type the call and to prove the caller is worker code; the flag itself is read from the calling thread's control block. A parent `Thread` handle is rejected at compile time. [[src/builtins/thread.rs:call_param_names]] |
+| `t` (also `thread`) | `ThreadWorker OF Msg TO Out` | The running worker's own handle. Borrowed, not consumed. Used to type the call and to prove the caller is worker code; the flag itself is read from the calling thread's control block. A parent `Thread` handle is rejected at compile time. [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` if cancellation has been requested for this worker (by `thread::cancel` or by the parent handle being dropped while the worker still runs); `FALSE` otherwise. [[src/builtins/thread.rs:THREAD]] |
+| `Boolean` | `TRUE` if cancellation has been requested for this worker (by `thread::cancel` or by the parent handle being dropped while the worker still runs); `FALSE` otherwise. [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Errors
 
@@ -71,7 +71,7 @@ No errors.
 Generic over the worker's message type `Msg` and output type `Out`. The single
 argument must be a `ThreadWorker OF Msg TO Out`; any other type, including a
 parent `Thread` handle, fails to resolve. The result is always `Boolean`.
-[[src/builtins/thread.rs:is_worker_thread_type]]
+[[src/types.rs:is_worker_thread_type]]
 
 ## Examples
 

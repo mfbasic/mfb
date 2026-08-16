@@ -127,8 +127,7 @@ impl TypeTable {
                 self.result_type(strings, success)
             }
             name if name.starts_with("Thread OF ") => {
-                if let Some((_, message, resource, output)) =
-                    builtins::thread::thread_parts_full(name)
+                if let Some((_, message, resource, output)) = crate::types::thread_parts_full(name)
                 {
                     let message = self.type_id(strings, message);
                     let resource = resource.map(|resource| self.type_id(strings, resource));
@@ -139,8 +138,7 @@ impl TypeTable {
                 }
             }
             name if name.starts_with("ThreadWorker OF ") => {
-                if let Some((_, message, resource, output)) =
-                    builtins::thread::thread_parts_full(name)
+                if let Some((_, message, resource, output)) = crate::types::thread_parts_full(name)
                 {
                     let message = self.type_id(strings, message);
                     let resource = resource.map(|resource| self.type_id(strings, resource));

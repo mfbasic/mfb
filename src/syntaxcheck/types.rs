@@ -25,7 +25,7 @@ impl<'a> SyntaxChecker<'a> {
         // imported stateful handle reported "argument type(s) (fs::File STATE Cursor),
         // expected File" (plan-52-D §4).
         let name = crate::builtins::resource::base_resource_name(name);
-        let name = builtins::thread::strip_type_group(name);
+        let name = crate::types::strip_type_group(name);
         // A package-qualified built-in **resource** (`fs.File`, `process.Process`)
         // KEEPS its qualified identity — resources are package-scoped so a user
         // `TYPE File` no longer collides (plan-97). Value types still collapse below.
@@ -54,7 +54,7 @@ impl<'a> SyntaxChecker<'a> {
         if let Some(success) = name.strip_prefix("Result OF ") {
             return Type::Result(Box::new(self.parse_type(success)));
         }
-        if let Some((kind, message, resource, output)) = builtins::thread::thread_parts_full(name) {
+        if let Some((kind, message, resource, output)) = crate::types::thread_parts_full(name) {
             // The plane's `RES` element may carry a `STATE T` clause (plan-54);
             // peel it into a separate `resource_state` so the resource type stays
             // bare (every resource consumer sees `File`, not `fs::File STATE Cursor`),
@@ -63,7 +63,7 @@ impl<'a> SyntaxChecker<'a> {
                 .and_then(crate::builtins::resource::state_type_name)
                 .map(|state| Box::new(self.parse_type(state)));
             let resource = resource.map(|resource| Box::new(self.parse_type(resource)));
-            if kind == builtins::thread::THREAD_WORKER_TYPE {
+            if kind == crate::types::THREAD_WORKER_TYPE {
                 return Type::ThreadWorker(
                     Box::new(self.parse_type(message)),
                     resource,

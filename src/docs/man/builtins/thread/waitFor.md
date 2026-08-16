@@ -19,7 +19,7 @@ IMPORT thread
 ```
 
 `thread` is a built-in package, so no manifest dependency is required.
-[[src/builtins/thread.rs:is_thread_call]]
+[[src/codegen/builtins/thread/mod.rs:is_thread_call]]
 
 ## Description
 
@@ -28,7 +28,7 @@ IMPORT thread
 closes the handle, detaches the OS thread, and yields the worker's `Out` value.
 The returned type is the handle's output type, read structurally from
 `Thread OF Msg TO Out`. Only a parent `Thread` is accepted; a `ThreadWorker` is
-rejected at compile time. [[src/builtins/thread.rs:parent_thread_output]] [[src/builtins/thread.rs:THREAD]]
+rejected at compile time. [[src/types.rs:parent_thread_output]] [[src/codegen/builtins/thread/mod.rs:register]]
 
 The wait is unbounded — there is no timeout parameter. Under the outbound queue
 mutex the call re-reads the worker's state in a loop: if the worker has already
@@ -64,13 +64,13 @@ There is no `t.result` member: worker outcomes are retrieved only through
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `t` (also `thread`) | `Thread OF Msg TO Out` | The parent handle whose worker outcome is awaited. Must not already be closed. The handle is closed by a successful retrieval, though the source binding is not marked syntactically moved. A `ThreadWorker` handle is rejected at compile time. [[src/builtins/thread.rs:call_param_names]] |
+| `t` (also `thread`) | `Thread OF Msg TO Out` | The parent handle whose worker outcome is awaited. Must not already be closed. The handle is closed by a successful retrieval, though the source binding is not marked syntactically moved. A `ThreadWorker` handle is rejected at compile time. [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Out` | The worker's successful result value, of the thread's output type. If the worker terminated with an error, that error propagates instead of a value being returned. [[src/builtins/thread.rs:THREAD]] |
+| `Out` | The worker's successful result value, of the thread's output type. If the worker terminated with an error, that error propagates instead of a value being returned. [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Errors
 
@@ -83,7 +83,7 @@ There is no `t.result` member: worker outcomes are retrieved only through
 Generic over `Msg` and `Out`. The single argument must be a parent
 `Thread OF Msg TO Out`; the result type is that handle's `Out`. A `ThreadWorker`
 handle has no `waitFor` and fails to resolve.
-[[src/builtins/thread.rs:parent_thread_output]]
+[[src/types.rs:parent_thread_output]]
 
 ## Examples
 

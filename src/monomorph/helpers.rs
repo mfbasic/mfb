@@ -97,10 +97,10 @@ pub(super) fn unify_type(
             && unify_type(&pattern_value, &actual_value, params, substitutions);
     }
     if let Some((pattern_kind, pattern_message, pattern_resource, pattern_output)) =
-        crate::builtins::thread::thread_parts_full(pattern)
+        crate::types::thread_parts_full(pattern)
     {
         let Some((actual_kind, actual_message, actual_resource, actual_output)) =
-            crate::builtins::thread::thread_parts_full(actual)
+            crate::types::thread_parts_full(actual)
         else {
             return false;
         };
@@ -205,11 +205,9 @@ pub(super) fn substitute_type_params(
             );
         }
     }
-    if let Some((kind, message, resource, output)) =
-        crate::builtins::thread::thread_parts_full(type_name)
-    {
+    if let Some((kind, message, resource, output)) = crate::types::thread_parts_full(type_name) {
         let resource = resource.map(|resource| substitute_type_params(resource, substitutions));
-        return crate::builtins::thread::format_thread_type(
+        return crate::types::format_thread_type(
             kind,
             &substitute_type_params(message, substitutions),
             resource.as_deref(),

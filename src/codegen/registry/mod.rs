@@ -1207,14 +1207,22 @@ impl Registry {
     }
 
     /// Whether `name` is a value type (`EXPORT TYPE`/`UNION`/`ENUM`) declared by any
-    /// migrated package (`CsvReader`/`CsvRow`).
+    /// migrated package (`CsvReader`/`CsvRow`), a source-declared/opaque type
+    /// (`datetime.Instant`, thread's `Thread`/`ThreadWorker`), or a **parametric**
+    /// spelling of an opaque type (`Thread OF Msg TO Out`) whose head token before the
+    /// first ` OF ` names a source-declared type.
     pub(crate) fn is_builtin_type(&self, name: &str) -> bool {
+        // The head token of a parametric spelling (`Thread OF …`): a source-declared
+        // opaque type used with type arguments. `List`/`Map`/… are never source types,
+        // so their `X OF …` spellings are correctly not matched here.
+        let head = name.split_once(" OF ").map(|(head, _)| head);
         self.packages().iter().any(|package| {
             package.records().iter().any(|record| record.name == name)
                 || package.unions().iter().any(|union| union.name == name)
                 || package.enums().iter().any(|r#enum| r#enum.name == name)
                 // `datetime`'s value records/enums live in its injected companion source.
                 || package.source_types().contains(&name)
+                || head.is_some_and(|head| package.source_types().contains(&head))
         })
     }
 
@@ -1273,6 +1281,7 @@ fn build() -> Registry {
     crate::codegen::builtins::io::register(&mut r);
     crate::codegen::builtins::crypto::register(&mut r);
     crate::codegen::builtins::tls::register(&mut r);
+    crate::codegen::builtins::thread::register(&mut r);
     r
 }
 
@@ -1668,12 +1677,12 @@ fn unify(
         }
         // Two thread handles unify structurally, exactly like the container arms: the
         // kind (parent `Thread` vs worker `ThreadWorker`) must match — the two never
-        // interconvert — and the data-plane `msg`/`out` slots unify recursively
-        // (binding `Var`s so `waitFor`/`receive` echo them). The resource plane is
-        // STATE/ownership-agnostic (bug-427): a pattern whose `res` is `Unknown` is a
-        // data-plane member that ignores the concrete resource plane entirely, and a
-        // pattern with a concrete/`Var` `res` unifies it via `resource_base_eq` so a
-        // `File STATE Cursor` handle satisfies a `File` plane.
+        // interconvert — and each slot unifies via [`thread_slot_unifies`]. A slot the
+        // member does NOT echo is spelled `Unknown` and wildcards (accepting any
+        // concrete slot, including a `Nothing` message/output or an absent resource
+        // plane); an echoed slot is a `Var`/concrete and unifies STATE-agnostically
+        // (bug-427), so a `File STATE Cursor` handle satisfies a `File` plane and a
+        // data-only handle's `Nothing` resource plane fails a `Var` `res` under strict.
         (
             ParameterType::ThreadHandle {
                 worker: p_worker,
@@ -1689,9 +1698,9 @@ fn unify(
             },
         ) => {
             p_worker == c_worker
-                && unify(p_msg, c_msg, bindings, strict)
-                && unify(p_out, c_out, bindings, strict)
-                && thread_res_unifies(p_res, c_res, bindings, strict)
+                && thread_slot_unifies(p_msg, c_msg, bindings, strict)
+                && thread_slot_unifies(p_out, c_out, bindings, strict)
+                && thread_slot_unifies(p_res, c_res, bindings, strict)
         }
         // A container/function/thread pattern against a non-matching concrete fails.
         (
@@ -1707,16 +1716,16 @@ fn unify(
     }
 }
 
-/// Unify a [`ParameterType::ThreadHandle`]'s resource-plane slot. A data-plane
-/// member spells its handle's `res` as [`ParameterType::Unknown`] — it ignores the
-/// concrete resource plane entirely (a data-only *or* resourced handle is accepted),
-/// mirroring the legacy resolver, whose data members never inspect the `RES` clause.
-/// A resource-plane member (`transfer`/`accept`) spells `res` as a real
-/// pattern/`Var`, which unifies STATE-agnostically through the normal recursion (the
-/// `Var` arm uses [`resource_base_eq`]); a data-only concrete `res` (`Nothing`) then
-/// fails the `Var`'s strict-`Nothing` guard, correctly rejecting `accept` on a
-/// resource-free handle.
-fn thread_res_unifies(
+/// Unify one slot (`msg`/`res`/`out`) of a [`ParameterType::ThreadHandle`]. A member
+/// that does NOT echo the slot spells it [`ParameterType::Unknown`], which wildcards —
+/// it accepts any concrete slot, including a `Nothing` message/output (a resource-only
+/// or `Nothing`-returning thread) or an absent resource plane — so the strict-`Nothing`
+/// guard only bites where a slot is genuinely captured. A member that ECHOES the slot
+/// spells it a `Var`/concrete, which unifies STATE-agnostically through the normal
+/// recursion (the `Var` arm uses [`resource_base_eq`]); a data-only concrete `res`
+/// (`Nothing`) then fails the `Var`'s strict-`Nothing` guard, correctly rejecting
+/// `accept`/`transfer` on a resource-free handle exactly as the legacy resolver did.
+fn thread_slot_unifies(
     pattern: &ParameterType,
     concrete: &ParameterType,
     bindings: &mut BTreeMap<&'static str, ParameterType>,

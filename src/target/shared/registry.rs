@@ -1058,7 +1058,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::net::NET,
     // os migrated to the clean-room registry (crate::codegen::registry).
     // process migrated to the clean-room registry (crate::codegen::registry).
-    &crate::builtins::thread::THREAD,
+    // thread migrated to the clean-room registry (crate::codegen::registry).
     // tls migrated to the clean-room registry (crate::codegen::registry).
     &crate::builtins::vector::VECTOR,
 ]);
@@ -1738,8 +1738,6 @@ mod tests {
         // `tls` until -Z — but none remains, so it now asserts completeness.)
         assert!(REGISTRY.module("app").is_some());
         assert!(REGISTRY.function("app.setMode").is_some());
-        assert!(REGISTRY.module("thread").is_some());
-        assert!(REGISTRY.function("thread.start").is_some());
         assert!(REGISTRY.module("vector").is_some());
         assert!(REGISTRY.function("vector.length").is_some());
         // plan-89-A: the `astrings` package (opaque AttributedString + fromString).
@@ -1758,14 +1756,16 @@ mod tests {
         assert!(REGISTRY.module("collections").is_none());
         assert!(REGISTRY.module("money").is_none());
         assert!(REGISTRY.module("os").is_none());
-        // `fs` / `io` / `errorCode` / `crypto` / `tls` have migrated onto the clean-room registry too.
+        // `fs` / `io` / `errorCode` / `crypto` / `tls` / `thread` have migrated onto the
+        // clean-room registry too.
         assert!(REGISTRY.module("fs").is_none());
         assert!(REGISTRY.module("io").is_none());
         assert!(REGISTRY.module("errorCode").is_none());
         assert!(REGISTRY.module("crypto").is_none());
         assert!(REGISTRY.module("tls").is_none());
+        assert!(REGISTRY.module("thread").is_none());
         // The 28 builtin packages minus the migrated ones.
-        assert_eq!(REGISTRY.modules().len(), 13);
+        assert_eq!(REGISTRY.modules().len(), 12);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);

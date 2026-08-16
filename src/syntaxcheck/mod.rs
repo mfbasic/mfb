@@ -1677,7 +1677,7 @@ impl<'a> SyntaxChecker<'a> {
             Type::String => "String".to_string(),
             Type::Thread(message, resource, resource_state, output) => self
                 .format_thread_type_name(
-                    builtins::thread::THREAD_TYPE,
+                    crate::types::THREAD_TYPE,
                     message,
                     resource,
                     resource_state,
@@ -1685,7 +1685,7 @@ impl<'a> SyntaxChecker<'a> {
                 ),
             Type::ThreadWorker(message, resource, resource_state, output) => self
                 .format_thread_type_name(
-                    builtins::thread::THREAD_WORKER_TYPE,
+                    crate::types::THREAD_WORKER_TYPE,
                     message,
                     resource,
                     resource_state,
@@ -1728,7 +1728,7 @@ impl<'a> SyntaxChecker<'a> {
                 None => base,
             }
         });
-        builtins::thread::format_thread_type(kind, &message, resource.as_deref(), &output)
+        crate::types::format_thread_type(kind, &message, resource.as_deref(), &output)
     }
 
     pub(super) fn report(&mut self, rule: &str, detail: &str, file: &AstFile, line: usize) {

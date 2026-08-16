@@ -3651,7 +3651,7 @@ fn transfer_call(handle: &str, res: Option<&str>) -> IrOp {
     }
     IrOp::Eval {
         value: IrValue::Call {
-            target: crate::builtins::thread::TRANSFER_RESOURCE.to_string(),
+            target: crate::codegen::builtins::thread::TRANSFER_RESOURCE.to_string(),
             args,
             type_: "Nothing".to_string(),
             loc: IrSourceLoc::default(),
