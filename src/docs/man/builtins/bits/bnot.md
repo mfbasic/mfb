@@ -31,7 +31,7 @@ patterns; `bnot` does not interpret sign. The operation is total — it is defin
 for every input and never raises — has no side effects, and lowers to a single
 native AArch64 `mvn` instruction inline rather than calling a runtime helper,
 producing identical results on the native and Binary Representation execution
-paths. [[src/builtins/bits.rs:BITS]] [[src/target/shared/code/builder_bits.rs:lower_bits_not]] [[src/target/shared/abi.rs:bitwise_not]]
+paths. [[src/codegen/builtins/bits/mod.rs:register]] [[src/codegen/builtins/bits/native.rs:lower_bits_not]] [[src/target/shared/abi.rs:bitwise_not]]
 
 The name is `bnot` rather than `not` because `NOT` is a reserved logical
 (Boolean) keyword and cannot be a package member identifier. [[src/docs/man/builtins/bits/package.md]]
@@ -40,13 +40,13 @@ The name is `bnot` rather than `not` because `NOT` is a reserved logical
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Integer` | The operand to invert. Any 64-bit value; treated as a raw bit pattern. [[src/builtins/bits.rs:call_param_names]] |
+| `a` | `Integer` | The operand to invert. Any 64-bit value; treated as a raw bit pattern. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The bitwise complement of `a`, with all 64 bits inverted. `bnot(0)` is `-1` (all bits set) and `bnot(-1)` is `0`. [[src/builtins/bits.rs:BITS]] |
+| `Integer` | The bitwise complement of `a`, with all 64 bits inverted. `bnot(0)` is `-1` (all bits set) and `bnot(-1)` is `0`. [[src/codegen/builtins/bits/mod.rs:register]] |
 
 ## Errors
 

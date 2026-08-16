@@ -31,7 +31,7 @@ patterns; `bxor` does not interpret sign. The operation is total — it is defin
 for every pair of inputs and never raises — has no side effects, and lowers to a
 single native AArch64 `eor` instruction inline rather than calling a runtime
 helper, producing identical results on the native and Binary Representation
-execution paths. [[src/builtins/bits.rs:BITS]] [[src/target/shared/code/builder_bits.rs:lower_bits_binary]] [[src/target/shared/abi.rs:exclusive_or_registers]]
+execution paths. [[src/codegen/builtins/bits/mod.rs:register]] [[src/codegen/builtins/bits/native.rs:lower_bits_binary]] [[src/target/shared/abi.rs:exclusive_or_registers]]
 
 XORing a value with itself yields `0`, and XORing with `0` returns the value
 unchanged, so `bxor` is its own inverse: `bits::bxor(bits::bxor(x, k), k)`
@@ -41,14 +41,14 @@ recovers `x`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Integer` | The first operand. Any 64-bit value; treated as a raw bit pattern. [[src/builtins/bits.rs:call_param_names]] |
-| `b` | `Integer` | The second operand. Any 64-bit value; treated as a raw bit pattern. [[src/builtins/bits.rs:call_param_names]] |
+| `a` | `Integer` | The first operand. Any 64-bit value; treated as a raw bit pattern. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `b` | `Integer` | The second operand. Any 64-bit value; treated as a raw bit pattern. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The bitwise XOR of `a` and `b`. `0` when the operands are equal; equal to either operand when the other is `0`. [[src/builtins/bits.rs:BITS]] |
+| `Integer` | The bitwise XOR of `a` and `b`. `0` when the operands are equal; equal to either operand when the other is `0`. [[src/codegen/builtins/bits/mod.rs:register]] |
 
 ## Errors
 

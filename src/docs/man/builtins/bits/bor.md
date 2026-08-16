@@ -31,7 +31,7 @@ patterns; `bor` does not interpret sign. The operation is total — it is define
 for every pair of inputs and never raises — has no side effects, and lowers to a
 single native AArch64 `orr` instruction inline rather than calling a runtime
 helper, producing identical results on the native and Binary Representation
-execution paths. [[src/builtins/bits.rs:BITS]] [[src/target/shared/code/builder_bits.rs:lower_bits_binary]] [[src/target/shared/abi.rs:or_registers]]
+execution paths. [[src/codegen/builtins/bits/mod.rs:register]] [[src/codegen/builtins/bits/native.rs:lower_bits_binary]] [[src/target/shared/abi.rs:or_registers]]
 
 The name is `bor` rather than `or` because `OR` is a reserved logical (Boolean)
 keyword and cannot be a package member identifier. [[src/docs/man/builtins/bits/package.md]]
@@ -40,14 +40,14 @@ keyword and cannot be a package member identifier. [[src/docs/man/builtins/bits/
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Integer` | The first operand. Any 64-bit value; treated as a raw bit pattern. [[src/builtins/bits.rs:call_param_names]] |
-| `b` | `Integer` | The second operand. Any 64-bit value; treated as a raw bit pattern. [[src/builtins/bits.rs:call_param_names]] |
+| `a` | `Integer` | The first operand. Any 64-bit value; treated as a raw bit pattern. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `b` | `Integer` | The second operand. Any 64-bit value; treated as a raw bit pattern. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The bitwise OR of `a` and `b`. Equal to either operand when the other is `0`; equal to `-1` (all bits set) when the operands together cover every bit position. [[src/builtins/bits.rs:BITS]] |
+| `Integer` | The bitwise OR of `a` and `b`. Equal to either operand when the other is `0`; equal to `-1` (all bits set) when the operands together cover every bit position. [[src/codegen/builtins/bits/mod.rs:register]] |
 
 ## Errors
 

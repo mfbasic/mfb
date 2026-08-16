@@ -1,7 +1,6 @@
 pub(crate) mod app;
 pub(crate) mod astrings;
 pub(crate) mod audio;
-pub(crate) mod bits;
 pub(crate) mod crypto;
 pub(crate) mod errorcode;
 pub(crate) mod fs;
@@ -265,8 +264,7 @@ pub(crate) fn native_builtin_target(name: &str) -> Option<&'static str> {
 /// `collections.get`, `bits.sl`) or a bare inline general-builtin name (`len`,
 /// `toString`, `typeName`).
 pub(crate) fn inline_trap_unsupported(target: &str) -> bool {
-    (bits::is_bits_call(target)
-        || native_builtin_target(target).is_some()
+    (native_builtin_target(target).is_some()
         || matches!(target, "len" | "toString" | "typeName"))
         && !inline_builtin_raw_supported(target)
         && !inline_builtin_is_infallible(target)
@@ -290,11 +288,15 @@ pub(crate) fn inline_trap_unsupported(target: &str) -> bool {
 /// instead). `target` is the canonical callee (`collections.get`,
 /// `strings.mid`, ...).
 pub(crate) fn inline_builtin_raw_supported(target: &str) -> bool {
-    // The variable-shift `bits::` ops raise `ErrInvalidArgument` on an out-of-range
-    // count through the shared `emit_error_register_return` tail, so their raw
-    // lowering redirects that domain error to the inline-`TRAP` capture point.
-    bits::is_bits_shift(target)
-        || matches!(
+    // A migrated common-native member that declares an error is fallible: its raw
+    // lowering redirects the domain error to the inline-`TRAP` capture point. The
+    // `bits` variable shifts (`sl`/`sr`/`sra`) raise `ErrInvalidArgument` on an
+    // out-of-range count and so report `Some(true)` here — the census is grounded
+    // in registry data, not a `bits.` name predicate.
+    matches!(
+        crate::codegen::registry::native_member_declares_error(target),
+        Some(true)
+    ) || matches!(
             native_builtin_target(target),
             Some(
                 "get"
@@ -335,10 +337,17 @@ pub(crate) fn inline_builtin_raw_supported(target: &str) -> bool {
 /// raises a real error). `target` is the canonical callee (`collections.get`, `strings.mid`,
 /// `bits.sl`) or a bare general-builtin name.
 pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
-    // Every `bits::` op is total EXCEPT the variable shifts (`sl`/`sr`/`sra`),
-    // which trap `ErrInvalidArgument` on an out-of-range count — those are
-    // raw-supported (fallible) instead.
-    if bits::is_bits_call(target) && !bits::is_bits_shift(target) {
+    // A migrated common-native member is infallible when it declares no error and
+    // is not otherwise raw-supported. Every `bits` op qualifies (empty `errors`)
+    // except the three variable shifts, which declare `ErrInvalidArgument`
+    // (`Some(true)`) and are raw-supported instead; the collections callback
+    // members are raw-supported despite an empty `errors` list, so `!raw_supported`
+    // excludes them. Keyed on registry data, not a `bits.` name predicate.
+    if matches!(
+        crate::codegen::registry::native_member_declares_error(target),
+        Some(false)
+    ) && !inline_builtin_raw_supported(target)
+    {
         return true;
     }
     if matches!(target, "len" | "toString" | "typeName") {
@@ -487,7 +496,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
         .or_else(|| os::expected_arguments(name))
         .or_else(|| io::expected_arguments(name))
         .or_else(|| crate::codegen::registry::expected_arguments(name))
-        .or_else(|| bits::expected_arguments(name))
     {
         return Some(text.to_string());
     }
@@ -527,7 +535,6 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
     let expected = general::expected_arguments(callee)
         .or_else(|| strings::expected_arguments(callee))
         .or_else(|| math::expected_arguments(callee))
-        .or_else(|| bits::expected_arguments(callee))
         .or_else(|| fs::expected_arguments(callee))
         .or_else(|| os::expected_arguments(callee))
         .or_else(|| io::expected_arguments(callee))
@@ -784,7 +791,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
         .or_else(|| general::call_param_names(name))
         .or_else(|| strings::call_param_names(name))
         .or_else(|| math::call_param_names(name))
-        .or_else(|| bits::call_param_names(name))
         .or_else(|| crypto::call_param_names(name))
         .or_else(|| fs::call_param_names(name))
         .or_else(|| io::call_param_names(name))

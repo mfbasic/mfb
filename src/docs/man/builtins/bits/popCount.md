@@ -35,19 +35,19 @@ runtime helper: on AArch64 as a short NEON sequence (move into a vector register
 per-byte `CNT`, then `ADDV` the byte counts into one lane), and on other ISAs as
 the portable SWAR (bit-twiddling) sequence over the integer ALU. Both paths
 produce identical results on the native and Binary Representation execution
-paths. [[src/builtins/bits.rs:BITS]] [[src/target/shared/code/builder_bits.rs:lower_bits_popcount]]
+paths. [[src/codegen/builtins/bits/mod.rs:register]] [[src/codegen/builtins/bits/native.rs:lower_bits_popcount]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Integer` | The 64-bit value to inspect. Any `Integer` is accepted; treated as a raw bit pattern. [[src/builtins/bits.rs:call_param_names]] |
+| `value` | `Integer` | The 64-bit value to inspect. Any `Integer` is accepted; treated as a raw bit pattern. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The count of set bits, in the range `0`..`64`. `0` when `value` is `0`; `64` when every bit is set (`-1`). [[src/builtins/bits.rs:BITS]] |
+| `Integer` | The count of set bits, in the range `0`..`64`. `0` when `value` is `0`; `64` when every bit is set (`-1`). [[src/codegen/builtins/bits/mod.rs:register]] |
 
 ## Errors
 

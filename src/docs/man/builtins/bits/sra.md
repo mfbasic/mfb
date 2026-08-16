@@ -46,7 +46,7 @@ that `count` is in the range `0` to `63` inclusive and raises
 `ErrInvalidArgument` for any value outside it, before performing the shift.
 Larger shift amounts are not implicitly clamped or reduced modulo the width —
 that is the difference from the rotates `bits::rl64` and `bits::rr64`, which
-accept any `count` and let the hardware reduce it. [[src/target/shared/code/builder_bits.rs:lower_bits_shift]] [[src/target/shared/code/builder_bits.rs:lower_bits_rotate]]
+accept any `count` and let the hardware reduce it. [[src/codegen/builtins/bits/native.rs:lower_bits_shift]] [[src/codegen/builtins/bits/native.rs:lower_bits_rotate]]
 
 The operation has no side effects and lowers inline to the target-neutral `asrv`
 machine op rather than calling a runtime helper. Every backend encodes it
@@ -60,20 +60,20 @@ paths. [[src/target/shared/abi.rs:arithmetic_shift_right_variable]] [[src/arch/a
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Integer` | The value to shift. Any 64-bit value; treated as a signed two's-complement bit pattern. [[src/builtins/bits.rs:call_param_names]] |
-| `count` | `Integer` | The shift amount in bits. Must be in the range `0` to `63` inclusive; any other value raises `ErrInvalidArgument`. [[src/target/shared/code/builder_bits.rs:lower_bits_shift]] |
+| `value` | `Integer` | The value to shift. Any 64-bit value; treated as a signed two's-complement bit pattern. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `count` | `Integer` | The shift amount in bits. Must be in the range `0` to `63` inclusive; any other value raises `ErrInvalidArgument`. [[src/codegen/builtins/bits/native.rs:lower_bits_shift]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | `value` shifted right by `count` bits, with vacated high bits set to the original sign bit and bits below bit 0 discarded. Equal to `value` when `count` is `0`. [[src/builtins/bits.rs:BITS]] |
+| `Integer` | `value` shifted right by `count` bits, with vacated high bits set to the original sign bit and bits below bit 0 discarded. Equal to `value` when `count` is `0`. [[src/codegen/builtins/bits/mod.rs:register]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `count` is less than `0` or greater than `63`. [[src/target/shared/code/builder_bits.rs:lower_bits_shift]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050002` | `ErrInvalidArgument` | `count` is less than `0` or greater than `63`. [[src/codegen/builtins/bits/native.rs:lower_bits_shift]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
 
 ## Examples
 

@@ -16,7 +16,6 @@ use super::runtime;
 
 mod builder_arena_transfer;
 mod builder_astrings;
-mod builder_bits;
 mod builder_error_emission;
 mod builder_exits;
 mod builder_owned_cleanup;

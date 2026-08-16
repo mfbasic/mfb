@@ -26,24 +26,24 @@ IMPORT bits
 (bits `0`..`7`) and byte `1` (bits `8`..`15`) exchange places, so a value laid
 out as `0xHHLL` becomes `0xLLHH`. Every bit above bit `15` (bits `16`..`63`) is
 cleared to zero in the result, so the output is always a non-negative 16-bit
-quantity regardless of the high bits of `value`. [[src/target/shared/code/builder_bits.rs:lower_bits_bswap]]
+quantity regardless of the high bits of `value`. [[src/codegen/builtins/bits/native.rs:lower_bits_bswap]]
 
 `value` is treated as a raw two's-complement 64-bit `Integer` bit pattern;
 `bswap16` does not interpret sign. The operation is total — it is defined for
 every `Integer` and never raises — has no side effects, and lowers to native
-byte-reversal instructions inline rather than calling a runtime helper. [[src/builtins/bits.rs:is_bits_shift]] [[src/target/shared/code/builder_bits.rs:lower_bits_bswap]]
+byte-reversal instructions inline rather than calling a runtime helper. [[src/builtins/mod.rs:inline_builtin_raw_supported]] [[src/codegen/builtins/bits/native.rs:lower_bits_bswap]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Integer` | The value whose low 16 bits are byte-reversed. Bits above bit `15` are ignored and do not appear in the result. [[src/builtins/bits.rs:call_param_names]] |
+| `value` | `Integer` | The value whose low 16 bits are byte-reversed. Bits above bit `15` are ignored and do not appear in the result. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The byte-reversed low 16 bits of `value`, with bits `16`..`63` cleared to zero. Always in the range `0`..`65535`. [[src/builtins/bits.rs:BITS]] |
+| `Integer` | The byte-reversed low 16 bits of `value`, with bits `16`..`63` cleared to zero. Always in the range `0`..`65535`. [[src/codegen/builtins/bits/mod.rs:register]] |
 
 ## Errors
 

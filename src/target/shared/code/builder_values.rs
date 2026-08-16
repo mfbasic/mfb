@@ -786,9 +786,6 @@ impl CodeBuilder<'_> {
                 if let Some(function) = target.strip_prefix("money.") {
                     return self.lower_money_call(function, args);
                 }
-                if let Some(function) = target.strip_prefix("bits.") {
-                    return self.lower_bits_call(function, args);
-                }
                 if target == "isEven" && args.len() == 1 {
                     return self.lower_integer_parity_predicate("isEven", &args[0], false);
                 }
@@ -1542,13 +1539,13 @@ impl CodeBuilder<'_> {
         let capture = self.label("raw_builtin_done");
         let previous = self.raw_result_capture.take();
         self.raw_result_capture = Some(capture.clone());
-        // The variable-shift `bits::` ops (`sl`/`sr`/`sra`) route their out-of-range
-        // `ErrInvalidArgument` through `emit_error_register_return`, whose
-        // `raw_result_capture` branch (set above) redirects to the capture point;
-        // the total `bits::` ops never reach here (they are infallible).
-        let lowered = if let Some(function) = target.strip_prefix("bits.") {
-            self.lower_bits_call(function, args)
-        } else if let Some(result) = self.try_native_lower(target, args) {
+        // The migrated variable-shift `bits.` ops (`sl`/`sr`/`sra`) route their
+        // out-of-range `ErrInvalidArgument` through `emit_error_register_return`,
+        // whose `raw_result_capture` branch (set above) redirects to the capture
+        // point; the total `bits.` ops never reach here (they are infallible). Their
+        // `Body::Native` `common` lowering is reached through `try_native_lower`
+        // below, inside this raw-capture wrapper, like every other migrated member.
+        let lowered = if let Some(result) = self.try_native_lower(target, args) {
             // plan-95: migrated function lowering, inside the raw-capture wrapper
             // so `raw_result_capture` still routes its domain error to the capture.
             result
@@ -1638,9 +1635,6 @@ impl CodeBuilder<'_> {
                 location: Operand::from(register.render()),
                 text: format!("typeName({type_name})"),
             });
-        }
-        if let Some(function) = target.strip_prefix("bits.") {
-            return self.lower_bits_call(function, args);
         }
         match crate::builtins::native_builtin_target(target) {
             Some("replace") if args.len() == 3 => self.lower_replace(args),

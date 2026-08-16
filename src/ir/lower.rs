@@ -2104,7 +2104,6 @@ fn expression_type(
                 || builtins::astrings::is_astrings_call(&canonical_callee)
                 || builtins::math::is_math_call(&canonical_callee)
                 || builtins::vector::is_vector_call(&canonical_callee)
-                || builtins::bits::is_bits_call(&canonical_callee)
                 || builtins::fs::is_fs_call(&canonical_callee)
                 || builtins::io::is_io_call(&canonical_callee)
                 || builtins::net::is_net_call(&canonical_callee)

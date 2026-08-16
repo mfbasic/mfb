@@ -31,7 +31,7 @@ patterns; `band` does not interpret sign. The operation is total — it is defin
 for every pair of inputs and never raises — has no side effects, and lowers to a
 single native AArch64 `and` instruction inline rather than calling a runtime
 helper, producing identical results on the native and Binary Representation
-execution paths. [[src/builtins/bits.rs:BITS]] [[src/target/shared/code/builder_bits.rs:lower_bits_binary]] [[src/target/shared/abi.rs:and_registers]]
+execution paths. [[src/codegen/builtins/bits/mod.rs:register]] [[src/codegen/builtins/bits/native.rs:lower_bits_binary]] [[src/target/shared/abi.rs:and_registers]]
 
 The name is `band` rather than `and` because `AND` is a reserved logical
 (Boolean) keyword and cannot be a package member identifier. [[src/docs/man/builtins/bits/package.md]]
@@ -40,14 +40,14 @@ The name is `band` rather than `and` because `AND` is a reserved logical
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Integer` | The first operand. Any 64-bit value; treated as a raw bit pattern. [[src/builtins/bits.rs:call_param_names]] |
-| `b` | `Integer` | The second operand. Any 64-bit value; treated as a raw bit pattern. [[src/builtins/bits.rs:call_param_names]] |
+| `a` | `Integer` | The first operand. Any 64-bit value; treated as a raw bit pattern. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `b` | `Integer` | The second operand. Any 64-bit value; treated as a raw bit pattern. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The bitwise AND of `a` and `b`. `0` when the operands share no set bits; equal to either operand when it is a subset of the other. [[src/builtins/bits.rs:BITS]] |
+| `Integer` | The bitwise AND of `a` and `b`. `0` when the operands share no set bits; equal to either operand when it is a subset of the other. [[src/codegen/builtins/bits/mod.rs:register]] |
 
 ## Errors
 

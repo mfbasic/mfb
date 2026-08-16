@@ -304,9 +304,15 @@ impl TypeEnv {
         fn is_encoding_call(name: &str) -> bool {
             crate::codegen::registry::registry().owning_package(name) == Some("encoding")
         }
+        // `bits` migrated to the clean-room registry; its membership is the narrow
+        // `owning_package == "bits"` (mirroring `is_encoding_call`), replacing the
+        // deleted `builtins::bits::is_bits_call`.
+        fn is_bits_call(name: &str) -> bool {
+            crate::codegen::registry::registry().owning_package(name) == Some("bits")
+        }
         let checked: [IsCall; 9] = [
             builtins::math::is_math_call,
-            builtins::bits::is_bits_call,
+            is_bits_call,
             builtins::vector::is_vector_call,
             builtins::strings::is_strings_call,
             is_encoding_call,

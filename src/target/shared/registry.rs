@@ -1028,16 +1028,16 @@ impl BuiltinRegistry {
 /// legacy per-package helper (the `mod.rs` adapters fall back on a registry
 /// miss). BB then deletes the legacy helpers the adapters fall back to.
 ///
-/// Migrated so far: `app` (B), `bits` (D), `crypto` (F), `audio` (C),
+/// Migrated so far: `app` (B), `crypto` (F), `audio` (C),
 /// `errorCode` (J), `fs` (K), `general` (L), `http` (M), `io` (N), `math` (P),
 /// `money` (Q), `net` (R), `os` (S), `resource` (U), `strings` (V), `term` (W),
-/// `testing` (X). (`collections` E, `csv` G, `datetime` H, `encoding` I, `json` O,
-/// `regex` T, and `process` have since moved to the clean-room registry
+/// `testing` (X). (`bits` D, `collections` E, `csv` G, `datetime` H, `encoding` I,
+/// `json` O, `regex` T, and `process` have since moved to the clean-room registry
 /// `crate::codegen::registry` and are no longer held here.)
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
     &crate::builtins::astrings::ASTRINGS,
-    &crate::builtins::bits::BITS,
+    // bits migrated to the clean-room registry (crate::codegen::registry).
     // collections migrated to the clean-room registry (crate::codegen::registry).
     // csv migrated to the clean-room registry (crate::codegen::registry).
     &crate::builtins::crypto::CRYPTO,
@@ -1738,8 +1738,6 @@ mod tests {
         // `tls` until -Z — but none remains, so it now asserts completeness.)
         assert!(REGISTRY.module("app").is_some());
         assert!(REGISTRY.function("app.setMode").is_some());
-        assert!(REGISTRY.module("bits").is_some());
-        assert!(REGISTRY.function("bits.band").is_some());
         // The final three, migrated last:
         assert!(REGISTRY.module("thread").is_some());
         assert!(REGISTRY.function("thread.start").is_some());
@@ -1750,9 +1748,10 @@ mod tests {
         // plan-89-A: the `astrings` package (opaque AttributedString + fromString).
         assert!(REGISTRY.module("astrings").is_some());
         assert!(REGISTRY.function("astrings.fromString").is_some());
-        // csv / json / regex / process / datetime / encoding / collections have
-        // migrated onto the clean-room registry (`crate::codegen::registry`) and are
-        // no longer held here.
+        // bits / csv / json / regex / process / datetime / encoding / collections
+        // have migrated onto the clean-room registry (`crate::codegen::registry`)
+        // and are no longer held here.
+        assert!(REGISTRY.module("bits").is_none());
         assert!(REGISTRY.module("csv").is_none());
         assert!(REGISTRY.module("json").is_none());
         assert!(REGISTRY.module("regex").is_none());
@@ -1761,7 +1760,7 @@ mod tests {
         assert!(REGISTRY.module("encoding").is_none());
         assert!(REGISTRY.module("collections").is_none());
         // The 28 builtin packages minus the migrated ones.
-        assert_eq!(REGISTRY.modules().len(), 21);
+        assert_eq!(REGISTRY.modules().len(), 20);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);

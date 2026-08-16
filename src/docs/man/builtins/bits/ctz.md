@@ -36,8 +36,8 @@ the result is `0`. When `value` is `0` there is no set bit at all, so all 64 bit
 count as trailing zeros and the result is `64`; this zero case is the boundary
 that most bit-scan primitives leave architecturally undefined, and `mfb` defines
 it on every target. The operation is total: it is defined for every `Integer`,
-never raises, and has no side effects. [[src/builtins/bits.rs:BITS]]
-[[src/target/shared/code/builder_bits.rs:lower_bits_count_zeros]]
+never raises, and has no side effects. [[src/codegen/builtins/bits/mod.rs:register]]
+[[src/codegen/builtins/bits/native.rs:lower_bits_count_zeros]]
 
 Because the result is the index of the lowest set bit, `ctz` is the primitive
 behind alignment and power-of-two work. For a positive power of two,
@@ -63,7 +63,7 @@ for every `value` including `0`.
 `ctz` lowers inline rather than calling a runtime helper: the backend reverses
 the bit order of the operand and then counts leading zeros of the reversal, so
 `ctz` costs one `rbit` plus a full `clz` on every architecture.
-[[src/target/shared/code/builder_bits.rs:lower_bits_count_zeros]]
+[[src/codegen/builtins/bits/native.rs:lower_bits_count_zeros]]
 [[src/target/shared/abi.rs:reverse_bits]]
 
 The instruction budget of that pair differs sharply by target. AArch64 is the
@@ -94,19 +94,19 @@ plus a comparison over `ctz` when a boolean alignment test is all you need.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Integer` | The 64-bit value to inspect. Any `Integer` is accepted; treated as a raw two's-complement bit pattern, not as a signed magnitude. [[src/builtins/bits.rs:call_param_names]] |
+| `value` | `Integer` | The 64-bit value to inspect. Any `Integer` is accepted; treated as a raw two's-complement bit pattern, not as a signed magnitude. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The trailing-zero count — the index of the lowest set bit — in the range `0` to `64` inclusive. `0` when bit 0 is set (the value is odd, which includes `-1`); `64` when `value` is `0`. [[src/builtins/bits.rs:BITS]] |
+| `Integer` | The trailing-zero count — the index of the lowest set bit — in the range `0` to `64` inclusive. `0` when bit 0 is set (the value is odd, which includes `-1`); `64` when `value` is `0`. [[src/codegen/builtins/bits/mod.rs:register]] |
 
 ## Errors
 
 No errors. `ctz` is total over every `Integer` input. Only the variable-shift ops
 `bits::sl`, `bits::sr`, and `bits::sra` can raise from the `bits` package, and
-they do so for an out-of-range `count`. [[src/builtins/bits.rs:is_bits_shift]]
+they do so for an out-of-range `count`. [[src/builtins/mod.rs:inline_builtin_raw_supported]]
 
 ## Examples
 
