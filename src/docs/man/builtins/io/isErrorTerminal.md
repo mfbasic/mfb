@@ -19,18 +19,18 @@ IMPORT io
 ```
 
 `io` is a built-in package, so no manifest dependency is required.
-[[src/builtins/io.rs:is_io_call]]
+[[src/codegen/builtins/io/mod.rs:register]]
 
 ## Description
 
 `io::isErrorTerminal` returns `TRUE` when standard error is connected to a
 terminal and `FALSE` when it is redirected to a file, a pipe, or any other
-non-terminal destination. It takes no arguments. [[src/builtins/io.rs:IO]]
+non-terminal destination. It takes no arguments. [[src/codegen/builtins/io/mod.rs:register]]
 
 The answer comes from an `isatty` probe of file descriptor 2: a result greater
 than zero yields `TRUE`, anything else — including an error return — yields
 `FALSE`. Because a failure is folded into `FALSE`, the call never raises.
-[[src/target/shared/code/io_terminal.rs:lower_io_is_terminal_helper]]
+[[src/codegen/builtins/io/native/terminal.rs:lower_io_is_terminal_helper]]
 
 Standard error is probed independently of standard output, which matters in the
 common case where one is redirected and the other is not: a program run as
@@ -46,13 +46,13 @@ interactive console — so this call returns `TRUE` without probing a descriptor
 
 ## Parameters
 
-`io::isErrorTerminal` takes no parameters. [[src/builtins/io.rs:call_param_names]]
+`io::isErrorTerminal` takes no parameters. [[src/codegen/builtins/io/mod.rs:register]]
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when standard error is an interactive terminal; `FALSE` when it is a file, a pipe, or any other non-terminal destination. Always `TRUE` in app mode. [[src/builtins/io.rs:IO]] |
+| `Boolean` | `TRUE` when standard error is an interactive terminal; `FALSE` when it is a file, a pipe, or any other non-terminal destination. Always `TRUE` in app mode. [[src/codegen/builtins/io/mod.rs:register]] |
 
 ## Errors
 

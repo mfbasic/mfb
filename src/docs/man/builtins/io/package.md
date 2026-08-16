@@ -20,7 +20,7 @@ input, standard output, and standard error — together with helpers for reading
 the keyboard and inspecting which streams are terminals. It is the console
 counterpart to the `fs` package: where `fs` works through named files and `File`
 handles, `io` works through the process standard streams. `io` is a built-in
-package: `IMPORT io` needs no manifest dependency. [[src/builtins/io.rs:is_io_call]]
+package: `IMPORT io` needs no manifest dependency. [[src/codegen/builtins/io/mod.rs:register]]
 
 Output functions accept `String` values only and perform no implicit
 conversion; convert other values with `toString` first. Text is treated as UTF-8
@@ -34,7 +34,7 @@ buffer (drained on `io::flush`, before any read, when full, and at exit) and
 current mode. With buffering on, written text is not guaranteed visible to an
 external reader until flushed; flush before blocking on a read when a prompt must
 appear first. Standard error is never buffered — it is written immediately, so it
-has no flush. [[src/builtins/io.rs:IO]]
+has no flush. [[src/codegen/builtins/io/mod.rs:register]]
 
 Input functions read from standard input. `io::input` reads a whole line with
 normal terminal echo and an optional prompt; `io::readLine` reads a line the same
@@ -47,7 +47,7 @@ sequences rather than substituting replacement characters; `io::readByte`
 transfers bytes verbatim with no decoding. End of input is reported as an error,
 not as an empty or sentinel result. `io::pollInput` tests whether input is ready
 to read, optionally waiting up to a timeout in milliseconds, without consuming
-any input. [[src/builtins/io.rs:IO]]
+any input. [[src/codegen/builtins/io/mod.rs:register]]
 
 The terminal predicates `io::isInputTerminal`, `io::isOutputTerminal`, and
 `io::isErrorTerminal` return a `Boolean` reporting whether the corresponding

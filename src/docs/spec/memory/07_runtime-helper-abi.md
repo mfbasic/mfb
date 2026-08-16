@@ -77,7 +77,7 @@ The spec deliberately states nothing that is owned elsewhere (bug-329):
 
 ### Worked example: `io.print`
 
-`io::print(value AS String)` lowers to `_mfb_rt_io_io_print`: [[src/target/shared/runtime/io_specs.rs:IO_PRINT_SPEC]]
+`io::print(value AS String)` lowers to `_mfb_rt_io_io_print`: [[src/codegen/builtins/io/native/stdout.rs:lower_io_write_helper]]
 
 ```text
 symbol   _mfb_rt_io_io_print     ; symbol_for_call(Io, "io.print")

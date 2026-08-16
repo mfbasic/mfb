@@ -535,7 +535,7 @@ pub(super) fn emit_grid_free(
 /// glyph into the back buffer honouring `\n`/`\r`, wrap, and scroll — never
 /// emitting to the terminal. When `append_newline` is set (io::print) a trailing
 /// newline advances the cursor too.
-pub(super) fn emit_grid_write(
+pub(crate) fn emit_grid_write(
     symbol: &str,
     term_state_offset: usize,
     strobj: &str,

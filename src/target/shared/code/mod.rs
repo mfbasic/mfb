@@ -64,17 +64,23 @@ mod selfmove_probe;
 pub(crate) use selfmove_probe::bug387_selfmove_lines;
 mod float_format;
 use float_format::*;
-mod io_stdin;
-use io_stdin::*;
 mod io_stdout;
 use io_stdout::*;
 // Re-exported flat for the relocated `fs` `native/io.rs` buffered-drain emitter
 // (its `File` output-buffer drain shares the stdout buffer-sink primitives).
 pub(crate) use io_stdout::{emit_append_to_buffer, BufferSink, FdLoad};
 mod io_terminal;
-use io_terminal::*;
+// Re-exported flat for the relocated `io` `native/stdin.rs` read emitters (they
+// bracket a line/char/byte read with the shared terminal-mode toggle).
+pub(crate) use io_terminal::{
+    emit_configure_stdin_terminal, emit_console_raw_line_mode, emit_restore_stdin_terminal,
+    TerminalModeSlots,
+};
 mod stdin_broadcast;
 use stdin_broadcast::*;
+// Re-exported flat for the relocated `io` `native/stdin.rs` read emitters (the
+// per-thread stdin broadcast-log byte reader / poll-ready check).
+pub(crate) use stdin_broadcast::{emit_stdin_next_byte, emit_stdin_poll_ready_check};
 mod runtime_helpers;
 use runtime_helpers::*;
 mod runtime_helpers_thread;
@@ -133,7 +139,7 @@ mod perf;
 mod private;
 mod simd_kernel_coeffs;
 mod term;
-mod term_grid;
+pub(crate) mod term_grid;
 #[cfg(test)]
 mod tests;
 pub(crate) mod tls;
@@ -731,7 +737,7 @@ struct TypeModel {
 /// hook that manages its own frame) to the 4-tuple shape with an empty
 /// spill-slot list, so it can share a `match`/`if` with vreg-migrated helpers.
 #[allow(clippy::type_complexity)]
-fn pad_no_slots(body: AppHookBody) -> HelperBody {
+pub(crate) fn pad_no_slots(body: AppHookBody) -> HelperBody {
     (body.0, body.1, body.2, Vec::new())
 }
 
@@ -2074,129 +2080,27 @@ fn lower_runtime_helper(
                         }
                     }
                 }
-                call if call.starts_with("io.") => match call {
-                    "io.print" | "io.write" | "io.printError" | "io.writeError" => {
-                        let stderr = matches!(spec.call, "io.printError" | "io.writeError");
-                        let newline = matches!(spec.call, "io.print" | "io.printError");
-                        // App mode routes io output to the AppKit transcript window
-                        // (plan-04-macos-app.md §5.4) instead of a file descriptor.
-                        if app_mode {
-                            pad_no_slots(
-                                platform
-                                    .emit_app_io_write_helper(
-                                        symbol,
-                                        stderr,
-                                        newline,
-                                        term_state_offset,
-                                        platform_imports,
-                                    )
-                                    .ok_or_else(|| {
-                                        format!(
-                                        "native target '{}' does not support app-mode io helpers",
-                                        platform.target()
-                                    )
-                                    })??,
-                            )
-                        } else {
-                            lower_io_write_helper(
-                                symbol,
-                                platform_imports,
-                                platform,
-                                stderr,
-                                newline,
-                                term_state_offset,
-                            )?
+                // Every `io.*` member carries a `Body::native_os_seam` OS-seam
+                // lowering in `codegen::builtins::io::native`; the generic
+                // registry-driven dispatch reaches its `lower_io_helper`, which reads
+                // `os_ctx.build_mode`/`os_ctx.term_state_offset` (app-vs-console + the
+                // TUI/cooked-mode routing) internally.
+                call if call.starts_with("io.") => {
+                    match crate::codegen::os::dispatch_runtime_helper(
+                        call,
+                        symbol,
+                        &os_ctx,
+                        platform_imports,
+                        platform,
+                    ) {
+                        Some(result) => result?,
+                        None => {
+                            return Err(format!(
+                                "native code plan does not emit runtime call '{call}'"
+                            ));
                         }
                     }
-                    "io.flush" => {
-                        // App-mode transcript writes are synchronous (each io write blocks on
-                        // the main thread via performSelectorOnMainThread), so output is
-                        // already visible; flush succeeds immediately (plan §5.4).
-                        if app_mode {
-                            pad_no_slots(platform.emit_app_io_flush_helper(symbol).ok_or_else(
-                                || {
-                                    format!(
-                                        "native target '{}' does not support app-mode io helpers",
-                                        platform.target()
-                                    )
-                                },
-                            )??)
-                        } else {
-                            lower_io_flush_helper(symbol, platform_imports, platform)?
-                        }
-                    }
-                    "io.isBuffered" => lower_io_is_buffered_helper(symbol, app_mode)?,
-                    "io.setBuffered" => lower_io_set_buffered_helper(symbol, app_mode)?,
-                    "io.pollInput" => {
-                        lower_io_poll_input_helper(symbol, platform_imports, platform, app_mode)?
-                    }
-                    "io.input" | "io.readLine" => {
-                        // App-mode io.input writes its prompt to the transcript (via io.write)
-                        // then reads a line (via io.readLine); io.readLine itself is the
-                        // unchanged console helper, which reads fd 0 — the window input pipe
-                        // in app mode (plan §5.4). All other read helpers are likewise
-                        // unchanged and read the pipe.
-                        if app_mode && spec.call == "io.input" {
-                            pad_no_slots(platform.emit_app_io_input_helper(symbol).ok_or_else(
-                                || {
-                                    format!(
-                                        "native target '{}' does not support app-mode io helpers",
-                                        platform.target()
-                                    )
-                                },
-                            )??)
-                        } else {
-                            lower_io_read_line_helper(
-                                symbol,
-                                platform_imports,
-                                platform,
-                                spec.call == "io.input",
-                                app_mode,
-                                // bug-149: only a console build that also uses `term::`
-                                // brackets the line read with a cooked-mode restore.
-                                if app_mode { None } else { term_state_offset },
-                            )?
-                        }
-                    }
-                    "io.readChar" => {
-                        lower_io_read_char_helper(symbol, platform_imports, platform, app_mode)?
-                    }
-                    "io.readByte" => {
-                        lower_io_read_byte_helper(symbol, platform_imports, platform, app_mode)?
-                    }
-                    "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
-                        let fd = match spec.call {
-                            "io.isInputTerminal" => 0,
-                            "io.isOutputTerminal" => 1,
-                            "io.isErrorTerminal" => 2,
-                            _ => unreachable!(),
-                        };
-                        // App mode: the window is the interactive console, so these return
-                        // TRUE rather than probing a file descriptor (plan §5.4).
-                        if app_mode {
-                            pad_no_slots(
-                                platform
-                                    .emit_app_io_is_terminal_helper(symbol)
-                                    .ok_or_else(|| {
-                                        format!(
-                                        "native target '{}' does not support app-mode io helpers",
-                                        platform.target()
-                                    )
-                                    })??,
-                            )
-                        } else {
-                            lower_io_is_terminal_helper(symbol, platform_imports, platform, fd)?
-                        }
-                    }
-                    // Defensive: unreachable — `spec_for_symbol` at the top already
-                    // rejects any io.* symbol that has no spec. Kept only because
-                    // matching a `&str` is not exhaustive without a catch-all.
-                    other => {
-                        return Err(format!(
-                            "native code plan does not emit runtime call '{other}'"
-                        ));
-                    }
-                },
+                }
                 "thread.start"
                 | "thread.isRunning"
                 | "thread.waitFor"

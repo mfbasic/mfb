@@ -19,13 +19,13 @@ IMPORT io
 ```
 
 `io` is a built-in package, so no manifest dependency is required.
-[[src/builtins/io.rs:is_io_call]]
+[[src/codegen/builtins/io/mod.rs:register]]
 
 ## Description
 
 `io::flush` writes out any bytes currently held in this thread's MFBASIC
 standard-output buffer and returns nothing. It takes no arguments.
-[[src/builtins/io.rs:IO]]
+[[src/codegen/builtins/io/mod.rs:register]]
 
 The call is **drain-only**. It issues the pending bytes with a `write` loop and
 reports whether that write succeeded; it deliberately does *not* `fsync` or
@@ -35,7 +35,7 @@ closed descriptor, a benign `EINVAL` on pipes and character devices, success on 
 regular file — which would make `io::flush` succeed or fail based on the runtime
 environment rather than on what the program actually wrote. The buffer drain's
 `write` is the one portable failure signal, identical on every platform and libc.
-[[src/target/shared/code/io_stdout.rs:lower_io_flush_helper]]
+[[src/codegen/builtins/io/native/stdout.rs:lower_io_flush_helper]]
 
 It follows that `io::flush` is a **no-op when buffering is off** — the default.
 Without `io::setBuffered(TRUE)` there is no MFBASIC buffer to drain, every
@@ -62,13 +62,13 @@ succeeds immediately. [[src/target/shared/code/mod.rs:lower_runtime_helper]]
 
 ## Parameters
 
-`io::flush` takes no parameters. [[src/builtins/io.rs:call_param_names]]
+`io::flush` takes no parameters. [[src/codegen/builtins/io/mod.rs:register]]
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of draining the standard-output buffer. [[src/builtins/io.rs:IO]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of draining the standard-output buffer. [[src/codegen/builtins/io/mod.rs:register]] |
 
 ## Errors
 

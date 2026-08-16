@@ -19,7 +19,7 @@ IMPORT io
 ```
 
 `io` is a built-in package, so no manifest dependency is required.
-[[src/builtins/io.rs:is_io_call]]
+[[src/codegen/builtins/io/mod.rs:register]]
 
 ## Description
 
@@ -28,7 +28,7 @@ feed (LF, byte `0x0A`) and returns the line as a `String` with its terminator
 removed. If the byte immediately before the LF is a carriage return (CR, byte
 `0x0D`) — a CRLF ending — that CR is stripped as well. A line that is empty before
 its terminator returns an empty `String`, while still consuming the terminator. It
-takes no arguments. [[src/target/shared/code/io_stdin.rs:lower_io_read_line_helper]]
+takes no arguments. [[src/codegen/builtins/io/native/stdin.rs:lower_io_read_line_helper]]
 
 **On a terminal, `io::readLine` suppresses echo for the duration of the read.**
 It clears `ECHO` on standard input while leaving canonical (line) mode intact, so
@@ -50,7 +50,7 @@ forms, surrogate encodings, and continuation bytes outside `80`–`BF`. An
 ill-formed sequence fails rather than yielding a replacement character. The
 accumulator grows as needed, so there is no fixed line-length limit beyond
 available memory, and it is returned to the arena once the result `String` has
-been built. [[src/target/shared/code/io_stdin.rs:lower_io_read_line_helper]]
+been built. [[src/codegen/builtins/io/native/stdin.rs:lower_io_read_line_helper]]
 
 End of input is reported as an error, not as an empty result — but only when it
 arrives before any byte of the line. If input ends *after* some bytes were read,
@@ -71,13 +71,13 @@ duration of the line read and single-key raw mode is re-applied afterwards, so a
 
 ## Parameters
 
-`io::readLine` takes no parameters. [[src/builtins/io.rs:call_param_names]]
+`io::readLine` takes no parameters. [[src/codegen/builtins/io/mod.rs:register]]
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The next line of input with its trailing LF, and a preceding CR if present, removed. An empty line returns an empty `String`; a final unterminated line returns the remaining bytes. [[src/builtins/io.rs:IO]] |
+| `String` | The next line of input with its trailing LF, and a preceding CR if present, removed. An empty line returns an empty `String`; a final unterminated line returns the remaining bytes. [[src/codegen/builtins/io/mod.rs:register]] |
 
 ## Errors
 

@@ -20,7 +20,7 @@ IMPORT io
 ```
 
 `io` is a built-in package, so no manifest dependency is required.
-[[src/builtins/io.rs:is_io_call]]
+[[src/codegen/builtins/io/mod.rs:register]]
 
 ## Description
 
@@ -29,7 +29,7 @@ standard input up to and including the next line feed (LF, byte `0x0A`) and
 returns the line as a `String` with its terminator removed. A preceding carriage
 return (CR, byte `0x0D`, from a CRLF ending) is stripped as well. A line that is
 empty before its terminator returns an empty `String`.
-[[src/target/shared/code/io_stdin.rs:lower_io_read_line_helper]]
+[[src/codegen/builtins/io/native/stdin.rs:lower_io_read_line_helper]]
 
 **`io::input` does not change the terminal mode**, so typed characters are echoed
 by the terminal in the usual way and the line is submitted with Return. This is
@@ -48,7 +48,7 @@ exactly `io::input("")`.
 Like the flush, the prompt write is just a `write` loop — short writes advance the
 cursor and re-issue, `EINTR` retries — and a genuine failure raises `ErrOutput`
 before any input is read. There is no `fsync`.
-[[src/target/shared/code/io_stdin.rs:lower_io_read_line_helper]]
+[[src/codegen/builtins/io/native/stdin.rs:lower_io_read_line_helper]]
 
 Bytes are decoded as UTF-8 as they arrive, with the full validity check: lead
 bytes outside `C2`–`F4` are rejected, as are overlong forms, surrogate encodings,
@@ -76,7 +76,7 @@ the line is read from the window input pipe.
 
 Reads a line with no prompt. Equivalent to `io::input("")`, and identical to
 `io::readLine()` except that `io::readLine` suppresses terminal echo while
-`io::input` does not. [[src/builtins/io.rs:IO]]
+`io::input` does not. [[src/codegen/builtins/io/mod.rs:register]]
 
 **`io::input(prompt AS String) AS String`**
 
@@ -87,13 +87,13 @@ writing the prompt is reported before any input is consumed.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `prompt` | `String` | Text written to standard output before the read, verbatim and with nothing appended. An empty `String` writes nothing. Omitting the argument is the same as passing `""`. [[src/builtins/io.rs:call_param_names]] |
+| `prompt` | `String` | Text written to standard output before the read, verbatim and with nothing appended. An empty `String` writes nothing. Omitting the argument is the same as passing `""`. [[src/codegen/builtins/io/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The line read, with its trailing LF and a preceding CR if present removed. An empty line returns an empty `String`; a final unterminated line returns the remaining bytes. [[src/builtins/io.rs:IO]] |
+| `String` | The line read, with its trailing LF and a preceding CR if present removed. An empty line returns an empty `String`; a final unterminated line returns the remaining bytes. [[src/codegen/builtins/io/mod.rs:register]] |
 
 ## Errors
 

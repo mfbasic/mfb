@@ -19,7 +19,7 @@ IMPORT io
 ```
 
 `io` is a built-in package, so no manifest dependency is required.
-[[src/builtins/io.rs:is_io_call]]
+[[src/codegen/builtins/io/mod.rs:register]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT io
 returns it as a one-character `String`. It reads the lead byte, derives the
 sequence length from it, and reads the one to three continuation bytes that
 complete the scalar. It takes no arguments and does not wait for a newline.
-[[src/target/shared/code/io_stdin.rs:lower_io_read_char_helper]]
+[[src/codegen/builtins/io/native/stdin.rs:lower_io_read_char_helper]]
 
 **On a terminal the read is a single keypress.** For the duration of the call,
 standard input is switched out of canonical mode and echo is suppressed
@@ -47,7 +47,7 @@ sequences may not encode a surrogate, `F4` sequences may not exceed U+10FFFF, an
 every continuation byte must lie in `80`–`BF`. An ill-formed sequence raises
 `ErrEncoding` rather than yielding a replacement character, and so does a
 sequence cut short by end of input.
-[[src/target/shared/code/io_stdin.rs:lower_io_read_char_helper]]
+[[src/codegen/builtins/io/native/stdin.rs:lower_io_read_char_helper]]
 
 Note that this returns one *scalar value*, not one user-perceived character: a
 grapheme cluster made of several scalars (an emoji with a modifier, a base letter
@@ -64,13 +64,13 @@ must subscribe with `thread::openStdIn` before reading, or the call raises
 
 ## Parameters
 
-`io::readChar` takes no parameters. [[src/builtins/io.rs:call_param_names]]
+`io::readChar` takes no parameters. [[src/codegen/builtins/io/mod.rs:register]]
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | A one-scalar `String` holding the character read — one to four UTF-8 bytes. [[src/builtins/io.rs:IO]] |
+| `String` | A one-scalar `String` holding the character read — one to four UTF-8 bytes. [[src/codegen/builtins/io/mod.rs:register]] |
 
 ## Errors
 

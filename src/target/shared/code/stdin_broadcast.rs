@@ -124,7 +124,7 @@ fn emit_libc(ctx: &mut EmitCtx, name: &str) -> Result<(), String> {
 /// live so the caller's follow-on `branch_eq(<eof-or-truncated>)` fuses on every
 /// backend (mirroring `emit_single_op_eintr_guard`'s resume re-compare). EINTR is
 /// handled inside `_mfb_rt_stdin_next_byte`, so no caller-side retry label remains.
-pub(super) fn emit_stdin_next_byte(
+pub(crate) fn emit_stdin_next_byte(
     symbol: &str,
     byte_offset: usize,
     // A per-site-unique label base (the caller's retry/loop label); the same
@@ -164,7 +164,7 @@ pub(super) fn emit_stdin_next_byte(
 /// reports pending OS data without consuming it). Never blocks and never reads the
 /// OS. The mutex is released on every exit. Keeps `pollInput` correct once reads are
 /// served from the log: leftover log bytes are invisible to `poll(fd 0)`.
-pub(super) fn emit_stdin_poll_ready_check(
+pub(crate) fn emit_stdin_poll_ready_check(
     ctx: &mut EmitCtx,
     ready_label: &str,
     fallthrough_label: &str,
