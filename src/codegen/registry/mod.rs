@@ -1517,23 +1517,27 @@ fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool)
     if pattern == concrete {
         return true;
     }
-    // A container CONCRETE against a leaf pattern matches only when their spelled names
-    // are equal. A parameter authored as the string blob `Named("List OF String")`
-    // (fs::pathJoin) must still accept a structural `List OF String` argument — same
-    // name, so it matches. But a genuine nominal leaf (`Named("tls.TlsSocket")`) is NOT
-    // a container spelling, so it is correctly rejected against a `List OF RES
-    // TlsSocket` concrete — which is what lets a same-arity nominal-vs-list overload pair
+    // A container CONCRETE against a RESOURCE leaf pattern matches only when their spelled
+    // names are equal. A genuine resource nominal (`Named("tls.TlsSocket")`) is NOT a
+    // container spelling, so it is correctly rejected against a `List OF RES TlsSocket`
+    // concrete — which lets a same-arity resource-nominal-vs-list overload pair
     // (`tls::poll`: scalar `TlsSocket → Boolean` vs `List OF RES TlsSocket → TlsSocket`)
-    // select by argument shape on the lenient dispatch / return-inference path, not only
-    // under strict validation. (Container PATTERNS are handled by the arms above; this is
-    // the mirror case — a container concrete against a leaf pattern.)
-    if matches!(
-        concrete,
-        ParameterType::ListOf(_)
-            | ParameterType::SetOf(_)
-            | ParameterType::MapOf(_, _)
-            | ParameterType::Func(_, _)
-    ) {
+    // select by argument shape on the lenient dispatch / return-inference path.
+    // Gated on the pattern being a RESOURCE (not any nominal): a NON-resource leaf keeps the
+    // pre-existing coarse `true` below — a value nominal or a string-blob spelling like
+    // fs::pathJoin's `Named("List OF String")` must still accept a container arg, and
+    // broadening the name-equal rule to all nominals perturbs the lenient overload dispatch
+    // of every package with container-arg overloads (json/crypto/http/…). (Container
+    // PATTERNS are handled by the arms in `unify`; this is the mirror case.)
+    if is_resource_type_name(&pattern.name())
+        && matches!(
+            concrete,
+            ParameterType::ListOf(_)
+                | ParameterType::SetOf(_)
+                | ParameterType::MapOf(_, _)
+                | ParameterType::Func(_, _)
+        )
+    {
         return pattern.name() == concrete.name();
     }
     // Two unequal scalars never match, in either mode.
