@@ -123,7 +123,11 @@ The 6 leak-adapters (`resolve_call`, `rewrite_target`, `call_return_type`, `expe
 
 ### Phase 1 — migration status & the infra prerequisite (2026-08-16)
 
-- DONE: `bits` (cc86a30a3), `money` (e6ab61d9b), OS-seam build-context infra (a49568620). In flight: `os`/`fs`/`io` migrations (first syscall wave). `math` split design captured in `planning/math-migration.md` (decision: add a lean `NumericVar` type-class rather than ~90–100 enumerated overloads; serial, execute on main thread after the syscall wave).
+- DONE: `bits` (cc86a30a3), `money` (e6ab61d9b), OS-seam build-context infra (a49568620), `os` (0a274639f), `fs` (73374e779). Wave 1 syscall migrations COMPLETE + acceptance-clean.
+- `fs` surfaced + fixed a registry-core gap (4a42c74f2): strict `leaf_matches` tightened to require `resource_base_eq` ONLY for RESOURCE params (a value-UNION param like `Json` stays coarse so a variant widens in — the broad first cut over-rejected `json::stringify(JsonNull)`, caught by acceptance). See [[registry-strict-matcher-resource-vs-value-union]].
+- 16 stale sidecar goldens regenerated (e76b2b741), all proven benign (fs.close Nothing, qualified fs.File, more precise diagnostics, bug-443 widening) — zero behavior/output changes.
+- STILL PENDING cleanup: fs (+ net) have pre-existing stale BYTE-IDENTITY `.ncode` goldens (~39 branch-wide per fs agent) — separate from the acceptance goldens above; regenerate in a final golden-cleanup sweep once migrations land (byte-identity is a signal, not a cargo-test gate).
+- `math` split design captured in `planning/math-migration.md` (decision: add a lean `NumericVar` type-class; serial, main thread).
 - **BLOCKED on registry infra** (a `vector` migration attempt proved these are hard gaps, not per-package work): `vector`, `math`, `errorcode`, `net` need TWO new registry subsystems first —
   1. **package-constant API** — `RegistryPackage::add_constant` (name + type + component/value data) + a `registry()`-backed dual-path for `is_package_constant`/`package_constant_type_name`/`package_constant_value`/`constant_components` (`src/builtins/mod.rs:648-669`, `src/ir/lower.rs:2567-2591`). Serves `math`/`errorCode`/`vector`.
   2. **general-override API** — `RegistryPackage::add_override((builtin, arg_type) → helper)` + a `registry()`-backed dual-path for `general_override_target` (`src/builtins/mod.rs:148-156`). Serves `vector` (`toString(VecN)`) + `net` (`toString(Url)`).
