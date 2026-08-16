@@ -16,7 +16,7 @@ use common::*;
 
 const SOURCE: &str = "IMPORT audio\n\n\
 FUNC main AS Integer\n\
-  RES out AS AudioOutput = audio::openOutput(48000, 2, 512)\n\
+  RES out AS audio::AudioOutput = audio::openOutput(48000, 2, 512)\n\
   audio::close(out)\n\
   RETURN 0\n\
 END FUNC\n";

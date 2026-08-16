@@ -151,7 +151,7 @@ static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::ne
         },
     );
     entries.insert(
-        super::net::SOCKET_TYPE.to_string(),
+        super::net::SOCKET_TYPE_ID.to_string(),
         ResourceInfo {
             close_function: super::net::resource_close_function(super::net::SOCKET_TYPE)
                 .expect("Socket has a built-in close op")
@@ -162,7 +162,7 @@ static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::ne
         },
     );
     entries.insert(
-        super::net::LISTENER_TYPE.to_string(),
+        super::net::LISTENER_TYPE_ID.to_string(),
         ResourceInfo {
             close_function: super::net::resource_close_function(super::net::LISTENER_TYPE)
                 .expect("Listener has a built-in close op")
@@ -175,7 +175,7 @@ static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::ne
         },
     );
     entries.insert(
-        super::net::UDP_SOCKET_TYPE.to_string(),
+        super::net::UDP_SOCKET_TYPE_ID.to_string(),
         ResourceInfo {
             close_function: super::net::resource_close_function(super::net::UDP_SOCKET_TYPE)
                 .expect("UdpSocket has a built-in close op")
@@ -187,7 +187,7 @@ static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::ne
         },
     );
     entries.insert(
-        super::audio::AUDIO_INPUT_TYPE.to_string(),
+        super::audio::AUDIO_INPUT_TYPE_ID.to_string(),
         ResourceInfo {
             close_function: super::audio::resource_close_function(super::audio::AUDIO_INPUT_TYPE)
                 .expect("AudioInput has a built-in close op")
@@ -200,7 +200,7 @@ static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::ne
         },
     );
     entries.insert(
-        super::audio::AUDIO_OUTPUT_TYPE.to_string(),
+        super::audio::AUDIO_OUTPUT_TYPE_ID.to_string(),
         ResourceInfo {
             close_function: super::audio::resource_close_function(super::audio::AUDIO_OUTPUT_TYPE)
                 .expect("AudioOutput has a built-in close op")
@@ -213,7 +213,7 @@ static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::ne
         },
     );
     entries.insert(
-        super::tls::TLS_SOCKET_TYPE.to_string(),
+        super::tls::TLS_SOCKET_TYPE_ID.to_string(),
         ResourceInfo {
             close_function: super::tls::resource_close_function(super::tls::TLS_SOCKET_TYPE)
                 .expect("TlsSocket has a built-in close op")
@@ -225,7 +225,7 @@ static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::ne
         },
     );
     entries.insert(
-        super::tls::TLS_LISTENER_TYPE.to_string(),
+        super::tls::TLS_LISTENER_TYPE_ID.to_string(),
         ResourceInfo {
             close_function: super::tls::resource_close_function(super::tls::TLS_LISTENER_TYPE)
                 .expect("TlsListener has a built-in close op")
@@ -343,8 +343,8 @@ mod tests {
     fn builtins_recognize_standard_resources() {
         let registry = ResourceRegistry::with_builtins();
         assert!(registry.is_resource("fs.File"));
-        assert!(registry.is_resource("Socket"));
-        assert!(registry.is_resource("Listener"));
+        assert!(registry.is_resource("net.Socket"));
+        assert!(registry.is_resource("net.Listener"));
         assert!(!registry.is_resource("Integer"));
         assert!(!registry.is_resource("Address"));
     }
@@ -353,15 +353,15 @@ mod tests {
     fn builtins_carry_close_op_and_sendability() {
         let registry = ResourceRegistry::with_builtins();
         assert_eq!(registry.close_function("fs.File"), Some("fs.close"));
-        assert_eq!(registry.close_function("Socket"), Some("net.close"));
-        assert_eq!(registry.close_function("Listener"), Some("net.close"));
+        assert_eq!(registry.close_function("net.Socket"), Some("net.close"));
+        assert_eq!(registry.close_function("net.Listener"), Some("net.close"));
         // File and Socket move across threads; a Listener stays put.
         assert!(registry.is_sendable("fs.File"));
-        assert!(registry.is_sendable("Socket"));
-        assert!(!registry.is_sendable("Listener"));
+        assert!(registry.is_sendable("net.Socket"));
+        assert!(!registry.is_sendable("net.Listener"));
         // close-may-fail holds for every standard resource.
         assert!(registry.close_may_fail("fs.File"));
-        assert!(registry.close_may_fail("Listener"));
+        assert!(registry.close_may_fail("net.Listener"));
     }
 
     #[test]
@@ -399,15 +399,15 @@ mod tests {
         // The full set of built-ins the closed-default must cover.
         let registry = ResourceRegistry::with_builtins();
         for name in [
+            // All built-in resources carry their package-qualified identity (plan-97).
             "fs.File",
-            "Socket",
-            "Listener",
-            "UdpSocket",
-            "AudioInput",
-            "AudioOutput",
-            "TlsSocket",
-            "TlsListener",
-            // Migrated to package-qualified identity (plan-97); the rest follow.
+            "net.Socket",
+            "net.Listener",
+            "net.UdpSocket",
+            "audio.AudioInput",
+            "audio.AudioOutput",
+            "tls.TlsSocket",
+            "tls.TlsListener",
             "process.Process",
         ] {
             assert!(registry.is_resource(name), "{name} missing from registry");
@@ -422,9 +422,9 @@ mod tests {
     fn free_helpers_match_registry() {
         assert!(is_builtin_resource_type("fs.File"));
         assert!(!is_builtin_resource_type("Nothing"));
-        assert_eq!(builtin_resource_close_function("Socket"), Some("net.close"));
-        assert!(is_builtin_sendable_resource_type("Socket"));
-        assert!(!is_builtin_sendable_resource_type("Listener"));
+        assert_eq!(builtin_resource_close_function("net.Socket"), Some("net.close"));
+        assert!(is_builtin_sendable_resource_type("net.Socket"));
+        assert!(!is_builtin_sendable_resource_type("net.Listener"));
     }
 
     // plan-72-U migration gate: `resource` owns no builtin callables or types, so

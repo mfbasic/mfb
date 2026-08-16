@@ -1,4 +1,5 @@
 IMPORT thread
+IMPORT fs
 
 TYPE Cursor
   pos AS Integer

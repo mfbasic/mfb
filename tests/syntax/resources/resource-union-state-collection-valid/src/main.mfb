@@ -12,7 +12,7 @@ END TYPE
 
 UNION Stream
   fs::File
-  Socket
+  net::Socket
 END UNION
 
 FUNC countList(streams AS List OF RES Stream STATE PendingState) AS Integer

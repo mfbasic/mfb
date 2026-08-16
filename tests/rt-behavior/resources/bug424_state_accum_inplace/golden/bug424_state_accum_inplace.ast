@@ -27,7 +27,7 @@
       "name": "feed",
       "line": 17,
       "params": [
-      { "name": "f", "type": "File", "resource": true, "state": "Accum", "default": null, "line": 17 },
+      { "name": "f", "type": "fs.File", "resource": true, "state": "Accum", "default": null, "line": 17 },
       { "name": "chunk", "type": "List OF Byte", "default": null, "line": 17 }
       ],
       "returnType": "Nothing",
@@ -47,7 +47,7 @@
       "returnType": "Integer",
       "body": [
       { "kind": "binding", "mutable": false, "name": "chunk", "type": "List OF Byte", "value": { "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "string", "value": "abcd" }] }, "line": 23 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": "Accum", "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/resources/bug424_state_accum_inplace/project.json" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Accum", "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/resources/bug424_state_accum_inplace/project.json" }] }, "line": 24 },
       { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 25 },
       {
         "kind": "while",

@@ -37,7 +37,7 @@ FUNC main() AS Integer
   ' before the call rather than being discovered inside it.
   io::print("frame_aligned=" & toString(len(s.pcm) MOD bytesPerFrame = 0))
 
-  RES out AS AudioOutput = audio::openOutput(s.samplerate, s.channels, 512)
+  RES out AS audio::AudioOutput = audio::openOutput(s.samplerate, s.channels, 512)
   audio::write(out, s.pcm)
   audio::close(out)
   io::print("played=TRUE")

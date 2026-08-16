@@ -25,13 +25,13 @@
     "includes": [],
     "variants": [
     {
-      "name": "File",
+      "name": "fs.File",
       "line": 14,
       "fields": [
       ]
     },
     {
-      "name": "Socket",
+      "name": "net.Socket",
       "line": 15,
       "fields": [
       ]

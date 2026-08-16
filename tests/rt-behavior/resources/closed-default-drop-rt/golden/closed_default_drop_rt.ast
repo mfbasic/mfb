@@ -19,7 +19,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": {
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": {
         "kind": "trapped",
         "binding": "e",
         "line": 22,
@@ -41,7 +41,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sock", "type": "Socket", "value": {
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sock", "type": "net.Socket", "value": {
         "kind": "trapped",
         "binding": "e",
         "line": 32,

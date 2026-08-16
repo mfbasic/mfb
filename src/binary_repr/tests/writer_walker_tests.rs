@@ -599,13 +599,13 @@ fn socket_and_listener_resources_are_emitted_when_used() {
     f.params = vec![
         IrParam {
             name: "s".to_string(),
-            type_: "Socket".to_string(),
+            type_: "net.Socket".to_string(),
             default: None,
             loc: loc(),
         },
         IrParam {
             name: "l".to_string(),
-            type_: "Listener".to_string(),
+            type_: "net.Listener".to_string(),
             default: None,
             loc: loc(),
         },

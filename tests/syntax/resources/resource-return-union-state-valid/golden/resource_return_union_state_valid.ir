@@ -25,13 +25,13 @@
     "includes": [],
     "variants": [
     {
-      "name": "File",
+      "name": "fs.File",
       "line": 9,
       "fields": [
       ]
     },
     {
-      "name": "Socket",
+      "name": "net.Socket",
       "line": 10,
       "fields": [
       ]
@@ -65,7 +65,7 @@
     ],
     "returns": "Stream STATE StreamState",
     "body": [
-    { "op": "bind", "line": 17, "mutable": false, "name": "s", "type": "Stream STATE StreamState", "value": { "kind": "unionWrap", "union": "Stream", "member": "File", "value": { "kind": "call", "type": "File", "target": "fs.createTempFile", "args": [] } } },
+    { "op": "bind", "line": 17, "mutable": false, "name": "s", "type": "Stream STATE StreamState", "value": { "kind": "unionWrap", "union": "Stream", "member": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } } },
     { "op": "return", "line": 18, "value": { "kind": "local", "name": "s" } }
     ]
   },

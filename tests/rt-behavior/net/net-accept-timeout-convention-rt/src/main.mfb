@@ -9,7 +9,7 @@ IMPORT io
 
 ' accept(server, 0) on an idle listener -> ErrTimeout. Returns 0 on the expected
 ' error, nonzero otherwise. (The success path is unexpected.)
-FUNC acceptZeroTimeout(server AS Listener) AS Integer
+FUNC acceptZeroTimeout(server AS net::Listener) AS Integer
   RES s = net::accept(server, 0)
   net::close(s)
   RETURN 1
@@ -23,7 +23,7 @@ FUNC acceptZeroTimeout(server AS Listener) AS Integer
 END FUNC
 
 ' accept(server, -1) -> ErrInvalidArgument.
-FUNC acceptNegativeInvalid(server AS Listener) AS Integer
+FUNC acceptNegativeInvalid(server AS net::Listener) AS Integer
   RES s = net::accept(server, -1)
   net::close(s)
   RETURN 1

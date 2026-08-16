@@ -84,10 +84,11 @@ pub(crate) const ROUTE_TYPE: &str = "Route";
 const URL_TYPE: &str = "Url";
 const HEADER_MAP: &str = "Map OF String TO String";
 // Listener types the server binds/accepts on: the plaintext `net::Listener` and
-// the TLS `tls::Listener`. Named here (already normalized to bare ids) to match
-// the `handleRequest` overloads and the `server`/`serverSSL` return types.
-const LISTENER_TYPE: &str = "Listener";
-const TLS_LISTENER_TYPE: &str = "TlsListener";
+// the TLS `tls::TlsListener`. Named here by their package-qualified type identity
+// (plan-97/bug-441) to match the `handleRequest` overloads and the
+// `server`/`serverSSL` return types.
+const LISTENER_TYPE: &str = "net.Listener";
+const TLS_LISTENER_TYPE: &str = "tls.TlsListener";
 const FILE_TYPE: &str = "fs.File";
 const BYTE_LIST: &str = "List OF Byte";
 const ROUTE_LIST: &str = "List OF Route";

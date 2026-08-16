@@ -4,7 +4,7 @@ IMPORT net
 ' Every variant is a resource -> Stream is a resource union.
 UNION Stream
   fs::File
-  Socket
+  net::Socket
 END UNION
 
 FUNC useFile(RES f AS fs::File) AS Integer

@@ -1,4 +1,6 @@
 IMPORT thread
+IMPORT fs
+IMPORT net
 
 TYPE Cursor
   pos AS Integer
@@ -6,7 +8,7 @@ END TYPE
 
 UNION Stream
   fs::File
-  Socket
+  net::Socket
 END UNION
 
 ' plan-75: the resource plane carries a resource *union* together with its

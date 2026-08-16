@@ -4,7 +4,7 @@ IMPORT io
 
 ' Receives one datagram, returning its byte count, or the error code if the
 ' datagram does not fit in `maxBytes` (ErrMessageTooLarge, 77070007).
-FUNC recvCount(RES s AS UdpSocket, maxBytes AS Integer) AS Integer
+FUNC recvCount(RES s AS net::UdpSocket, maxBytes AS Integer) AS Integer
   LET dg = net::receiveFrom(s, maxBytes)
   RETURN len(dg.bytes)
   TRAP(e)

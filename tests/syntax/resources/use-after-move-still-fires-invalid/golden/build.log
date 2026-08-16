@@ -1,5 +1,5 @@
 $ mfb build -ast -ir tests/syntax/resources/use-after-move-still-fires-invalid
-  25 |   RES f AS File = fs::openFile(p)
+  25 |   RES f AS fs::File = fs::openFile(p)
   26 |   fs::close(f)
   27 |   LET s AS String = fs::readAll(f)
      | ^

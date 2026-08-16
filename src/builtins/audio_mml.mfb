@@ -472,7 +472,7 @@ END FUNC
 ' Encode the samples and write them to the open output stream. A no-op for empty
 ' PCM. Only a pointer to the stream is passed — the caller owns and closes it. The stream must be
 ' 48 kHz mono (what the sequencer renders).
-SUB __audio_playSamples(RES out AS AudioOutput, samples AS List OF Integer)
+SUB __audio_playSamples(RES out AS audio::AudioOutput, samples AS List OF Integer)
   IF len(samples) = 0 THEN
     EXIT SUB
   END IF
@@ -480,14 +480,14 @@ SUB __audio_playSamples(RES out AS AudioOutput, samples AS List OF Integer)
 END SUB
 
 ' audio::play(output, mml) — parse a single MML track and write it to the stream.
-SUB __audio_play(RES out AS AudioOutput, mml AS String)
+SUB __audio_play(RES out AS audio::AudioOutput, mml AS String)
   __audio_playSamples(out, __audio_mmlRenderSamples(mml))
 END SUB
 
 ' audio::play(output, tracks) — parse each track, mix them, and write to the
 ' stream. Each track is isolated: tempo/length/octave/volume/instrument do not
 ' carry between tracks.
-SUB __audio_playTracks(RES out AS AudioOutput, tracks AS List OF String)
+SUB __audio_playTracks(RES out AS audio::AudioOutput, tracks AS List OF String)
   MUT rendered AS List OF List OF Integer = []
   FOR EACH tk IN tracks
     rendered = collections::append(rendered, __audio_mmlRenderSamples(tk))

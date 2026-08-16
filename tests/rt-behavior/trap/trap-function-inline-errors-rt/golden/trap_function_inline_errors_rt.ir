@@ -139,7 +139,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 64, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "write" }] } },
+    { "op": "bind", "line": 64, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "write" }] } },
     { "op": "eval", "line": 65, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "x" }] } },
     { "op": "bind", "line": 66, "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "input" }] } },
     { "op": "return", "line": 67, "value": { "kind": "local", "name": "n" } },

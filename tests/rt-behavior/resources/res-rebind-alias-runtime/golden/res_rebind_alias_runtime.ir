@@ -16,11 +16,11 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "f", "line": 26, "type": "File", "default": null }
+    { "name": "f", "line": 26, "type": "fs.File", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 27, "mutable": false, "name": "g", "type": "File", "value": { "kind": "local", "name": "f" } }
+    { "op": "bind", "line": 27, "mutable": false, "name": "g", "type": "fs.File", "value": { "kind": "local", "name": "f" } }
     ]
   },
   {
@@ -29,11 +29,11 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "xs", "line": 35, "type": "List OF RES File", "default": null }
+    { "name": "xs", "line": 35, "type": "List OF RES fs.File", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 36, "mutable": false, "name": "g", "type": "File", "value": { "kind": "call", "type": "File", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
+    { "op": "bind", "line": 36, "mutable": false, "name": "g", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
     ]
   },
   {
@@ -42,7 +42,7 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "xs", "line": 39, "type": "List OF RES File", "default": null }
+    { "name": "xs", "line": 39, "type": "List OF RES fs.File", "default": null }
     ],
     "returns": "Nothing",
     "body": [
@@ -50,10 +50,10 @@
       "op": "forEach",
       "line": 40,
       "name": "item",
-      "type": "File",
+      "type": "fs.File",
       "iterable": { "kind": "local", "name": "xs" },
       "body": [
-      { "op": "bind", "line": 41, "mutable": false, "name": "g", "type": "File", "value": { "kind": "local", "name": "item" } }
+      { "op": "bind", "line": 41, "mutable": false, "name": "g", "type": "fs.File", "value": { "kind": "local", "name": "item" } }
       ]
     }
     ]
@@ -65,9 +65,9 @@
     "kind": "func",
     "params": [
     ],
-    "returns": "File",
+    "returns": "fs.File",
     "body": [
-    { "op": "bind", "line": 48, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "target/res-rebind-alias-produced.txt" }, { "kind": "const", "type": "String", "value": "w" }] } },
+    { "op": "bind", "line": 48, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "target/res-rebind-alias-produced.txt" }, { "kind": "const", "type": "String", "value": "w" }] } },
     { "op": "return", "line": 49, "value": { "kind": "local", "name": "f" } }
     ]
   },
@@ -80,18 +80,18 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 53, "mutable": false, "name": "h", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "target/res-rebind-alias.txt" }, { "kind": "const", "type": "String", "value": "w" }] } },
+    { "op": "bind", "line": 53, "mutable": false, "name": "h", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "target/res-rebind-alias.txt" }, { "kind": "const", "type": "String", "value": "w" }] } },
     { "op": "eval", "line": 54, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "h" }, { "kind": "const", "type": "String", "value": "before" }] } },
     { "op": "eval", "line": 56, "value": { "kind": "call", "type": "Nothing", "target": "passThrough", "args": [{ "kind": "local", "name": "h" }] } },
     { "op": "eval", "line": 57, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "h" }, { "kind": "const", "type": "String", "value": "after" }] } },
     { "op": "eval", "line": 58, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "alias kept the handle open" }] } },
-    { "op": "bind", "line": 60, "mutable": true, "name": "xs", "type": "List OF RES File", "value": { "kind": "list", "type": "List OF RES File", "values": [] } },
-    { "op": "assign", "line": 61, "name": "xs", "value": { "kind": "call", "type": "List OF RES File", "target": "collections.append", "args": [{ "kind": "local", "name": "xs" }, { "kind": "local", "name": "h" }] } },
+    { "op": "bind", "line": 60, "mutable": true, "name": "xs", "type": "List OF RES fs.File", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [] } },
+    { "op": "assign", "line": 61, "name": "xs", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "collections.append", "args": [{ "kind": "local", "name": "xs" }, { "kind": "local", "name": "h" }] } },
     { "op": "eval", "line": 62, "value": { "kind": "call", "type": "Nothing", "target": "peekViaGet", "args": [{ "kind": "local", "name": "xs" }] } },
     { "op": "eval", "line": 63, "value": { "kind": "call", "type": "Nothing", "target": "peekViaForEach", "args": [{ "kind": "local", "name": "xs" }] } },
     { "op": "eval", "line": 64, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "h" }, { "kind": "const", "type": "String", "value": "!" }] } },
     { "op": "eval", "line": 65, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "collection alias kept the handle open" }] } },
-    { "op": "bind", "line": 67, "mutable": false, "name": "made", "type": "File", "value": { "kind": "call", "type": "File", "target": "makeFile", "args": [] } },
+    { "op": "bind", "line": 67, "mutable": false, "name": "made", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "makeFile", "args": [] } },
     { "op": "eval", "line": 68, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "made" }, { "kind": "const", "type": "String", "value": "produced" }] } },
     { "op": "eval", "line": 69, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "produced resource usable" }] } },
     { "op": "bind", "line": 74, "mutable": false, "name": "$for_end1", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "200" } },
@@ -106,21 +106,21 @@
       "step": { "kind": "local", "name": "$for_step2" },
       "body": [
       { "op": "bind", "line": 74, "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "local", "name": "$for_iter0" } },
-      { "op": "bind", "line": 75, "mutable": false, "name": "$trap_res3", "type": "Result OF File", "value": { "kind": "callResult", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "target/res-rebind-alias-trap.txt" }, { "kind": "const", "type": "String", "value": "w" }] } },
-      { "op": "bind", "line": 75, "mutable": true, "name": "$trap_val4", "type": "File", "value": null },
+      { "op": "bind", "line": 75, "mutable": false, "name": "$trap_res3", "type": "Result OF fs.File", "value": { "kind": "callResult", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "target/res-rebind-alias-trap.txt" }, { "kind": "const", "type": "String", "value": "w" }] } },
+      { "op": "bind", "line": 75, "mutable": true, "name": "$trap_val4", "type": "fs.File", "value": null },
       {
         "op": "if",
         "line": 75,
         "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res3" } },
         "then": [
-        { "op": "assign", "line": 75, "name": "$trap_val4", "value": { "kind": "resultValue", "type": "File", "value": { "kind": "local", "name": "$trap_res3" } } }
+        { "op": "assign", "line": 75, "name": "$trap_val4", "value": { "kind": "resultValue", "type": "fs.File", "value": { "kind": "local", "name": "$trap_res3" } } }
         ],
         "else": [
         { "op": "eval", "line": 76, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "trap-bound open failed" }] } },
         { "op": "return", "line": 77, "value": { "kind": "const", "type": "Integer", "value": "1" } }
         ]
       },
-      { "op": "bind", "line": 75, "mutable": false, "name": "t", "type": "File", "value": { "kind": "local", "name": "$trap_val4" } },
+      { "op": "bind", "line": 75, "mutable": false, "name": "t", "type": "fs.File", "value": { "kind": "local", "name": "$trap_val4" } },
       { "op": "eval", "line": 79, "value": { "kind": "call", "type": "Nothing", "target": "passThrough", "args": [{ "kind": "local", "name": "t" }] } }
       ]
     },

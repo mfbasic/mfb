@@ -14,9 +14,9 @@
       "name": "steal",
       "line": 20,
       "params": [
-      { "name": "p", "type": "File", "resource": true, "state": null, "default": null, "line": 20 }
+      { "name": "p", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 20 }
       ],
-      "returnType": "File", "returnResource": true, "returnState": null,
+      "returnType": "fs.File", "returnResource": true, "returnState": null,
       "body": [
       { "kind": "return", "value": { "kind": "identifier", "value": "p" }, "line": 21 }
       ]
@@ -31,8 +31,8 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/syntax/resources/resource-non-owner-return-valid/src/main.mfb" }] }, "line": 25 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": "File", "value": { "kind": "call", "callee": "steal", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/syntax/resources/resource-non-owner-return-valid/src/main.mfb" }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": "fs.File", "value": { "kind": "call", "callee": "steal", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 26 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "g" }] }, "line": 27 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 28 }
       ]

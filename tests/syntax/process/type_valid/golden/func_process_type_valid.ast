@@ -14,7 +14,7 @@
       "name": "describe",
       "line": 8,
       "params": [
-      { "name": "p", "type": "Process", "default": null, "line": 8 }
+      { "name": "p", "type": "process.Process", "default": null, "line": 8 }
       ],
       "returnType": "Integer",
       "body": [

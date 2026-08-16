@@ -17,7 +17,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/syntax/resources/ownership-collection-resource-valid/src/main.mfb" }] }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "handles", "type": "List OF RES fs.File", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/syntax/resources/ownership-collection-resource-valid/src/main.mfb" }] }] }, "line": 14 },
       { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "handles" }] }, "line": 15 }
       ]
     }

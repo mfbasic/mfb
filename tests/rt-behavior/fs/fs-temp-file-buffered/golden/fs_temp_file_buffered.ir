@@ -19,7 +19,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 9, "mutable": false, "name": "tf", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.createTempFile", "args": [] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "tf", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } },
     { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "buffered_default=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fs.isBuffered", "args": [{ "kind": "local", "name": "tf" }] }] } }] } },
     { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "fs.setBuffered", "args": [{ "kind": "local", "name": "tf" }, { "kind": "const", "type": "Boolean", "value": "true" }] } },
     { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "buffered_set=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fs.isBuffered", "args": [{ "kind": "local", "name": "tf" }] }] } }] } },

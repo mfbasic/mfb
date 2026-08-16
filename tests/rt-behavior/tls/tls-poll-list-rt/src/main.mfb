@@ -1,4 +1,4 @@
-' plan-76-C: tls::poll(List OF RES TlsSocket) multiplex over live TLS connections
+' plan-76-C: tls::poll(List OF RES tls::TlsSocket) multiplex over live TLS connections
 ' to 8.8.8.8:443 (Google Public DNS; validated against dns.google). Output is
 ' reduced to stable booleans. Runs on any backend whose host executes it.
 IMPORT io
@@ -9,8 +9,8 @@ IMPORT errorCode
 
 ' poll([]) on an empty list → ErrInvalidArgument.
 FUNC pollEmpty AS Boolean
-  MUT socks AS List OF RES TlsSocket = []
-  RES r AS TlsSocket = tls::poll(socks)
+  MUT socks AS List OF RES tls::TlsSocket = []
+  RES r AS tls::TlsSocket = tls::poll(socks)
   RETURN FALSE
   TRAP(e)
     RETURN e.code = errorCode::ErrInvalidArgument
@@ -20,13 +20,13 @@ END FUNC
 FUNC main AS Integer
   RES a = tls::connect("8.8.8.8", 443, 30000, "dns.google")
   RES b = tls::connect("8.8.8.8", 443, 30000, "dns.google")
-  MUT socks AS List OF RES TlsSocket = []
+  MUT socks AS List OF RES tls::TlsSocket = []
   socks = collections::append(socks, a)
   socks = collections::append(socks, b)
 
   ' Two idle sockets: an immediate multiplex scan raises ErrTimeout.
   MUT idleTimeout AS Boolean = FALSE
-  RES probe AS TlsSocket = tls::poll(socks, 0) TRAP(e)
+  RES probe AS tls::TlsSocket = tls::poll(socks, 0) TRAP(e)
     idleTimeout = (e.code = errorCode::ErrTimeout)
     RECOVER a
   END TRAP
@@ -38,7 +38,7 @@ FUNC main AS Integer
   LET crlfBytes AS List OF Byte = [toByte(13), toByte(10)]
   LET crlf AS String = toString(crlfBytes)
   tls::writeText(b, "HEAD / HTTP/1.0" & crlf & "Host: dns.google" & crlf & crlf)
-  RES ready AS TlsSocket = tls::poll(socks)
+  RES ready AS tls::TlsSocket = tls::poll(socks)
   LET reply AS String = tls::readText(ready, 4096)
   io::print("httpResponse=" & toString(strings::startsWith(reply, "HTTP/")))
   RETURN 0

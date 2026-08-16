@@ -19,7 +19,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 9, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/fs/fs-readline-buffer-boundary-rt/data.txt" }, { "kind": "const", "type": "String", "value": "read" }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/fs/fs-readline-buffer-boundary-rt/data.txt" }, { "kind": "const", "type": "String", "value": "read" }] } },
     { "op": "bind", "line": 10, "mutable": true, "name": "idx", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",

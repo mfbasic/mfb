@@ -18,9 +18,9 @@
     "params": [
     { "name": "path", "line": 33, "type": "String", "default": null }
     ],
-    "returns": "File",
+    "returns": "fs.File",
     "body": [
-    { "op": "bind", "line": 34, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "write" }] } },
+    { "op": "bind", "line": 34, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "write" }] } },
     { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "x" }] } },
     { "op": "return", "line": 36, "value": { "kind": "local", "name": "f" } }
     ]
@@ -35,10 +35,10 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 40, "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "/tmp/mfb_resource_return_identity_rt.txt" } },
-    { "op": "bind", "line": 42, "mutable": false, "name": "h", "type": "File", "value": { "kind": "call", "type": "File", "target": "makeFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 42, "mutable": false, "name": "h", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "makeFile", "args": [{ "kind": "local", "name": "path" }] } },
     { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "h" }, { "kind": "const", "type": "String", "value": "y" }] } },
     { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "h" }] } },
-    { "op": "bind", "line": 48, "mutable": false, "name": "r", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 48, "mutable": false, "name": "r", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
     { "op": "bind", "line": 49, "mutable": false, "name": "got", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.readAll", "args": [{ "kind": "local", "name": "r" }] } },
     { "op": "eval", "line": 50, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "r" }] } },
     { "op": "eval", "line": 51, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "contents=" }, "right": { "kind": "local", "name": "got" } }] } },
@@ -49,7 +49,7 @@
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "500" } },
       "body": [
-      { "op": "bind", "line": 57, "mutable": false, "name": "t", "type": "File", "value": { "kind": "call", "type": "File", "target": "makeFile", "args": [{ "kind": "local", "name": "path" }] } },
+      { "op": "bind", "line": 57, "mutable": false, "name": "t", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "makeFile", "args": [{ "kind": "local", "name": "path" }] } },
       { "op": "eval", "line": 58, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "t" }] } },
       { "op": "assign", "line": 59, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]

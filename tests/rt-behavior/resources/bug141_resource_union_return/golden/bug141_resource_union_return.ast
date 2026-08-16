@@ -16,8 +16,8 @@
       "line": 9,
       "includes": [],
       "variants": [
-      { "name": "File", "line": 10 },
-      { "name": "Socket", "line": 11 }
+      { "name": "fs.File", "line": 10 },
+      { "name": "net.Socket", "line": 11 }
       ]
     },
     {
@@ -51,7 +51,7 @@
         "line": 21,
         "cases": [
         {
-          "pattern": { "kind": "union", "type": "File", "binding": "f" },
+          "pattern": { "kind": "union", "type": "fs.File", "binding": "f" },
           "guard": null,
           "line": 22,
           "body": [
@@ -60,7 +60,7 @@
           ]
         },
         {
-          "pattern": { "kind": "union", "type": "Socket", "binding": "sock" },
+          "pattern": { "kind": "union", "type": "net.Socket", "binding": "sock" },
           "guard": null,
           "line": 25,
           "body": [

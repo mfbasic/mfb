@@ -6,27 +6,28 @@
     "imports": [
     { "module": "io", "line": 1 },
     { "module": "fs", "line": 2 },
-    { "module": "collections", "line": 3 }
+    { "module": "net", "line": 3 },
+    { "module": "collections", "line": 4 }
     ],
     "items": [
     {
       "kind": "type",
       "visibility": "public",
       "name": "Cursor",
-      "line": 14,
+      "line": 15,
       "fields": [
-      { "visibility": null, "name": "pos", "type": "Integer", "line": 15 }
+      { "visibility": null, "name": "pos", "type": "Integer", "line": 16 }
       ]
     },
     {
       "kind": "union",
       "visibility": "public",
       "name": "Handle",
-      "line": 18,
+      "line": 19,
       "includes": [],
       "variants": [
-      { "name": "File", "line": 19 },
-      { "name": "Socket", "line": 20 }
+      { "name": "fs.File", "line": 20 },
+      { "name": "net.Socket", "line": 21 }
       ]
     },
     {
@@ -34,32 +35,32 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 23,
+      "line": 24,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": true, "name": "handles", "type": "List OF RES Handle STATE Cursor", "value": { "kind": "list", "values": [] }, "line": 24 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "a", "type": "Handle", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 26 },
-      { "kind": "stateAssignment", "resource": "a", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "3" } }] }, "line": 27 },
-      { "kind": "assignment", "name": "handles", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "identifier", "value": "a" }] }, "line": 28 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "b", "type": "Handle", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 30 },
-      { "kind": "stateAssignment", "resource": "b", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "9" } }] }, "line": 31 },
-      { "kind": "assignment", "name": "handles", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "identifier", "value": "b" }] }, "line": 32 },
-      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 34 },
+      { "kind": "binding", "mutable": true, "name": "handles", "type": "List OF RES Handle STATE Cursor", "value": { "kind": "list", "values": [] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "a", "type": "Handle", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 27 },
+      { "kind": "stateAssignment", "resource": "a", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "3" } }] }, "line": 28 },
+      { "kind": "assignment", "name": "handles", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "identifier", "value": "a" }] }, "line": 29 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "b", "type": "Handle", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 31 },
+      { "kind": "stateAssignment", "resource": "b", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "9" } }] }, "line": 32 },
+      { "kind": "assignment", "name": "handles", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "identifier", "value": "b" }] }, "line": 33 },
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 35 },
       {
         "kind": "forEach",
         "name": "h",
         "iterable": { "kind": "identifier", "value": "handles" },
-        "line": 35,
+        "line": 36,
         "body": [
-        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "member": "pos" } }, "line": 36 }
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "member": "pos" } }, "line": 37 }
         ]
       },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "total=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "total" }] } }] }, "line": 38 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "first", "type": "Handle", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "number", "value": "0" }] }, "line": 40 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "first=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "first" }, "member": "state" }, "member": "pos" }] } }] }, "line": 41 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 42 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "total=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "total" }] } }] }, "line": 39 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "first", "type": "Handle", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "number", "value": "0" }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "first=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "first" }, "member": "state" }, "member": "pos" }] } }] }, "line": 42 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 43 }
       ]
     }
     ]

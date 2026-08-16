@@ -19,7 +19,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 12, "mutable": false, "name": "conn", "type": "TlsSocket", "value": { "kind": "call", "type": "TlsSocket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "8.8.8.8" }, { "kind": "const", "type": "Integer", "value": "443" }, { "kind": "const", "type": "Integer", "value": "5000" }, { "kind": "const", "type": "String", "value": "dns.google" }] } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "conn", "type": "tls.TlsSocket", "value": { "kind": "call", "type": "tls.TlsSocket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "8.8.8.8" }, { "kind": "const", "type": "Integer", "value": "443" }, { "kind": "const", "type": "Integer", "value": "5000" }, { "kind": "const", "type": "String", "value": "dns.google" }] } },
     { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "connected=TRUE" }] } },
     { "op": "bind", "line": 14, "mutable": false, "name": "crlfBytes", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "13" }] }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "10" }] }] } },
     { "op": "bind", "line": 15, "mutable": false, "name": "crlf", "type": "String", "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "crlfBytes" }] } },

@@ -36,7 +36,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 13, "mutable": false, "name": "c", "type": "TlsSocket", "value": { "kind": "call", "type": "TlsSocket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "local", "name": "port" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "bind", "line": 13, "mutable": false, "name": "c", "type": "tls.TlsSocket", "value": { "kind": "call", "type": "tls.TlsSocket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "local", "name": "port" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "const", "type": "String", "value": "" }] } },
     { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "tls.close", "args": [{ "kind": "local", "name": "c" }] } },
     { "op": "return", "line": 15, "value": { "kind": "const", "type": "Integer", "value": "1" } },
     {
@@ -58,7 +58,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 22, "mutable": false, "name": "server", "type": "Listener", "value": { "kind": "call", "type": "Listener", "target": "net.listenTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 22, "mutable": false, "name": "server", "type": "net.Listener", "value": { "kind": "call", "type": "net.Listener", "target": "net.listenTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     { "op": "bind", "line": 23, "mutable": false, "name": "bound", "type": "Address", "value": { "kind": "call", "type": "Address", "target": "net.localAddress", "args": [{ "kind": "local", "name": "server" }] } },
     { "op": "bind", "line": 25, "mutable": false, "name": "nc", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "connectNeg", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "bound" }, "member": "port" }] } },
     {
@@ -73,7 +73,7 @@
       ]
     },
     { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "neg invalid" }] } },
-    { "op": "bind", "line": 32, "mutable": false, "name": "c", "type": "TlsSocket", "value": { "kind": "call", "type": "TlsSocket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "bound" }, "member": "port" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "String", "value": "" }] } },
+    { "op": "bind", "line": 32, "mutable": false, "name": "c", "type": "tls.TlsSocket", "value": { "kind": "call", "type": "tls.TlsSocket", "target": "tls.connect", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "bound" }, "member": "port" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "String", "value": "" }] } },
     { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "tls.close", "args": [{ "kind": "local", "name": "c" }] } },
     { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "connect0 unexpected" }] } },
     { "op": "return", "line": 35, "value": { "kind": "const", "type": "Integer", "value": "1" } },

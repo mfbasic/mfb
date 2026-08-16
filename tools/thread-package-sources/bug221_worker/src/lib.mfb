@@ -1,0 +1,16 @@
+IMPORT thread
+IMPORT fs
+
+' bug-221 worker: the parent transfers its file first, so the worker accepts that
+' file, reads it (returning its length across `waitFor`), then opens its own file
+' and transfers it back to the parent. Named arguments on the parent's
+' `thread::transfer`/`accept` are what bug-221 exercises; this worker just
+' provides the other side of the resource-plane exchange.
+EXPORT ISOLATED FUNC exchange(worker AS ThreadWorker OF RES fs::File TO Integer, seed AS String) AS Integer
+  RES received AS fs::File = thread::accept(worker, 2000)
+  LET receivedData AS String = fs::readAll(received)
+  fs::close(received)
+  RES back AS fs::File = fs::openFile("tests/rt-behavior/threads/bug221_transfer_accept_named_args/data/worker.txt")
+  thread::transfer(worker, back)
+  RETURN len(receivedData)
+END FUNC

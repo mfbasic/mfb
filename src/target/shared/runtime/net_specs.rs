@@ -11,27 +11,27 @@ pub(crate) const NET_LOOKUP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const NET_CONNECT_TCP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.connectTcp",
-    abi: RuntimeHelperAbi { returns: "Socket" },
+    abi: RuntimeHelperAbi { returns: "net.Socket" },
 };
 
 pub(crate) const NET_CONNECT_TCP_ADDR_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.connectTcpAddr",
-    abi: RuntimeHelperAbi { returns: "Socket" },
+    abi: RuntimeHelperAbi { returns: "net.Socket" },
 };
 
 pub(crate) const NET_LISTEN_TCP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.listenTcp",
     abi: RuntimeHelperAbi {
-        returns: "Listener",
+        returns: "net.Listener",
     },
 };
 
 pub(crate) const NET_ACCEPT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.accept",
-    abi: RuntimeHelperAbi { returns: "Socket" },
+    abi: RuntimeHelperAbi { returns: "net.Socket" },
 };
 
 pub(crate) const NET_POLL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
@@ -47,7 +47,7 @@ pub(crate) const NET_POLL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const NET_POLL_LIST_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.pollList",
-    abi: RuntimeHelperAbi { returns: "Socket" },
+    abi: RuntimeHelperAbi { returns: "net.Socket" },
 };
 
 pub(crate) const NET_READ_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
@@ -114,7 +114,7 @@ pub(crate) const NET_BIND_UDP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.bindUdp",
     abi: RuntimeHelperAbi {
-        returns: "UdpSocket",
+        returns: "net.UdpSocket",
     },
 };
 

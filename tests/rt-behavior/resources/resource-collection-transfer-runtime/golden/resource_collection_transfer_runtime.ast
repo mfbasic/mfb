@@ -17,12 +17,12 @@
       "line": 8,
       "params": [
       ],
-      "returnType": "List OF RES File",
+      "returnType": "List OF RES fs.File",
       "body": [
-      { "kind": "binding", "mutable": true, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "values": [] }, "line": 9 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/resources/resource-collection-transfer-runtime/src/main.mfb" }] }, "line": 10 },
+      { "kind": "binding", "mutable": true, "name": "handles", "type": "List OF RES fs.File", "value": { "kind": "list", "values": [] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/resources/resource-collection-transfer-runtime/src/main.mfb" }] }, "line": 10 },
       { "kind": "assignment", "name": "handles", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "identifier", "value": "a" }] }, "line": 11 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "b", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/resources/resource-collection-transfer-runtime/src/main.mfb" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "b", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/resources/resource-collection-transfer-runtime/src/main.mfb" }] }, "line": 12 },
       { "kind": "assignment", "name": "handles", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "identifier", "value": "b" }] }, "line": 13 },
       { "kind": "return", "value": { "kind": "identifier", "value": "handles" }, "line": 14 }
       ]
@@ -37,7 +37,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "files", "type": "List OF RES File", "value": { "kind": "call", "callee": "openTwo", "arguments": [] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "files", "type": "List OF RES fs.File", "value": { "kind": "call", "callee": "openTwo", "arguments": [] }, "line": 18 },
       { "kind": "binding", "mutable": true, "name": "opened", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 20 },
       {
         "kind": "forEach",

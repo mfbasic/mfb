@@ -1,6 +1,7 @@
 IMPORT io
 IMPORT thread
 IMPORT fs
+IMPORT net
 IMPORT union_xfer_workers
 
 TYPE Cursor
@@ -9,7 +10,7 @@ END TYPE
 
 UNION Stream
   fs::File
-  Socket
+  net::Socket
 END UNION
 
 ' plan-75: the resource plane moves a resource *union* together with its uniform

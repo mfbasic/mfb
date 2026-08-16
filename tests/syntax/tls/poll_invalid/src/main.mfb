@@ -4,7 +4,7 @@ IMPORT tls
 FUNC main AS Integer
   RES server = tls::listen("127.0.0.1", 8443, "cert.pem", "key.pem")
   RES conn = tls::connect("example.com", 443)
-  ' Wrong receiver: a TlsListener is not a TlsSocket.
+  ' Wrong receiver: a tls::TlsListener is not a tls::TlsSocket.
   LET wrongReceiver = tls::poll(server)
   ' Wrong argument type entirely.
   LET wrongType = tls::poll("nope")

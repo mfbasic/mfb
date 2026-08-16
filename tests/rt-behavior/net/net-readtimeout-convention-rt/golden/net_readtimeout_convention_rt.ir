@@ -35,10 +35,10 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 9, "mutable": false, "name": "server", "type": "Listener", "value": { "kind": "call", "type": "Listener", "target": "net.listenTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "server", "type": "net.Listener", "value": { "kind": "call", "type": "net.Listener", "target": "net.listenTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     { "op": "bind", "line": 10, "mutable": false, "name": "bound", "type": "Address", "value": { "kind": "call", "type": "Address", "target": "net.localAddress", "args": [{ "kind": "local", "name": "server" }] } },
-    { "op": "bind", "line": 11, "mutable": false, "name": "client", "type": "Socket", "value": { "kind": "call", "type": "Socket", "target": "net.connectTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "bound" }, "member": "port" }] } },
-    { "op": "bind", "line": 12, "mutable": false, "name": "conn", "type": "Socket", "value": { "kind": "call", "type": "Socket", "target": "net.accept", "args": [{ "kind": "local", "name": "server" }] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "client", "type": "net.Socket", "value": { "kind": "call", "type": "net.Socket", "target": "net.connectTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "bound" }, "member": "port" }] } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "conn", "type": "net.Socket", "value": { "kind": "call", "type": "net.Socket", "target": "net.accept", "args": [{ "kind": "local", "name": "server" }] } },
     { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "net.setReadTimeout", "args": [{ "kind": "local", "name": "conn" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     { "op": "bind", "line": 15, "mutable": false, "name": "s", "type": "String", "value": { "kind": "call", "type": "String", "target": "net.readText", "args": [{ "kind": "local", "name": "conn" }, { "kind": "const", "type": "Integer", "value": "16" }] } },
     { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "no-trap" }] } },

@@ -24,8 +24,8 @@
       "line": 8,
       "includes": [],
       "variants": [
-      { "name": "File", "line": 9 },
-      { "name": "Socket", "line": 10 }
+      { "name": "fs.File", "line": 9 },
+      { "name": "net.Socket", "line": 10 }
       ]
     },
     {

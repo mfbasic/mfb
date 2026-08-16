@@ -18,7 +18,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sock", "type": "TlsSocket", "value": {
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "sock", "type": "tls.TlsSocket", "value": {
         "kind": "trapped",
         "binding": "e",
         "line": 19,

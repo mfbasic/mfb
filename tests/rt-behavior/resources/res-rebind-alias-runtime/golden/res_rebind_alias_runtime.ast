@@ -16,11 +16,11 @@
       "name": "passThrough",
       "line": 26,
       "params": [
-      { "name": "f", "type": "File", "resource": true, "state": null, "default": null, "line": 26 }
+      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 26 }
       ],
       "returnType": "Nothing",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": "File", "value": { "kind": "identifier", "value": "f" }, "line": 27 }
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": "fs.File", "value": { "kind": "identifier", "value": "f" }, "line": 27 }
       ]
     },
     {
@@ -30,11 +30,11 @@
       "name": "peekViaGet",
       "line": 35,
       "params": [
-      { "name": "xs", "type": "List OF RES File", "default": null, "line": 35 }
+      { "name": "xs", "type": "List OF RES fs.File", "default": null, "line": 35 }
       ],
       "returnType": "Nothing",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": "File", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "0" }] }, "line": 36 }
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": "fs.File", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "0" }] }, "line": 36 }
       ]
     },
     {
@@ -44,7 +44,7 @@
       "name": "peekViaForEach",
       "line": 39,
       "params": [
-      { "name": "xs", "type": "List OF RES File", "default": null, "line": 39 }
+      { "name": "xs", "type": "List OF RES fs.File", "default": null, "line": 39 }
       ],
       "returnType": "Nothing",
       "body": [
@@ -54,7 +54,7 @@
         "iterable": { "kind": "identifier", "value": "xs" },
         "line": 40,
         "body": [
-        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": "File", "value": { "kind": "identifier", "value": "item" }, "line": 41 }
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": "fs.File", "value": { "kind": "identifier", "value": "item" }, "line": 41 }
         ]
       }
       ]
@@ -67,9 +67,9 @@
       "line": 47,
       "params": [
       ],
-      "returnType": "File", "returnResource": true, "returnState": null,
+      "returnType": "fs.File", "returnResource": true, "returnState": null,
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "target/res-rebind-alias-produced.txt" }, { "kind": "string", "value": "w" }] }, "line": 48 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "target/res-rebind-alias-produced.txt" }, { "kind": "string", "value": "w" }] }, "line": 48 },
       { "kind": "return", "value": { "kind": "identifier", "value": "f" }, "line": 49 }
       ]
     },
@@ -83,18 +83,18 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "h", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "target/res-rebind-alias.txt" }, { "kind": "string", "value": "w" }] }, "line": 53 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "h", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "target/res-rebind-alias.txt" }, { "kind": "string", "value": "w" }] }, "line": 53 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "string", "value": "before" }] }, "line": 54 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "passThrough", "arguments": [{ "kind": "identifier", "value": "h" }] }, "line": 56 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "string", "value": "after" }] }, "line": 57 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "alias kept the handle open" }] }, "line": 58 },
-      { "kind": "binding", "mutable": true, "name": "xs", "type": "List OF RES File", "value": { "kind": "list", "values": [] }, "line": 60 },
+      { "kind": "binding", "mutable": true, "name": "xs", "type": "List OF RES fs.File", "value": { "kind": "list", "values": [] }, "line": 60 },
       { "kind": "assignment", "name": "xs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "identifier", "value": "h" }] }, "line": 61 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "peekViaGet", "arguments": [{ "kind": "identifier", "value": "xs" }] }, "line": 62 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "peekViaForEach", "arguments": [{ "kind": "identifier", "value": "xs" }] }, "line": 63 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "string", "value": "!" }] }, "line": 64 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "collection alias kept the handle open" }] }, "line": 65 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "made", "type": "File", "value": { "kind": "call", "callee": "makeFile", "arguments": [] }, "line": 67 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "made", "type": "fs.File", "value": { "kind": "call", "callee": "makeFile", "arguments": [] }, "line": 67 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "made" }, { "kind": "string", "value": "produced" }] }, "line": 68 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "produced resource usable" }] }, "line": 69 },
       {
@@ -105,7 +105,7 @@
         "step": null,
         "line": 74,
         "body": [
-        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "File", "value": {
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "fs.File", "value": {
           "kind": "trapped",
           "binding": "#err",
           "line": 75,

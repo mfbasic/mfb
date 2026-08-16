@@ -24,7 +24,7 @@
       "name": "opaque",
       "line": 14,
       "params": [
-      { "name": "p", "type": "File", "resource": true, "state": null, "default": null, "line": 14 }
+      { "name": "p", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 14 }
       ],
       "returnType": null,
       "body": [
@@ -42,7 +42,7 @@
       "returnType": "Integer",
       "body": [
       { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "target/resource_state_bare_param_valid.txt" }, "line": 19 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "write" }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "write" }] }, "line": 20 },
       { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "42" } }] }, "line": 21 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "opaque", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 22 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "pos" }] }] }, "line": 23 },

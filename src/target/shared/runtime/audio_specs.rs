@@ -20,7 +20,7 @@ pub(crate) const AUDIO_OPEN_INPUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Audio,
     call: "audio.openInput",
     abi: RuntimeHelperAbi {
-        returns: "AudioInput",
+        returns: "audio.AudioInput",
     },
 };
 
@@ -28,7 +28,7 @@ pub(crate) const AUDIO_OPEN_INPUT_DEVICE_SPEC: RuntimeHelperSpec = RuntimeHelper
     helper: RuntimeHelper::Audio,
     call: "audio.openInputDevice",
     abi: RuntimeHelperAbi {
-        returns: "AudioInput",
+        returns: "audio.AudioInput",
     },
 };
 
@@ -36,7 +36,7 @@ pub(crate) const AUDIO_OPEN_OUTPUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Audio,
     call: "audio.openOutput",
     abi: RuntimeHelperAbi {
-        returns: "AudioOutput",
+        returns: "audio.AudioOutput",
     },
 };
 
@@ -44,7 +44,7 @@ pub(crate) const AUDIO_OPEN_OUTPUT_DEVICE_SPEC: RuntimeHelperSpec = RuntimeHelpe
     helper: RuntimeHelper::Audio,
     call: "audio.openOutputDevice",
     abi: RuntimeHelperAbi {
-        returns: "AudioOutput",
+        returns: "audio.AudioOutput",
     },
 };
 

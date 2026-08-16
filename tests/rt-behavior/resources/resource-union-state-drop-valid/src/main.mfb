@@ -8,7 +8,7 @@ END TYPE
 
 UNION Stream
   fs::File
-  Socket
+  net::Socket
 END UNION
 
 ' Normal scope-drop: open a stateful union, touch its STATE, return with no
@@ -26,9 +26,9 @@ SUB earlyClose(path AS String)
   RES s AS Stream STATE Cursor = fs::openFile(path)
   s.state.pos = 7
   MATCH s
-    CASE File(f)
+    CASE fs::File(f)
       fs::close(f)
-    CASE Socket(sock)
+    CASE net::Socket(sock)
       io::print("unexpected socket")
   END MATCH
 END SUB

@@ -36,7 +36,7 @@
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 13, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "write" }] } },
+    { "op": "bind", "line": 13, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "write" }] } },
     { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "fs.setBuffered", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Boolean", "value": "true" }] } },
     { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "flushed-" }] } },
     { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "fs.flush", "args": [{ "kind": "local", "name": "f" }] } },

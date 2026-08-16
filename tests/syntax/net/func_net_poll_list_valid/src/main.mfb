@@ -1,5 +1,5 @@
 ' plan-76-A: both net::poll overloads resolve — the scalar readiness query
-' (`Socket → Boolean`) and the readiness multiplex (`List OF RES Socket → Socket`,
+' (`net::Socket → Boolean`) and the readiness multiplex (`List OF RES net::Socket → net::Socket`,
 ' a borrowed element pointer the list still owns). Compile-only (-ast -ir).
 IMPORT net
 IMPORT io
@@ -11,16 +11,16 @@ FUNC main AS Integer
   RES client = net::connectTcp("127.0.0.1", bound.port)
   RES conn = net::accept(server)
 
-  ' Scalar overload: net::poll(Socket[, Integer]) → Boolean.
+  ' Scalar overload: net::poll(net::Socket[, Integer]) → Boolean.
   LET ready AS Boolean = net::poll(conn)
   LET readyT AS Boolean = net::poll(conn, 100)
   io::print(toString(ready) & toString(readyT))
 
-  ' List overload: net::poll(List OF RES Socket[, Integer]) → Socket (borrowed).
-  MUT socks AS List OF RES Socket = []
+  ' List overload: net::poll(List OF RES net::Socket[, Integer]) → net::Socket (borrowed).
+  MUT socks AS List OF RES net::Socket = []
   socks = collections::append(socks, conn)
-  RES first AS Socket = net::poll(socks)
-  RES firstT AS Socket = net::poll(socks, 100)
+  RES first AS net::Socket = net::poll(socks)
+  RES firstT AS net::Socket = net::poll(socks, 100)
   net::writeText(first, "x")
   net::writeText(firstT, "y")
   RETURN 0

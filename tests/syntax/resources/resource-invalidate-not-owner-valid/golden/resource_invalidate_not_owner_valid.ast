@@ -14,7 +14,7 @@
       "name": "consume",
       "line": 17,
       "params": [
-      { "name": "f", "type": "File", "resource": true, "state": null, "default": null, "line": 17 }
+      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 17 }
       ],
       "returnType": null,
       "body": [
@@ -31,7 +31,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 22 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "consume", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 23 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 24 }
       ]

@@ -1,0 +1,33 @@
+' bug-441 / plan-97: a user RESOURCE MAY reuse a bare built-in resource name.
+' The built-in resources are package-qualified (`fs::File`, `net::Socket`), so
+' bare `File` and `Socket` no longer name builtins — they are free for user
+' declarations. Each RESOURCE below names a distinct user resource, closed by the
+' user's own `CLOSE BY`, and the package compiles cleanly.
+'
+' This supersedes bug-373's RESOURCE_SHADOWS_BUILTIN ban: under the hard cutover
+' there is no shadow to refuse. The old failure mode (the built-in's close op
+' dragging its runtime helper into the module while the user's `CLOSE BY` ran)
+' cannot arise, because a bare name never resolves to the built-in at all.
+RESOURCE File CLOSE BY demoLink::close
+RESOURCE Socket CLOSE BY demoLink::finalize
+
+LINK "sqlite3" AS demoLink
+  FUNC open(path AS String) AS RES File
+    SYMBOL "sqlite3_open"
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC close(RES db AS File) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC finalize(RES sock AS Socket) AS Nothing
+    SYMBOL "sqlite3_finalize"
+    ABI (sock CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK

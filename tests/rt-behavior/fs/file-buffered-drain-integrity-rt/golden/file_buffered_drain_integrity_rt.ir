@@ -20,7 +20,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 22, "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/file_buffered_drain_integrity.txt" } },
-    { "op": "bind", "line": 23, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "w" }] } },
+    { "op": "bind", "line": 23, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "w" }] } },
     { "op": "bind", "line": 24, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",

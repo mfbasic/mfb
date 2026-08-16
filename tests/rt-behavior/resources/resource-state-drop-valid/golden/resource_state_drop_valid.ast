@@ -28,7 +28,7 @@
       ],
       "returnType": null,
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 12 },
       { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "42" } }] }, "line": 13 }
       ]
     },
@@ -53,7 +53,7 @@
         "else": [
         ]
       },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "seed", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "write" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "seed", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "write" }] }, "line": 21 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "seed" }, { "kind": "string", "value": "x" }] }, "line": 22 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "seed" }] }, "line": 23 },
       { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 24 },

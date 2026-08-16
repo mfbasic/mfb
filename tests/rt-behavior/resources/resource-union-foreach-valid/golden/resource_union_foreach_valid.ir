@@ -16,13 +16,13 @@
     "includes": [],
     "variants": [
     {
-      "name": "File",
+      "name": "fs.File",
       "line": 6,
       "fields": [
       ]
     },
     {
-      "name": "Socket",
+      "name": "net.Socket",
       "line": 7,
       "fields": [
       ]
@@ -64,7 +64,7 @@
       "type": "Integer",
       "iterable": { "kind": "local", "name": "ns" },
       "body": [
-      { "op": "bind", "line": 13, "mutable": false, "name": "s", "type": "Stream", "value": { "kind": "unionWrap", "union": "Stream", "member": "File", "value": { "kind": "call", "type": "File", "target": "fs.createTempFile", "args": [] } } },
+      { "op": "bind", "line": 13, "mutable": false, "name": "s", "type": "Stream", "value": { "kind": "unionWrap", "union": "Stream", "member": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } } },
       { "op": "bind", "line": 14, "mutable": false, "name": "$match0", "type": "Stream", "value": { "kind": "local", "name": "s" } },
       {
         "op": "match",
@@ -73,20 +73,20 @@
         "cases": [
         {
           "line": 15,
-          "pattern": { "kind": "value", "value": { "kind": "local", "name": "File" } },
+          "pattern": { "kind": "value", "value": { "kind": "local", "name": "fs.File" } },
           "guard": null,
           "body": [
-          { "op": "bind", "line": 15, "mutable": false, "name": "f", "type": "File", "value": { "kind": "unionExtract", "type": "File", "value": { "kind": "local", "name": "$match0" } } },
+          { "op": "bind", "line": 15, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "unionExtract", "type": "fs.File", "value": { "kind": "local", "name": "$match0" } } },
           { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "union-data" }] } },
           { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "file" }] } }
           ]
         },
         {
           "line": 18,
-          "pattern": { "kind": "value", "value": { "kind": "local", "name": "Socket" } },
+          "pattern": { "kind": "value", "value": { "kind": "local", "name": "net.Socket" } },
           "guard": null,
           "body": [
-          { "op": "bind", "line": 18, "mutable": false, "name": "sock", "type": "Socket", "value": { "kind": "unionExtract", "type": "Socket", "value": { "kind": "local", "name": "$match0" } } },
+          { "op": "bind", "line": 18, "mutable": false, "name": "sock", "type": "net.Socket", "value": { "kind": "unionExtract", "type": "net.Socket", "value": { "kind": "local", "name": "$match0" } } },
           { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "socket" }] } }
           ]
         }

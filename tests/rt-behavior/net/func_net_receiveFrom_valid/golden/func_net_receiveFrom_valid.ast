@@ -16,7 +16,7 @@
       "name": "recvCount",
       "line": 7,
       "params": [
-      { "name": "s", "type": "UdpSocket", "resource": true, "state": null, "default": null, "line": 7 },
+      { "name": "s", "type": "net.UdpSocket", "resource": true, "state": null, "default": null, "line": 7 },
       { "name": "maxBytes", "type": "Integer", "default": null, "line": 7 }
       ],
       "returnType": "Integer",

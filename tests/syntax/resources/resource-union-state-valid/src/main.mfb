@@ -7,7 +7,7 @@ END TYPE
 
 UNION Stream
   fs::File
-  Socket
+  net::Socket
 END UNION
 
 ' plan-74: a resource union may carry a uniform STATE. Accepted at the binding

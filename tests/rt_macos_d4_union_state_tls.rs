@@ -104,10 +104,10 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
         \x20 sentAll AS Boolean\n\
          END TYPE\n\n\
          UNION Stream\n\
-        \x20 Socket\n\
-        \x20 TlsSocket\n\
+        \x20 net::Socket\n\
+        \x20 tls::TlsSocket\n\
          END UNION\n\n\
-         FUNC serveOnce(RES listener AS TlsListener) AS Integer\n\
+         FUNC serveOnce(RES listener AS tls::TlsListener) AS Integer\n\
         \x20 RES client AS Stream STATE PendingState = tls::accept(listener)\n\
         \x20 client.state.sentAll = TRUE\n\
         \x20 client.state.raw = collections::append(client.state.raw, toByte(65))\n\
@@ -116,9 +116,9 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
         \x20 client.state.raw = collections::append(client.state.raw, toByte(68))\n\
         \x20 client.state.raw = collections::append(client.state.raw, toByte(69))\n\
         \x20 MATCH client\n\
-        \x20   CASE TlsSocket(t)\n\
+        \x20   CASE tls::TlsSocket(t)\n\
         \x20     tls::write(t, client.state.raw)\n\
-        \x20   CASE Socket(p)\n\
+        \x20   CASE net::Socket(p)\n\
         \x20     net::write(p, client.state.raw)\n\
         \x20 END MATCH\n\
         \x20 RETURN 0\n\

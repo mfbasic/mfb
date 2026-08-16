@@ -8,7 +8,7 @@ pub(crate) const TLS_CONNECT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Tls,
     call: "tls.connect",
     abi: RuntimeHelperAbi {
-        returns: "TlsSocket",
+        returns: "tls.TlsSocket",
     },
 };
 
@@ -16,7 +16,7 @@ pub(crate) const TLS_LISTEN_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Tls,
     call: "tls.listen",
     abi: RuntimeHelperAbi {
-        returns: "TlsListener",
+        returns: "tls.TlsListener",
     },
 };
 
@@ -24,7 +24,7 @@ pub(crate) const TLS_ACCEPT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Tls,
     call: "tls.accept",
     abi: RuntimeHelperAbi {
-        returns: "TlsSocket",
+        returns: "tls.TlsSocket",
     },
 };
 
@@ -68,7 +68,7 @@ pub(crate) const TLS_POLL_LIST_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Tls,
     call: "tls.pollList",
     abi: RuntimeHelperAbi {
-        returns: "TlsSocket",
+        returns: "tls.TlsSocket",
     },
 };
 

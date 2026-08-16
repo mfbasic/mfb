@@ -25,7 +25,7 @@
       "name": "advance",
       "line": 9,
       "params": [
-      { "name": "f", "type": "File", "resource": true, "state": "FileState", "default": null, "line": 9 },
+      { "name": "f", "type": "fs.File", "resource": true, "state": "FileState", "default": null, "line": 9 },
       { "name": "by", "type": "Integer", "default": null, "line": 9 }
       ],
       "returnType": null,
@@ -43,7 +43,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": "FileState", "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "FileState", "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 14 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "pos" }] }] }, "line": 15 },
       { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "10" } }] }, "line": 16 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "member": "pos" }] }] }, "line": 17 },

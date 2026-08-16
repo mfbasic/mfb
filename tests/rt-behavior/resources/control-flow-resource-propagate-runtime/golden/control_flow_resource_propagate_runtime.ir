@@ -32,7 +32,7 @@
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 9, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
     { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "alwaysFail", "args": [] } },
     { "op": "return", "line": 11, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
     ]

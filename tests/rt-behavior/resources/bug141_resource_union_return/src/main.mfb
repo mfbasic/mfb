@@ -8,7 +8,7 @@ IMPORT io
 ' and be usable by the caller.
 UNION Stream
   fs::File
-  Socket
+  net::Socket
 END UNION
 
 FUNC openIt() AS Stream
@@ -19,10 +19,10 @@ END FUNC
 FUNC main AS Integer
   RES st AS Stream = openIt()
   MATCH st
-    CASE File(f)
+    CASE fs::File(f)
       fs::writeAll(f, "union-data")
       io::print("file-ok")
-    CASE Socket(sock)
+    CASE net::Socket(sock)
       io::print("socket")
   END MATCH
   RETURN 0

@@ -10,7 +10,7 @@
   "types": [
   {
     "kind": "enum",
-    "line": 17,
+    "line": 1,
     "visibility": "export",
     "name": "Stream",
     "members": [
@@ -20,7 +20,7 @@
   },
   {
     "kind": "enum",
-    "line": 33,
+    "line": 6,
     "visibility": "export",
     "name": "Signal",
     "members": [
@@ -38,7 +38,7 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "p", "line": 8, "type": "Process", "default": null }
+    { "name": "p", "line": 8, "type": "process.Process", "default": null }
     ],
     "returns": "Integer",
     "body": [

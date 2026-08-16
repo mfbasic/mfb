@@ -21,8 +21,8 @@
       ],
       "returnType": "Boolean",
       "body": [
-      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES TlsSocket", "value": { "kind": "list", "values": [] }, "line": 12 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "r", "type": "TlsSocket", "value": { "kind": "call", "callee": "tls.poll", "arguments": [{ "kind": "identifier", "value": "socks" }] }, "line": 13 },
+      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES tls.TlsSocket", "value": { "kind": "list", "values": [] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "r", "type": "tls.TlsSocket", "value": { "kind": "call", "callee": "tls.poll", "arguments": [{ "kind": "identifier", "value": "socks" }] }, "line": 13 },
       { "kind": "return", "value": { "kind": "boolean", "value": false }, "line": 14 }
       ],
       "trap": {
@@ -45,11 +45,11 @@
       "body": [
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": null, "value": { "kind": "call", "callee": "tls.connect", "arguments": [{ "kind": "string", "value": "8.8.8.8" }, { "kind": "number", "value": "443" }, { "kind": "number", "value": "30000" }, { "kind": "string", "value": "dns.google" }] }, "line": 21 },
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "b", "type": null, "value": { "kind": "call", "callee": "tls.connect", "arguments": [{ "kind": "string", "value": "8.8.8.8" }, { "kind": "number", "value": "443" }, { "kind": "number", "value": "30000" }, { "kind": "string", "value": "dns.google" }] }, "line": 22 },
-      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES TlsSocket", "value": { "kind": "list", "values": [] }, "line": 23 },
+      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES tls.TlsSocket", "value": { "kind": "list", "values": [] }, "line": 23 },
       { "kind": "assignment", "name": "socks", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "identifier", "value": "a" }] }, "line": 24 },
       { "kind": "assignment", "name": "socks", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "identifier", "value": "b" }] }, "line": 25 },
       { "kind": "binding", "mutable": true, "name": "idleTimeout", "type": "Boolean", "value": { "kind": "boolean", "value": false }, "line": 28 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "probe", "type": "TlsSocket", "value": {
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "probe", "type": "tls.TlsSocket", "value": {
         "kind": "trapped",
         "binding": "e",
         "line": 29,
@@ -64,7 +64,7 @@
       { "kind": "binding", "mutable": false, "name": "crlfBytes", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "13" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "10" }] }] }, "line": 38 },
       { "kind": "binding", "mutable": false, "name": "crlf", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "crlfBytes" }] }, "line": 39 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "tls.writeText", "arguments": [{ "kind": "identifier", "value": "b" }, { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "HEAD / HTTP/1.0" }, "right": { "kind": "identifier", "value": "crlf" } }, "right": { "kind": "string", "value": "Host: dns.google" } }, "right": { "kind": "identifier", "value": "crlf" } }, "right": { "kind": "identifier", "value": "crlf" } }] }, "line": 40 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "ready", "type": "TlsSocket", "value": { "kind": "call", "callee": "tls.poll", "arguments": [{ "kind": "identifier", "value": "socks" }] }, "line": 41 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "ready", "type": "tls.TlsSocket", "value": { "kind": "call", "callee": "tls.poll", "arguments": [{ "kind": "identifier", "value": "socks" }] }, "line": 41 },
       { "kind": "binding", "mutable": false, "name": "reply", "type": "String", "value": { "kind": "call", "callee": "tls.readText", "arguments": [{ "kind": "identifier", "value": "ready" }, { "kind": "number", "value": "4096" }] }, "line": 42 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "httpResponse=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.startsWith", "arguments": [{ "kind": "identifier", "value": "reply" }, { "kind": "string", "value": "HTTP/" }] }] } }] }, "line": 43 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 44 }

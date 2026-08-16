@@ -35,8 +35,8 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 10, "mutable": false, "name": "listener", "type": "Listener", "value": { "kind": "call", "type": "Listener", "target": "net.listenTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "bind", "line": 11, "mutable": false, "name": "client", "type": "Socket", "value": { "kind": "call", "type": "Socket", "target": "net.accept", "args": [{ "kind": "local", "name": "listener" }, { "kind": "const", "type": "Integer", "value": "200" }] } },
+    { "op": "bind", "line": 10, "mutable": false, "name": "listener", "type": "net.Listener", "value": { "kind": "call", "type": "net.Listener", "target": "net.listenTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "client", "type": "net.Socket", "value": { "kind": "call", "type": "net.Socket", "target": "net.accept", "args": [{ "kind": "local", "name": "listener" }, { "kind": "const", "type": "Integer", "value": "200" }] } },
     { "op": "return", "line": 12, "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "trap",

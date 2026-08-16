@@ -21,7 +21,7 @@
     "body": [
     { "op": "bind", "line": 5, "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/func_fs_readAllBytes_valid.txt" } },
     { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeText", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "Hello\nWorld" }] } },
-    { "op": "bind", "line": 7, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
     { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.readLine", "args": [{ "kind": "local", "name": "f" }] }] } },
     { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "List OF Byte", "target": "fs.readAllBytes", "args": [{ "kind": "local", "name": "f" }] }] }] } },
     { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },

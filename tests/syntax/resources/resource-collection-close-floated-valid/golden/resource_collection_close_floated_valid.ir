@@ -19,7 +19,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 16, "mutable": true, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "type": "List OF RES File", "values": [] } },
+    { "op": "bind", "line": 16, "mutable": true, "name": "handles", "type": "List OF RES fs.File", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [] } },
     { "op": "bind", "line": 17, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
@@ -27,8 +27,8 @@
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
       "body": [
-      { "op": "bind", "line": 19, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/syntax/resources/resource-collection-close-floated-valid/src/main.mfb" }] } },
-      { "op": "assign", "line": 20, "name": "handles", "value": { "kind": "call", "type": "List OF RES File", "target": "collections.append", "args": [{ "kind": "local", "name": "handles" }, { "kind": "local", "name": "f" }] } },
+      { "op": "bind", "line": 19, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/syntax/resources/resource-collection-close-floated-valid/src/main.mfb" }] } },
+      { "op": "assign", "line": 20, "name": "handles", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "collections.append", "args": [{ "kind": "local", "name": "handles" }, { "kind": "local", "name": "f" }] } },
       { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
       { "op": "assign", "line": 22, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]

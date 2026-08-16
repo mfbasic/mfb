@@ -19,7 +19,7 @@ Permissions:
     io.print at src/main.mfb:14
 
 Resources:
-  File file at src/main.mfb:5 (standard, close fs.close, may fail)
+  fs.File file at src/main.mfb:5 (standard, close fs.close, may fail)
 
 Control flow:
   readFirst at src/main.mfb:4 (fallible)
@@ -32,7 +32,7 @@ Control flow:
     fallible call io.print at src/main.mfb:14 -> trap
 
 Findings:
-  info AUDIT-RESOURCE-CLOSE-MAY-FAIL resource `file` (File) is closed by lexical drop; explicit `fs.close` is required to observe a close failure (src/main.mfb:5)
+  info AUDIT-RESOURCE-CLOSE-MAY-FAIL resource `file` (fs.File) is closed by lexical drop; explicit `fs.close` is required to observe a close failure (src/main.mfb:5)
   info AUDIT-PERM-FILESYSTEM project uses host capability: filesystem
   info AUDIT-PERM-TERMINAL project uses host capability: terminal
 [exit 0]
@@ -126,7 +126,7 @@ $ mfb audit --format json tests/syntax/packages/audit-resources
     {
       "function": "readFirst",
       "name": "file",
-      "resourceType": "File",
+      "resourceType": "fs.File",
       "closeOp": "fs.close",
       "path": "src/main.mfb",
       "line": 5,
@@ -175,7 +175,7 @@ $ mfb audit --format json tests/syntax/packages/audit-resources
       "code": "AUDIT-RESOURCE-CLOSE-MAY-FAIL",
       "severity": "info",
       "category": "resource",
-      "message": "resource `file` (File) is closed by lexical drop; explicit `fs.close` is required to observe a close failure",
+      "message": "resource `file` (fs.File) is closed by lexical drop; explicit `fs.close` is required to observe a close failure",
       "location": {
         "path": "src/main.mfb",
         "line": 5

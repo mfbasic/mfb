@@ -16,8 +16,8 @@
       "line": 5,
       "includes": [],
       "variants": [
-      { "name": "File", "line": 6 },
-      { "name": "Socket", "line": 7 }
+      { "name": "fs.File", "line": 6 },
+      { "name": "net.Socket", "line": 7 }
       ]
     },
     {
@@ -39,7 +39,7 @@
         "line": 14,
         "cases": [
         {
-          "pattern": { "kind": "union", "type": "File", "binding": "f" },
+          "pattern": { "kind": "union", "type": "fs.File", "binding": "f" },
           "guard": null,
           "line": 15,
           "body": [
@@ -47,7 +47,7 @@
           ]
         },
         {
-          "pattern": { "kind": "union", "type": "Socket", "binding": "sock" },
+          "pattern": { "kind": "union", "type": "net.Socket", "binding": "sock" },
           "guard": null,
           "line": 17,
           "body": [
@@ -80,7 +80,7 @@
         ]
       },
       { "kind": "expression", "expression": { "kind": "call", "callee": "writeVia", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "union-drop-9" }] }, "line": 27 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "r", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "r", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 30 },
       { "kind": "binding", "mutable": false, "name": "back", "type": "String", "value": { "kind": "call", "callee": "fs.readAll", "arguments": [{ "kind": "identifier", "value": "r" }] }, "line": 31 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "r" }] }, "line": 32 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "back" }] }, "line": 33 },

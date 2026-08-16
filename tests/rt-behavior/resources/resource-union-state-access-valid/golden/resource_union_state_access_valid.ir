@@ -25,13 +25,13 @@
     "includes": [],
     "variants": [
     {
-      "name": "File",
+      "name": "fs.File",
       "line": 10,
       "fields": [
       ]
     },
     {
-      "name": "Socket",
+      "name": "net.Socket",
       "line": 11,
       "fields": [
       ]
@@ -78,7 +78,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 21, "mutable": false, "name": "s", "type": "Stream STATE Cursor", "value": { "kind": "unionWrap", "union": "Stream", "member": "File", "value": { "kind": "call", "type": "File", "target": "fs.createTempFile", "args": [] } } },
+    { "op": "bind", "line": 21, "mutable": false, "name": "s", "type": "Stream STATE Cursor", "value": { "kind": "unionWrap", "union": "Stream", "member": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } } },
     { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "s" }, "member": "state" }, "member": "pos" }] }] } },
     { "op": "stateAssign", "line": 23, "resource": "s", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "s" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "const", "type": "Integer", "value": "5" } }] } },
     { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "s" }, "member": "state" }, "member": "pos" }] }] } },
@@ -92,19 +92,19 @@
       "cases": [
       {
         "line": 28,
-        "pattern": { "kind": "value", "value": { "kind": "local", "name": "File" } },
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "fs.File" } },
         "guard": null,
         "body": [
-        { "op": "bind", "line": 28, "mutable": false, "name": "f", "type": "File STATE Cursor", "value": { "kind": "unionExtract", "type": "File", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "bind", "line": 28, "mutable": false, "name": "f", "type": "fs.File STATE Cursor", "value": { "kind": "unionExtract", "type": "fs.File", "value": { "kind": "local", "name": "$match0" } } },
         { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "pos" }] }] } }
         ]
       },
       {
         "line": 30,
-        "pattern": { "kind": "value", "value": { "kind": "local", "name": "Socket" } },
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "net.Socket" } },
         "guard": null,
         "body": [
-        { "op": "bind", "line": 30, "mutable": false, "name": "sock", "type": "Socket STATE Cursor", "value": { "kind": "unionExtract", "type": "Socket", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "bind", "line": 30, "mutable": false, "name": "sock", "type": "net.Socket STATE Cursor", "value": { "kind": "unionExtract", "type": "net.Socket", "value": { "kind": "local", "name": "$match0" } } },
         { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "-1" }] } }
         ]
       }

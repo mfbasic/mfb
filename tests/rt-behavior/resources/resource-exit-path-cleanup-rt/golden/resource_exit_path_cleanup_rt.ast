@@ -26,7 +26,7 @@
         "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "4" } },
         "line": 24,
         "body": [
-        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 25 },
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 25 },
         { "kind": "exit", "target": "while", "code": null, "line": 26 }
         ]
       },
@@ -51,7 +51,7 @@
         "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "4" } },
         "line": 35,
         "body": [
-        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 36 },
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 36 },
         { "kind": "assignment", "name": "n", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "1" } }, "line": 37 },
         { "kind": "continue", "loop": "while", "line": 38 }
         ]
@@ -70,8 +70,8 @@
       ],
       "returnType": "Nothing",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 48 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "bad", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "/nonexistent-p59d/missing.txt" }] }, "line": 49 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 48 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "bad", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "/nonexistent-p59d/missing.txt" }] }, "line": 49 },
       { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 50 }
       ]
     },
@@ -86,8 +86,8 @@
       ],
       "returnType": "Nothing",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 56 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "bad", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "/nonexistent-p59d/missing.txt" }] }, "line": 57 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 56 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "bad", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "/nonexistent-p59d/missing.txt" }] }, "line": 57 },
       { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 58 }
       ],
       "trap": {

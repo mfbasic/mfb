@@ -28,6 +28,13 @@ use crate::target::shared::registry::{
 pub(crate) const AUDIO_INPUT_TYPE: &str = "AudioInput";
 pub(crate) const AUDIO_OUTPUT_TYPE: &str = "AudioOutput";
 pub(crate) const AUDIO_DEVICE_TYPE: &str = "AudioDevice";
+
+/// Package-qualified type identities (`audio.AudioInput`, `audio.AudioOutput`) —
+/// plan-97 / bug-441. The bare `*_TYPE` constants stay the names for
+/// `AUDIO_TYPES` and the close-op match; these `*_TYPE_ID` forms are the string
+/// every `RES` binding, parameter, and return of an audio resource carries.
+pub(crate) const AUDIO_INPUT_TYPE_ID: &str = "audio.AudioInput";
+pub(crate) const AUDIO_OUTPUT_TYPE_ID: &str = "audio.AudioOutput";
 /// Value records the user constructs and passes to `audio::render`. Registered
 /// natively (fields below) so they are constructible, and defined in the source
 /// companion (`audio_render.mfb`) so the source `render` operates on them — the
@@ -151,16 +158,16 @@ const AUDIO_FUNCTIONS: &[BuiltinFunction] = &[
         OPEN_INPUT,
         "openInput",
         &[
-            ov(OPEN_OV0, AUDIO_INPUT_TYPE),
-            ov(OPEN_OV1, AUDIO_INPUT_TYPE),
+            ov(OPEN_OV0, AUDIO_INPUT_TYPE_ID),
+            ov(OPEN_OV1, AUDIO_INPUT_TYPE_ID),
         ],
     ),
     af(
         OPEN_OUTPUT,
         "openOutput",
         &[
-            ov(OPEN_OV0, AUDIO_OUTPUT_TYPE),
-            ov(OPEN_OV1, AUDIO_OUTPUT_TYPE),
+            ov(OPEN_OV0, AUDIO_OUTPUT_TYPE_ID),
+            ov(OPEN_OV1, AUDIO_OUTPUT_TYPE_ID),
         ],
     ),
     af(
@@ -168,7 +175,7 @@ const AUDIO_FUNCTIONS: &[BuiltinFunction] = &[
         "read",
         &[ov(
             &[
-                req("input", AUDIO_INPUT_TYPE),
+                req("input", AUDIO_INPUT_TYPE_ID),
                 req("frames", "Integer"),
                 opt("timeoutMs", "Integer"),
             ],
@@ -180,7 +187,7 @@ const AUDIO_FUNCTIONS: &[BuiltinFunction] = &[
         "write",
         &[ov(
             &[
-                req("output", AUDIO_OUTPUT_TYPE),
+                req("output", AUDIO_OUTPUT_TYPE_ID),
                 req("bytes", "List OF Byte"),
             ],
             "Nothing",
@@ -190,24 +197,24 @@ const AUDIO_FUNCTIONS: &[BuiltinFunction] = &[
         POLL,
         "poll",
         &[ov(
-            &[req("stream", AUDIO_INPUT_TYPE), opt("timeoutMs", "Integer")],
+            &[req("stream", AUDIO_INPUT_TYPE_ID), opt("timeoutMs", "Integer")],
             "Boolean",
         )],
     ),
     af(
         AVAILABLE,
         "available",
-        &[ov(&[req("stream", AUDIO_INPUT_TYPE)], "Integer")],
+        &[ov(&[req("stream", AUDIO_INPUT_TYPE_ID)], "Integer")],
     ),
     af(
         XRUNS,
         "xruns",
-        &[ov(&[req("stream", AUDIO_INPUT_TYPE)], "Integer")],
+        &[ov(&[req("stream", AUDIO_INPUT_TYPE_ID)], "Integer")],
     ),
     af(
         CLOSE,
         "close",
-        &[ov(&[req("stream", AUDIO_INPUT_TYPE)], "Nothing")],
+        &[ov(&[req("stream", AUDIO_INPUT_TYPE_ID)], "Nothing")],
     ),
     af(
         RENDER,
@@ -219,7 +226,7 @@ const AUDIO_FUNCTIONS: &[BuiltinFunction] = &[
         "play",
         &[ov(
             &[
-                req("output", AUDIO_OUTPUT_TYPE),
+                req("output", AUDIO_OUTPUT_TYPE_ID),
                 reqa("mml", &["tracks"], "String"),
             ],
             "Nothing",
@@ -378,7 +385,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 pub(crate) fn source_implementation_name(name: &str, arg_types: &[String]) -> Option<&'static str> {
     match name {
         RENDER => Some(INTERNAL_RENDER),
-        PLAY if exact(arg_types, &[AUDIO_OUTPUT_TYPE, "List OF String"]) => {
+        PLAY if exact(arg_types, &[AUDIO_OUTPUT_TYPE_ID, "List OF String"]) => {
             Some(INTERNAL_PLAY_TRACKS)
         }
         PLAY => Some(INTERNAL_PLAY),
@@ -438,8 +445,8 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     // the lowered-only internal names are not descriptor functions, so they fall
     // back to this explicit map. See [`is_audio_internal_call`].
     DefaultResolver::return_type_name(&AUDIO, name).or_else(|| match name {
-        OPEN_INPUT_DEVICE => Some(AUDIO_INPUT_TYPE),
-        OPEN_OUTPUT_DEVICE => Some(AUDIO_OUTPUT_TYPE),
+        OPEN_INPUT_DEVICE => Some(AUDIO_INPUT_TYPE_ID),
+        OPEN_OUTPUT_DEVICE => Some(AUDIO_OUTPUT_TYPE_ID),
         READ_TIMEOUT => Some("List OF Byte"),
         POLL_TIMEOUT => Some("Boolean"),
         CLOSE_INPUT | CLOSE_OUTPUT => Some("Nothing"),
@@ -461,7 +468,7 @@ fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedC
                     &[AUDIO_DEVICE_TYPE, "Integer", "Integer", "Integer"],
                 ) =>
         {
-            Cow::Borrowed(AUDIO_INPUT_TYPE)
+            Cow::Borrowed(AUDIO_INPUT_TYPE_ID)
         }
         OPEN_OUTPUT
             if exact(arg_types, &["Integer", "Integer", "Integer"])
@@ -470,31 +477,31 @@ fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedC
                     &[AUDIO_DEVICE_TYPE, "Integer", "Integer", "Integer"],
                 ) =>
         {
-            Cow::Borrowed(AUDIO_OUTPUT_TYPE)
+            Cow::Borrowed(AUDIO_OUTPUT_TYPE_ID)
         }
         // `read` is defined ONLY over `AudioInput` — no `AudioOutput` form, so a
         // swapped stream fails to resolve (plan-33-A §3.1).
-        READ if exact(arg_types, &[AUDIO_INPUT_TYPE, "Integer"])
-            || exact(arg_types, &[AUDIO_INPUT_TYPE, "Integer", "Integer"]) =>
+        READ if exact(arg_types, &[AUDIO_INPUT_TYPE_ID, "Integer"])
+            || exact(arg_types, &[AUDIO_INPUT_TYPE_ID, "Integer", "Integer"]) =>
         {
             Cow::Borrowed("List OF Byte")
         }
         // `write` is defined ONLY over `AudioOutput`.
-        WRITE if exact(arg_types, &[AUDIO_OUTPUT_TYPE, "List OF Byte"]) => Cow::Borrowed("Nothing"),
-        POLL if exact(arg_types, &[AUDIO_INPUT_TYPE])
-            || exact(arg_types, &[AUDIO_OUTPUT_TYPE])
-            || exact(arg_types, &[AUDIO_INPUT_TYPE, "Integer"])
-            || exact(arg_types, &[AUDIO_OUTPUT_TYPE, "Integer"]) =>
+        WRITE if exact(arg_types, &[AUDIO_OUTPUT_TYPE_ID, "List OF Byte"]) => Cow::Borrowed("Nothing"),
+        POLL if exact(arg_types, &[AUDIO_INPUT_TYPE_ID])
+            || exact(arg_types, &[AUDIO_OUTPUT_TYPE_ID])
+            || exact(arg_types, &[AUDIO_INPUT_TYPE_ID, "Integer"])
+            || exact(arg_types, &[AUDIO_OUTPUT_TYPE_ID, "Integer"]) =>
         {
             Cow::Borrowed("Boolean")
         }
         AVAILABLE | XRUNS
-            if exact(arg_types, &[AUDIO_INPUT_TYPE]) || exact(arg_types, &[AUDIO_OUTPUT_TYPE]) =>
+            if exact(arg_types, &[AUDIO_INPUT_TYPE_ID]) || exact(arg_types, &[AUDIO_OUTPUT_TYPE_ID]) =>
         {
             Cow::Borrowed("Integer")
         }
         CLOSE
-            if exact(arg_types, &[AUDIO_INPUT_TYPE]) || exact(arg_types, &[AUDIO_OUTPUT_TYPE]) =>
+            if exact(arg_types, &[AUDIO_INPUT_TYPE_ID]) || exact(arg_types, &[AUDIO_OUTPUT_TYPE_ID]) =>
         {
             Cow::Borrowed("Nothing")
         }
@@ -502,8 +509,8 @@ fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedC
         // `play(output, mml)` and `play(output, tracks)` — a single MML track or
         // a list of tracks. Both write to the (non-owned) open output stream and
         // return nothing; the caller keeps and closes the stream.
-        PLAY if exact(arg_types, &[AUDIO_OUTPUT_TYPE, "String"])
-            || exact(arg_types, &[AUDIO_OUTPUT_TYPE, "List OF String"]) =>
+        PLAY if exact(arg_types, &[AUDIO_OUTPUT_TYPE_ID, "String"])
+            || exact(arg_types, &[AUDIO_OUTPUT_TYPE_ID, "List OF String"]) =>
         {
             Cow::Borrowed("Nothing")
         }
@@ -556,10 +563,10 @@ pub(crate) fn implementation_name(name: &str, arg_types: &[String]) -> Option<&'
         }
         READ if arg_types.len() == 3 => Some(READ_TIMEOUT),
         POLL if arg_types.len() == 2 => Some(POLL_TIMEOUT),
-        CLOSE if arg_types.first().map(String::as_str) == Some(AUDIO_INPUT_TYPE) => {
+        CLOSE if arg_types.first().map(String::as_str) == Some(AUDIO_INPUT_TYPE_ID) => {
             Some(CLOSE_INPUT)
         }
-        CLOSE if arg_types.first().map(String::as_str) == Some(AUDIO_OUTPUT_TYPE) => {
+        CLOSE if arg_types.first().map(String::as_str) == Some(AUDIO_OUTPUT_TYPE_ID) => {
             Some(CLOSE_OUTPUT)
         }
         _ => None,
@@ -681,22 +688,22 @@ mod tests {
             Some(OPEN_OUTPUT_DEVICE)
         );
         // Timed read/poll rewrite; the untimed forms keep their name.
-        assert_eq!(impl_name(READ, &[AUDIO_INPUT_TYPE, "Integer"]), None);
+        assert_eq!(impl_name(READ, &[AUDIO_INPUT_TYPE_ID, "Integer"]), None);
         assert_eq!(
-            impl_name(READ, &[AUDIO_INPUT_TYPE, "Integer", "Integer"]),
+            impl_name(READ, &[AUDIO_INPUT_TYPE_ID, "Integer", "Integer"]),
             Some(READ_TIMEOUT)
         );
-        assert_eq!(impl_name(POLL, &[AUDIO_INPUT_TYPE]), None);
+        assert_eq!(impl_name(POLL, &[AUDIO_INPUT_TYPE_ID]), None);
         assert_eq!(
-            impl_name(POLL, &[AUDIO_OUTPUT_TYPE, "Integer"]),
+            impl_name(POLL, &[AUDIO_OUTPUT_TYPE_ID, "Integer"]),
             Some(POLL_TIMEOUT)
         );
         // close routes per direction.
-        assert_eq!(impl_name(CLOSE, &[AUDIO_INPUT_TYPE]), Some(CLOSE_INPUT));
-        assert_eq!(impl_name(CLOSE, &[AUDIO_OUTPUT_TYPE]), Some(CLOSE_OUTPUT));
+        assert_eq!(impl_name(CLOSE, &[AUDIO_INPUT_TYPE_ID]), Some(CLOSE_INPUT));
+        assert_eq!(impl_name(CLOSE, &[AUDIO_OUTPUT_TYPE_ID]), Some(CLOSE_OUTPUT));
         // write/available/xruns/devices never rewrite.
-        assert_eq!(impl_name(WRITE, &[AUDIO_OUTPUT_TYPE, "List OF Byte"]), None);
-        assert_eq!(impl_name(AVAILABLE, &[AUDIO_INPUT_TYPE]), None);
+        assert_eq!(impl_name(WRITE, &[AUDIO_OUTPUT_TYPE_ID, "List OF Byte"]), None);
+        assert_eq!(impl_name(AVAILABLE, &[AUDIO_INPUT_TYPE_ID]), None);
         assert_eq!(impl_name(DEVICES, &[]), None);
     }
 
@@ -741,8 +748,8 @@ mod tests {
     #[test]
     fn return_type_names() {
         assert_eq!(call_return_type_name(DEVICES), Some("List OF AudioDevice"));
-        assert_eq!(call_return_type_name(OPEN_INPUT), Some(AUDIO_INPUT_TYPE));
-        assert_eq!(call_return_type_name(OPEN_OUTPUT), Some(AUDIO_OUTPUT_TYPE));
+        assert_eq!(call_return_type_name(OPEN_INPUT), Some(AUDIO_INPUT_TYPE_ID));
+        assert_eq!(call_return_type_name(OPEN_OUTPUT), Some(AUDIO_OUTPUT_TYPE_ID));
         assert_eq!(call_return_type_name(READ), Some("List OF Byte"));
         assert_eq!(call_return_type_name(WRITE), Some("Nothing"));
         assert_eq!(call_return_type_name(POLL), Some("Boolean"));
@@ -788,10 +795,10 @@ mod tests {
         );
         assert!(o.aliases.is_empty());
 
-        let overload = ov(OPEN_OV0, AUDIO_INPUT_TYPE);
+        let overload = ov(OPEN_OV0, AUDIO_INPUT_TYPE_ID);
         assert_eq!(overload.params.len(), 3);
         assert_eq!(overload.params[0].name, "sampleRate");
-        assert_eq!(overload.return_type, ReturnType::Fixed(AUDIO_INPUT_TYPE));
+        assert_eq!(overload.return_type, ReturnType::Fixed(AUDIO_INPUT_TYPE_ID));
         let niladic = ov(&[], "List OF AudioDevice");
         assert!(niladic.params.is_empty());
         assert_eq!(
@@ -818,7 +825,7 @@ mod tests {
             AUDIO_RESOLVER.resolve_return_type(
                 &AUDIO,
                 READ,
-                &strings(&[AUDIO_INPUT_TYPE, "Integer"])
+                &strings(&[AUDIO_INPUT_TYPE_ID, "Integer"])
             ),
             Some("List OF Byte".to_string())
         );
@@ -826,7 +833,7 @@ mod tests {
             AUDIO_RESOLVER.resolve_return_type(
                 &AUDIO,
                 READ,
-                &strings(&[AUDIO_OUTPUT_TYPE, "Integer"])
+                &strings(&[AUDIO_OUTPUT_TYPE_ID, "Integer"])
             ),
             None
         );
@@ -841,11 +848,11 @@ mod tests {
             Some(INTERNAL_RENDER)
         );
         assert_eq!(
-            source_implementation_name(PLAY, &strings(&[AUDIO_OUTPUT_TYPE, "String"])),
+            source_implementation_name(PLAY, &strings(&[AUDIO_OUTPUT_TYPE_ID, "String"])),
             Some(INTERNAL_PLAY)
         );
         assert_eq!(
-            source_implementation_name(PLAY, &strings(&[AUDIO_OUTPUT_TYPE, "List OF String"])),
+            source_implementation_name(PLAY, &strings(&[AUDIO_OUTPUT_TYPE_ID, "List OF String"])),
             Some(INTERNAL_PLAY_TRACKS)
         );
         assert_eq!(source_implementation_name(DEVICES, &[]), None);
@@ -858,44 +865,44 @@ mod tests {
         // open* accept an optional leading AudioDevice.
         assert_eq!(
             rt(OPEN_INPUT, &["Integer", "Integer", "Integer"]),
-            Some(AUDIO_INPUT_TYPE.to_string())
+            Some(AUDIO_INPUT_TYPE_ID.to_string())
         );
         assert_eq!(
             rt(
                 OPEN_INPUT,
                 &[AUDIO_DEVICE_TYPE, "Integer", "Integer", "Integer"]
             ),
-            Some(AUDIO_INPUT_TYPE.to_string())
+            Some(AUDIO_INPUT_TYPE_ID.to_string())
         );
         assert_eq!(
             rt(OPEN_OUTPUT, &["Integer", "Integer", "Integer"]),
-            Some(AUDIO_OUTPUT_TYPE.to_string())
+            Some(AUDIO_OUTPUT_TYPE_ID.to_string())
         );
         assert_eq!(
             rt(
                 OPEN_OUTPUT,
                 &[AUDIO_DEVICE_TYPE, "Integer", "Integer", "Integer"]
             ),
-            Some(AUDIO_OUTPUT_TYPE.to_string())
+            Some(AUDIO_OUTPUT_TYPE_ID.to_string())
         );
         assert_eq!(rt(OPEN_INPUT, &["Integer", "Integer"]), None);
         // read is input-only (both arities); write is output-only.
         assert_eq!(
-            rt(READ, &[AUDIO_INPUT_TYPE, "Integer"]),
+            rt(READ, &[AUDIO_INPUT_TYPE_ID, "Integer"]),
             Some("List OF Byte".to_string())
         );
         assert_eq!(
-            rt(READ, &[AUDIO_INPUT_TYPE, "Integer", "Integer"]),
+            rt(READ, &[AUDIO_INPUT_TYPE_ID, "Integer", "Integer"]),
             Some("List OF Byte".to_string())
         );
-        assert_eq!(rt(READ, &[AUDIO_OUTPUT_TYPE, "Integer"]), None);
+        assert_eq!(rt(READ, &[AUDIO_OUTPUT_TYPE_ID, "Integer"]), None);
         assert_eq!(
-            rt(WRITE, &[AUDIO_OUTPUT_TYPE, "List OF Byte"]),
+            rt(WRITE, &[AUDIO_OUTPUT_TYPE_ID, "List OF Byte"]),
             Some("Nothing".to_string())
         );
-        assert_eq!(rt(WRITE, &[AUDIO_INPUT_TYPE, "List OF Byte"]), None);
+        assert_eq!(rt(WRITE, &[AUDIO_INPUT_TYPE_ID, "List OF Byte"]), None);
         // poll/available/xruns/close accept either handle.
-        for t in [AUDIO_INPUT_TYPE, AUDIO_OUTPUT_TYPE] {
+        for t in [AUDIO_INPUT_TYPE_ID, AUDIO_OUTPUT_TYPE_ID] {
             assert_eq!(rt(POLL, &[t]), Some("Boolean".to_string()));
             assert_eq!(rt(POLL, &[t, "Integer"]), Some("Boolean".to_string()));
             assert_eq!(rt(AVAILABLE, &[t]), Some("Integer".to_string()));
@@ -911,14 +918,14 @@ mod tests {
         );
         assert_eq!(rt(RENDER, &["List OF Byte"]), None);
         assert_eq!(
-            rt(PLAY, &[AUDIO_OUTPUT_TYPE, "String"]),
+            rt(PLAY, &[AUDIO_OUTPUT_TYPE_ID, "String"]),
             Some("Nothing".to_string())
         );
         assert_eq!(
-            rt(PLAY, &[AUDIO_OUTPUT_TYPE, "List OF String"]),
+            rt(PLAY, &[AUDIO_OUTPUT_TYPE_ID, "List OF String"]),
             Some("Nothing".to_string())
         );
-        assert_eq!(rt(PLAY, &[AUDIO_OUTPUT_TYPE, "Integer"]), None);
+        assert_eq!(rt(PLAY, &[AUDIO_OUTPUT_TYPE_ID, "Integer"]), None);
         assert_eq!(rt("audio.nope", &[]), None);
     }
 

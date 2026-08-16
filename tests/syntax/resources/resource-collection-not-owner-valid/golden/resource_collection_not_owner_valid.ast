@@ -18,9 +18,9 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/syntax/resources/resource-collection-not-owner-valid/src/main.mfb" }] }, "line": 14 },
-      { "kind": "binding", "mutable": false, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "a" }] }, "line": 15 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "elem", "type": "File", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "number", "value": "0" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/syntax/resources/resource-collection-not-owner-valid/src/main.mfb" }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "handles", "type": "List OF RES fs.File", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "a" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "elem", "type": "fs.File", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "number", "value": "0" }] }, "line": 16 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 17 }
       ]
     }

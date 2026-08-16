@@ -35,9 +35,9 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 5, "mutable": false, "name": "s1", "type": "Listener", "value": { "kind": "call", "type": "Listener", "target": "net.listenTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "bind", "line": 6, "mutable": false, "name": "s2", "type": "Listener", "value": { "kind": "call", "type": "Listener", "target": "net.listenTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "16" }] } },
-    { "op": "bind", "line": 7, "mutable": false, "name": "s3", "type": "Listener", "value": { "kind": "call", "type": "Listener", "target": "net.listenTcp", "args": [{ "kind": "const", "type": "String", "value": "" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 5, "mutable": false, "name": "s1", "type": "net.Listener", "value": { "kind": "call", "type": "net.Listener", "target": "net.listenTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 6, "mutable": false, "name": "s2", "type": "net.Listener", "value": { "kind": "call", "type": "net.Listener", "target": "net.listenTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "16" }] } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "s3", "type": "net.Listener", "value": { "kind": "call", "type": "net.Listener", "target": "net.listenTcp", "args": [{ "kind": "const", "type": "String", "value": "" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "listening all overloads" }] } },
     { "op": "return", "line": 9, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]

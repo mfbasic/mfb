@@ -3,7 +3,7 @@
 '
 ' Before the fix, `resource_cleanup_symbol` resolved a close op only through
 ' `builtins::resource_close_function` — an 8-entry table of the language's own
-' resources (File/Socket/Listener/...). A `RESOURCE Db CLOSE BY sql::close` was
+' resources (File/net::Socket/net::Listener/...). A `RESOURCE Db CLOSE BY sql::close` was
 ' not in it, so the bind site's `else if let Some(symbol)` fell through, no
 ' `ActiveCleanup::Resource` was registered, and scope exit emitted NEITHER the
 ' close NOR the record reclaim. No diagnostic, exit 0, correct output — and a

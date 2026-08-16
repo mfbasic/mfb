@@ -26,7 +26,7 @@
     "visibility": "public",
     "kind": "sub",
     "params": [
-    { "name": "f", "line": 9, "type": "File STATE FileState", "default": null },
+    { "name": "f", "line": 9, "type": "fs.File STATE FileState", "default": null },
     { "name": "by", "line": 9, "type": "Integer", "default": null }
     ],
     "returns": "Nothing",
@@ -43,7 +43,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 14, "mutable": false, "name": "f", "type": "File STATE FileState", "value": { "kind": "call", "type": "File", "target": "fs.createTempFile", "args": [] } },
+    { "op": "bind", "line": 14, "mutable": false, "name": "f", "type": "fs.File STATE FileState", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } },
     { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "FileState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "pos" }] }] } },
     { "op": "stateAssign", "line": 16, "resource": "f", "value": { "kind": "with", "type": "FileState", "target": { "kind": "memberAccess", "type": "FileState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "const", "type": "Integer", "value": "10" } }] } },
     { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "FileState", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "pos" }] }] } },

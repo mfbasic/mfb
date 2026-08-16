@@ -41,7 +41,7 @@ END TYPE
 LINK "libsnd" AS snd
   ' 32 bytes, align 8: frames@0, samplerate@8, channels@12, format@16,
   ' sections@20, seekable@24 — sndfile.h:379-388.
-  CSTRUCT SfFileInfo AS fs::FileInfo
+  CSTRUCT SfFileInfo AS FileInfo
     frames     CInt64
     samplerate CInt32
     channels   CInt32
@@ -50,7 +50,7 @@ LINK "libsnd" AS snd
     seekable   CInt32
   END CSTRUCT
 
-  FUNC openFile(path AS String) AS RES Soundfs::File STATE FileInfo
+  FUNC openFile(path AS String) AS RES SoundFile STATE FileInfo
     SYMBOL "sf_open"
     ABI (path CString, mode CInt32, info OUT SfFileInfo) AS file CPtr
     CONST mode = 16 ' SFM_READ
@@ -59,7 +59,7 @@ LINK "libsnd" AS snd
     RETURN file
   END FUNC
 
-  FUNC closeFile(RES sndfile AS Soundfs::File STATE FileInfo) AS Nothing
+  FUNC closeFile(RES sndfile AS SoundFile STATE FileInfo) AS Nothing
     SYMBOL "sf_close"
     ABI (sndfile CPtr) AS status CInt32
     SUCCESS_ON status = 0
@@ -97,7 +97,7 @@ FUNC main() AS Integer
   END IF
   fs::writeBytes(path, probeWav())
 
-  RES h AS Soundfs::File STATE FileInfo = snd::openFile(path)
+  RES h AS SoundFile STATE FileInfo = snd::openFile(path)
   ' Every one of these reads a distinct SF_INFO offset. Under the old 20-byte
   ' layout all six were shifted by one field.
   io::print("frames=" & toString(h.state.frames))

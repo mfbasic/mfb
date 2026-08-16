@@ -11,7 +11,7 @@ END TYPE
 
 UNION Stream
   fs::File
-  Socket
+  net::Socket
 END UNION
 
 ' plan-74: union STATE agreement is checked exactly as a concrete resource's.

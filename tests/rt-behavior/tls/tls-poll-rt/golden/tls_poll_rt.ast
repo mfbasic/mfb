@@ -17,7 +17,7 @@
       "name": "pollNeg",
       "line": 12,
       "params": [
-      { "name": "conn", "type": "TlsSocket", "resource": true, "state": null, "default": null, "line": 12 }
+      { "name": "conn", "type": "tls.TlsSocket", "resource": true, "state": null, "default": null, "line": 12 }
       ],
       "returnType": "Boolean",
       "body": [

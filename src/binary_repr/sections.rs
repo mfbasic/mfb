@@ -106,8 +106,8 @@ impl TypeTable {
             "String" => TYPE_STRING,
             "Scalar" => TYPE_SCALAR,
             "fs.File" => TYPE_FILE_HANDLE,
-            "Socket" => TYPE_SOCKET_HANDLE,
-            "Listener" => TYPE_LISTENER_HANDLE,
+            "net.Socket" => TYPE_SOCKET_HANDLE,
+            "net.Listener" => TYPE_LISTENER_HANDLE,
             name if name.starts_with("List OF ") => {
                 // `strip_prefix` (not `trim_start_matches`, which is greedy and
                 // would collapse `List OF List OF X` to `List OF X`).

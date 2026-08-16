@@ -1,4 +1,4 @@
-' plan-76-A: net::poll(List OF RES Socket) AS Socket — the readiness multiplex.
+' plan-76-A: net::poll(List OF RES net::Socket) AS net::Socket — the readiness multiplex.
 '
 '  - Connect two loopback clients, accept two server-side conns, write to exactly
 '    one, and prove net::poll(socks) blocks until one is readable then returns a
@@ -25,7 +25,7 @@ FUNC pollPick(writeSecond AS Boolean) AS String
   RES connA = net::accept(server)
   RES clientB = net::connectTcp("127.0.0.1", bound.port)
   RES connB = net::accept(server)
-  MUT socks AS List OF RES Socket = []
+  MUT socks AS List OF RES net::Socket = []
   socks = collections::append(socks, connA)
   socks = collections::append(socks, connB)
   IF writeSecond THEN
@@ -34,7 +34,7 @@ FUNC pollPick(writeSecond AS Boolean) AS String
     net::writeText(clientA, "A")
   END IF
   ' Borrowed pointer to the first ready element; the list still owns/closes it.
-  RES ready AS Socket = net::poll(socks)
+  RES ready AS net::Socket = net::poll(socks)
   RETURN net::readText(ready, 8)
 END FUNC
 
@@ -46,10 +46,10 @@ FUNC pollTimesOut AS Boolean
   RES connA = net::accept(server)
   RES clientB = net::connectTcp("127.0.0.1", bound.port)
   RES connB = net::accept(server)
-  MUT socks AS List OF RES Socket = []
+  MUT socks AS List OF RES net::Socket = []
   socks = collections::append(socks, connA)
   socks = collections::append(socks, connB)
-  RES ready AS Socket = net::poll(socks, 0)
+  RES ready AS net::Socket = net::poll(socks, 0)
   RETURN FALSE
   TRAP(err)
     RETURN err.code = errorCode::ErrTimeout
@@ -62,9 +62,9 @@ FUNC pollNegative AS Boolean
   LET bound = net::localAddress(server)
   RES clientA = net::connectTcp("127.0.0.1", bound.port)
   RES connA = net::accept(server)
-  MUT socks AS List OF RES Socket = []
+  MUT socks AS List OF RES net::Socket = []
   socks = collections::append(socks, connA)
-  RES ready AS Socket = net::poll(socks, -1)
+  RES ready AS net::Socket = net::poll(socks, -1)
   RETURN FALSE
   TRAP(err)
     RETURN err.code = errorCode::ErrInvalidArgument
@@ -73,8 +73,8 @@ END FUNC
 
 ' poll([]) on an empty list raises ErrInvalidArgument (nothing to wait on).
 FUNC pollEmpty AS Boolean
-  MUT socks AS List OF RES Socket = []
-  RES ready AS Socket = net::poll(socks)
+  MUT socks AS List OF RES net::Socket = []
+  RES ready AS net::Socket = net::poll(socks)
   RETURN FALSE
   TRAP(err)
     RETURN err.code = errorCode::ErrInvalidArgument

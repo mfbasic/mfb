@@ -26,7 +26,7 @@
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "f", "line": 17, "type": "File STATE Accum", "default": null },
+    { "name": "f", "line": 17, "type": "fs.File STATE Accum", "default": null },
     { "name": "chunk", "line": 17, "type": "List OF Byte", "default": null }
     ],
     "returns": "Nothing",
@@ -45,7 +45,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 23, "mutable": false, "name": "chunk", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "strings.toBytes", "args": [{ "kind": "const", "type": "String", "value": "abcd" }] } },
-    { "op": "bind", "line": 24, "mutable": false, "name": "f", "type": "File STATE Accum", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/bug424_state_accum_inplace/project.json" }] } },
+    { "op": "bind", "line": 24, "mutable": false, "name": "f", "type": "fs.File STATE Accum", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/bug424_state_accum_inplace/project.json" }] } },
     { "op": "bind", "line": 25, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",

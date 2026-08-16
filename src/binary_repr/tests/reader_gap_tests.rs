@@ -90,8 +90,11 @@ fn primitive_type_name_covers_handle_and_term_types() {
     assert_eq!(primitive_type_name(TYPE_ERROR), Some("Error"));
     assert_eq!(primitive_type_name(TYPE_TERM_COLOR), Some("TermColor"));
     assert_eq!(primitive_type_name(TYPE_TERM_SIZE), Some("TermSize"));
-    assert_eq!(primitive_type_name(TYPE_SOCKET_HANDLE), Some("Socket"));
-    assert_eq!(primitive_type_name(TYPE_LISTENER_HANDLE), Some("Listener"));
+    assert_eq!(primitive_type_name(TYPE_SOCKET_HANDLE), Some("net.Socket"));
+    assert_eq!(
+        primitive_type_name(TYPE_LISTENER_HANDLE),
+        Some("net.Listener")
+    );
 }
 
 #[test]

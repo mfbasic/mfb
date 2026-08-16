@@ -35,21 +35,21 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 22, "mutable": false, "name": "$trap_res0", "type": "Result OF File", "value": { "kind": "callResult", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "/mfb/plan38/definitely/missing/file.txt" }] } },
-    { "op": "bind", "line": 22, "mutable": true, "name": "$trap_val1", "type": "File", "value": null },
+    { "op": "bind", "line": 22, "mutable": false, "name": "$trap_res0", "type": "Result OF fs.File", "value": { "kind": "callResult", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "/mfb/plan38/definitely/missing/file.txt" }] } },
+    { "op": "bind", "line": 22, "mutable": true, "name": "$trap_val1", "type": "fs.File", "value": null },
     {
       "op": "if",
       "line": 22,
       "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
       "then": [
-      { "op": "assign", "line": 22, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "File", "value": { "kind": "local", "name": "$trap_res0" } } }
+      { "op": "assign", "line": 22, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "fs.File", "value": { "kind": "local", "name": "$trap_res0" } } }
       ],
       "else": [
       { "op": "bind", "line": 22, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
       { "op": "return", "line": 23, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } }
       ]
     },
-    { "op": "bind", "line": 22, "mutable": false, "name": "f", "type": "File", "value": { "kind": "local", "name": "$trap_val1" } },
+    { "op": "bind", "line": 22, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "local", "name": "$trap_val1" } },
     { "op": "return", "line": 26, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
@@ -62,21 +62,21 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 32, "mutable": false, "name": "$trap_res2", "type": "Result OF Socket", "value": { "kind": "callResult", "type": "Socket", "target": "net.connectTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
-    { "op": "bind", "line": 32, "mutable": true, "name": "$trap_val3", "type": "Socket", "value": null },
+    { "op": "bind", "line": 32, "mutable": false, "name": "$trap_res2", "type": "Result OF net.Socket", "value": { "kind": "callResult", "type": "net.Socket", "target": "net.connectTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "500" }] } },
+    { "op": "bind", "line": 32, "mutable": true, "name": "$trap_val3", "type": "net.Socket", "value": null },
     {
       "op": "if",
       "line": 32,
       "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res2" } },
       "then": [
-      { "op": "assign", "line": 32, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "Socket", "value": { "kind": "local", "name": "$trap_res2" } } }
+      { "op": "assign", "line": 32, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "net.Socket", "value": { "kind": "local", "name": "$trap_res2" } } }
       ],
       "else": [
       { "op": "bind", "line": 32, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res2" } } },
       { "op": "return", "line": 33, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } }
       ]
     },
-    { "op": "bind", "line": 32, "mutable": false, "name": "sock", "type": "Socket", "value": { "kind": "local", "name": "$trap_val3" } },
+    { "op": "bind", "line": 32, "mutable": false, "name": "sock", "type": "net.Socket", "value": { "kind": "local", "name": "$trap_val3" } },
     { "op": "return", "line": 35, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },

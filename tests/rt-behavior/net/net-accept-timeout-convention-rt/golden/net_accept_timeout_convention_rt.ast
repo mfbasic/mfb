@@ -15,7 +15,7 @@
       "name": "acceptZeroTimeout",
       "line": 12,
       "params": [
-      { "name": "server", "type": "Listener", "default": null, "line": 12 }
+      { "name": "server", "type": "net.Listener", "default": null, "line": 12 }
       ],
       "returnType": "Integer",
       "body": [
@@ -49,7 +49,7 @@
       "name": "acceptNegativeInvalid",
       "line": 26,
       "params": [
-      { "name": "server", "type": "Listener", "default": null, "line": 26 }
+      { "name": "server", "type": "net.Listener", "default": null, "line": 26 }
       ],
       "returnType": "Integer",
       "body": [

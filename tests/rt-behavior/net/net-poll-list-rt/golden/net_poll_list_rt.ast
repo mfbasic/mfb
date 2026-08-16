@@ -27,7 +27,7 @@
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "connA", "type": null, "value": { "kind": "call", "callee": "net.accept", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 25 },
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "clientB", "type": null, "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }] }, "line": 26 },
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "connB", "type": null, "value": { "kind": "call", "callee": "net.accept", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 27 },
-      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES Socket", "value": { "kind": "list", "values": [] }, "line": 28 },
+      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES net.Socket", "value": { "kind": "list", "values": [] }, "line": 28 },
       { "kind": "assignment", "name": "socks", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "identifier", "value": "connA" }] }, "line": 29 },
       { "kind": "assignment", "name": "socks", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "identifier", "value": "connB" }] }, "line": 30 },
       {
@@ -41,7 +41,7 @@
         { "kind": "expression", "expression": { "kind": "call", "callee": "net.writeText", "arguments": [{ "kind": "identifier", "value": "clientA" }, { "kind": "string", "value": "A" }] }, "line": 34 }
         ]
       },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "ready", "type": "Socket", "value": { "kind": "call", "callee": "net.poll", "arguments": [{ "kind": "identifier", "value": "socks" }] }, "line": 37 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "ready", "type": "net.Socket", "value": { "kind": "call", "callee": "net.poll", "arguments": [{ "kind": "identifier", "value": "socks" }] }, "line": 37 },
       { "kind": "return", "value": { "kind": "call", "callee": "net.readText", "arguments": [{ "kind": "identifier", "value": "ready" }, { "kind": "number", "value": "8" }] }, "line": 38 }
       ]
     },
@@ -61,10 +61,10 @@
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "connA", "type": null, "value": { "kind": "call", "callee": "net.accept", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 46 },
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "clientB", "type": null, "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }] }, "line": 47 },
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "connB", "type": null, "value": { "kind": "call", "callee": "net.accept", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 48 },
-      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES Socket", "value": { "kind": "list", "values": [] }, "line": 49 },
+      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES net.Socket", "value": { "kind": "list", "values": [] }, "line": 49 },
       { "kind": "assignment", "name": "socks", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "identifier", "value": "connA" }] }, "line": 50 },
       { "kind": "assignment", "name": "socks", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "identifier", "value": "connB" }] }, "line": 51 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "ready", "type": "Socket", "value": { "kind": "call", "callee": "net.poll", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "number", "value": "0" }] }, "line": 52 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "ready", "type": "net.Socket", "value": { "kind": "call", "callee": "net.poll", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "number", "value": "0" }] }, "line": 52 },
       { "kind": "return", "value": { "kind": "boolean", "value": false }, "line": 53 }
       ],
       "trap": {
@@ -89,9 +89,9 @@
       { "kind": "binding", "mutable": false, "name": "bound", "type": null, "value": { "kind": "call", "callee": "net.localAddress", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 62 },
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "clientA", "type": null, "value": { "kind": "call", "callee": "net.connectTcp", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bound" }, "member": "port" }] }, "line": 63 },
       { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "connA", "type": null, "value": { "kind": "call", "callee": "net.accept", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 64 },
-      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES Socket", "value": { "kind": "list", "values": [] }, "line": 65 },
+      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES net.Socket", "value": { "kind": "list", "values": [] }, "line": 65 },
       { "kind": "assignment", "name": "socks", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "identifier", "value": "connA" }] }, "line": 66 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "ready", "type": "Socket", "value": { "kind": "call", "callee": "net.poll", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, "line": 67 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "ready", "type": "net.Socket", "value": { "kind": "call", "callee": "net.poll", "arguments": [{ "kind": "identifier", "value": "socks" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, "line": 67 },
       { "kind": "return", "value": { "kind": "boolean", "value": false }, "line": 68 }
       ],
       "trap": {
@@ -112,8 +112,8 @@
       ],
       "returnType": "Boolean",
       "body": [
-      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES Socket", "value": { "kind": "list", "values": [] }, "line": 76 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "ready", "type": "Socket", "value": { "kind": "call", "callee": "net.poll", "arguments": [{ "kind": "identifier", "value": "socks" }] }, "line": 77 },
+      { "kind": "binding", "mutable": true, "name": "socks", "type": "List OF RES net.Socket", "value": { "kind": "list", "values": [] }, "line": 76 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "ready", "type": "net.Socket", "value": { "kind": "call", "callee": "net.poll", "arguments": [{ "kind": "identifier", "value": "socks" }] }, "line": 77 },
       { "kind": "return", "value": { "kind": "boolean", "value": false }, "line": 78 }
       ],
       "trap": {

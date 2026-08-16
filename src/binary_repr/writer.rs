@@ -209,10 +209,10 @@ pub(super) fn lower_project_with_external_functions(
         if used.contains("fs.File") {
             resources.add_standard_file(&mut types, &mut strings);
         }
-        if used.contains("Socket") {
+        if used.contains("net.Socket") {
             resources.add_standard_socket(&mut types, &mut strings);
         }
-        if used.contains("Listener") {
+        if used.contains("net.Listener") {
             resources.add_standard_listener(&mut types, &mut strings);
         }
     }
@@ -447,10 +447,11 @@ pub(super) fn is_resource_type_name(type_name: &str) -> bool {
     builtins::is_resource_type(type_name)
 }
 
-/// Collect the bare resource type names (`File`, `Socket`, `Listener`) actually
-/// referenced by the project so only the resource tables that are used get
-/// emitted. Resource handles cannot appear inside collections, so resource type
-/// strings are always bare names.
+/// Collect the package-qualified resource type identities (`fs.File`,
+/// `net.Socket`, `net.Listener`) actually referenced by the project so only the
+/// resource tables that are used get emitted. Resource handles cannot appear
+/// inside collections, so a resource type string is always a single type
+/// identity (never a `List OF ...` wrapper).
 pub(super) fn collect_resource_type_names(ir: &IrProject, names: &mut HashSet<String>) {
     let mut record = |type_: &str, names: &mut HashSet<String>| {
         if is_resource_type_name(type_) {

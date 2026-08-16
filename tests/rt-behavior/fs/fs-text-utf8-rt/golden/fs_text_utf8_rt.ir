@@ -33,7 +33,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "return", "line": 8, "value": { "kind": "call", "type": "String", "target": "fs.readAll", "args": [{ "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "p" }] }] } }
+    { "op": "return", "line": 8, "value": { "kind": "call", "type": "String", "target": "fs.readAll", "args": [{ "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "p" }] }] } }
     ]
   },
   {
@@ -46,7 +46,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "return", "line": 11, "value": { "kind": "call", "type": "String", "target": "fs.readLine", "args": [{ "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "p" }] }] } }
+    { "op": "return", "line": 11, "value": { "kind": "call", "type": "String", "target": "fs.readLine", "args": [{ "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "p" }] }] } }
     ]
   },
   {

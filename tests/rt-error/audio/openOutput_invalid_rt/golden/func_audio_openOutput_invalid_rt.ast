@@ -17,7 +17,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "out", "type": "AudioOutput", "value": { "kind": "call", "callee": "audio.openOutput", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "512" }] }, "line": 4 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "out", "type": "audio.AudioOutput", "value": { "kind": "call", "callee": "audio.openOutput", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "512" }] }, "line": 4 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "audio.close", "arguments": [{ "kind": "identifier", "value": "out" }] }, "line": 5 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 6 }
       ]

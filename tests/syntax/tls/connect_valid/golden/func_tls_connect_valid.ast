@@ -15,7 +15,7 @@
       "name": "ioRound",
       "line": 6,
       "params": [
-      { "name": "c", "type": "TlsSocket", "resource": true, "state": null, "default": null, "line": 6 }
+      { "name": "c", "type": "tls.TlsSocket", "resource": true, "state": null, "default": null, "line": 6 }
       ],
       "returnType": "Integer",
       "body": [

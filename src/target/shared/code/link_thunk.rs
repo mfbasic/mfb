@@ -2772,12 +2772,12 @@ mod tests {
             "Db",
             "Stmt",
             "SoundFile",
-            "Soundfs.File STATE FileInfo",
-            "Socket",
-            "Listener",
-            "UdpSocket",
-            "AudioInput",
-            "AudioOutput",
+            "SoundFile STATE FileInfo",
+            "net.Socket",
+            "net.Listener",
+            "net.UdpSocket",
+            "audio.AudioInput",
+            "audio.AudioOutput",
         ] {
             assert!(
                 !CodeBuilder::resource_uses_io_buffers(type_),

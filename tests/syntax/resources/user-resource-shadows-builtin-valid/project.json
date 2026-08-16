@@ -1,9 +1,9 @@
 {
-  "name": "resource_shadows_builtin_invalid",
+  "name": "user_resource_shadows_builtin_valid",
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
-  "description": "bug-373: a user RESOURCE may not reuse a built-in resource type's name.",
+  "description": "bug-441/plan-97: builtin resources are package-qualified (fs::File), so a user RESOURCE may reuse a bare builtin name — it names a distinct user resource and compiles.",
   "libraries": {
     "sqlite3": [
       { "os": "macos", "type": "system", "source": "libsqlite3.dylib" },

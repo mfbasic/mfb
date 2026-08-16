@@ -19,7 +19,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": true, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "values": [] }, "line": 18 },
+      { "kind": "binding", "mutable": true, "name": "handles", "type": "List OF RES fs.File", "value": { "kind": "list", "values": [] }, "line": 18 },
       { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 19 },
       {
         "kind": "while",
@@ -27,7 +27,7 @@
         "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "3" } },
         "line": 20,
         "body": [
-        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": {
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": {
           "kind": "trapped",
           "binding": "e",
           "line": 21,

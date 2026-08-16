@@ -27,7 +27,7 @@
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "4" } },
       "body": [
-      { "op": "bind", "line": 25, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+      { "op": "bind", "line": 25, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
       { "op": "exitLoop", "line": 26, "loop": "while" }
       ]
     },
@@ -51,7 +51,7 @@
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "4" } },
       "body": [
-      { "op": "bind", "line": 36, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+      { "op": "bind", "line": 36, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
       { "op": "assign", "line": 37, "name": "n", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
       { "op": "continueLoop", "line": 38, "loop": "while" }
       ]
@@ -69,8 +69,8 @@
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 48, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
-    { "op": "bind", "line": 49, "mutable": false, "name": "bad", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "/nonexistent-p59d/missing.txt" }] } },
+    { "op": "bind", "line": 48, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 49, "mutable": false, "name": "bad", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "/nonexistent-p59d/missing.txt" }] } },
     { "op": "return", "line": 50, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
     ]
   },
@@ -84,8 +84,8 @@
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 56, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
-    { "op": "bind", "line": 57, "mutable": false, "name": "bad", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "/nonexistent-p59d/missing.txt" }] } },
+    { "op": "bind", "line": 56, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 57, "mutable": false, "name": "bad", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "/nonexistent-p59d/missing.txt" }] } },
     { "op": "return", "line": 58, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } },
     {
       "op": "trap",

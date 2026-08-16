@@ -16,7 +16,7 @@
     "visibility": "public",
     "kind": "sub",
     "params": [
-    { "name": "f", "line": 4, "type": "File", "default": null },
+    { "name": "f", "line": 4, "type": "fs.File", "default": null },
     { "name": "msg", "line": 4, "type": "String", "default": null }
     ],
     "returns": "Nothing",
@@ -33,7 +33,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 9, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.createTempFile", "args": [] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } },
     { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "logLine", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "first" }] } },
     { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "logLine", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "second" }] } },
     { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },

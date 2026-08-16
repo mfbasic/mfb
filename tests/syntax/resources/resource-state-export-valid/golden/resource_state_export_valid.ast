@@ -26,9 +26,9 @@
       "params": [
       { "name": "path", "type": "String", "default": null, "line": 16 }
       ],
-      "returnType": "File", "returnResource": true, "returnState": "Cursor",
+      "returnType": "fs.File", "returnResource": true, "returnState": "Cursor",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 17 },
       { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "42" } }] }, "line": 18 },
       { "kind": "stateAssignment", "resource": "f", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "state" }, "updates": [{ "field": "len", "value": { "kind": "number", "value": "7" } }] }, "line": 19 },
       { "kind": "return", "value": { "kind": "identifier", "value": "f" }, "line": 20 }

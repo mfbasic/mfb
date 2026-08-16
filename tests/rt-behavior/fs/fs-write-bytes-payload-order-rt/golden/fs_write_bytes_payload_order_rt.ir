@@ -57,7 +57,7 @@
       ]
     },
     { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeBytes", "args": [{ "kind": "local", "name": "path" }, { "kind": "local", "name": "bytes" }] } },
-    { "op": "bind", "line": 30, "mutable": false, "name": "readBack", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "fs.readAllBytes", "args": [{ "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] }] } },
+    { "op": "bind", "line": 30, "mutable": false, "name": "readBack", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "fs.readAllBytes", "args": [{ "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] }] } },
     { "op": "bind", "line": 31, "mutable": true, "name": "onDisk", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
     {
       "op": "forEach",

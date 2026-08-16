@@ -367,7 +367,7 @@ mod tests {
                         fields: Vec::new(),
                     },
                     NirVariant {
-                        name: "Socket".to_string(),
+                        name: "net.Socket".to_string(),
                         fields: Vec::new(),
                     },
                 ],

@@ -18,9 +18,9 @@
     "params": [
     { "name": "path", "line": 5, "type": "String", "default": null }
     ],
-    "returns": "File",
+    "returns": "fs.File",
     "body": [
-    { "op": "bind", "line": 6, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 6, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
     { "op": "return", "line": 7, "value": { "kind": "local", "name": "f" } }
     ]
   },
@@ -44,10 +44,10 @@
       "else": [
       ]
     },
-    { "op": "bind", "line": 15, "mutable": false, "name": "w", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "write" }] } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "w", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "write" }] } },
     { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "w" }, { "kind": "const", "type": "String", "value": "returned-handle" }] } },
     { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "w" }] } },
-    { "op": "bind", "line": 18, "mutable": false, "name": "g", "type": "File", "value": { "kind": "call", "type": "File", "target": "reopen", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 18, "mutable": false, "name": "g", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "reopen", "args": [{ "kind": "local", "name": "path" }] } },
     { "op": "bind", "line": 19, "mutable": false, "name": "back", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.readAll", "args": [{ "kind": "local", "name": "g" }] } },
     { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "g" }] } },
     { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "back" }] } },

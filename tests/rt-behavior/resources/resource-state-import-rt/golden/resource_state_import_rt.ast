@@ -19,7 +19,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "h", "type": "File", "value": { "kind": "call", "callee": "resource_state_export_valid.openTagged", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/resources/resource-state-import-rt/src/main.mfb" }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "h", "type": "fs.File", "value": { "kind": "call", "callee": "resource_state_export_valid.openTagged", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/resources/resource-state-import-rt/src/main.mfb" }] }, "line": 14 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pos=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "member": "pos" }] } }] }, "line": 15 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "member": "len" }] } }] }, "line": 16 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "h" }] }, "line": 17 },

@@ -20,8 +20,8 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String RES File TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_res_sink.blockNeverAccept" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 21 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "fill", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/threads/thread-resource-transfer-fail-leak/data/input.txt" }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String RES fs.File TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_res_sink.blockNeverAccept" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "fill", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/threads/thread-resource-transfer-fail-leak/data/input.txt" }] }, "line": 22 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "fill" }, { "kind": "number", "value": "1000" }] }, "line": 23 },
       { "kind": "binding", "mutable": true, "name": "closed", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 25 },
       { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 26 },
@@ -31,7 +31,7 @@
         "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "300" } },
         "line": 27,
         "body": [
-        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/threads/thread-resource-transfer-fail-leak/data/input.txt" }] }, "line": 28 },
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/rt-behavior/threads/thread-resource-transfer-fail-leak/data/input.txt" }] }, "line": 28 },
         { "kind": "expression", "expression": {
           "kind": "trapped",
           "binding": "err",

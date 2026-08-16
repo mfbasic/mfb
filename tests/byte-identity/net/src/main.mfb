@@ -3,7 +3,7 @@ IMPORT io
 IMPORT net
 
 FUNC main() AS Integer
-  RES sock AS Socket = net::connectTcp("example.com", 80)
+  RES sock AS net::Socket = net::connectTcp("example.com", 80)
   LET got = net::read(sock, 64)
   net::write(sock, got)
   io::print(toString(len(got)))
@@ -13,13 +13,13 @@ FUNC main() AS Integer
 
   ' connectTcp overloads: (host, port) covered above; add the timeout,
   ' Address, and Address+timeout forms.
-  RES sockT AS Socket = net::connectTcp("example.com", 80, 1000)
+  RES sockT AS net::Socket = net::connectTcp("example.com", 80, 1000)
   LET locAddr = net::localAddress(sock)
   io::print(locAddr.host)
-  RES sockA AS Socket = net::connectTcp(locAddr)
-  RES sockAT AS Socket = net::connectTcp(locAddr, 1000)
+  RES sockA AS net::Socket = net::connectTcp(locAddr)
+  RES sockAT AS net::Socket = net::connectTcp(locAddr, 1000)
 
-  ' Socket read/write text forms, poll, remoteAddress, timeouts.
+  ' net::Socket read/write text forms, poll, remoteAddress, timeouts.
   LET txt = net::readText(sock, 64)
   io::print(txt)
   net::writeText(sock, "hello")
@@ -32,18 +32,18 @@ FUNC main() AS Integer
   net::setReadTimeout(sock, 1000)
   net::setWriteTimeout(sock, 1000)
 
-  ' Listener: both listenTcp overloads, localAddress, both accept overloads.
-  RES lst AS Listener = net::listenTcp("0.0.0.0", 8080)
-  RES lstB AS Listener = net::listenTcp("0.0.0.0", 8080, 16)
+  ' net::Listener: both listenTcp overloads, localAddress, both accept overloads.
+  RES lst AS net::Listener = net::listenTcp("0.0.0.0", 8080)
+  RES lstB AS net::Listener = net::listenTcp("0.0.0.0", 8080, 16)
   LET lstAddr = net::localAddress(lst)
   io::print(lstAddr.host)
-  RES peer AS Socket = net::accept(lst)
+  RES peer AS net::Socket = net::accept(lst)
   io::print(toString(net::poll(peer)))
-  RES peerT AS Socket = net::accept(lst, 1000)
+  RES peerT AS net::Socket = net::accept(lst, 1000)
   io::print(toString(net::poll(peerT)))
 
   ' UDP socket: bind, address, send/receive byte + text forms, timeouts.
-  RES udp AS UdpSocket = net::bindUdp("0.0.0.0", 0)
+  RES udp AS net::UdpSocket = net::bindUdp("0.0.0.0", 0)
   LET udpAddr = net::localAddress(udp)
   io::print(udpAddr.host)
   net::sendTo(udp, udpAddr, got)
@@ -70,7 +70,7 @@ FUNC main() AS Integer
   LET decoded = net::percentDecode("a%20b")
   io::print(decoded)
 
-  ' close: exercise the Socket, Listener, and UdpSocket overloads; the
+  ' close: exercise the net::Socket, net::Listener, and net::UdpSocket overloads; the
   ' remaining handles release by lexical drop at end of scope.
   net::close(sockT)
   net::close(lstB)

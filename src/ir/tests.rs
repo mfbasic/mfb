@@ -6758,11 +6758,11 @@ mod lower_coverage_tests {
         let ir = lower_src(
             "IMPORT audio\n\n\
              FUNC main AS Integer\n  \
-               RES mic AS AudioInput = audio::openInput(48000, 1, 512)\n  \
+               RES mic AS audio::AudioInput = audio::openInput(48000, 1, 512)\n  \
                LET pcm = audio::read(mic, 256)\n  \
                LET pcm2 = audio::read(mic, 256, 100)\n  \
                LET ok AS Boolean = audio::poll(mic)\n  \
-               RES spk AS AudioOutput = audio::openOutput(48000, 1, 512)\n  \
+               RES spk AS audio::AudioOutput = audio::openOutput(48000, 1, 512)\n  \
                audio::play(spk, \"T120 O4 CDEFGAB\")\n  \
                RETURN 0\nEND FUNC\n",
         );

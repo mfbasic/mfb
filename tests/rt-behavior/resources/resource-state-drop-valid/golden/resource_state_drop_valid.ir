@@ -29,7 +29,7 @@
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "line": 12, "mutable": false, "name": "f", "type": "File STATE Cursor", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "f", "type": "fs.File STATE Cursor", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
     { "op": "stateAssign", "line": 13, "resource": "f", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "const", "type": "Integer", "value": "42" } }] } }
     ]
   },
@@ -53,7 +53,7 @@
       "else": [
       ]
     },
-    { "op": "bind", "line": 21, "mutable": false, "name": "seed", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "write" }] } },
+    { "op": "bind", "line": 21, "mutable": false, "name": "seed", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "write" }] } },
     { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "seed" }, { "kind": "const", "type": "String", "value": "x" }] } },
     { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "seed" }] } },
     { "op": "bind", "line": 24, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },

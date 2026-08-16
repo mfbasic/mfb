@@ -19,7 +19,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 11, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.open", "args": [{ "kind": "const", "type": "String", "value": "/no/such/dir/mfb-bug190-missing.txt" }, { "kind": "const", "type": "String", "value": "read" }] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.open", "args": [{ "kind": "const", "type": "String", "value": "/no/such/dir/mfb-bug190-missing.txt" }, { "kind": "const", "type": "String", "value": "read" }] } },
     { "op": "return", "line": 12, "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "trap",
@@ -40,8 +40,8 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 21, "mutable": false, "name": "first", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.createTempFile", "args": [] } },
-    { "op": "bind", "line": 22, "mutable": false, "name": "second", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.open", "args": [{ "kind": "const", "type": "String", "value": "/no/such/dir/mfb-bug190-missing2.txt" }, { "kind": "const", "type": "String", "value": "read" }] } },
+    { "op": "bind", "line": 21, "mutable": false, "name": "first", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.createTempFile", "args": [] } },
+    { "op": "bind", "line": 22, "mutable": false, "name": "second", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.open", "args": [{ "kind": "const", "type": "String", "value": "/no/such/dir/mfb-bug190-missing2.txt" }, { "kind": "const", "type": "String", "value": "read" }] } },
     { "op": "return", "line": 23, "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "trap",

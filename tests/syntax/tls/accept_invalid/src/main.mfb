@@ -5,7 +5,7 @@ FUNC main AS Integer
   RES conn = tls::connect("example.com", 443)
   ' No arguments (accept needs a listener).
   LET missing = tls::accept()
-  ' Wrong receiver type: a TlsSocket is not a TlsListener.
+  ' Wrong receiver type: a tls::TlsSocket is not a tls::TlsListener.
   LET wrongReceiver = tls::accept(conn)
   ' Wrong timeout type: timeoutMs must be Integer.
   LET badTimeout = tls::accept(server, "soon")

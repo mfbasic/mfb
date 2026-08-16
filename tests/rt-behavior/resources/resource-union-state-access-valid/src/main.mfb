@@ -8,7 +8,7 @@ END TYPE
 
 UNION Stream
   fs::File
-  Socket
+  net::Socket
 END UNION
 
 ' plan-74: mutate a resource union's STATE through a union-typed RES parameter;
@@ -25,9 +25,9 @@ FUNC main AS Integer
   advance(s)
   io::print(toString(s.state.pos))     ' 15 — callee's write visible to the owner
   MATCH s
-    CASE File(f)
+    CASE fs::File(f)
       io::print(toString(f.state.pos)) ' 15 — same payload via a MATCH-extracted variant
-    CASE Socket(sock)
+    CASE net::Socket(sock)
       io::print("-1")
   END MATCH
   RETURN 0

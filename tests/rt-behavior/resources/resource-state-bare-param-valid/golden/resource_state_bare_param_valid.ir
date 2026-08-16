@@ -25,7 +25,7 @@
     "visibility": "public",
     "kind": "sub",
     "params": [
-    { "name": "p", "line": 14, "type": "File", "default": null }
+    { "name": "p", "line": 14, "type": "fs.File", "default": null }
     ],
     "returns": "Nothing",
     "body": [
@@ -42,7 +42,7 @@
     "returns": "Integer",
     "body": [
     { "op": "bind", "line": 19, "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/resource_state_bare_param_valid.txt" } },
-    { "op": "bind", "line": 20, "mutable": false, "name": "f", "type": "File STATE Cursor", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "write" }] } },
+    { "op": "bind", "line": 20, "mutable": false, "name": "f", "type": "fs.File STATE Cursor", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "write" }] } },
     { "op": "stateAssign", "line": 21, "resource": "f", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "const", "type": "Integer", "value": "42" } }] } },
     { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "opaque", "args": [{ "kind": "local", "name": "f" }] } },
     { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "pos" }] }] } },

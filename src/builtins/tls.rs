@@ -17,6 +17,13 @@ use crate::target::shared::registry::{
 pub(crate) const TLS_SOCKET_TYPE: &str = "TlsSocket";
 pub(crate) const TLS_LISTENER_TYPE: &str = "TlsListener";
 
+/// Package-qualified type identities (`tls.TlsSocket`, `tls.TlsListener`) —
+/// plan-97 / bug-441. The bare `*_TYPE` constants stay the names for `TLS_TYPES`
+/// and the close-op match; these `*_TYPE_ID` forms are the string every `RES`
+/// binding, parameter, and return of a tls resource carries.
+pub(crate) const TLS_SOCKET_TYPE_ID: &str = "tls.TlsSocket";
+pub(crate) const TLS_LISTENER_TYPE_ID: &str = "tls.TlsListener";
+
 const CONNECT: &str = "tls.connect";
 const LISTEN: &str = "tls.listen";
 const ACCEPT: &str = "tls.accept";
@@ -119,46 +126,46 @@ const P_LISTEN: &[Parameter] = &[
     fill("backlog", "Integer", "0"),
 ];
 const P_ACCEPT: &[Parameter] = &[
-    req("listener", &[], TLS_LISTENER_TYPE),
+    req("listener", &[], TLS_LISTENER_TYPE_ID),
     fill("timeoutMs", "Integer", SENTINEL),
 ];
 const P_READ: &[Parameter] = &[
-    req("sock", &[], TLS_SOCKET_TYPE),
+    req("sock", &[], TLS_SOCKET_TYPE_ID),
     req("maxBytes", &[], "Integer"),
 ];
 const P_WRITE: &[Parameter] = &[
-    req("sock", &[], TLS_SOCKET_TYPE),
+    req("sock", &[], TLS_SOCKET_TYPE_ID),
     req("bytes", &[], "List OF Byte"),
 ];
 const P_WRITE_TEXT: &[Parameter] = &[
-    req("sock", &[], TLS_SOCKET_TYPE),
+    req("sock", &[], TLS_SOCKET_TYPE_ID),
     req("value", &[], "String"),
 ];
 // plan-76-B: TLS readiness query. An omitted `timeoutMs` pads the unbounded
 // sentinel (block until readable), like `accept`. Readiness includes bytes already
 // buffered in the TLS layer (decrypted, fd idle), not just raw-transport state.
 const P_POLL: &[Parameter] = &[
-    req("sock", &[], TLS_SOCKET_TYPE),
+    req("sock", &[], TLS_SOCKET_TYPE_ID),
     fill("timeoutMs", "Integer", SENTINEL),
 ];
-// plan-76-C: the TLS readiness multiplex. `socks` is a `List OF RES TlsSocket`; the
+// plan-76-C: the TLS readiness multiplex. `socks` is a `List OF RES tls.TlsSocket`; the
 // returned `TlsSocket` is a BORROWED pointer to the first ready element (the list
 // keeps ownership and closes each socket on scope exit), mirroring
 // `net::poll(List OF RES Socket)`.
 const P_POLL_LIST: &[Parameter] = &[
-    req("socks", &[], "List OF RES TlsSocket"),
+    req("socks", &[], "List OF RES tls.TlsSocket"),
     fill("timeoutMs", "Integer", SENTINEL),
 ];
 // `close` accepts either handle; the union is validated in the hand-authored
 // `resolve_call`. The param's type feeds only the descriptor's `argument_types`/
 // `expected_arguments` rendering, both of which tls keeps hand-authored, so the
 // leading `TlsSocket` spelling (the `net::close` idiom) is inert here.
-const P_CLOSE: &[Parameter] = &[req("resource", &["sock", "listener"], TLS_SOCKET_TYPE)];
+const P_CLOSE: &[Parameter] = &[req("resource", &["sock", "listener"], TLS_SOCKET_TYPE_ID)];
 
 const TLS_FUNCTIONS: &[BuiltinFunction] = &[
-    tf(CONNECT, "connect", &[ov(P_CONNECT, TLS_SOCKET_TYPE)]),
-    tf(LISTEN, "listen", &[ov(P_LISTEN, TLS_LISTENER_TYPE)]),
-    tf(ACCEPT, "accept", &[ov(P_ACCEPT, TLS_SOCKET_TYPE)]),
+    tf(CONNECT, "connect", &[ov(P_CONNECT, TLS_SOCKET_TYPE_ID)]),
+    tf(LISTEN, "listen", &[ov(P_LISTEN, TLS_LISTENER_TYPE_ID)]),
+    tf(ACCEPT, "accept", &[ov(P_ACCEPT, TLS_SOCKET_TYPE_ID)]),
     tf(READ, "read", &[ov(P_READ, "List OF Byte")]),
     tf(READ_TEXT, "readText", &[ov(P_READ, "String")]),
     tf(WRITE, "write", &[ov(P_WRITE, "Nothing")]),
@@ -167,9 +174,9 @@ const TLS_FUNCTIONS: &[BuiltinFunction] = &[
         POLL,
         "poll",
         // Scalar readiness query (`TlsSocket → Boolean`) and the readiness multiplex
-        // (`List OF RES TlsSocket → TlsSocket`, borrowed). Return types disagree, so
+        // (`List OF RES tls.TlsSocket → TlsSocket`, borrowed). Return types disagree, so
         // `resolve_call` selects by argument shape (plan-76-C).
-        &[ov(P_POLL, "Boolean"), ov(P_POLL_LIST, TLS_SOCKET_TYPE)],
+        &[ov(P_POLL, "Boolean"), ov(P_POLL_LIST, TLS_SOCKET_TYPE_ID)],
     ),
     tf(CLOSE, "close", &[ov(P_CLOSE, "Nothing")]),
 ];
@@ -307,7 +314,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
                 || exact(arg_types, &["String", "Integer", "Integer"])
                 || exact(arg_types, &["String", "Integer", "Integer", "String"]) =>
         {
-            Cow::Borrowed(TLS_SOCKET_TYPE)
+            Cow::Borrowed(TLS_SOCKET_TYPE_ID)
         }
         // listen(host, port, certPath, keyPath, backlog = 0)
         LISTEN
@@ -317,33 +324,33 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
                     &["String", "Integer", "String", "String", "Integer"],
                 ) =>
         {
-            Cow::Borrowed(TLS_LISTENER_TYPE)
+            Cow::Borrowed(TLS_LISTENER_TYPE_ID)
         }
         // accept(listener, timeoutMs = 0)
         ACCEPT
-            if exact(arg_types, &[TLS_LISTENER_TYPE])
-                || exact(arg_types, &[TLS_LISTENER_TYPE, "Integer"]) =>
+            if exact(arg_types, &[TLS_LISTENER_TYPE_ID])
+                || exact(arg_types, &[TLS_LISTENER_TYPE_ID, "Integer"]) =>
         {
-            Cow::Borrowed(TLS_SOCKET_TYPE)
+            Cow::Borrowed(TLS_SOCKET_TYPE_ID)
         }
-        READ if exact(arg_types, &[TLS_SOCKET_TYPE, "Integer"]) => Cow::Borrowed("List OF Byte"),
-        READ_TEXT if exact(arg_types, &[TLS_SOCKET_TYPE, "Integer"]) => Cow::Borrowed("String"),
-        WRITE if exact(arg_types, &[TLS_SOCKET_TYPE, "List OF Byte"]) => Cow::Borrowed("Nothing"),
-        WRITE_TEXT if exact(arg_types, &[TLS_SOCKET_TYPE, "String"]) => Cow::Borrowed("Nothing"),
+        READ if exact(arg_types, &[TLS_SOCKET_TYPE_ID, "Integer"]) => Cow::Borrowed("List OF Byte"),
+        READ_TEXT if exact(arg_types, &[TLS_SOCKET_TYPE_ID, "Integer"]) => Cow::Borrowed("String"),
+        WRITE if exact(arg_types, &[TLS_SOCKET_TYPE_ID, "List OF Byte"]) => Cow::Borrowed("Nothing"),
+        WRITE_TEXT if exact(arg_types, &[TLS_SOCKET_TYPE_ID, "String"]) => Cow::Borrowed("Nothing"),
         // plan-76-B: readiness query `poll(TlsSocket[, timeoutMs]) → Boolean`.
-        POLL if exact(arg_types, &[TLS_SOCKET_TYPE])
-            || exact(arg_types, &[TLS_SOCKET_TYPE, "Integer"]) =>
+        POLL if exact(arg_types, &[TLS_SOCKET_TYPE_ID])
+            || exact(arg_types, &[TLS_SOCKET_TYPE_ID, "Integer"]) =>
         {
             Cow::Borrowed("Boolean")
         }
-        // plan-76-C: readiness multiplex `poll(List OF RES TlsSocket[, timeoutMs]) →
+        // plan-76-C: readiness multiplex `poll(List OF RES tls.TlsSocket[, timeoutMs]) →
         // TlsSocket` (borrowed element, like `collections::get`/`net::poll(List)`).
-        POLL if exact(arg_types, &["List OF RES TlsSocket"])
-            || exact(arg_types, &["List OF RES TlsSocket", "Integer"]) =>
+        POLL if exact(arg_types, &["List OF RES tls.TlsSocket"])
+            || exact(arg_types, &["List OF RES tls.TlsSocket", "Integer"]) =>
         {
-            Cow::Borrowed(TLS_SOCKET_TYPE)
+            Cow::Borrowed(TLS_SOCKET_TYPE_ID)
         }
-        CLOSE if exact(arg_types, &[TLS_SOCKET_TYPE]) || exact(arg_types, &[TLS_LISTENER_TYPE]) => {
+        CLOSE if exact(arg_types, &[TLS_SOCKET_TYPE_ID]) || exact(arg_types, &[TLS_LISTENER_TYPE_ID]) => {
             Cow::Borrowed("Nothing")
         }
         _ => return None,
@@ -487,9 +494,9 @@ mod tests {
 
     #[test]
     fn return_type_name_branches() {
-        assert_eq!(call_return_type_name(CONNECT), Some(TLS_SOCKET_TYPE));
-        assert_eq!(call_return_type_name(LISTEN), Some(TLS_LISTENER_TYPE));
-        assert_eq!(call_return_type_name(ACCEPT), Some(TLS_SOCKET_TYPE));
+        assert_eq!(call_return_type_name(CONNECT), Some(TLS_SOCKET_TYPE_ID));
+        assert_eq!(call_return_type_name(LISTEN), Some(TLS_LISTENER_TYPE_ID));
+        assert_eq!(call_return_type_name(ACCEPT), Some(TLS_SOCKET_TYPE_ID));
         assert_eq!(call_return_type_name(READ), Some("List OF Byte"));
         assert_eq!(call_return_type_name(READ_TEXT), Some("String"));
         assert_eq!(call_return_type_name(WRITE), Some("Nothing"));
@@ -505,15 +512,15 @@ mod tests {
     fn resolve_connect_overloads() {
         assert_eq!(
             rt(CONNECT, &["String", "Integer"]),
-            Some(TLS_SOCKET_TYPE.to_string())
+            Some(TLS_SOCKET_TYPE_ID.to_string())
         );
         assert_eq!(
             rt(CONNECT, &["String", "Integer", "Integer"]),
-            Some(TLS_SOCKET_TYPE.to_string())
+            Some(TLS_SOCKET_TYPE_ID.to_string())
         );
         assert_eq!(
             rt(CONNECT, &["String", "Integer", "Integer", "String"]),
-            Some(TLS_SOCKET_TYPE.to_string())
+            Some(TLS_SOCKET_TYPE_ID.to_string())
         );
         assert_eq!(rt(CONNECT, &["String"]), None);
         assert_eq!(rt(CONNECT, &["Integer", "Integer"]), None);
@@ -523,69 +530,69 @@ mod tests {
     fn resolve_listen_accept() {
         assert_eq!(
             rt(LISTEN, &["String", "Integer", "String", "String"]),
-            Some(TLS_LISTENER_TYPE.to_string())
+            Some(TLS_LISTENER_TYPE_ID.to_string())
         );
         assert_eq!(
             rt(
                 LISTEN,
                 &["String", "Integer", "String", "String", "Integer"]
             ),
-            Some(TLS_LISTENER_TYPE.to_string())
+            Some(TLS_LISTENER_TYPE_ID.to_string())
         );
         assert_eq!(rt(LISTEN, &["String", "Integer", "String"]), None);
         assert_eq!(
-            rt(ACCEPT, &[TLS_LISTENER_TYPE]),
-            Some(TLS_SOCKET_TYPE.to_string())
+            rt(ACCEPT, &[TLS_LISTENER_TYPE_ID]),
+            Some(TLS_SOCKET_TYPE_ID.to_string())
         );
         assert_eq!(
-            rt(ACCEPT, &[TLS_LISTENER_TYPE, "Integer"]),
-            Some(TLS_SOCKET_TYPE.to_string())
+            rt(ACCEPT, &[TLS_LISTENER_TYPE_ID, "Integer"]),
+            Some(TLS_SOCKET_TYPE_ID.to_string())
         );
-        assert_eq!(rt(ACCEPT, &[TLS_SOCKET_TYPE]), None);
+        assert_eq!(rt(ACCEPT, &[TLS_SOCKET_TYPE_ID]), None);
     }
 
     #[test]
     fn resolve_read_write_close() {
         assert_eq!(
-            rt(READ, &[TLS_SOCKET_TYPE, "Integer"]),
+            rt(READ, &[TLS_SOCKET_TYPE_ID, "Integer"]),
             Some("List OF Byte".to_string())
         );
         assert_eq!(
-            rt(READ_TEXT, &[TLS_SOCKET_TYPE, "Integer"]),
+            rt(READ_TEXT, &[TLS_SOCKET_TYPE_ID, "Integer"]),
             Some("String".to_string())
         );
         assert_eq!(
-            rt(WRITE, &[TLS_SOCKET_TYPE, "List OF Byte"]),
+            rt(WRITE, &[TLS_SOCKET_TYPE_ID, "List OF Byte"]),
             Some("Nothing".to_string())
         );
         assert_eq!(
-            rt(WRITE_TEXT, &[TLS_SOCKET_TYPE, "String"]),
+            rt(WRITE_TEXT, &[TLS_SOCKET_TYPE_ID, "String"]),
             Some("Nothing".to_string())
         );
-        assert_eq!(rt(CLOSE, &[TLS_SOCKET_TYPE]), Some("Nothing".to_string()));
-        assert_eq!(rt(CLOSE, &[TLS_LISTENER_TYPE]), Some("Nothing".to_string()));
+        assert_eq!(rt(CLOSE, &[TLS_SOCKET_TYPE_ID]), Some("Nothing".to_string()));
+        assert_eq!(rt(CLOSE, &[TLS_LISTENER_TYPE_ID]), Some("Nothing".to_string()));
         // plan-76-B: poll(TlsSocket[, Integer]) -> Boolean.
-        assert_eq!(rt(POLL, &[TLS_SOCKET_TYPE]), Some("Boolean".to_string()));
+        assert_eq!(rt(POLL, &[TLS_SOCKET_TYPE_ID]), Some("Boolean".to_string()));
         assert_eq!(
-            rt(POLL, &[TLS_SOCKET_TYPE, "Integer"]),
+            rt(POLL, &[TLS_SOCKET_TYPE_ID, "Integer"]),
             Some("Boolean".to_string())
         );
         assert_eq!(rt(POLL, &["String"]), None);
-        // plan-76-C: poll(List OF RES TlsSocket[, Integer]) -> TlsSocket (borrowed).
+        // plan-76-C: poll(List OF RES tls.TlsSocket[, Integer]) -> TlsSocket (borrowed).
         assert_eq!(
-            rt(POLL, &["List OF RES TlsSocket"]),
-            Some(TLS_SOCKET_TYPE.to_string())
+            rt(POLL, &["List OF RES tls.TlsSocket"]),
+            Some(TLS_SOCKET_TYPE_ID.to_string())
         );
         assert_eq!(
-            rt(POLL, &["List OF RES TlsSocket", "Integer"]),
-            Some(TLS_SOCKET_TYPE.to_string())
+            rt(POLL, &["List OF RES tls.TlsSocket", "Integer"]),
+            Some(TLS_SOCKET_TYPE_ID.to_string())
         );
-        assert_eq!(rt(READ, &[TLS_SOCKET_TYPE]), None);
-        assert_eq!(rt(WRITE, &[TLS_SOCKET_TYPE, "String"]), None);
+        assert_eq!(rt(READ, &[TLS_SOCKET_TYPE_ID]), None);
+        assert_eq!(rt(WRITE, &[TLS_SOCKET_TYPE_ID, "String"]), None);
         assert_eq!(rt(CLOSE, &["String"]), None);
         assert_eq!(rt("tls.nope", &[]), None);
         // CLOSE_LISTENER is not user-callable through resolve_call
-        assert_eq!(rt(CLOSE_LISTENER, &[TLS_LISTENER_TYPE]), None);
+        assert_eq!(rt(CLOSE_LISTENER, &[TLS_LISTENER_TYPE_ID]), None);
     }
 
     #[test]

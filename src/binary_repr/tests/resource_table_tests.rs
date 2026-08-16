@@ -3,8 +3,8 @@ use super::*;
 #[test]
 fn standard_flags_set_sendable_bit_for_movable_resources() {
     let file = standard_resource_flags(builtins::fs::FILE_TYPE_ID);
-    let socket = standard_resource_flags(builtins::net::SOCKET_TYPE);
-    let listener = standard_resource_flags(builtins::net::LISTENER_TYPE);
+    let socket = standard_resource_flags(builtins::net::SOCKET_TYPE_ID);
+    let listener = standard_resource_flags(builtins::net::LISTENER_TYPE_ID);
     assert!(file & RESOURCE_FLAG_SENDABLE != 0, "File must be sendable");
     assert!(
         socket & RESOURCE_FLAG_SENDABLE != 0,

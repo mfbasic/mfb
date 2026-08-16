@@ -19,7 +19,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 18, "mutable": true, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "type": "List OF RES File", "values": [] } },
+    { "op": "bind", "line": 18, "mutable": true, "name": "handles", "type": "List OF RES fs.File", "value": { "kind": "list", "type": "List OF RES fs.File", "values": [] } },
     { "op": "bind", "line": 19, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
@@ -27,21 +27,21 @@
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
       "body": [
-      { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res0", "type": "Result OF File", "value": { "kind": "callResult", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/inline-trap-producer-float-rt/src/main.mfb" }] } },
-      { "op": "bind", "line": 21, "mutable": true, "name": "$trap_val1", "type": "File", "value": null },
+      { "op": "bind", "line": 21, "mutable": false, "name": "$trap_res0", "type": "Result OF fs.File", "value": { "kind": "callResult", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/inline-trap-producer-float-rt/src/main.mfb" }] } },
+      { "op": "bind", "line": 21, "mutable": true, "name": "$trap_val1", "type": "fs.File", "value": null },
       {
         "op": "if",
         "line": 21,
         "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
         "then": [
-        { "op": "assign", "line": 21, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "File", "value": { "kind": "local", "name": "$trap_res0" } } }
+        { "op": "assign", "line": 21, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "fs.File", "value": { "kind": "local", "name": "$trap_res0" } } }
         ],
         "else": [
         { "op": "continueLoop", "line": 22, "loop": "while" }
         ]
       },
-      { "op": "bind", "line": 21, "mutable": false, "name": "f", "type": "File", "value": { "kind": "local", "name": "$trap_val1" } },
-      { "op": "assign", "line": 24, "name": "handles", "value": { "kind": "call", "type": "List OF RES File", "target": "collections.append", "args": [{ "kind": "local", "name": "handles" }, { "kind": "local", "name": "f" }] } },
+      { "op": "bind", "line": 21, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "local", "name": "$trap_val1" } },
+      { "op": "assign", "line": 24, "name": "handles", "value": { "kind": "call", "type": "List OF RES fs.File", "target": "collections.append", "args": [{ "kind": "local", "name": "handles" }, { "kind": "local", "name": "f" }] } },
       { "op": "assign", "line": 25, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
@@ -51,7 +51,7 @@
       "op": "forEach",
       "line": 29,
       "name": "h",
-      "type": "File",
+      "type": "fs.File",
       "iterable": { "kind": "local", "name": "handles" },
       "body": [
       { "op": "bind", "line": 30, "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.readLine", "args": [{ "kind": "local", "name": "h" }] } },

@@ -59,7 +59,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 4, "mutable": false, "name": "mic", "type": "AudioInput", "value": { "kind": "call", "type": "AudioInput", "target": "audio.openInput", "args": [{ "kind": "const", "type": "Integer", "value": "48000" }, { "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "512" }] } },
+    { "op": "bind", "line": 4, "mutable": false, "name": "mic", "type": "audio.AudioInput", "value": { "kind": "call", "type": "audio.AudioInput", "target": "audio.openInput", "args": [{ "kind": "const", "type": "Integer", "value": "48000" }, { "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "512" }] } },
     { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "audio.closeInput", "args": [{ "kind": "local", "name": "mic" }] } },
     { "op": "return", "line": 6, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
@@ -1522,7 +1522,7 @@
     "visibility": "public",
     "kind": "sub",
     "params": [
-    { "name": "out", "line": 587, "type": "AudioOutput", "default": null },
+    { "name": "out", "line": 587, "type": "audio.AudioOutput", "default": null },
     { "name": "samples", "line": 587, "type": "List OF Integer", "default": null }
     ],
     "returns": "Nothing",
@@ -1546,7 +1546,7 @@
     "visibility": "public",
     "kind": "sub",
     "params": [
-    { "name": "out", "line": 595, "type": "AudioOutput", "default": null },
+    { "name": "out", "line": 595, "type": "audio.AudioOutput", "default": null },
     { "name": "mml", "line": 595, "type": "String", "default": null }
     ],
     "returns": "Nothing",
@@ -1560,7 +1560,7 @@
     "visibility": "public",
     "kind": "sub",
     "params": [
-    { "name": "out", "line": 602, "type": "AudioOutput", "default": null },
+    { "name": "out", "line": 602, "type": "audio.AudioOutput", "default": null },
     { "name": "tracks", "line": 602, "type": "List OF String", "default": null }
     ],
     "returns": "Nothing",

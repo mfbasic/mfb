@@ -35,10 +35,10 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 13, "mutable": false, "name": "server", "type": "Listener", "value": { "kind": "call", "type": "Listener", "target": "net.listenTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 13, "mutable": false, "name": "server", "type": "net.Listener", "value": { "kind": "call", "type": "net.Listener", "target": "net.listenTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     { "op": "bind", "line": 14, "mutable": false, "name": "bound", "type": "Address", "value": { "kind": "call", "type": "Address", "target": "net.localAddress", "args": [{ "kind": "local", "name": "server" }] } },
-    { "op": "bind", "line": 15, "mutable": false, "name": "client", "type": "Socket", "value": { "kind": "call", "type": "Socket", "target": "net.connectTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "bound" }, "member": "port" }] } },
-    { "op": "bind", "line": 16, "mutable": false, "name": "accepted", "type": "Socket", "value": { "kind": "call", "type": "Socket", "target": "net.accept", "args": [{ "kind": "local", "name": "server" }] } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "client", "type": "net.Socket", "value": { "kind": "call", "type": "net.Socket", "target": "net.connectTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "bound" }, "member": "port" }] } },
+    { "op": "bind", "line": 16, "mutable": false, "name": "accepted", "type": "net.Socket", "value": { "kind": "call", "type": "net.Socket", "target": "net.accept", "args": [{ "kind": "local", "name": "server" }] } },
     { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "net.setWriteTimeout", "args": [{ "kind": "local", "name": "client" }, { "kind": "const", "type": "Integer", "value": "100" }] } },
     { "op": "bind", "line": 19, "mutable": true, "name": "big", "type": "String", "value": { "kind": "const", "type": "String", "value": "x" } },
     { "op": "bind", "line": 20, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },

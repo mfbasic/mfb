@@ -6,7 +6,7 @@ IMPORT io
 ' the canonical `closed` flag at byte offset 8. It is materialized for the
 ' error-path binding of a `RES x = <fallible> TRAP` and closed by scope-drop
 ' when the handler diverges. This proves that drop is a crash-free, benign no-op
-' for a `File` and a `Socket`, and (plan-38 F2) that it does NOT log a spurious
+' for a `File` and a `net::Socket`, and (plan-38 F2) that it does NOT log a spurious
 ' "Cleanup failure" banner even though File/net `close` returns
 ' ERR_RESOURCE_CLOSED on an already-closed record.
 '
@@ -26,10 +26,10 @@ FUNC openMissingFile AS Integer
   RETURN 0
 END FUNC
 
-' A `Socket` whose connect is refused: `sock` becomes the closed-default. On the
-' diverging RETURN, scope-drop closes the closed-default Socket record.
+' A `net::Socket` whose connect is refused: `sock` becomes the closed-default. On the
+' diverging RETURN, scope-drop closes the closed-default net::Socket record.
 FUNC connectRefused AS Integer
-  RES sock AS Socket = net::connectTcp("127.0.0.1", 1, 500) TRAP(e)
+  RES sock AS net::Socket = net::connectTcp("127.0.0.1", 1, 500) TRAP(e)
     RETURN e.code
   END TRAP
   RETURN 0

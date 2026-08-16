@@ -26,7 +26,7 @@
     "visibility": "public",
     "kind": "sub",
     "params": [
-    { "name": "s", "line": 10, "type": "File STATE Cursor", "default": null },
+    { "name": "s", "line": 10, "type": "fs.File STATE Cursor", "default": null },
     { "name": "dest", "line": 10, "type": "Integer", "default": null }
     ],
     "returns": "Nothing",
@@ -43,7 +43,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 15, "mutable": false, "name": "f", "type": "File STATE Cursor", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/resource-state-field-assign-valid/src/main.mfb" }] } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "f", "type": "fs.File STATE Cursor", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/resource-state-field-assign-valid/src/main.mfb" }] } },
     { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "pos" }] }] } },
     { "op": "stateAssign", "line": 17, "resource": "f", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "const", "type": "Integer", "value": "10" } }] } },
     { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "f" }, "member": "state" }, "member": "pos" }] }] } },

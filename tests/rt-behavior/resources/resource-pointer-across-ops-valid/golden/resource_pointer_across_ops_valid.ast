@@ -15,7 +15,7 @@
       "name": "logLine",
       "line": 4,
       "params": [
-      { "name": "f", "type": "File", "resource": true, "state": null, "default": null, "line": 4 },
+      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 4 },
       { "name": "msg", "type": "String", "default": null, "line": 4 }
       ],
       "returnType": null,
@@ -33,7 +33,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 9 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "logLine", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "first" }] }, "line": 10 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "logLine", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "second" }] }, "line": 11 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 12 },

@@ -1,0 +1,8 @@
+{
+  "name": "bug221_worker",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "bug-221 worker: accepts the parent's file, then transfers its own back.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }]
+}

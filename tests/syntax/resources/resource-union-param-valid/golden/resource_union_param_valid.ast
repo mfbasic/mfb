@@ -15,8 +15,8 @@
       "line": 5,
       "includes": [],
       "variants": [
-      { "name": "File", "line": 6 },
-      { "name": "Socket", "line": 7 }
+      { "name": "fs.File", "line": 6 },
+      { "name": "net.Socket", "line": 7 }
       ]
     },
     {
@@ -43,7 +43,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 18 },
       { "kind": "return", "value": { "kind": "call", "callee": "useStream", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 19 }
       ]
     }

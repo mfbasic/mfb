@@ -1,4 +1,4 @@
-' plan-76-C: the tls::poll list overload resolves to TlsSocket (borrowed), and the
+' plan-76-C: the tls::poll list overload resolves to tls::TlsSocket (borrowed), and the
 ' scalar overload still resolves to Boolean. Compile-only (-ast -ir).
 IMPORT tls
 IMPORT io
@@ -9,11 +9,11 @@ FUNC main AS Integer
   ' Scalar overload → Boolean.
   LET ready AS Boolean = tls::poll(conn)
   io::print(toString(ready))
-  ' List overload → TlsSocket (borrowed element).
-  MUT socks AS List OF RES TlsSocket = []
+  ' List overload → tls::TlsSocket (borrowed element).
+  MUT socks AS List OF RES tls::TlsSocket = []
   socks = collections::append(socks, conn)
-  RES first AS TlsSocket = tls::poll(socks)
-  RES firstT AS TlsSocket = tls::poll(socks, 100)
+  RES first AS tls::TlsSocket = tls::poll(socks)
+  RES firstT AS tls::TlsSocket = tls::poll(socks, 100)
   tls::writeText(first, "a")
   tls::writeText(firstT, "b")
   RETURN 0

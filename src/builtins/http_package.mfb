@@ -49,20 +49,21 @@ LET __HTTP_CONNECT_TIMEOUT_MS AS Integer = 30000
 LET __HTTP_READ_TIMEOUT_MS AS Integer = 30000
 
 ' plan-76-D: the non-blocking client. `Stream` is a RESOURCE union over the two
-' transports (bare variant ids — the parser does not normalize `pkg::` on a union
-' variant, and the close-wiring keys on the bare builtin-resource name; declaring
-' `net::Socket` would leak the socket with no diagnostic). It carries a
-' `PendingState` (plan-74 union STATE), relocated to a record slot free in every
-' backend by plan-80 so STATE over a `TlsSocket` no longer clobbers the live
-' handle. A program drives an exchange without blocking its thread:
+' transports. plan-97/bug-441 made built-in resources package-qualified end to
+' end, so the variants carry their qualified identities (`net::Socket`,
+' `tls::TlsSocket`) and the close-wiring keys on that same identity — a bare
+' `Socket` no longer resolves. It carries a `PendingState` (plan-74 union STATE),
+' relocated to a record slot free in every backend by plan-80 so STATE over a
+' `TlsSocket` no longer clobbers the live handle. A program drives an exchange
+' without blocking its thread:
 '   RES s AS http::Stream STATE PendingState = http::startRead(url, {}, "GET")
 '   WHILE http::done(s) = FALSE
 '     IF http::ready(s) THEN http::pump(s)   ' interleave the caller's own work
 '   END WHILE
 '   LET resp AS Response = http::finish(s)
 EXPORT UNION Stream
-  Socket
-  TlsSocket
+  net::Socket
+  tls::TlsSocket
 END UNION
 
 EXPORT TYPE PendingState
@@ -397,9 +398,9 @@ FUNC __http_startExchange(url AS net::Url, body AS String, hasBody AS Boolean, h
   IF url.scheme = "https" THEN
     RES s AS Stream STATE PendingState = tls::connect(url.host, url.port, __HTTP_CONNECT_TIMEOUT_MS, url.host)
     MATCH s
-      CASE TlsSocket(t)
+      CASE tls::TlsSocket(t)
         tls::writeText(t, request)
-      CASE Socket(p)
+      CASE net::Socket(p)
         net::writeText(p, request)
     END MATCH
     s.state.sentAll = TRUE
@@ -407,9 +408,9 @@ FUNC __http_startExchange(url AS net::Url, body AS String, hasBody AS Boolean, h
   END IF
   RES s AS Stream STATE PendingState = net::connectTcp(url.host, url.port, __HTTP_CONNECT_TIMEOUT_MS)
   MATCH s
-    CASE Socket(p)
+    CASE net::Socket(p)
       net::writeText(p, request)
-    CASE TlsSocket(t)
+    CASE tls::TlsSocket(t)
       tls::writeText(t, request)
   END MATCH
   s.state.sentAll = TRUE
@@ -423,9 +424,9 @@ END FUNC
 ' `TRUE` iff a non-blocking read would return bytes or EOF now.
 FUNC __http_ready(RES s AS Stream STATE PendingState) AS Boolean
   MATCH s
-    CASE Socket(p)
+    CASE net::Socket(p)
       RETURN net::poll(p, 0)
-    CASE TlsSocket(t)
+    CASE tls::TlsSocket(t)
       RETURN tls::poll(t, 0)
   END MATCH
   RETURN FALSE
@@ -441,9 +442,9 @@ SUB __http_pump(RES s AS Stream STATE PendingState)
   END IF
   MUT r AS __http_PumpRead = __http_PumpRead[[], FALSE, 0]
   MATCH s
-    CASE Socket(p)
+    CASE net::Socket(p)
       r = __http_readNet(p, 65536)
-    CASE TlsSocket(t)
+    CASE tls::TlsSocket(t)
       r = __http_readTls(t, 65536)
   END MATCH
   IF r.closed THEN
@@ -491,9 +492,9 @@ END FUNC
 SUB __http_waitReadable(RES s AS Stream STATE PendingState)
   MUT rdy AS Boolean = FALSE
   MATCH s
-    CASE Socket(p)
+    CASE net::Socket(p)
       rdy = net::poll(p, __HTTP_READ_TIMEOUT_MS)
-    CASE TlsSocket(t)
+    CASE tls::TlsSocket(t)
       rdy = tls::poll(t, __HTTP_READ_TIMEOUT_MS)
   END MATCH
   IF rdy = FALSE THEN

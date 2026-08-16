@@ -6,27 +6,28 @@
     "imports": [
     { "module": "io", "line": 1 },
     { "module": "fs", "line": 2 },
-    { "module": "collections", "line": 3 }
+    { "module": "net", "line": 3 },
+    { "module": "collections", "line": 4 }
     ],
     "items": [
     {
       "kind": "type",
       "visibility": "public",
       "name": "Cursor",
-      "line": 17,
+      "line": 18,
       "fields": [
-      { "visibility": null, "name": "pos", "type": "Integer", "line": 18 }
+      { "visibility": null, "name": "pos", "type": "Integer", "line": 19 }
       ]
     },
     {
       "kind": "union",
       "visibility": "public",
       "name": "Handle",
-      "line": 21,
+      "line": 22,
       "includes": [],
       "variants": [
-      { "name": "File", "line": 22 },
-      { "name": "Socket", "line": 23 }
+      { "name": "fs.File", "line": 23 },
+      { "name": "net.Socket", "line": 24 }
       ]
     },
     {
@@ -34,36 +35,36 @@
       "visibility": "public",
       "isolated": false,
       "name": "buildList",
-      "line": 28,
+      "line": 29,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": true, "name": "handles", "type": "List OF RES Handle STATE Cursor", "value": { "kind": "list", "values": [] }, "line": 29 },
+      { "kind": "binding", "mutable": true, "name": "handles", "type": "List OF RES Handle STATE Cursor", "value": { "kind": "list", "values": [] }, "line": 30 },
       {
         "kind": "for",
         "name": "i",
         "start": { "kind": "number", "value": "1" },
         "end": { "kind": "number", "value": "3" },
         "step": null,
-        "line": 30,
+        "line": 31,
         "body": [
-        { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "h", "type": "Handle", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 31 },
-        { "kind": "stateAssignment", "resource": "h", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "4" } } }] }, "line": 32 },
-        { "kind": "assignment", "name": "handles", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "identifier", "value": "h" }] }, "line": 33 }
+        { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "h", "type": "Handle", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 32 },
+        { "kind": "stateAssignment", "resource": "h", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "4" } } }] }, "line": 33 },
+        { "kind": "assignment", "name": "handles", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "handles" }, { "kind": "identifier", "value": "h" }] }, "line": 34 }
         ]
       },
-      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 35 },
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 36 },
       {
         "kind": "forEach",
         "name": "h",
         "iterable": { "kind": "identifier", "value": "handles" },
-        "line": 36,
+        "line": 37,
         "body": [
-        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "member": "pos" } }, "line": 37 }
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "member": "pos" } }, "line": 38 }
         ]
       },
-      { "kind": "return", "value": { "kind": "identifier", "value": "total" }, "line": 39 }
+      { "kind": "return", "value": { "kind": "identifier", "value": "total" }, "line": 40 }
       ]
     },
     {
@@ -71,14 +72,14 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 42,
+      "line": 43,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "list=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "buildList", "arguments": [] }] } }] }, "line": 43 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "list2=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "buildList", "arguments": [] }] } }] }, "line": 45 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 46 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "list=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "buildList", "arguments": [] }] } }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "list2=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "buildList", "arguments": [] }] } }] }, "line": 46 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 47 }
       ]
     }
     ]

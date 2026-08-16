@@ -7,27 +7,28 @@
     { "module": "io", "line": 1 },
     { "module": "thread", "line": 2 },
     { "module": "fs", "line": 3 },
-    { "module": "union_xfer_workers", "line": 4 }
+    { "module": "net", "line": 4 },
+    { "module": "union_xfer_workers", "line": 5 }
     ],
     "items": [
     {
       "kind": "type",
       "visibility": "public",
       "name": "Cursor",
-      "line": 6,
+      "line": 7,
       "fields": [
-      { "visibility": null, "name": "pos", "type": "Integer", "line": 7 }
+      { "visibility": null, "name": "pos", "type": "Integer", "line": 8 }
       ]
     },
     {
       "kind": "union",
       "visibility": "public",
       "name": "Stream",
-      "line": 10,
+      "line": 11,
       "includes": [],
       "variants": [
-      { "name": "File", "line": 11 },
-      { "name": "Socket", "line": 12 }
+      { "name": "fs.File", "line": 12 },
+      { "name": "net.Socket", "line": 13 }
       ]
     },
     {
@@ -35,18 +36,18 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 19,
+      "line": 20,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF RES Stream STATE Cursor TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "union_xfer_workers.takeUnionCursor" }, { "kind": "string", "value": "seed" }] }, "line": 20 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "s", "type": "Stream", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 21 },
-      { "kind": "stateAssignment", "resource": "s", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "99" } }] }, "line": 22 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "s" }] }, "line": 23 },
-      { "kind": "binding", "mutable": false, "name": "got", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 24 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "got" }] }] }, "line": 25 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 26 }
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF RES Stream STATE Cursor TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "union_xfer_workers.takeUnionCursor" }, { "kind": "string", "value": "seed" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "s", "type": "Stream", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 22 },
+      { "kind": "stateAssignment", "resource": "s", "value": { "kind": "with", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "number", "value": "99" } }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "s" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "got", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "got" }] }] }, "line": 26 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 27 }
       ]
     }
     ]

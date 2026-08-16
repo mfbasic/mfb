@@ -20,7 +20,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 5, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "p" }] } },
+    { "op": "bind", "line": 5, "mutable": false, "name": "f", "type": "fs.File", "value": { "kind": "call", "type": "fs.File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "p" }] } },
     { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
     { "op": "return", "line": 7, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]

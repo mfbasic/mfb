@@ -23,11 +23,11 @@
       "name": "passThrough",
       "line": 17,
       "params": [
-      { "name": "f", "type": "File", "resource": true, "state": null, "default": null, "line": 17 }
+      { "name": "f", "type": "fs.File", "resource": true, "state": null, "default": null, "line": 17 }
       ],
       "returnType": "Nothing",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": "File", "value": { "kind": "identifier", "value": "f" }, "line": 18 }
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": "fs.File", "value": { "kind": "identifier", "value": "f" }, "line": 18 }
       ]
     },
     {
@@ -37,11 +37,11 @@
       "name": "adopt",
       "line": 23,
       "params": [
-      { "name": "f", "type": "File", "resource": true, "state": "Cursor", "default": null, "line": 23 }
+      { "name": "f", "type": "fs.File", "resource": true, "state": "Cursor", "default": null, "line": 23 }
       ],
       "returnType": "Nothing",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "g", "type": "File", "value": { "kind": "identifier", "value": "f" }, "line": 24 }
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "g", "type": "fs.File", "value": { "kind": "identifier", "value": "f" }, "line": 24 }
       ]
     },
     {
@@ -52,9 +52,9 @@
       "line": 29,
       "params": [
       ],
-      "returnType": "File", "returnResource": true, "returnState": "Cursor",
+      "returnType": "fs.File", "returnResource": true, "returnState": "Cursor",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/syntax/resources/state-opaque-narrow-valid/src/main.mfb" }] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/syntax/resources/state-opaque-narrow-valid/src/main.mfb" }] }, "line": 30 },
       { "kind": "return", "value": { "kind": "identifier", "value": "f" }, "line": 31 }
       ]
     },
@@ -68,7 +68,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "h", "type": "File", "value": { "kind": "call", "callee": "make", "arguments": [] }, "line": 35 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "h", "type": "fs.File", "value": { "kind": "call", "callee": "make", "arguments": [] }, "line": 35 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "passThrough", "arguments": [{ "kind": "identifier", "value": "h" }] }, "line": 36 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "adopt", "arguments": [{ "kind": "identifier", "value": "h" }] }, "line": 37 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "h" }] }, "line": 38 },

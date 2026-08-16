@@ -19,7 +19,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": true, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "values": [] }, "line": 23 },
+      { "kind": "binding", "mutable": true, "name": "handles", "type": "List OF RES fs.File", "value": { "kind": "list", "values": [] }, "line": 23 },
       { "kind": "binding", "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 24 },
       {
         "kind": "while",
@@ -27,7 +27,7 @@
         "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "3" } },
         "line": 25,
         "body": [
-        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 26 },
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 26 },
         { "kind": "assignment", "name": "handles", "value": {
           "kind": "trapped",
           "binding": "e",
@@ -55,7 +55,7 @@
       "params": [
       { "name": "n", "type": "Integer", "default": null, "line": 38 }
       ],
-      "returnType": "List OF RES File",
+      "returnType": "List OF RES fs.File",
       "body": [
       { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "77050001" }, { "kind": "string", "value": "always" }] }, "line": 39 }
       ]
@@ -70,7 +70,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": true, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "values": [] }, "line": 45 },
+      { "kind": "binding", "mutable": true, "name": "handles", "type": "List OF RES fs.File", "value": { "kind": "list", "values": [] }, "line": 45 },
       { "kind": "binding", "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 46 },
       {
         "kind": "while",
@@ -78,7 +78,7 @@
         "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "2" } },
         "line": 47,
         "body": [
-        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 48 },
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": "fs.File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 48 },
         { "kind": "assignment", "name": "handles", "value": {
           "kind": "trapped",
           "binding": "e",

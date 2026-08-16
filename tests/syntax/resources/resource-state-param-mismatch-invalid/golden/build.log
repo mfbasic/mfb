@@ -1,5 +1,5 @@
 $ mfb build -ast -ir tests/syntax/resources/resource-state-param-mismatch-invalid
-  26 |   RES f AS File STATE Cursor = fs::openFile("tests/syntax/resources/resource-state-param-mismatch-invalid/src/main.mfb")
+  26 |   RES f AS fs::File STATE Cursor = fs::openFile("tests/syntax/resources/resource-state-param-mismatch-invalid/src/main.mfb")
   27 |   f.state.pos = 42
   28 |   readLabel(f)
      | ^

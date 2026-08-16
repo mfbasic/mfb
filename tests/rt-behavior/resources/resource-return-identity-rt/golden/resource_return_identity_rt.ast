@@ -17,9 +17,9 @@
       "params": [
       { "name": "path", "type": "String", "default": null, "line": 33 }
       ],
-      "returnType": "File", "returnResource": true, "returnState": null,
+      "returnType": "fs.File", "returnResource": true, "returnState": null,
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "write" }] }, "line": 34 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "write" }] }, "line": 34 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "x" }] }, "line": 35 },
       { "kind": "return", "value": { "kind": "identifier", "value": "f" }, "line": 36 }
       ]
@@ -35,10 +35,10 @@
       "returnType": "Integer",
       "body": [
       { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "/tmp/mfb_resource_return_identity_rt.txt" }, "line": 40 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "h", "type": "File", "value": { "kind": "call", "callee": "makeFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 42 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "h", "type": "fs.File", "value": { "kind": "call", "callee": "makeFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 42 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "h" }, { "kind": "string", "value": "y" }] }, "line": 44 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "h" }] }, "line": 45 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "r", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 48 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "r", "type": "fs.File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 48 },
       { "kind": "binding", "mutable": false, "name": "got", "type": "String", "value": { "kind": "call", "callee": "fs.readAll", "arguments": [{ "kind": "identifier", "value": "r" }] }, "line": 49 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "r" }] }, "line": 50 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "contents=" }, "right": { "kind": "identifier", "value": "got" } }] }, "line": 51 },
@@ -49,7 +49,7 @@
         "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "500" } },
         "line": 56,
         "body": [
-        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "File", "value": { "kind": "call", "callee": "makeFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 57 },
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "t", "type": "fs.File", "value": { "kind": "call", "callee": "makeFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 57 },
         { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 58 },
         { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 59 }
         ]

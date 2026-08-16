@@ -4,7 +4,7 @@ IMPORT collections
 IMPORT audio
 
 FUNC main() AS Integer
-  RES mic AS AudioInput = audio::openInput(48000, 1, 512)
+  RES mic AS audio::AudioInput = audio::openInput(48000, 1, 512)
   LET pcm = audio::read(mic, 256)
   io::print(toString(len(pcm)))
 
@@ -22,10 +22,10 @@ FUNC main() AS Integer
   LET devs = audio::devices()
   io::print(toString(len(devs)))
   LET dev = collections::get(devs, 0)
-  RES mic2 AS AudioInput = audio::openInput(dev, 48000, 1, 512)
+  RES mic2 AS audio::AudioInput = audio::openInput(dev, 48000, 1, 512)
   audio::close(mic2)
 
-  RES spk AS AudioOutput = audio::openOutput(48000, 1, 512)
+  RES spk AS audio::AudioOutput = audio::openOutput(48000, 1, 512)
   audio::write(spk, pcm)
 
   ' output stream introspection overloads
@@ -39,7 +39,7 @@ FUNC main() AS Integer
   LET tracks AS List OF String = ["T120 O4 CEG", "T120 O3 GEC"]
   audio::play(spk, tracks)
 
-  RES spk2 AS AudioOutput = audio::openOutput(dev, 48000, 1, 512)
+  RES spk2 AS audio::AudioOutput = audio::openOutput(dev, 48000, 1, 512)
   audio::close(spk2)
 
   ' render one AudioNote to mono s16le PCM

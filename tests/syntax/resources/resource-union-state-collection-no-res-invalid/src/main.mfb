@@ -2,13 +2,16 @@
 ' element (a stateful resource). A bare (no-`RES`) element carrying `STATE` is
 ' rejected with a clear parse diagnostic rather than being left as a dangling
 ' token — a resource in a collection still requires `RES` (§15.6).
+IMPORT fs
+IMPORT net
+
 TYPE PendingState
   bytes AS Integer
 END TYPE
 
 UNION Stream
   fs::File
-  Socket
+  net::Socket
 END UNION
 
 FUNC main AS Integer
