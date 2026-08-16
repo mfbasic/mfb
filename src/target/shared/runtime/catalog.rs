@@ -1,16 +1,11 @@
 use super::*;
-use crate::codegen::builtins::datetime::{
-    DATETIME_LOCAL_OFFSET_SPEC, DATETIME_MONOTONIC_NANOS_SPEC, DATETIME_NOW_NANOS_SPEC,
-};
-use crate::codegen::builtins::process::specs::*;
+use std::sync::OnceLock;
 
-/// The single, address-stable spec table. It MUST be a named `static`, not a
-/// `const`-promoted `&[...]` returned from the accessor: the catalog's identity
-/// round-trips (`catalog_is_consistent`) and every `spec_for_call`/`spec_for_symbol`
-/// caller compare specs with `std::ptr::eq`, and a promoted array is duplicated
-/// across call sites (inlining), so the same spec would resolve to two different
-/// addresses. A `static` has exactly one address (bug-382).
-static SUPPORTED_HELPER_SPECS: &[RuntimeHelperSpec] = &[
+/// The hand-written specs for packages not yet migrated onto the registry. Merged
+/// with the registry-derived specs into the single frozen table by
+/// [`supported_helper_specs`], which owns the `ptr::eq` identity contract (bug-382).
+/// As each package migrates, its rows delete from here and it joins the derivation.
+static LEGACY_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     APP_GET_MODE_SPEC,
     APP_SET_MODE_SPEC,
     AUDIO_DEVICES_SPEC,
@@ -37,9 +32,9 @@ static SUPPORTED_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     CRYPTO_P256_VERIFY_SPEC,
     CRYPTO_P384_VERIFY_SPEC,
     CRYPTO_P521_VERIFY_SPEC,
-    DATETIME_NOW_NANOS_SPEC,
-    DATETIME_MONOTONIC_NANOS_SPEC,
-    DATETIME_LOCAL_OFFSET_SPEC,
+    // `datetime` is migrated: its three OS-seam intrinsics (`nowNanos`,
+    // `monotonicNanos`, `localOffset`) are DERIVED from the registry
+    // (`registry::runtime_specs`), so no hand-written `DATETIME_*_SPEC` rows here.
     IO_PRINT_SPEC,
     IO_WRITE_SPEC,
     IO_PRINT_ERROR_SPEC,
@@ -130,31 +125,9 @@ static SUPPORTED_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     OS_HOST_NAME_SPEC,
     OS_USER_NAME_SPEC,
     OS_CPU_COUNT_SPEC,
-    // plan-90 process package. `spawnEnv` is code-layer-only (synthesized by the
-    // `builder_values` spawn overload split); `__drop` is the resource-cleanup op
-    // (routed by `helper_for_call`, like audio's close ops); the rest are
-    // source-level calls.
-    PROCESS_SPAWN_SPEC,
-    PROCESS_SPAWN_ENV_SPEC,
-    PROCESS_SHELL_SPEC,
-    PROCESS_PID_SPEC,
-    PROCESS_IS_RUNNING_SPEC,
-    PROCESS_WAIT_FOR_SPEC,
-    PROCESS_CLOSE_SPEC,
-    PROCESS_SEND_SPEC,
-    PROCESS_SEND_BYTES_SPEC,
-    PROCESS_SEND_TIMEOUT_SPEC,
-    PROCESS_SEND_BYTES_TIMEOUT_SPEC,
-    PROCESS_RECEIVE_SPEC,
-    PROCESS_RECEIVE_FROM_SPEC,
-    PROCESS_RECEIVE_BYTES_SPEC,
-    PROCESS_RECEIVE_BYTES_FROM_SPEC,
-    PROCESS_POLL_SPEC,
-    PROCESS_POLL_FROM_SPEC,
-    PROCESS_SIGNAL_SPEC,
-    PROCESS_DID_SIGNAL_SPEC,
-    PROCESS_DETACH_SPEC,
-    PROCESS_DROP_SPEC,
+    // `process` is migrated: its specs are DERIVED from the registry
+    // (`registry::runtime_specs`) and merged in by `supported_helper_specs`, so no
+    // hand-written `PROCESS_*_SPEC` rows live here.
     // plan-67-B: internal perf-tracking helpers. Catalogued (so `spec_for_symbol`
     // resolves the injected `_mfb_rt_perf_*` calls during emission/object
     // planning) but never routed by `helper_for_call` — they are code-layer-only
@@ -219,8 +192,46 @@ static SUPPORTED_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     TLS_CLOSE_LISTENER_SPEC,
 ];
 
+/// The one catalog: the still-hand-written [`LEGACY_HELPER_SPECS`] for packages not
+/// yet on the registry, plus the specs DERIVED from the registry for every migrated
+/// native package ([`crate::codegen::registry::runtime_specs`]) — so a migrated
+/// package carries no parallel `*_specs.rs`. Frozen once into a `OnceLock<Vec<_>>` so
+/// the table has a single stable address: `spec_for_call`/`spec_for_symbol` callers
+/// compare specs with `std::ptr::eq`, which needs one canonical spec per call (bug-382).
 pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
-    SUPPORTED_HELPER_SPECS
+    static MERGED: OnceLock<Vec<RuntimeHelperSpec>> = OnceLock::new();
+    MERGED
+        .get_or_init(|| {
+            let mut specs = LEGACY_HELPER_SPECS.to_vec();
+            for call in crate::codegen::registry::runtime_specs() {
+                let pkg = call
+                    .name
+                    .split_once('.')
+                    .expect("derived runtime call is package-qualified")
+                    .0;
+                let helper = RuntimeHelper::from_package_name(pkg)
+                    .unwrap_or_else(|| panic!("no RuntimeHelper for package `{pkg}`"));
+                specs.push(RuntimeHelperSpec {
+                    helper,
+                    call: call.name,
+                    abi: RuntimeHelperAbi {
+                        returns: abi_return_name(&call.return_type),
+                    },
+                });
+            }
+            specs
+        })
+        .as_slice()
+}
+
+/// The base (unqualified) name of a derived call's return type, matching the spelling
+/// the hand-written specs used: a resource handle `process.Process` renders `"Process"`
+/// (the ABI type name is bare), while primitives/containers render verbatim.
+fn abi_return_name(ty: &crate::types::ParameterType) -> &'static str {
+    match ty.name() {
+        std::borrow::Cow::Borrowed(name) => name.rsplit('.').next().unwrap_or(name),
+        std::borrow::Cow::Owned(name) => Box::leak(name.into_boxed_str()),
+    }
 }
 
 pub(crate) fn spec_for_symbol(symbol: &str) -> Option<&'static RuntimeHelperSpec> {

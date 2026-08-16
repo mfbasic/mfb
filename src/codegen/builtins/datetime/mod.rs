@@ -240,8 +240,6 @@ pub(crate) fn register(r: &mut Registry) {
     r.add_package(pkg);
 }
 
-use crate::target::shared::runtime::{RuntimeHelper, RuntimeHelperAbi, RuntimeHelperSpec};
-
 mod native;
 pub(crate) use native::lower_datetime_helper;
 
@@ -290,30 +288,13 @@ mod func_utc;
 mod func_weekday;
 mod func_with_zone;
 
-// `datetime::` OS-seam intrinsics (plan-01-datetime.md §8.2). `nowNanos` /
-// `monotonicNanos` take no arguments; `localOffset` takes the epoch-seconds
-// instant in `x0`. All return an `Integer` in the standard result-value register
-// with the OK tag set. `nowNanos` / `monotonicNanos` cannot fail; `localOffset`
-// raises `ErrInvalidArgument` (ERR tag) for an instant `localtime_r` cannot
-// represent (bug-42). These `RuntimeHelperSpec`s register in the shared runtime
-// catalog (`target/shared/runtime/catalog.rs`), which imports them from here.
-pub(crate) const DATETIME_NOW_NANOS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
-    helper: RuntimeHelper::Datetime,
-    call: "datetime.nowNanos",
-    abi: RuntimeHelperAbi { returns: "Integer" },
-};
-
-pub(crate) const DATETIME_MONOTONIC_NANOS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
-    helper: RuntimeHelper::Datetime,
-    call: "datetime.monotonicNanos",
-    abi: RuntimeHelperAbi { returns: "Integer" },
-};
-
-pub(crate) const DATETIME_LOCAL_OFFSET_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
-    helper: RuntimeHelper::Datetime,
-    call: "datetime.localOffset",
-    abi: RuntimeHelperAbi { returns: "Integer" },
-};
+// Man-page citation anchor: `DATETIME`. The ~50 `datetime/*` man pages ground their
+// value-type and OS-seam facts in this package with `[[…/datetime/mod.rs:DATETIME]]`.
+//
+// The `datetime::` OS-seam intrinsics (`nowNanos` / `monotonicNanos` / `localOffset`,
+// plan-01-datetime.md §8.2) are ordinary `Body::native` members (`func_now_nanos` et
+// al.), so the shared runtime catalog DERIVES their specs from the registry
+// (`registry::runtime_specs`) — no hand-written `RuntimeHelperSpec` consts here.
 
 #[cfg(test)]
 mod tests {

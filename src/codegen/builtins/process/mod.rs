@@ -27,7 +27,6 @@ mod func_close;
 mod func_detach;
 
 mod native;
-pub(crate) mod specs;
 
 // `process.__drop` is not a descriptor member (no `func_*.rs`), so its helper is
 // still reached by name from the runtime-call dispatch; every other member lowers

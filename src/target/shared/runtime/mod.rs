@@ -46,6 +46,30 @@ impl RuntimeHelper {
             RuntimeHelper::Tls => "tls",
         }
     }
+
+    /// The helper family owning package `name` (the inverse of [`name`](Self::name)),
+    /// or `None` if `name` is not a runtime-helper package. Maps a derived call's
+    /// package prefix (`"process"` from `"process.spawn"`) to its family.
+    pub fn from_package_name(name: &str) -> Option<RuntimeHelper> {
+        Some(match name {
+            "app" => RuntimeHelper::App,
+            "audio" => RuntimeHelper::Audio,
+            "crypto" => RuntimeHelper::Crypto,
+            "datetime" => RuntimeHelper::Datetime,
+            "fs" => RuntimeHelper::Fs,
+            "general" => RuntimeHelper::General,
+            "io" => RuntimeHelper::Io,
+            "math" => RuntimeHelper::Math,
+            "net" => RuntimeHelper::Net,
+            "os" => RuntimeHelper::Os,
+            "process" => RuntimeHelper::Process,
+            "perf" => RuntimeHelper::Perf,
+            "term" => RuntimeHelper::Term,
+            "thread" => RuntimeHelper::Thread,
+            "tls" => RuntimeHelper::Tls,
+            _ => return None,
+        })
+    }
 }
 
 pub fn symbol_for_call(helper: RuntimeHelper, target: &str) -> String {

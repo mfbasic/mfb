@@ -1122,6 +1122,94 @@ fn build() -> Registry {
 // Everything below this should be depricated
 //
 
+/// One runtime helper call a migrated native package emits: its package-qualified
+/// call name (`"process.spawn"`) and its ABI return type. Derived from the registry
+/// by [`runtime_specs`] so a migrated native package needs no hand-written spec
+/// table — the parallel `src/target/shared/runtime/*_specs.rs` "second catalog".
+#[derive(Clone, Debug)]
+pub(crate) struct RuntimeCall {
+    pub(crate) name: &'static str,
+    pub(crate) return_type: ParameterType,
+}
+
+/// The runtime helper calls every **migrated** native package emits, derived from
+/// the registry so there is one source of truth. Each `Body::Native` OS-seam member
+/// contributes its qualified call (`pkg.member`) typed by the member's `return_type`,
+/// plus each `os_aliases` code-layer overload-split form (`spawnEnv`, `sendTimeout`,
+/// …) — sharing that member's return; each resource contributes its close op
+/// (`process.__drop`, return `Nothing`). Calls are deduped by name, first occurrence
+/// wins: a member listed on two overloads (`spawn` on both spawn forms) collapses to
+/// one, and a rewrite-away overload that shares its function name (a future
+/// `net.poll` scalar vs the `List` overload emitting `net.pollList`) resolves to the
+/// scalar's `net.poll` while the `List` overload contributes only `pollList` — each
+/// with the correct return. Frozen once for the `ptr::eq` catalog identity (bug-382).
+///
+/// Only OS-seam members (`posix`/`win` lowering) are runtime helpers; pure-source
+/// (`Body::Mfb`) and `common`-only inline lowerings emit none, so pure packages
+/// (csv/json/regex/…) contribute nothing — mirroring their absent `*_specs.rs`.
+pub(crate) fn runtime_specs() -> &'static [RuntimeCall] {
+    static SPECS: OnceLock<Vec<RuntimeCall>> = OnceLock::new();
+    SPECS.get_or_init(|| {
+        let mut calls: Vec<RuntimeCall> = Vec::new();
+        for package in registry().packages() {
+            let pkg = package.import_name();
+            for function in package.functions() {
+                for implementation in function.implementations() {
+                    let Body::Native {
+                        posix,
+                        win,
+                        os_aliases,
+                        ..
+                    } = &implementation.body
+                    else {
+                        continue;
+                    };
+                    // `common`-only inline lowerings emit no runtime helper.
+                    if posix.is_none() && win.is_none() {
+                        continue;
+                    }
+                    push_runtime_call(
+                        &mut calls,
+                        qualify_runtime_call(pkg, function.name),
+                        &implementation.return_type,
+                    );
+                    for alias in os_aliases.iter().copied() {
+                        push_runtime_call(
+                            &mut calls,
+                            qualify_runtime_call(pkg, alias),
+                            &implementation.return_type,
+                        );
+                    }
+                }
+            }
+            for resource in package.resources() {
+                // The close op is already package-qualified (`process.__drop`).
+                push_runtime_call(&mut calls, resource.close_function, &ParameterType::Nothing);
+            }
+        }
+        calls
+    })
+}
+
+/// Append `name` → `return_type`, unless `name` is already present (dedup, first wins).
+fn push_runtime_call(
+    calls: &mut Vec<RuntimeCall>,
+    name: &'static str,
+    return_type: &ParameterType,
+) {
+    if !calls.iter().any(|call| call.name == name) {
+        calls.push(RuntimeCall {
+            name,
+            return_type: return_type.clone(),
+        });
+    }
+}
+
+/// `pkg.member`, leaked to `'static` — called once behind [`runtime_specs`]'s `OnceLock`.
+fn qualify_runtime_call(pkg: &str, member: &str) -> &'static str {
+    Box::leak(format!("{pkg}.{member}").into_boxed_str())
+}
+
 /// Whether `qualified` (`"collections.sort"`) names a migrated package's injected
 /// **source-generic** member — a member implemented as a monomorphized MFBASIC body
 /// rather than a registered [`RegistryFunction`], so [`is_member`] does not see it.
