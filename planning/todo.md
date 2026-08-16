@@ -147,6 +147,15 @@ The 6 leak-adapters (`resolve_call`, `rewrite_target`, `call_return_type`, `expe
 - Migration note for `vector`/record-constants: a migrated package's record types (e.g. `Float3`) must register as a `RegistryRecord` with element-typed props (the registry record-constant path reads element types from the record's fields in declaration order).
 - Pre-existing: `net` has ~5 STALE byte-identity goldens on `worktree-builtin` (verified on clean base, unrelated to any migration) — regenerate when `net` migrates or as a standalone cleanup.
 
+### Phase 1 — wave 1 + arena COMPLETE; resolver-heavy packages are the next infra frontier (2026-08-16)
+
+- DONE + acceptance-green: `bits`, `money`, `os`, `fs`, `io` (+ pre-existing csv/json/regex/process/datetime/encoding/collections). Registry currency: `REGISTRY.modules().len()` down to 16.
+- Infra landed: constant/override APIs, OS-seam build-context, `OsLowerCtx` (build_mode/module_name/term_state_offset/presentation_mode_offset), strict-matcher resource-vs-value-union fix. Byte-identity debt for fs `.ncode` cleared.
+- **The next frontier is RESOLVER-HEAVY packages** — `thread`/`tls`/`crypto` carry custom `BuiltinResolver`s the registry's generic overload/return machinery may not model:
+  - `thread`: `ThreadResolver` parses PARAMETRIC handle types (`Thread OF Msg TO Out`, `ThreadWorker OF Msg TO Out`) to compute return types (`receive→Msg`, `result→Out`) + a resource plane (transfer/accept/emit/read → parent-vs-worker `*Resource` targets). Likely needs a `ParameterType` extension for parametric opaque handles + `unify` rules. DESIGN ANALYSIS in flight.
+  - `crypto`: arg-dependent `_bytes`/`_text` impl selection. `tls`: resolver + per-backend (macos/openssl/schannel).
+- IN FLIGHT: `errorcode` migration (data-only 43 constants; needs `RegistryConstant` extended with message+symbol to repoint the whole error-emission path — `runtime_error*` consumed by ~10 codegen files). Sidesteps the resolver problem (no callables).
+
 ### Phase 1 — os LANDED; pre-existing fs byte-identity red is BENIGN (2026-08-16)
 
 - `os` migrated + merged (0a274639f, merge 38eb9cdfd): 15 native OS-seam members, `os.resourcePath` consumes the build-context (validates the OS-seam extension end-to-end), owns NO resource, 0 diffs on os/datetime/process. `3814` tests green. Migrated-package count now: csv/json/regex + process/datetime + bits + money + os.
