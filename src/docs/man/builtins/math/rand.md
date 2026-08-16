@@ -20,7 +20,7 @@ IMPORT math
 ```
 
 `math` is a built-in package, so no manifest dependency is required.
-[[src/builtins/math.rs:is_math_call]]
+[[src/codegen/builtins/math/mod.rs:is_math_call]]
 
 ## Description
 
@@ -51,11 +51,11 @@ A second overload takes two `Money` bounds and returns a `Money`, drawn the same
 way over the inclusive span of the underlying scaled amounts: a uniform amount
 between two amounts is itself an amount. Both arguments must be the same type;
 there is no mixed `Integer`/`Money` form, and there is no `Float` or `Fixed`
-form. [[src/builtins/math.rs:MATH]]
+form. [[src/codegen/builtins/math/mod.rs:MATH]]
 
 Either argument may be given by name as well as positionally: the first accepts
 `min` or `minimum`, the second `max` or `maximum`.
-[[src/builtins/math.rs:call_param_names]]
+[[src/codegen/builtins/math/mod.rs:call_param_names]]
 
 `math::rand` and `math::seed` are the only `math::` members that import anything
 from the platform — `getentropy`, for the startup seed. That is the RNG, not the
@@ -77,14 +77,14 @@ same sampling. The result stays in the `Money` dimension.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `min` | `Integer` or `Money` | The inclusive lower bound. Also accepted under the name `minimum`. Must not be greater than `max`. [[src/builtins/math.rs:call_param_names]] |
-| `max` | Same type as `min` | The inclusive upper bound. Also accepted under the name `maximum`. Must not be less than `min`. [[src/builtins/math.rs:call_param_names]] |
+| `min` | `Integer` or `Money` | The inclusive lower bound. Also accepted under the name `minimum`. Must not be greater than `max`. [[src/codegen/builtins/math/mod.rs:call_param_names]] |
+| `max` | Same type as `min` | The inclusive upper bound. Also accepted under the name `maximum`. Must not be less than `min`. [[src/codegen/builtins/math/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` or `Money` | A pseudo-random value `x` with `min <= x <= max`, drawn uniformly, in the same type as the bounds. When `min` equals `max`, that single value. [[src/builtins/math.rs:MATH]] |
+| `Integer` or `Money` | A pseudo-random value `x` with `min <= x <= max`, drawn uniformly, in the same type as the bounds. When `min` equals `max`, that single value. [[src/codegen/builtins/math/mod.rs:MATH]] |
 
 ## Errors
 
@@ -94,11 +94,11 @@ same sampling. The result stays in the `Money` dimension.
 
 ## Type checking
 
-`math::rand` takes exactly two arguments. [[src/builtins/math.rs:MATH]] They must
+`math::rand` takes exactly two arguments. [[src/codegen/builtins/math/mod.rs:MATH]] They must
 be two `Integer`s or two `Money` amounts. A `Float`, `Fixed`, or `Scalar`
 argument, a mixed `Integer`/`Money` pair, a list, or any non-numeric value such
 as a `String`, `Boolean`, `Byte`, record, union, resource, thread, or function
-value is a compile-time type error. [[src/builtins/math.rs:MATH]]
+value is a compile-time type error. [[src/codegen/builtins/math/mod.rs:MATH]]
 
 ## Examples
 

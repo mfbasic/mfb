@@ -21,7 +21,7 @@ IMPORT math
 ```
 
 `math` is a built-in package, so no manifest dependency is required.
-[[src/builtins/math.rs:is_math_call]]
+[[src/codegen/builtins/math/mod.rs:is_math_call]]
 
 ## Description
 
@@ -49,7 +49,7 @@ and runs unrolled CORDIC rotation. It has no failure path at all.
 `math::sin` accepts `Float` or `Fixed` **only**. `Integer` is not accepted and
 neither is `Money`: the transcendental functions do not take part in the `Money`
 dimension, so `math::sin(1)` and `math::sin(1.00m)` are both compile-time errors.
-Convert explicitly first. [[src/builtins/math.rs:one_float_or_fixed]]
+Convert explicitly first. [[src/codegen/builtins/math/mod.rs:one_float_or_fixed]]
 
 The `Float` overload is computed by a hand-written **in-tree kernel**: MFBASIC
 never links or calls a platform math library, so the answer does not vary with
@@ -68,7 +68,7 @@ guarantee. [[src/docs/spec/architecture/18_math-kernels.md]]
 The array overload takes a `List OF Float` and returns a new `List OF Float` of
 the same length; the input list is not mutated. There is **no** `List OF Fixed`
 array overload for `math::sin` — a `Fixed` list is a compile-time error.
-[[src/builtins/math.rs:MATH]]
+[[src/codegen/builtins/math/mod.rs:MATH]]
 
 ## Overloads
 
@@ -93,14 +93,14 @@ which element triggered it; no list is returned in that case.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Float` or `Fixed` | The angle whose sine is taken, in radians. Every value is accepted, but see the note on large magnitudes. This parameter has no alternate name. [[src/builtins/math.rs:call_param_names]] |
-| `values` | `List OF Float` | The array form: mapped element-wise. The empty list yields an empty list. [[src/builtins/math.rs:MATH]] |
+| `value` | `Float` or `Fixed` | The angle whose sine is taken, in radians. Every value is accepted, but see the note on large magnitudes. This parameter has no alternate name. [[src/codegen/builtins/math/mod.rs:call_param_names]] |
+| `values` | `List OF Float` | The array form: mapped element-wise. The empty list yields an empty list. [[src/codegen/builtins/math/mod.rs:MATH]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| Same as the argument | The sine of `value`, in the argument's own type; within `[-1, 1]` for an argument in the accurate range. `sin(0)` is zero. The array form returns a new `List OF Float` of the same length. [[src/builtins/math.rs:MATH]] |
+| Same as the argument | The sine of `value`, in the argument's own type; within `[-1, 1]` for an argument in the accurate range. `sin(0)` is zero. The array form returns a new `List OF Float` of the same length. [[src/codegen/builtins/math/mod.rs:MATH]] |
 
 ## Errors
 
@@ -110,11 +110,11 @@ which element triggered it; no list is returned in that case.
 
 ## Type checking
 
-`math::sin` takes exactly one argument. [[src/builtins/math.rs:MATH]] It must be
+`math::sin` takes exactly one argument. [[src/codegen/builtins/math/mod.rs:MATH]] It must be
 a single `Float` or `Fixed`, or a `List OF Float`. An `Integer`, a `Money`, a
 `List OF Fixed`, or any non-numeric value such as a `String`, `Boolean`, `Byte`,
 `Scalar`, record, union, resource, thread, or function value is a compile-time
-type error. [[src/builtins/math.rs:MATH]]
+type error. [[src/codegen/builtins/math/mod.rs:MATH]]
 
 ## Examples
 

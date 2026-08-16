@@ -25,7 +25,7 @@ IMPORT math
 ```
 
 `math` is a built-in package, so no manifest dependency is required.
-[[src/builtins/math.rs:is_math_call]]
+[[src/codegen/builtins/math/mod.rs:is_math_call]]
 
 ## Description
 
@@ -42,11 +42,11 @@ range fails with `ErrInvalidArgument` rather than returning a value.
 All three arguments must already be the same numeric type, and the return type
 is that type: three `Integer`s yield an `Integer`, three `Float`s a `Float`,
 three `Fixed`s a `Fixed`, and three `Money` amounts a `Money`. There is no
-mixed-type or promoting overload. [[src/builtins/math.rs:MATH]]
+mixed-type or promoting overload. [[src/codegen/builtins/math/mod.rs:MATH]]
 
 `Money` stays in its dimension: a clamped amount is still an amount. `clamp` is
 one of the four `math::` functions (`abs`, `min`, `max`, `clamp`) that accept and
-return `Money`. [[src/builtins/math.rs:is_numeric]]
+return `Money`. [[src/codegen/builtins/math/mod.rs:is_numeric]]
 
 The comparisons are plain ordered comparisons — signed 64-bit for `Integer`,
 `Fixed`, and `Money`, and ordered floating-point for `Float`. `clamp` is
@@ -58,8 +58,8 @@ back as `-0.0`. [[src/target/shared/code/builder_math.rs:lower_math_clamp]]
 The array overloads clamp every element of `values` against two **scalar**
 bounds whose type is the list's element type, and return a new `List` of the
 same element type and length; the input list is not mutated.
-[[src/builtins/math.rs:clamp_list]] There is **no** `List OF Money` overload.
-[[src/builtins/math.rs:is_numeric_list]]
+[[src/codegen/builtins/math/mod.rs:clamp_list]] There is **no** `List OF Money` overload.
+[[src/codegen/builtins/math/mod.rs:is_numeric_list]]
 
 ## Overloads
 
@@ -88,15 +88,15 @@ element equals the corresponding scalar result exactly.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Integer`, `Float`, `Fixed`, `Money`, or a `List OF` one of the first three | The value (or list of values) to restrict. This parameter has no alternate name. [[src/builtins/math.rs:call_param_names]] |
-| `low` | The element type of `value` | The inclusive lower bound. Also accepted under the name `minimum`. Must not be greater than `high`. [[src/builtins/math.rs:call_param_names]] |
-| `high` | The element type of `value` | The inclusive upper bound. Also accepted under the name `maximum`. Must not be less than `low`. [[src/builtins/math.rs:call_param_names]] |
+| `value` | `Integer`, `Float`, `Fixed`, `Money`, or a `List OF` one of the first three | The value (or list of values) to restrict. This parameter has no alternate name. [[src/codegen/builtins/math/mod.rs:call_param_names]] |
+| `low` | The element type of `value` | The inclusive lower bound. Also accepted under the name `minimum`. Must not be greater than `high`. [[src/codegen/builtins/math/mod.rs:call_param_names]] |
+| `high` | The element type of `value` | The inclusive upper bound. Also accepted under the name `maximum`. Must not be less than `low`. [[src/codegen/builtins/math/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| Same as `value` | `low` when `value < low`, `high` when `value > high`, and `value` unchanged otherwise. A value equal to either bound is returned unchanged. The array forms return a new list of the same element type and length. [[src/builtins/math.rs:MATH]] |
+| Same as `value` | `low` when `value < low`, `high` when `value > high`, and `value` unchanged otherwise. A value equal to either bound is returned unchanged. The array forms return a new list of the same element type and length. [[src/codegen/builtins/math/mod.rs:MATH]] |
 
 ## Errors
 
@@ -106,13 +106,13 @@ element equals the corresponding scalar result exactly.
 
 ## Type checking
 
-`math::clamp` takes exactly three arguments. [[src/builtins/math.rs:MATH]] Either
+`math::clamp` takes exactly three arguments. [[src/codegen/builtins/math/mod.rs:MATH]] Either
 all three share one numeric type (`Integer`, `Float`, `Fixed`, or `Money`), or
 the first is a `List OF T` for a numeric `T` and the other two are scalars of
 that same `T`. Mixing numeric types, passing list bounds, or passing a
 non-numeric value such as a `String`, `Boolean`, `Byte`, `Scalar`, record,
 union, resource, thread, or function value is a compile-time type error.
-[[src/builtins/math.rs:MATH]]
+[[src/codegen/builtins/math/mod.rs:MATH]]
 
 ## Examples
 

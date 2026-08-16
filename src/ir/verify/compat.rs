@@ -326,8 +326,13 @@ impl TypeEnv {
         fn is_io_call(name: &str) -> bool {
             crate::codegen::registry::registry().owning_package(name) == Some("io")
         }
+        // `math` migrated to the clean-room registry; membership is the narrow
+        // `owning_package == "math"`, replacing the deleted `builtins::math::is_math_call`.
+        fn is_math_call(name: &str) -> bool {
+            crate::codegen::registry::registry().owning_package(name) == Some("math")
+        }
         let checked: [IsCall; 9] = [
-            builtins::math::is_math_call,
+            is_math_call,
             is_bits_call,
             builtins::vector::is_vector_call,
             builtins::strings::is_strings_call,

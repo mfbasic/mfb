@@ -2100,7 +2100,8 @@ fn expression_type(
                     != Some("encoding");
             if builtins::strings::is_strings_call(&canonical_callee)
                 || builtins::astrings::is_astrings_call(&canonical_callee)
-                || builtins::math::is_math_call(&canonical_callee)
+                // `math` migrated to the clean-room registry — covered by
+                // `migrated_arg_typed` (`registry::is_member`) below.
                 || builtins::vector::is_vector_call(&canonical_callee)
                 // `fs`/`io` migrated to the clean-room registry — covered by
                 // `migrated_arg_typed` (`registry::is_member`) below.

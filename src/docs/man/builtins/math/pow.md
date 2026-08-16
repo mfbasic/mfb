@@ -21,7 +21,7 @@ IMPORT math
 ```
 
 `math` is a built-in package, so no manifest dependency is required.
-[[src/builtins/math.rs:is_math_call]]
+[[src/codegen/builtins/math/mod.rs:is_math_call]]
 
 ## Description
 
@@ -32,11 +32,11 @@ Both arguments must already be the same numeric type, and the return type is
 that type: two `Float`s yield a `Float` and two `Fixed`s a `Fixed`. `math::pow`
 accepts `Float` or `Fixed` **only** — `Integer` and `Money` are compile-time
 errors, and there is no mixed-type overload, so `math::pow(2.0, 3)` does not
-compile. [[src/builtins/math.rs:two_same_float_or_fixed]]
+compile. [[src/codegen/builtins/math/mod.rs:two_same_float_or_fixed]]
 
 Either argument may be given by name as well as positionally: the first accepts
 `base` or `value`, the second `exponent` or `power`.
-[[src/builtins/math.rs:call_param_names]]
+[[src/codegen/builtins/math/mod.rs:call_param_names]]
 
 The `Float` overload is a hand-written **in-tree** fdlibm `__ieee754_pow` kernel
 evaluated in log2 space; MFBASIC never links or calls a platform math library.
@@ -95,14 +95,14 @@ any element is computed. [[src/target/shared/code/builder_pow.rs:lower_pow_array
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `base` | `Float`, `Fixed`, or `List OF Float` | The number being raised to a power. Also accepted under the name `value`. Subject to the `Fixed` domain restrictions described above. [[src/builtins/math.rs:call_param_names]] |
-| `exponent` | Same type as `base` | The power to raise `base` to. Also accepted under the name `power`. May be whole or fractional, positive, zero, or negative. [[src/builtins/math.rs:call_param_names]] |
+| `base` | `Float`, `Fixed`, or `List OF Float` | The number being raised to a power. Also accepted under the name `value`. Subject to the `Fixed` domain restrictions described above. [[src/codegen/builtins/math/mod.rs:call_param_names]] |
+| `exponent` | Same type as `base` | The power to raise `base` to. Also accepted under the name `power`. May be whole or fractional, positive, zero, or negative. [[src/codegen/builtins/math/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| Same as the arguments | `base` raised to `exponent`. A zero exponent returns one. The `Fixed` overload rounds to the nearest representable `Fixed`; the array form returns a new `List OF Float` of the same length. [[src/builtins/math.rs:MATH]] |
+| Same as the arguments | `base` raised to `exponent`. A zero exponent returns one. The `Fixed` overload rounds to the nearest representable `Fixed`; the array form returns a new `List OF Float` of the same length. [[src/codegen/builtins/math/mod.rs:MATH]] |
 
 ## Errors
 
@@ -115,12 +115,12 @@ any element is computed. [[src/target/shared/code/builder_pow.rs:lower_pow_array
 
 ## Type checking
 
-`math::pow` takes exactly two arguments. [[src/builtins/math.rs:MATH]] They must
+`math::pow` takes exactly two arguments. [[src/codegen/builtins/math/mod.rs:MATH]] They must
 share one type: two `Float`s, two `Fixed`s, or two `List OF Float`. Mixing
 `Float` with `Fixed`, passing an `Integer`, a `Money`, a `List OF Fixed`, or any
 non-numeric value such as a `String`, `Boolean`, `Byte`, `Scalar`, record,
 union, resource, thread, or function value is a compile-time type error.
-[[src/builtins/math.rs:MATH]]
+[[src/codegen/builtins/math/mod.rs:MATH]]
 
 ## Examples
 

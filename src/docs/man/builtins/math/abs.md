@@ -25,7 +25,7 @@ IMPORT math
 ```
 
 `math` is a built-in package, so no manifest dependency is required.
-[[src/builtins/math.rs:is_math_call]]
+[[src/codegen/builtins/math/mod.rs:is_math_call]]
 
 ## Description
 
@@ -36,12 +36,12 @@ returned negated.
 The function is selected by the exact type of its argument, and the return type
 is always that same type: an `Integer` yields an `Integer`, a `Float` a `Float`,
 a `Fixed` a `Fixed`, and a `Money` a `Money`. There is no mixed-type or
-promoting overload. [[src/builtins/math.rs:MATH]]
+promoting overload. [[src/codegen/builtins/math/mod.rs:MATH]]
 
 `Money` stays in its dimension here: the magnitude of an amount is still an
 amount, so `math::abs` is one of the four `math::` functions (`abs`, `min`,
 `max`, `clamp`) that accept and return `Money`.
-[[src/builtins/math.rs:is_numeric]]
+[[src/codegen/builtins/math/mod.rs:is_numeric]]
 
 `Integer`, `Fixed`, and `Money` are all stored as a signed 64-bit value, whose
 negative range extends one step further than its positive range. Negating the
@@ -54,7 +54,7 @@ The array overloads map `abs` over a numeric `List` and return a new `List` of
 the same element type and length; the input list is not mutated.
 [[src/target/shared/code/builder_math.rs:lower_math_abs_array]] There is **no**
 `List OF Money` overload — the array forms cover `Integer`, `Float`, and `Fixed`
-only. [[src/builtins/math.rs:is_numeric_list]]
+only. [[src/codegen/builtins/math/mod.rs:is_numeric_list]]
 
 ## Overloads
 
@@ -92,14 +92,14 @@ element triggered it; no list is returned in that case.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Integer`, `Float`, `Fixed`, or `Money` | The number whose magnitude is taken. Every value is accepted except the minimum `Integer`/`Fixed`/`Money`. This parameter has no alternate name. [[src/builtins/math.rs:call_param_names]] |
-| `values` | `List OF Integer`, `List OF Float`, or `List OF Fixed` | The array form: a homogeneous numeric list, mapped element-wise. The empty list is accepted and yields an empty list. [[src/builtins/math.rs:any_numeric_list]] |
+| `value` | `Integer`, `Float`, `Fixed`, or `Money` | The number whose magnitude is taken. Every value is accepted except the minimum `Integer`/`Fixed`/`Money`. This parameter has no alternate name. [[src/codegen/builtins/math/mod.rs:call_param_names]] |
+| `values` | `List OF Integer`, `List OF Float`, or `List OF Fixed` | The array form: a homogeneous numeric list, mapped element-wise. The empty list is accepted and yields an empty list. [[src/codegen/builtins/math/mod.rs:any_numeric_list]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| Same as the argument | The non-negative magnitude of `value`, in the argument's own type. Zero (including `-0.0` for `Float`) returns zero. The array forms return a new list of the same element type and length. [[src/builtins/math.rs:MATH]] |
+| Same as the argument | The non-negative magnitude of `value`, in the argument's own type. Zero (including `-0.0` for `Float`) returns zero. The array forms return a new list of the same element type and length. [[src/codegen/builtins/math/mod.rs:MATH]] |
 
 ## Errors
 
@@ -109,12 +109,12 @@ element triggered it; no list is returned in that case.
 
 ## Type checking
 
-`math::abs` takes exactly one argument. [[src/builtins/math.rs:MATH]] It must be
+`math::abs` takes exactly one argument. [[src/codegen/builtins/math/mod.rs:MATH]] It must be
 a single `Integer`, `Float`, `Fixed`, or `Money`, or a `List OF Integer`,
 `List OF Float`, or `List OF Fixed`. Any other type — a `String`, `Boolean`,
 `Byte`, `Scalar`, record, union, resource, thread, or function value, or a
 `List OF Money` — is a compile-time type error.
-[[src/builtins/math.rs:MATH]]
+[[src/codegen/builtins/math/mod.rs:MATH]]
 
 ## Examples
 

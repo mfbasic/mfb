@@ -25,7 +25,7 @@ IMPORT math
 ```
 
 `math` is a built-in package, so no manifest dependency is required.
-[[src/builtins/math.rs:is_math_call]]
+[[src/codegen/builtins/math/mod.rs:is_math_call]]
 
 ## Description
 
@@ -36,11 +36,11 @@ Both arguments must already be the same numeric type, and the return type is
 that type: two `Integer`s yield an `Integer`, two `Float`s a `Float`, two
 `Fixed`s a `Fixed`, and two `Money` amounts a `Money`. There is no mixed-type or
 promoting overload — `math::min(1, 1.0)` does not compile.
-[[src/builtins/math.rs:MATH]]
+[[src/codegen/builtins/math/mod.rs:MATH]]
 
 `Money` stays in its dimension: the smaller of two amounts is itself an amount.
 `min` is one of the four `math::` functions (`abs`, `min`, `max`, `clamp`) that
-accept and return `Money`. [[src/builtins/math.rs:is_numeric]]
+accept and return `Money`. [[src/codegen/builtins/math/mod.rs:is_numeric]]
 
 The `Integer`, `Fixed`, and `Money` overloads are a signed 64-bit compare and
 select. The `Float` overload uses the hardware minimum-number instruction, so
@@ -51,7 +51,7 @@ rounds, overflows, or checks a domain.
 The array overloads pair the two lists element-wise and return a new `List` of
 the same element type and length; neither input is mutated. The two lists must
 have the same length. [[src/target/shared/code/builder_math.rs:lower_math_min_max_array]]
-There is **no** `List OF Money` overload. [[src/builtins/math.rs:is_numeric_list]]
+There is **no** `List OF Money` overload. [[src/codegen/builtins/math/mod.rs:is_numeric_list]]
 
 ## Overloads
 
@@ -79,14 +79,14 @@ exactly. Lists of differing length fail with `ErrInvalidArgument`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | `Integer`, `Float`, `Fixed`, `Money`, or the matching `List OF` form | The first value to compare. Also accepted under the name `left`. [[src/builtins/math.rs:call_param_names]] |
-| `b` | Same type as `a` | The second value to compare. Also accepted under the name `right`. Must be exactly the same type as `a`. [[src/builtins/math.rs:call_param_names]] |
+| `a` | `Integer`, `Float`, `Fixed`, `Money`, or the matching `List OF` form | The first value to compare. Also accepted under the name `left`. [[src/codegen/builtins/math/mod.rs:call_param_names]] |
+| `b` | Same type as `a` | The second value to compare. Also accepted under the name `right`. Must be exactly the same type as `a`. [[src/codegen/builtins/math/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| Same as the arguments | The smaller of `a` and `b`. When they are equal, that value. For the array forms, a new list of the same element type and length holding the element-wise minimum. [[src/builtins/math.rs:MATH]] |
+| Same as the arguments | The smaller of `a` and `b`. When they are equal, that value. For the array forms, a new list of the same element type and length holding the element-wise minimum. [[src/codegen/builtins/math/mod.rs:MATH]] |
 
 ## Errors
 
@@ -96,12 +96,12 @@ exactly. Lists of differing length fail with `ErrInvalidArgument`.
 
 ## Type checking
 
-`math::min` takes exactly two arguments. [[src/builtins/math.rs:MATH]] They must
+`math::min` takes exactly two arguments. [[src/codegen/builtins/math/mod.rs:MATH]] They must
 share one numeric type: two `Integer`s, two `Float`s, two `Fixed`s, two `Money`
 amounts, or two lists of the same numeric element type. Mixing numeric types,
 mixing a scalar with a list, or passing a non-numeric value such as a `String`,
 `Boolean`, `Byte`, `Scalar`, record, union, resource, thread, or function value
-is a compile-time type error. [[src/builtins/math.rs:MATH]]
+is a compile-time type error. [[src/codegen/builtins/math/mod.rs:MATH]]
 
 ## Examples
 

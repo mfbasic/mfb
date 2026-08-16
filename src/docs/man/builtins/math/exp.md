@@ -21,7 +21,7 @@ IMPORT math
 ```
 
 `math` is a built-in package, so no manifest dependency is required.
-[[src/builtins/math.rs:is_math_call]]
+[[src/codegen/builtins/math/mod.rs:is_math_call]]
 
 ## Description
 
@@ -44,7 +44,7 @@ a power of two. [[src/target/shared/code/builder_fixed_math.rs:emit_fixed_exp]]
 `math::exp` accepts `Float` or `Fixed` **only**. `Integer` is not accepted and
 neither is `Money`: the transcendental functions do not take part in the `Money`
 dimension, so `math::exp(2)` and `math::exp(2.00m)` are both compile-time errors.
-Convert explicitly first. [[src/builtins/math.rs:one_float_or_fixed]]
+Convert explicitly first. [[src/codegen/builtins/math/mod.rs:one_float_or_fixed]]
 
 The `Float` overload is computed by a hand-written **in-tree kernel**: MFBASIC
 never links or calls a platform math library, so the answer does not vary with
@@ -63,7 +63,7 @@ guarantee. [[src/docs/spec/architecture/18_math-kernels.md]]
 
 The array overloads map `math::exp` over a list and return a new list of the same
 element type and length; the input list is not mutated. There is a `List OF Float` array overload but **no** `List OF Fixed` one; `math::exp` over a `Fixed` list is a compile-time error.
-[[src/builtins/math.rs:MATH]]
+[[src/codegen/builtins/math/mod.rs:MATH]]
 
 ## Overloads
 
@@ -88,14 +88,14 @@ which element triggered it; no list is returned in that case.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Float` or `Fixed` | The exponent to raise `e` to. Any finite value is accepted; a large positive value whose result exceeds the type's range fails. This parameter has no alternate name. [[src/builtins/math.rs:call_param_names]] |
-| `values` | `List OF Float` | The array form: a homogeneous list, mapped element-wise. The empty list yields an empty list. [[src/builtins/math.rs:MATH]] |
+| `value` | `Float` or `Fixed` | The exponent to raise `e` to. Any finite value is accepted; a large positive value whose result exceeds the type's range fails. This parameter has no alternate name. [[src/codegen/builtins/math/mod.rs:call_param_names]] |
+| `values` | `List OF Float` | The array form: a homogeneous list, mapped element-wise. The empty list yields an empty list. [[src/codegen/builtins/math/mod.rs:MATH]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| Same as the argument | `e` raised to `value`, in the argument's own type. Zero returns one; a negative argument returns a positive result below one. The array forms return a new list of the same element type and length. [[src/builtins/math.rs:MATH]] |
+| Same as the argument | `e` raised to `value`, in the argument's own type. Zero returns one; a negative argument returns a positive result below one. The array forms return a new list of the same element type and length. [[src/codegen/builtins/math/mod.rs:MATH]] |
 
 ## Errors
 
@@ -107,11 +107,11 @@ which element triggered it; no list is returned in that case.
 
 ## Type checking
 
-`math::exp` takes exactly one argument. [[src/builtins/math.rs:MATH]] It must be
+`math::exp` takes exactly one argument. [[src/codegen/builtins/math/mod.rs:MATH]] It must be
 a single `Float` or `Fixed`, or `List OF Float`. An `Integer`, a `Money`, or any
 non-numeric value such as a `String`, `Boolean`, `Byte`, `Scalar`, record,
 union, resource, thread, or function value is a compile-time type error.
-[[src/builtins/math.rs:MATH]]
+[[src/codegen/builtins/math/mod.rs:MATH]]
 
 ## Examples
 

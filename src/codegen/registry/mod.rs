@@ -1269,6 +1269,7 @@ fn build() -> Registry {
     crate::codegen::builtins::bits::register(&mut r);
     crate::codegen::builtins::csv::register(&mut r);
     crate::codegen::builtins::json::register(&mut r);
+    crate::codegen::builtins::math::register(&mut r);
     crate::codegen::builtins::regex::register(&mut r);
     crate::codegen::builtins::process::register(&mut r);
     crate::codegen::builtins::datetime::register(&mut r);
