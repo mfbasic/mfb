@@ -15,7 +15,9 @@
 use std::io::IsTerminal;
 
 use crate::cli::spec::detect_terminal_width;
-use crate::codegen::registry::{self, registry, DefaultValue, RegistryFunction, RegistryPackage};
+use crate::codegen::registry::{
+    self, registry, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+};
 use crate::docs::render;
 
 pub(crate) fn show_man2(args: &[String]) -> Result<(), String> {
@@ -141,49 +143,103 @@ fn render_types_markdown(package: &RegistryPackage) -> String {
 
     md.push_str("## Types\n\n");
 
-    for record in package.records().iter().filter(|record| record.export) {
-        md.push_str(&format!("### {pkg}::{}\n\n", record.name));
-        md.push_str("| Field | Type | Description |\n| --- | --- | --- |\n");
-        for prop in &record.props {
-            md.push_str(&format!(
-                "| `{}` | `{}` | {} |\n",
-                prop.name,
-                prop.ty.name(),
-                prop.description,
-            ));
+    let records: Vec<_> = package.records().iter().filter(|r| r.export).collect();
+    if !records.is_empty() {
+        md.push_str("### Records\n\n");
+        for record in records {
+            md.push_str(&format!("#### {pkg}::{}\n\n", record.name));
+            md.push_str("| Field | Type | Description |\n| --- | --- | --- |\n");
+            for prop in &record.props {
+                md.push_str(&format!(
+                    "| `{}` | `{}` | {} |\n",
+                    prop.name,
+                    prop.ty.name(),
+                    prop.description,
+                ));
+            }
+            md.push('\n');
         }
-        md.push('\n');
     }
 
-    for union in package.unions().iter().filter(|union| union.export) {
-        md.push_str(&format!("### {pkg}::{}\n\n", union.name));
-        md.push_str("A union of:\n\n");
-        for variant in &union.variants {
-            md.push_str(&format!("- `{}` — {}\n", variant.name, variant.description));
+    let unions: Vec<_> = package.unions().iter().filter(|u| u.export).collect();
+    if !unions.is_empty() {
+        md.push_str("### Unions\n\n");
+        for union in unions {
+            md.push_str(&format!("#### {pkg}::{}\n\n", union.name));
+            md.push_str("A union of:\n\n");
+            for variant in &union.variants {
+                md.push_str(&format!("- `{}` — {}\n", variant.name, variant.description));
+            }
+            md.push('\n');
         }
-        md.push('\n');
     }
 
-    for r#enum in package.enums().iter().filter(|r#enum| r#enum.export) {
-        md.push_str(&format!("### {pkg}::{}\n\n", r#enum.name));
-        md.push_str("An enum of:\n\n");
-        for variant in &r#enum.variants {
-            md.push_str(&format!("- `{}` — {}\n", variant.name, variant.description));
+    let enums: Vec<_> = package.enums().iter().filter(|e| e.export).collect();
+    if !enums.is_empty() {
+        md.push_str("### Enums\n\n");
+        for r#enum in enums {
+            md.push_str(&format!("#### {pkg}::{}\n\n", r#enum.name));
+            md.push_str("An enum of:\n\n");
+            for variant in &r#enum.variants {
+                md.push_str(&format!("- `{}` — {}\n", variant.name, variant.description));
+            }
+            md.push('\n');
         }
-        md.push('\n');
     }
 
-    for resource in package
-        .resources()
-        .iter()
-        .filter(|resource| resource.export)
-    {
-        md.push_str(&format!("### {pkg}::{}\n\n", resource.name));
-        md.push_str(resource.description);
-        md.push_str("\n\n");
+    let resources: Vec<_> = package.resources().iter().filter(|r| r.export).collect();
+    if !resources.is_empty() {
+        md.push_str("### Resources\n\n");
+        for resource in resources {
+            md.push_str(&format!("#### {pkg}::{}\n\n", resource.name));
+            md.push_str(resource.description);
+            md.push_str("\n\n");
+        }
     }
 
     md
+}
+
+/// The MFBASIC declaration of one overload — `pkg::name(p AS Type, [opt AS Type]) AS Return`
+/// (optional/defaulted parameters are bracketed). Matches the hand-written man pages'
+/// `## Overloads` convention.
+fn render_declaration(pkg: &str, name: &str, implementation: &Implementation) -> String {
+    let params = implementation
+        .params
+        .iter()
+        .map(|param| {
+            let decl = format!("{} AS {}", param.name, param.ty.name());
+            if matches!(
+                param.default,
+                DefaultValue::Fill { .. } | DefaultValue::Optional
+            ) {
+                format!("[{decl}]")
+            } else {
+                decl
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "`{pkg}::{name}({params}) AS {}`",
+        implementation.return_type.name()
+    )
+}
+
+/// The union of every parameter across all overloads, de-duplicated by name (first
+/// occurrence wins, declaration order preserved), so the Parameters table covers every
+/// argument any overload accepts.
+fn union_parameters(function: &RegistryFunction) -> Vec<&Parameter> {
+    let mut seen = std::collections::HashSet::new();
+    let mut params = Vec::new();
+    for implementation in &function.implementations {
+        for param in &implementation.params {
+            if seen.insert(param.name) {
+                params.push(param);
+            }
+        }
+    }
+    params
 }
 
 /// Build a Markdown man page for one function purely from its descriptor.
@@ -199,6 +255,23 @@ fn render_function_markdown(package: &RegistryPackage, function: &RegistryFuncti
     md.push_str("## Package\n\n");
     md.push_str(package.import_name());
     md.push_str("\n\n");
+
+    let pkg = package.import_name();
+    if function.implementations.len() > 1 {
+        md.push_str("## Overloads\n\n");
+        for implementation in &function.implementations {
+            md.push_str(&format!(
+                "**{}**\n\n",
+                render_declaration(pkg, function.name, implementation)
+            ));
+        }
+    } else if let Some(implementation) = function.implementations.first() {
+        md.push_str("## Declaration\n\n");
+        md.push_str(&format!(
+            "**{}**\n\n",
+            render_declaration(pkg, function.name, implementation)
+        ));
+    }
 
     render_parameters(&mut md, function);
 
@@ -273,18 +346,29 @@ fn referenced_functions(text: &str, current: &str) -> Vec<String> {
 /// (defaulted) parameters are flagged, alias spellings are listed if present, and the fixed
 /// return type is shown.
 fn render_parameters(md: &mut String, function: &RegistryFunction) {
-    let Some(implementation) = function.implementations.first() else {
-        return;
-    };
-    if implementation.params.is_empty() {
-        md.push_str(&format!(
-            "Takes no arguments and returns `{}`.\n\n",
-            implementation.return_type.name(),
-        ));
+    // The Parameters table is the UNION of every overload's parameters (§man2). The
+    // return type(s) are shown in the Overloads/Declaration section above; a single
+    // trailing "Returns" line is added only when there is exactly one overload (with
+    // multiple overloads the returns can differ, so one line would be misleading).
+    let params = union_parameters(function);
+    let single = function.implementations.len() == 1;
+    let return_type = function
+        .implementations
+        .first()
+        .map(|implementation| implementation.return_type.name());
+
+    if params.is_empty() {
+        if single {
+            if let Some(return_type) = &return_type {
+                md.push_str(&format!(
+                    "Takes no arguments and returns `{return_type}`.\n\n"
+                ));
+            }
+        }
         return;
     }
 
-    let has_aliases = implementation.params.iter().any(|p| !p.aliases.is_empty());
+    let has_aliases = params.iter().any(|p| !p.aliases.is_empty());
 
     md.push_str("## Parameters\n\n");
     if has_aliases {
@@ -293,7 +377,7 @@ fn render_parameters(md: &mut String, function: &RegistryFunction) {
         md.push_str("| Parameter | Type | Description |\n| --- | --- | --- |\n");
     }
 
-    for param in &implementation.params {
+    for param in &params {
         let optional = matches!(
             param.default,
             DefaultValue::Fill { .. } | DefaultValue::Optional
@@ -330,10 +414,11 @@ fn render_parameters(md: &mut String, function: &RegistryFunction) {
     }
     md.push('\n');
 
-    md.push_str(&format!(
-        "Returns `{}`.\n\n",
-        implementation.return_type.name()
-    ));
+    if single {
+        if let Some(return_type) = &return_type {
+            md.push_str(&format!("Returns `{return_type}`.\n\n"));
+        }
+    }
 }
 
 /// Render an Errors table for a set of `errorCode` names, resolving each to its
@@ -389,6 +474,11 @@ mod tests {
         assert!(md.starts_with("# parse\n"));
         assert!(md.contains("## Package\n\ncsv"));
         assert!(md.contains("## Description"));
+        // A single-overload member renders a Declaration section above Parameters.
+        assert!(md.contains("## Declaration"));
+        assert!(md.contains("`csv::parse("));
+        assert!(md.contains(") AS List OF List OF String`"));
+        assert!(!md.contains("## Overloads"));
         // The parameter table reflects the descriptor's params, aliases, and optionals.
         assert!(md.contains("## Parameters"));
         assert!(md.contains("`value`"));
@@ -411,6 +501,27 @@ mod tests {
     }
 
     #[test]
+    fn multi_overload_function_renders_overloads_and_union_parameters() {
+        let package = registry().resolve_package("process").unwrap();
+        let function = package.function("spawn").unwrap();
+        assert!(function.implementations.len() > 1);
+        let md = render_function_markdown(package, function);
+        // Multiple overloads → an Overloads section with one declaration per implementation,
+        // and NOT the single-overload Declaration section.
+        assert!(md.contains("## Overloads"));
+        assert!(!md.contains("## Declaration"));
+        assert!(md.contains("`process::spawn(args AS List OF String) AS"));
+        assert!(md.contains("cwd AS String"));
+        assert!(md.contains("envReplace AS Boolean"));
+        // The Parameters table is the UNION of every overload's parameters.
+        assert!(md.contains("## Parameters"));
+        assert!(md.contains("`args`"));
+        assert!(md.contains("`cwd`"));
+        assert!(md.contains("`env`"));
+        assert!(md.contains("`envReplace`"));
+    }
+
+    #[test]
     fn no_function_renders_the_package_overview() {
         let package = registry().resolve_package("csv").unwrap();
         let md = render_package_markdown(package);
@@ -429,12 +540,17 @@ mod tests {
         let md = render_types_markdown(package);
         assert!(md.starts_with("# Types\n"));
         assert!(md.contains("## Package\n\njson"));
-        // Exported records render as `pkg::Name` with a field table.
-        assert!(md.contains("### json::JsonObj"));
+        // Category headings group the types; individual types render one level deeper.
+        assert!(md.contains("### Records"));
+        assert!(md.contains("#### json::JsonObj"));
         assert!(md.contains("| Field | Type | Description |"));
-        // The exported union renders with its variants.
-        assert!(md.contains("### json::Json"));
+        // The exported union renders under a Unions heading with its variants.
+        assert!(md.contains("### Unions"));
+        assert!(md.contains("#### json::Json"));
         assert!(md.contains("- `JsonNull`"));
+        // json has no exported enums/resources, so those headings are excluded.
+        assert!(!md.contains("### Enums"));
+        assert!(!md.contains("### Resources"));
         // Internal (non-export) records are omitted from the public page.
         assert!(!md.contains("__json_Node"));
         assert!(!md.contains("__json_StringNode"));
@@ -444,8 +560,13 @@ mod tests {
     fn types_page_renders_a_record_only_package() {
         let package = registry().resolve_package("csv").unwrap();
         let md = render_types_markdown(package);
-        assert!(md.contains("### csv::CsvReader"));
-        assert!(md.contains("### csv::CsvRow"));
+        assert!(md.contains("### Records"));
+        assert!(md.contains("#### csv::CsvReader"));
+        assert!(md.contains("#### csv::CsvRow"));
+        // A record-only package excludes the other category headings.
+        assert!(!md.contains("### Unions"));
+        assert!(!md.contains("### Enums"));
+        assert!(!md.contains("### Resources"));
     }
 
     #[test]
@@ -474,11 +595,16 @@ mod tests {
 
         assert!(has_public_types(&package));
         let md = render_types_markdown(&package);
-        assert!(md.contains("### demo::Stream"));
+        assert!(md.contains("### Enums"));
+        assert!(md.contains("#### demo::Stream"));
         assert!(md.contains("- `StdOut` — standard output"));
         // A resource renders as its name + description only (no close op leaks out).
-        assert!(md.contains("### demo::Handle"));
+        assert!(md.contains("### Resources"));
+        assert!(md.contains("#### demo::Handle"));
         assert!(md.contains("An opaque demo handle."));
+        // No exported records/unions → those headings are excluded.
+        assert!(!md.contains("### Records"));
+        assert!(!md.contains("### Unions"));
         assert!(!md.contains("demo.close"));
     }
 
