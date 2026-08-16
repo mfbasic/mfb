@@ -33,7 +33,7 @@ TYPE FileInfo
 END TYPE
 
 LINK "libsnd" AS snd
-  CSTRUCT SfFileInfo AS FileInfo
+  CSTRUCT SfFileInfo AS fs::FileInfo
     frames     CInt64
     samplerate CInt32
     channels   CInt32
@@ -42,7 +42,7 @@ LINK "libsnd" AS snd
     seekable   CInt32
   END CSTRUCT
 
-  FUNC openFile(path AS String) AS RES SoundFile STATE FileInfo
+  FUNC openFile(path AS String) AS RES Soundfs::File STATE FileInfo
     SYMBOL "sf_open"
     ABI (path CString, mode CInt32, info OUT SfFileInfo) AS file CPtr
     CONST mode = 16 ' SFM_READ
@@ -51,7 +51,7 @@ LINK "libsnd" AS snd
     RETURN file
   END FUNC
 
-  FUNC readSamples(RES sndfile AS SoundFile STATE FileInfo, items AS Integer) AS List OF Byte
+  FUNC readSamples(RES sndfile AS Soundfs::File STATE FileInfo, items AS Integer) AS List OF Byte
     SYMBOL "sf_read_short"
     ABI (sndfile CPtr, buf OUT CBuffer, items CInt64) AS got CInt64
     BUFFER buf SIZE items * 2
@@ -59,7 +59,7 @@ LINK "libsnd" AS snd
     RETURN buf LENGTH got * 2
   END FUNC
 
-  FUNC closeFile(RES sndfile AS SoundFile STATE FileInfo) AS Nothing
+  FUNC closeFile(RES sndfile AS Soundfs::File STATE FileInfo) AS Nothing
     SYMBOL "sf_close"
     ABI (sndfile CPtr) AS status CInt32
     SUCCESS_ON status = 0
@@ -94,7 +94,7 @@ FUNC main() AS Integer
   fs::writeBytes(path, probeWav())
 
   ' --- exact read: 4 frames * 2 channels = 8 items = 16 bytes ---------------
-  RES h1 AS SoundFile STATE FileInfo = snd::openFile(path)
+  RES h1 AS Soundfs::File STATE FileInfo = snd::openFile(path)
   LET all AS List OF Byte = snd::readSamples(h1, 8)
   dump("exact", all)
   snd::closeFile(h1)
@@ -102,7 +102,7 @@ FUNC main() AS Integer
   ' --- short read at EOF: ask for 100 items, only 8 exist ------------------
   ' Proves LENGTH reports what libsndfile ACTUALLY wrote, not what was asked
   ' for. With `LENGTH` absent this would be 200 bytes of arena memory.
-  RES h2 AS SoundFile STATE FileInfo = snd::openFile(path)
+  RES h2 AS Soundfs::File STATE FileInfo = snd::openFile(path)
   LET over AS List OF Byte = snd::readSamples(h2, 100)
   dump("short", over)
   snd::closeFile(h2)
@@ -119,21 +119,21 @@ FUNC main() AS Integer
   '
   ' The even cases are also what prove `SIZE items * 2` scales with `items`: a
   ' SIZE that ignored the parameter would return 16 bytes here, not 4 and 8.
-  RES h3 AS SoundFile STATE FileInfo = snd::openFile(path)
+  RES h3 AS Soundfs::File STATE FileInfo = snd::openFile(path)
   dump("items1", snd::readSamples(h3, 1))
   snd::closeFile(h3)
-  RES h3b AS SoundFile STATE FileInfo = snd::openFile(path)
+  RES h3b AS Soundfs::File STATE FileInfo = snd::openFile(path)
   dump("items2", snd::readSamples(h3b, 2))
   snd::closeFile(h3b)
-  RES h3c AS SoundFile STATE FileInfo = snd::openFile(path)
+  RES h3c AS Soundfs::File STATE FileInfo = snd::openFile(path)
   dump("items3", snd::readSamples(h3c, 3))
   snd::closeFile(h3c)
-  RES h3d AS SoundFile STATE FileInfo = snd::openFile(path)
+  RES h3d AS Soundfs::File STATE FileInfo = snd::openFile(path)
   dump("items4", snd::readSamples(h3d, 4))
   snd::closeFile(h3d)
 
   ' --- zero items: a legal degenerate request ------------------------------
-  RES h4 AS SoundFile STATE FileInfo = snd::openFile(path)
+  RES h4 AS Soundfs::File STATE FileInfo = snd::openFile(path)
   LET none AS List OF Byte = snd::readSamples(h4, 0)
   dump("zero", none)
   snd::closeFile(h4)

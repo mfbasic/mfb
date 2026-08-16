@@ -3,7 +3,7 @@ IMPORT net
 IMPORT io
 
 UNION Stream
-  File
+  fs::File
   Socket
 END UNION
 

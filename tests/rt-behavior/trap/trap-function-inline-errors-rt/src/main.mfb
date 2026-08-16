@@ -61,7 +61,7 @@ END FUNC
 ' (e) RES-cleanup: a live File when the inline failure routes to the TRAP must be
 '     dropped exactly once (no double-free / no leak). §8.1 cleanup semantics.
 FUNC withResource(path AS String, input AS String) AS Integer
-  RES f AS File = fs::openFile(path, "write")
+  RES f AS fs::File = fs::openFile(path, "write")
   fs::writeAll(f, "x")
   LET n AS Integer = toInt(input)
   RETURN n

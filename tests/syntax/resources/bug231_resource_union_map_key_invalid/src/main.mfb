@@ -8,7 +8,7 @@ IMPORT fs
 ' so the ownership violation was only caught later by ir::verify. The fix
 ' short-circuits each Union variant on resource_registry.is_resource(variant.name).
 UNION Handle
-  File
+  fs::File
 END UNION
 
 FUNC main AS Integer

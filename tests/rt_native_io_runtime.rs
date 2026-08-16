@@ -597,7 +597,7 @@ IMPORT fs
 IMPORT strings
 
 FUNC main AS Integer
-  RES f AS File = fs::open("{}", "write")
+  RES f AS fs::File = fs::open("{}", "write")
   fs::setBuffered(f, TRUE)
   fs::writeAll(f, strings::repeat("z", 300000))
   fs::close(f)

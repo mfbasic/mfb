@@ -17,13 +17,13 @@ IMPORT fs
 '
 ' Its sibling resource-invalidate-not-owner-invalid pins the close case;
 ' this one pins the escape.
-FUNC steal(RES p AS File) AS RES File
+FUNC steal(RES p AS fs::File) AS RES fs::File
   RETURN p
 END FUNC
 
 FUNC main AS Integer
-  RES f AS File = fs::openFile("tests/syntax/resources/resource-non-owner-return-valid/src/main.mfb")
-  RES g AS File = steal(f)
+  RES f AS fs::File = fs::openFile("tests/syntax/resources/resource-non-owner-return-valid/src/main.mfb")
+  RES g AS fs::File = steal(f)
   fs::close(g)
   RETURN 0
 END FUNC

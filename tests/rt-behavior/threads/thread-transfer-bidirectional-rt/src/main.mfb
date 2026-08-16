@@ -7,10 +7,10 @@ IMPORT xfer_bidi_worker
 ' the worker's file (outbound resource queue). Prints the size of the file the
 ' worker received (6) then the size of the file the parent received (12).
 FUNC main AS Integer
-  LET t AS Thread OF RES File TO Integer = thread::start(xfer_bidi_worker::exchange, "seed")
-  RES pf AS File = fs::openFile("tests/rt-behavior/threads/thread-transfer-bidirectional-rt/data/parent.txt")
+  LET t AS Thread OF RES fs::File TO Integer = thread::start(xfer_bidi_worker::exchange, "seed")
+  RES pf AS fs::File = fs::openFile("tests/rt-behavior/threads/thread-transfer-bidirectional-rt/data/parent.txt")
   thread::transfer(t, pf)
-  RES wf AS File = thread::accept(t)
+  RES wf AS fs::File = thread::accept(t)
   LET parentReceived AS Integer = len(fs::readAll(wf))
   fs::close(wf)
   LET workerReceived AS Integer = thread::waitFor(t)

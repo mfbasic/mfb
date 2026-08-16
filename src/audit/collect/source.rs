@@ -891,7 +891,7 @@ fn is_fallible_builtin(callee: &str) -> bool {
 fn resource_producer(callee: &str) -> Option<(&'static str, &'static str)> {
     match callee {
         "fs.open" | "fs.openFile" | "fs.openFileNoFollow" | "fs.createTempFile" => {
-            Some(("File", "fs.close"))
+            Some(("fs.File", "fs.close"))
         }
         "thread.start" => Some(("Thread", "thread.waitFor")),
         "net.connectTcp" | "net.accept" => Some(("Socket", "net.close")),
@@ -909,7 +909,7 @@ fn resource_producer(callee: &str) -> Option<(&'static str, &'static str)> {
         // mapped; and the audio streams are closed by type-specific ops
         // (`audio.closeInput` / `audio.closeOutput`, per `resource_close_function`),
         // not the generic `audio.close`.
-        "fs.openWithin" => Some(("File", "fs.close")),
+        "fs.openWithin" => Some(("fs.File", "fs.close")),
         "http.server" => Some(("Listener", "net.close")),
         "audio.openInput" | "audio.openInputDevice" => Some(("AudioInput", "audio.closeInput")),
         "audio.openOutput" | "audio.openOutputDevice" => Some(("AudioOutput", "audio.closeOutput")),
@@ -937,7 +937,7 @@ mod tests {
         let ast = project("FUNC f()\n  LET h = fs::open(\"p\")\nEND FUNC\n");
         let (_, _, resources) = collect_source(&ast);
         assert_eq!(resources.len(), 1);
-        assert_eq!(resources[0].resource_type, "File");
+        assert_eq!(resources[0].resource_type, "fs.File");
         assert_eq!(resources[0].close_op, "fs.close");
     }
 
@@ -1061,7 +1061,7 @@ mod tests {
         );
         let (_, _, resources) = collect_source(&project(source));
         let types: Vec<&str> = resources.iter().map(|r| r.resource_type.as_str()).collect();
-        assert!(types.contains(&"File"));
+        assert!(types.contains(&"fs.File"));
         assert!(types.contains(&"Socket"));
         assert!(types.contains(&"Listener"));
         assert!(types.contains(&"Thread"));

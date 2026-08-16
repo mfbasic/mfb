@@ -71,31 +71,31 @@ pub(crate) const FS_LIST_DIRECTORY_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const FS_OPEN_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Fs,
     call: "fs.open",
-    abi: RuntimeHelperAbi { returns: "File" },
+    abi: RuntimeHelperAbi { returns: "fs.File" },
 };
 
 pub(crate) const FS_OPEN_FILE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Fs,
     call: "fs.openFile",
-    abi: RuntimeHelperAbi { returns: "File" },
+    abi: RuntimeHelperAbi { returns: "fs.File" },
 };
 
 pub(crate) const FS_OPEN_FILE_NO_FOLLOW_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Fs,
     call: "fs.openFileNoFollow",
-    abi: RuntimeHelperAbi { returns: "File" },
+    abi: RuntimeHelperAbi { returns: "fs.File" },
 };
 
 pub(crate) const FS_OPEN_WITHIN_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Fs,
     call: "fs.openWithin",
-    abi: RuntimeHelperAbi { returns: "File" },
+    abi: RuntimeHelperAbi { returns: "fs.File" },
 };
 
 pub(crate) const FS_CREATE_TEMP_FILE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Fs,
     call: "fs.createTempFile",
-    abi: RuntimeHelperAbi { returns: "File" },
+    abi: RuntimeHelperAbi { returns: "fs.File" },
 };
 
 pub(crate) const FS_CLOSE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {

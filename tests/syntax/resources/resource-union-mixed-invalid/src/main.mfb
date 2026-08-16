@@ -5,7 +5,7 @@ TYPE Circle
 END TYPE
 
 UNION Mixed
-  File
+  fs::File
   Circle
 END UNION
 

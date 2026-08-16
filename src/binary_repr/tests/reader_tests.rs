@@ -135,7 +135,7 @@ fn read_binary_repr_package_rejects_truncated_section_table() {
 fn primitive_type_name_and_type_name_resolution() {
     assert_eq!(primitive_type_name(TYPE_INTEGER), Some("Integer"));
     assert_eq!(primitive_type_name(TYPE_MONEY), Some("Money"));
-    assert_eq!(primitive_type_name(TYPE_FILE_HANDLE), Some("File"));
+    assert_eq!(primitive_type_name(TYPE_FILE_HANDLE), Some("fs.File"));
     assert_eq!(primitive_type_name(999_999), None);
     let empty = std::collections::HashMap::new();
     assert_eq!(type_name(&empty, TYPE_STRING).unwrap(), "String");
@@ -515,7 +515,7 @@ fn abi_serializer_hashes_state_composites_structurally() {
         if let Some(lead) = lead {
             types.type_id(&mut strings, lead);
         }
-        let id = types.type_id(&mut strings, &format!("File STATE {state}"));
+        let id = types.type_id(&mut strings, &format!("fs.File STATE {state}"));
         let constants = ConstPool::new();
         type_sig_hash(
             id,

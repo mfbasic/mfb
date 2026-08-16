@@ -14,14 +14,14 @@ TYPE Accum
   n   AS Integer
 END TYPE
 
-FUNC feed(RES f AS File STATE Accum, chunk AS List OF Byte) AS Nothing
+FUNC feed(RES f AS fs::File STATE Accum, chunk AS List OF Byte) AS Nothing
   f.state.raw = collections::append(f.state.raw, chunk)
   f.state.n = f.state.n + 1
 END FUNC
 
 FUNC main AS Integer
   LET chunk AS List OF Byte = strings::toBytes("abcd")
-  RES f AS File STATE Accum = fs::openFile("tests/rt-behavior/resources/bug424_state_accum_inplace/project.json")
+  RES f AS fs::File STATE Accum = fs::openFile("tests/rt-behavior/resources/bug424_state_accum_inplace/project.json")
   MUT i AS Integer = 0
   WHILE i < 5
     feed(f, chunk)

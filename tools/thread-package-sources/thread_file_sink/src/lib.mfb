@@ -3,7 +3,7 @@ IMPORT fs
 
 ' Receives a File on the resource plane and returns its content length. The
 ' worker owns the accepted resource; it is closed by scope-drop on return.
-EXPORT ISOLATED FUNC sizeOfReceived(t AS ThreadWorker OF RES File TO Integer, seed AS String) AS Integer
-  RES f AS File = thread::accept(t, 1000)
+EXPORT ISOLATED FUNC sizeOfReceived(t AS ThreadWorker OF RES fs::File TO Integer, seed AS String) AS Integer
+  RES f AS fs::File = thread::accept(t, 1000)
   RETURN len(fs::readAll(f))
 END FUNC

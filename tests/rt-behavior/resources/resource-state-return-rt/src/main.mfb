@@ -14,15 +14,15 @@ END TYPE
 ' for them: accepting the `RETURN` only proves the types line up. `pos=42 len=7`
 ' proves the callee's state actually crossed the return; a silently
 ' re-default-initialized state at the caller's bind prints `pos=0 len=0`.
-FUNC openTagged(path AS String) AS RES File STATE Cursor
-  RES f AS File STATE Cursor = fs::openFile(path)
+FUNC openTagged(path AS String) AS RES fs::File STATE Cursor
+  RES f AS fs::File STATE Cursor = fs::openFile(path)
   f.state.pos = 42
   f.state.len = 7
   RETURN f
 END FUNC
 
 FUNC main AS Integer
-  RES h AS File STATE Cursor = openTagged("tests/rt-behavior/resources/resource-state-return-rt/src/main.mfb")
+  RES h AS fs::File STATE Cursor = openTagged("tests/rt-behavior/resources/resource-state-return-rt/src/main.mfb")
   io::print("pos=" & toString(h.state.pos))   ' pos=42
   io::print("len=" & toString(h.state.len))   ' len=7
   fs::close(h)

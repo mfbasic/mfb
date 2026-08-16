@@ -12,10 +12,10 @@ IMPORT thread_res_sink
 ' and returns the queued f1. A clean drain returns f1's byte length (22); a
 ' double-free or corrupted free would crash or misbehave here.
 FUNC main AS Integer
-  LET t AS Thread OF String RES File TO Integer = thread::start(thread_res_sink::acceptAfterSignal, "seed", 1, 1)
-  RES f1 AS File = fs::openFile("tests/rt-behavior/threads/thread-resource-transfer-fail-reclaim/data/input.txt")
+  LET t AS Thread OF String RES fs::File TO Integer = thread::start(thread_res_sink::acceptAfterSignal, "seed", 1, 1)
+  RES f1 AS fs::File = fs::openFile("tests/rt-behavior/threads/thread-resource-transfer-fail-reclaim/data/input.txt")
   thread::transfer(t, f1, 1000)
-  RES f2 AS File = fs::openFile("tests/rt-behavior/threads/thread-resource-transfer-fail-reclaim/data/input.txt")
+  RES f2 AS fs::File = fs::openFile("tests/rt-behavior/threads/thread-resource-transfer-fail-reclaim/data/input.txt")
   thread::transfer(t, f2, 0) TRAP(err)
     fs::close(f2)
     RECOVER

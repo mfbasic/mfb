@@ -15,10 +15,10 @@ IMPORT io
 ' Counting the List is not enough — the handles must actually be USED after the
 ' loop to prove they stayed open, matching inline-trap-collection-escape-rt.
 FUNC main AS Integer
-  MUT handles AS List OF RES File = []
+  MUT handles AS List OF RES fs::File = []
   MUT i AS Integer = 0
   WHILE i < 3
-    RES f AS File = fs::openFile("tests/rt-behavior/resources/inline-trap-producer-float-rt/src/main.mfb") TRAP(e)
+    RES f AS fs::File = fs::openFile("tests/rt-behavior/resources/inline-trap-producer-float-rt/src/main.mfb") TRAP(e)
       CONTINUE WHILE
     END TRAP
     handles = collections::append(handles, f)

@@ -11,6 +11,6 @@ END FUNC
 FUNC main AS Integer
   LET untyped
   LET missing AS Integer
-  MUT handle AS File
+  MUT handle AS fs::File
   RETURN noReturn(1) + skipped(1, 2)
 END FUNC

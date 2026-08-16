@@ -18,8 +18,8 @@ TYPE FileInfo
   frames AS Integer
 END TYPE
 
-FUNC openThing(path AS String) AS RES File STATE FileInfo
-  RES f AS File STATE FileInfo = fs::open(path, "r")
+FUNC openThing(path AS String) AS RES fs::File STATE FileInfo
+  RES f AS fs::File STATE FileInfo = fs::open(path, "r")
   RETURN f
 END FUNC
 

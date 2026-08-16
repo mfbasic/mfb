@@ -105,7 +105,7 @@ impl TypeTable {
             "Fixed" => TYPE_FIXED,
             "String" => TYPE_STRING,
             "Scalar" => TYPE_SCALAR,
-            "File" => TYPE_FILE_HANDLE,
+            "fs.File" => TYPE_FILE_HANDLE,
             "Socket" => TYPE_SOCKET_HANDLE,
             "Listener" => TYPE_LISTENER_HANDLE,
             name if name.starts_with("List OF ") => {

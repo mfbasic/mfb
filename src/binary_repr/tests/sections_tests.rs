@@ -29,7 +29,7 @@ fn type_id_maps_primitives_and_composites() {
     assert_eq!(types.type_id(&mut strings, "Money"), TYPE_MONEY);
     assert_eq!(types.type_id(&mut strings, "String"), TYPE_STRING);
     assert_eq!(types.type_id(&mut strings, "Byte"), TYPE_BYTE);
-    assert_eq!(types.type_id(&mut strings, "File"), TYPE_FILE_HANDLE);
+    assert_eq!(types.type_id(&mut strings, "fs.File"), TYPE_FILE_HANDLE);
     assert_eq!(types.type_id(&mut strings, "Socket"), TYPE_SOCKET_HANDLE);
     assert_eq!(
         types.type_id(&mut strings, "Listener"),

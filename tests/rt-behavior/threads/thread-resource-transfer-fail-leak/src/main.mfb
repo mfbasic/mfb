@@ -18,14 +18,14 @@ IMPORT thread_res_sink
 ' no-op" wrong fix: a record still flagged moved fails readAll regardless of what
 ' close does, so the loop can only complete when the source is truly un-flagged.
 FUNC main AS Integer
-  LET t AS Thread OF String RES File TO Integer = thread::start(thread_res_sink::blockNeverAccept, "seed", 1, 1)
-  RES fill AS File = fs::openFile("tests/rt-behavior/threads/thread-resource-transfer-fail-leak/data/input.txt")
+  LET t AS Thread OF String RES fs::File TO Integer = thread::start(thread_res_sink::blockNeverAccept, "seed", 1, 1)
+  RES fill AS fs::File = fs::openFile("tests/rt-behavior/threads/thread-resource-transfer-fail-leak/data/input.txt")
   thread::transfer(t, fill, 1000)
 
   MUT closed AS Integer = 0
   MUT i AS Integer = 0
   WHILE i < 300
-    RES f AS File = fs::openFile("tests/rt-behavior/threads/thread-resource-transfer-fail-leak/data/input.txt")
+    RES f AS fs::File = fs::openFile("tests/rt-behavior/threads/thread-resource-transfer-fail-leak/data/input.txt")
     thread::transfer(t, f, 0) TRAP(err)
       LET bytes AS Integer = len(fs::readAll(f))
       fs::close(f)

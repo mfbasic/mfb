@@ -5,6 +5,12 @@ use crate::target::shared::registry::{
 
 pub(crate) const FILE_TYPE: &str = "File";
 
+/// The `File` resource's package-qualified type identity (`fs.File`) — plan-97 /
+/// bug-441. `FILE_TYPE` stays the bare name for `FS_TYPES`, the close-op match, and
+/// the `qualified_builtin_type` member lookup; this is the string every `RES`
+/// binding, parameter, and return of a `File` carries.
+pub(crate) const FILE_TYPE_ID: &str = "fs.File";
+
 const FILE_EXISTS: &str = "fs.fileExists";
 const DIRECTORY_EXISTS: &str = "fs.directoryExists";
 const EXISTS: &str = "fs.exists";
@@ -108,7 +114,7 @@ const fn opt(name: &'static str, ty: &'static str) -> Parameter {
 }
 
 const P_PATH: &[Parameter] = &[req("path", "String")];
-const P_FILE: &[Parameter] = &[req("file", "File")];
+const P_FILE: &[Parameter] = &[req("file", FILE_TYPE_ID)];
 const P_NONE: &[Parameter] = &[];
 const P_PATH_BYTES: &[Parameter] = &[req("path", "String"), BYTES_VALUE];
 const P_PATH_VALUE: &[Parameter] = &[req("path", "String"), req("value", "String")];
@@ -120,9 +126,9 @@ const P_OPEN_WITHIN: &[Parameter] = &[
     opt("mode", "String"),
 ];
 const P_CREATE_TEMP: &[Parameter] = &[opt("directory", "String")];
-const P_FILE_VALUE: &[Parameter] = &[req("file", "File"), req("value", "String")];
-const P_FILE_BYTES: &[Parameter] = &[req("file", "File"), BYTES_VALUE];
-const P_FILE_ENABLED: &[Parameter] = &[req("file", "File"), req("enabled", "Boolean")];
+const P_FILE_VALUE: &[Parameter] = &[req("file", FILE_TYPE_ID), req("value", "String")];
+const P_FILE_BYTES: &[Parameter] = &[req("file", FILE_TYPE_ID), BYTES_VALUE];
+const P_FILE_ENABLED: &[Parameter] = &[req("file", FILE_TYPE_ID), req("enabled", "Boolean")];
 // `base`/`child` accept the aliases `path`/`parent`.
 const P_IS_WITHIN: &[Parameter] = &[
     Parameter {
@@ -164,18 +170,18 @@ const FS_FUNCTIONS: &[BuiltinFunction] = &[
     ),
     ffn(APPEND_BYTES, "appendBytes", &[ov(P_PATH_BYTES, "Nothing")]),
     ffn(APPEND_TEXT, "appendText", &[ov(P_PATH_VALUE, "Nothing")]),
-    ffn(OPEN, "open", &[ov(P_OPEN, FILE_TYPE)]),
-    ffn(OPEN_FILE, "openFile", &[ov(P_OPEN_FILE, FILE_TYPE)]),
+    ffn(OPEN, "open", &[ov(P_OPEN, FILE_TYPE_ID)]),
+    ffn(OPEN_FILE, "openFile", &[ov(P_OPEN_FILE, FILE_TYPE_ID)]),
     ffn(
         OPEN_FILE_NO_FOLLOW,
         "openFileNoFollow",
-        &[ov(P_OPEN_FILE, FILE_TYPE)],
+        &[ov(P_OPEN_FILE, FILE_TYPE_ID)],
     ),
-    ffn(OPEN_WITHIN, "openWithin", &[ov(P_OPEN_WITHIN, FILE_TYPE)]),
+    ffn(OPEN_WITHIN, "openWithin", &[ov(P_OPEN_WITHIN, FILE_TYPE_ID)]),
     ffn(
         CREATE_TEMP_FILE,
         "createTempFile",
-        &[ov(P_CREATE_TEMP, FILE_TYPE)],
+        &[ov(P_CREATE_TEMP, FILE_TYPE_ID)],
     ),
     ffn(TEMP_DIRECTORY, "tempDirectory", &[ov(P_NONE, "String")]),
     ffn(READ_LINE, "readLine", &[ov(P_FILE, "String")]),
@@ -516,9 +522,9 @@ mod tests {
         assert_eq!(overload.params[0].name, "path");
         assert_eq!(overload.return_type, ReturnType::Fixed("Boolean"));
 
-        let niladic = ov(P_NONE, FILE_TYPE);
+        let niladic = ov(P_NONE, FILE_TYPE_ID);
         assert!(niladic.params.is_empty());
-        assert_eq!(niladic.return_type, ReturnType::Fixed(FILE_TYPE));
+        assert_eq!(niladic.return_type, ReturnType::Fixed(FILE_TYPE_ID));
 
         // E0716: `ffn` borrows a `&'static [BuiltinOverload]`, so the overload
         // slice must be a named const, not a temporary.

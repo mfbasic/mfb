@@ -7,7 +7,7 @@ IMPORT io
 ' the resource was double-closed -> SIGSEGV. The union must survive the return
 ' and be usable by the caller.
 UNION Stream
-  File
+  fs::File
   Socket
 END UNION
 

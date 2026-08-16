@@ -18,12 +18,12 @@ END TYPE
 ' whichever type string the reader holds — so this is not checkable at runtime.
 ' A resource's STATE type is fixed at its owning binding and every later
 ' declaration must agree (§15.5); the disagreement is rejected at the call.
-SUB readLabel(RES p AS File STATE Label)
+SUB readLabel(RES p AS fs::File STATE Label)
   io::print(p.state.name)
 END SUB
 
 FUNC main AS Integer
-  RES f AS File STATE Cursor = fs::openFile("tests/syntax/resources/resource-state-param-mismatch-invalid/src/main.mfb")
+  RES f AS fs::File STATE Cursor = fs::openFile("tests/syntax/resources/resource-state-param-mismatch-invalid/src/main.mfb")
   f.state.pos = 42
   readLabel(f)
   fs::close(f)

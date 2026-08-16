@@ -12,13 +12,13 @@ END ENUM
 ' the return-position check can reject this. That is exactly why it compiled:
 ' the STATE verify rules pattern-match `" STATE "` in a type string, and the
 ' return type string never contained it.
-FUNC make() AS RES File STATE Color
-  RES f AS File = fs::openFile("tests/syntax/resources/resource-return-state-invalid/src/main.mfb")
+FUNC make() AS RES fs::File STATE Color
+  RES f AS fs::File = fs::openFile("tests/syntax/resources/resource-return-state-invalid/src/main.mfb")
   RETURN f
 END FUNC
 
 FUNC main AS Integer
-  RES h AS File = make()
+  RES h AS fs::File = make()
   fs::close(h)
   RETURN 0
 END FUNC

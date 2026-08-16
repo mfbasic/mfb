@@ -10,7 +10,7 @@ use crate::ir::{IrMatchCase, IrMatchPattern, IrParam, IrRecordUpdate, IrSourceLo
 fn file_local() -> IrValue {
     IrValue::LocalRef {
         name: "h".to_string(),
-        type_: "File".to_string(),
+        type_: "fs.File".to_string(),
     }
 }
 
@@ -19,66 +19,66 @@ fn file_local() -> IrValue {
 fn every_value() -> Vec<IrValue> {
     vec![
         IrValue::Const {
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
             value: "0".to_string(),
         },
         IrValue::Local("a".to_string()),
         IrValue::Global("g".to_string()),
         IrValue::LocalRef {
             name: "a".to_string(),
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
         },
         IrValue::FunctionRef {
             name: "dep.helper".to_string(),
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
         },
         IrValue::Closure {
             name: "dep.helper".to_string(),
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
             captures: vec![IrValue::Local("a".to_string())],
         },
         IrValue::Capture {
             index: 0,
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
             by_ref: true,
         },
         IrValue::Call {
             target: "dep.helper".to_string(),
             args: vec![file_local()],
             loc: IrSourceLoc::default(),
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
         },
         IrValue::CallResult {
             target: "dep.helper".to_string(),
             args: vec![file_local()],
             loc: IrSourceLoc::default(),
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
         },
         IrValue::Constructor {
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
             args: vec![file_local()],
         },
         IrValue::UnionWrap {
             union_type: "U".to_string(),
-            member_type: "File".to_string(),
+            member_type: "fs.File".to_string(),
             value: Box::new(file_local()),
         },
         IrValue::UnionExtract {
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
             value: Box::new(file_local()),
         },
         IrValue::ResultIsOk {
             value: Box::new(file_local()),
         },
         IrValue::ResultValue {
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
             value: Box::new(file_local()),
         },
         IrValue::ResultError {
             value: Box::new(file_local()),
         },
         IrValue::WithUpdate {
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
             target: Box::new(file_local()),
             updates: vec![IrRecordUpdate {
                 field: "x".to_string(),
@@ -86,30 +86,30 @@ fn every_value() -> Vec<IrValue> {
             }],
         },
         IrValue::ListLiteral {
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
             values: vec![file_local()],
         },
         IrValue::MapLiteral {
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
             entries: vec![(file_local(), file_local())],
         },
         IrValue::MemberAccess {
             target: Box::new(file_local()),
             member: "m".to_string(),
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
         },
         IrValue::Binary {
             op: "+".to_string(),
             left: Box::new(file_local()),
             right: Box::new(file_local()),
             loc: IrSourceLoc::default(),
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
         },
         IrValue::Unary {
             op: "-".to_string(),
             operand: Box::new(file_local()),
             loc: IrSourceLoc::default(),
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
         },
     ]
 }
@@ -120,13 +120,13 @@ fn every_op_body() -> Vec<IrOp> {
         target: "dep.helper".to_string(),
         args: every_value(),
         loc: IrSourceLoc::default(),
-        type_: "File".to_string(),
+        type_: "fs.File".to_string(),
     };
     vec![
         IrOp::Bind {
             mutable: true,
             name: "a".to_string(),
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
             value: Some(call.clone()),
             loc: IrSourceLoc::default(),
             explicit_type: true,
@@ -206,7 +206,7 @@ fn every_op_body() -> Vec<IrOp> {
         },
         IrOp::For {
             name: "i".to_string(),
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
             start: file_local(),
             end: file_local(),
             step: file_local(),
@@ -226,7 +226,7 @@ fn every_op_body() -> Vec<IrOp> {
         },
         IrOp::ForEach {
             name: "e".to_string(),
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
             iterable: file_local(),
             body: vec![IrOp::Eval {
                 value: file_local(),
@@ -246,10 +246,10 @@ fn every_op_body() -> Vec<IrOp> {
 }
 
 fn corpus_function() -> IrFunction {
-    let mut f = fn_named("corpus", "export", "function", "File");
+    let mut f = fn_named("corpus", "export", "function", "fs.File");
     f.params = vec![IrParam {
         name: "h".to_string(),
-        type_: "File".to_string(),
+        type_: "fs.File".to_string(),
         default: None,
         loc: loc(),
     }];
@@ -548,11 +548,11 @@ fn collect_resource_names_walk_gathers_file_over_every_arm() {
         }
     };
     collect_resource_names_in_ops(&body, &mut names, &mut record);
-    assert!(names.contains("File"));
+    assert!(names.contains("fs.File"));
     for value in every_value() {
         collect_resource_names_in_value(&value, &mut names, &mut record);
     }
-    assert!(names.contains("File"));
+    assert!(names.contains("fs.File"));
 }
 
 #[test]
@@ -561,7 +561,7 @@ fn collect_resource_type_names_gathers_file() {
     project.functions = vec![corpus_function()];
     let mut names = std::collections::HashSet::new();
     collect_resource_type_names(&project, &mut names);
-    assert!(names.contains("File"));
+    assert!(names.contains("fs.File"));
 }
 
 #[test]

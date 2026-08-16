@@ -2225,9 +2225,9 @@ mod tests {
 
     #[test]
     fn state_member_access_accepted() {
-        // `f.state` on a `RES f AS File STATE FileState` binding yields the state
+        // `f.state` on a `RES f AS fs::File STATE FileState` binding yields the state
         // record type (the `member == "state"` member-access arm).
-        let src = "IMPORT fs\nTYPE FileState\n  pos AS Integer\n  len AS Integer\nEND TYPE\nFUNC main AS Integer\n  RES f AS File STATE FileState = fs::createTempFile()\n  LET p AS Integer = f.state.pos\n  fs::close(f)\n  RETURN p\nEND FUNC\n";
+        let src = "IMPORT fs\nTYPE FileState\n  pos AS Integer\n  len AS Integer\nEND TYPE\nFUNC main AS Integer\n  RES f AS fs::File STATE FileState = fs::createTempFile()\n  LET p AS Integer = f.state.pos\n  fs::close(f)\n  RETURN p\nEND FUNC\n";
         assert!(accepts(src));
     }
 
@@ -2458,7 +2458,7 @@ mod tests {
     fn lambda_immutable_resource_in_foreach_rejected() {
         // An immutable resource captured in the non-escaping `forEach` position
         // hits the `is_resource_type` (non-mutable) capture arm.
-        let src = "IMPORT collections\nIMPORT fs\nFUNC main AS Integer\n  LET numbers AS List OF Integer = [1, 2, 3]\n  RES handle AS File = fs::createTempFile()\n  collections::forEach(numbers, LAMBDA(x AS Integer) -> fs::writeLine(handle, toString(x)))\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT collections\nIMPORT fs\nFUNC main AS Integer\n  LET numbers AS List OF Integer = [1, 2, 3]\n  RES handle AS fs::File = fs::createTempFile()\n  collections::forEach(numbers, LAMBDA(x AS Integer) -> fs::writeLine(handle, toString(x)))\n  RETURN 0\nEND FUNC\n";
         assert!(rejects_with(src, "TYPE_LAMBDA_CAPTURE_UNSUPPORTED"));
     }
 

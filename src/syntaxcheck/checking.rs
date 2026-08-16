@@ -563,7 +563,7 @@ impl<'a> SyntaxChecker<'a> {
                 let iterable_type =
                     self.infer_expression(file, iterable, locals, *line, ExprMode::Read);
                 let element_type = match iterable_type {
-                    // Iterating `List OF RES File` yields a *pointer* to each
+                    // Iterating `List OF RES fs::File` yields a *pointer* to each
                     // element (`File`), not the `RES`-marked slot type (§15.6).
                     Type::List(element) => strip_res(&element).clone(),
                     // `FOR EACH x IN set` yields the element `T` (plan-63).
@@ -1238,7 +1238,7 @@ TYPE FileState
 END TYPE
 
 FUNC main AS Integer
-  RES f AS File STATE FileState = fs::createTempFile()
+  RES f AS fs::File STATE FileState = fs::createTempFile()
   f.state = WITH f.state { pos := 10 }
   fs::close(f)
   RETURN 0
@@ -1273,7 +1273,7 @@ END FUNC
 IMPORT collections
 IMPORT fs
 
-FUNC firstFile(files AS List OF RES File) AS File
+FUNC firstFile(files AS List OF RES fs::File) AS fs::File
   RETURN collections::get(files, 0)
 END FUNC
 
@@ -1286,13 +1286,13 @@ END FUNC
 
     #[test]
     fn foreach_over_resource_list_marks_element_non_owning() {
-        // Iterating `List OF RES File` reaches the resource-element ForEach path
+        // Iterating `List OF RES fs::File` reaches the resource-element ForEach path
         // (is_resource_type on the stripped element type).
         let src = "\
 IMPORT fs
 
 FUNC main AS Integer
-  LET files AS List OF RES File = []
+  LET files AS List OF RES fs::File = []
   FOR EACH f IN files
     LET n AS Integer = 1
   NEXT

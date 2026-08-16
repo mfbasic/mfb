@@ -55,7 +55,7 @@ Want me to trace exactly what each of the `src/builtins/mod.rs` call sites needs
 
 Here's the order I'd follow, with the gating reason for each boundary:
 
-## Phase 0 — free prep (do first, independent of everything)
+## Phase 0 — free prep (do first, independent of everything) (done)
 
 - **Delete Bucket 1** (the 7 pure delegators: `is_member`, `owning_package`, `arity`, `declares_error`, `qualified_builtin_type`, `is_builtin_type`, `augment_project`). These are gated on *nothing* — repoint callers to `registry().resolve_func(...)` today. Doing this now shrinks the shim surface so the later phases are legible.
 - **Extract `ParameterType` to its neutral module** (the leaf move). Do it *before* migrating more packages, so every package you migrate next already references the type from its final home — otherwise you re-churn `use` paths across all of them later.

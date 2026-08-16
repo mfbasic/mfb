@@ -1,9 +1,9 @@
 IMPORT fs
 
 FUNC main AS Integer
-  RES missing AS File = fs::open("a")
-  RES wrongPath AS File = fs::open(1, "read")
-  RES wrongMode AS File = fs::open("a", 1)
-  RES tooMany AS File = fs::open("a", "read", "x")
+  RES missing AS fs::File = fs::open("a")
+  RES wrongPath AS fs::File = fs::open(1, "read")
+  RES wrongMode AS fs::File = fs::open("a", 1)
+  RES tooMany AS fs::File = fs::open("a", "read", "x")
   RETURN 0
 END FUNC

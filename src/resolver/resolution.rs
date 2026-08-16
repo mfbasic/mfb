@@ -1166,7 +1166,7 @@ impl Resolver<'_> {
                 entries,
             } => {
                 self.resolve_type_name(file, key_type, line, imports);
-                // A `Map OF K TO RES File` literal value carries the resource
+                // A `Map OF K TO RES fs::File` literal value carries the resource
                 // ownership-axis marker (§15.6); resolve the underlying type.
                 let value_type = value_type.strip_prefix("RES ").unwrap_or(value_type);
                 self.resolve_type_name(file, value_type, line, imports);
@@ -1306,7 +1306,7 @@ impl Resolver<'_> {
             return;
         }
         if let Some(element) = type_name.strip_prefix("List OF ") {
-            // A `List OF RES File` element carries the resource ownership-axis
+            // A `List OF RES fs::File` element carries the resource ownership-axis
             // marker; resolve the underlying type (§15.6).
             let element = element.strip_prefix("RES ").unwrap_or(element);
             self.resolve_type_name(file, element, line, imports);
@@ -1344,7 +1344,7 @@ impl Resolver<'_> {
         }
 
         // A resource type carrying `STATE T` (plan-52/54): resolve the base
-        // resource type and the STATE payload type independently — `File STATE
+        // resource type and the STATE payload type independently — `fs::File STATE
         // Cursor` is not a single symbol. Reached only after the compound-type
         // arms above have peeled off any enclosing `Thread`/`List`/`Map` (whose
         // own type strings also contain ` STATE `), so this fires on the bare
@@ -2245,11 +2245,11 @@ mod tests {
         assert_source_ok(concat!(
             "IMPORT fs\nIMPORT io\n\n",
             "TYPE FileState\n  pos AS Integer\nEND TYPE\n\n",
-            "SUB advance(RES f AS File STATE FileState, by AS Integer)\n",
+            "SUB advance(RES f AS fs::File STATE FileState, by AS Integer)\n",
             "  f.state = WITH f.state { pos := f.state.pos + by }\n",
             "END SUB\n\n",
             "FUNC main AS Integer\n",
-            "  RES f AS File STATE FileState = fs::createTempFile()\n",
+            "  RES f AS fs::File STATE FileState = fs::createTempFile()\n",
             "  f.state = WITH f.state { pos := 10 }\n",
             "  advance(f, 5)\n",
             "  fs::close(f)\n",

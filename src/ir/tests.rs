@@ -2088,11 +2088,11 @@ mod lower_tests {
             "IMPORT fs\n\
              IMPORT io\n\
              TYPE FileState\n  pos AS Integer\n  len AS Integer\nEND TYPE\n\
-             SUB advance(RES f AS File STATE FileState, by AS Integer)\n\
+             SUB advance(RES f AS fs::File STATE FileState, by AS Integer)\n\
                f.state = WITH f.state { pos := f.state.pos + by }\n\
              END SUB\n\
              FUNC main AS Integer\n\
-               RES f AS File STATE FileState = fs::createTempFile()\n\
+               RES f AS fs::File STATE FileState = fs::createTempFile()\n\
                io::print(toString(f.state.pos))\n\
                advance(f, 5)\n\
                fs::close(f)\n\
@@ -5319,11 +5319,11 @@ TYPE Cursor
   pos AS Integer
   len AS Integer
 END TYPE
-SUB seek(RES s AS File STATE Cursor, dest AS Integer)
+SUB seek(RES s AS fs::File STATE Cursor, dest AS Integer)
   s.state.pos = dest
 END SUB
 FUNC main AS Integer
-  RES f AS File STATE Cursor = fs::openFile("tests/rt-behavior/resources/resource-state-field-assign-valid/src/main.mfb")
+  RES f AS fs::File STATE Cursor = fs::openFile("tests/rt-behavior/resources/resource-state-field-assign-valid/src/main.mfb")
   LET p AS Integer = f.state.pos
   f.state = WITH f.state { pos := 10 }
   seek(f, 25)

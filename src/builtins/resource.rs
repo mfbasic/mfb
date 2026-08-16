@@ -140,7 +140,7 @@ impl ResourceRegistry {
 static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::new(|| {
     let mut entries = HashMap::new();
     entries.insert(
-        super::fs::FILE_TYPE.to_string(),
+        super::fs::FILE_TYPE_ID.to_string(),
         ResourceInfo {
             close_function: super::fs::resource_close_function(super::fs::FILE_TYPE)
                 .expect("File has a built-in close op")
@@ -301,6 +301,26 @@ pub(crate) fn is_builtin_resource_type(type_name: &str) -> bool {
     BUILTIN_RESOURCES.contains_key(base_resource_name(type_name))
 }
 
+/// Whether `type_name` names — or is the **bare base** of — a built-in resource
+/// (`File` matches the package-qualified `fs.File`). Used ONLY on the package-import
+/// path (`collect_package_resources` / `imported_resource_closers`): an imported
+/// `.mfp` may reference a builtin resource by its bare base name even though the
+/// builtin's own identity is package-qualified (plan-97). Deliberately more lenient
+/// than [`is_builtin_resource_type`] — it must NOT be used for user-type resolution,
+/// where a bare `File` is a distinct user type.
+pub(crate) fn is_builtin_backed_resource(type_name: &str) -> bool {
+    if is_builtin_resource_type(type_name) {
+        return true;
+    }
+    let bare = base_resource_name(type_name)
+        .rsplit('.')
+        .next()
+        .unwrap_or(type_name);
+    BUILTIN_RESOURCES
+        .keys()
+        .any(|key| key.rsplit('.').next() == Some(bare))
+}
+
 /// The built-in close op for `type_name`, if it is a built-in resource.
 pub(crate) fn builtin_resource_close_function(type_name: &str) -> Option<&'static str> {
     BUILTIN_RESOURCES
@@ -322,7 +342,7 @@ mod tests {
     #[test]
     fn builtins_recognize_standard_resources() {
         let registry = ResourceRegistry::with_builtins();
-        assert!(registry.is_resource("File"));
+        assert!(registry.is_resource("fs.File"));
         assert!(registry.is_resource("Socket"));
         assert!(registry.is_resource("Listener"));
         assert!(!registry.is_resource("Integer"));
@@ -332,15 +352,15 @@ mod tests {
     #[test]
     fn builtins_carry_close_op_and_sendability() {
         let registry = ResourceRegistry::with_builtins();
-        assert_eq!(registry.close_function("File"), Some("fs.close"));
+        assert_eq!(registry.close_function("fs.File"), Some("fs.close"));
         assert_eq!(registry.close_function("Socket"), Some("net.close"));
         assert_eq!(registry.close_function("Listener"), Some("net.close"));
         // File and Socket move across threads; a Listener stays put.
-        assert!(registry.is_sendable("File"));
+        assert!(registry.is_sendable("fs.File"));
         assert!(registry.is_sendable("Socket"));
         assert!(!registry.is_sendable("Listener"));
         // close-may-fail holds for every standard resource.
-        assert!(registry.close_may_fail("File"));
+        assert!(registry.close_may_fail("fs.File"));
         assert!(registry.close_may_fail("Listener"));
     }
 
@@ -360,7 +380,7 @@ mod tests {
         assert_eq!(registry.close_function("DbHandle"), Some("db.close"));
         assert!(!registry.is_sendable("DbHandle"));
         // Built-ins remain intact.
-        assert!(registry.is_sendable("File"));
+        assert!(registry.is_sendable("fs.File"));
     }
 
     #[test]
@@ -379,7 +399,7 @@ mod tests {
         // The full set of built-ins the closed-default must cover.
         let registry = ResourceRegistry::with_builtins();
         for name in [
-            "File",
+            "fs.File",
             "Socket",
             "Listener",
             "UdpSocket",
@@ -400,7 +420,7 @@ mod tests {
 
     #[test]
     fn free_helpers_match_registry() {
-        assert!(is_builtin_resource_type("File"));
+        assert!(is_builtin_resource_type("fs.File"));
         assert!(!is_builtin_resource_type("Nothing"));
         assert_eq!(builtin_resource_close_function("Socket"), Some("net.close"));
         assert!(is_builtin_sendable_resource_type("Socket"));
@@ -426,7 +446,7 @@ mod tests {
         // No callable is owned: membership and every derivation is empty/None. The
         // resource *type* names (`File`, `Socket`) live in the `ResourceRegistry`,
         // not the descriptor, so a lookup of one here is correctly a miss.
-        assert!(!DefaultResolver::contains(&RESOURCE, "File"));
+        assert!(!DefaultResolver::contains(&RESOURCE, "fs.File"));
         assert!(!DefaultResolver::contains(&RESOURCE, "resource.close"));
         assert!(REGISTRY.function("resource.anything").is_none());
         assert_eq!(DefaultResolver::arity(&RESOURCE, "resource.anything"), None);

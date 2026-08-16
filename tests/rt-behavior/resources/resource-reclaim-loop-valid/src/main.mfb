@@ -27,11 +27,11 @@ END TYPE
 ' content, not retention. Keep both files fixed-size or this fixture proves
 ' nothing.
 SUB cycle(readPath AS String, writePath AS String)
-  RES r AS File STATE Cursor = fs::openFile(readPath)
+  RES r AS fs::File STATE Cursor = fs::openFile(readPath)
   r.state.pos = 1
   r.state.name = "carried"
   LET line AS String = fs::readLine(r)
-  RES w AS File STATE Cursor = fs::openFile(writePath, "write")
+  RES w AS fs::File STATE Cursor = fs::openFile(writePath, "write")
   w.state.pos = 2
   w.state.name = "carried"
   fs::setBuffered(w, TRUE)
@@ -44,7 +44,7 @@ FUNC main AS Integer
   IF fs::fileExists(readPath) THEN
     fs::deleteFile(readPath)
   END IF
-  RES seed AS File = fs::openFile(readPath, "write")
+  RES seed AS fs::File = fs::openFile(readPath, "write")
   fs::writeAll(seed, "seed line one")
   fs::close(seed)
   MUT i AS Integer = 0

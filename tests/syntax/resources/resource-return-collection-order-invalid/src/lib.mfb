@@ -11,9 +11,9 @@ IMPORT collections
 '
 ' §15.6 already required this ("the resources must be added to the collection at
 ' or after the collection's own binding"); it simply was not enforced. It is now.
-EXPORT FUNC openThem AS List OF RES File
-  RES f AS File = fs::createTempFile()
-  MUT xs AS List OF RES File = []
+EXPORT FUNC openThem AS List OF RES fs::File
+  RES f AS fs::File = fs::createTempFile()
+  MUT xs AS List OF RES fs::File = []
   xs = collections::append(xs, f)
   RETURN xs
 END FUNC

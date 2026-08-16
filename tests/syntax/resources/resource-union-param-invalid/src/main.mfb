@@ -3,22 +3,22 @@ IMPORT net
 
 ' Every variant is a resource -> Stream is a resource union.
 UNION Stream
-  File
+  fs::File
   Socket
 END UNION
 
-FUNC useFile(RES f AS File) AS Integer
+FUNC useFile(RES f AS fs::File) AS Integer
   RETURN 0
 END FUNC
 
-' Directionality (a): a union value into a concrete RES File parameter is
+' Directionality (a): a union value into a concrete RES fs::File parameter is
 ' rejected. Widening is variant -> union only, never the reverse.
 FUNC widenToConcrete AS Integer
   RES s AS Stream = fs::createTempFile()
   RETURN useFile(s)
 END FUNC
 
-' Directionality (b): a registered close op (fs::close, concrete RES File)
+' Directionality (b): a registered close op (fs::close, concrete RES fs::File)
 ' handed a union is rejected for the same reason.
 FUNC closeUnion AS Integer
   RES s AS Stream = fs::createTempFile()

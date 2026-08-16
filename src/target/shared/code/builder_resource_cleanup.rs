@@ -10,7 +10,7 @@ impl CodeBuilder<'_> {
     /// the words are readable-as-pointers only for a `File`, and the drop-path
     /// reclaim must ask before it frees them (plan-52-B Phase 2).
     pub(super) fn resource_uses_io_buffers(type_: &str) -> bool {
-        crate::builtins::resource::base_resource_name(type_) == "File"
+        crate::builtins::resource::base_resource_name(type_) == "fs.File"
     }
 
     pub(super) fn resource_cleanup_symbol(&self, type_: &str) -> Option<String> {
@@ -180,7 +180,7 @@ impl CodeBuilder<'_> {
             self.locals.insert(
                 format!("__resource_union_payload@{payload_slot}"),
                 LocalValue {
-                    type_: "File".to_string(),
+                    type_: "fs.File".to_string(),
                     stack_offset: payload_slot,
                     constant: None,
                     by_ref: false,

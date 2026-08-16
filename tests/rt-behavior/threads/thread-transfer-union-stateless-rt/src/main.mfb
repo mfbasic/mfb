@@ -4,7 +4,7 @@ IMPORT fs
 IMPORT union_xfer_stateless_workers
 
 UNION Stream
-  File
+  fs::File
   Socket
 END UNION
 

@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn standard_flags_set_sendable_bit_for_movable_resources() {
-    let file = standard_resource_flags(builtins::fs::FILE_TYPE);
+    let file = standard_resource_flags(builtins::fs::FILE_TYPE_ID);
     let socket = standard_resource_flags(builtins::net::SOCKET_TYPE);
     let listener = standard_resource_flags(builtins::net::LISTENER_TYPE);
     assert!(file & RESOURCE_FLAG_SENDABLE != 0, "File must be sendable");
@@ -29,7 +29,7 @@ fn resource_table_round_trips_flags() {
             ResourceEntry {
                 type_id: 10,
                 close_function_id: BUILTIN_FS_CLOSE_FUNCTION_ID,
-                flags: standard_resource_flags(builtins::fs::FILE_TYPE),
+                flags: standard_resource_flags(builtins::fs::FILE_TYPE_ID),
             },
             ResourceEntry {
                 type_id: 11,

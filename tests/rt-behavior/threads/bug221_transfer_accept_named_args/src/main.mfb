@@ -11,12 +11,12 @@ IMPORT bug221_worker
 ' the parent-side transfer -- to prove the names now resolve to the right
 ' parameter slots rather than merely being accepted as syntax.
 FUNC main AS Integer
-  LET t AS Thread OF RES File TO Integer = thread::start(bug221_worker::exchange, "seed")
+  LET t AS Thread OF RES fs::File TO Integer = thread::start(bug221_worker::exchange, "seed")
 
-  RES pf AS File = fs::openFile("tests/rt-behavior/threads/bug221_transfer_accept_named_args/data/parent.txt")
+  RES pf AS fs::File = fs::openFile("tests/rt-behavior/threads/bug221_transfer_accept_named_args/data/parent.txt")
   thread::transfer(resource := pf, t := t, timeoutMs := 1000)
 
-  RES wf AS File = thread::accept(timeoutMs := 1000, t := t)
+  RES wf AS fs::File = thread::accept(timeoutMs := 1000, t := t)
   LET parentReceived AS Integer = len(fs::readAll(wf))
   fs::close(wf)
 

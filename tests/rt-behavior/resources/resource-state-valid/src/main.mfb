@@ -7,7 +7,7 @@ TYPE FileState
 END TYPE
 
 FUNC main AS Integer
-  RES f AS File STATE FileState = fs::createTempFile()
+  RES f AS fs::File STATE FileState = fs::createTempFile()
   fs::writeAll(f, "data")
   fs::close(f)
   io::print("stated")

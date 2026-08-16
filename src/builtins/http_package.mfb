@@ -1213,7 +1213,7 @@ FUNC __http_extContentType(path AS String) AS String
   RETURN "application/octet-stream"
 END FUNC
 
-FUNC __http_respondFile(RES file AS File, contentType AS String) AS Response
+FUNC __http_respondFile(RES file AS fs::File, contentType AS String) AS Response
   LET data AS List OF Byte = fs::readAllBytes(file)
   MUT ct AS String = contentType
   IF ct = "" THEN
@@ -1250,7 +1250,7 @@ FUNC __http_respondPath(req AS Request, root AS String) AS Response
     RETURN __http_status(403, "Forbidden")
   END IF
   LET ct AS String = __http_extContentType(candidate)
-  RES f AS File = fs::openFile(candidate)
+  RES f AS fs::File = fs::openFile(candidate)
   RETURN __http_respondFile(f, ct)
 END FUNC
 

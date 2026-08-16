@@ -4,8 +4,8 @@ IMPORT fs
 IMPORT thread_file_sink
 
 FUNC main AS Integer
-  LET t AS Thread OF RES File TO Integer = thread::start(thread_file_sink::sizeOfReceived, "seed")
-  RES f AS File = fs::openFile("tests/rt-behavior/threads/thread-send-file-ownership-rt/data/input.txt")
+  LET t AS Thread OF RES fs::File TO Integer = thread::start(thread_file_sink::sizeOfReceived, "seed")
+  RES f AS fs::File = fs::openFile("tests/rt-behavior/threads/thread-send-file-ownership-rt/data/input.txt")
   thread::transfer(t, f)
   io::print("sent")
   LET size AS Integer = thread::waitFor(t)

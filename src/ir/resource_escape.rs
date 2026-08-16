@@ -549,7 +549,7 @@ mod tests {
             resource: true,
             state_type: None,
             name: name.to_string(),
-            type_name: Some("File".to_string()),
+            type_name: Some("fs.File".to_string()),
             value: Some(value),
             line: 1,
         }

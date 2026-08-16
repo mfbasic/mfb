@@ -16,7 +16,7 @@ TYPE Cursor
 END TYPE
 
 UNION Handle
-  File
+  fs::File
   Socket
 END UNION
 

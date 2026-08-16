@@ -11,7 +11,7 @@ IMPORT resource_state_export_valid
 ' `pos=42 len=7` proves the exporter's state arrived; `pos=0 len=0` would mean the
 ' binding re-default-initialized it and the STATE never rode the `.mfp`.
 FUNC main AS Integer
-  RES h AS File STATE Cursor = resource_state_export_valid::openTagged("tests/rt-behavior/resources/resource-state-import-rt/src/main.mfb")
+  RES h AS fs::File STATE Cursor = resource_state_export_valid::openTagged("tests/rt-behavior/resources/resource-state-import-rt/src/main.mfb")
   io::print("pos=" & toString(h.state.pos))
   io::print("len=" & toString(h.state.len))
   fs::close(h)

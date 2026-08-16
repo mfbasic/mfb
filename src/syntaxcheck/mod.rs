@@ -46,9 +46,9 @@ enum Type {
     /// like a `Map` key.
     Set(Box<Type>),
     Map(Box<Type>, Box<Type>),
-    /// A `RES`-marked collection element (`List OF RES File`, `Map ... TO RES
+    /// A `RES`-marked collection element (`List OF RES fs::File`, `Map ... TO RES
     /// File`). The `RES` is the mandatory resource ownership-axis marker for a
-    /// resource appearing as an element — exactly as `RES f` / `RES f AS File`
+    /// resource appearing as an element — exactly as `RES f` / `RES f AS fs::File`
     /// mark a binding or parameter. The collection still holds a *pointer* and
     /// owns nothing; a scope owns the resource (§15.6).
     Res(Box<Type>),
@@ -504,8 +504,10 @@ impl<'a> SyntaxChecker<'a> {
         for resource in resources {
             // Built-in resources are authoritative: a package's table merely
             // references them (and older packages predate the sendable bit), so
-            // never let an imported entry override the built-in's semantics.
-            if builtins::is_resource_type(&resource.type_name) {
+            // never let an imported entry override the built-in's semantics. A
+            // referenced builtin may be recorded by its bare base name (`File`)
+            // though the builtin's identity is package-qualified (`fs.File`, plan-97).
+            if builtins::resource::is_builtin_backed_resource(&resource.type_name) {
                 continue;
             }
             let Some(close_function) = resource.close_function else {
@@ -1385,9 +1387,9 @@ impl<'a> SyntaxChecker<'a> {
                     Some(&return_type),
                     "return type",
                 );
-                // Returning `List OF RES File` transfers scope-ownership of the
+                // Returning `List OF RES fs::File` transfers scope-ownership of the
                 // referenced resources to the caller, which adopts them (§15.6).
-                // (A bare `List OF File` return is already rejected at the type
+                // (A bare `List OF fs::File` return is already rejected at the type
                 // level, since a resource element must be `RES`-marked.)
             }
         }
@@ -1590,7 +1592,7 @@ impl<'a> SyntaxChecker<'a> {
                 // deep-copied into its arena, so it crosses the boundary exactly as
                 // the message and resource types do. `ir::verify`'s copyable +
                 // defaultable rule does not imply sendable: a record like
-                // `TYPE S { files AS List OF RES File }` satisfies both yet carries
+                // `TYPE S { files AS List OF RES fs::File }` satisfies both yet carries
                 // resource pointers to sender-owned resources, which §15.6 forbids
                 // from crossing.
                 if let Some(resource_state) = resource_state {
@@ -1718,7 +1720,7 @@ impl<'a> SyntaxChecker<'a> {
         let message = self.thread_type_argument_name(message);
         let output = self.thread_type_argument_name(output);
         // Weave the plane's `STATE T` back into the resource element string
-        // (plan-54): `File` + `Cursor` → `File STATE Cursor`, so the plane type
+        // (plan-54): `File` + `Cursor` → `fs::File STATE Cursor`, so the plane type
         // round-trips the state that thread::transfer/accept check.
         let resource = resource.as_ref().map(|resource| {
             let base = self.thread_type_argument_name(resource);
@@ -1998,7 +2000,7 @@ mod checker_tests {
         // A record whose field carries a resource pointer walks the is_resource
         // branch inside check_type_decl.
         let _ = check_src(
-            "IMPORT fs\nTYPE Holder\n  fs AS List OF RES File\nEND TYPE\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+            "IMPORT fs\nTYPE Holder\n  fs AS List OF RES fs::File\nEND TYPE\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
         );
     }
 
@@ -2007,7 +2009,7 @@ mod checker_tests {
         // A union with one resource variant and one data variant walks the
         // mixed-union arm of check_type_decl.
         let _ = check_src(
-            "IMPORT fs\nTYPE B\n  n AS Integer\nEND TYPE\nUNION Mixed\n  File\n  B\nEND UNION\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+            "IMPORT fs\nTYPE B\n  n AS Integer\nEND TYPE\nUNION Mixed\n  fs::File\n  B\nEND UNION\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
         );
     }
 
@@ -2016,7 +2018,7 @@ mod checker_tests {
         // A record with a bare resource-typed field walks the is_resource_type
         // branch of the Type arm in check_type_decl.
         let _ = check_src(
-            "IMPORT fs\nTYPE Holder\n  file AS File\nEND TYPE\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+            "IMPORT fs\nTYPE Holder\n  file AS fs::File\nEND TYPE\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
         );
     }
 
@@ -2073,14 +2075,14 @@ mod checker_tests {
     #[test]
     fn map_resource_key_rejected() {
         // A resource may not be a Map key.
-        let src = "IMPORT fs\nFUNC main AS Integer\n  LET m AS Map OF File TO Integer = Map OF File TO Integer {}\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT fs\nFUNC main AS Integer\n  LET m AS Map OF fs::File TO Integer = Map OF fs::File TO Integer {}\n  RETURN 0\nEND FUNC\n";
         assert!(!accepts(src));
     }
 
     #[test]
     fn thread_resource_message_rejected() {
         // A resource in the message (data) plane of a Thread type.
-        let src = "IMPORT thread\nIMPORT fs\nFUNC main AS Integer\n  LET t AS Thread OF File TO Integer\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT thread\nIMPORT fs\nFUNC main AS Integer\n  LET t AS Thread OF fs::File TO Integer\n  RETURN 0\nEND FUNC\n";
         assert!(rejects_with(src, "TYPE_THREAD_NOT_SENDABLE"));
     }
 
@@ -2102,7 +2104,7 @@ mod checker_tests {
     fn res_return_and_param_with_state_walk() {
         // A RES return producer and a RES parameter with a STATE type walk
         // check_resource_declaration on both positions.
-        let src = "IMPORT fs\nFUNC use(RES f AS File) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RES f AS File = fs::openFile(\"x\")\n  RETURN use(f)\nEND FUNC\n";
+        let src = "IMPORT fs\nFUNC use(RES f AS fs::File) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RES f AS fs::File = fs::openFile(\"x\")\n  RETURN use(f)\nEND FUNC\n";
         let _ = check_src(src);
     }
 
@@ -2793,7 +2795,7 @@ mod checker_tests {
     #[test]
     fn record_field_referencing_resource_walks_arm() {
         // A record field of a resource type walks the `is_resource_type` arm.
-        let src = "IMPORT fs\nTYPE Bad\n  f AS File\nEND TYPE\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT fs\nTYPE Bad\n  f AS fs::File\nEND TYPE\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 
@@ -2852,7 +2854,7 @@ END FUNC
         let src = "\
 IMPORT fs
 
-FUNC f(s AS Set OF File) AS Nothing
+FUNC f(s AS Set OF fs::File) AS Nothing
 END FUNC
 
 FUNC main AS Integer

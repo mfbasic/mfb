@@ -873,9 +873,10 @@ mod tests {
     // ----- RESOURCE built-in shadow (link.rs:68) ----------------------------
 
     #[test]
-    fn user_resource_shadowing_builtin_is_rejected() {
-        // `File` is a built-in resource type; a user RESOURCE reusing the name
-        // drives is_resource_type -> RESOURCE_SHADOWS_BUILTIN.
+    fn user_resource_named_like_a_builtin_is_accepted() {
+        // plan-97 / bug-441: builtin resources are package-qualified (`fs::File`), so a
+        // user `RESOURCE File` (bare) no longer collides — it names a distinct user
+        // resource and is accepted. (Previously this drove RESOURCE_SHADOWS_BUILTIN.)
         let src = "\
 RESOURCE File CLOSE BY demoLink::close
 
@@ -892,7 +893,7 @@ FUNC main AS Integer
 END FUNC
 ";
         assert!(
-            rejects_with(src, "RESOURCE_SHADOWS_BUILTIN"),
+            !rejects_with(src, "RESOURCE_SHADOWS_BUILTIN"),
             "{:?}",
             check_src(src)
         );

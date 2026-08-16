@@ -433,9 +433,9 @@ mod tests {
         assert_eq!(
             rt(
                 "collections.append",
-                &["List OF RES File STATE Cursor", "File"]
+                &["List OF RES fs.File STATE Cursor", "fs.File"]
             ),
-            Some("List OF RES File STATE Cursor".to_string())
+            Some("List OF RES fs.File STATE Cursor".to_string())
         );
         assert_eq!(
             rt("collections.toList", &["Set OF Integer"]),

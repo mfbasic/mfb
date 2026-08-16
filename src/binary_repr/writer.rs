@@ -206,7 +206,7 @@ pub(super) fn lower_project_with_external_functions(
     if ir_uses_resource_type(ir) {
         let mut used = HashSet::new();
         collect_resource_type_names(ir, &mut used);
-        if used.contains("File") {
+        if used.contains("fs.File") {
             resources.add_standard_file(&mut types, &mut strings);
         }
         if used.contains("Socket") {

@@ -5,7 +5,7 @@ ENUM Color
 END ENUM
 
 FUNC main AS Integer
-  RES f AS File STATE Color = fs::open("x", "r")
+  RES f AS fs::File STATE Color = fs::open("x", "r")
   fs::close(f)
   RETURN 0
 END FUNC

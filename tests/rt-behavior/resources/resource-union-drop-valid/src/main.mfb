@@ -3,7 +3,7 @@ IMPORT net
 IMPORT io
 
 UNION Stream
-  File
+  fs::File
   Socket
 END UNION
 
@@ -27,7 +27,7 @@ FUNC main AS Integer
   writeVia(path, "union-drop-9")
   ' If the union drop had not closed the File variant, the bytes would not be
   ' flushed and this readback would fail.
-  RES r AS File = fs::openFile(path)
+  RES r AS fs::File = fs::openFile(path)
   LET back AS String = fs::readAll(r)
   fs::close(r)
   io::print(back)

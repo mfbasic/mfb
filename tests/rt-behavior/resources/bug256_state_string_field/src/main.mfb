@@ -17,7 +17,7 @@ END TYPE
 ' value (the handle), so the demand was never registered and the relocation
 ' dangled. Nothing in-tree gave a STATE a String field, so nothing caught it.
 FUNC main AS Integer
-  RES f AS File STATE Label = fs::openFile("tests/rt-behavior/resources/bug256_state_string_field/src/main.mfb")
+  RES f AS fs::File STATE Label = fs::openFile("tests/rt-behavior/resources/bug256_state_string_field/src/main.mfb")
   io::print("default=[" & f.state.name & "]")   ' default=[] — the sentinel
   f.state.name = "hello"
   f.state.pos = 7

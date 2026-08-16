@@ -2,7 +2,7 @@ IMPORT fs
 IMPORT io
 
 FUNC main AS Integer
-  RES f AS File = fs::createTempFile()
+  RES f AS fs::File = fs::createTempFile()
   fs::writeAll(f, "hello")
   fs::close(f)
   io::print("ok")

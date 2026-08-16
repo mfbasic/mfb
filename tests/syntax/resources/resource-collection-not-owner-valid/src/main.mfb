@@ -11,8 +11,8 @@ IMPORT fs
 ' A collections::get() of a resource element yields a pointer, not an owner; it cannot be
 ' bound with RES (§15.6).
 FUNC main AS Integer
-  RES a AS File = fs::openFile("tests/syntax/resources/resource-collection-not-owner-valid/src/main.mfb")
-  LET handles AS List OF RES File = [a]
-  RES elem AS File = collections::get(handles, 0)
+  RES a AS fs::File = fs::openFile("tests/syntax/resources/resource-collection-not-owner-valid/src/main.mfb")
+  LET handles AS List OF RES fs::File = [a]
+  RES elem AS fs::File = collections::get(handles, 0)
   RETURN 0
 END FUNC

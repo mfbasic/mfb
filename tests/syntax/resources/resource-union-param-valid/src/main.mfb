@@ -3,7 +3,7 @@ IMPORT net
 
 ' Every variant is a resource -> Stream is a resource union.
 UNION Stream
-  File
+  fs::File
   Socket
 END UNION
 
@@ -15,6 +15,6 @@ END FUNC
 FUNC main AS Integer
   ' A File value widens into the RES s AS Stream parameter (variant -> union,
   ' non-owning position). Accepted on the syntaxcheck and ir::verify paths.
-  RES f AS File = fs::createTempFile()
+  RES f AS fs::File = fs::createTempFile()
   RETURN useStream(f)
 END FUNC

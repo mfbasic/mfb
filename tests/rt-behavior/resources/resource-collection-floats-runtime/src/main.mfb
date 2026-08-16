@@ -7,10 +7,10 @@ IMPORT io
 ' It must stay open after the loop (used here), and be closed exactly once
 ' when main's scope exits.
 FUNC main AS Integer
-  MUT handles AS List OF RES File = []
+  MUT handles AS List OF RES fs::File = []
   MUT i AS Integer = 0
   WHILE i < 5
-    RES f AS File = fs::openFile("tests/rt-behavior/resources/resource-collection-floats-runtime/src/main.mfb")
+    RES f AS fs::File = fs::openFile("tests/rt-behavior/resources/resource-collection-floats-runtime/src/main.mfb")
     handles = collections::append(handles, f)
     i = i + 1
   END WHILE

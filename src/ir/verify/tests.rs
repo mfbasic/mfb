@@ -617,11 +617,11 @@ fn union(name: &str, variants: &[&str]) -> IrType {
 /// sides, so a `RES`-marked parameter widens identically.
 #[test]
 fn resource_union_parameter_widening_is_directional() {
-    let proj = project(vec![], vec![union("Stream", &["File", "Socket"])]);
+    let proj = project(vec![], vec![union("Stream", &["fs.File", "Socket"])]);
     let env = super::TypeEnv::build(&proj);
     // variant -> union (widen): accepted
     assert!(
-        env.compatible("Stream", "File"),
+        env.compatible("Stream", "fs.File"),
         "File must widen to Stream"
     );
     assert!(
@@ -630,7 +630,7 @@ fn resource_union_parameter_widening_is_directional() {
     );
     // union -> concrete (reverse): rejected
     assert!(
-        !env.compatible("File", "Stream"),
+        !env.compatible("fs.File", "Stream"),
         "a Stream union must not narrow into a concrete File parameter"
     );
     assert!(
@@ -639,11 +639,11 @@ fn resource_union_parameter_widening_is_directional() {
     );
     // the RES ownership marker is stripped, so widening/narrowing is unchanged
     assert!(
-        env.compatible("RES Stream", "RES File"),
+        env.compatible("RES Stream", "RES fs.File"),
         "the RES marker must not block variant->union widening"
     );
     assert!(
-        !env.compatible("RES File", "RES Stream"),
+        !env.compatible("RES fs.File", "RES Stream"),
         "the RES marker must not enable union->concrete narrowing"
     );
 }
@@ -2675,7 +2675,7 @@ fn rejects_read_state_on_stateless_resource() {
         member: "state".to_string(),
         type_: "Unknown".to_string(),
     })];
-    let f = func_returns("run", "Nothing", vec![param("h", "File", None)], body);
+    let f = func_returns("run", "Nothing", vec![param("h", "fs.File", None)], body);
     expect_rule(&project(vec![f], vec![]), "TYPE_STATE_INVALID");
 }
 
@@ -3006,12 +3006,12 @@ fn accepts_set_of_comparable_element() {
 
 #[test]
 fn rejects_set_of_resource_element() {
-    // `Set OF File`: a resource handle is not comparable and can't be owned by an
+    // `Set OF fs.File`: a resource handle is not comparable and can't be owned by an
     // ordinary collection.
     let f = func_returns(
         "run",
         "Nothing",
-        vec![param("s", "Set OF File", None)],
+        vec![param("s", "Set OF fs.File", None)],
         vec![],
     );
     expect_rule(&project(vec![f], vec![]), "TYPE_REQUIRES_COMPARABLE");
@@ -3091,7 +3091,7 @@ fn accepts_error_member_access_chain() {
 
 #[test]
 fn rejects_resource_field_in_record() {
-    let mut ty = record_typed("Holder", &[("f", "File")]);
+    let mut ty = record_typed("Holder", &[("f", "fs.File")]);
     ty.file = "src/main.mfb".to_string();
     let f = func_returns("run", "Nothing", vec![], vec![]);
     expect_rule(&project(vec![f], vec![ty]), "TYPE_RESOURCE_FIELD_FORBIDDEN");
@@ -3148,7 +3148,7 @@ fn rejects_union_member_requires_type() {
 #[test]
 fn rejects_mixed_resource_union() {
     // A union with one resource variant (File) and one data variant.
-    let u = union("Mixed", &["File", "Circle"]);
+    let u = union("Mixed", &["fs.File", "Circle"]);
     let f = func_returns("run", "Nothing", vec![], vec![]);
     expect_rule(&project(vec![f], vec![u]), "TYPE_MIXED_RESOURCE_UNION");
 }
@@ -3284,12 +3284,12 @@ fn rejects_resource_without_res() {
     // A binding holding File but not RES-declared.
     let body = vec![bind(
         "f",
-        "File",
+        "fs.File",
         Some(IrValue::Local("g".to_string())),
         true,
         false,
     )];
-    let f = func_returns("run", "Nothing", vec![param("g", "File", None)], body);
+    let f = func_returns("run", "Nothing", vec![param("g", "fs.File", None)], body);
     expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_REQUIRES_RES");
 }
 
@@ -3309,11 +3309,11 @@ fn rejects_res_on_non_resource() {
 
 #[test]
 fn rejects_collection_resource_element_without_res() {
-    // A List OF File (bare resource, not RES-marked).
+    // A List OF fs.File (bare resource, not RES-marked).
     let f = func_returns(
         "run",
         "Nothing",
-        vec![param("xs", "List OF File", None)],
+        vec![param("xs", "List OF fs.File", None)],
         vec![],
     );
     expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_REQUIRES_RES");
@@ -3336,7 +3336,7 @@ fn accepts_collection_res_file() {
     let f = func_returns(
         "run",
         "Nothing",
-        vec![param("xs", "List OF RES File", None)],
+        vec![param("xs", "List OF RES fs.File", None)],
         vec![],
     );
     accept(&project(vec![f], vec![]));
@@ -3355,7 +3355,7 @@ fn accepts_state_on_union() {
     // a resource union type "Res" with a File variant so is_resource is true and unions contains it.
     f.resource_owners
         .insert("r".to_string(), crate::ir::resource_escape::ResOwner::Local);
-    let u = union("Res", &["File"]);
+    let u = union("Res", &["fs.File"]);
     let got = rules(&project(vec![f], vec![u]));
     assert!(
         !got.iter().any(|r| r == "TYPE_UNION_STATE_FORBIDDEN"),
@@ -3370,7 +3370,7 @@ fn rejects_state_type_not_defaultable() {
         "run",
         "Nothing",
         vec![],
-        vec![bind("h", "File STATE Shape", None, true, false)],
+        vec![bind("h", "fs.File STATE Shape", None, true, false)],
     );
     f.resource_owners
         .insert("h".to_string(), crate::ir::resource_escape::ResOwner::Local);
@@ -3384,7 +3384,7 @@ fn rejects_state_type_not_defaultable() {
 fn rejects_state_assign_no_state() {
     // Assign state on a File binding declared without STATE.
     let body = vec![
-        bind("h", "File", None, true, false),
+        bind("h", "fs.File", None, true, false),
         IrOp::StateAssign {
             resource: "h".to_string(),
             value: int_const("1"),
@@ -3400,7 +3400,7 @@ fn rejects_state_assign_no_state() {
 #[test]
 fn rejects_state_assign_mismatch() {
     let body = vec![
-        bind("h", "File STATE Integer", None, true, false),
+        bind("h", "fs.File STATE Integer", None, true, false),
         IrOp::StateAssign {
             resource: "h".to_string(),
             value: const_of("String", "x"),
@@ -3419,7 +3419,7 @@ fn rejects_state_assign_mismatch() {
 fn rejects_use_after_close() {
     // fs.close(h) then read h again.
     let body = vec![
-        bind("h", "File", None, true, false),
+        bind("h", "fs.File", None, true, false),
         IrOp::Eval {
             value: IrValue::Call {
                 target: "fs.close".to_string(),
@@ -3465,7 +3465,7 @@ fn accepts_close_of_a_res_parameter() {
         },
         loc: IrSourceLoc::default(),
     }];
-    let f = func_returns("run", "Nothing", vec![param("h", "File", None)], body);
+    let f = func_returns("run", "Nothing", vec![param("h", "fs.File", None)], body);
     accept(&project(vec![f], vec![]));
 }
 
@@ -3480,12 +3480,12 @@ fn fs_close(res: &str) -> IrOp {
     })
 }
 
-/// A call that returns a `RES File` produced from an argument resource.
+/// A call that returns a `RES fs.File` produced from an argument resource.
 fn grab(src: &str) -> IrValue {
     IrValue::Call {
         target: "grab".to_string(),
         args: vec![IrValue::Local(src.to_string())],
-        type_: "File".to_string(),
+        type_: "fs.File".to_string(),
         loc: IrSourceLoc::default(),
     }
 }
@@ -3496,11 +3496,11 @@ fn grab(src: &str) -> IrValue {
 #[test]
 fn rejects_use_after_close_through_alias() {
     let body = vec![
-        bind("b", "File", Some(grab("a")), true, false),
+        bind("b", "fs.File", Some(grab("a")), true, false),
         fs_close("b"),
         fs_close("a"),
     ];
-    let mut f = func_returns("run", "Nothing", vec![param("a", "File", None)], body);
+    let mut f = func_returns("run", "Nothing", vec![param("a", "fs.File", None)], body);
     f.resource_owners
         .insert("b".to_string(), crate::ir::resource_escape::ResOwner::Local);
     expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
@@ -3511,7 +3511,7 @@ fn rejects_use_after_close_through_alias() {
 #[test]
 fn alias_survives_branch_merge() {
     let body = vec![
-        bind("b", "File", Some(grab("a")), true, false),
+        bind("b", "fs.File", Some(grab("a")), true, false),
         IrOp::If {
             condition: const_of("Boolean", "true"),
             then_body: vec![],
@@ -3521,7 +3521,7 @@ fn alias_survives_branch_merge() {
         fs_close("b"),
         fs_close("a"),
     ];
-    let mut f = func_returns("run", "Nothing", vec![param("a", "File", None)], body);
+    let mut f = func_returns("run", "Nothing", vec![param("a", "fs.File", None)], body);
     f.resource_owners
         .insert("b".to_string(), crate::ir::resource_escape::ResOwner::Local);
     expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
@@ -3535,16 +3535,16 @@ fn rebind_severs_alias() {
     let fresh = IrValue::Call {
         target: "fresh".to_string(),
         args: vec![],
-        type_: "File".to_string(),
+        type_: "fs.File".to_string(),
         loc: IrSourceLoc::default(),
     };
     let body = vec![
-        bind("b", "File", Some(grab("a")), true, false),
-        bind("a", "File", Some(fresh), true, false),
+        bind("b", "fs.File", Some(grab("a")), true, false),
+        bind("a", "fs.File", Some(fresh), true, false),
         fs_close("b"),
         fs_close("a"),
     ];
-    let mut f = func_returns("run", "Nothing", vec![param("a", "File", None)], body);
+    let mut f = func_returns("run", "Nothing", vec![param("a", "fs.File", None)], body);
     f.resource_owners
         .insert("b".to_string(), crate::ir::resource_escape::ResOwner::Local);
     f.resource_owners
@@ -3560,7 +3560,7 @@ fn foreach_body_move_leaks_to_outer() {
     let body = vec![
         IrOp::ForEach {
             name: "x".to_string(),
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
             iterable: IrValue::Local("items".to_string()),
             body: vec![fs_close("a")],
             loc: IrSourceLoc::default(),
@@ -3571,8 +3571,8 @@ fn foreach_body_move_leaks_to_outer() {
         "run",
         "Nothing",
         vec![
-            param("a", "File", None),
-            param("items", "List OF File", None),
+            param("a", "fs.File", None),
+            param("items", "List OF fs.File", None),
         ],
         body,
     );
@@ -3583,7 +3583,7 @@ fn foreach_body_move_leaks_to_outer() {
 /// `is_defaultable` (resources.rs:326-327).
 #[test]
 fn rejects_state_of_cyclic_record() {
-    let body = vec![bind("h", "File STATE R", None, true, false)];
+    let body = vec![bind("h", "fs.File STATE R", None, true, false)];
     let mut f = func_returns("run", "Nothing", vec![], body);
     f.resource_owners
         .insert("h".to_string(), crate::ir::resource_escape::ResOwner::Local);
@@ -3707,7 +3707,7 @@ fn rejects_argument_state_retype() {
     let callee = func_returns(
         "helper",
         "Nothing",
-        vec![param("h", "File STATE Cursor", None)],
+        vec![param("h", "fs.File STATE Cursor", None)],
         vec![],
     );
     let body = vec![IrOp::Eval {
@@ -3722,7 +3722,7 @@ fn rejects_argument_state_retype() {
     let caller = func_returns(
         "run",
         "Nothing",
-        vec![param("g", "File STATE Label", None)],
+        vec![param("g", "fs.File STATE Label", None)],
         body,
     );
     expect_rule(
@@ -3738,7 +3738,7 @@ fn rejects_argument_state_missing() {
     let callee = func_returns(
         "helper",
         "Nothing",
-        vec![param("h", "File STATE Cursor", None)],
+        vec![param("h", "fs.File STATE Cursor", None)],
         vec![],
     );
     let body = vec![IrOp::Eval {
@@ -3750,7 +3750,7 @@ fn rejects_argument_state_missing() {
         },
         loc: IrSourceLoc::default(),
     }];
-    let caller = func_returns("run", "Nothing", vec![param("g", "File", None)], body);
+    let caller = func_returns("run", "Nothing", vec![param("g", "fs.File", None)], body);
     expect_rule(
         &project(vec![callee, caller], vec![]),
         "TYPE_STATE_MISMATCH",
@@ -3763,7 +3763,7 @@ fn accepts_argument_state_agreement() {
     let callee = func_returns(
         "helper",
         "Nothing",
-        vec![param("h", "File STATE Cursor", None)],
+        vec![param("h", "fs.File STATE Cursor", None)],
         vec![],
     );
     let body = vec![IrOp::Eval {
@@ -3778,7 +3778,7 @@ fn accepts_argument_state_agreement() {
     let caller = func_returns(
         "run",
         "Nothing",
-        vec![param("g", "File STATE Cursor", None)],
+        vec![param("g", "fs.File STATE Cursor", None)],
         body,
     );
     let got = rules(&project(vec![callee, caller], vec![]));
@@ -3795,10 +3795,10 @@ fn rejects_thread_transfer_state_retype() {
         vec![
             param(
                 "t",
-                "Thread OF Nothing RES File STATE Cursor TO Nothing",
+                "Thread OF Nothing RES fs.File STATE Cursor TO Nothing",
                 None,
             ),
-            param("r", "File STATE Label", None),
+            param("r", "fs.File STATE Label", None),
         ],
         vec![transfer_call("t", Some("r"))],
     );
@@ -3815,10 +3815,10 @@ fn rejects_thread_transfer_state_missing() {
         vec![
             param(
                 "t",
-                "Thread OF Nothing RES File STATE Cursor TO Nothing",
+                "Thread OF Nothing RES fs.File STATE Cursor TO Nothing",
                 None,
             ),
-            param("r", "File", None),
+            param("r", "fs.File", None),
         ],
         vec![transfer_call("t", Some("r"))],
     );
@@ -3832,8 +3832,8 @@ fn rejects_thread_transfer_state_on_bare_plane() {
         "run",
         "Nothing",
         vec![
-            param("t", "Thread OF Nothing RES File TO Nothing", None),
-            param("r", "File STATE Cursor", None),
+            param("t", "Thread OF Nothing RES fs.File TO Nothing", None),
+            param("r", "fs.File STATE Cursor", None),
         ],
         vec![transfer_call("t", Some("r"))],
     );
@@ -3846,7 +3846,7 @@ fn thread_transfer_with_one_arg_is_skipped() {
     let f = func_returns(
         "run",
         "Nothing",
-        vec![param("t", "Thread OF Nothing RES File TO Nothing", None)],
+        vec![param("t", "Thread OF Nothing RES fs.File TO Nothing", None)],
         vec![transfer_call("t", None)],
     );
     let got = rules(&project(vec![f], vec![]));
@@ -3872,7 +3872,7 @@ fn thread_transfer_non_thread_handle_is_skipped() {
     let f = func_returns(
         "run",
         "Nothing",
-        vec![param("t", "Integer", None), param("r", "File", None)],
+        vec![param("t", "Integer", None), param("r", "fs.File", None)],
         vec![transfer_call("t", Some("r"))],
     );
     let got = rules(&project(vec![f], vec![]));
@@ -3884,7 +3884,7 @@ fn accepts_return_state_union() {
     // plan-74: a FUNC may return a resource union carrying a uniform (defaultable)
     // STATE — the former TYPE_UNION_STATE_FORBIDDEN return ban is retired.
     let f = func_returns("run", "Res STATE Integer", vec![], vec![]);
-    let got = rules(&project(vec![f], vec![union("Res", &["File"])]));
+    let got = rules(&project(vec![f], vec![union("Res", &["fs.File"])]));
     assert!(
         !got.iter().any(|r| r == "TYPE_UNION_STATE_FORBIDDEN"),
         "union STATE return must be accepted (ban retired): {got:?}"
@@ -3894,7 +3894,7 @@ fn accepts_return_state_union() {
 #[test]
 fn rejects_return_state_not_defaultable() {
     // FUNC return STATE type is a union (not defaultable) (calls.rs:295-303).
-    let f = func_returns("run", "File STATE Shape", vec![], vec![]);
+    let f = func_returns("run", "fs.File STATE Shape", vec![], vec![]);
     expect_rule(
         &project(vec![f], vec![union("Shape", &["A", "B"])]),
         "TYPE_STATE_INVALID",
@@ -3905,11 +3905,11 @@ fn rejects_return_state_not_defaultable() {
 fn rejects_binding_opaque_state_narrowing() {
     // Binding a bare `RES` parameter under a concrete STATE — an unprovable
     // narrowing (calls.rs:369-375).
-    let mut f = func_returns("run", "Nothing", vec![param("p", "File", None)], vec![]);
+    let mut f = func_returns("run", "Nothing", vec![param("p", "fs.File", None)], vec![]);
     let b = res_bind_owned(
         &mut f,
         "x",
-        "File STATE Integer",
+        "fs.File STATE Integer",
         Some(IrValue::Local("p".to_string())),
     );
     f.body = vec![b];
@@ -3923,13 +3923,13 @@ fn rejects_binding_state_mismatch() {
     let mut f = func_returns(
         "run",
         "Nothing",
-        vec![param("src", "File STATE Label", None)],
+        vec![param("src", "fs.File STATE Label", None)],
         vec![],
     );
     let b = res_bind_owned(
         &mut f,
         "x",
-        "File STATE Cursor",
+        "fs.File STATE Cursor",
         Some(IrValue::Local("src".to_string())),
     );
     f.body = vec![b];
@@ -3942,10 +3942,10 @@ fn rejects_bare_binding_of_stateful_initializer() {
     let mut f = func_returns(
         "run",
         "Nothing",
-        vec![param("src", "File STATE Label", None)],
+        vec![param("src", "fs.File STATE Label", None)],
         vec![],
     );
-    let b = res_bind_owned(&mut f, "x", "File", Some(IrValue::Local("src".to_string())));
+    let b = res_bind_owned(&mut f, "x", "fs.File", Some(IrValue::Local("src".to_string())));
     f.body = vec![b];
     expect_rule(&project(vec![f], vec![]), "TYPE_STATE_MISMATCH");
 }
@@ -3957,13 +3957,13 @@ fn accepts_binding_state_agreement() {
     let mut f = func_returns(
         "run",
         "Nothing",
-        vec![param("src", "File STATE Label", None)],
+        vec![param("src", "fs.File STATE Label", None)],
         vec![],
     );
     let b = res_bind_owned(
         &mut f,
         "x",
-        "File STATE Label",
+        "fs.File STATE Label",
         Some(IrValue::Local("src".to_string())),
     );
     f.body = vec![b];
@@ -3978,7 +3978,7 @@ fn binding_state_of_uninferable_initializer_is_skipped() {
     let b = res_bind_owned(
         &mut f,
         "x",
-        "File STATE Integer",
+        "fs.File STATE Integer",
         Some(IrValue::Local("missing".to_string())),
     );
     f.body = vec![b];
@@ -4412,14 +4412,14 @@ fn rejects_native_resource_state_disagreement() {
     expect_rule(&p, "TYPE_STATE_MISMATCH");
 }
 
-/// `Set OF Map OF File TO Integer` drives `contains_resource_or_thread` through
+/// `Set OF Map OF fs.File TO Integer` drives `contains_resource_or_thread` through
 /// its Map recursion arm (link.rs:622-624).
 #[test]
 fn set_of_map_of_resource_is_ownership_violation() {
     let f = func_returns(
         "run",
         "Nothing",
-        vec![param("s", "Set OF Map OF File TO Integer", None)],
+        vec![param("s", "Set OF Map OF fs.File TO Integer", None)],
         vec![],
     );
     expect_rule(
@@ -4432,7 +4432,7 @@ fn set_of_map_of_resource_is_ownership_violation() {
 /// `contains_resource_or_thread` (link.rs:626-627).
 #[test]
 fn set_of_cyclic_record_with_resource_is_ownership_violation() {
-    let rec = record_typed("R", &[("self", "R"), ("h", "File")]);
+    let rec = record_typed("R", &[("self", "R"), ("h", "fs.File")]);
     let f = func_returns("run", "Nothing", vec![param("s", "Set OF R", None)], vec![]);
     expect_rule(
         &project(vec![f], vec![rec]),
@@ -5207,10 +5207,10 @@ fn return_resource_move_is_not_use_after_move() {
     // last op so this must NOT be a use-after-move. Exercises the Return-consume
     // arm of consumed_resource.
     let body = vec![
-        bind("h", "File", None, true, false),
+        bind("h", "fs.File", None, true, false),
         ret(IrValue::Local("h".to_string())),
     ];
-    let mut f = func_returns("run", "File", vec![], body);
+    let mut f = func_returns("run", "fs.File", vec![], body);
     f.resource_owners
         .insert("h".to_string(), crate::ir::resource_escape::ResOwner::Local);
     let got = rules(&project(vec![f], vec![]));
@@ -5223,7 +5223,7 @@ fn return_resource_move_is_not_use_after_move() {
 #[test]
 fn rejects_double_move_close_then_return() {
     let body = vec![
-        bind("h", "File", None, true, false),
+        bind("h", "fs.File", None, true, false),
         IrOp::Eval {
             value: IrValue::Call {
                 target: "fs.close".to_string(),
@@ -5235,7 +5235,7 @@ fn rejects_double_move_close_then_return() {
         },
         ret(IrValue::Local("h".to_string())),
     ];
-    let mut f = func_returns("run", "File", vec![], body);
+    let mut f = func_returns("run", "fs.File", vec![], body);
     f.resource_owners
         .insert("h".to_string(), crate::ir::resource_escape::ResOwner::Local);
     expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
@@ -5250,9 +5250,9 @@ fn accepts_temporary_in_resource_list() {
     // pointers to resources owned by the outermost scope that touches them, so a
     // temporary is as admissible as a `RES` binding; the resource is still closed
     // exactly once, by that scope.
-    // List OF RES File with a non-local element (a call result).
+    // List OF RES fs.File with a non-local element (a call result).
     let body = vec![ret(IrValue::ListLiteral {
-        type_: "List OF RES File".to_string(),
+        type_: "List OF RES fs.File".to_string(),
         values: vec![IrValue::Call {
             // `fs.openFile`, not `fs.open`: the latter takes (path, mode), and
             // the one-arg call left a TYPE_CALL_ARGUMENT_MISMATCH that the old
@@ -5260,11 +5260,11 @@ fn accepts_temporary_in_resource_list() {
             // surfaced it.
             target: "fs.openFile".to_string(),
             args: vec![const_of("String", "f")],
-            type_: "File".to_string(),
+            type_: "fs.File".to_string(),
             loc: IrSourceLoc::default(),
         }],
     })];
-    let f = func_returns("run", "List OF RES File", vec![], body);
+    let f = func_returns("run", "List OF RES fs.File", vec![], body);
     accept(&project(vec![f], vec![]));
 }
 
@@ -5672,7 +5672,7 @@ fn rejects_map_key_record_with_resource() {
     // violation (contains_resource_or_thread over record_field_lists).
     // Craft the record with a File field (records-cannot-own is separately
     // reported, but the map-key ownership check still fires).
-    let mut holder = record_typed("Holder", &[("f", "File")]);
+    let mut holder = record_typed("Holder", &[("f", "fs.File")]);
     holder.file = "src/main.mfb".to_string();
     let f = func_returns(
         "run",
@@ -6180,11 +6180,11 @@ fn accepts_res_bind_of_a_collection_element() {
     // (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`, retired). A `RES` is a pointer to the
     // one resource, and an element is such a pointer like any other holder.
     // RES h = collections.get(xs, 0) where the element type is a resource.
-    let body = vec![bind("h", "File", Some(get_call("xs", "File")), true, false)];
+    let body = vec![bind("h", "fs.File", Some(get_call("xs", "fs.File")), true, false)];
     let mut f = func_returns(
         "run",
         "Nothing",
-        vec![param("xs", "List OF RES File", None)],
+        vec![param("xs", "List OF RES fs.File", None)],
         body,
     );
     f.resource_owners
@@ -6199,11 +6199,11 @@ fn accepts_return_of_a_resource_collection_element() {
     // the pointer to the caller, whose scope becomes the outermost one touching
     // the resource.
     // RETURN collections.get(xs, 0) whose element is a resource.
-    let body = vec![ret(get_call("xs", "File"))];
+    let body = vec![ret(get_call("xs", "fs.File"))];
     let f = func_returns(
         "run",
-        "File",
-        vec![param("xs", "List OF RES File", None)],
+        "fs.File",
+        vec![param("xs", "List OF RES fs.File", None)],
         body,
     );
     accept(&project(vec![f], vec![]));
@@ -6247,19 +6247,19 @@ fn mut_set_is_defaultable() {
 
 #[test]
 fn rejects_mut_set_of_resource_ownership_and_comparable() {
-    // `MUT s AS Set OF File`: after bug-434 a `Set OF T` is ALWAYS defaultable
+    // `MUT s AS Set OF fs.File`: after bug-434 a `Set OF T` is ALWAYS defaultable
     // (empty set), so the former `TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE` no longer
     // fires. The binding is still rejected — on the two INDEPENDENT axes bug-434
     // deliberately left untouched: an ordinary collection cannot own a resource
     // (`TYPE_COLLECTION_OWNERSHIP_VIOLATION`) and a Set element must be
     // comparable (`TYPE_REQUIRES_COMPARABLE`, File is not). Verified against the
-    // release binary: `MUT s AS Set OF File = []` is likewise rejected on these
+    // release binary: `MUT s AS Set OF fs.File = []` is likewise rejected on these
     // same axes, so the doc's premise that this becomes accepted was wrong.
     let f = func_returns(
         "run",
         "Nothing",
         vec![],
-        vec![bind("s", "Set OF File", None, true, true)],
+        vec![bind("s", "Set OF fs.File", None, true, true)],
     );
     let got = rules(&project(vec![f], vec![]));
     assert!(
@@ -6379,7 +6379,7 @@ fn accepts_mut_record_with_list_of_union_field() {
 
 #[test]
 fn accepts_state_list_of_nondefaultable() {
-    // bug-434 (intended STATE ripple): `File STATE List OF <union>` is a valid
+    // bug-434 (intended STATE ripple): `fs.File STATE List OF <union>` is a valid
     // initial state — the empty list. Rides the same is_defaultable predicate
     // as the MUT axis, so it falls out for free. Mirror of
     // `rejects_state_type_not_defaultable` (a bare union STATE, still rejected):
@@ -6389,7 +6389,7 @@ fn accepts_state_list_of_nondefaultable() {
         "run",
         "Nothing",
         vec![],
-        vec![bind("h", "File STATE List OF Choice", None, true, false)],
+        vec![bind("h", "fs.File STATE List OF Choice", None, true, false)],
     );
     f.resource_owners
         .insert("h".to_string(), crate::ir::resource_escape::ResOwner::Local);
@@ -6656,7 +6656,7 @@ fn owner_fn(name: &str, ret: &str, body: Vec<IrOp>, owners: &[&str]) -> IrFuncti
 fn move_in_if_branch_propagates_past_join() {
     // Close h inside an IF then-branch (fall-through), then use it after the IF.
     let body = vec![
-        bind("h", "File", None, true, false),
+        bind("h", "fs.File", None, true, false),
         IrOp::If {
             condition: const_of("Boolean", "true"),
             then_body: vec![close_eval("h")],
@@ -6689,7 +6689,7 @@ fn move_in_match_case_propagates() {
         ],
         loc: IrSourceLoc::default(),
     };
-    let body = vec![bind("h", "File", None, true, false), m, close_eval("h")];
+    let body = vec![bind("h", "fs.File", None, true, false), m, close_eval("h")];
     let mut f = owner_fn("run", "Nothing", body, &["h"]);
     f.params = vec![param("s", "Shape", None)];
     expect_rule(
@@ -6701,7 +6701,7 @@ fn move_in_match_case_propagates() {
 #[test]
 fn move_in_while_body_propagates() {
     let body = vec![
-        bind("h", "File", None, true, false),
+        bind("h", "fs.File", None, true, false),
         IrOp::While {
             kind: crate::ast::LoopKind::While,
             condition: const_of("Boolean", "true"),
@@ -6723,7 +6723,7 @@ fn close_in_foreach_body_is_accepted() {
     // really protecting — only the verdict changed.
     let fe = IrOp::ForEach {
         name: "el".to_string(),
-        type_: "File".to_string(),
+        type_: "fs.File".to_string(),
         iterable: IrValue::Local("xs".to_string()),
         body: vec![close_eval("el")],
         loc: IrSourceLoc::default(),
@@ -6731,7 +6731,7 @@ fn close_in_foreach_body_is_accepted() {
     let mut f = func_returns(
         "run",
         "Nothing",
-        vec![param("xs", "List OF RES File", None)],
+        vec![param("xs", "List OF RES fs.File", None)],
         vec![fe],
     );
     let _ = &mut f;
@@ -6742,10 +6742,10 @@ fn close_in_foreach_body_is_accepted() {
 fn res_transfer_moves_source() {
     // RES b = a — an ownership transfer moves `a`; a later use is after-move.
     let body = vec![
-        bind("a", "File", None, true, false),
+        bind("a", "fs.File", None, true, false),
         bind(
             "b",
-            "File",
+            "fs.File",
             Some(IrValue::Local("a".to_string())),
             true,
             false,

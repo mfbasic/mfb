@@ -22,7 +22,7 @@ IMPORT io
 FUNC leaveByExit(path AS String) AS Nothing
   MUT n AS Integer = 0
   WHILE n < 4
-    RES f AS File = fs::openFile(path)
+    RES f AS fs::File = fs::openFile(path)
     EXIT WHILE
   END WHILE
   RETURN NOTHING
@@ -33,7 +33,7 @@ END FUNC
 FUNC leaveByContinue(path AS String) AS Nothing
   MUT n AS Integer = 0
   WHILE n < 4
-    RES f AS File = fs::openFile(path)
+    RES f AS fs::File = fs::openFile(path)
     n = n + 1
     CONTINUE WHILE
   END WHILE
@@ -45,16 +45,16 @@ END FUNC
 ' NOT escaped and must still be closed (§15.6: "On an error exit before the
 ' return, the resources are still closed by the function's scope").
 FUNC leaveByAutoPropagate(path AS String) AS Nothing
-  RES f AS File = fs::openFile(path)
-  RES bad AS File = fs::openFile("/nonexistent-p59d/missing.txt")
+  RES f AS fs::File = fs::openFile(path)
+  RES bad AS fs::File = fs::openFile("/nonexistent-p59d/missing.txt")
   RETURN NOTHING
 END FUNC
 
 ' TRAP routing: the same failure, routed to this function's own handler, which
 ' then returns normally. The resource is live when the route happens.
 FUNC leaveByTrapRoute(path AS String) AS Nothing
-  RES f AS File = fs::openFile(path)
-  RES bad AS File = fs::openFile("/nonexistent-p59d/missing.txt")
+  RES f AS fs::File = fs::openFile(path)
+  RES bad AS fs::File = fs::openFile("/nonexistent-p59d/missing.txt")
   RETURN NOTHING
   TRAP(e)
     RETURN NOTHING

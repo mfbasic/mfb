@@ -365,9 +365,10 @@ impl TypeEnv {
         if expected_bare == actual_bare {
             return true;
         }
-        // A union accepts any of its variants.
+        // A union accepts any of its variants. A variant may be spelled qualified
+        // (a package-scoped resource, `fs.File`) or bare, so match either form.
         if let Some(variants) = self.union_variants(expected) {
-            if variants.contains(actual_bare) {
+            if variants.contains(actual) || variants.contains(actual_bare) {
                 return true;
             }
         }

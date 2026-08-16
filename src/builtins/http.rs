@@ -88,7 +88,7 @@ const HEADER_MAP: &str = "Map OF String TO String";
 // the `handleRequest` overloads and the `server`/`serverSSL` return types.
 const LISTENER_TYPE: &str = "Listener";
 const TLS_LISTENER_TYPE: &str = "TlsListener";
-const FILE_TYPE: &str = "File";
+const FILE_TYPE: &str = "fs.File";
 const BYTE_LIST: &str = "List OF Byte";
 const ROUTE_LIST: &str = "List OF Route";
 // The handler type every route stores: `FUNC(http::Request) AS http::Response`,

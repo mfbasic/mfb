@@ -3,7 +3,7 @@ use super::*;
 
 impl<'a> SyntaxChecker<'a> {
     /// Parse a collection element / `Map` value type, honoring the `RES` marker
-    /// (`List OF RES File`). The marker wraps the element in [`Type::Res`]; the
+    /// (`List OF RES fs::File`). The marker wraps the element in [`Type::Res`]; the
     /// element validation later checks it matches the element's resource-ness.
     pub(super) fn parse_collection_element_type(&self, name: &str) -> Type {
         if let Some(inner) = name.strip_prefix("RES ") {
@@ -16,18 +16,24 @@ impl<'a> SyntaxChecker<'a> {
         // `Type` has no STATE concept: syntaxcheck carries a resource's `STATE T`
         // beside the type, in `LocalInfo`/`ParamSig`, never inside it. So a type
         // string that spells the STATE inline resolves to its base — a
-        // `File STATE Cursor` IS a `File` for every purpose `Type` serves.
+        // `fs::File STATE Cursor` IS a `File` for every purpose `Type` serves.
         //
         // Only imported signatures arrive spelled that way (a locally declared
-        // `RES f AS File STATE Cursor` is parsed with the clause already split off
+        // `RES f AS fs::File STATE Cursor` is parsed with the clause already split off
         // by the parser). Without this the STATE rode inside `Type::User`, and
         // every ordinary comparison against it failed — `fs::close(h)` on an
-        // imported stateful handle reported "argument type(s) (File STATE Cursor),
+        // imported stateful handle reported "argument type(s) (fs::File STATE Cursor),
         // expected File" (plan-52-D §4).
         let name = crate::builtins::resource::base_resource_name(name);
         let name = builtins::thread::strip_type_group(name);
-        // A package-qualified built-in type (`net.Url`, `http.Result`) resolves to
-        // its bare internal id (plan-03-http.md §A.1/§B.2).
+        // A package-qualified built-in **resource** (`fs.File`, `process.Process`)
+        // KEEPS its qualified identity — resources are package-scoped so a user
+        // `TYPE File` no longer collides (plan-97). Value types still collapse below.
+        if builtins::is_qualified_builtin_resource(name) {
+            return Type::User(name.to_string());
+        }
+        // A package-qualified built-in value type (`net.Url`, `http.Result`) resolves
+        // to its bare internal id (plan-03-http.md §A.1/§B.2).
         if let Some(bare) = builtins::qualified_builtin_type(name) {
             return Type::User(bare);
         }
@@ -51,7 +57,7 @@ impl<'a> SyntaxChecker<'a> {
         if let Some((kind, message, resource, output)) = builtins::thread::thread_parts_full(name) {
             // The plane's `RES` element may carry a `STATE T` clause (plan-54);
             // peel it into a separate `resource_state` so the resource type stays
-            // bare (every resource consumer sees `File`, not `File STATE Cursor`),
+            // bare (every resource consumer sees `File`, not `fs::File STATE Cursor`),
             // while the plane still names the state it transfers.
             let resource_state = resource
                 .and_then(crate::builtins::resource::state_type_name)
@@ -125,7 +131,7 @@ impl<'a> SyntaxChecker<'a> {
             return true;
         }
         // The `RES` element marker is an ownership-axis annotation (§15.6), not a
-        // distinct value type: a `File` value fits a `RES File` slot and vice
+        // distinct value type: a `File` value fits a `RES fs::File` slot and vice
         // versa. Strip it before comparing.
         let (expected, actual) = (strip_res(expected), strip_res(actual));
         match (expected, actual) {
@@ -197,10 +203,11 @@ impl<'a> SyntaxChecker<'a> {
                 // its union slot).
                 if expected_info.is_some_and(|info| {
                     matches!(info.kind, TypeDeclKind::Union)
-                        && info
-                            .variants
-                            .iter()
-                            .any(|variant| variant.name == *actual_bare)
+                        && info.variants.iter().any(|variant| {
+                            // A variant may be spelled qualified (a package-scoped
+                            // resource, `fs.File`) or bare — match either form.
+                            variant.name == *actual_name || variant.name == *actual_bare
+                        })
                 }) {
                     return true;
                 }
@@ -697,13 +704,13 @@ mod types_tests {
 
     #[test]
     fn res_marked_list_element_parses() {
-        let src = "IMPORT fs\nFUNC take(xs AS List OF RES File) AS Integer\n  RETURN len(xs)\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT fs\nFUNC take(xs AS List OF RES fs::File) AS Integer\n  RETURN len(xs)\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 
     #[test]
     fn res_marked_map_value_parses() {
-        let src = "IMPORT fs\nFUNC take(m AS Map OF String TO RES File) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT fs\nFUNC take(m AS Map OF String TO RES fs::File) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 
@@ -758,7 +765,7 @@ mod types_tests {
         // fs::close is the registered close op for File; calling it consumes the
         // handle (call_argument_mode Transfer arm).
         assert!(accepts(
-            "IMPORT fs\nFUNC main AS Integer\n  RES f AS File = fs::openFile(\"x\")\n  fs::close(f)\n  RETURN 0\nEND FUNC\n"
+            "IMPORT fs\nFUNC main AS Integer\n  RES f AS fs::File = fs::openFile(\"x\")\n  fs::close(f)\n  RETURN 0\nEND FUNC\n"
         ));
     }
 
@@ -841,8 +848,8 @@ mod types_tests {
         );
         // A RES-marked value stays attached (the caller's element parser strips it).
         assert_eq!(
-            split_map_body("String TO RES File"),
-            Some(("String", "RES File"))
+            split_map_body("String TO RES fs::File"),
+            Some(("String", "RES fs::File"))
         );
         // No top-level ` TO ` at all → None (caller falls through to a type name).
         assert_eq!(split_map_body("Integer"), None);

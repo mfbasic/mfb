@@ -1,10 +1,10 @@
 IMPORT fs
 
-' A resource collection must mark its element `RES` (`List OF RES File`, §15.6).
-' A bare `List OF File` is rejected the same way `AS File` (without `RES`) is.
-FUNC openAll() AS List OF File
-  RES a AS File = fs::openFile("tests/syntax/resources/resource-collection-return-invalid/src/main.mfb")
-  LET handles AS List OF File = [a]
+' A resource collection must mark its element `RES` (`List OF RES fs::File`, §15.6).
+' A bare `List OF fs::File` is rejected the same way `AS fs::File` (without `RES`) is.
+FUNC openAll() AS List OF fs::File
+  RES a AS fs::File = fs::openFile("tests/syntax/resources/resource-collection-return-invalid/src/main.mfb")
+  LET handles AS List OF fs::File = [a]
   RETURN handles
 END FUNC
 

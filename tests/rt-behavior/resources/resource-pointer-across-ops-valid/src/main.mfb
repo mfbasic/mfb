@@ -1,12 +1,12 @@
 IMPORT fs
 IMPORT io
 
-SUB logLine(RES f AS File, msg AS String)
+SUB logLine(RES f AS fs::File, msg AS String)
   fs::writeAll(f, msg)
 END SUB
 
 FUNC main AS Integer
-  RES f AS File = fs::createTempFile()
+  RES f AS fs::File = fs::createTempFile()
   logLine(f, "first")
   logLine(f, "second")
   fs::close(f)

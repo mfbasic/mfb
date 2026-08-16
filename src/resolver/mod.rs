@@ -26,7 +26,7 @@ const BUILTIN_TYPES: &[&str] = &[
     "Result",
     "Scalar",
     "String",
-    builtins::fs::FILE_TYPE,
+    builtins::fs::FILE_TYPE_ID,
     builtins::term::TERM_COLOR_TYPE,
     builtins::term::TERM_SIZE_TYPE,
     builtins::net::SOCKET_TYPE,

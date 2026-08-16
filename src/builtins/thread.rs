@@ -723,12 +723,12 @@ mod tests {
             Some((THREAD_TYPE, "Integer", None, "String"))
         );
         assert_eq!(
-            thread_parts_full("Thread OF Integer RES File TO String"),
-            Some((THREAD_TYPE, "Integer", Some("File"), "String"))
+            thread_parts_full("Thread OF Integer RES fs.File TO String"),
+            Some((THREAD_TYPE, "Integer", Some("fs.File"), "String"))
         );
         assert_eq!(
-            thread_parts_full("Thread OF RES File TO String"),
-            Some((THREAD_TYPE, "Nothing", Some("File"), "String"))
+            thread_parts_full("Thread OF RES fs.File TO String"),
+            Some((THREAD_TYPE, "Nothing", Some("fs.File"), "String"))
         );
         assert_eq!(
             thread_parts_full("ThreadWorker OF Integer TO String"),
@@ -740,13 +740,13 @@ mod tests {
 
     #[test]
     fn thread_accessors() {
-        let t = "Thread OF Integer RES File TO String";
+        let t = "Thread OF Integer RES fs.File TO String";
         assert!(is_thread_type(t));
         assert!(is_parent_thread_type(t));
         assert!(!is_worker_thread_type(t));
         assert_eq!(thread_message(t), Some("Integer"));
         assert_eq!(thread_output(t), Some("String"));
-        assert_eq!(thread_resource(t), Some("File"));
+        assert_eq!(thread_resource(t), Some("fs.File"));
         assert_eq!(parent_thread_output(t), Some("String"));
         assert_eq!(thread_parts(t), Some((THREAD_TYPE, "Integer", "String")));
 
@@ -768,12 +768,12 @@ mod tests {
             "Thread OF Integer TO String"
         );
         assert_eq!(
-            format_thread_type(THREAD_TYPE, "Integer", Some("File"), "String"),
-            "Thread OF Integer RES File TO String"
+            format_thread_type(THREAD_TYPE, "Integer", Some("fs.File"), "String"),
+            "Thread OF Integer RES fs.File TO String"
         );
         assert_eq!(
-            format_thread_type(THREAD_TYPE, "Nothing", Some("File"), "String"),
-            "Thread OF RES File TO String"
+            format_thread_type(THREAD_TYPE, "Nothing", Some("fs.File"), "String"),
+            "Thread OF RES fs.File TO String"
         );
     }
 
@@ -867,15 +867,15 @@ mod tests {
 
     #[test]
     fn resolve_transfer_accept() {
-        let t = "Thread OF Integer RES File TO String";
-        assert_eq!(rt(TRANSFER, &[t, "File"]), Some("Nothing".to_string()));
+        let t = "Thread OF Integer RES fs.File TO String";
+        assert_eq!(rt(TRANSFER, &[t, "fs.File"]), Some("Nothing".to_string()));
         assert_eq!(
-            rt(TRANSFER, &[t, "File", "Integer"]),
+            rt(TRANSFER, &[t, "fs.File", "Integer"]),
             Some("Nothing".to_string())
         );
         assert_eq!(rt(TRANSFER, &[t, "Socket"]), None); // resource mismatch
-        assert_eq!(rt(ACCEPT, &[t]), Some("File".to_string()));
-        assert_eq!(rt(ACCEPT, &[t, "Integer"]), Some("File".to_string()));
+        assert_eq!(rt(ACCEPT, &[t]), Some("fs.File".to_string()));
+        assert_eq!(rt(ACCEPT, &[t, "Integer"]), Some("fs.File".to_string()));
         assert_eq!(rt(ACCEPT, &[t, "String"]), None);
         // data-only thread has no resource plane
         let d = "Thread OF Integer TO String";
@@ -887,33 +887,33 @@ mod tests {
         // plan-54: the `RES` element carries an optional ` STATE T` clause, so the
         // plane type names the transferred resource's state.
         assert_eq!(
-            thread_parts_full("Thread OF Integer RES File STATE Cursor TO String"),
-            Some((THREAD_TYPE, "Integer", Some("File STATE Cursor"), "String"))
+            thread_parts_full("Thread OF Integer RES fs.File STATE Cursor TO String"),
+            Some((THREAD_TYPE, "Integer", Some("fs.File STATE Cursor"), "String"))
         );
         // Resource-only spelling (message defaults to Nothing).
         assert_eq!(
-            thread_parts_full("ThreadWorker OF RES File STATE Cursor TO Integer"),
+            thread_parts_full("ThreadWorker OF RES fs.File STATE Cursor TO Integer"),
             Some((
                 THREAD_WORKER_TYPE,
                 "Nothing",
-                Some("File STATE Cursor"),
+                Some("fs.File STATE Cursor"),
                 "Integer"
             ))
         );
         // thread_resource surfaces the full stateful element.
         assert_eq!(
-            thread_resource("Thread OF RES File STATE Cursor TO Integer"),
-            Some("File STATE Cursor")
+            thread_resource("Thread OF RES fs.File STATE Cursor TO Integer"),
+            Some("fs.File STATE Cursor")
         );
         // A bare plane is unchanged — no STATE captured.
         assert_eq!(
-            thread_resource("Thread OF RES File TO Integer"),
-            Some("File")
+            thread_resource("Thread OF RES fs.File TO Integer"),
+            Some("fs.File")
         );
         // A record-typed STATE round-trips through format_thread_type.
         assert_eq!(
-            format_thread_type(THREAD_TYPE, "Nothing", Some("File STATE Cursor"), "Integer"),
-            "Thread OF RES File STATE Cursor TO Integer"
+            format_thread_type(THREAD_TYPE, "Nothing", Some("fs.File STATE Cursor"), "Integer"),
+            "Thread OF RES fs.File STATE Cursor TO Integer"
         );
     }
 
@@ -921,15 +921,15 @@ mod tests {
     fn resolve_transfer_accept_stateful_plane() {
         // plan-54: accept returns the plane element WITH its STATE, so the receiver
         // binds `RES f AS File STATE Cursor` and ir::verify checks agreement.
-        let s = "Thread OF Integer RES File STATE Cursor TO String";
-        assert_eq!(rt(ACCEPT, &[s]), Some("File STATE Cursor".to_string()));
+        let s = "Thread OF Integer RES fs.File STATE Cursor TO String";
+        assert_eq!(rt(ACCEPT, &[s]), Some("fs.File STATE Cursor".to_string()));
         // transfer resolves on the BASE resource type whether or not the handle's
         // type string spells the STATE; STATE agreement is ir::verify's job.
         assert_eq!(
-            rt(TRANSFER, &[s, "File STATE Cursor"]),
+            rt(TRANSFER, &[s, "fs.File STATE Cursor"]),
             Some("Nothing".to_string())
         );
-        assert_eq!(rt(TRANSFER, &[s, "File"]), Some("Nothing".to_string()));
+        assert_eq!(rt(TRANSFER, &[s, "fs.File"]), Some("Nothing".to_string()));
         // A different base resource still fails to resolve.
         assert_eq!(rt(TRANSFER, &[s, "Socket STATE Cursor"]), None);
     }
@@ -976,17 +976,17 @@ mod tests {
     #[test]
     fn nested_thread_with_res() {
         assert_eq!(
-            thread_parts_full("Thread OF Thread OF Integer RES File TO String TO Boolean"),
+            thread_parts_full("Thread OF Thread OF Integer RES fs.File TO String TO Boolean"),
             Some((
                 THREAD_TYPE,
-                "Thread OF Integer RES File TO String",
+                "Thread OF Integer RES fs.File TO String",
                 None,
                 "Boolean"
             ))
         );
         assert_eq!(
-            thread_parts_full("Thread OF Thread OF RES File TO String TO Boolean"),
-            Some((THREAD_TYPE, "Thread OF RES File TO String", None, "Boolean"))
+            thread_parts_full("Thread OF Thread OF RES fs.File TO String TO Boolean"),
+            Some((THREAD_TYPE, "Thread OF RES fs.File TO String", None, "Boolean"))
         );
     }
 

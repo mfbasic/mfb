@@ -5,7 +5,7 @@ TYPE FileState
 END TYPE
 
 FUNC main AS Integer
-  RES f AS File = fs::createTempFile()
+  RES f AS fs::File = fs::createTempFile()
   f.state = WITH f.state { pos := 1 }
   fs::close(f)
   RETURN 0

@@ -4,7 +4,7 @@ IMPORT fs
 ' Its consumer is tests/rt-behavior/resources/resource-state-import-rt.
 '
 ' The STATE rides the exported signature as part of the return type string
-' (`FUNC(String) AS File STATE Cursor`), which the `.mfp` carries verbatim in
+' (`FUNC(String) AS fs::File STATE Cursor`), which the `.mfp` carries verbatim in
 ' `IrFunction.returns` — no format change was needed. This is the shape
 ' `bindings/libsnd`'s `openFile` wants: hand back a handle carrying the info the
 ' library filled in, across a package boundary.
@@ -13,8 +13,8 @@ EXPORT TYPE Cursor
   len AS Integer
 END TYPE
 
-EXPORT FUNC openTagged(path AS String) AS RES File STATE Cursor
-  RES f AS File STATE Cursor = fs::openFile(path)
+EXPORT FUNC openTagged(path AS String) AS RES fs::File STATE Cursor
+  RES f AS fs::File STATE Cursor = fs::openFile(path)
   f.state.pos = 42
   f.state.len = 7
   RETURN f

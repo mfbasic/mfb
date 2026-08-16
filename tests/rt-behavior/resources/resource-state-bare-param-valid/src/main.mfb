@@ -11,13 +11,13 @@ END TYPE
 ' parameter pointer cannot escape the callee's frame. The owner's state must
 ' therefore survive the call untouched. See `mfb spec language
 ' resource-management` §15.5.
-SUB opaque(RES p AS File)
+SUB opaque(RES p AS fs::File)
   fs::writeAll(p, "x")
 END SUB
 
 FUNC main AS Integer
   LET path AS String = "target/resource_state_bare_param_valid.txt"
-  RES f AS File STATE Cursor = fs::openFile(path, "write")
+  RES f AS fs::File STATE Cursor = fs::openFile(path, "write")
   f.state.pos = 42
   opaque(f)
   io::print(toString(f.state.pos))   ' 42 — the call did not disturb the state

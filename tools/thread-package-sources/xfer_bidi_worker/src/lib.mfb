@@ -7,10 +7,10 @@ IMPORT fs
 ' direction-split inbound/outbound resource queues keep the two flows isolated, so
 ' the worker receives the parent's file (length 6) and the parent receives the
 ' worker's file (length 12).
-EXPORT ISOLATED FUNC exchange(t AS ThreadWorker OF RES File TO Integer, seed AS String) AS Integer
-  RES outgoing AS File = fs::openFile("tests/rt-behavior/threads/thread-transfer-bidirectional-rt/data/worker.txt")
+EXPORT ISOLATED FUNC exchange(t AS ThreadWorker OF RES fs::File TO Integer, seed AS String) AS Integer
+  RES outgoing AS fs::File = fs::openFile("tests/rt-behavior/threads/thread-transfer-bidirectional-rt/data/worker.txt")
   thread::transfer(t, outgoing)
-  RES incoming AS File = thread::accept(t)
+  RES incoming AS fs::File = thread::accept(t)
   LET inData AS String = fs::readAll(incoming)
   fs::close(incoming)
   RETURN len(inData)

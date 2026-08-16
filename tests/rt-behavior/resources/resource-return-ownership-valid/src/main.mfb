@@ -2,7 +2,7 @@ IMPORT fs
 IMPORT io
 
 ' Returns a live File resource; ownership moves out to the caller (event #3).
-FUNC reopen(path AS String) AS RES File
+FUNC reopen(path AS String) AS RES fs::File
   RES f = fs::openFile(path)
   RETURN f
 END FUNC
@@ -12,10 +12,10 @@ FUNC main AS Integer
   IF fs::fileExists(path) THEN
     fs::deleteFile(path)
   END IF
-  RES w AS File = fs::openFile(path, "write")
+  RES w AS fs::File = fs::openFile(path, "write")
   fs::writeAll(w, "returned-handle")
   fs::close(w)
-  RES g AS File = reopen(path)         ' caller now owns the returned resource
+  RES g AS fs::File = reopen(path)         ' caller now owns the returned resource
   LET back AS String = fs::readAll(g)
   fs::close(g)                         ' caller closes it: ownership truly moved
   io::print(back)

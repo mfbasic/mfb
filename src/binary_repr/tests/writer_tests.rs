@@ -161,7 +161,7 @@ fn ir_uses_resource_type_detects_file_param() {
     let mut f = fn_named("takesFile", "export", "sub", "Nothing");
     f.params = vec![crate::ir::IrParam {
         name: "h".to_string(),
-        type_: "File".to_string(),
+        type_: "fs.File".to_string(),
         default: None,
         loc: loc(),
     }];
@@ -174,14 +174,14 @@ fn ir_uses_resource_type_detects_file_param() {
 
 #[test]
 fn is_resource_type_name_matches_builtins() {
-    assert!(is_resource_type_name("File"));
+    assert!(is_resource_type_name("fs.File"));
     assert!(is_resource_type_name("Socket"));
     assert!(!is_resource_type_name("Integer"));
 }
 
 #[test]
 fn standard_resource_flags_marks_sendable_types() {
-    let file = standard_resource_flags(builtins::fs::FILE_TYPE);
+    let file = standard_resource_flags(builtins::fs::FILE_TYPE_ID);
     assert!(file & RESOURCE_FLAG_SENDABLE != 0);
     let listener = standard_resource_flags(builtins::net::LISTENER_TYPE);
     assert!(listener & RESOURCE_FLAG_SENDABLE == 0);

@@ -1499,7 +1499,7 @@ fn lower_link_thunk(
     // RESULT_VALUE_REGISTER currently holds
     // the native handle; wrap it in a resource record so the value the
     // caller binds is a pointer to the canonical plan-80 record {tag@0, FD@8,
-    // CLOSED@16, STATE@24, buffers…} — the exact shape a built-in `File STATE S`
+    // CLOSED@16, STATE@24, buffers…} — the exact shape a built-in `fs.File STATE S`
     // uses, so `.state`, drop-reclamation (plan-52-B), and the closed guard all
     // work unchanged. STATE@24 is left NULL:
     // the caller's `RES x AS T STATE S = …` bind runs `emit_resource_state_init`,
@@ -1539,7 +1539,7 @@ fn lower_link_thunk(
         // STATE@16: `BIND STATE <res> = <out-struct>` (plan-53-B) marshals the OUT
         // struct the native call filled into an `S` record and stores its pointer;
         // otherwise leave it null so the caller's bind default-inits it (a built-in
-        // `File STATE S` works the same way — the producer never inits STATE).
+        // `fs.File STATE S` works the same way — the producer never inits STATE).
         if let Some(struct_slot_name) = function.bind_state.as_deref() {
             let Some((_, buf_off, layout, decl)) = struct_slots
                 .iter()
@@ -2752,7 +2752,7 @@ mod tests {
     /// them to `arena_free` would free addresses the resource never owned.
     ///
     /// What keeps that from happening is `resource_uses_io_buffers`, which is a
-    /// bare name comparison against `"File"`. That makes the guarantee POSITIONAL
+    /// bare name comparison against `"fs.File"`. That makes the guarantee POSITIONAL
     /// — true only because no other type is spelled `File` — and plan-59-A's Open
     /// Decision required it be pinned by a test rather than asserted, precisely
     /// because a positional fact is the kind that drifts.
@@ -2762,9 +2762,9 @@ mod tests {
     #[test]
     fn only_the_builtin_file_resource_uses_io_buffers() {
         // The one type that owns the two fixed-capacity I/O buffers.
-        assert!(CodeBuilder::resource_uses_io_buffers("File"));
+        assert!(CodeBuilder::resource_uses_io_buffers("fs.File"));
         // A `STATE`-carrying spelling is still the same base type.
-        assert!(CodeBuilder::resource_uses_io_buffers("File STATE Cursor"));
+        assert!(CodeBuilder::resource_uses_io_buffers("fs.File STATE Cursor"));
 
         // Every resource type a native `LINK` block declares in-tree, plus the
         // other built-in resources. None may take the buffer-free path.
@@ -2772,7 +2772,7 @@ mod tests {
             "Db",
             "Stmt",
             "SoundFile",
-            "SoundFile STATE FileInfo",
+            "Soundfs.File STATE FileInfo",
             "Socket",
             "Listener",
             "UdpSocket",

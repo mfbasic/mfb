@@ -40,7 +40,7 @@ const TARGETS: &[&str] = &[
 ];
 
 /// Exercises every fs helper touched by bug-63 so all their lowerings are emitted.
-const SOURCE: &str = "IMPORT fs\nIMPORT strings\n\nFUNC main AS Integer\n  RES f AS File = fs::openFile(\"/tmp/x\", \"r\")\n  fs::close(f)\n  fs::createTempFile(\"/tmp\")\n  fs::readBytes(\"/tmp/x\")\n  fs::writeTextAtomic(\"/tmp/x\", \"y\")\n  fs::writeBytesAtomic(\"/tmp/x\", strings::toBytes(\"y\"))\n  RETURN 0\nEND FUNC\n";
+const SOURCE: &str = "IMPORT fs\nIMPORT strings\n\nFUNC main AS Integer\n  RES f AS fs::File = fs::openFile(\"/tmp/x\", \"r\")\n  fs::close(f)\n  fs::createTempFile(\"/tmp\")\n  fs::readBytes(\"/tmp/x\")\n  fs::writeTextAtomic(\"/tmp/x\", \"y\")\n  fs::writeBytesAtomic(\"/tmp/x\", strings::toBytes(\"y\"))\n  RETURN 0\nEND FUNC\n";
 
 fn unique_root(name: &str) -> PathBuf {
     let nonce = SystemTime::now()

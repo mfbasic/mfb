@@ -12,7 +12,7 @@ FUNC main() AS Integer
   ' thread::start overload 1 (default limits). Handle carries a data plane
   ' (String) and a resource plane (File), covering send/receive AND
   ' transfer/accept on the parent side.
-  LET t1 AS Thread OF String RES File TO Integer = thread::start(thread_cover_worker::coverWorker, "seed")
+  LET t1 AS Thread OF String RES fs::File TO Integer = thread::start(thread_cover_worker::coverWorker, "seed")
 
   ' openStdIn / closeStdIn worker form (parent Thread handle argument)
   thread::openStdIn(t1)
@@ -42,15 +42,15 @@ FUNC main() AS Integer
   io::print(r2)
 
   ' transfer parent overloads (2) — each consumes its File
-  RES pf1 AS File = fs::openFile("bug-389-does-not-exist-1.txt")
+  RES pf1 AS fs::File = fs::openFile("bug-389-does-not-exist-1.txt")
   thread::transfer(t1, pf1)
-  RES pf2 AS File = fs::openFile("bug-389-does-not-exist-2.txt")
+  RES pf2 AS fs::File = fs::openFile("bug-389-does-not-exist-2.txt")
   thread::transfer(t1, pf2, 0)
 
   ' accept parent overloads (2) — each yields an owned File
-  RES wf1 AS File = thread::accept(t1)
+  RES wf1 AS fs::File = thread::accept(t1)
   fs::close(wf1)
-  RES wf2 AS File = thread::accept(t1, 0)
+  RES wf2 AS fs::File = thread::accept(t1, 0)
   fs::close(wf2)
 
   ' waitFor — one-shot, closes t1
@@ -58,11 +58,11 @@ FUNC main() AS Integer
   total = total + res1
 
   ' thread::start overload 2 (inboundLimit)
-  LET t2 AS Thread OF String RES File TO Integer = thread::start(thread_cover_worker::coverWorker, "seed", 1)
+  LET t2 AS Thread OF String RES fs::File TO Integer = thread::start(thread_cover_worker::coverWorker, "seed", 1)
   total = total + thread::waitFor(t2)
 
   ' thread::start overload 3 (inboundLimit + outboundLimit)
-  LET t3 AS Thread OF String RES File TO Integer = thread::start(thread_cover_worker::coverWorker, "seed", 1, 1)
+  LET t3 AS Thread OF String RES fs::File TO Integer = thread::start(thread_cover_worker::coverWorker, "seed", 1, 1)
   total = total + thread::waitFor(t3)
 
   ' openStdIn / closeStdIn no-argument forms (calling thread)

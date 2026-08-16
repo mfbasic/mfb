@@ -7,7 +7,7 @@ TYPE PendingState
 END TYPE
 
 UNION Stream
-  File
+  fs::File
   Socket
 END UNION
 

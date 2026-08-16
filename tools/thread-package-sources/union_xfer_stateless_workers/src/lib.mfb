@@ -1,7 +1,7 @@
 IMPORT thread
 
 UNION Stream
-  File
+  fs::File
   Socket
 END UNION
 

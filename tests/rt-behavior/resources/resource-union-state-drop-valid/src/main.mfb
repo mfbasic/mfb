@@ -7,7 +7,7 @@ TYPE Cursor
 END TYPE
 
 UNION Stream
-  File
+  fs::File
   Socket
 END UNION
 
@@ -38,7 +38,7 @@ END SUB
 FUNC errExit(path AS String, bad AS String) AS Integer
   RES s AS Stream STATE Cursor = fs::openFile(path)
   s.state.pos = 9
-  RES extra AS File = fs::openFile(bad)
+  RES extra AS fs::File = fs::openFile(bad)
   fs::close(extra)
   RETURN 0
 END FUNC
@@ -48,7 +48,7 @@ FUNC main AS Integer
   IF fs::fileExists(path) THEN
     fs::deleteFile(path)
   END IF
-  RES seed AS File = fs::openFile(path, "write")
+  RES seed AS fs::File = fs::openFile(path, "write")
   fs::writeAll(seed, "x")
   fs::close(seed)
 

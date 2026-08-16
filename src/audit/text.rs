@@ -329,7 +329,7 @@ mod tests {
         assert!(out.contains("  terminal\n"));
         // resources: may fail + standard, and native + no-fail
         assert!(out.contains("Resources:\n"));
-        assert!(out.contains("  File file at main.mfb:11 (standard, close fs.close, may fail)\n"));
+        assert!(out.contains("  fs.File file at main.mfb:11 (standard, close fs.close, may fail)\n"));
         assert!(out.contains("  Native handle at main.mfb:20 (native, close pkg.close)\n"));
         // native links
         assert!(out.contains("Native links:\n"));

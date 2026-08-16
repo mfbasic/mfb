@@ -12,7 +12,7 @@ IMPORT fs
 
 FUNC main() AS Integer
   ' --- Existing coverage (preserved) ---------------------------------------
-  RES f AS File = fs::openFile("target/cover.bin")
+  RES f AS fs::File = fs::openFile("target/cover.bin")
   LET b = fs::readAllBytes(f)
   io::print(toString(len(b)))
   FOR EACH name IN fs::listDirectory("target")
@@ -59,7 +59,7 @@ FUNC main() AS Integer
 
   ' --- File-handle producers + handle functions ---------------------------
   ' open(path, mode) drives every handle operation, then closes early.
-  RES fh AS File = fs::open("target/cover.bin", "rw")
+  RES fh AS fs::File = fs::open("target/cover.bin", "rw")
   fs::setBuffered(fh, TRUE)
   io::print(toString(fs::isBuffered(fh)))
   fs::writeAll(fh, text)
@@ -72,19 +72,19 @@ FUNC main() AS Integer
   fs::close(fh)
 
   ' --- Remaining File-producing overloads ---------------------------------
-  RES f2 AS File = fs::openFile("target/cover.bin", "read")
+  RES f2 AS fs::File = fs::openFile("target/cover.bin", "read")
   fs::close(f2)
-  RES f3 AS File = fs::openFileNoFollow("target/cover.bin")
+  RES f3 AS fs::File = fs::openFileNoFollow("target/cover.bin")
   fs::close(f3)
-  RES f4 AS File = fs::openFileNoFollow("target/cover.bin", "read")
+  RES f4 AS fs::File = fs::openFileNoFollow("target/cover.bin", "read")
   fs::close(f4)
-  RES f5 AS File = fs::openWithin("target", "cover.bin")
+  RES f5 AS fs::File = fs::openWithin("target", "cover.bin")
   fs::close(f5)
-  RES f6 AS File = fs::openWithin("target", "cover.bin", "read")
+  RES f6 AS fs::File = fs::openWithin("target", "cover.bin", "read")
   fs::close(f6)
-  RES f7 AS File = fs::createTempFile()
+  RES f7 AS fs::File = fs::createTempFile()
   fs::close(f7)
-  RES f8 AS File = fs::createTempFile("target")
+  RES f8 AS fs::File = fs::createTempFile("target")
   fs::close(f8)
 
   RETURN 0

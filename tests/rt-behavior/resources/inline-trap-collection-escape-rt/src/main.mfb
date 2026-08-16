@@ -20,10 +20,10 @@ IMPORT collections
 
 ' The resource enters the collection through the TRAP's guarded expression.
 FUNC guarded AS Integer
-  MUT handles AS List OF RES File = []
+  MUT handles AS List OF RES fs::File = []
   MUT n AS Integer = 0
   WHILE n < 3
-    RES f AS File = fs::createTempFile()
+    RES f AS fs::File = fs::createTempFile()
     handles = collections::insert(handles, 0, f) TRAP(e)
       RECOVER handles
     END TRAP
@@ -35,17 +35,17 @@ FUNC guarded AS Integer
   RETURN 0
 END FUNC
 
-FUNC alwaysFails(n AS Integer) AS List OF RES File
+FUNC alwaysFails(n AS Integer) AS List OF RES fs::File
   FAIL error(77050001, "always")
 END FUNC
 
 ' The resource enters the collection through the TRAP's RECOVER value instead,
 ' which is reached only because the handler statements are scanned too.
 FUNC handlerSide AS Integer
-  MUT handles AS List OF RES File = []
+  MUT handles AS List OF RES fs::File = []
   MUT n AS Integer = 0
   WHILE n < 2
-    RES g AS File = fs::createTempFile()
+    RES g AS fs::File = fs::createTempFile()
     handles = alwaysFails(n) TRAP(e)
       RECOVER collections::insert(handles, 0, g)
     END TRAP

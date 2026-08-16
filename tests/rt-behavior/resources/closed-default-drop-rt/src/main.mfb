@@ -19,7 +19,7 @@ IMPORT io
 ' resource-typed handler must diverge; on RETURN, scope-drop closes the
 ' closed-default File record.
 FUNC openMissingFile AS Integer
-  RES f AS File = fs::openFile("/mfb/plan38/definitely/missing/file.txt") TRAP(e)
+  RES f AS fs::File = fs::openFile("/mfb/plan38/definitely/missing/file.txt") TRAP(e)
     RETURN e.code
   END TRAP
   ' Unreachable: the open above always fails.

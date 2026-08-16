@@ -30,8 +30,8 @@
 IMPORT io
 IMPORT fs
 
-FUNC makeFile(path AS String) AS RES File
-  RES f AS File = fs::openFile(path, "write")
+FUNC makeFile(path AS String) AS RES fs::File
+  RES f AS fs::File = fs::openFile(path, "write")
   fs::writeAll(f, "x")
   RETURN f
 END FUNC
@@ -39,13 +39,13 @@ END FUNC
 FUNC main() AS Integer
   LET path AS String = "/tmp/mfb_resource_return_identity_rt.txt"
 
-  RES h AS File = makeFile(path)
+  RES h AS fs::File = makeFile(path)
   ' Only reachable on a live handle: the callee must not have closed it.
   fs::writeAll(h, "y")
   fs::close(h)
 
   ' Read it back: "xy" proves both writes landed on the same open handle.
-  RES r AS File = fs::openFile(path)
+  RES r AS fs::File = fs::openFile(path)
   LET got AS String = fs::readAll(r)
   fs::close(r)
   io::print("contents=" & got)
@@ -54,7 +54,7 @@ FUNC main() AS Integer
   ' here as a failure or as unbounded fd growth rather than as a lucky pass.
   MUT i AS Integer = 0
   WHILE i < 500
-    RES t AS File = makeFile(path)
+    RES t AS fs::File = makeFile(path)
     fs::close(t)
     i = i + 1
   END WHILE

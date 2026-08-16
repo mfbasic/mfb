@@ -66,7 +66,7 @@ fn resolve_resource_close_name_maps_builtins_and_functions() {
     let package = decoded_package();
     assert_eq!(
         resolve_resource_close_name(&package, BUILTIN_FS_CLOSE_FUNCTION_ID).unwrap(),
-        builtins::resource_close_function(builtins::fs::FILE_TYPE).map(str::to_string)
+        builtins::resource_close_function(builtins::fs::FILE_TYPE_ID).map(str::to_string)
     );
     assert_eq!(
         resolve_resource_close_name(&package, BUILTIN_NET_CLOSE_FUNCTION_ID).unwrap(),

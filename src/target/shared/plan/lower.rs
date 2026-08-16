@@ -202,7 +202,7 @@ pub(super) fn is_reference_type(type_: &str) -> bool {
         || type_.starts_with("ThreadWorker OF ")
         || type_.starts_with("FUNC(")
         || type_.starts_with("ISOLATED FUNC(")
-        || matches!(type_, "File" | "FileHandle" | "DirHandle")
+        || matches!(type_, "fs.File" | "FileHandle" | "DirHandle")
 }
 
 pub(super) fn is_user_type_name(type_: &str) -> bool {

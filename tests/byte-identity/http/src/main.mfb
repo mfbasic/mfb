@@ -30,10 +30,10 @@ FUNC main() AS Integer
   io::print(toString(len(bd)))
 
   ' --- respondFile: both overloads (each consumes a fresh File handle) ------
-  RES f1 AS File = fs::openFile("target/cover.bin")
+  RES f1 AS fs::File = fs::openFile("target/cover.bin")
   LET rf1 = http::respondFile(f1)
   io::print(toString(rf1.status))
-  RES f2 AS File = fs::openFile("target/cover.bin")
+  RES f2 AS fs::File = fs::openFile("target/cover.bin")
   LET rf2 = http::respondFile(f2, "text/plain")
   io::print(toString(rf2.status))
 

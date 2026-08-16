@@ -89,11 +89,11 @@ fn scalar_state_field_assign_stores_in_place() {
         \x20 raw AS List OF Byte\n\
         \x20 n   AS Integer\n\
          END TYPE\n\
-         FUNC bump(RES f AS File STATE Accum) AS Nothing\n\
+         FUNC bump(RES f AS fs::File STATE Accum) AS Nothing\n\
         \x20 f.state.n = f.state.n + 1\n\
          END FUNC\n\
          FUNC main AS Integer\n\
-        \x20 RES f AS File STATE Accum = fs::openFile(\"project.json\")\n\
+        \x20 RES f AS fs::File STATE Accum = fs::openFile(\"project.json\")\n\
         \x20 bump(f)\n\
         \x20 fs::close(f)\n\
         \x20 RETURN 0\n\
@@ -123,11 +123,11 @@ fn collection_state_field_grows_in_place() {
         \x20 raw AS List OF Byte\n\
         \x20 n   AS Integer\n\
          END TYPE\n\
-         FUNC grow(RES f AS File STATE Accum, chunk AS List OF Byte) AS Nothing\n\
+         FUNC grow(RES f AS fs::File STATE Accum, chunk AS List OF Byte) AS Nothing\n\
         \x20 f.state.raw = collections::append(f.state.raw, chunk)\n\
          END FUNC\n\
          FUNC main AS Integer\n\
-        \x20 RES f AS File STATE Accum = fs::openFile(\"project.json\")\n\
+        \x20 RES f AS fs::File STATE Accum = fs::openFile(\"project.json\")\n\
         \x20 RETURN 0\n\
          END FUNC\n",
     );
@@ -159,11 +159,11 @@ fn whole_state_replace_still_rebuilds() {
         \x20 raw AS List OF Byte\n\
         \x20 n   AS Integer\n\
          END TYPE\n\
-         FUNC reset(RES f AS File STATE Accum) AS Nothing\n\
+         FUNC reset(RES f AS fs::File STATE Accum) AS Nothing\n\
         \x20 f.state = Accum[[], 0]\n\
          END FUNC\n\
          FUNC main AS Integer\n\
-        \x20 RES f AS File STATE Accum = fs::openFile(\"project.json\")\n\
+        \x20 RES f AS fs::File STATE Accum = fs::openFile(\"project.json\")\n\
         \x20 RETURN 0\n\
          END FUNC\n",
     );
@@ -189,11 +189,11 @@ fn string_state_field_still_rebuilds() {
         \x20 name AS String\n\
         \x20 pos  AS Integer\n\
          END TYPE\n\
-         FUNC rename(RES f AS File STATE Label) AS Nothing\n\
+         FUNC rename(RES f AS fs::File STATE Label) AS Nothing\n\
         \x20 f.state.name = \"hello\"\n\
          END FUNC\n\
          FUNC main AS Integer\n\
-        \x20 RES f AS File STATE Label = fs::openFile(\"project.json\")\n\
+        \x20 RES f AS fs::File STATE Label = fs::openFile(\"project.json\")\n\
         \x20 RETURN 0\n\
          END FUNC\n",
     );

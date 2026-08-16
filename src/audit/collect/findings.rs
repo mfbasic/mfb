@@ -493,7 +493,7 @@ mod tests {
             ResourceEntry {
                 function: "f".to_string(),
                 name: "h".to_string(),
-                resource_type: "File".to_string(),
+                resource_type: "fs.File".to_string(),
                 close_op: "fs.close".to_string(),
                 path: "main.mfb".to_string(),
                 line: 3,

@@ -6,7 +6,7 @@ impl<'a> SyntaxChecker<'a> {
             Type::User(name) => {
                 self.resource_registry.is_resource(name) || self.is_resource_union(name)
             }
-            // A `RES`-marked element (`RES File`) is a resource (a pointer to one).
+            // A `RES`-marked element (`RES fs::File`) is a resource (a pointer to one).
             Type::Res(inner) => self.is_resource_type(inner),
             _ => false,
         }
@@ -203,7 +203,7 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Scalar
             | Type::String
             | Type::Unknown => true,
-            // A collection slot holds a *pointer* to a resource (`RES File`),
+            // A collection slot holds a *pointer* to a resource (`RES fs::File`),
             // which copies freely — copying the collection makes more pointers,
             // never another resource. A standalone resource stays non-copyable
             // (the `Type::User` arm below); §15.6.
@@ -478,12 +478,12 @@ impl<'a> SyntaxChecker<'a> {
 mod resources_tests {
     use crate::syntaxcheck::testutil::*;
 
-    // A worker whose thread handle carries a `RES File` resource plane lets us
+    // A worker whose thread handle carries a `RES fs::File` resource plane lets us
     // reach thread::transfer / accept / send / receive sendability checks
     // without a multi-file package.
     fn worker_prelude(body: &str) -> String {
         format!(
-            "IMPORT thread\nIMPORT fs\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF String RES File TO Integer, seed AS String) AS Integer\n{body}\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n"
+            "IMPORT thread\nIMPORT fs\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF String RES fs::File TO Integer, seed AS String) AS Integer\n{body}\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n"
         )
     }
 
@@ -498,8 +498,8 @@ mod resources_tests {
 
     #[test]
     fn worker_accept_resource_plane_valid() {
-        // thread.accept over the RES File resource plane — sendable resource arm.
-        let src = worker_prelude("  RES f AS File = thread::accept(t)\n  fs::close(f)");
+        // thread.accept over the RES fs::File resource plane — sendable resource arm.
+        let src = worker_prelude("  RES f AS fs::File = thread::accept(t)\n  fs::close(f)");
         // File is a sendable resource, so this passes the sendability boundary.
         let _ = check_src(&src);
         assert!(accepts(&src));
@@ -518,16 +518,16 @@ mod resources_tests {
     /// boundary with the resource -- plan-54 deep-copies it into the receiver's
     /// arena -- but only the resource itself was sendability-checked. `ir::verify`
     /// constrains a STATE type to be copyable and defaultable, which does NOT imply
-    /// sendable: a record holding `List OF RES File` satisfies both, yet carries
+    /// sendable: a record holding `List OF RES fs::File` satisfies both, yet carries
     /// resource pointers to sender-owned resources that §15.6 forbids from crossing.
     #[test]
     fn resource_plane_state_payload_must_be_sendable() {
-        let unsendable = "IMPORT thread\nIMPORT fs\nTYPE Holder\n  files AS List OF RES File\nEND TYPE\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF Integer RES File STATE Holder TO Integer, seed AS Integer) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let unsendable = "IMPORT thread\nIMPORT fs\nTYPE Holder\n  files AS List OF RES fs::File\nEND TYPE\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF Integer RES fs::File STATE Holder TO Integer, seed AS Integer) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
         assert!(rejects_with(unsendable, "TYPE_THREAD_NOT_SENDABLE"));
 
         // A STATE of plain sendable fields is still accepted -- the check rejects
         // the unsendable payload, not stateful planes generally.
-        let sendable = "IMPORT thread\nIMPORT fs\nTYPE Holder\n  count AS Integer\n  label AS String\nEND TYPE\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF Integer RES File STATE Holder TO Integer, seed AS Integer) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let sendable = "IMPORT thread\nIMPORT fs\nTYPE Holder\n  count AS Integer\n  label AS String\nEND TYPE\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF Integer RES fs::File STATE Holder TO Integer, seed AS Integer) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
         assert!(!rejects_with(sendable, "TYPE_THREAD_NOT_SENDABLE"));
     }
 
@@ -543,7 +543,7 @@ mod resources_tests {
     fn send_resource_message_rejected() {
         // thread.send where the message plane itself is a resource — the data
         // channel is resource-free.
-        let src = "IMPORT thread\nIMPORT fs\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF RES File TO Integer, seed AS String) AS Integer\n  RES f AS File = fs::openFile(\"x\")\n  thread::send(t, f)\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT thread\nIMPORT fs\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF RES fs::File TO Integer, seed AS String) AS Integer\n  RES f AS fs::File = fs::openFile(\"x\")\n  thread::send(t, f)\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
         let diags = check_src(src);
         // Message plane being a resource is rejected somewhere in the sendability
         // walk; the exact code is TYPE_THREAD_NOT_SENDABLE when reached.
@@ -561,7 +561,7 @@ mod resources_tests {
     /// the parameter position now consults it (spec §15.4).
     #[test]
     fn resource_union_variant_widens_into_union_param() {
-        let src = "IMPORT fs\nIMPORT net\nUNION Stream\n  File\n  Socket\nEND UNION\nFUNC useStream(RES s AS Stream) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RES f AS File = fs::createTempFile()\n  RETURN useStream(f)\nEND FUNC\n";
+        let src = "IMPORT fs\nIMPORT net\nUNION Stream\n  fs::File\n  Socket\nEND UNION\nFUNC useStream(RES s AS Stream) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RES f AS fs::File = fs::createTempFile()\n  RETURN useStream(f)\nEND FUNC\n";
         assert!(
             accepts(src),
             "a variant must widen into a resource-union RES parameter"
@@ -574,16 +574,16 @@ mod resources_tests {
     /// use-after-free class bug, not a type-checker inconvenience.
     #[test]
     fn resource_union_actual_rejected_by_concrete_param() {
-        let src = "IMPORT fs\nIMPORT net\nUNION Stream\n  File\n  Socket\nEND UNION\nFUNC useFile(RES f AS File) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RES s AS Stream = fs::createTempFile()\n  RETURN useFile(s)\nEND FUNC\n";
+        let src = "IMPORT fs\nIMPORT net\nUNION Stream\n  fs::File\n  Socket\nEND UNION\nFUNC useFile(RES f AS fs::File) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RES s AS Stream = fs::createTempFile()\n  RETURN useFile(s)\nEND FUNC\n";
         assert!(rejects_with(src, "TYPE_CALL_ARGUMENT_MISMATCH"));
     }
 
-    /// A registered close op (`fs::close`, concrete `RES File`) handed a union
+    /// A registered close op (`fs::close`, concrete `RES fs::File`) handed a union
     /// is rejected for the same directional reason — the concrete-typed close
     /// op stays unreachable by a whole union.
     #[test]
     fn resource_union_actual_rejected_by_close_op() {
-        let src = "IMPORT fs\nIMPORT net\nUNION Stream\n  File\n  Socket\nEND UNION\nFUNC main AS Integer\n  RES s AS Stream = fs::createTempFile()\n  fs::close(s)\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT fs\nIMPORT net\nUNION Stream\n  fs::File\n  Socket\nEND UNION\nFUNC main AS Integer\n  RES s AS Stream = fs::createTempFile()\n  fs::close(s)\n  RETURN 0\nEND FUNC\n";
         assert!(rejects_with(src, "TYPE_CALL_ARGUMENT_MISMATCH"));
     }
 
@@ -591,7 +591,7 @@ mod resources_tests {
     fn resource_union_type_walked() {
         // A union of resource types is a resource union. Storing it in a plain
         // collection exercises contains_resource_or_thread + is_resource_union.
-        let src = "IMPORT fs\nUNION Handle\n  File\nEND UNION\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT fs\nUNION Handle\n  fs::File\nEND UNION\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 
@@ -618,14 +618,14 @@ mod resources_tests {
     fn record_with_resource_field_as_map_key_walks() {
         // A record field holding a resource makes the record contain a resource;
         // used as a Map key it walks contains_resource_or_thread over User(Type).
-        let src = "IMPORT fs\nTYPE Holder\n  f AS List OF RES File\nEND TYPE\nFUNC main AS Integer\n  LET m AS Map OF Holder TO Integer = Map OF Holder TO Integer {}\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT fs\nTYPE Holder\n  f AS List OF RES fs::File\nEND TYPE\nFUNC main AS Integer\n  LET m AS Map OF Holder TO Integer = Map OF Holder TO Integer {}\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 
     #[test]
     fn union_with_resource_field_walks() {
         // A union variant with a resource-bearing field walks the Union arm.
-        let src = "IMPORT fs\nTYPE A\n  f AS List OF RES File\nEND TYPE\nTYPE B\n  n AS Integer\nEND TYPE\nUNION AB\n  A\n  B\nEND UNION\nFUNC main AS Integer\n  LET m AS Map OF AB TO Integer = Map OF AB TO Integer {}\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT fs\nTYPE A\n  f AS List OF RES fs::File\nEND TYPE\nTYPE B\n  n AS Integer\nEND TYPE\nUNION AB\n  A\n  B\nEND UNION\nFUNC main AS Integer\n  LET m AS Map OF AB TO Integer = Map OF AB TO Integer {}\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 
@@ -659,14 +659,14 @@ mod resources_tests {
     #[test]
     fn resource_element_without_res_marker() {
         // The `RES` ownership axis on a collection element is enforced solely by
-        // `ir::verify` (plan-20), never by syntaxcheck: a bare `List OF File`
+        // `ir::verify` (plan-20), never by syntaxcheck: a bare `List OF fs::File`
         // (resource element, no `RES`) must pass syntaxcheck silently and be
         // rejected downstream with `TYPE_RESOURCE_REQUIRES_RES`. Guards against
         // reintroducing a syntaxcheck double-rejecter (bug-43). The real
         // rejection is guarded by `ir::verify::tests::
         // rejects_collection_resource_element_without_res` and the
         // `tests/syntax/resources/native-resource-in-list-invalid` fixture.
-        let src = "IMPORT fs\nFUNC main AS Integer\n  LET xs AS List OF File = []\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT fs\nFUNC main AS Integer\n  LET xs AS List OF fs::File = []\n  RETURN 0\nEND FUNC\n";
         assert!(accepts(src), "RES axis must not be rejected by syntaxcheck");
     }
 
@@ -750,17 +750,17 @@ mod resources_tests {
 
     #[test]
     fn resource_binding_in_list_literal_stores_pointer() {
-        // A `List OF RES File` literal `[f]` naming a RES binding stores a pointer
+        // A `List OF RES fs::File` literal `[f]` naming a RES binding stores a pointer
         // (collection_element_mode Use path) and is accepted.
-        let src = "IMPORT fs\nFUNC main AS Integer\n  RES f AS File = fs::openFile(\"x\")\n  LET xs AS List OF RES File = [f]\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT fs\nFUNC main AS Integer\n  RES f AS fs::File = fs::openFile(\"x\")\n  LET xs AS List OF RES fs::File = [f]\n  RETURN 0\nEND FUNC\n";
         assert!(accepts(src));
     }
 
     #[test]
     fn resource_list_copyability_and_res_arm() {
-        // Copying a `List OF RES File` walks the is_copyable Res arm (a resource
+        // Copying a `List OF RES fs::File` walks the is_copyable Res arm (a resource
         // a pointer copies freely) and is accepted.
-        let src = "IMPORT fs\nFUNC main AS Integer\n  RES f AS File = fs::openFile(\"x\")\n  LET xs AS List OF RES File = [f]\n  LET ys AS List OF RES File = xs\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT fs\nFUNC main AS Integer\n  RES f AS fs::File = fs::openFile(\"x\")\n  LET xs AS List OF RES fs::File = [f]\n  LET ys AS List OF RES fs::File = xs\n  RETURN 0\nEND FUNC\n";
         assert!(accepts(src));
     }
 
@@ -770,7 +770,7 @@ mod resources_tests {
         // owner and is rejected — but by `ir::verify` (plan-20), not syntaxcheck,
         // which stays silent here (bug-43). The real rejection
         // (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`) is guarded in `ir::verify::tests`.
-        let src = "IMPORT fs\nFUNC main AS Integer\n  LET xs AS List OF RES File = [fs::openFile(\"x\")]\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT fs\nFUNC main AS Integer\n  LET xs AS List OF RES fs::File = [fs::openFile(\"x\")]\n  RETURN 0\nEND FUNC\n";
         assert!(
             accepts(src),
             "owner-only storage is an ir::verify rule, not syntaxcheck"
@@ -781,9 +781,9 @@ mod resources_tests {
 
     #[test]
     fn resource_list_argument_copyability_arm() {
-        // Passing a `List OF RES File` as a call argument runs argument_mode_for_type
+        // Passing a `List OF RES fs::File` as a call argument runs argument_mode_for_type
         // which walks is_copyable_type over List -> Res (a pointer copies freely).
-        let src = "IMPORT fs\nFUNC use(xs AS List OF RES File) AS Integer\n  RETURN len(xs)\nEND FUNC\nFUNC main AS Integer\n  RES f AS File = fs::openFile(\"x\")\n  LET xs AS List OF RES File = [f]\n  RETURN use(xs)\nEND FUNC\n";
+        let src = "IMPORT fs\nFUNC use(xs AS List OF RES fs::File) AS Integer\n  RETURN len(xs)\nEND FUNC\nFUNC main AS Integer\n  RES f AS fs::File = fs::openFile(\"x\")\n  LET xs AS List OF RES fs::File = [f]\n  RETURN use(xs)\nEND FUNC\n";
         let _ = check_src(src);
     }
 
@@ -796,9 +796,9 @@ mod resources_tests {
 
     #[test]
     fn worker_message_res_list_walks_sendable_res_arm() {
-        // A worker whose message type is a `List OF RES File` walks the Res arm of
+        // A worker whose message type is a `List OF RES fs::File` walks the Res arm of
         // is_thread_sendable_type (a resource collection is not thread-sendable).
-        let src = "IMPORT thread\nIMPORT fs\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF (List OF RES File) TO Integer, seed AS List OF RES File) AS Integer\n  LET m AS List OF RES File = thread::receive(t)\n  thread::send(t, m)\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT thread\nIMPORT fs\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF (List OF RES fs::File) TO Integer, seed AS List OF RES fs::File) AS Integer\n  LET m AS List OF RES fs::File = thread::receive(t)\n  thread::send(t, m)\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 
@@ -852,9 +852,9 @@ mod resources_tests {
 
     #[test]
     fn res_element_argument_walks_is_resource_res_arm() {
-        // Passing a `List OF RES File` value where argument-mode inspects the
+        // Passing a `List OF RES fs::File` value where argument-mode inspects the
         // element walks is_resource_type over a `Res` wrapper.
-        let src = "IMPORT fs\nFUNC useAll(xs AS List OF RES File) AS Integer\n  RETURN len(xs)\nEND FUNC\nFUNC main AS Integer\n  RES f AS File = fs::openFile(\"x\")\n  LET xs AS List OF RES File = [f]\n  RETURN useAll(xs)\nEND FUNC\n";
+        let src = "IMPORT fs\nFUNC useAll(xs AS List OF RES fs::File) AS Integer\n  RETURN len(xs)\nEND FUNC\nFUNC main AS Integer\n  RES f AS fs::File = fs::openFile(\"x\")\n  LET xs AS List OF RES fs::File = [f]\n  RETURN useAll(xs)\nEND FUNC\n";
         let _ = check_src(src);
     }
 
@@ -870,7 +870,7 @@ mod resources_tests {
     fn recursive_resource_type_seen_collision_walk() {
         // A self-referential record carrying a resource pointer walks the seen-set
         // collision return in contains_resource_or_thread over User(Type).
-        let src = "IMPORT fs\nTYPE Wrap\n  inner AS List OF Wrap\n  files AS List OF RES File\nEND TYPE\nFUNC main AS Integer\n  LET m AS Map OF Wrap TO Integer = Map OF Wrap TO Integer {}\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT fs\nTYPE Wrap\n  inner AS List OF Wrap\n  files AS List OF RES fs::File\nEND TYPE\nFUNC main AS Integer\n  LET m AS Map OF Wrap TO Integer = Map OF Wrap TO Integer {}\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 
@@ -884,17 +884,17 @@ mod resources_tests {
 
     #[test]
     fn append_resource_temporary_to_res_list_walk() {
-        // Appending a resource temporary (a call result) to a `List OF RES File`
+        // Appending a resource temporary (a call result) to a `List OF RES fs::File`
         // exercises is_resource_type over the `Res` element wrapper.
-        let src = "IMPORT collections\nIMPORT fs\nFUNC main AS Integer\n  MUT xs AS List OF RES File = []\n  xs = collections::append(xs, fs::openFile(\"x\"))\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT collections\nIMPORT fs\nFUNC main AS Integer\n  MUT xs AS List OF RES fs::File = []\n  xs = collections::append(xs, fs::openFile(\"x\"))\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 
     #[test]
     fn map_res_file_value_walk() {
-        // A `Map OF String TO RES File` value type walks parse_collection_element_type
+        // A `Map OF String TO RES fs::File` value type walks parse_collection_element_type
         // and the RES-marked value axis check.
-        let src = "IMPORT fs\nFUNC main AS Integer\n  MUT m AS Map OF String TO RES File = Map OF String TO RES File {}\n  RETURN 0\nEND FUNC\n";
+        let src = "IMPORT fs\nFUNC main AS Integer\n  MUT m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File {}\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 }

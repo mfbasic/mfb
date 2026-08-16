@@ -2876,7 +2876,7 @@ mod kind2_layout_tests {
     /// and a resource pointer is never a fixed-width payload.
     #[test]
     fn resource_elements_keep_entries() {
-        assert_eq!(list_entry_stride("File"), COLLECTION_ENTRY_SIZE);
+        assert_eq!(list_entry_stride("fs.File"), COLLECTION_ENTRY_SIZE);
         assert_eq!(list_entry_stride("RES File"), COLLECTION_ENTRY_SIZE);
     }
 }

@@ -9,7 +9,7 @@ END TYPE
 ' scope-drop closes the file and structurally frees the attached STATE. Looped
 ' many times so a leaked fd (file not closed) or leaked STATE would fail.
 SUB touch(path AS String)
-  RES f AS File STATE Cursor = fs::openFile(path)
+  RES f AS fs::File STATE Cursor = fs::openFile(path)
   f.state.pos = 42
 END SUB
 
@@ -18,7 +18,7 @@ FUNC main AS Integer
   IF fs::fileExists(path) THEN
     fs::deleteFile(path)
   END IF
-  RES seed AS File = fs::openFile(path, "write")
+  RES seed AS fs::File = fs::openFile(path, "write")
   fs::writeAll(seed, "x")
   fs::close(seed)
   MUT i AS Integer = 0

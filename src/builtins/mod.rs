@@ -1227,12 +1227,12 @@ mod tests {
     #[test]
     fn resource_helpers() {
         // File is a builtin resource type.
-        assert!(is_resource_type("File"));
+        assert!(is_resource_type("fs.File"));
         assert!(!is_resource_type("Integer"));
-        assert!(resource_close_function("File").is_some());
+        assert!(resource_close_function("fs.File").is_some());
         assert!(resource_close_function("Integer").is_none());
         // is_thread_sendable_resource_type routes to resource module.
-        let _ = is_thread_sendable_resource_type("File");
+        let _ = is_thread_sendable_resource_type("fs.File");
     }
 
     #[test]

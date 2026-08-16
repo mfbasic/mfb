@@ -22,7 +22,7 @@ IMPORT fs
 
 ' 1. Straight-line: the simplest and most important case.
 FUNC straightLine(p AS String) AS Nothing
-  RES f AS File = fs::openFile(p)
+  RES f AS fs::File = fs::openFile(p)
   fs::close(f)
   LET s AS String = fs::readAll(f)
   RETURN NOTHING
@@ -32,7 +32,7 @@ END FUNC
 '    fall-through path" into the outer set, so the use after the join is rejected
 '    exactly as a definite move would be.
 FUNC branchJoin(p AS String, cond AS Boolean) AS Nothing
-  RES f AS File = fs::openFile(p)
+  RES f AS fs::File = fs::openFile(p)
   IF cond THEN
     fs::close(f)
   END IF
@@ -43,7 +43,7 @@ END FUNC
 ' 3. After a loop whose body closed it: the body's moves union back into the
 '    outer set on fall-through, so the use after END WHILE is rejected.
 FUNC afterLoop(p AS String) AS Nothing
-  RES f AS File = fs::openFile(p)
+  RES f AS fs::File = fs::openFile(p)
   MUT n AS Integer = 0
   WHILE n < 2
     fs::close(f)

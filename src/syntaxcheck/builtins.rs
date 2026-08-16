@@ -1874,7 +1874,7 @@ mod builtins_tests {
     #[test]
     fn fs_range_arity_too_few() {
         assert!(rejects_with(
-            "IMPORT fs\nFUNC main AS Integer\n  RES f AS File = fs::openFileNoFollow()\n  RETURN 0\nEND FUNC\n",
+            "IMPORT fs\nFUNC main AS Integer\n  RES f AS fs::File = fs::openFileNoFollow()\n  RETURN 0\nEND FUNC\n",
             "TYPE_CALL_ARITY_MISMATCH"
         ));
     }
@@ -1943,8 +1943,8 @@ mod builtins_tests {
 
     #[test]
     fn append_resource_binding_valid() {
-        // Appending a RES binding to a `List OF RES File` stores a pointer (valid).
-        let src = "IMPORT collections\nIMPORT fs\nFUNC main AS Integer\n  RES f AS File = fs::openFile(\"x\")\n  MUT xs AS List OF RES File = []\n  xs = collections::append(xs, f)\n  RETURN 0\nEND FUNC\n";
+        // Appending a RES binding to a `List OF RES fs::File` stores a pointer (valid).
+        let src = "IMPORT collections\nIMPORT fs\nFUNC main AS Integer\n  RES f AS fs::File = fs::openFile(\"x\")\n  MUT xs AS List OF RES fs::File = []\n  xs = collections::append(xs, f)\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 

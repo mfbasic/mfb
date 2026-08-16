@@ -363,7 +363,7 @@ mod tests {
                 includes: Vec::new(),
                 variants: vec![
                     NirVariant {
-                        name: "File".to_string(),
+                        name: "fs.File".to_string(),
                         fields: Vec::new(),
                     },
                     NirVariant {
