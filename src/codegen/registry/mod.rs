@@ -1442,17 +1442,37 @@ fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool)
     if strict && (pattern.is_scalar() || concrete.is_scalar()) {
         return false;
     }
-    // STRICT (argument validation): two distinct nominal (non-scalar) leaves match only
-    // when they name the same base resource — bug-427 STATE/ownership-agnostic, so a
-    // `File STATE Cursor` argument still satisfies a `File` parameter. An unrelated
-    // nominal or a resource UNION does NOT satisfy a concrete resource parameter:
-    // `fs::close(<Stream union>)` must be rejected (a use-after-free class error the
-    // legacy exact-name `DefaultResolver` caught). LENIENT dispatch/inference stays coarse
-    // (falls through to `true`) so overload selection and type propagation are unperturbed.
-    if strict {
+    // STRICT (argument validation): a RESOURCE parameter demands exact base-resource
+    // identity — bug-427 STATE/ownership-agnostic, so a `File STATE Cursor` argument still
+    // satisfies a `File` parameter, but an unrelated resource or a resource UNION does NOT
+    // satisfy a concrete resource close-op parameter (`fs::close(<Stream union>)` must be
+    // rejected — a use-after-free class error the legacy exact-name `DefaultResolver`
+    // caught). A NON-resource nominal parameter stays coarse: a value-UNION parameter like
+    // `Json` must still accept a variant that widens into it (`json::stringify(JsonNull)`),
+    // and lenient dispatch/inference stays coarse everywhere so overload selection and type
+    // propagation are unperturbed.
+    if strict && is_resource_type_name(&pattern.name()) {
         return resource_base_eq(pattern, concrete);
     }
     true
+}
+
+/// Whether `name` (a parameter's type leaf, possibly carrying a `STATE` clause) names a
+/// resource handle — a legacy builtin resource (`net.Socket`) or a migrated-package
+/// resource registered via [`RegistryPackage::add_resource`] (`fs.File`, addressed by its
+/// package-qualified id whose bare tail is the `RegistryResource::name`). Only a resource
+/// parameter triggers the strict exact-base match in [`leaf_matches`]; value nominals
+/// (unions, records) stay coarse.
+fn is_resource_type_name(name: &str) -> bool {
+    let base = crate::builtins::resource::base_resource_name(name);
+    if crate::builtins::resource::is_builtin_resource_type(base) {
+        return true;
+    }
+    let bare = base.rsplit('.').next().unwrap_or(base);
+    registry()
+        .packages()
+        .iter()
+        .any(|package| package.resources().iter().any(|r| r.name == bare))
 }
 
 /// Structurally unify a parameter-type `pattern` — which may contain
