@@ -10,7 +10,7 @@
   "types": [
   {
     "kind": "enum",
-    "line": 17,
+    "line": 1,
     "visibility": "export",
     "name": "Stream",
     "members": [
@@ -20,7 +20,7 @@
   },
   {
     "kind": "enum",
-    "line": 33,
+    "line": 6,
     "visibility": "export",
     "name": "Signal",
     "members": [
@@ -41,7 +41,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 9, "mutable": false, "name": "p", "type": "Process", "value": { "kind": "call", "type": "Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "sleep" }, { "kind": "const", "type": "String", "value": "30" }] }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "p", "type": "process.Process", "value": { "kind": "call", "type": "process.Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "sleep" }, { "kind": "const", "type": "String", "value": "30" }] }] } },
     { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "process.detach", "args": [{ "kind": "local", "name": "p" }] } },
     { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "detached" }] } },
     { "op": "return", "line": 13, "value": { "kind": "const", "type": "Integer", "value": "0" } }

@@ -46,8 +46,18 @@ mod func_signal;
 mod func_spawn;
 mod func_wait_for;
 
-/// The opaque `Process` resource handle type name.
+/// The opaque `Process` resource handle's bare type name — its identity *within* the
+/// `process` package (the `RegistryResource` name, the `type` half of the qualified
+/// id). Used only for registry-internal lookups (`resolve_type`/close-op).
 pub(crate) const PROCESS_TYPE: &str = "Process";
+
+/// The `Process` resource's **package-qualified type identity** — how it flows through
+/// the type system (bug-441 / plan-97: resources are addressed `process::Process`, not
+/// bare `Process`, so a user `TYPE Process` no longer collides). This is the string a
+/// `RES` binding of a spawned child carries, the `ResourceRegistry` key, and what
+/// `is_resource`/close-op dispatch see. Dot form, matching the parser's internal
+/// qualified spelling (`::` normalizes to `.`).
+pub(crate) const PROCESS_TYPE_ID: &str = "process.Process";
 
 /// The `Stream` enum (`StdOut`/`StdErr`) selecting which child pipe a read reads
 /// from. Declared as an `EXPORT ENUM` in the source companion (plan-90-B).
@@ -241,7 +251,10 @@ mod tests {
             Some("Boolean")
         );
         assert_eq!(registry::call_return_type("process.close"), Some("Nothing"));
-        assert_eq!(registry::call_return_type("process.spawn"), Some("Process"));
+        assert_eq!(
+            registry::call_return_type("process.spawn"),
+            Some("process.Process")
+        );
         assert_eq!(
             registry::call_return_type("process.receive"),
             Some("String")
@@ -265,7 +278,7 @@ mod tests {
         let s = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         assert_eq!(
             registry::resolve_call("process.spawn", &s(&["List OF String"])),
-            Some("Process".to_string())
+            Some("process.Process".to_string())
         );
         assert_eq!(
             registry::resolve_call(
@@ -277,7 +290,7 @@ mod tests {
                     "Boolean"
                 ])
             ),
-            Some("Process".to_string())
+            Some("process.Process".to_string())
         );
         // The structural gap between the 1-arg and 4-arg overloads is rejected.
         assert_eq!(registry::resolve_call("process.spawn", &s(&[])), None);

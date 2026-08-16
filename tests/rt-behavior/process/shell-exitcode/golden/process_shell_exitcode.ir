@@ -10,7 +10,7 @@
   "types": [
   {
     "kind": "enum",
-    "line": 17,
+    "line": 1,
     "visibility": "export",
     "name": "Stream",
     "members": [
@@ -20,7 +20,7 @@
   },
   {
     "kind": "enum",
-    "line": 33,
+    "line": 6,
     "visibility": "export",
     "name": "Signal",
     "members": [
@@ -41,7 +41,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 7, "mutable": false, "name": "p", "type": "Process", "value": { "kind": "call", "type": "Process", "target": "process.shell", "args": [{ "kind": "const", "type": "String", "value": "exit 7" }] } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "p", "type": "process.Process", "value": { "kind": "call", "type": "process.Process", "target": "process.shell", "args": [{ "kind": "const", "type": "String", "value": "exit 7" }] } },
     { "op": "bind", "line": 8, "mutable": false, "name": "code", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "process.waitFor", "args": [{ "kind": "local", "name": "p" }] } },
     { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "code" }] }] } },
     { "op": "return", "line": 10, "value": { "kind": "const", "type": "Integer", "value": "0" } }

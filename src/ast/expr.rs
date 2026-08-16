@@ -894,11 +894,18 @@ impl<'a> FileParser<'a> {
                 return None;
             }
         };
-        // A package-qualified built-in type (`net::Url`, `http::Response`) is
-        // normalized to its bare internal id at parse time, so every downstream
-        // stage sees only bare ids (plan-03-http.md §A.1/§B.2).
+        // A package-qualified built-in *value* type (`net::Url`, `http::Response`) is
+        // normalized to its bare internal id at parse time, so every downstream stage
+        // sees only bare ids (plan-03-http.md §A.1/§B.2). A package-qualified
+        // **resource** (`process::Process`) instead KEEPS its qualified identity —
+        // resources are package-scoped so a user `TYPE Process` no longer collides
+        // (plan-97).
         self.finish_qualified_name(name).map(|qualified| {
-            crate::builtins::qualified_builtin_type(&qualified).unwrap_or(qualified)
+            if crate::builtins::is_qualified_builtin_resource(&qualified) {
+                qualified
+            } else {
+                crate::builtins::qualified_builtin_type(&qualified).unwrap_or(qualified)
+            }
         })
     }
 

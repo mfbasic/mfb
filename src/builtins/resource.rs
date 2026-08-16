@@ -238,7 +238,10 @@ static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::ne
         },
     );
     entries.insert(
-        crate::codegen::builtins::process::PROCESS_TYPE.to_string(),
+        // Keyed by the package-qualified type identity (`process.Process`) — the string
+        // the type system flows for a Process handle (plan-97). The close op is still
+        // looked up by the bare registry name (`Process`) within the process package.
+        crate::codegen::builtins::process::PROCESS_TYPE_ID.to_string(),
         ResourceInfo {
             close_function: crate::codegen::registry::resource_close_function(
                 crate::codegen::builtins::process::PROCESS_TYPE,
@@ -384,7 +387,8 @@ mod tests {
             "AudioOutput",
             "TlsSocket",
             "TlsListener",
-            "Process",
+            // Migrated to package-qualified identity (plan-97); the rest follow.
+            "process.Process",
         ] {
             assert!(registry.is_resource(name), "{name} missing from registry");
             assert!(

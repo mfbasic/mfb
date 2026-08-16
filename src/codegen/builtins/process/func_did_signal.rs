@@ -69,7 +69,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
                 name: "p",
                 desc: "The terminated child process handle to inspect. Also accepts the alternate named-argument spelling `process`.",
                 aliases: &["process"],
-                ty: ParameterType::Named(super::PROCESS_TYPE),
+                ty: ParameterType::Named(super::PROCESS_TYPE_ID),
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Named(super::SIGNAL_TYPE),

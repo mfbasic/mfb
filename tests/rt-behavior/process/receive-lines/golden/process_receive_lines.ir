@@ -10,7 +10,7 @@
   "types": [
   {
     "kind": "enum",
-    "line": 17,
+    "line": 1,
     "visibility": "export",
     "name": "Stream",
     "members": [
@@ -20,7 +20,7 @@
   },
   {
     "kind": "enum",
-    "line": 33,
+    "line": 6,
     "visibility": "export",
     "name": "Signal",
     "members": [
@@ -41,7 +41,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 9, "mutable": false, "name": "p", "type": "Process", "value": { "kind": "call", "type": "Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "printf" }, { "kind": "const", "type": "String", "value": "a\nbb\nccc" }] }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "p", "type": "process.Process", "value": { "kind": "call", "type": "process.Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "printf" }, { "kind": "const", "type": "String", "value": "a\nbb\nccc" }] }] } },
     { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "String", "target": "process.receive", "args": [{ "kind": "local", "name": "p" }] }] }] }] } },
     { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "String", "target": "process.receive", "args": [{ "kind": "local", "name": "p" }] }] }] }] } },
     { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "String", "target": "process.receive", "args": [{ "kind": "local", "name": "p" }] }] }] }] } },

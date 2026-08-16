@@ -156,6 +156,17 @@ pub(crate) fn general_override_target(builtin: &str, arg_type: &str) -> Option<&
     }
 }
 
+/// Whether `qualified` (dot form, `process.Process`) names a built-in **resource**
+/// type on the clean-room registry. Resources keep their package-qualified identity
+/// through the type system (plan-97) instead of collapsing to a bare id like value
+/// types, so the parse-time type-normalization seams consult this to decide.
+pub(crate) fn is_qualified_builtin_resource(qualified: &str) -> bool {
+    matches!(
+        crate::codegen::registry::registry().resolve_type(qualified),
+        Some(crate::codegen::registry::ResolvedType::Resource(_))
+    )
+}
+
 /// Resolve a package-qualified built-in type reference (`net.Url`,
 /// `http.Response`) to its bare internal type id, or `None` when it is not a
 /// qualified built-in type (plan-03-http.md §A.1).

@@ -10,7 +10,7 @@
   "types": [
   {
     "kind": "enum",
-    "line": 17,
+    "line": 1,
     "visibility": "export",
     "name": "Stream",
     "members": [
@@ -20,7 +20,7 @@
   },
   {
     "kind": "enum",
-    "line": 33,
+    "line": 6,
     "visibility": "export",
     "name": "Signal",
     "members": [
@@ -41,7 +41,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 6, "mutable": false, "name": "p", "type": "Process", "value": { "kind": "call", "type": "Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "echo" }, { "kind": "const", "type": "String", "value": "hi" }] }] } },
+    { "op": "bind", "line": 6, "mutable": false, "name": "p", "type": "process.Process", "value": { "kind": "call", "type": "process.Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "echo" }, { "kind": "const", "type": "String", "value": "hi" }] }] } },
     { "op": "bind", "line": 7, "mutable": false, "name": "id", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "process.pid", "args": [{ "kind": "local", "name": "p" }] } },
     {
       "op": "if",

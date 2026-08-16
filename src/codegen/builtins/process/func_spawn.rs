@@ -100,7 +100,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             // Bare argv form.
             Implementation {
                 params: vec![args.clone()],
-                return_type: ParameterType::Named(super::PROCESS_TYPE),
+                return_type: ParameterType::Named(super::PROCESS_TYPE_ID),
                 errors: vec![],
                     body: Body::native_os_seam(
                     Some(lower_process_spawn_helper_posix),
@@ -134,7 +134,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
                         default: DefaultValue::None,
                     },
                 ],
-                return_type: ParameterType::Named(super::PROCESS_TYPE),
+                return_type: ParameterType::Named(super::PROCESS_TYPE_ID),
                 errors: vec![],
                     body: Body::native_os_seam(
                     Some(lower_process_spawn_helper_posix),

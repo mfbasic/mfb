@@ -10,7 +10,7 @@
   "types": [
   {
     "kind": "enum",
-    "line": 17,
+    "line": 1,
     "visibility": "export",
     "name": "Stream",
     "members": [
@@ -20,7 +20,7 @@
   },
   {
     "kind": "enum",
-    "line": 33,
+    "line": 6,
     "visibility": "export",
     "name": "Signal",
     "members": [
@@ -41,7 +41,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 7, "mutable": false, "name": "p", "type": "Process", "value": { "kind": "call", "type": "Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "grep" }, { "kind": "const", "type": "String", "value": "-q" }, { "kind": "const", "type": "String", "value": "hello" }] }] } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "p", "type": "process.Process", "value": { "kind": "call", "type": "process.Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "grep" }, { "kind": "const", "type": "String", "value": "-q" }, { "kind": "const", "type": "String", "value": "hello" }] }] } },
     { "op": "bind", "line": 9, "mutable": false, "name": "data", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "104" }, { "kind": "const", "type": "Byte", "value": "101" }, { "kind": "const", "type": "Byte", "value": "108" }, { "kind": "const", "type": "Byte", "value": "108" }, { "kind": "const", "type": "Byte", "value": "111" }, { "kind": "const", "type": "Byte", "value": "10" }] } },
     { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "process.sendBytes", "args": [{ "kind": "local", "name": "p" }, { "kind": "local", "name": "data" }] } },
     { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "process.close", "args": [{ "kind": "local", "name": "p" }] } },

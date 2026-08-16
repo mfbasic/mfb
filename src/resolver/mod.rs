@@ -40,7 +40,7 @@ const BUILTIN_TYPES: &[&str] = &[
     builtins::audio::AUDIO_INPUT_TYPE,
     builtins::audio::AUDIO_OUTPUT_TYPE,
     builtins::audio::AUDIO_DEVICE_TYPE,
-    crate::codegen::builtins::process::PROCESS_TYPE,
+    crate::codegen::builtins::process::PROCESS_TYPE_ID,
 ];
 
 pub fn resolve_project(

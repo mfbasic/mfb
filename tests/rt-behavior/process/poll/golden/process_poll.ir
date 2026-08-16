@@ -10,7 +10,7 @@
   "types": [
   {
     "kind": "enum",
-    "line": 17,
+    "line": 1,
     "visibility": "export",
     "name": "Stream",
     "members": [
@@ -20,7 +20,7 @@
   },
   {
     "kind": "enum",
-    "line": 33,
+    "line": 6,
     "visibility": "export",
     "name": "Signal",
     "members": [
@@ -41,7 +41,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 8, "mutable": false, "name": "p", "type": "Process", "value": { "kind": "call", "type": "Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "echo" }, { "kind": "const", "type": "String", "value": "hi" }] }] } },
+    { "op": "bind", "line": 8, "mutable": false, "name": "p", "type": "process.Process", "value": { "kind": "call", "type": "process.Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "echo" }, { "kind": "const", "type": "String", "value": "hi" }] }] } },
     {
       "op": "if",
       "line": 9,
@@ -53,7 +53,7 @@
       { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "not" }] } }
       ]
     },
-    { "op": "bind", "line": 15, "mutable": false, "name": "q", "type": "Process", "value": { "kind": "call", "type": "Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "sleep" }, { "kind": "const", "type": "String", "value": "5" }] }] } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "q", "type": "process.Process", "value": { "kind": "call", "type": "process.Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "sleep" }, { "kind": "const", "type": "String", "value": "5" }] }] } },
     {
       "op": "if",
       "line": 16,

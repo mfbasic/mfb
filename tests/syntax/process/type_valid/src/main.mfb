@@ -5,7 +5,7 @@
 IMPORT process
 
 ' Names `Process` as a parameter type.
-FUNC describe(p AS Process) AS Integer
+FUNC describe(p AS process::Process) AS Integer
   RETURN 0
 END FUNC
 

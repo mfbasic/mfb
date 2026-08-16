@@ -81,7 +81,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
                     name: "p",
                     desc: "The child process handle. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`.",
                     aliases: &["process"],
-                    ty: ParameterType::Named(super::PROCESS_TYPE),
+                    ty: ParameterType::Named(super::PROCESS_TYPE_ID),
                     default: DefaultValue::None,
                 },
                 Parameter {

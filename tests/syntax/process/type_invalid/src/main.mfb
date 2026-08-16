@@ -3,7 +3,7 @@
 ' is a real, distinct built-in type, not a synonym for any scalar.
 IMPORT process
 
-FUNC describe(p AS Process) AS Integer
+FUNC describe(p AS process::Process) AS Integer
   RETURN 0
 END FUNC
 

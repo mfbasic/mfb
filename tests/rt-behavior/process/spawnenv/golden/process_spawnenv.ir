@@ -10,7 +10,7 @@
   "types": [
   {
     "kind": "enum",
-    "line": 17,
+    "line": 1,
     "visibility": "export",
     "name": "Stream",
     "members": [
@@ -20,7 +20,7 @@
   },
   {
     "kind": "enum",
-    "line": 33,
+    "line": 6,
     "visibility": "export",
     "name": "Signal",
     "members": [
@@ -41,9 +41,9 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 9, "mutable": false, "name": "a", "type": "Process", "value": { "kind": "call", "type": "Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "/bin/sh" }, { "kind": "const", "type": "String", "value": "-c" }, { "kind": "const", "type": "String", "value": "[ x$FOO = xbar ] && [ $(pwd) = / ]" }] }, { "kind": "const", "type": "String", "value": "/" }, { "kind": "map", "type": "Map OF String TO String", "entries": [{ "key": { "kind": "const", "type": "String", "value": "FOO" }, "value": { "kind": "const", "type": "String", "value": "bar" } }] }, { "kind": "const", "type": "Boolean", "value": "false" }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "a", "type": "process.Process", "value": { "kind": "call", "type": "process.Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "/bin/sh" }, { "kind": "const", "type": "String", "value": "-c" }, { "kind": "const", "type": "String", "value": "[ x$FOO = xbar ] && [ $(pwd) = / ]" }] }, { "kind": "const", "type": "String", "value": "/" }, { "kind": "map", "type": "Map OF String TO String", "entries": [{ "key": { "kind": "const", "type": "String", "value": "FOO" }, "value": { "kind": "const", "type": "String", "value": "bar" } }] }, { "kind": "const", "type": "Boolean", "value": "false" }] } },
     { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "process.waitFor", "args": [{ "kind": "local", "name": "a" }] }] }] } },
-    { "op": "bind", "line": 14, "mutable": false, "name": "b", "type": "Process", "value": { "kind": "call", "type": "Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "/bin/sh" }, { "kind": "const", "type": "String", "value": "-c" }, { "kind": "const", "type": "String", "value": "[ -z $HOME ] && [ x$FOO = xbar ]" }] }, { "kind": "const", "type": "String", "value": "" }, { "kind": "map", "type": "Map OF String TO String", "entries": [{ "key": { "kind": "const", "type": "String", "value": "FOO" }, "value": { "kind": "const", "type": "String", "value": "bar" } }] }, { "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "bind", "line": 14, "mutable": false, "name": "b", "type": "process.Process", "value": { "kind": "call", "type": "process.Process", "target": "process.spawn", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "/bin/sh" }, { "kind": "const", "type": "String", "value": "-c" }, { "kind": "const", "type": "String", "value": "[ -z $HOME ] && [ x$FOO = xbar ]" }] }, { "kind": "const", "type": "String", "value": "" }, { "kind": "map", "type": "Map OF String TO String", "entries": [{ "key": { "kind": "const", "type": "String", "value": "FOO" }, "value": { "kind": "const", "type": "String", "value": "bar" } }] }, { "kind": "const", "type": "Boolean", "value": "true" }] } },
     { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "process.waitFor", "args": [{ "kind": "local", "name": "b" }] }] }] } },
     { "op": "return", "line": 16, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
