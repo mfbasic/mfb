@@ -888,7 +888,12 @@ mod tests {
         // plane type names the transferred resource's state.
         assert_eq!(
             thread_parts_full("Thread OF Integer RES fs.File STATE Cursor TO String"),
-            Some((THREAD_TYPE, "Integer", Some("fs.File STATE Cursor"), "String"))
+            Some((
+                THREAD_TYPE,
+                "Integer",
+                Some("fs.File STATE Cursor"),
+                "String"
+            ))
         );
         // Resource-only spelling (message defaults to Nothing).
         assert_eq!(
@@ -912,7 +917,12 @@ mod tests {
         );
         // A record-typed STATE round-trips through format_thread_type.
         assert_eq!(
-            format_thread_type(THREAD_TYPE, "Nothing", Some("fs.File STATE Cursor"), "Integer"),
+            format_thread_type(
+                THREAD_TYPE,
+                "Nothing",
+                Some("fs.File STATE Cursor"),
+                "Integer"
+            ),
             "Thread OF RES fs.File STATE Cursor TO Integer"
         );
     }
@@ -986,7 +996,12 @@ mod tests {
         );
         assert_eq!(
             thread_parts_full("Thread OF Thread OF RES fs.File TO String TO Boolean"),
-            Some((THREAD_TYPE, "Thread OF RES fs.File TO String", None, "Boolean"))
+            Some((
+                THREAD_TYPE,
+                "Thread OF RES fs.File TO String",
+                None,
+                "Boolean"
+            ))
         );
     }
 

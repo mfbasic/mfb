@@ -2764,7 +2764,9 @@ mod tests {
         // The one type that owns the two fixed-capacity I/O buffers.
         assert!(CodeBuilder::resource_uses_io_buffers("fs.File"));
         // A `STATE`-carrying spelling is still the same base type.
-        assert!(CodeBuilder::resource_uses_io_buffers("fs.File STATE Cursor"));
+        assert!(CodeBuilder::resource_uses_io_buffers(
+            "fs.File STATE Cursor"
+        ));
 
         // Every resource type a native `LINK` block declares in-tree, plus the
         // other built-in resources. None may take the buffer-free path.

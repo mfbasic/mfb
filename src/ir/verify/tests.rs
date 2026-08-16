@@ -3945,7 +3945,12 @@ fn rejects_bare_binding_of_stateful_initializer() {
         vec![param("src", "fs.File STATE Label", None)],
         vec![],
     );
-    let b = res_bind_owned(&mut f, "x", "fs.File", Some(IrValue::Local("src".to_string())));
+    let b = res_bind_owned(
+        &mut f,
+        "x",
+        "fs.File",
+        Some(IrValue::Local("src".to_string())),
+    );
     f.body = vec![b];
     expect_rule(&project(vec![f], vec![]), "TYPE_STATE_MISMATCH");
 }
@@ -6180,7 +6185,13 @@ fn accepts_res_bind_of_a_collection_element() {
     // (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`, retired). A `RES` is a pointer to the
     // one resource, and an element is such a pointer like any other holder.
     // RES h = collections.get(xs, 0) where the element type is a resource.
-    let body = vec![bind("h", "fs.File", Some(get_call("xs", "fs.File")), true, false)];
+    let body = vec![bind(
+        "h",
+        "fs.File",
+        Some(get_call("xs", "fs.File")),
+        true,
+        false,
+    )];
     let mut f = func_returns(
         "run",
         "Nothing",

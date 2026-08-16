@@ -197,7 +197,10 @@ const AUDIO_FUNCTIONS: &[BuiltinFunction] = &[
         POLL,
         "poll",
         &[ov(
-            &[req("stream", AUDIO_INPUT_TYPE_ID), opt("timeoutMs", "Integer")],
+            &[
+                req("stream", AUDIO_INPUT_TYPE_ID),
+                opt("timeoutMs", "Integer"),
+            ],
             "Boolean",
         )],
     ),
@@ -487,7 +490,9 @@ fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedC
             Cow::Borrowed("List OF Byte")
         }
         // `write` is defined ONLY over `AudioOutput`.
-        WRITE if exact(arg_types, &[AUDIO_OUTPUT_TYPE_ID, "List OF Byte"]) => Cow::Borrowed("Nothing"),
+        WRITE if exact(arg_types, &[AUDIO_OUTPUT_TYPE_ID, "List OF Byte"]) => {
+            Cow::Borrowed("Nothing")
+        }
         POLL if exact(arg_types, &[AUDIO_INPUT_TYPE_ID])
             || exact(arg_types, &[AUDIO_OUTPUT_TYPE_ID])
             || exact(arg_types, &[AUDIO_INPUT_TYPE_ID, "Integer"])
@@ -496,12 +501,14 @@ fn dispatch_resolve<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedC
             Cow::Borrowed("Boolean")
         }
         AVAILABLE | XRUNS
-            if exact(arg_types, &[AUDIO_INPUT_TYPE_ID]) || exact(arg_types, &[AUDIO_OUTPUT_TYPE_ID]) =>
+            if exact(arg_types, &[AUDIO_INPUT_TYPE_ID])
+                || exact(arg_types, &[AUDIO_OUTPUT_TYPE_ID]) =>
         {
             Cow::Borrowed("Integer")
         }
         CLOSE
-            if exact(arg_types, &[AUDIO_INPUT_TYPE_ID]) || exact(arg_types, &[AUDIO_OUTPUT_TYPE_ID]) =>
+            if exact(arg_types, &[AUDIO_INPUT_TYPE_ID])
+                || exact(arg_types, &[AUDIO_OUTPUT_TYPE_ID]) =>
         {
             Cow::Borrowed("Nothing")
         }
@@ -700,9 +707,15 @@ mod tests {
         );
         // close routes per direction.
         assert_eq!(impl_name(CLOSE, &[AUDIO_INPUT_TYPE_ID]), Some(CLOSE_INPUT));
-        assert_eq!(impl_name(CLOSE, &[AUDIO_OUTPUT_TYPE_ID]), Some(CLOSE_OUTPUT));
+        assert_eq!(
+            impl_name(CLOSE, &[AUDIO_OUTPUT_TYPE_ID]),
+            Some(CLOSE_OUTPUT)
+        );
         // write/available/xruns/devices never rewrite.
-        assert_eq!(impl_name(WRITE, &[AUDIO_OUTPUT_TYPE_ID, "List OF Byte"]), None);
+        assert_eq!(
+            impl_name(WRITE, &[AUDIO_OUTPUT_TYPE_ID, "List OF Byte"]),
+            None
+        );
         assert_eq!(impl_name(AVAILABLE, &[AUDIO_INPUT_TYPE_ID]), None);
         assert_eq!(impl_name(DEVICES, &[]), None);
     }
@@ -749,7 +762,10 @@ mod tests {
     fn return_type_names() {
         assert_eq!(call_return_type_name(DEVICES), Some("List OF AudioDevice"));
         assert_eq!(call_return_type_name(OPEN_INPUT), Some(AUDIO_INPUT_TYPE_ID));
-        assert_eq!(call_return_type_name(OPEN_OUTPUT), Some(AUDIO_OUTPUT_TYPE_ID));
+        assert_eq!(
+            call_return_type_name(OPEN_OUTPUT),
+            Some(AUDIO_OUTPUT_TYPE_ID)
+        );
         assert_eq!(call_return_type_name(READ), Some("List OF Byte"));
         assert_eq!(call_return_type_name(WRITE), Some("Nothing"));
         assert_eq!(call_return_type_name(POLL), Some("Boolean"));

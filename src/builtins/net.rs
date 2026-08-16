@@ -138,7 +138,10 @@ const P_ACCEPT: &[Parameter] = &[
     req("listener", &[], LISTENER_TYPE_ID),
     opt("timeoutMs", "Integer"),
 ];
-const P_POLL: &[Parameter] = &[req("sock", &[], SOCKET_TYPE_ID), opt("timeoutMs", "Integer")];
+const P_POLL: &[Parameter] = &[
+    req("sock", &[], SOCKET_TYPE_ID),
+    opt("timeoutMs", "Integer"),
+];
 // plan-76-A: the readiness-multiplex overload. `socks` is a `List OF RES net.Socket`
 // (the `RES` marker is mandatory for a resource element, §15.6); the returned
 // `Socket` is a BORROWED pointer to the first ready element — the list keeps
@@ -155,7 +158,10 @@ const P_WRITE: &[Parameter] = &[
     req("sock", &[], SOCKET_TYPE_ID),
     req("bytes", &[], "List OF Byte"),
 ];
-const P_WRITE_TEXT: &[Parameter] = &[req("sock", &[], SOCKET_TYPE_ID), req("value", &[], "String")];
+const P_WRITE_TEXT: &[Parameter] = &[
+    req("sock", &[], SOCKET_TYPE_ID),
+    req("value", &[], "String"),
+];
 const P_CLOSE: &[Parameter] = &[req("resource", &["sock", "listener"], SOCKET_TYPE_ID)];
 const P_LOCAL_ADDR: &[Parameter] = &[req("sock", &["listener"], SOCKET_TYPE_ID)];
 const P_REMOTE_ADDR: &[Parameter] = &[req("sock", &[], SOCKET_TYPE_ID)];
@@ -512,7 +518,9 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             Cow::Borrowed(SOCKET_TYPE_ID)
         }
         // Scalar readiness query: `poll(Socket[, timeoutMs]) → Boolean`.
-        POLL if exact(arg_types, &[SOCKET_TYPE_ID]) || exact(arg_types, &[SOCKET_TYPE_ID, "Integer"]) => {
+        POLL if exact(arg_types, &[SOCKET_TYPE_ID])
+            || exact(arg_types, &[SOCKET_TYPE_ID, "Integer"]) =>
+        {
             Cow::Borrowed("Boolean")
         }
         // plan-76-A: readiness multiplex `poll(List OF RES net.Socket[, timeoutMs]) →
@@ -534,7 +542,9 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         CLOSE if exact(arg_types, &[SOCKET_TYPE_ID]) || exact(arg_types, &[LISTENER_TYPE_ID]) => {
             Cow::Borrowed("Nothing")
         }
-        LOCAL_ADDRESS if exact(arg_types, &[SOCKET_TYPE_ID]) || exact(arg_types, &[LISTENER_TYPE_ID]) => {
+        LOCAL_ADDRESS
+            if exact(arg_types, &[SOCKET_TYPE_ID]) || exact(arg_types, &[LISTENER_TYPE_ID]) =>
+        {
             Cow::Borrowed(ADDRESS_TYPE)
         }
         REMOTE_ADDRESS if exact(arg_types, &[SOCKET_TYPE_ID]) => Cow::Borrowed(ADDRESS_TYPE),
@@ -552,7 +562,12 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         RECEIVE_TEXT_FROM if exact(arg_types, &[UDP_SOCKET_TYPE_ID, "Integer"]) => {
             Cow::Borrowed(DATAGRAM_TEXT_TYPE)
         }
-        SEND_TO if exact(arg_types, &[UDP_SOCKET_TYPE_ID, ADDRESS_TYPE, "List OF Byte"]) => {
+        SEND_TO
+            if exact(
+                arg_types,
+                &[UDP_SOCKET_TYPE_ID, ADDRESS_TYPE, "List OF Byte"],
+            ) =>
+        {
             Cow::Borrowed("Nothing")
         }
         SEND_TEXT_TO if exact(arg_types, &[UDP_SOCKET_TYPE_ID, ADDRESS_TYPE, "String"]) => {
@@ -784,7 +799,10 @@ mod tests {
             Some(LISTENER_TYPE_ID.to_string())
         );
         assert_eq!(ret(LISTEN_TCP, &["String"]), None);
-        assert_eq!(ret(ACCEPT, &[LISTENER_TYPE_ID]), Some(SOCKET_TYPE_ID.to_string()));
+        assert_eq!(
+            ret(ACCEPT, &[LISTENER_TYPE_ID]),
+            Some(SOCKET_TYPE_ID.to_string())
+        );
         assert_eq!(
             ret(ACCEPT, &[LISTENER_TYPE_ID, "Integer"]),
             Some(SOCKET_TYPE_ID.to_string())
@@ -824,7 +842,10 @@ mod tests {
     fn resolve_close_and_addresses() {
         assert_eq!(ret(CLOSE, &[SOCKET_TYPE_ID]), Some("Nothing".to_string()));
         assert_eq!(ret(CLOSE, &[LISTENER_TYPE_ID]), Some("Nothing".to_string()));
-        assert_eq!(ret(CLOSE, &[UDP_SOCKET_TYPE_ID]), Some("Nothing".to_string()));
+        assert_eq!(
+            ret(CLOSE, &[UDP_SOCKET_TYPE_ID]),
+            Some("Nothing".to_string())
+        );
         assert_eq!(ret(CLOSE, &[ADDRESS_TYPE]), None);
         assert_eq!(
             ret(LOCAL_ADDRESS, &[SOCKET_TYPE_ID]),

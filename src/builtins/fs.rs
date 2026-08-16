@@ -177,7 +177,11 @@ const FS_FUNCTIONS: &[BuiltinFunction] = &[
         "openFileNoFollow",
         &[ov(P_OPEN_FILE, FILE_TYPE_ID)],
     ),
-    ffn(OPEN_WITHIN, "openWithin", &[ov(P_OPEN_WITHIN, FILE_TYPE_ID)]),
+    ffn(
+        OPEN_WITHIN,
+        "openWithin",
+        &[ov(P_OPEN_WITHIN, FILE_TYPE_ID)],
+    ),
     ffn(
         CREATE_TEMP_FILE,
         "createTempFile",

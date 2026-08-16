@@ -335,7 +335,9 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         }
         READ if exact(arg_types, &[TLS_SOCKET_TYPE_ID, "Integer"]) => Cow::Borrowed("List OF Byte"),
         READ_TEXT if exact(arg_types, &[TLS_SOCKET_TYPE_ID, "Integer"]) => Cow::Borrowed("String"),
-        WRITE if exact(arg_types, &[TLS_SOCKET_TYPE_ID, "List OF Byte"]) => Cow::Borrowed("Nothing"),
+        WRITE if exact(arg_types, &[TLS_SOCKET_TYPE_ID, "List OF Byte"]) => {
+            Cow::Borrowed("Nothing")
+        }
         WRITE_TEXT if exact(arg_types, &[TLS_SOCKET_TYPE_ID, "String"]) => Cow::Borrowed("Nothing"),
         // plan-76-B: readiness query `poll(TlsSocket[, timeoutMs]) → Boolean`.
         POLL if exact(arg_types, &[TLS_SOCKET_TYPE_ID])
@@ -350,7 +352,10 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         {
             Cow::Borrowed(TLS_SOCKET_TYPE_ID)
         }
-        CLOSE if exact(arg_types, &[TLS_SOCKET_TYPE_ID]) || exact(arg_types, &[TLS_LISTENER_TYPE_ID]) => {
+        CLOSE
+            if exact(arg_types, &[TLS_SOCKET_TYPE_ID])
+                || exact(arg_types, &[TLS_LISTENER_TYPE_ID]) =>
+        {
             Cow::Borrowed("Nothing")
         }
         _ => return None,
@@ -569,8 +574,14 @@ mod tests {
             rt(WRITE_TEXT, &[TLS_SOCKET_TYPE_ID, "String"]),
             Some("Nothing".to_string())
         );
-        assert_eq!(rt(CLOSE, &[TLS_SOCKET_TYPE_ID]), Some("Nothing".to_string()));
-        assert_eq!(rt(CLOSE, &[TLS_LISTENER_TYPE_ID]), Some("Nothing".to_string()));
+        assert_eq!(
+            rt(CLOSE, &[TLS_SOCKET_TYPE_ID]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(
+            rt(CLOSE, &[TLS_LISTENER_TYPE_ID]),
+            Some("Nothing".to_string())
+        );
         // plan-76-B: poll(TlsSocket[, Integer]) -> Boolean.
         assert_eq!(rt(POLL, &[TLS_SOCKET_TYPE_ID]), Some("Boolean".to_string()));
         assert_eq!(

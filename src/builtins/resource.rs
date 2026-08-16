@@ -422,7 +422,10 @@ mod tests {
     fn free_helpers_match_registry() {
         assert!(is_builtin_resource_type("fs.File"));
         assert!(!is_builtin_resource_type("Nothing"));
-        assert_eq!(builtin_resource_close_function("net.Socket"), Some("net.close"));
+        assert_eq!(
+            builtin_resource_close_function("net.Socket"),
+            Some("net.close")
+        );
         assert!(is_builtin_sendable_resource_type("net.Socket"));
         assert!(!is_builtin_sendable_resource_type("net.Listener"));
     }
