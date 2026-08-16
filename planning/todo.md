@@ -94,7 +94,7 @@ Tier 3 — coupled clusters (migrate together to avoid half-cut seams):
 - [ ] `audio` — 5 files, MML + render source (resource-owning; Phase 0.5 satisfied)
 
 Tier 4 — descriptor / data-only:
-- [ ] `errorcode` — data-only table
+- [x] `errorcode` — DONE (43 constants; extended `RegistryConstant` with message+symbol to repoint the whole error-emission path; 52598bd4f/2c5999457, merged). Byte-identity 0 diffs (codes/messages/symbols registry-sourced); regenerated 1 io-cascade golden.
 - [ ] `testing` — descriptor + desugar
 - [ ] `general` — overridable builtins (`toString`/`len`); touches every package's override table
 - [ ] `resource` — RES subsystem
