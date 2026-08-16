@@ -57,10 +57,40 @@ cleanup wiring shared. (Do NOT blindly copy the process `add_resource` shape —
 references the symbol by name). Only the `openStdIn`/`closeStdIn` MEMBERS are thread surface (const Nothing, opt parent guard).
 
 ## Execution order
-1. `tls`, then `crypto` — no infra; multi-overload members (validate overload-return-variance, mirror datetime/process).
-2. `ParameterType::ThreadHandle` variant + 6 arms + is_builtin_type parametric recognition — self-contained infra,
-   port the thread.rs:719-1006 round-trip test battery against parse/name/unify/substitute DIRECTLY before wiring members.
-3. `thread` registration — kind-split overloads + `Body::Rewrite` resource plane; delete `thread_resource_plane_target`
-   + the builder_values kind-branches; keep stdin/thread.drop/runtime specs shared.
-4. Contingency only: a `RegistryPackage` structural-resolver hook (defeats the no-custom-resolver goal) if step 2's
-   round-trip / `start` extraction proves too costly.
+1. `tls`, then `crypto` — no infra; multi-overload members (validate overload-return-variance, mirror datetime/process). [DONE]
+2. `ParameterType::ThreadHandle` variant + arms — PART A [DONE, commit fa6351143 on the thread agent branch]. Round-trip
+   parse/name battery green. The `{worker, msg, res, out}` shape is FINAL (see the obstacle resolution below — no res-mode).
+3. `thread` registration — the two-overload model below.
+
+## PART B obstacle resolution (2026-08-16, user-designed — SUPERSEDES the naive single-type model)
+PART A's ThreadHandle alone couldn't reproduce the legacy `ThreadResolver` (4 proven obstacles, `#[ignore]`d probes in
+registry/mod.rs). The clean resolution — NO matcher-core surgery, NO structural-resolver hook, NO res-mode:
+
+**#2 + #3 (the `res` slot's optional-vs-required contradiction) → SIGNATURE-LEVEL OVERLOAD SPLIT.** Model the two thread
+shapes as two SEPARATE registry overloads on the EXISTING surface spelling (`Thread OF Msg TO Out` vs
+`Thread OF Msg RES Res TO Out` — the current `RES` clause IS the distinction; do NOT introduce `WITH`/channel syntax):
+- `start` gets TWO implementations: a DATA one whose worker/return carry **no `res` var at all**
+  (return `ThreadHandle{res: Nothing}`), and a RESOURCE one where `res = Var("Res")` is required
+  (return `ThreadHandle{res: Var("Res")}`). A data-only worker matches the data overload (no var ever binds `Nothing` →
+  the strict-`Nothing` guard never bites); a resource worker matches the resource overload.
+- `accept`/`transfer` register **ONLY** the resource overload (param `ThreadHandle{res: Var("Res")}`, return `Var("Res")`).
+- A data-only handle (`res: Nothing`) passed to `accept`: the ThreadHandle unify arm recurses `unify(Var("Res"), Nothing)`
+  → hits the EXISTING strict-`Nothing` guard (registry/mod.rs:~1618) → `false` → no overload → `resolve()==None` →
+  `TYPE_CALL_ARGUMENT_MISMATCH`. **Reproduces legacy exactly** — the guard works FOR us once the model is two overloads.
+  (Lenient mode still binds `Var(Res)=Nothing`, but that path is only reached for programs strict-validation already
+  accepted, so it never mis-lowers a rejected `accept`.)
+- Same for `receive`/`waitFor` etc.: kind-split (parent/worker) overloads as before, now also data/resource-split where
+  the resource plane is involved. Each overload is fully-specified; `select()`/`unify` untouched.
+
+**#4 (re-occurring `Var` bound to `Unknown`) → refine, don't conflict.** `unify` Var arm: a prior `Some(Unknown)` binding
+is REFINED by a later concrete occurrence (`send(Thread OF Unknown TO Out, Integer)` binds Msg=Unknown then refines to
+Integer) instead of failing `resource_base_eq(Unknown, Integer)`. [APPLYING standalone — beneficial latent-bug fix; full
+test+acceptance+byte-identity verification before commit.]
+
+**#1 (parse `ISOLATED FUNC`) → bounded parse/name fix.** `parse` must decompose the worker's
+`ISOLATED FUNC(ThreadWorker OF Msg [RES Res] TO Out, In) AS Out` so the `Func` arm reaches the nested `ThreadWorker`
+handle; `name()` round-trips the `ISOLATED` marker. No matcher-core involvement.
+
+Net: PART A ThreadHandle shape is final; PART B = two-overload `start` (+ resource-only `accept`/`transfer`) + the #1
+parse fix + #4 (applied). Delete `thread_resource_plane_target` + the builder_values kind-branches; keep
+stdin/thread.drop/runtime specs shared. Gate on the ported round-trip battery + thread/io acceptance OUTPUT preservation.
