@@ -25,6 +25,7 @@ mod terminal_safe;
 mod testing;
 #[cfg(test)]
 mod testutil;
+mod types;
 mod unicode;
 
 fn main() {
