@@ -116,17 +116,10 @@ static LEGACY_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     NET_RECEIVE_TEXT_FROM_SPEC,
     NET_SEND_TO_SPEC,
     NET_SEND_TEXT_TO_SPEC,
-    TLS_CONNECT_SPEC,
-    TLS_LISTEN_SPEC,
-    TLS_ACCEPT_SPEC,
-    TLS_READ_SPEC,
-    TLS_READ_TEXT_SPEC,
-    TLS_WRITE_SPEC,
-    TLS_WRITE_TEXT_SPEC,
-    TLS_POLL_SPEC,
-    TLS_POLL_LIST_SPEC,
-    TLS_CLOSE_SPEC,
-    TLS_CLOSE_LISTENER_SPEC,
+    // `tls` is migrated: its specs (including the two resource close ops and the
+    // `pollList`/`closeListener` code forms) are DERIVED from the registry
+    // (`registry::runtime_specs`) and merged in by `supported_helper_specs`, so no
+    // hand-written `TLS_*_SPEC` rows live here.
 ];
 
 /// The one catalog: the still-hand-written [`LEGACY_HELPER_SPECS`] for packages not

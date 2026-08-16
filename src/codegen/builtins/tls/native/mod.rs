@@ -14,9 +14,11 @@
 
 use std::collections::HashMap;
 
-use super::native_helpers::{emit_data_address, emit_fail, hex_encode_cstring};
-use super::*;
 use crate::target::shared::abi;
+use crate::target::shared::code::native_helpers::{
+    emit_data_address, emit_fail, hex_encode_cstring,
+};
+use crate::target::shared::code::*;
 
 // TLS handles share the canonical resource-record header (plan-80): tag@0,
 // fd (handle)@8, closed@16, STATE@24 — then the TLS-specific `SSL_CTX*`/`SSL*`
@@ -122,7 +124,7 @@ pub(super) fn sym_data_symbol(name: &str) -> String {
 /// by the TLS helpers. Emitted once when a module uses any `tls` call; the
 /// server-only symbol names are appended only when a server helper
 /// (`tls.listen`/`tls.accept`/`tls.closeListener`) is in the plan.
-pub(super) fn tls_cstring_data_objects(server: bool) -> Vec<CodeDataObject> {
+pub(crate) fn tls_cstring_data_objects(server: bool) -> Vec<CodeDataObject> {
     let mut objects = Vec::new();
     for (index, name) in TLS_LIB_NAMES.iter().enumerate() {
         objects.push(CodeDataObject {
@@ -328,7 +330,7 @@ pub(super) fn emit_set_sock_timeouts(
         // SO_*TIMEO silently fail to install and the later recv blocks forever. Route
         // through emit_external_int_call, which spills the overflow arg on Win64 and
         // is byte-identical on POSIX (all 5 fit in registers → plain emit_libc_call).
-        super::native_helpers::emit_external_int_call(
+        crate::target::shared::code::native_helpers::emit_external_int_call(
             platform,
             "setsockopt",
             symbol,
@@ -344,6 +346,39 @@ pub(super) fn emit_set_sock_timeouts(
 pub(crate) mod macos;
 mod openssl;
 pub(crate) mod schannel;
+
+/// The single family-generic OS-seam entry for every `tls::` member — the twin
+/// idiom (`Body::native_os_seam(Some(lower_tls_helper), Some(lower_tls_helper),
+/// …)` in each `func_*.rs`): the generic runtime-call dispatch
+/// (`crate::codegen::os::dispatch_runtime_helper` → `registry::os_helper`) routes a
+/// `tls.*` runtime call here by member name / os-alias, and this matches the call
+/// to its per-helper family dispatcher (which each branch on `platform.family()`
+/// for openssl / schannel / macos). Covers the descriptor members plus the two
+/// code-form aliases (`tls.pollList`, `tls.closeListener`).
+pub(crate) fn lower_tls_helper(
+    call: &str,
+    symbol: &str,
+    _ctx: &crate::codegen::registry::OsLowerCtx,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    match call {
+        "tls.connect" => lower_tls_connect_helper(symbol, platform_imports, platform),
+        "tls.listen" => lower_tls_listen_helper(symbol, platform_imports, platform),
+        "tls.accept" => lower_tls_accept_helper(symbol, platform_imports, platform),
+        "tls.read" => lower_tls_read_helper(symbol, platform_imports, platform, false),
+        "tls.readText" => lower_tls_read_helper(symbol, platform_imports, platform, true),
+        "tls.write" => lower_tls_write_helper(symbol, platform_imports, platform, false),
+        "tls.writeText" => lower_tls_write_helper(symbol, platform_imports, platform, true),
+        "tls.poll" => lower_tls_poll_helper(symbol, platform_imports, platform),
+        "tls.pollList" => lower_tls_poll_list_helper(symbol, platform_imports, platform),
+        "tls.close" => lower_tls_close_helper(symbol, platform_imports, platform),
+        "tls.closeListener" => lower_tls_close_listener_helper(symbol, platform_imports, platform),
+        other => Err(format!(
+            "native code plan does not emit runtime call '{other}'"
+        )),
+    }
+}
 
 // Per-helper platform dispatch, done once here in the package parent — mirroring
 // `crypto_ec::lower_crypto_ec_helper` — so neither backend is the entry point
@@ -641,6 +676,6 @@ pub(super) fn lower_tls_close_listener_helper(
 // macOS backend: Network.framework over a dispatch-semaphore synchronous bridge
 // ===========================================================================
 
-pub(super) fn macos_tls_data_objects(server: bool) -> Vec<CodeDataObject> {
+pub(crate) fn macos_tls_data_objects(server: bool) -> Vec<CodeDataObject> {
     macos::data_objects(server)
 }

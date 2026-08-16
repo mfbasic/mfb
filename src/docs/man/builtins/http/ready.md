@@ -35,7 +35,7 @@ progress is possible and otherwise does the caller's own work.
 `ready` does not itself advance the exchange or change `stream`'s STATE; it only
 reports readiness. A closed peer reads as ready (the terminating zero-byte read is
 available), so a loop gated on `ready` still reaches `http::done`.
-[[src/builtins/tls.rs:POLL]]
+[[src/codegen/builtins/tls/func_poll.rs:poll]]
 
 ## Parameters
 

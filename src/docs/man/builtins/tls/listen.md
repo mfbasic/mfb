@@ -55,7 +55,7 @@ presents its certificate but does not request or verify a client certificate
 
 `TlsListener` resources are closed by lexical drop at scope exit or explicitly
 with `tls::close`. Draw connections from a listener with `tls::accept`.
-[[src/builtins/tls.rs:TLS_LISTENER_TYPE]]
+[[src/codegen/builtins/tls/mod.rs:TLS_LISTENER_TYPE]]
 
 ## Overloads
 
@@ -66,7 +66,7 @@ Binds `host`/`port` with the host default backlog and loads the identity.
 **`tls::listen(host AS String, port AS Integer, certPath AS String, keyPath AS String, backlog AS Integer) AS tls::TlsListener`**
 
 As above, with an explicit pending-connection `backlog` hint (`0` uses the host
-default). [[src/builtins/tls.rs:TLS]]
+default). [[src/codegen/builtins/tls/mod.rs:register]]
 
 ## Parameters
 
@@ -82,7 +82,7 @@ default). [[src/builtins/tls.rs:TLS]]
 
 | Type | Description |
 | --- | --- |
-| `TlsListener` | A bound, listening `TlsListener` resource that owns the loaded server TLS context, ready for `tls::accept`. The listener is closed by lexical drop at scope exit unless closed earlier with `tls::close`. [[src/builtins/tls.rs:TLS]] |
+| `TlsListener` | A bound, listening `TlsListener` resource that owns the loaded server TLS context, ready for `tls::accept`. The listener is closed by lexical drop at scope exit unless closed earlier with `tls::close`. [[src/codegen/builtins/tls/mod.rs:register]] |
 
 ## Errors
 

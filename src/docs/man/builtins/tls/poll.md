@@ -23,7 +23,7 @@ IMPORT tls
 ```
 
 `tls` is a built-in package, so no manifest dependency is required.
-[[src/builtins/tls.rs:is_tls_call]]
+[[src/codegen/builtins/tls/mod.rs:register]]
 
 ## Description
 
@@ -33,7 +33,7 @@ a following `tls::read` or `tls::readText` can proceed without blocking. It retu
 terminal readable state — peer close or error — where a read returns promptly), and
 `FALSE` when nothing became readable before the deadline. The socket is borrowed and
 inspected only; no application data is consumed, so a `TRUE` result leaves the bytes
-in place for the next read. [[src/target/shared/code/tls/mod.rs:lower_tls_poll_helper]]
+in place for the next read. [[src/codegen/builtins/tls/native/mod.rs:lower_tls_poll_helper]]
 
 **Readiness includes bytes buffered inside the TLS layer, not just raw transport
 state.** A single TLS record can carry many application bytes: one decrypt drains a
@@ -41,7 +41,7 @@ record and buffers the remainder, so a `TlsSocket` may hold decrypted bytes read
 read while the underlying transport is idle. `tls::poll` accounts for this — it is
 `TRUE` whenever the next read would return bytes, whether they are already buffered
 or still on the wire. A plain fd-level poll would wrongly report "not ready" in the
-buffered case. [[src/target/shared/code/tls/openssl.rs:lower_tls_poll_openssl]]
+buffered case. [[src/codegen/builtins/tls/native/openssl.rs:lower_tls_poll_openssl]]
 
 `timeoutMs` bounds the wait, in milliseconds, following the language timeout
 convention (see `mfb spec language builtin-functions` → "Timeout convention"). When
@@ -49,11 +49,11 @@ it is **omitted, `poll` blocks** until the socket becomes readable and then retu
 `TRUE` (omit = unbounded). `0` is a non-blocking check that returns immediately with
 the socket's current readiness. A positive value waits up to that long. A negative
 `timeoutMs` is rejected with `ErrInvalidArgument`; a value above 2147483647 is
-clamped to that. [[src/builtins/tls.rs:default_argument_padding]]
+clamped to that. [[src/codegen/builtins/tls/mod.rs:SENTINEL]]
 
 Behaviour is identical, per the convention, across all three TLS backends: macOS
 Network.framework, Linux/BSD OpenSSL, and Windows Schannel.
-[[src/target/shared/code/tls/schannel_read_close.rs:lower_tls_poll]]
+[[src/codegen/builtins/tls/native/schannel_read_close.rs:lower_tls_poll]]
 
 Given a `List OF RES tls::TlsSocket`, `tls::poll` becomes a **readiness multiplex**: it
 blocks until at least one socket in the list is readable, then returns the first
@@ -66,7 +66,7 @@ value, expiry raises `ErrTimeout` (a producing call). The elements must be marke
 `RES` (`List OF RES tls::TlsSocket`); a bare `List OF TlsSocket` is a compile error. The
 buffered-readiness rule above applies per socket, so a socket holding decrypted bytes
 with an idle transport is correctly reported ready by the multiplex.
-[[src/target/shared/code/tls/mod.rs:lower_tls_poll_list_helper]]
+[[src/codegen/builtins/tls/native/mod.rs:lower_tls_poll_list_helper]]
 
 `tls::poll` complements the blocking `tls::read`: `poll` asks whether a read would
 block right now, letting a program interleave its own work with a cooperatively
@@ -98,16 +98,16 @@ single immediate scan. Expiry with none ready raises `ErrTimeout`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `sock` | `TlsSocket` | An open TLS socket, as returned by `tls::connect` or `tls::accept`. It is borrowed and inspected for readiness only; no data is read and the handle is not consumed. [[src/builtins/tls.rs:call_param_name_overloads]] |
-| `socks` | `List OF RES tls::TlsSocket` | A non-empty list of open TLS sockets. Each is borrowed and inspected for readiness; the list keeps ownership. An empty list raises `ErrInvalidArgument`. [[src/builtins/tls.rs:call_param_name_overloads]] |
-| `timeoutMs` | `Integer` | Optional. Omit to block until a socket is readable; `0` is an immediate non-blocking check/scan; a positive value waits up to that many milliseconds, clamped to `2147483647`. Must not be negative. [[src/builtins/tls.rs:default_argument_padding]] |
+| `sock` | `TlsSocket` | An open TLS socket, as returned by `tls::connect` or `tls::accept`. It is borrowed and inspected for readiness only; no data is read and the handle is not consumed. [[src/codegen/registry/mod.rs:call_param_name_overloads]] |
+| `socks` | `List OF RES tls::TlsSocket` | A non-empty list of open TLS sockets. Each is borrowed and inspected for readiness; the list keeps ownership. An empty list raises `ErrInvalidArgument`. [[src/codegen/registry/mod.rs:call_param_name_overloads]] |
+| `timeoutMs` | `Integer` | Optional. Omit to block until a socket is readable; `0` is an immediate non-blocking check/scan; a positive value waits up to that many milliseconds, clamped to `2147483647`. Must not be negative. [[src/codegen/builtins/tls/mod.rs:SENTINEL]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | (scalar overload) `TRUE` when a following `tls::read`/`tls::readText` will not block — including buffered decrypted bytes with an idle transport, and terminal states where the read returns promptly. `FALSE` when nothing became readable before the deadline. [[src/builtins/tls.rs:TLS]] |
-| `TlsSocket` | (list overload) A **borrowed** pointer to the first ready socket (lowest list index). The list retains ownership and closes it; do not close the returned handle. [[src/target/shared/code/tls/mod.rs:lower_tls_poll_list_helper]] |
+| `Boolean` | (scalar overload) `TRUE` when a following `tls::read`/`tls::readText` will not block — including buffered decrypted bytes with an idle transport, and terminal states where the read returns promptly. `FALSE` when nothing became readable before the deadline. [[src/codegen/builtins/tls/mod.rs:register]] |
+| `TlsSocket` | (list overload) A **borrowed** pointer to the first ready socket (lowest list index). The list retains ownership and closes it; do not close the returned handle. [[src/codegen/builtins/tls/native/mod.rs:lower_tls_poll_list_helper]] |
 
 ## Errors
 

@@ -49,8 +49,8 @@ node and binds every IPv4 interface, which is equivalent to the `"0.0.0.0"`
 default. Only the low 16 bits of `port` reach the socket: the value is written
 into the two `sin_port` bytes of the resolved address, so a `port` outside
 `0..65535` is truncated modulo 65536 rather than rejected.
-[[src/target/shared/code/tls/mod.rs:lower_tls_listen_helper]]
-[[src/target/shared/code/tls/mod.rs:HINTS_FAMILY_WORD_PASSIVE]]
+[[src/codegen/builtins/tls/native/mod.rs:lower_tls_listen_helper]]
+[[src/codegen/builtins/tls/native/mod.rs:HINTS_FAMILY_WORD_PASSIVE]]
 
 `certPath` and `keyPath` are filesystem paths to PEM files: the certificate
 chain (leaf certificate first, then any intermediates) and the matching private
@@ -66,8 +66,8 @@ accepted but ignored because Network.framework manages its own accept queue. A
 certificate or key that cannot be read, does not parse, or does not match its
 partner raises `ErrTlsFailed`, and the listening socket is closed before the
 error is returned.
-[[src/target/shared/code/tls/mod.rs:lower_tls_listen_helper]]
-[[src/target/shared/code/tls/macos/server.rs:lower_tls_listen_macos]]
+[[src/codegen/builtins/tls/native/mod.rs:lower_tls_listen_helper]]
+[[src/codegen/builtins/tls/native/macos/server.rs:lower_tls_listen_macos]]
 
 A single server certificate is presented: there is no SNI multi-certificate
 selection, and the listener does not request or verify a client certificate (no
@@ -76,7 +76,7 @@ mutual TLS).
 The server TLS context is owned by the listener and *borrowed* by each accepted
 socket, so closing an accepted connection never frees the shared context; it is
 released exactly once when the listener itself closes.
-[[src/target/shared/code/tls/mod.rs:TLS_LISTENER_OFFSET_CTX]]
+[[src/codegen/builtins/tls/native/mod.rs:TLS_LISTENER_OFFSET_CTX]]
 
 The returned listener is a resource: bind it with `RES`, and it is closed by
 lexical drop at scope exit (or earlier with `tls::close`). Drive it with a

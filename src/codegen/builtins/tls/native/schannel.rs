@@ -15,15 +15,15 @@
 
 use std::collections::HashMap;
 
-use super::super::emit_alloc;
-use super::super::native_helpers::{emit_build_byte_list, emit_fail};
-use super::super::net::emit_string_result_build;
-use super::super::*;
 use super::{
     TLS_LISTENER_OFFSET_CLOSED, TLS_OFFSET_CLOSED, TLS_OFFSET_FD, TLS_OFFSET_STATE,
     TLS_RECORD_SIZE, TLS_SCHANNEL_OFFSET_BLOCK,
 };
 use crate::target::shared::abi;
+use crate::target::shared::code::emit_alloc;
+use crate::target::shared::code::native_helpers::{emit_build_byte_list, emit_fail};
+use crate::target::shared::code::net::emit_string_result_build;
+use crate::target::shared::code::*;
 
 const SECUR32: &str = "secur32.dll";
 const CRYPT32: &str = "crypt32.dll";
@@ -139,7 +139,7 @@ fn wide_addr(
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) {
-    super::super::native_helpers::emit_data_address(from, dst, &sym(id), ins, rel);
+    crate::target::shared::code::native_helpers::emit_data_address(from, dst, &sym(id), ins, rel);
 }
 
 /// Emit a Win64 external call: args 0..=3 in `return_register`/`ARG[1..3]`, args

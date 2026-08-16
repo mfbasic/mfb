@@ -140,7 +140,6 @@ mod term;
 pub(crate) mod term_grid;
 #[cfg(test)]
 mod tests;
-pub(crate) mod tls;
 pub(crate) mod type_utils;
 // Re-exported flat for the relocated `fs` `native/paths_builder.rs` path emitters.
 use builder_vector_inline::{vector_call_is_inlined, vector_field_count};
@@ -1020,16 +1019,21 @@ pub(crate) fn lower_module_for_platform(
             .any(|symbol| is_tls_server_symbol(symbol));
         match platform.family() {
             PlatformFamily::MacOS => {
-                data_objects.extend(tls::macos_tls_data_objects(tls_server));
+                data_objects.extend(
+                    crate::codegen::builtins::tls::native::macos_tls_data_objects(tls_server),
+                );
             }
             PlatformFamily::Linux => {
-                data_objects.extend(tls::tls_cstring_data_objects(tls_server));
+                data_objects.extend(
+                    crate::codegen::builtins::tls::native::tls_cstring_data_objects(tls_server),
+                );
             }
             // The Windows TLS data objects are the Schannel package-name wide
             // string (plan-47-J).
             PlatformFamily::Windows => {
                 let _ = tls_server;
-                data_objects.extend(tls::schannel::data_objects());
+                data_objects
+                    .extend(crate::codegen::builtins::tls::native::schannel::data_objects());
             }
         }
     }
@@ -2254,44 +2258,27 @@ fn lower_runtime_helper(
                         }
                     }
                 }
-                call if call.starts_with("tls.") => match call {
-                    "tls.connect" => {
-                        tls::lower_tls_connect_helper(symbol, platform_imports, platform)?
+                // Every `tls.*` member carries `Body::native_os_seam` on the clean-room
+                // registry: the per-platform emission lives in
+                // `codegen::builtins::tls::native` (the twin-idiom `lower_tls_helper`),
+                // and the generic registry-driven dispatch routes each member plus its
+                // `pollList`/`closeListener` code-form aliases by `platform.family()`.
+                call if call.starts_with("tls.") => {
+                    match crate::codegen::os::dispatch_runtime_helper(
+                        call,
+                        symbol,
+                        &os_ctx,
+                        platform_imports,
+                        platform,
+                    ) {
+                        Some(result) => result?,
+                        None => {
+                            return Err(format!(
+                                "native code plan does not emit runtime call '{call}'"
+                            ));
+                        }
                     }
-                    "tls.listen" => {
-                        tls::lower_tls_listen_helper(symbol, platform_imports, platform)?
-                    }
-                    "tls.accept" => {
-                        tls::lower_tls_accept_helper(symbol, platform_imports, platform)?
-                    }
-                    "tls.read" => {
-                        tls::lower_tls_read_helper(symbol, platform_imports, platform, false)?
-                    }
-                    "tls.readText" => {
-                        tls::lower_tls_read_helper(symbol, platform_imports, platform, true)?
-                    }
-                    "tls.write" => {
-                        tls::lower_tls_write_helper(symbol, platform_imports, platform, false)?
-                    }
-                    "tls.writeText" => {
-                        tls::lower_tls_write_helper(symbol, platform_imports, platform, true)?
-                    }
-                    "tls.poll" => tls::lower_tls_poll_helper(symbol, platform_imports, platform)?,
-                    "tls.pollList" => {
-                        tls::lower_tls_poll_list_helper(symbol, platform_imports, platform)?
-                    }
-                    "tls.close" => tls::lower_tls_close_helper(symbol, platform_imports, platform)?,
-                    "tls.closeListener" => {
-                        tls::lower_tls_close_listener_helper(symbol, platform_imports, platform)?
-                    }
-                    // Defensive: unreachable (see the io.*/fs.* arm); required only for
-                    // `&str` match exhaustiveness.
-                    other => {
-                        return Err(format!(
-                            "native code plan does not emit runtime call '{other}'"
-                        ));
-                    }
-                },
+                }
                 other => {
                     return Err(format!(
                         "native code plan does not emit runtime call '{other}'"
@@ -2363,7 +2350,7 @@ pub(crate) fn emit_alloc(
 /// `arena_free(x0 = ptr, x1 = size)` — return a compiler-sized allocation to the
 /// arena. The caller preloads `x0`/`x1`; one internal-call relocation per (from,to)
 /// covers all sites in `symbol`. Companion of [`emit_alloc`].
-pub(super) fn emit_arena_free(
+pub(crate) fn emit_arena_free(
     symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,

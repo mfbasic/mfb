@@ -53,7 +53,7 @@ macOS path computes a `dispatch_time` deadline (`DISPATCH_TIME_NOW` for `0`,
 `FOREVER` for the omitted form) and bounds the handshake the same way. **Host
 resolution is not bounded** — the resolver call happens before the deadline
 starts, so a slow DNS lookup can exceed `timeoutMs`.
-[[src/target/shared/code/tls/openssl.rs:connect_timeout]]
+[[src/codegen/builtins/tls/native/openssl.rs:connect_timeout]]
 
 TLS is implemented on Linux by driving the system OpenSSL library (`libssl.so.3`,
 falling back to `libssl.so.1.1`) so a single binary spans OpenSSL 1.1.1 and 3.x;
@@ -63,7 +63,7 @@ required symbol is missing — `connect` raises `ErrTlsFailed`.
 
 `TlsSocket` resources are closed by lexical drop at scope exit or explicitly with
 `tls::close`. Read and write data with `tls::read`, `tls::readText`,
-`tls::write`, and `tls::writeText`. [[src/builtins/tls.rs:TLS_SOCKET_TYPE]]
+`tls::write`, and `tls::writeText`. [[src/codegen/builtins/tls/mod.rs:TLS_SOCKET_TYPE]]
 
 ## Overloads
 
@@ -79,7 +79,7 @@ As above, bounded by a timeout in milliseconds (see Description).
 **`tls::connect(host AS String, port AS Integer, timeoutMs AS Integer, serverName AS String) AS tls::TlsSocket`**
 
 As above, but validates the certificate against `serverName` and sends it as the
-SNI host name when `serverName` is non-empty. [[src/builtins/tls.rs:TLS]]
+SNI host name when `serverName` is non-empty. [[src/codegen/builtins/tls/mod.rs:register]]
 
 ## Parameters
 
@@ -94,7 +94,7 @@ SNI host name when `serverName` is non-empty. [[src/builtins/tls.rs:TLS]]
 
 | Type | Description |
 | --- | --- |
-| `TlsSocket` | A connected `TlsSocket` resource whose certificate has been verified, ready for reading and writing. The `TlsSocket` is closed by lexical drop at scope exit unless closed earlier with `tls::close`. [[src/builtins/tls.rs:TLS]] |
+| `TlsSocket` | A connected `TlsSocket` resource whose certificate has been verified, ready for reading and writing. The `TlsSocket` is closed by lexical drop at scope exit unless closed earlier with `tls::close`. [[src/codegen/builtins/tls/mod.rs:register]] |
 
 ## Errors
 

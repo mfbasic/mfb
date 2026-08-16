@@ -7,6 +7,7 @@
 // measurement (`leaks` shows the per-read `dispatch_data_t` leak drop to 0);
 // this test pins the codegen so the releases cannot silently regress.
 use super::*;
+use crate::arch::ops::CodeOp;
 use crate::target::shared::code::mir;
 
 struct TlsReadTestPlatform;

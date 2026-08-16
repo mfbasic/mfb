@@ -87,7 +87,7 @@ pub(crate) fn emit_data_address(
 /// to a bare `emit_libc_call`. Only Win64 (4 register args) actually spills, and
 /// only for a call that passes more than four — exactly the sites bug-384
 /// describes. Args 0..4 stay in `rcx/rdx/r8/r9` on Win64 regardless.
-pub(super) fn emit_external_int_call(
+pub(crate) fn emit_external_int_call(
     platform: &dyn CodegenPlatform,
     symbol: &str,
     from: &str,

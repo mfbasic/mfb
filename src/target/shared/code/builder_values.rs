@@ -232,7 +232,11 @@ impl CodeBuilder<'_> {
                     crate::codegen::registry::native_bare_target(target),
                     Some("get" | "getOr")
                 ) || crate::builtins::net::returns_borrowed_resource(target)
-                    || crate::builtins::tls::returns_borrowed_resource(target)
+                    // `tls::poll(List OF RES TlsSocket)` returns a borrowed pointer to
+                    // the first ready list element (the list keeps ownership), like
+                    // `net::poll(List)` — the migrated tls package folds this into the
+                    // call-name check here.
+                    || target == "tls.poll"
             }
             _ => false,
         }
@@ -1821,7 +1825,7 @@ impl CodeBuilder<'_> {
             .or_else(|| {
                 (target == "tls.poll").then(|| {
                     if self.net_poll_is_list_form(&helper_args) {
-                        builtins::tls::TLS_SOCKET_TYPE.to_string()
+                        crate::codegen::builtins::tls::TLS_SOCKET_TYPE.to_string()
                     } else {
                         "Boolean".to_string()
                     }

@@ -651,7 +651,7 @@ pub(super) fn lower_tls_accept(
         // => WSAPoll(0), one immediate attempt (`ErrTimeout` if none pending); `> 0`
         // => WSAPoll(timeoutMs); a negative (non-sentinel) => ErrInvalidArgument.
         abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT),
-        abi::move_immediate("%v10", "Integer", super::super::TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::move_immediate("%v10", "Integer", crate::target::shared::code::TIMEOUT_UNBOUNDED_SENTINEL),
         abi::compare_registers("%v9", "%v10"),
         abi::branch_eq(&no_timeout),
         abi::compare_immediate("%v9", "0"),
@@ -701,7 +701,7 @@ pub(super) fn lower_tls_accept(
         let hs_ts_skip = format!("{symbol}_hs_ts_skip");
         ins.extend([
             abi::load_u64("%v14", abi::stack_pointer(), TIMEOUT),
-            abi::move_immediate("%v15", "Integer", super::super::TIMEOUT_UNBOUNDED_SENTINEL),
+            abi::move_immediate("%v15", "Integer", crate::target::shared::code::TIMEOUT_UNBOUNDED_SENTINEL),
             abi::compare_registers("%v14", "%v15"),
             abi::branch_eq(&hs_ts_skip),
             // Winsock SO_*TIMEO is a DWORD of milliseconds; 0 means infinite, so the
@@ -893,7 +893,7 @@ pub(super) fn lower_tls_accept(
         let hs_clr_skip = format!("{symbol}_hs_clr_skip");
         ins.extend([
             abi::load_u64("%v14", abi::stack_pointer(), TIMEOUT),
-            abi::move_immediate("%v15", "Integer", super::super::TIMEOUT_UNBOUNDED_SENTINEL),
+            abi::move_immediate("%v15", "Integer", crate::target::shared::code::TIMEOUT_UNBOUNDED_SENTINEL),
             abi::compare_registers("%v14", "%v15"),
             abi::branch_eq(&hs_clr_skip),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTV),

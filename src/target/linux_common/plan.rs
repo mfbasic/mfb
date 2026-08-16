@@ -519,7 +519,9 @@ impl LinuxPlan<'_> {
                     self.libc_import("dlsym", required_by),
                 ]
             }
-            call if crate::builtins::tls::is_tls_runtime_call(call) => {
+            call if crate::codegen::registry::registry().owning_package(call) == Some("tls")
+                || call == "tls.closeListener" =>
+            {
                 // The TLS backend resolves OpenSSL at load time via dlopen/dlsym;
                 // tls.connect/listen also open the TCP socket themselves, and
                 // every helper can report errno-derived failures.

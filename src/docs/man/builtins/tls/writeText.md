@@ -27,13 +27,13 @@ re-encoding and no trailing newline added. It writes the whole string: the call
 loops over the underlying TLS write until every byte has been accepted, so a
 successful return means all of `value` was handed to the TLS layer, not merely
 the first chunk. The socket must still be open.
-[[src/target/shared/code/tls/mod.rs:lower_tls_write_helper]]
+[[src/codegen/builtins/tls/native/mod.rs:lower_tls_write_helper]]
 
 The bytes are taken from the string in order, starting at its first byte. An
 empty `value` is a no-op: nothing is sent and the call succeeds without touching
 the TLS layer. The function reads from the existing string buffer and allocates
 nothing of its own; it has no side effects beyond the bytes it sends and does
-not close the socket. [[src/target/shared/code/tls/macos/client.rs:lower_tls_write_macos]]
+not close the socket. [[src/codegen/builtins/tls/native/macos/client.rs:lower_tls_write_macos]]
 
 `writeText` returns `Nothing`; there is no short-write result to inspect, because
 a partial write that cannot be completed is reported as an error rather than a
@@ -45,7 +45,7 @@ TLS is implemented on Linux by driving the system OpenSSL library
 OpenSSL 1.1.1 and 3.x; the macOS backend drives Network.framework through a
 synchronous bridge. If the TLS layer cannot be initialized — neither OpenSSL
 library can be loaded, or a required symbol is missing — `writeText` raises
-`ErrTlsFailed`. [[src/builtins/tls.rs:TLS_SOCKET_TYPE]]
+`ErrTlsFailed`. [[src/codegen/builtins/tls/mod.rs:TLS_SOCKET_TYPE]]
 
 ## Parameters
 
@@ -58,7 +58,7 @@ library can be loaded, or a required symbol is missing — `writeText` raises
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `writeText` returns no value. A successful return means every byte of `value` was accepted by the TLS layer. [[src/builtins/tls.rs:TLS]] |
+| `Nothing` | `writeText` returns no value. A successful return means every byte of `value` was accepted by the TLS layer. [[src/codegen/builtins/tls/mod.rs:register]] |
 
 ## Errors
 

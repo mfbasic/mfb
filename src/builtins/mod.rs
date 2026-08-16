@@ -10,7 +10,6 @@ pub(crate) mod strings;
 pub(crate) mod term;
 pub(crate) mod testing;
 pub(crate) mod thread;
-pub(crate) mod tls;
 pub(crate) mod vector;
 
 pub(crate) use resource::{ResourceInfo, ResourceKind, ResourceRegistry};
@@ -190,7 +189,8 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         // check above (`registry::qualified_builtin_type`), so it needs no arm here.
         "term" => term::is_builtin_type(member),
         "thread" => thread::is_builtin_type(member),
-        "tls" => tls::is_builtin_type(member),
+        // `tls`'s `TlsSocket`/`TlsListener` resources resolve via the migrated-registry
+        // check above (`registry::qualified_builtin_type`), so no arm is needed here.
         "vector" => vector::is_builtin_type(member),
         // io + the non-type packages expose no qualified value types.
         _ => false,
@@ -432,7 +432,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
             function.name,
         );
     }
-    audio::call_return_type_name(name).or_else(|| tls::call_return_type_name(name))
+    audio::call_return_type_name(name)
 }
 
 /// The name of the builtin package that owns a fully qualified call, or `None`
@@ -482,7 +482,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
     // served by the generic `registry::expected_arguments` below.
     if let Some(text) = math::expected_arguments(name)
         .or_else(|| net::expected_arguments(name))
-        .or_else(|| tls::expected_arguments(name))
         .or_else(|| audio::expected_arguments(name))
         .or_else(|| http::expected_arguments(name))
         .or_else(|| vector::expected_arguments(name))
@@ -528,7 +527,6 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| strings::expected_arguments(callee))
         .or_else(|| math::expected_arguments(callee))
         .or_else(|| net::argument_types(callee))
-        .or_else(|| tls::argument_types(callee))
         .or_else(|| audio::argument_types(callee))
         .or_else(|| http::expected_arguments(callee))
         .or_else(|| thread::expected_arguments(callee))?;
@@ -562,7 +560,6 @@ pub(crate) fn default_argument_padding(
     provided: usize,
 ) -> &'static [(&'static str, &'static str)] {
     for pad in [
-        tls::default_argument_padding(callee, provided),
         http::default_argument_padding(callee, provided),
     ] {
         if !pad.is_empty() {
@@ -742,7 +739,6 @@ pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static
         // served by the generic registry, which derives the per-overload table from
         // each implementation's parameters.
         .or_else(|| crate::codegen::registry::call_param_name_overloads(name))
-        .or_else(|| tls::call_param_name_overloads(name))
 }
 
 /// Pick the overload a call selects, given how many arguments were passed
@@ -782,7 +778,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
         .or_else(|| net::call_param_names(name))
         .or_else(|| http::call_param_names(name))
         .or_else(|| term::call_param_names(name))
-        .or_else(|| tls::call_param_names(name))
         .or_else(|| thread::call_param_names(name))
         .or_else(|| vector::call_param_names(name))?;
     Some(borrowed.iter().map(|aliases| aliases.to_vec()).collect())

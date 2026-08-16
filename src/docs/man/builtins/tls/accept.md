@@ -49,7 +49,7 @@ incompatible protocol, or a connection reset mid-handshake — raises
 returned; the listener stays open, so the server can continue accepting.
 
 This version presents the server certificate but does not request or verify a
-client certificate (no mutual TLS). [[src/builtins/tls.rs:consumes_argument]]
+client certificate (no mutual TLS). [[src/syntaxcheck/builtins.rs:tls_consumes_argument]]
 
 ## Overloads
 
@@ -60,7 +60,7 @@ Blocks until a connection is ready and the handshake completes.
 **`tls::accept(listener AS tls::TlsListener, timeoutMs AS Integer) AS tls::TlsSocket`**
 
 As above, but fails with `ErrTimeout` if a connection and handshake do not
-complete within `timeoutMs` milliseconds. [[src/builtins/tls.rs:TLS]]
+complete within `timeoutMs` milliseconds. [[src/codegen/builtins/tls/mod.rs:register]]
 
 ## Parameters
 
@@ -73,7 +73,7 @@ complete within `timeoutMs` milliseconds. [[src/builtins/tls.rs:TLS]]
 
 | Type | Description |
 | --- | --- |
-| `TlsSocket` | A connected `TlsSocket` for the accepted client, with the server handshake complete, ready for reading and writing. Byte-for-byte interchangeable with a client `TlsSocket`. Closed by lexical drop at scope exit unless closed earlier with `tls::close`. [[src/builtins/tls.rs:TLS]] |
+| `TlsSocket` | A connected `TlsSocket` for the accepted client, with the server handshake complete, ready for reading and writing. Byte-for-byte interchangeable with a client `TlsSocket`. Closed by lexical drop at scope exit unless closed earlier with `tls::close`. [[src/codegen/builtins/tls/mod.rs:register]] |
 
 ## Errors
 

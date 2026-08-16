@@ -183,7 +183,7 @@ fn emit_verify_hostname(
 mod verify_hostname_tests {
     use super::*;
     use crate::target::shared::code::test_support::TestPlatform;
-    use crate::target::shared::code::CodeOp;
+    use crate::arch::ops::CodeOp;
     use std::collections::HashMap;
 
     // bug-413: the wide server-name pointer must be stored into

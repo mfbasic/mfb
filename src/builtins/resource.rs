@@ -215,11 +215,15 @@ static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::ne
         },
     );
     entries.insert(
-        super::tls::TLS_SOCKET_TYPE_ID.to_string(),
+        // Keyed by the package-qualified type identity (`tls.TlsSocket`); the close op
+        // is looked up by the bare registry name (`TlsSocket`) within the tls package.
+        crate::codegen::builtins::tls::TLS_SOCKET_TYPE_ID.to_string(),
         ResourceInfo {
-            close_function: super::tls::resource_close_function(super::tls::TLS_SOCKET_TYPE)
-                .expect("TlsSocket has a built-in close op")
-                .to_string(),
+            close_function: crate::codegen::registry::resource_close_function(
+                crate::codegen::builtins::tls::TLS_SOCKET_TYPE,
+            )
+            .expect("TlsSocket has a built-in close op")
+            .to_string(),
             // A TLS session is not thread-sendable in v1 (plan-03-net.md §4.4).
             sendable: false,
             close_may_fail: true,
@@ -227,11 +231,13 @@ static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::ne
         },
     );
     entries.insert(
-        super::tls::TLS_LISTENER_TYPE_ID.to_string(),
+        crate::codegen::builtins::tls::TLS_LISTENER_TYPE_ID.to_string(),
         ResourceInfo {
-            close_function: super::tls::resource_close_function(super::tls::TLS_LISTENER_TYPE)
-                .expect("TlsListener has a built-in close op")
-                .to_string(),
+            close_function: crate::codegen::registry::resource_close_function(
+                crate::codegen::builtins::tls::TLS_LISTENER_TYPE,
+            )
+            .expect("TlsListener has a built-in close op")
+            .to_string(),
             // The listener owns the server TLS context and accepts on its own
             // thread; not thread-sendable in v1 (plan-06-tls-server.md §1).
             sendable: false,
