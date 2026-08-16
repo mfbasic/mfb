@@ -82,6 +82,7 @@ Already migrated (on the registry, `src/codegen/builtins/`): `encoding`, `collec
 Tier 2 — source companion + light native:
 - [x] `money` — DONE (registry `add_enum(Rounding)` + 3 `Body::native` NativeLower funcs; e6ab61d9b, merged)
 - [x] `os` — DONE (15 native OS-seam members; `resourcePath` consumes build-context; 0 resource; 0a274639f, merged)
+- [x] `io` — DONE (15 members; consumes arena ctx for TUI routing + cooked-mode; needed the OsLowerCtx extension; 0f67f66fc, merged 505d634a0). Bundled OS-seam context into `OsLowerCtx { build_mode, module_name, term_state_offset, presentation_mode_offset }` (c76a70db9). fs `.ncode` byte-identity debt also cleared (768b1a5d9).
 - [x] `fs` — DONE (41 members, `File` resource; 73374e779, merged d98f31872). Surfaced + fixed a registry-core gap: strict `leaf_matches` now requires `resource_base_eq` for nominal-vs-nominal so a resource UNION can't satisfy a concrete resource close-op param (`fs::close(<union>)` rejected).
 - [ ] `app` — 3 files, `app_package.mfb`
 - [ ] `vector` — 1 file, SIMD value-record types (`Vec2/3`) add descriptor-type work
