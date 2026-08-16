@@ -105,7 +105,7 @@ Tier 5 — heavy native leaves (do last; most code, highest byte-identity risk):
 - [ ] `math` — 7 files, ~6,222 lines (SIMD/transcendental/fixed-point)
 - [ ] `fs` — 9 files (filesystem syscalls; resource-owning, Phase 0.5 satisfied)
 - [ ] `io` — 11 files (print/read/stdin, per-arch)
-- [ ] `thread` — 9 files (concurrency runtime)
+- [x] `thread` — DONE (two-overload model: `start` 4 overloads on the msg×res matrix; resource-only `accept`/`transfer`; the strict-Nothing guard rejects data-handles from accept automatically; `ParameterType::ThreadHandle` + #4 Unknown-refinement; d2d51fd08, merged 5149c67be). Descriptor+resolver on the registry, ThreadResolver deleted; runtime lowering kept SHARED as `Body::Intrinsic → RuntimeHelper::Thread` (like strings/collections — thread's direction-split/cleanup/stdin lowering is concurrency-runtime infra). 84/84 thread+io `.run` OUTPUT byte-identical, full acceptance 1263/1263. FOLLOW-UP (optional, byte-identity-risky, low value): fold the parent/worker direction split into overload rewrite-targets for full native_os_seam uniformity.
 - [x] `tls` — DONE (9 members, TlsSocket/TlsListener resources; poll list/scalar = 2 overloads; e50ec8abc, merged dcfa75d1a). Confirmed no-infra prediction. Carried a `leaf_matches` poll fix that I NARROWED to resource-leaf patterns (de1323783) to avoid perturbing every package's lenient overload dispatch.
 
 ## Phase 2 — delete the old branch
