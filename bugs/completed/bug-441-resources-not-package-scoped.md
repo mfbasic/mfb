@@ -28,7 +28,7 @@ Deviation: the plan expected a *narrow* Phase-5 sweep, but the earlier fs slice'
 those were repaired here (see the net/tls/audio commit), and `bug221_worker.mfp`
 (a sourceless committed copy) was reconstructed as an in-tree package source.
 A separate, pre-existing, non-resource regression in source-companion arg-mismatch
-diagnostics was surfaced and captured as bug-442 (not fixed here).
+diagnostics was surfaced and captured as bug-443 (not fixed here).
 
 Regression Test: user `RESOURCE File`/`TYPE File` accepted (link.rs unit test +
 `user-resource-shadows-builtin-valid` fixture); cross-package resolution via the

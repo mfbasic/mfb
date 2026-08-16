@@ -1,4 +1,4 @@
-# bug-442: source-companion call with wrong args reports "not a top-level function" (and leaks the `#` sigil)
+# bug-443: source-companion call with wrong args reports "not a top-level function" (and leaks the `#` sigil)
 
 STATUS: OPEN (pre-existing; unrelated to bug-441 — discovered while regenerating
 acceptance goldens for the resource package-scoping cutover).
