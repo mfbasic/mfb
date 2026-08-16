@@ -75,7 +75,35 @@ Builtin resource type names (`File`, `Socket`, `Process`, …) are a global, unq
 
 Migrate each remaining builtin into the registry, **leaning on the Bucket 2 shims as the bridge**. This is the key realization: Bucket 2 is *scaffolding* — its whole purpose is to let the still-String-speaking compiler consume registry packages. You keep it alive precisely so you can migrate packages *without* touching the compiler's currency yet. Per package: parity-test against the old path, then delete that package's old path.
 
-> ⚠️ The resource-owning packages here (`fs`/`net`/`tls`/`audio`) depend on **Phase 0.5 / plan-97** landing first — otherwise they register bare-name resources that plan-97 must then re-qualify.
+> ⚠️ The resource-owning packages here (`fs`/`net`/`tls`/`audio`) depend on **Phase 0.5 / plan-97** landing first — otherwise they register bare-name resources that plan-97 must then re-qualify. ✅ Phase 0.5 is done, so this dependency is satisfied.
+
+Already migrated (on the registry, `src/codegen/builtins/`): `encoding`, `collections`, `csv`, `json`, `regex`, `datetime`, `process`. The 21 packages below still have old-branch files (`src/builtins/<pkg>.rs` + descriptors in `target/shared`) and need migrating. Ordered by `planning/migratelist.md` tiers (cheapest → heaviest); the coupled clusters must migrate together. Playbook: `planning/migrate.md`.
+
+Tier 2 — source companion + light native:
+- [ ] `money` — 3 files, `money_package.mfb`
+- [ ] `app` — 3 files, `app_package.mfb`
+- [ ] `vector` — 1 file, SIMD value-record types (`Vec2/3`) add descriptor-type work
+
+Tier 3 — coupled clusters (migrate together to avoid half-cut seams):
+- [ ] `net` + `http` — `net::Url`/`http::Response` types shared (net resource-owning; Phase 0.5 satisfied)
+- [ ] `astrings` + `term` + `strings` — bound by `term_astrings_bridge.mfb`; `strings` also unblocks the shared `find`/`mid`/`replace` List overloads pending from collections
+- [ ] `crypto` — 5 files, five `.mfb` companions (hash/aead/ecdsa/ed25519/util)
+- [ ] `audio` — 5 files, MML + render source (resource-owning; Phase 0.5 satisfied)
+
+Tier 4 — descriptor / data-only:
+- [ ] `errorcode` — data-only table
+- [ ] `testing` — descriptor + desugar
+- [ ] `general` — overridable builtins (`toString`/`len`); touches every package's override table
+- [ ] `resource` — RES subsystem
+- [ ] `bits` — 3 files, inline bit ops
+
+Tier 5 — heavy native leaves (do last; most code, highest byte-identity risk):
+- [ ] `os` — 5 files (syscalls)
+- [ ] `math` — 7 files, ~6,222 lines (SIMD/transcendental/fixed-point)
+- [ ] `fs` — 9 files (filesystem syscalls; resource-owning, Phase 0.5 satisfied)
+- [ ] `io` — 11 files (print/read/stdin, per-arch)
+- [ ] `thread` — 9 files (concurrency runtime)
+- [ ] `tls` — 13 files (TLS/network runtime, most target-coupled; resource-owning, Phase 0.5 satisfied)
 
 ## Phase 2 — delete the old branch
 
