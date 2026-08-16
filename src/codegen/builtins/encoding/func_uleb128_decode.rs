@@ -6,8 +6,9 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
+use crate::types::ParameterType;
 
 const INTRO: &str = r#"Decode an unsigned LEB128 `List OF Byte` back into an `Integer`."#;
 const DESC: &str = r#"`encoding::uleb128Decode` reads one unsigned [LEB128](https://en.wikipedia.org/wiki/LEB128)

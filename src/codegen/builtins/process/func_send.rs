@@ -10,9 +10,10 @@
 use std::collections::HashMap;
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::code::{CodegenPlatform, HelperResult};
+use crate::types::ParameterType;
 
 const INTRO: &str = r#"Write a line of text to a child's standard input, appending a newline."#;
 const DESC: &str = r#"`process::send` writes the UTF-8 bytes of `text` to the child's standard input and

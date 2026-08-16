@@ -6,8 +6,9 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
+use crate::types::ParameterType;
 
 const INTRO: &str = r#"Decode a `List OF Integer` of UTF-16 code units to a `String`."#;
 const DESC: &str = r#"`encoding::utf16Decode` interprets `value` as a sequence of UTF-16 code units and

@@ -10,11 +10,12 @@
 use std::collections::HashMap;
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::code::native_helpers::emit_fail;
 use crate::target::shared::code::*;
+use crate::types::ParameterType;
 
 use super::native::unix::*;
 use super::native::*;

@@ -6,8 +6,9 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
+use crate::types::ParameterType;
 
 const INTRO: &str = r#"Escape the five HTML/XML metacharacters in a `String`."#;
 const DESC: &str = r#"`encoding::htmlEscape` produces a form of `text` that is safe to embed inside

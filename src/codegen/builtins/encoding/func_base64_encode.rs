@@ -6,8 +6,9 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
+use crate::types::ParameterType;
 
 const INTRO: &str = r#"Encode a `List OF Byte` to a standard Base64 `String`."#;
 const DESC: &str = r#"`encoding::base64Encode` returns the standard Base64 representation of `data`

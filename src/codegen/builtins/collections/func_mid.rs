@@ -1,8 +1,9 @@
 //! `collections::mid` — descriptor entry + authored docs.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
+use crate::types::ParameterType;
 
 const INTO_MID: &str = "Return a new list holding a contiguous run of elements taken from a list";
 

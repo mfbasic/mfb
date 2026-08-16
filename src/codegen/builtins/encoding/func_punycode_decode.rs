@@ -6,8 +6,9 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
+use crate::types::ParameterType;
 
 const INTRO: &str = r#"Decode an ASCII Punycode hostname back to its Unicode form."#;
 const DESC: &str = r#"`encoding::punycodeDecode` converts an ASCII hostname in the internationalized

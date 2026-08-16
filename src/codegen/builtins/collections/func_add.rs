@@ -1,12 +1,13 @@
 //! `collections::add` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::set_element_type;
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 
 const INTO_ADD: &str = "Return a set with one element inserted, leaving the argument unchanged";
 const DESC_ADD: &str = r#"`collections::add` returns a new `Set OF T` containing every element of `value`

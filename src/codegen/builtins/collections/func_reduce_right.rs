@@ -1,10 +1,11 @@
 //! `collections::reduceRight` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 
 const INTO_REDUCE_RIGHT: &str =
     "Fold a list into a single value, walking from the last item to the first";

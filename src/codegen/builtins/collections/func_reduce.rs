@@ -1,10 +1,11 @@
 //! `collections::reduce` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 
 const INTO_REDUCE: &str = "Fold a list left to right into a single accumulated value";
 const DESC_REDUCE: &str = r#"`collections::reduce` folds `value` into one value. The accumulator starts as

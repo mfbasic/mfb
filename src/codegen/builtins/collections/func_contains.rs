@@ -1,7 +1,7 @@
 //! `collections::contains` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{list_element_type, set_element_type};
@@ -11,6 +11,7 @@ use crate::target::shared::code::{
     COLLECTION_OFFSET_COUNT,
 };
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 
 const INTO_CONTAINS: &str = "Test whether a list holds an item equal to a given value.";
 const DESC_CONTAINS: &str = r#"`collections::contains` scans `value` from index `0` upward and returns `TRUE`

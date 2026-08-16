@@ -1,8 +1,9 @@
 //! `collections::replace` — descriptor entry + authored docs.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
+use crate::types::ParameterType;
 
 const INTO_REPLACE: &str = "Return a list with every element equal to a given value replaced";
 

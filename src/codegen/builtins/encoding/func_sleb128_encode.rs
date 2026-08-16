@@ -6,8 +6,9 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
+use crate::types::ParameterType;
 
 const INTRO: &str = r#"Encode a signed `Integer` as a signed LEB128 `List OF Byte`."#;
 const DESC: &str = r#"`encoding::sleb128Encode` returns the signed [LEB128](https://en.wikipedia.org/wiki/LEB128)

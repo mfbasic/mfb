@@ -6,8 +6,9 @@
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
+use crate::types::ParameterType;
 
 const INTRO: &str = r#"Decode a ZigZag varint `List OF Byte` back into a signed `Integer`."#;
 const DESC: &str = r#"`encoding::varintDecode` reads one ZigZag [varint](https://protobuf.dev/programming-guides/encoding/#varints)

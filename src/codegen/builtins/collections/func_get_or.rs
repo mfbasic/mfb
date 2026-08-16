@@ -1,12 +1,13 @@
 //! `collections::getOr` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{list_element_type, map_type_parts};
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 
 const INTO_GET_OR: &str =
     "Read a list item or map value, returning a supplied default when it is absent.";

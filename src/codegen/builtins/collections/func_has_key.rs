@@ -1,12 +1,13 @@
 //! `collections::hasKey` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{map_type_parts, set_element_type};
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 
 const INTO_HAS_KEY: &str = "Test whether a map contains an entry for a key.";
 const DESC_HAS_KEY: &str = r#"`collections::hasKey` returns `TRUE` when `value` holds an entry whose key

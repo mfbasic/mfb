@@ -1,9 +1,8 @@
 //! Package: csv
 //! Type: Pure MFBasic
 
-use crate::codegen::registry::{
-    ParameterType, RecordProp, Registry, RegistryPackage, RegistryRecord,
-};
+use crate::codegen::registry::{RecordProp, Registry, RegistryPackage, RegistryRecord};
+use crate::types::ParameterType;
 
 mod func_parse;
 mod func_parse_stream;

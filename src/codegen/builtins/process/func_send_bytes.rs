@@ -10,9 +10,10 @@
 use std::collections::HashMap;
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::code::{CodegenPlatform, HelperResult};
+use crate::types::ParameterType;
 
 const INTRO: &str = r#"Write raw bytes to a child's standard input, with no newline added."#;
 const DESC: &str = r#"`process::sendBytes` writes the raw bytes of `data` to the child's standard input,

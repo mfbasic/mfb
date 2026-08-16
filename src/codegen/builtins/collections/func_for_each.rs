@@ -1,7 +1,7 @@
 //! `collections::forEach` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::list_element_type;
@@ -11,6 +11,7 @@ use crate::target::shared::code::{
     COLLECTION_OFFSET_COUNT, RESULT_OK_TAG, RESULT_TAG_REGISTER,
 };
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 
 const INTO_FOR_EACH: &str = "Call an action once for each element of a list, in order";
 const DESC_FOR_EACH: &str = r#"`collections::forEach` walks `value` from the first element to the last and

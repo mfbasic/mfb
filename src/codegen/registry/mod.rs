@@ -67,10 +67,10 @@ pub(crate) type MfbFastPath =
         &[crate::target::shared::nir::NirValue],
     ) -> Result<Option<crate::target::shared::code::ValueResult>, String>;
 
-/// A [`Parameter`]'s type. Defined in [`crate::types`] (the compiler-wide type
-/// vocabulary) and re-exported here so `registry::ParameterType` import paths keep
-/// resolving; see that module for why it lives outside `codegen`.
-pub(crate) use crate::types::ParameterType;
+// A [`Parameter`]'s type is [`crate::types::ParameterType`] — the compiler-wide type
+// vocabulary (see that module for why it lives outside `codegen`). Imported for the
+// registry's own use; not re-exported, so callers name it as `crate::types::ParameterType`.
+use crate::types::ParameterType;
 
 /// Whether a [`Parameter`] is required, or optional with a default — mirrors
 /// `target::shared::registry::DefaultValue`.

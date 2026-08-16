@@ -3,9 +3,9 @@
 //! Plan: plan-72-T
 
 use crate::codegen::registry::{
-    ParameterType, RecordProp, Registry, RegistryPackage, RegistryRecord, RegistryUnion,
-    UnionVariant,
+    RecordProp, Registry, RegistryPackage, RegistryRecord, RegistryUnion, UnionVariant,
 };
+use crate::types::ParameterType;
 
 mod func_find;
 mod func_find_all;

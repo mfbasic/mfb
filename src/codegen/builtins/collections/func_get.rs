@@ -9,12 +9,13 @@
 //! `codegen → target` edge until `CodeBuilder` itself relocates).
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::{list_element_type, map_type_parts};
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 
 const INTO_GET: &str = "Read a list item by index or a map value by key.";
 const DESC_GET: &str = r#"`collections::get` reads one element out of a collection. The collection itself

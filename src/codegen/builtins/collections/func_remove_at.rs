@@ -1,12 +1,13 @@
 //! `collections::removeAt` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::code::type_utils::list_element_type;
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 
 const INTO_REMOVE_AT: &str = "Return a list with the element at a given index removed";
 const DESC_REMOVE_AT: &str = r#"`collections::removeAt` returns a new list containing every element of `value`

@@ -2,9 +2,9 @@
 //! Type: Pure MFBasic
 
 use crate::codegen::registry::{
-    ParameterType, RecordProp, Registry, RegistryPackage, RegistryRecord, RegistryUnion,
-    UnionVariant,
+    RecordProp, Registry, RegistryPackage, RegistryRecord, RegistryUnion, UnionVariant,
 };
+use crate::types::ParameterType;
 
 mod func_get;
 mod func_get_or;

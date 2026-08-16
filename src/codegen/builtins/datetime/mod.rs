@@ -17,9 +17,10 @@
 //! are gone.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, EnumVariant, Implementation, Parameter, ParameterType, Registry,
-    RegistryEnum, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, EnumVariant, Implementation, Parameter, Registry, RegistryEnum,
+    RegistryFunction, RegistryPackage,
 };
+use crate::types::ParameterType;
 
 const MODULE_INTRO: &str =
     r#"Instants, civil dates and times, durations, zones, formatting, and parsing"#;
@@ -475,7 +476,7 @@ mod tests {
             let call = crate::codegen::registry::CallShape {
                 args: args
                     .iter()
-                    .map(|a| crate::codegen::registry::ParameterType::parse(a))
+                    .map(|a| crate::types::ParameterType::parse(a))
                     .collect(),
             };
             function

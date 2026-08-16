@@ -1,10 +1,11 @@
 //! `collections::prepend` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 
 const INTO_PREPEND: &str = "Return a list with one element added at the start";
 const DESC_PREPEND: &str = r#"`collections::prepend` returns a new list whose first element is `item` and whose

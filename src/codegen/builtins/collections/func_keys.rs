@@ -1,11 +1,12 @@
 //! `collections::keys` — descriptor entry + target-generic lowering (plan-96).
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::code::type_utils::map_type_parts;
 use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 
 const INTO_KEYS: &str = "Return a map's keys as a list.";
 const DESC_KEYS: &str = r#"`collections::keys` builds a new `List OF K` holding the key of every entry in
