@@ -118,3 +118,13 @@ Change the type checker / `ir` / `syntaxcheck` to carry `ParameterType` (and `Se
 ## Phase 4 — Bucket 2 falls out
 
 The 6 leak-adapters (`resolve_call`, `rewrite_target`, `call_return_type`, `expected_arguments`, `call_param_names`, `default_argument_padding`) now have no callers doing string marshalling — they evaporate. This isn't a separate effort; it's the *consequence* of Phase 3. (Decide separately whether `resolve_call`/`native_lower` — the two the author left un-`#[deprecated]` — stay as intended permanent `CallShape`/`Selection` seams or get inlined.)
+
+### Phase 1 — migration status & the infra prerequisite (2026-08-16)
+
+- DONE: `bits` (native-inline → Body::native common; cc86a30a3). In flight: `money`, `os`.
+- **BLOCKED on registry infra** (a `vector` migration attempt proved these are hard gaps, not per-package work): `vector`, `math`, `errorcode`, `net` need TWO new registry subsystems first —
+  1. **package-constant API** — `RegistryPackage::add_constant` (name + type + component/value data) + a `registry()`-backed dual-path for `is_package_constant`/`package_constant_type_name`/`package_constant_value`/`constant_components` (`src/builtins/mod.rs:648-669`, `src/ir/lower.rs:2567-2591`). Serves `math`/`errorCode`/`vector`.
+  2. **general-override API** — `RegistryPackage::add_override((builtin, arg_type) → helper)` + a `registry()`-backed dual-path for `general_override_target` (`src/builtins/mod.rs:148-156`). Serves `vector` (`toString(VecN)`) + `net` (`toString(Url)`).
+  - Plus `vector`'s SIMD inline carrier (`builder_vector_inline.rs`, `VECTOR_NATIVE_MARKER`) needs a registry home (not a per-call `Body::native`).
+- Also special (not plain native/source): `general` (IS the overridable-builtin subsystem), `resource` (RES), `testing` (desugar).
+- Tractable now (no constants/overrides/resolver-context): `money`, `os`, `io`, `fs`, `thread`, `tls`, `audio`, `http`(w/ net), `strings`/`astrings`/`term`(cluster), `app`(name-overloaded — care). `crypto` has a context-dependent resolver — verify before attempting.
