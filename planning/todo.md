@@ -80,7 +80,7 @@ Migrate each remaining builtin into the registry, **leaning on the Bucket 2 shim
 Already migrated (on the registry, `src/codegen/builtins/`): `encoding`, `collections`, `csv`, `json`, `regex`, `datetime`, `process`. The 21 packages below still have old-branch files (`src/builtins/<pkg>.rs` + descriptors in `target/shared`) and need migrating. Ordered by `planning/migratelist.md` tiers (cheapest → heaviest); the coupled clusters must migrate together. Playbook: `planning/migrate.md`.
 
 Tier 2 — source companion + light native:
-- [ ] `money` — 3 files, `money_package.mfb`
+- [x] `money` — DONE (registry `add_enum(Rounding)` + 3 `Body::native` NativeLower funcs; e6ab61d9b, merged)
 - [ ] `app` — 3 files, `app_package.mfb`
 - [ ] `vector` — 1 file, SIMD value-record types (`Vec2/3`) add descriptor-type work
 
@@ -121,7 +121,7 @@ The 6 leak-adapters (`resolve_call`, `rewrite_target`, `call_return_type`, `expe
 
 ### Phase 1 — migration status & the infra prerequisite (2026-08-16)
 
-- DONE: `bits` (native-inline → Body::native common; cc86a30a3). In flight: `money`, `os`.
+- DONE: `bits` (cc86a30a3), `money` (e6ab61d9b). In flight: OS-seam build-context infra (unblocks os/io/fs/thread/tls).
 - **BLOCKED on registry infra** (a `vector` migration attempt proved these are hard gaps, not per-package work): `vector`, `math`, `errorcode`, `net` need TWO new registry subsystems first —
   1. **package-constant API** — `RegistryPackage::add_constant` (name + type + component/value data) + a `registry()`-backed dual-path for `is_package_constant`/`package_constant_type_name`/`package_constant_value`/`constant_components` (`src/builtins/mod.rs:648-669`, `src/ir/lower.rs:2567-2591`). Serves `math`/`errorCode`/`vector`.
   2. **general-override API** — `RegistryPackage::add_override((builtin, arg_type) → helper)` + a `registry()`-backed dual-path for `general_override_target` (`src/builtins/mod.rs:148-156`). Serves `vector` (`toString(VecN)`) + `net` (`toString(Url)`).
