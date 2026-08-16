@@ -196,15 +196,15 @@ mod tests {
         let pkg = registry().resolve_package("json").expect("json package");
         assert_eq!(pkg.functions().len(), 4);
         // The Json union and its member records are visible to the generic type query.
-        assert!(registry::is_builtin_type("Json"));
-        assert!(registry::is_builtin_type("JsonObj"));
-        assert!(!registry::is_builtin_type("Nope"));
+        assert!(registry().is_builtin_type("Json"));
+        assert!(registry().is_builtin_type("JsonObj"));
+        assert!(!registry().is_builtin_type("Nope"));
     }
 
     #[test]
     fn generic_dispatch_reaches_json() {
-        assert!(registry::is_member("json.parse"));
-        assert!(!registry::is_member("json.nope"));
+        assert!(registry().is_member("json.parse"));
+        assert!(!registry().is_member("json.nope"));
         assert_eq!(
             registry::rewrite_target("json.parse", &[]),
             Some("__json_parse")
@@ -215,9 +215,9 @@ mod tests {
         );
         assert_eq!(registry::call_return_type("json.parse"), Some("Json"));
         assert_eq!(registry::call_return_type("json.stringify"), Some("String"));
-        assert_eq!(registry::arity("json.parse"), Some((1, 1)));
-        assert_eq!(registry::arity("json.get"), Some((2, 2)));
-        assert_eq!(registry::arity("json.getOr"), Some((3, 3)));
+        assert_eq!(registry().arity("json.parse"), Some((1, 1)));
+        assert_eq!(registry().arity("json.get"), Some((2, 2)));
+        assert_eq!(registry().arity("json.getOr"), Some((3, 3)));
     }
 
     #[test]

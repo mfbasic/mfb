@@ -149,7 +149,7 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::Net)
     } else if builtins::os::is_os_call(name) {
         Some(RuntimeHelper::Os)
-    } else if crate::codegen::registry::owning_package(name) == Some("process")
+    } else if crate::codegen::registry::registry().owning_package(name) == Some("process")
         || name == "process.__drop"
     {
         Some(RuntimeHelper::Process)

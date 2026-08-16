@@ -170,7 +170,7 @@ pub(crate) fn register(r: &mut Registry) {
     });
 
     // The opaque `Process` resource handle. Semantic-only (no injectable source):
-    // it makes `registry::qualified_builtin_type("process.Process")` and
+    // it makes `registry().qualified_builtin_type("process.Process")` and
     // `registry::resource_close_function("Process")` answer generically, replacing
     // the deleted per-package `is_builtin_type`/`resource_close_function` seams. The
     // `close_function` is the internal `__drop` scope-drop op (SIGKILL + waitpid); a
@@ -220,18 +220,18 @@ mod tests {
         // The opaque handle is a semantic-only resource (not an EXPORT TYPE/UNION/
         // ENUM), so the value-type query `is_builtin_type` does not see it, but the
         // qualified-type resolution does (via the resource).
-        assert!(!registry::is_builtin_type("Process"));
+        assert!(!registry().is_builtin_type("Process"));
         assert_eq!(
-            registry::qualified_builtin_type("process.Process"),
+            registry().qualified_builtin_type("process.Process"),
             Some("Process".to_string())
         );
     }
 
     #[test]
     fn generic_dispatch_reaches_process() {
-        assert!(registry::is_member("process.spawn"));
-        assert!(registry::is_member("process.didSignal"));
-        assert!(!registry::is_member("process.nope"));
+        assert!(registry().is_member("process.spawn"));
+        assert!(registry().is_member("process.didSignal"));
+        assert!(!registry().is_member("process.nope"));
         // Native members carry no rewrite target (they lower through Body::Native).
         assert_eq!(registry::rewrite_target("process.spawn", &[]), None);
         // Fixed per-name return types.
@@ -252,12 +252,12 @@ mod tests {
         );
         // Arity ranges: spawn's two structurally distinct overloads (1 and 4 args),
         // the trailing-optional streaming forms, and the single-signature queries.
-        assert_eq!(registry::arity("process.spawn"), Some((1, 4)));
-        assert_eq!(registry::arity("process.shell"), Some((1, 1)));
-        assert_eq!(registry::arity("process.pid"), Some((1, 1)));
-        assert_eq!(registry::arity("process.send"), Some((2, 3)));
-        assert_eq!(registry::arity("process.receive"), Some((1, 2)));
-        assert_eq!(registry::arity("process.poll"), Some((2, 3)));
+        assert_eq!(registry().arity("process.spawn"), Some((1, 4)));
+        assert_eq!(registry().arity("process.shell"), Some((1, 1)));
+        assert_eq!(registry().arity("process.pid"), Some((1, 1)));
+        assert_eq!(registry().arity("process.send"), Some((2, 3)));
+        assert_eq!(registry().arity("process.receive"), Some((1, 2)));
+        assert_eq!(registry().arity("process.poll"), Some((2, 3)));
     }
 
     #[test]
@@ -334,11 +334,11 @@ mod tests {
         // The runtime-call predicate is inlined at each dispatch site as
         // `owning_package(name) == Some("process") || name == process.__drop`.
         let is_runtime =
-            |name: &str| registry::owning_package(name) == Some("process") || name == super::DROP;
-        assert!(registry::owning_package("process.spawn") == Some("process"));
+            |name: &str| registry().owning_package(name) == Some("process") || name == super::DROP;
+        assert!(registry().owning_package("process.spawn") == Some("process"));
         assert!(is_runtime("process.spawn"));
         // `__drop` is the internal scope-drop op: a runtime call, not a descriptor call.
-        assert!(registry::owning_package(super::DROP) != Some("process"));
+        assert!(registry().owning_package(super::DROP) != Some("process"));
         assert!(is_runtime(super::DROP));
         assert!(!is_runtime("process.bogus"));
     }

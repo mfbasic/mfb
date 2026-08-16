@@ -241,7 +241,7 @@ impl<'a> SyntaxChecker<'a> {
                 line,
             );
         }
-        if crate::codegen::registry::owning_package(callee) == Some("collections") {
+        if crate::codegen::registry::registry().owning_package(callee) == Some("collections") {
             return self.check_collections_builtin_call(
                 file,
                 display_callee,
@@ -1300,8 +1300,9 @@ mod builtins_tests {
             ("general", builtins::general::is_general_call),
             (
                 "collections",
-                (|c: &str| crate::codegen::registry::owning_package(c) == Some("collections"))
-                    as fn(&str) -> bool,
+                (|c: &str| {
+                    crate::codegen::registry::registry().owning_package(c) == Some("collections")
+                }) as fn(&str) -> bool,
             ),
             ("term", builtins::term::is_term_call),
             ("thread", builtins::thread::is_thread_call),

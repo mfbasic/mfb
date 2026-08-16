@@ -386,10 +386,10 @@ mod tests {
 
     #[test]
     fn generic_dispatch_reaches_datetime() {
-        assert!(registry::is_member("datetime.now"));
-        assert!(registry::is_member("datetime.instant"));
-        assert!(!registry::is_member("datetime.nope"));
-        assert_eq!(registry::owning_package("datetime.now"), Some("datetime"));
+        assert!(registry().is_member("datetime.now"));
+        assert!(registry().is_member("datetime.instant"));
+        assert!(!registry().is_member("datetime.nope"));
+        assert_eq!(registry().owning_package("datetime.now"), Some("datetime"));
         assert_eq!(
             registry::rewrite_target("datetime.now", &[]),
             Some("__datetime_now")
@@ -398,11 +398,11 @@ mod tests {
             registry::rewrite_target("datetime.formatDuration", &[]),
             Some("__datetime_formatDuration")
         );
-        assert_eq!(registry::arity("datetime.now"), Some((0, 0)));
-        assert_eq!(registry::arity("datetime.instant"), Some((1, 5)));
-        assert_eq!(registry::arity("datetime.fixedOffset"), Some((1, 2)));
-        assert_eq!(registry::arity("datetime.parse"), Some((2, 3)));
-        assert_eq!(registry::arity("datetime.time"), Some((2, 4)));
+        assert_eq!(registry().arity("datetime.now"), Some((0, 0)));
+        assert_eq!(registry().arity("datetime.instant"), Some((1, 5)));
+        assert_eq!(registry().arity("datetime.fixedOffset"), Some((1, 2)));
+        assert_eq!(registry().arity("datetime.parse"), Some((2, 3)));
+        assert_eq!(registry().arity("datetime.time"), Some((2, 4)));
     }
 
     #[test]
@@ -539,13 +539,13 @@ mod tests {
             "Instant", "Duration", "Date", "Time", "Zone", "DateTime", "ZoneKind", "Weekday",
             "Month",
         ] {
-            assert!(registry::is_builtin_type(t), "{t}");
+            assert!(registry().is_builtin_type(t), "{t}");
         }
-        assert!(!registry::is_builtin_type("Nope"));
-        assert!(!registry::is_builtin_type("Integer"));
+        assert!(!registry().is_builtin_type("Nope"));
+        assert!(!registry().is_builtin_type("Integer"));
         // The qualified form resolves the same source-declared names.
         assert_eq!(
-            registry::qualified_builtin_type("datetime.Instant"),
+            registry().qualified_builtin_type("datetime.Instant"),
             Some("Instant".to_string())
         );
     }
@@ -553,10 +553,10 @@ mod tests {
     #[test]
     fn membership_via_generic_registry() {
         for n in ALL_CALLS {
-            assert_eq!(registry::owning_package(n), Some("datetime"), "{n}");
+            assert_eq!(registry().owning_package(n), Some("datetime"), "{n}");
         }
-        assert!(registry::owning_package("datetime.nope").is_none());
-        assert!(registry::owning_package("other.now").is_none());
+        assert!(registry().owning_package("datetime.nope").is_none());
+        assert!(registry().owning_package("other.now").is_none());
     }
 
     #[test]

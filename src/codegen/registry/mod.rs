@@ -1188,6 +1188,70 @@ impl Registry {
         augmented.files.extend(synthetic_files);
         Ok(augmented)
     }
+
+    // Generic-dispatch queries. Each answers, for a call/type, the fact the old
+    // `REGISTRY`-based generic dispatch answered, so a caller can dual-path
+    // `registry().X(name).or(old(name))`. `None`/`false` means "no migrated package
+    // owns this", i.e. fall through to the old path.
+
+    /// Whether a migrated package declares the call `qualified` (`"csv.parse"`).
+    pub(crate) fn is_member(&self, qualified: &str) -> bool {
+        self.resolve_func(qualified).is_some()
+    }
+
+    /// The import name of the migrated package that owns `qualified`, or `None`.
+    pub(crate) fn owning_package(&self, qualified: &str) -> Option<&'static str> {
+        self.resolve_func(qualified)
+            .map(|resolved| resolved.package.import_name)
+    }
+
+    /// The `(min, max)` argument arity of the migrated call `qualified`, or `None`.
+    /// `min` counts the required (non-defaulted) params; `max` is the widest overload.
+    pub(crate) fn arity(&self, qualified: &str) -> Option<(usize, usize)> {
+        self.resolve_func(qualified)
+            .and_then(|resolved| resolved.function.arity())
+    }
+
+    /// Whether the migrated call `qualified` declares `error_name` among any of its
+    /// implementations' errors — the half of the `raise_error` "a builtin must declare
+    /// the errors it raises" check.
+    pub(crate) fn declares_error(&self, qualified: &str, error_name: &str) -> bool {
+        self.resolve_func(qualified)
+            .is_some_and(|resolved| resolved.function.declares_error(error_name))
+    }
+
+    /// Whether `name` is a value type (`EXPORT TYPE`/`UNION`/`ENUM`) declared by any
+    /// migrated package (`CsvReader`/`CsvRow`).
+    pub(crate) fn is_builtin_type(&self, name: &str) -> bool {
+        self.packages().iter().any(|package| {
+            package.records().iter().any(|record| record.name == name)
+                || package.unions().iter().any(|union| union.name == name)
+                || package.enums().iter().any(|r#enum| r#enum.name == name)
+                // `datetime`'s value records/enums live in its injected companion source.
+                || package.source_types().contains(&name)
+        })
+    }
+
+    /// A `package.Type` reference (`"csv.CsvReader"`) resolved to its bare member type
+    /// id when the migrated package declares it, else `None`.
+    pub(crate) fn qualified_builtin_type(&self, qualified: &str) -> Option<String> {
+        if let Some(resolved) = self.resolve_type(qualified) {
+            return Some(match resolved {
+                ResolvedType::Record(record) => record.name.to_string(),
+                ResolvedType::Union(union) => union.name.to_string(),
+                ResolvedType::Enum(r#enum) => r#enum.name.to_string(),
+                ResolvedType::Resource(resource) => resource.name.to_string(),
+            });
+        }
+        // A source-declared value type (`datetime.Instant`) authored only in the
+        // package's injected companion, not modeled as a record/union/enum.
+        let (pkg_name, type_name) = qualified.split_once('.')?;
+        self.packages()
+            .iter()
+            .find(|p| p.import_name == pkg_name)
+            .filter(|p| p.source_types().contains(&type_name))
+            .map(|_| type_name.to_string())
+    }
 }
 
 /// The process-wide registry, built once on first access.
@@ -1222,22 +1286,6 @@ fn build() -> Registry {
 // Everything below this should be depricated
 //
 
-/// #[deprecated(note = "migrate registry().*")]
-pub(crate) fn augment_project(ast: &crate::ast::AstProject) -> Result<crate::ast::AstProject, ()> {
-    registry().augment_project(ast)
-}
-
-// The generic-dispatch query surface. Each answers, for a
-// call, the fact the old `REGISTRY`-based generic dispatch answered — so a caller
-// can dual-path `registry::X(name).or(old(name))`. `None`/`false` means "no
-// package owns this call", i.e. fall through to the old path.
-
-/// Whether a migrated package declares the call `qualified` (`"csv.parse"`).
-/// #[deprecated(note = "migrate registry().*")]
-pub(crate) fn is_member(qualified: &str) -> bool {
-    registry().resolve_func(qualified).is_some()
-}
-
 /// Whether `qualified` (`"collections.sort"`) names a migrated package's injected
 /// **source-generic** member — a member implemented as a monomorphized MFBASIC body
 /// rather than a registered [`RegistryFunction`], so [`is_member`] does not see it.
@@ -1252,14 +1300,6 @@ pub(crate) fn is_source_generic_member(qualified: &str) -> bool {
         .iter()
         .find(|p| p.import_name == pkg_name)
         .is_some_and(|package| package.source_generics.contains(&member))
-}
-
-/// The import name of the migrated package that owns `qualified`, or `None`.
-/// #[deprecated(note = "migrate registry().*")]
-pub(crate) fn owning_package(qualified: &str) -> Option<&'static str> {
-    registry()
-        .resolve_func(qualified)
-        .map(|resolved| resolved.package.import_name)
 }
 
 /// The *static* nominal return type of the migrated call `qualified`, independent of
@@ -1445,50 +1485,6 @@ pub(crate) fn resolve_call(qualified: &str, arg_types: &[String]) -> Option<Stri
         })
 }
 
-/// The `(min, max)` argument arity of the migrated call `qualified`, or `None`.
-/// `min` counts the required (non-defaulted) params; `max` is the widest overload.
-/// #[deprecated(note = "migrate registry().*")]
-pub(crate) fn arity(qualified: &str) -> Option<(usize, usize)> {
-    let resolved = registry().resolve_func(qualified)?;
-    resolved.function.arity()
-}
-
-/// Whether `name` is a value type (`EXPORT TYPE`/`UNION`/`ENUM`) declared by any
-/// migrated package (`CsvReader`/`CsvRow`).
-/// #[deprecated(note = "migrate registry().*")]
-pub(crate) fn is_builtin_type(name: &str) -> bool {
-    registry().packages().iter().any(|package| {
-        package.records().iter().any(|record| record.name == name)
-            || package.unions().iter().any(|union| union.name == name)
-            || package.enums().iter().any(|r#enum| r#enum.name == name)
-            // `datetime`'s value records/enums live in its injected companion source.
-            || package.source_types().contains(&name)
-    })
-}
-
-/// A `package.Type` reference (`"csv.CsvReader"`) resolve_funcd to its bare member type
-/// id when the migrated package declares it, else `None`.
-/// #[deprecated(note = "migrate registry().*")]
-pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
-    if let Some(resolved) = registry().resolve_type(qualified) {
-        return Some(match resolved {
-            ResolvedType::Record(record) => record.name.to_string(),
-            ResolvedType::Union(union) => union.name.to_string(),
-            ResolvedType::Enum(r#enum) => r#enum.name.to_string(),
-            ResolvedType::Resource(resource) => resource.name.to_string(),
-        });
-    }
-    // A source-declared value type (`datetime.Instant`) authored only in the
-    // package's injected companion, not modeled as a record/union/enum.
-    let (pkg_name, type_name) = qualified.split_once('.')?;
-    registry()
-        .packages()
-        .iter()
-        .find(|p| p.import_name == pkg_name)
-        .filter(|p| p.source_types().contains(&type_name))
-        .map(|_| type_name.to_string())
-}
-
 /// The qualified close op that releases a migrated package's resource handle named
 /// `type_name` (`Process` → `process.__drop`), or `None` when no migrated package
 /// declares a resource of that name. The generic replacement for the per-package
@@ -1502,16 +1498,6 @@ pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
             .find(|resource| resource.name == type_name)
             .map(|resource| resource.close_function)
     })
-}
-
-/// Whether the migrated call `qualified` declares `error_name` among any of its
-/// implementations' errors — the half of the `raise_error` "a builtin
-/// must declare the errors it raises" check.
-/// #[deprecated(note = "migrate registry().*")]
-pub(crate) fn declares_error(qualified: &str, error_name: &str) -> bool {
-    registry()
-        .resolve_func(qualified)
-        .is_some_and(|resolved| resolved.function.declares_error(error_name))
 }
 
 /// The internal symbol the migrated call `qualified` rewrites to at IR lowering, or

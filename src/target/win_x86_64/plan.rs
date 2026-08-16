@@ -507,7 +507,8 @@ impl NativePlanPlatform for Platform {
             // plan-90-D: the process lifecycle over CreateProcessA. Over-importing
             // the whole kernel32 set for every process.* helper is harmless (the
             // merged IAT dedups).
-            call if crate::codegen::registry::owning_package(call) == Some("process")
+            call if crate::codegen::registry::registry().owning_package(call)
+                == Some("process")
                 || call == "process.__drop" =>
             {
                 vec![

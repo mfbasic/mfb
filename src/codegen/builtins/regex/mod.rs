@@ -735,8 +735,8 @@ mod tests {
 
     #[test]
     fn generic_dispatch_reaches_regex() {
-        assert!(registry::is_member("regex.match"));
-        assert!(!registry::is_member("regex.nope"));
+        assert!(registry().is_member("regex.match"));
+        assert!(!registry().is_member("regex.nope"));
         assert_eq!(
             registry::rewrite_target("regex.find", &[]),
             Some("__regex_find")
@@ -749,9 +749,9 @@ mod tests {
         assert_eq!(registry::call_return_type("regex.find"), Some("Integer"));
         assert_eq!(registry::call_return_type("regex.replace"), Some("String"));
         // match takes exactly 2 args; find/findAll's trailing `start` is optional.
-        assert_eq!(registry::arity("regex.match"), Some((2, 2)));
-        assert_eq!(registry::arity("regex.find"), Some((2, 3)));
-        assert_eq!(registry::arity("regex.replace"), Some((3, 3)));
+        assert_eq!(registry().arity("regex.match"), Some((2, 2)));
+        assert_eq!(registry().arity("regex.find"), Some((2, 3)));
+        assert_eq!(registry().arity("regex.replace"), Some((3, 3)));
     }
 
     #[test]

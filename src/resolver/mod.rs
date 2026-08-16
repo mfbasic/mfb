@@ -106,7 +106,7 @@ pub fn resolve_augmented(
 /// private `$`-symbols like any user overload, instead of colliding at codegen.
 pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     // registry-driven augmentation.
-    let augmented = crate::codegen::registry::augment_project(ast)?;
+    let augmented = crate::codegen::registry::registry().augment_project(ast)?;
 
     // The `term`↔`astrings` drawText bridge, injected only when a program imports
     // BOTH packages; it imports term/astrings/strings, so it precedes all three so

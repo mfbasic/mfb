@@ -236,7 +236,7 @@ impl TypeEnv {
         // source generics (`sort`, …) — the exact set the old
         // `collections::is_collections_call` matched, scoped to collections so the
         // other migrated packages (csv/json/…) still fall through as before.
-        if crate::codegen::registry::owning_package(target) == Some("collections")
+        if crate::codegen::registry::registry().owning_package(target) == Some("collections")
             || crate::codegen::registry::is_source_generic_member(target)
         {
             if let Some((min, max)) = builtins::arity(target) {
@@ -302,7 +302,7 @@ impl TypeEnv {
         // which would widen this set to every migrated package and reject programs
         // codegen accepts — see the note above).
         fn is_encoding_call(name: &str) -> bool {
-            crate::codegen::registry::owning_package(name) == Some("encoding")
+            crate::codegen::registry::registry().owning_package(name) == Some("encoding")
         }
         let checked: [IsCall; 9] = [
             builtins::math::is_math_call,

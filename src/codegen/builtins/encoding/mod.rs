@@ -213,8 +213,8 @@ mod tests {
 
     #[test]
     fn generic_dispatch_reaches_encoding() {
-        assert!(registry::is_member("encoding.hexEncode"));
-        assert!(!registry::is_member("encoding.nope"));
+        assert!(registry().is_member("encoding.hexEncode"));
+        assert!(!registry().is_member("encoding.nope"));
         // Fixed-return non-overloaded members have a static nominal return.
         assert_eq!(
             registry::call_return_type("encoding.hexEncode"),
@@ -272,8 +272,8 @@ mod tests {
 
     #[test]
     fn arity_is_unary_across_members() {
-        assert_eq!(registry::arity("encoding.hexEncode"), Some((1, 1)));
-        assert_eq!(registry::arity("encoding.utf8Decode"), Some((1, 1)));
+        assert_eq!(registry().arity("encoding.hexEncode"), Some((1, 1)));
+        assert_eq!(registry().arity("encoding.utf8Decode"), Some((1, 1)));
     }
 
     #[test]

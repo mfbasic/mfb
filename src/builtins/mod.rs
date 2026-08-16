@@ -112,7 +112,7 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
     // Migrated (clean-room registry) types first; else the old REGISTRY.
     // `datetime`'s value records/enums (authored in `package.mfb`) are recognized
     // through the generic registry via their `add_source_types` declaration.
-    crate::codegen::registry::is_builtin_type(name)
+    crate::codegen::registry::registry().is_builtin_type(name)
         || crate::target::shared::registry::REGISTRY
             .modules()
             .iter()
@@ -161,7 +161,7 @@ pub(crate) fn general_override_target(builtin: &str, arg_type: &str) -> Option<&
 /// qualified built-in type (plan-03-http.md §A.1).
 pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
     // Migrated (clean-room registry) packages first (`csv.CsvReader`).
-    if let Some(member) = crate::codegen::registry::qualified_builtin_type(qualified) {
+    if let Some(member) = crate::codegen::registry::registry().qualified_builtin_type(qualified) {
         return Some(member);
     }
     let (package, member) = qualified.split_once('.')?;
@@ -376,7 +376,7 @@ pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Op
     // Migrated (clean-room registry) packages first: resolve_call validates the
     // argument arity + types (returning None on a mismatch, which the type checker
     // turns into an error), so this cannot blindly hand back the return type.
-    if crate::codegen::registry::is_member(callee) {
+    if crate::codegen::registry::registry().is_member(callee) {
         return crate::codegen::registry::resolve_call(callee, arg_types);
     }
     let (module, function) = crate::target::shared::registry::REGISTRY.function(callee)?;
@@ -416,17 +416,19 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
 /// to select a table package's argument-inference mode without a per-package
 /// `is_<pkg>_call` chain.
 pub(crate) fn builtin_package_name(callee: &str) -> Option<&'static str> {
-    crate::codegen::registry::owning_package(callee).or_else(|| {
-        crate::target::shared::registry::REGISTRY
-            .function(callee)
-            .map(|(module, _)| module.name)
-    })
+    crate::codegen::registry::registry()
+        .owning_package(callee)
+        .or_else(|| {
+            crate::target::shared::registry::REGISTRY
+                .function(callee)
+                .map(|(module, _)| module.name)
+        })
 }
 
 /// The arity range `(min, max)` of a builtin call — plan-72-BB: the owning
 /// module's `DefaultResolver::arity`. `None` for a call no package owns.
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
-    if let Some(range) = crate::codegen::registry::arity(name) {
+    if let Some(range) = crate::codegen::registry::registry().arity(name) {
         return Some(range);
     }
     let (module, function) = crate::target::shared::registry::REGISTRY.function(name)?;
@@ -605,7 +607,7 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
     // dynamically-parsed constants. The `call_return_type_name` tail preserves the
     // pre-existing admission of lowered-only names whose return type is known
     // (e.g. `tls.closeListener`).
-    crate::codegen::registry::is_member(name)
+    crate::codegen::registry::registry().is_member(name)
         || crate::target::shared::registry::REGISTRY
             .function(name)
             .is_some()

@@ -141,14 +141,14 @@ mod tests {
         let pkg = registry().resolve_package("csv").expect("csv package");
         assert_eq!(pkg.functions().len(), 4);
         // The two EXPORT records are visible to the generic type query.
-        assert!(registry::is_builtin_type("CsvReader"));
-        assert!(registry::is_builtin_type("CsvRow"));
+        assert!(registry().is_builtin_type("CsvReader"));
+        assert!(registry().is_builtin_type("CsvRow"));
     }
 
     #[test]
     fn generic_dispatch_reaches_csv() {
-        assert!(registry::is_member("csv.parse"));
-        assert!(!registry::is_member("csv.nope"));
+        assert!(registry().is_member("csv.parse"));
+        assert!(!registry().is_member("csv.nope"));
         assert_eq!(
             registry::call_return_type("csv.parse"),
             Some("List OF List OF String")
@@ -162,8 +162,8 @@ mod tests {
             registry::rewrite_target("csv.readRow", &[]),
             Some("__csv_next")
         );
-        assert_eq!(registry::arity("csv.parse"), Some((1, 3)));
-        assert_eq!(registry::arity("csv.readRow"), Some((1, 1)));
+        assert_eq!(registry().arity("csv.parse"), Some((1, 3)));
+        assert_eq!(registry().arity("csv.readRow"), Some((1, 1)));
     }
 
     #[test]

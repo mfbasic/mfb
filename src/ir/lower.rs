@@ -91,7 +91,8 @@ pub fn lower_project_with_external_functions(
     external_function_params: &HashMap<String, Vec<ExternalFunctionParam>>,
     imported_types: &[ImportedTypeDef],
 ) -> IrProject {
-    let augmented = crate::codegen::registry::augment_project(ast)
+    let augmented = crate::codegen::registry::registry()
+        .augment_project(ast)
         .expect("clean-room registry package source must parse");
 
     // The `term`↔`astrings` drawText bridge, injected only when a program imports
@@ -2093,8 +2094,10 @@ fn expression_type(
             // return type is reported even for an argument-invalid call, which is
             // the byte-identical pre-migration behavior — see the encoding
             // `func_*_invalid` acceptance goldens).
-            let migrated_arg_typed = crate::codegen::registry::is_member(&canonical_callee)
-                && crate::codegen::registry::owning_package(&canonical_callee) != Some("encoding");
+            let migrated_arg_typed = crate::codegen::registry::registry()
+                .is_member(&canonical_callee)
+                && crate::codegen::registry::registry().owning_package(&canonical_callee)
+                    != Some("encoding");
             if builtins::strings::is_strings_call(&canonical_callee)
                 || builtins::astrings::is_astrings_call(&canonical_callee)
                 || builtins::math::is_math_call(&canonical_callee)
@@ -2108,7 +2111,8 @@ fn expression_type(
                 || builtins::audio::is_audio_call(&canonical_callee)
                 || builtins::http::is_http_call(&canonical_callee)
                 || migrated_arg_typed
-                || crate::codegen::registry::owning_package(&canonical_callee) == Some("datetime")
+                || crate::codegen::registry::registry().owning_package(&canonical_callee)
+                    == Some("datetime")
                 || builtins::crypto::is_crypto_call(&canonical_callee)
                 || builtins::thread::is_thread_call(&canonical_callee)
             {

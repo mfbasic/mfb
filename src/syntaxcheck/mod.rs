@@ -160,7 +160,7 @@ pub fn check_project_collect(
     project_dir: &Path,
     ast: &AstProject,
 ) -> Result<Vec<crate::rules::PendingDiagnostic>, ()> {
-    let augmented = crate::codegen::registry::augment_project(ast)?;
+    let augmented = crate::codegen::registry::registry().augment_project(ast)?;
 
     // The `term`↔`astrings` drawText bridge, injected only when a program imports
     // BOTH packages; it imports term/astrings/strings, so it precedes all three so

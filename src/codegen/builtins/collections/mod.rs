@@ -253,7 +253,7 @@ mod tests {
     // The `is_collections_call` / `is_source_generic_member` shape, exercised through
     // the generic registry accessors the pipeline now routes through.
     fn is_collections_call(name: &str) -> bool {
-        registry::owning_package(name) == Some("collections")
+        registry().owning_package(name) == Some("collections")
             || registry::is_source_generic_member(name)
     }
 
@@ -267,15 +267,15 @@ mod tests {
         assert!(!registry::is_source_generic_member("collections.nope"));
 
         assert_eq!(
-            registry::owning_package("collections.get"),
+            registry().owning_package("collections.get"),
             Some("collections")
         );
         assert_eq!(
-            registry::owning_package("collections.replace"),
+            registry().owning_package("collections.replace"),
             Some("collections")
         );
-        assert!(registry::owning_package("collections.sort").is_none());
-        assert!(registry::owning_package("collections.nope").is_none());
+        assert!(registry().owning_package("collections.sort").is_none());
+        assert!(registry().owning_package("collections.nope").is_none());
     }
 
     #[test]
@@ -292,11 +292,11 @@ mod tests {
         // `is_native_member_call` -> `owning_package == Some("collections")`;
         // the bare-name dequalification -> `crate::builtins::native_builtin_target`.
         assert_eq!(
-            registry::owning_package("collections.get"),
+            registry().owning_package("collections.get"),
             Some("collections")
         );
-        assert!(registry::owning_package("collections.sort").is_none());
-        assert!(registry::owning_package("get").is_none());
+        assert!(registry().owning_package("collections.sort").is_none());
+        assert!(registry().owning_package("get").is_none());
         assert_eq!(
             crate::builtins::native_builtin_target("collections.get"),
             Some("get")
@@ -402,9 +402,9 @@ mod tests {
             .expect("collections package");
         // Exactly the 24 native members (source generics are not registered here).
         assert_eq!(pkg.functions().len(), 24);
-        assert!(registry::is_member("collections.get"));
-        assert!(!registry::is_member("collections.sort")); // source generic
-        assert!(!registry::is_member("collections.nope"));
+        assert!(registry().is_member("collections.get"));
+        assert!(!registry().is_member("collections.sort")); // source generic
+        assert!(!registry().is_member("collections.nope"));
     }
 
     fn rt(name: &str, args: &[&str]) -> Option<String> {

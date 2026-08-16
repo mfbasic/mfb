@@ -655,7 +655,8 @@ impl plan::NativePlanPlatform for Platform {
                 required_by: required_by.clone(),
             })
             .collect(),
-            call if crate::codegen::registry::owning_package(call) == Some("process")
+            call if crate::codegen::registry::registry().owning_package(call)
+                == Some("process")
                 || call == "process.__drop" =>
             {
                 // plan-90: fork/exec/pipe/wait + the errno accessor. Over-importing
