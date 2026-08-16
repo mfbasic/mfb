@@ -63,7 +63,7 @@ opening and closing the file descriptor, the call has no side effects.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | `path` is empty or contains an embedded NUL byte, so it cannot be turned into a valid NUL-terminated host path. [[src/codegen/builtins/fs/native/atomic.rs:lower_fs_read_bytes_path_helper]] |
-| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of `path`, the `File` handle record, or the byte collection holding the file contents cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of `path`, the `File` handle record, or the byte collection holding the file contents cannot be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 | `77030001` | `ErrPathNotFound` | No file exists at `path` (host `ENOENT`). [[src/codegen/builtins/fs/native/shared.rs:emit_fs_path_errno_error_mapping]] |
 | `77030003` | `ErrAccessDenied` | The host denies access to `path` (host `EACCES`). [[src/codegen/builtins/fs/native/shared.rs:emit_fs_path_errno_error_mapping]] |
 | `77030002` | `ErrInvalidPath` | `path` is unusable as a path: a non-directory used as a directory component, an over-long path, an invalid byte sequence, or a symlink loop resolving the final component (host `ENOTDIR`, `ENAMETOOLONG`, `EILSEQ`, or `ELOOP`). [[src/codegen/builtins/fs/native/shared.rs:emit_fs_path_errno_error_mapping]] |

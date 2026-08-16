@@ -73,7 +73,7 @@ for a local zone it reads the host's time-zone configuration through the
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | The civil-to-seconds arithmetic in the `resolve` step, the offset subtraction there, or the offset addition (`at.seconds + off`) in the projection step produces a value outside the signed `Integer` range, which can occur only for a `DateTime` at the extreme edge of the representable timeline. [[src/codegen/builtins/datetime/func_resolve.rs:__datetime_resolve]] [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | The civil-to-seconds arithmetic in the `resolve` step, the offset subtraction there, or the offset addition (`at.seconds + off`) in the projection step produces a value outside the signed `Integer` range, which can occur only for a `DateTime` at the extreme edge of the representable timeline. [[src/codegen/builtins/datetime/func_resolve.rs:__datetime_resolve]] [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 
 ## Examples
 

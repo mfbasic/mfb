@@ -108,10 +108,10 @@ any element is computed. [[src/target/shared/code/builder_pow.rs:lower_pow_array
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050013` | `ErrFloatNaN` | The `Float` overload only: the result has no real value, such as a negative base raised to a fractional exponent. [[src/builtins/errorcode.rs:ErrFloatNaN]] [[src/target/shared/code/builder_math.rs:lower_math_scalar_binary]] |
-| `77050014` | `ErrFloatInf` | The `Float` overload only: the result overflowed to an infinity, including `math::pow(0.0, -1.0)`. [[src/builtins/errorcode.rs:ErrFloatInf]] [[src/target/shared/code/builder_math.rs:lower_math_scalar_binary]] |
-| `77050002` | `ErrInvalidArgument` | The `Fixed` overload: a fractional exponent applied to a non-positive base, which has no real result. Also raised by the array overload when the two lists have different lengths. [[src/builtins/errorcode.rs:ErrInvalidArgument]] [[src/target/shared/code/builder_fixed_math.rs:emit_fixed_pow_general]] |
-| `77050010` | `ErrOverflow` | The `Fixed` overload only: the result lies outside `Fixed` range, including a zero base with a negative exponent. [[src/builtins/errorcode.rs:ErrOverflow]] [[src/target/shared/code/builder_fixed_math.rs:emit_fixed_pow_general]] |
+| `77050013` | `ErrFloatNaN` | The `Float` overload only: the result has no real value, such as a negative base raised to a fractional exponent. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatNaN]] [[src/target/shared/code/builder_math.rs:lower_math_scalar_binary]] |
+| `77050014` | `ErrFloatInf` | The `Float` overload only: the result overflowed to an infinity, including `math::pow(0.0, -1.0)`. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatInf]] [[src/target/shared/code/builder_math.rs:lower_math_scalar_binary]] |
+| `77050002` | `ErrInvalidArgument` | The `Fixed` overload: a fractional exponent applied to a non-positive base, which has no real result. Also raised by the array overload when the two lists have different lengths. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] [[src/target/shared/code/builder_fixed_math.rs:emit_fixed_pow_general]] |
+| `77050010` | `ErrOverflow` | The `Fixed` overload only: the result lies outside `Fixed` range, including a zero base with a negative exponent. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] [[src/target/shared/code/builder_fixed_math.rs:emit_fixed_pow_general]] |
 
 ## Type checking
 

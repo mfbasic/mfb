@@ -65,7 +65,7 @@ that multiplying by 1000 (or negating the reduced total) leaves the signed
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | Reducing the span to whole milliseconds — multiplying the `seconds` field by 1000 and adding the millisecond remainder, or negating the reduced total of a negative span — produces a value outside the signed `Integer` range. [[src/codegen/builtins/datetime/func_format_duration.rs:__datetime_formatDuration]] [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | Reducing the span to whole milliseconds — multiplying the `seconds` field by 1000 and adding the millisecond remainder, or negating the reduced total of a negative span — produces a value outside the signed `Integer` range. [[src/codegen/builtins/datetime/func_format_duration.rs:__datetime_formatDuration]] [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 
 ## Examples
 

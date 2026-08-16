@@ -5,11 +5,11 @@ runtime error registry. A reference such as `errorCode::ErrNotFound` types as
 `Integer` and folds to an integer literal before lowering — there is no runtime
 helper, no codegen, and no binary-representation change, mirroring the `math::pi`
 constant mechanism. Constants are keyed package-qualified (`"errorCode.<Name>"`)
-and resolved by exact match against the generated table. [[src/builtins/errorcode.rs:constant_value]]
+and resolved by exact match against the generated table. [[src/codegen/registry/mod.rs:constant_value]]
 
 These integers are exactly the values runtime code stamps into `Error.code` when
 a fallible operation fails (see *See Also*) — both the native codegen/runtime
-helpers [[src/builtins/errorcode.rs:ErrOverflow]] and the
+helpers [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] and the
 embedded MFBASIC standard packages (`regex`, `datetime`, `csv`, `json`, `http`,
 `net`, …) fail with registry values, and user code may `FAIL` with them too. They
 are program-visible data, not host-tool diagnostics; the compiler-facing rule
@@ -27,7 +27,7 @@ The canonical code string has the hyphenated form `G-SSS-EEEE`:
 The runtime `Error.code` integer is the canonical code with the hyphens removed.
 For example `7-705-0002` is stored as `77050002`. The mapping is exactly
 `code.replace('-', "")`; the build step asserts that hyphen-stripping the code
-column equals the integer column for every row, so the two cannot drift. [[src/builtins/errorcode.rs:ERRORCODE_CONSTANTS]]
+column equals the integer column for every row, so the two cannot drift. [[src/codegen/builtins/errorcode/mod.rs:register]]
 
 ## Subsystem Partitioning
 
@@ -91,7 +91,7 @@ that keeps user codes from being mistaken for registry codes.
 
 The complete `errorCode::` Name → Integer mapping. This table is the build input
 from which `ERRORCODE_CONSTANTS` is generated (see *Drift Guard*); row order is
-registry order. [[src/builtins/errorcode.rs:ERRORCODE_CONSTANTS]]
+registry order. [[src/codegen/builtins/errorcode/mod.rs:register]]
 
 | Code         | Integer    | Name                          | Meaning |
 |--------------|------------|-------------------------------|---------|
@@ -146,7 +146,7 @@ registry order. [[src/builtins/errorcode.rs:ERRORCODE_CONSTANTS]]
 Constant resolution answers three questions about a package-qualified name —
 whether it is a known constant, that its type is `Integer`, and the folded
 integer literal it becomes. Resolution strips the `errorCode.` prefix and
-rejects unqualified or unknown names. [[src/builtins/errorcode.rs:constant_value]]
+rejects unqualified or unknown names. [[src/codegen/registry/mod.rs:constant_value]]
 
 ## Drift Guard
 
@@ -155,7 +155,7 @@ The `errorCode` constants are generated at build time directly from the
 for the runtime registry. [[build.rs:generate_errorcode_table]] A drift-guard
 test re-parses the same table and asserts the generated table reproduces every
 row with the integer equal to the hyphen-stripped code, so the generated
-constants cannot drift from this registry. [[src/builtins/errorcode.rs:table_matches_registry]]
+constants cannot drift from this registry. [[src/codegen/builtins/errorcode/mod.rs:table_matches_registry]]
 
 ## See Also
 

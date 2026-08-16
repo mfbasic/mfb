@@ -68,9 +68,9 @@ must subscribe with `thread::openStdIn` before reading, or the call raises
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77020003` | `ErrEof` | Standard input reaches end of input before a byte is read. [[src/builtins/errorcode.rs:ErrEndOfFile]] |
-| `77020005` | `ErrInput` | Reading standard input fails for any other reason, or the terminal mode cannot be changed or restored. [[src/builtins/errorcode.rs:ErrInputFailed]] |
-| `77050019` | `ErrInvalidContext` | The calling thread is not the main thread and has not subscribed to standard input with `thread::openStdIn`. [[src/builtins/errorcode.rs:ErrInvalidContext]] |
+| `77020003` | `ErrEof` | Standard input reaches end of input before a byte is read. [[src/codegen/builtins/errorcode/mod.rs:ErrEndOfFile]] |
+| `77020005` | `ErrInput` | Reading standard input fails for any other reason, or the terminal mode cannot be changed or restored. [[src/codegen/builtins/errorcode/mod.rs:ErrInputFailed]] |
+| `77050019` | `ErrInvalidContext` | The calling thread is not the main thread and has not subscribed to standard input with `thread::openStdIn`. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidContext]] |
 
 ## Examples
 

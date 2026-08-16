@@ -103,8 +103,8 @@ which element triggered it; no list is returned in that case.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050012` | `ErrFloatDomain` | The `Float` overload only: `|value| > 1`, outside the arc sine's domain. [[src/builtins/errorcode.rs:ErrFloatDomain]] |
-| `77050002` | `ErrInvalidArgument` | The `Fixed` overload only: `|value| > 1`. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050012` | `ErrFloatDomain` | The `Float` overload only: `|value| > 1`, outside the arc sine's domain. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatDomain]] |
+| `77050002` | `ErrInvalidArgument` | The `Fixed` overload only: `|value| > 1`. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
 
 ## Type checking
 

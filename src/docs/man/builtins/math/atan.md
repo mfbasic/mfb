@@ -102,7 +102,7 @@ which element triggered it; no list is returned in that case.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050013` | `ErrFloatNaN` | The `Float` overload only: `value` is a NaN. The `Fixed` overload never fails. [[src/builtins/errorcode.rs:ErrFloatNaN]] |
+| `77050013` | `ErrFloatNaN` | The `Float` overload only: `value` is a NaN. The `Fixed` overload never fails. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatNaN]] |
 
 ## Type checking
 

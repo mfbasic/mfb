@@ -42,7 +42,7 @@ full platform mapping is tabulated in `mfb man process types`.
 [[src/codegen/builtins/process/func_did_signal.rs:lower_process_didsignal_helper_win]]
 
 Reading a handle that has already been dropped or detached raises
-`ErrResourceClosed`. [[src/builtins/errorcode.rs:ErrResourceClosed]]
+`ErrResourceClosed`. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]]
 
 ## Parameters
 
@@ -60,7 +60,7 @@ Reading a handle that has already been dropped or detached raises
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `p` has already been dropped or detached. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
+| `77030004` | `ErrResourceClosed` | `p` has already been dropped or detached. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
 
 ## Examples
 

@@ -48,7 +48,7 @@ inclusive; a count below `0` or above `63` raises `ErrInvalidArgument`
 reduced modulo the width — an out-of-range shift is an error, not a defined
 no-op, which keeps behavior identical to the native variable-shift instruction
 only over the range where that instruction is unambiguous.
-[[src/codegen/builtins/bits/native.rs:lower_bits_shift]] [[src/builtins/errorcode.rs:ErrInvalidArgument]]
+[[src/codegen/builtins/bits/native.rs:lower_bits_shift]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]]
 
 Within the valid range:
 

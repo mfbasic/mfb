@@ -76,7 +76,7 @@ the code point exceeds `255`. The inverse of `toScalar(Byte)`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | The value to narrow is less than `0` or greater than `255` and therefore cannot be represented as an 8-bit `Byte`. For `Money`, the checked value is the whole-unit count `raw / 100000`; for `Scalar`, it is the Unicode code point. [[src/target/shared/code/builder_conversions.rs:lower_to_byte]] [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | The value to narrow is less than `0` or greater than `255` and therefore cannot be represented as an 8-bit `Byte`. For `Money`, the checked value is the whole-unit count `raw / 100000`; for `Scalar`, it is the Unicode code point. [[src/target/shared/code/builder_conversions.rs:lower_to_byte]] [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 
 ## Type checking
 

@@ -102,7 +102,7 @@ element equals the corresponding scalar result exactly.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `low` is greater than `high`, so the range is empty. Checked before any element is clamped, in both the scalar and the array forms. [[src/builtins/errorcode.rs:ErrInvalidArgument]] [[src/target/shared/code/builder_math.rs:lower_math_clamp]] |
+| `77050002` | `ErrInvalidArgument` | `low` is greater than `high`, so the range is empty. Checked before any element is clamped, in both the scalar and the array forms. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] [[src/target/shared/code/builder_math.rs:lower_math_clamp]] |
 
 ## Type checking
 

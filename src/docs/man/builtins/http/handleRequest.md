@@ -120,10 +120,10 @@ and handlers are interchangeable between the two.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `listener` has already been closed. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
+| `77030004` | `ErrResourceClosed` | `listener` has already been closed. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
 | `77070003` | `ErrNetworkFailed` | The `accept` call on `listener` fails for a reason other than an interrupting signal (`EINTR` is retried). [[src/target/shared/code/net/io.rs:lower_net_accept_helper]] |
 | `77070008` | `ErrTlsFailed` | TLS overload only: the server-side handshake, or the per-connection TLS setup, fails. [[src/target/shared/code/tls/mod.rs:lower_tls_accept_helper]] |
-| `77010001` | `ErrOutOfMemory` | An arena allocation for the accepted socket handle, the request buffer, or the response text fails. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77010001` | `ErrOutOfMemory` | An arena allocation for the accepted socket handle, the request buffer, or the response text fails. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 Malformed, oversized, unmatched, and handler-failing requests are **not** errors:
 they become `400`, `413`, `404`, and `500` responses. Read and write failures on

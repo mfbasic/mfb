@@ -39,7 +39,7 @@ transfer. [[src/codegen/builtins/process/mod.rs:DROP]]
 Closing the input is idempotent with respect to the input pipe: once stdin is
 closed the call is a harmless no-op. Only a handle that has already been dropped or
 detached makes `close` raise `ErrResourceClosed`.
-[[src/builtins/errorcode.rs:ErrResourceClosed]]
+[[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]]
 
 ## Parameters
 
@@ -57,7 +57,7 @@ detached makes `close` raise `ErrResourceClosed`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `p` has already been dropped or detached. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
+| `77030004` | `ErrResourceClosed` | `p` has already been dropped or detached. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
 
 ## Examples
 

@@ -75,7 +75,7 @@ resolves it reads no host state and has no side effects.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | The civil-to-seconds arithmetic (`daysFromCivil(...) * 86400 + ...`) or the offset resolution produces a value outside the signed `Integer` range, which can occur only for a `date`/`time` at the extreme edge of the representable timeline. [[src/codegen/builtins/datetime/func_civil.rs:__datetime_civil]] [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | The civil-to-seconds arithmetic (`daysFromCivil(...) * 86400 + ...`) or the offset resolution produces a value outside the signed `Integer` range, which can occur only for a `date`/`time` at the extreme edge of the representable timeline. [[src/codegen/builtins/datetime/func_civil.rs:__datetime_civil]] [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 
 ## Examples
 

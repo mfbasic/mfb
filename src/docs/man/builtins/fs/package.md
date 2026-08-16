@@ -78,17 +78,17 @@ from them. [[src/codegen/builtins/fs/mod.rs:register]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | raised by the path and open functions when a path is empty or contains an embedded NUL byte, or when an open mode is not one of the portable modes [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
-| `77010001` | `ErrOutOfMemory` | raised by any function when an internal allocation fails, such as the NUL-terminated copy of a path, a `File` record, or the buffer or collection holding a result [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
-| `77030001` | `ErrPathNotFound` | raised by reading functions and by `fs::open` in a read mode when no entry exists at the path (host ENOENT) [[src/builtins/errorcode.rs:ErrPathNotFound]] |
-| `77050004` | `ErrNotFound` | raised by writing, directory, and working-directory functions, and by `fs::isWithin`, when a path component cannot be resolved, such as a missing parent directory [[src/builtins/errorcode.rs:ErrNotFound]] |
-| `77030003` | `ErrAccessDenied` | raised by any function when the host denies permission to the path (host EACCES) [[src/builtins/errorcode.rs:ErrAccessDenied]] |
-| `77030002` | `ErrInvalidPath` | raised when a path is unusable as a path string, including a non-directory used as a directory component, an over-long path, an invalid byte sequence, or a symlink loop (host ENOTDIR, ENAMETOOLONG, EILSEQ, or ELOOP) [[src/builtins/errorcode.rs:ErrInvalidPath]] |
-| `77050005` | `ErrAlreadyExists` | raised by `fs::createDirectory` when an entry already exists at the final path component (host EEXIST) [[src/builtins/errorcode.rs:ErrAlreadyExists]] |
-| `77030005` | `ErrDirectoryNotEmpty` | raised by `fs::deleteDirectory` when the named directory still contains entries [[src/builtins/errorcode.rs:ErrResourceBusy]] |
-| `77020001` | `ErrRead` | raised by reading functions when a host read fails partway through, before the full contents have been read [[src/builtins/errorcode.rs:ErrReadFailed]] |
-| `77020002` | `ErrOutput` | raised by writing and open functions when the target is a directory or another non-writable entry, when opening fails for any other host reason, or when writing, flushing, or closing fails partway through [[src/builtins/errorcode.rs:ErrWriteFailed]] |
-| `77020003` | `ErrEof` | raised by `fs::readLine` when the `File` is already at end of input before any byte is read [[src/builtins/errorcode.rs:ErrEndOfFile]] |
-| `77020004` | `ErrEncoding` | raised by `fs::readText` and `fs::readAll` when the bytes read are not valid UTF-8 [[src/builtins/errorcode.rs:ErrEncoding]] |
-| `77030004` | `ErrResourceClosed` | raised by the `File`-handle functions when the `File` has already been closed [[src/builtins/errorcode.rs:ErrResourceClosed]] |
-| `77030006` | `ErrCloseFailed` | raised by `fs::close` when the host OS reports a failure while flushing or releasing the handle [[src/builtins/errorcode.rs:ErrCloseFailed]] |
+| `77050002` | `ErrInvalidArgument` | raised by the path and open functions when a path is empty or contains an embedded NUL byte, or when an open mode is not one of the portable modes [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
+| `77010001` | `ErrOutOfMemory` | raised by any function when an internal allocation fails, such as the NUL-terminated copy of a path, a `File` record, or the buffer or collection holding a result [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
+| `77030001` | `ErrPathNotFound` | raised by reading functions and by `fs::open` in a read mode when no entry exists at the path (host ENOENT) [[src/codegen/builtins/errorcode/mod.rs:ErrPathNotFound]] |
+| `77050004` | `ErrNotFound` | raised by writing, directory, and working-directory functions, and by `fs::isWithin`, when a path component cannot be resolved, such as a missing parent directory [[src/codegen/builtins/errorcode/mod.rs:ErrNotFound]] |
+| `77030003` | `ErrAccessDenied` | raised by any function when the host denies permission to the path (host EACCES) [[src/codegen/builtins/errorcode/mod.rs:ErrAccessDenied]] |
+| `77030002` | `ErrInvalidPath` | raised when a path is unusable as a path string, including a non-directory used as a directory component, an over-long path, an invalid byte sequence, or a symlink loop (host ENOTDIR, ENAMETOOLONG, EILSEQ, or ELOOP) [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidPath]] |
+| `77050005` | `ErrAlreadyExists` | raised by `fs::createDirectory` when an entry already exists at the final path component (host EEXIST) [[src/codegen/builtins/errorcode/mod.rs:ErrAlreadyExists]] |
+| `77030005` | `ErrDirectoryNotEmpty` | raised by `fs::deleteDirectory` when the named directory still contains entries [[src/codegen/builtins/errorcode/mod.rs:ErrResourceBusy]] |
+| `77020001` | `ErrRead` | raised by reading functions when a host read fails partway through, before the full contents have been read [[src/codegen/builtins/errorcode/mod.rs:ErrReadFailed]] |
+| `77020002` | `ErrOutput` | raised by writing and open functions when the target is a directory or another non-writable entry, when opening fails for any other host reason, or when writing, flushing, or closing fails partway through [[src/codegen/builtins/errorcode/mod.rs:ErrWriteFailed]] |
+| `77020003` | `ErrEof` | raised by `fs::readLine` when the `File` is already at end of input before any byte is read [[src/codegen/builtins/errorcode/mod.rs:ErrEndOfFile]] |
+| `77020004` | `ErrEncoding` | raised by `fs::readText` and `fs::readAll` when the bytes read are not valid UTF-8 [[src/codegen/builtins/errorcode/mod.rs:ErrEncoding]] |
+| `77030004` | `ErrResourceClosed` | raised by the `File`-handle functions when the `File` has already been closed [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
+| `77030006` | `ErrCloseFailed` | raised by `fs::close` when the host OS reports a failure while flushing or releasing the handle [[src/codegen/builtins/errorcode/mod.rs:ErrCloseFailed]] |

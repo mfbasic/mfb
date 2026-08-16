@@ -108,7 +108,7 @@ element triggered it; no list is returned in that case.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | The `Float` overload only: the result lies outside `Integer` range, or `value` is a NaN or an infinity. The `Fixed` and `Money` overloads cannot overflow. [[src/builtins/errorcode.rs:ErrOverflow]] [[src/target/shared/code/builder_math.rs:emit_float_rounding_integer_range_check]] |
+| `77050010` | `ErrOverflow` | The `Float` overload only: the result lies outside `Integer` range, or `value` is a NaN or an infinity. The `Fixed` and `Money` overloads cannot overflow. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] [[src/target/shared/code/builder_math.rs:emit_float_rounding_integer_range_check]] |
 
 ## Type checking
 

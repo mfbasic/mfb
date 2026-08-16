@@ -46,7 +46,7 @@ dimensionless whole-unit `Integer` count with a fixed half-away rule.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | `money::round` is given a `decimals` outside `0..5`. `5` is the identity, since `Money` is scaled to five decimal places. [[src/codegen/builtins/money/func_round.rs:lower_money_round]] |
-| `77050010` | `ErrOverflow` | `money::round` settles an amount near the representable maximum upward and the rescaled result no longer fits the `Money` range. [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | `money::round` settles an amount near the representable maximum upward and the rescaled result no longer fits the `Money` range. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 
 `money::setRounding` and `money::getRounding` raise no errors: the mode is an
 enum the type checker has already constrained, and reading it cannot fail.

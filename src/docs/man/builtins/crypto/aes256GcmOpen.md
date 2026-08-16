@@ -87,7 +87,7 @@ or verification fails. [[src/builtins/crypto.rs:call_param_names]]
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050016` | `ErrAuthenticationFailed` | The authentication tag does not verify — the `ciphertext`, `tag`, `nonce`, or `aad` was altered or does not belong to this key. No plaintext is returned. [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmOpen]] [[src/target/shared/code/error_constants.rs:176]] |
-| `77050002` | `ErrInvalidArgument` | `key` is not exactly 32 bytes, or `nonce` is not exactly 12 bytes. [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmOpen]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050002` | `ErrInvalidArgument` | `key` is not exactly 32 bytes, or `nonce` is not exactly 12 bytes. [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmOpen]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
 
 ## Examples
 

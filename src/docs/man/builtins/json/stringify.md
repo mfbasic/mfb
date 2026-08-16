@@ -88,8 +88,8 @@ The output is always re-readable by `json::parse`, which makes
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | No decimal rendering of a `JsonNum`'s `Float` parses back to the same value, or that `Float` is non-finite. Both indicate a formatter fault rather than bad input, and neither is reachable from a `Json` value built by ordinary MFBASIC code. [[src/builtins/errorcode.rs:ErrInvalidFormat]] [[src/codegen/builtins/json/package.mfb:__json_stringifyNumber]] |
-| `77010001` | `ErrOutOfMemory` | The result string or an intermediate fragment cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77050003` | `ErrInvalidFormat` | No decimal rendering of a `JsonNum`'s `Float` parses back to the same value, or that `Float` is non-finite. Both indicate a formatter fault rather than bad input, and neither is reachable from a `Json` value built by ordinary MFBASIC code. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidFormat]] [[src/codegen/builtins/json/package.mfb:__json_stringifyNumber]] |
+| `77010001` | `ErrOutOfMemory` | The result string or an intermediate fragment cannot be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

@@ -66,7 +66,7 @@ push the combined second count past the `Integer` range overflows and traps.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | Adding the `seconds` fields, or carrying the normalized nanoseconds into the `seconds` field, produces a value outside the signed `Integer` range. [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | Adding the `seconds` fields, or carrying the normalized nanoseconds into the `seconds` field, produces a value outside the signed `Integer` range. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 
 ## Examples
 

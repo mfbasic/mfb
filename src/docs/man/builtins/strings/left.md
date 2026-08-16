@@ -66,7 +66,7 @@ and whose attribute spans are remapped by the same edit.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `count` is negative. [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_left_right]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050002` | `ErrInvalidArgument` | `count` is negative. [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_left_right]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
 
 ## Examples
 

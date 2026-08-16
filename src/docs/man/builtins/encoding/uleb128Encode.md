@@ -57,7 +57,7 @@ an `Integer`. [[src/codegen/builtins/encoding/func_uleb128_decode.rs:__encoding_
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `value` is negative (`value < 0`); unsigned LEB128 has no representation for negative numbers. [[src/codegen/builtins/encoding/func_uleb128_encode.rs:__encoding_uleb128Encode]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | `value` is negative (`value < 0`); unsigned LEB128 has no representation for negative numbers. [[src/codegen/builtins/encoding/func_uleb128_encode.rs:__encoding_uleb128Encode]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidFormat]] |
 
 ## Examples
 

@@ -83,7 +83,7 @@ Pads with the supplied `padChar`, which must be exactly one Unicode scalar value
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `width` is negative; `padChar` is empty, is more than one scalar, or is not a well-formed single UTF-8 scalar; or the result size cannot be represented in 64 bits. [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_pad]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050002` | `ErrInvalidArgument` | `width` is negative; `padChar` is empty, is more than one scalar, or is not a well-formed single UTF-8 scalar; or the result size cannot be represented in 64 bits. [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_pad]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
 
 ## Examples
 

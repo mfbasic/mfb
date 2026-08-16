@@ -73,8 +73,8 @@ is off or no view is attached.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050007` | `ErrUnsupported` | TUI mode is off, or the terminal size cannot be obtained — the size query fails, or it reports zero rows or zero columns. [[src/builtins/errorcode.rs:ErrUnsupported]] |
-| `77010001` | `ErrOutOfMemory` | The returned `TermSize` record cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77050007` | `ErrUnsupported` | TUI mode is off, or the terminal size cannot be obtained — the size query fails, or it reports zero rows or zero columns. [[src/codegen/builtins/errorcode/mod.rs:ErrUnsupported]] |
+| `77010001` | `ErrOutOfMemory` | The returned `TermSize` record cannot be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

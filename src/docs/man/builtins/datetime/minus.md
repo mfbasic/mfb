@@ -67,7 +67,7 @@ always yield the same `Duration`, and it has no side effects.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | Subtracting the `seconds` fields, or borrowing the normalized nanoseconds from the `seconds` field, produces a value outside the signed `Integer` range. [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | Subtracting the `seconds` fields, or borrowing the normalized nanoseconds from the `seconds` field, produces a value outside the signed `Integer` range. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 
 ## Examples
 

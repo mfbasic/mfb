@@ -56,8 +56,8 @@ returned as-is with `ok` `FALSE`. [[src/builtins/http_package.mfb:Response]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | The accumulated response's status line, header block, or `chunked` framing is malformed. [[src/builtins/errorcode.rs:ErrInvalidFormat]] [[src/builtins/http_package.mfb:__http_parseStatusLine]] |
-| `77050010` | `ErrOverflow` | A captured overflow: the accumulated response exceeded the internal 64 MiB size cap during pumping. [[src/builtins/errorcode.rs:ErrOverflow]] [[src/builtins/http_package.mfb:__HTTP_MAX_RESPONSE]] |
+| `77050003` | `ErrInvalidFormat` | The accumulated response's status line, header block, or `chunked` framing is malformed. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidFormat]] [[src/builtins/http_package.mfb:__http_parseStatusLine]] |
+| `77050010` | `ErrOverflow` | A captured overflow: the accumulated response exceeded the internal 64 MiB size cap during pumping. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] [[src/builtins/http_package.mfb:__HTTP_MAX_RESPONSE]] |
 
 Any transport failure captured during the drive (for example `ErrTimeout`,
 `ErrNetworkFailed`, or `ErrTlsFailed`) is re-raised by `finish` with the captured

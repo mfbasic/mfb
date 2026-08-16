@@ -74,7 +74,7 @@ succeeds immediately. [[src/target/shared/code/mod.rs:lower_runtime_helper]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77020002` | `ErrOutput` | The write of the buffered bytes fails. The unflushed remainder is retained so the flush can be retried. [[src/builtins/errorcode.rs:ErrWriteFailed]] |
+| `77020002` | `ErrOutput` | The write of the buffered bytes fails. The unflushed remainder is retained so the flush can be retried. [[src/codegen/builtins/errorcode/mod.rs:ErrWriteFailed]] |
 
 ## Examples
 

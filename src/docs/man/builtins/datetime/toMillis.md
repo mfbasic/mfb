@@ -64,7 +64,7 @@ from the result. For full nanosecond precision use `datetime::toNanos`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | Evaluating `at.seconds * 1000 + at.nanos / 1000000` overflows the signed `Integer` range — either the millisecond scaling or the trailing addition — which can occur only for an instant at the extreme edge of the timeline. [[src/codegen/builtins/datetime/func_to_millis.rs:__datetime_toMillis]] [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | Evaluating `at.seconds * 1000 + at.nanos / 1000000` overflows the signed `Integer` range — either the millisecond scaling or the trailing addition — which can occur only for an instant at the extreme edge of the timeline. [[src/codegen/builtins/datetime/func_to_millis.rs:__datetime_toMillis]] [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 
 ## Examples
 

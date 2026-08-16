@@ -108,8 +108,8 @@ does not depend on which element triggered it.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050013` | `ErrFloatNaN` | The `Float` overload only: the computed result is a NaN, which happens only when `y` or `x` is itself a NaN. The `Fixed` overload never fails. [[src/builtins/errorcode.rs:ErrFloatNaN]] [[src/target/shared/code/builder_simd_float_math.rs:FloatBinaryKernel]] |
-| `77050002` | `ErrInvalidArgument` | The array overload only: the two lists have different lengths. [[src/builtins/errorcode.rs:ErrInvalidArgument]] [[src/target/shared/code/builder_math.rs:lower_math_atan2_pow_array]] |
+| `77050013` | `ErrFloatNaN` | The `Float` overload only: the computed result is a NaN, which happens only when `y` or `x` is itself a NaN. The `Fixed` overload never fails. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatNaN]] [[src/target/shared/code/builder_simd_float_math.rs:FloatBinaryKernel]] |
+| `77050002` | `ErrInvalidArgument` | The array overload only: the two lists have different lengths. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] [[src/target/shared/code/builder_math.rs:lower_math_atan2_pow_array]] |
 
 ## Type checking
 

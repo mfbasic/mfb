@@ -71,14 +71,14 @@ to `from` with `net::sendTextTo`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `maxBytes` is not positive. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
-| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
-| `77070007` | `ErrMessageTooLarge` | The received datagram's payload is larger than `maxBytes`. The datagram is not truncated and not returned. [[src/builtins/errorcode.rs:ErrMessageTooLarge]] |
-| `77050008` | `ErrTimeout` | The socket's read timeout elapsed before a datagram arrived. [[src/builtins/errorcode.rs:ErrTimeout]] |
-| `77020004` | `ErrEncoding` | The received payload is not valid UTF-8. [[src/builtins/errorcode.rs:ErrEncoding]] |
-| `77070003` | `ErrNetworkFailed` | The receive fails for a host reason other than a timeout or an interruption. [[src/builtins/errorcode.rs:ErrNetworkFailed]] |
-| `77070001` | `ErrAddressInvalid` | The sender address reported by the host could not be converted to its textual form. [[src/builtins/errorcode.rs:ErrAddressInvalid]] |
-| `77010001` | `ErrOutOfMemory` | The receive buffer, the decoded string, the sender `Address`, or the `DatagramText` record could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77050002` | `ErrInvalidArgument` | `maxBytes` is not positive. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
+| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
+| `77070007` | `ErrMessageTooLarge` | The received datagram's payload is larger than `maxBytes`. The datagram is not truncated and not returned. [[src/codegen/builtins/errorcode/mod.rs:ErrMessageTooLarge]] |
+| `77050008` | `ErrTimeout` | The socket's read timeout elapsed before a datagram arrived. [[src/codegen/builtins/errorcode/mod.rs:ErrTimeout]] |
+| `77020004` | `ErrEncoding` | The received payload is not valid UTF-8. [[src/codegen/builtins/errorcode/mod.rs:ErrEncoding]] |
+| `77070003` | `ErrNetworkFailed` | The receive fails for a host reason other than a timeout or an interruption. [[src/codegen/builtins/errorcode/mod.rs:ErrNetworkFailed]] |
+| `77070001` | `ErrAddressInvalid` | The sender address reported by the host could not be converted to its textual form. [[src/codegen/builtins/errorcode/mod.rs:ErrAddressInvalid]] |
+| `77010001` | `ErrOutOfMemory` | The receive buffer, the decoded string, the sender `Address`, or the `DatagramText` record could not be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

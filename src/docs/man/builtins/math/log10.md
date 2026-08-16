@@ -107,8 +107,8 @@ which element triggered it; no list is returned in that case.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050012` | `ErrFloatDomain` | The `Float` overload only: `value` is zero or negative, so it has no real logarithm. [[src/builtins/errorcode.rs:ErrFloatDomain]] |
-| `77050002` | `ErrInvalidArgument` | The `Fixed` overload only: `value` is zero or negative. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050012` | `ErrFloatDomain` | The `Float` overload only: `value` is zero or negative, so it has no real logarithm. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatDomain]] |
+| `77050002` | `ErrInvalidArgument` | The `Fixed` overload only: `value` is zero or negative. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
 
 ## Type checking
 

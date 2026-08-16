@@ -83,8 +83,8 @@ port equal to the scheme default and re-bracketing a host containing a colon.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050003` | `ErrInvalidFormat` | The href has no `://` separator, an empty host, an unterminated bracketed IPv6 literal, trailing characters after a bracketed literal that are not a `:port`, an empty port, a port carrying a sign or a non-digit, or a port above 65535. [[src/builtins/net_package.mfb:__net_parsePort]] |
-| `77050007` | `ErrUnsupported` | The scheme is neither `http` nor `https`. [[src/builtins/errorcode.rs:ErrUnsupported]] |
-| `77010001` | `ErrOutOfMemory` | An intermediate string slice or the resulting `Url` record could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77050007` | `ErrUnsupported` | The scheme is neither `http` nor `https`. [[src/codegen/builtins/errorcode/mod.rs:ErrUnsupported]] |
+| `77010001` | `ErrOutOfMemory` | An intermediate string slice or the resulting `Url` record could not be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

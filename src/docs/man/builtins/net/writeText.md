@@ -64,9 +64,9 @@ than UTF-8 text from a `String`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
-| `77070004` | `ErrConnectionClosed` | The peer has closed the connection, or the write fails for a host reason other than a timeout or an interruption. [[src/builtins/errorcode.rs:ErrConnectionClosed]] |
-| `77050008` | `ErrTimeout` | The socket's write timeout elapsed before the whole string could be handed over. Part of it may already have been sent. [[src/builtins/errorcode.rs:ErrTimeout]] |
+| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
+| `77070004` | `ErrConnectionClosed` | The peer has closed the connection, or the write fails for a host reason other than a timeout or an interruption. [[src/codegen/builtins/errorcode/mod.rs:ErrConnectionClosed]] |
+| `77050008` | `ErrTimeout` | The socket's write timeout elapsed before the whole string could be handed over. Part of it may already have been sent. [[src/codegen/builtins/errorcode/mod.rs:ErrTimeout]] |
 
 ## Examples
 

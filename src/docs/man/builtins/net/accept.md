@@ -90,11 +90,11 @@ connection is already pending); a negative value raises `ErrInvalidArgument`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050008` | `ErrTimeout` | No connection arrived before the deadline: immediately when `timeoutMs` is `0` and none is pending, or after a positive `timeoutMs` elapsed. The omitted (unbounded) form never raises this. [[src/builtins/errorcode.rs:ErrTimeout]] |
-| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
-| `77070003` | `ErrNetworkFailed` | The underlying `accept` or readiness `poll` fails for a host reason other than an interruption, an `EAGAIN` re-poll, or the deadline. [[src/builtins/errorcode.rs:ErrNetworkFailed]] |
-| `77030004` | `ErrResourceClosed` | `listener` has already been closed. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
-| `77010001` | `ErrOutOfMemory` | The `Socket` handle record for the accepted connection could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77050008` | `ErrTimeout` | No connection arrived before the deadline: immediately when `timeoutMs` is `0` and none is pending, or after a positive `timeoutMs` elapsed. The omitted (unbounded) form never raises this. [[src/codegen/builtins/errorcode/mod.rs:ErrTimeout]] |
+| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
+| `77070003` | `ErrNetworkFailed` | The underlying `accept` or readiness `poll` fails for a host reason other than an interruption, an `EAGAIN` re-poll, or the deadline. [[src/codegen/builtins/errorcode/mod.rs:ErrNetworkFailed]] |
+| `77030004` | `ErrResourceClosed` | `listener` has already been closed. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
+| `77010001` | `ErrOutOfMemory` | The `Socket` handle record for the accepted connection could not be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

@@ -66,7 +66,7 @@ different zone or DST rule.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | The epoch-seconds arithmetic used to resolve local midnight (`daysFromCivil(...) * 86400`, and the surrounding offset probes) produces a value outside the signed `Integer` range for an extreme calendar date. [[src/codegen/builtins/datetime/func_civil.rs:__datetime_civil]] [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | The epoch-seconds arithmetic used to resolve local midnight (`daysFromCivil(...) * 86400`, and the surrounding offset probes) produces a value outside the signed `Integer` range for an extreme calendar date. [[src/codegen/builtins/datetime/func_civil.rs:__datetime_civil]] [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 
 ## Examples
 

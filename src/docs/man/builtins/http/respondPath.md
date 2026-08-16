@@ -105,12 +105,12 @@ that run once the path has been accepted.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030001` | `ErrPathNotFound` | The confined file disappears between the existence check and the open. [[src/builtins/errorcode.rs:ErrPathNotFound]] |
-| `77030003` | `ErrAccessDenied` | The host denies read access to the confined file. [[src/builtins/errorcode.rs:ErrAccessDenied]] |
-| `77030002` | `ErrInvalidPath` | The resolved path is unusable as a path — a non-directory used as a directory component, an over-long path, or a symlink loop. [[src/builtins/errorcode.rs:ErrInvalidPath]] |
-| `77020001` | `ErrRead` | The host read of the opened file fails partway through. [[src/builtins/errorcode.rs:ErrReadFailed]] |
-| `77020002` | `ErrOutput` | The file cannot be opened for a host reason not classified above. [[src/builtins/errorcode.rs:ErrWriteFailed]] |
-| `77010001` | `ErrOutOfMemory` | A path copy, the body byte list, the header map, or the `Response` cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77030001` | `ErrPathNotFound` | The confined file disappears between the existence check and the open. [[src/codegen/builtins/errorcode/mod.rs:ErrPathNotFound]] |
+| `77030003` | `ErrAccessDenied` | The host denies read access to the confined file. [[src/codegen/builtins/errorcode/mod.rs:ErrAccessDenied]] |
+| `77030002` | `ErrInvalidPath` | The resolved path is unusable as a path — a non-directory used as a directory component, an over-long path, or a symlink loop. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidPath]] |
+| `77020001` | `ErrRead` | The host read of the opened file fails partway through. [[src/codegen/builtins/errorcode/mod.rs:ErrReadFailed]] |
+| `77020002` | `ErrOutput` | The file cannot be opened for a host reason not classified above. [[src/codegen/builtins/errorcode/mod.rs:ErrWriteFailed]] |
+| `77010001` | `ErrOutOfMemory` | A path copy, the body byte list, the header map, or the `Response` cannot be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

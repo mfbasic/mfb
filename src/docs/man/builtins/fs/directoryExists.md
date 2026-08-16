@@ -62,7 +62,7 @@ call reads filesystem state only and has no side effects.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77010001` | `ErrOutOfMemory` | The internal NUL-terminated copy of `path` cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77010001` | `ErrOutOfMemory` | The internal NUL-terminated copy of `path` cannot be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

@@ -36,7 +36,7 @@ cache without another system call. [[src/codegen/builtins/process/native/unix.rs
 
 The handle is borrowed and left open. Calling `isRunning` on a handle that has
 already been dropped or detached raises `ErrResourceClosed`.
-[[src/builtins/errorcode.rs:ErrResourceClosed]]
+[[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]]
 
 ## Parameters
 
@@ -54,7 +54,7 @@ already been dropped or detached raises `ErrResourceClosed`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `p` has already been dropped or detached. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
+| `77030004` | `ErrResourceClosed` | `p` has already been dropped or detached. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
 
 ## Examples
 

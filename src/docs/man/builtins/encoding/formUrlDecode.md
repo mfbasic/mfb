@@ -60,7 +60,7 @@ empty string. Hexadecimal digits in escapes may be upper- or lowercase.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | A `%` has fewer than two characters after it (a truncated escape), a `%XX` escape contains a non-hexadecimal digit, or the fully decoded byte sequence is not valid UTF-8. [[src/codegen/builtins/encoding/package.mfb:__encoding_percentDecodeBytes]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | A `%` has fewer than two characters after it (a truncated escape), a `%XX` escape contains a non-hexadecimal digit, or the fully decoded byte sequence is not valid UTF-8. [[src/codegen/builtins/encoding/package.mfb:__encoding_percentDecodeBytes]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidFormat]] |
 
 ## Examples
 

@@ -93,9 +93,9 @@ the `fs::readAllBytes` it performs on `file`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `file` has already been closed. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
-| `77020001` | `ErrRead` | `file` cannot be repositioned or measured, was not opened for reading, or the host read fails partway through. [[src/builtins/errorcode.rs:ErrReadFailed]] |
-| `77010001` | `ErrOutOfMemory` | The body byte list, the header map, or the `Response` cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77030004` | `ErrResourceClosed` | `file` has already been closed. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
+| `77020001` | `ErrRead` | `file` cannot be repositioned or measured, was not opened for reading, or the host read fails partway through. [[src/codegen/builtins/errorcode/mod.rs:ErrReadFailed]] |
+| `77010001` | `ErrOutOfMemory` | The body byte list, the header map, or the `Response` cannot be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

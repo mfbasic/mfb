@@ -63,7 +63,7 @@ returned `String`. [[src/codegen/builtins/fs/native/paths_builder.rs:lower_fs_pa
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77010001` | `ErrOutOfMemory` | The result `String` for the final component cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77010001` | `ErrOutOfMemory` | The result `String` for the final component cannot be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

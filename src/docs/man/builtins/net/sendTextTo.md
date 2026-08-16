@@ -75,12 +75,12 @@ the same `Address`). The text payload of a `DatagramText` is its `value` field.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
-| `77070002` | `ErrAddressNotFound` | The destination host in `address` could not be resolved. [[src/builtins/errorcode.rs:ErrAddressNotFound]] |
-| `77070007` | `ErrMessageTooLarge` | The payload is too large to be sent as a single datagram on this path (the host reports `EMSGSIZE`). [[src/builtins/errorcode.rs:ErrMessageTooLarge]] |
-| `77050008` | `ErrTimeout` | The socket's write timeout elapsed before the datagram could be handed over. [[src/builtins/errorcode.rs:ErrTimeout]] |
-| `77070003` | `ErrNetworkFailed` | The send fails for a host reason other than a timeout, an oversized payload, or an interruption. [[src/builtins/errorcode.rs:ErrNetworkFailed]] |
-| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of the destination host could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
+| `77070002` | `ErrAddressNotFound` | The destination host in `address` could not be resolved. [[src/codegen/builtins/errorcode/mod.rs:ErrAddressNotFound]] |
+| `77070007` | `ErrMessageTooLarge` | The payload is too large to be sent as a single datagram on this path (the host reports `EMSGSIZE`). [[src/codegen/builtins/errorcode/mod.rs:ErrMessageTooLarge]] |
+| `77050008` | `ErrTimeout` | The socket's write timeout elapsed before the datagram could be handed over. [[src/codegen/builtins/errorcode/mod.rs:ErrTimeout]] |
+| `77070003` | `ErrNetworkFailed` | The send fails for a host reason other than a timeout, an oversized payload, or an interruption. [[src/codegen/builtins/errorcode/mod.rs:ErrNetworkFailed]] |
+| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of the destination host could not be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

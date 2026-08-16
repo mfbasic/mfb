@@ -109,8 +109,8 @@ Opens `relPath` beneath `root` using the explicitly named access mode.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `root` or `relPath` is empty or contains an embedded NUL byte, `relPath` is absolute or contains a `..` component, or `mode` is not one of the recognized portable mode names. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
-| `77010001` | `ErrOutOfMemory` | The NUL-terminated copies, the join buffer, or the `File` resource record cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77050002` | `ErrInvalidArgument` | `root` or `relPath` is empty or contains an embedded NUL byte, `relPath` is absolute or contains a `..` component, or `mode` is not one of the recognized portable mode names. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
+| `77010001` | `ErrOutOfMemory` | The NUL-terminated copies, the join buffer, or the `File` resource record cannot be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 | `77030001` | `ErrPathNotFound` | `root` does not resolve, or a `read` open finds no file at the join (host `ENOENT`). [[src/codegen/builtins/fs/native/shared.rs:emit_fs_path_errno_error_mapping]] |
 | `77030003` | `ErrAccessDenied` | The host denies access (host `EACCES`), or a symbolic link is encountered at any component of the join so the no-follow open is refused (host `ELOOP`). [[src/codegen/builtins/fs/native/shared.rs:emit_fs_path_errno_error_mapping]] |
 | `77030002` | `ErrInvalidPath` | The join is unusable as a path: a non-directory used as a directory component, an over-long path, or an invalid byte sequence (host `ENOTDIR`, `ENAMETOOLONG`, or `EILSEQ`). [[src/codegen/builtins/fs/native/shared.rs:emit_fs_path_errno_error_mapping]] |

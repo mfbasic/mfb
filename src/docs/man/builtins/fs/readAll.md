@@ -70,9 +70,9 @@ blocking descriptor should check `thread::isCancelled` between operations.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77030004` | `ErrResourceClosed` | `file` has already been closed. [[src/codegen/builtins/fs/native/io.rs:lower_fs_read_all_helper]] |
-| `77020001` | `ErrRead` | Repositioning `file` to measure its remaining length fails, the measured end is before the start position, or the host read fails partway through before all measured bytes have been read. [[src/builtins/errorcode.rs:ErrReadFailed]] |
-| `77010001` | `ErrOutOfMemory` | The `String` that holds the file's remaining contents cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
-| `77020004` | `ErrEncoding` | The bytes read from `file` are not valid UTF-8. [[src/builtins/errorcode.rs:ErrEncoding]] |
+| `77020001` | `ErrRead` | Repositioning `file` to measure its remaining length fails, the measured end is before the start position, or the host read fails partway through before all measured bytes have been read. [[src/codegen/builtins/errorcode/mod.rs:ErrReadFailed]] |
+| `77010001` | `ErrOutOfMemory` | The `String` that holds the file's remaining contents cannot be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
+| `77020004` | `ErrEncoding` | The bytes read from `file` are not valid UTF-8. [[src/codegen/builtins/errorcode/mod.rs:ErrEncoding]] |
 
 ## Examples
 

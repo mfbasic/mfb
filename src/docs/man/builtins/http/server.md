@@ -99,9 +99,9 @@ The full form: binds `port` on `host` with the given backlog hint.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77010001` | `ErrOutOfMemory` | Memory for the host C string or the `Listener` handle could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
-| `77070001` | `ErrAddressInvalid` | `host` could not be resolved into a local IPv4 endpoint — a malformed address, an unresolvable name, or an IPv6-only host such as `"::"`. [[src/builtins/errorcode.rs:ErrAddressInvalid]] |
-| `77070003` | `ErrNetworkFailed` | The socket could not be created, bound, or placed in the listening state — for example the port is already in use or binding it requires privileges the process lacks. [[src/builtins/errorcode.rs:ErrNetworkFailed]] |
+| `77010001` | `ErrOutOfMemory` | Memory for the host C string or the `Listener` handle could not be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
+| `77070001` | `ErrAddressInvalid` | `host` could not be resolved into a local IPv4 endpoint — a malformed address, an unresolvable name, or an IPv6-only host such as `"::"`. [[src/codegen/builtins/errorcode/mod.rs:ErrAddressInvalid]] |
+| `77070003` | `ErrNetworkFailed` | The socket could not be created, bound, or placed in the listening state — for example the port is already in use or binding it requires privileges the process lacks. [[src/codegen/builtins/errorcode/mod.rs:ErrNetworkFailed]] |
 
 ## Examples
 

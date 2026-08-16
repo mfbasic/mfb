@@ -95,7 +95,7 @@ The same swap and negation in checked 64-bit integer arithmetic. Fails with
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | On the `Fixed2` and `Integer2` overloads, `v.y` is the minimum representable value of the element type, whose negation is not representable. The `Float2` overload never raises this. [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | On the `Fixed2` and `Integer2` overloads, `v.y` is the minimum representable value of the element type, whose negation is not representable. The `Float2` overload never raises this. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 
 ## Type checking
 

@@ -80,7 +80,7 @@ partway through leaves the file extended by only the bytes written so far.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | `path` is empty or contains an embedded NUL byte, so it cannot be turned into a valid NUL-terminated host path. [[src/codegen/builtins/fs/native/atomic.rs:lower_fs_write_path_helper]] |
-| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of `path` cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of `path` cannot be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 | `77050004` | `ErrNotFound` | The file cannot be opened because a component of `path` does not exist, such as a missing parent directory (host `ENOENT`). [[src/codegen/builtins/fs/native/shared.rs:emit_errno_error_mapping]] |
 | `77030003` | `ErrAccessDenied` | The host denies permission to create or open the file (host `EACCES`). [[src/codegen/builtins/fs/native/shared.rs:emit_errno_error_mapping]] |
 | `77050005` | `ErrAlreadyExists` | The host reports the target already exists in a form that conflicts with the open (host `EEXIST`). [[src/codegen/builtins/fs/native/shared.rs:emit_errno_error_mapping]] |

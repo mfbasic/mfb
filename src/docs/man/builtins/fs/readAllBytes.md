@@ -69,8 +69,8 @@ blocking descriptor should check `thread::isCancelled` between operations.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77030004` | `ErrResourceClosed` | `file` has already been closed. [[src/codegen/builtins/fs/native/io.rs:lower_fs_read_all_bytes_helper]] |
-| `77020001` | `ErrRead` | Reconciling or repositioning `file` to measure its remaining length fails, the measured end is before the start position, `file` was not opened for reading, or the host read fails partway through before all measured bytes have been read. [[src/builtins/errorcode.rs:ErrReadFailed]] |
-| `77010001` | `ErrOutOfMemory` | The `List OF Byte` that holds the file's remaining contents cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77020001` | `ErrRead` | Reconciling or repositioning `file` to measure its remaining length fails, the measured end is before the start position, `file` was not opened for reading, or the host read fails partway through before all measured bytes have been read. [[src/codegen/builtins/errorcode/mod.rs:ErrReadFailed]] |
+| `77010001` | `ErrOutOfMemory` | The `List OF Byte` that holds the file's remaining contents cannot be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

@@ -89,7 +89,7 @@ text equivalent of this function, use `fs::writeTextAtomic`.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | `path` is empty or contains an embedded NUL byte, so it cannot be turned into a valid NUL-terminated host path. [[src/codegen/builtins/fs/native/atomic.rs:lower_fs_atomic_write_helper]] |
-| `77010001` | `ErrOutOfMemory` | An internal NUL-terminated copy of the temporary or final path cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77010001` | `ErrOutOfMemory` | An internal NUL-terminated copy of the temporary or final path cannot be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 | `77050004` | `ErrNotFound` | The temporary file cannot be created or the rename fails because a path component does not exist, such as a missing containing directory (host `ENOENT`). [[src/codegen/builtins/fs/native/shared.rs:emit_errno_error_mapping]] |
 | `77030003` | `ErrAccessDenied` | The host denies permission to create the temporary file or to perform the rename (host `EACCES`). [[src/codegen/builtins/fs/native/shared.rs:emit_errno_error_mapping]] |
 | `77050005` | `ErrAlreadyExists` | The rename fails because the target already exists in a form that cannot be replaced (host `EEXIST`). [[src/codegen/builtins/fs/native/shared.rs:emit_errno_error_mapping]] |

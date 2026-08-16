@@ -92,9 +92,9 @@ Closes a bound UDP socket, releasing its binding.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | The resource has already been closed, whether by an earlier `net::close` on the same value or by a prior scope-drop. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
-| `77030009` | `ErrResourceMoved` | The handle was moved to another thread by `thread::transfer` and is no longer usable by the sender. [[src/builtins/errorcode.rs:ErrResourceMoved]] |
-| `77030006` | `ErrCloseFailed` | The host reports a failure while releasing the descriptor. The handle is still marked closed, so it cannot be closed a second time. [[src/builtins/errorcode.rs:ErrCloseFailed]] |
+| `77030004` | `ErrResourceClosed` | The resource has already been closed, whether by an earlier `net::close` on the same value or by a prior scope-drop. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
+| `77030009` | `ErrResourceMoved` | The handle was moved to another thread by `thread::transfer` and is no longer usable by the sender. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceMoved]] |
+| `77030006` | `ErrCloseFailed` | The host reports a failure while releasing the descriptor. The handle is still marked closed, so it cannot be closed a second time. [[src/codegen/builtins/errorcode/mod.rs:ErrCloseFailed]] |
 
 ## Examples
 

@@ -39,7 +39,7 @@ call blocks while the child's input pipe is full, waiting for room.
 If the child has closed or is no longer reading its standard input — a broken pipe —
 the write fails and `sendBytes` raises `ErrResourceClosed`, the same error raised
 when the input was already closed with `process::close` or the handle was dropped or
-detached. [[src/builtins/errorcode.rs:ErrResourceClosed]]
+detached. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]]
 
 `timeoutMs` bounds how long the call may wait for pipe space, in milliseconds;
 on expiry it raises `ErrTimeout`. On Windows the timeout is best-effort: anonymous
@@ -77,8 +77,8 @@ milliseconds (best-effort on Windows). [[src/codegen/builtins/process/native/uni
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | The child's input pipe is gone — a broken pipe, an input already closed with `process::close`, or a handle that was dropped or detached. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
-| `77050008` | `ErrTimeout` | (timeout overload) `timeoutMs` elapsed before the bytes could be fully written. [[src/builtins/errorcode.rs:ErrTimeout]] |
+| `77030004` | `ErrResourceClosed` | The child's input pipe is gone — a broken pipe, an input already closed with `process::close`, or a handle that was dropped or detached. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
+| `77050008` | `ErrTimeout` | (timeout overload) `timeoutMs` elapsed before the bytes could be fully written. [[src/codegen/builtins/errorcode/mod.rs:ErrTimeout]] |
 
 ## Examples
 

@@ -102,8 +102,8 @@ dependent.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, a component product or the difference of two products exceeds the checked range of the element type. [[src/builtins/errorcode.rs:ErrOverflow]] |
-| `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a component product or difference reaches infinity and is caught where the result component is bound. [[src/builtins/errorcode.rs:ErrFloatOverflow]] |
+| `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, a component product or the difference of two products exceeds the checked range of the element type. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
+| `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a component product or difference reaches infinity and is caught where the result component is bound. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatOverflow]] |
 
 ## Type checking
 

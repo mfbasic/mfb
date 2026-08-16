@@ -81,7 +81,7 @@ runtime. [[src/builtins/audio.rs:AUDIO]][[src/target/shared/code/audio/macos.rs:
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050017` | `ErrAudioUnavailable` | Linux only: `libasound.so.2` (or a required symbol such as `snd_pcm_avail_update`) could not be resolved at runtime. macOS never raises this. [[src/target/shared/code/audio/alsa.rs:lower_query]][[src/builtins/errorcode.rs:ErrAudioUnavailable]] |
+| `77050017` | `ErrAudioUnavailable` | Linux only: `libasound.so.2` (or a required symbol such as `snd_pcm_avail_update`) could not be resolved at runtime. macOS never raises this. [[src/target/shared/code/audio/alsa.rs:lower_query]][[src/codegen/builtins/errorcode/mod.rs:ErrAudioUnavailable]] |
 
 ## Examples
 

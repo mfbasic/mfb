@@ -63,8 +63,8 @@ library can be loaded, or a required symbol is missing — `write` raises
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
-| `77070008` | `ErrTlsFailed` | The underlying TLS write fails or cannot complete the whole payload, or the system OpenSSL library or a required symbol could not be loaded. [[src/builtins/errorcode.rs:ErrTlsFailed]] |
+| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
+| `77070008` | `ErrTlsFailed` | The underlying TLS write fails or cannot complete the whole payload, or the system OpenSSL library or a required symbol could not be loaded. [[src/codegen/builtins/errorcode/mod.rs:ErrTlsFailed]] |
 
 ## Examples
 

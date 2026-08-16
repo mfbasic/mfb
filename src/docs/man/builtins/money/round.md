@@ -83,8 +83,8 @@ entirely, yielding the dimensionless whole-unit `Integer` count;
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `decimals` is negative or greater than `5`. [[src/builtins/errorcode.rs:ErrInvalidArgument]] [[src/codegen/builtins/money/func_round.rs:lower_money_round]] |
-| `77050010` | `ErrOverflow` | Settling rounds the magnitude up and the rescaled result no longer fits the `Money` range — reachable only for amounts near the representable maximum. [[src/builtins/errorcode.rs:ErrOverflow]] [[src/codegen/builtins/money/func_round.rs:lower_money_round]] |
+| `77050002` | `ErrInvalidArgument` | `decimals` is negative or greater than `5`. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] [[src/codegen/builtins/money/func_round.rs:lower_money_round]] |
+| `77050010` | `ErrOverflow` | Settling rounds the magnitude up and the rescaled result no longer fits the `Money` range — reachable only for amounts near the representable maximum. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] [[src/codegen/builtins/money/func_round.rs:lower_money_round]] |
 
 ## Examples
 

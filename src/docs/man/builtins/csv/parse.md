@@ -75,7 +75,7 @@ mutate `value` and has no side effects. [[src/codegen/registry/mod.rs:call_param
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | A quoted field is opened but never closed before the end of input; the closing quote of a quoted field is followed by a grapheme that is neither the delimiter, a record separator, nor the end of input; or a supplied `delimiter`/`quote` is the empty String. [[src/codegen/builtins/csv/func_parse.rs:__csv_parse]] [[src/codegen/builtins/csv/package.mfb:__csv_firstCode]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | A quoted field is opened but never closed before the end of input; the closing quote of a quoted field is followed by a grapheme that is neither the delimiter, a record separator, nor the end of input; or a supplied `delimiter`/`quote` is the empty String. [[src/codegen/builtins/csv/func_parse.rs:__csv_parse]] [[src/codegen/builtins/csv/package.mfb:__csv_firstCode]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidFormat]] |
 
 ## Examples
 

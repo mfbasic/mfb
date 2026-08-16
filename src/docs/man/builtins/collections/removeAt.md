@@ -71,7 +71,7 @@ raise when the key is absent. [[src/codegen/registry/mod.rs:resolve_call]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050001` | `ErrIndexOutOfRange` | `index` is negative, or `index` is greater than or equal to `len(value)`. This includes every call on an empty list. [[src/builtins/errorcode.rs:ErrIndexOutOfRange]] [[src/target/shared/code/list_mutate.rs:lower_list_remove_at]] |
+| `77050001` | `ErrIndexOutOfRange` | `index` is negative, or `index` is greater than or equal to `len(value)`. This includes every call on an empty list. [[src/codegen/builtins/errorcode/mod.rs:ErrIndexOutOfRange]] [[src/target/shared/code/list_mutate.rs:lower_list_remove_at]] |
 
 ## Type checking
 

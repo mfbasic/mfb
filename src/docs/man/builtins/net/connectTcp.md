@@ -111,11 +111,11 @@ if the attempt exceeds `timeoutMs`. Here `timeoutMs` is parameter 1, not 2.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77070002` | `ErrAddressNotFound` | The host could not be resolved — it is malformed, or it has no address record. [[src/builtins/errorcode.rs:ErrAddressNotFound]] |
-| `77050008` | `ErrTimeout` | The connection did not complete before its deadline: immediately when `timeoutMs` is `0` and the connect is not instant, or after a positive `timeoutMs` elapsed. The omitted (unbounded) form never raises this. [[src/builtins/errorcode.rs:ErrTimeout]] |
-| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
-| `77070003` | `ErrNetworkFailed` | The socket could not be created, or the connection failed outright — the peer refused it, the network is unreachable, or the readiness poll failed for a reason other than an interruption. [[src/builtins/errorcode.rs:ErrNetworkFailed]] |
-| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of the host or the `Socket` handle record could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77070002` | `ErrAddressNotFound` | The host could not be resolved — it is malformed, or it has no address record. [[src/codegen/builtins/errorcode/mod.rs:ErrAddressNotFound]] |
+| `77050008` | `ErrTimeout` | The connection did not complete before its deadline: immediately when `timeoutMs` is `0` and the connect is not instant, or after a positive `timeoutMs` elapsed. The omitted (unbounded) form never raises this. [[src/codegen/builtins/errorcode/mod.rs:ErrTimeout]] |
+| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
+| `77070003` | `ErrNetworkFailed` | The socket could not be created, or the connection failed outright — the peer refused it, the network is unreachable, or the readiness poll failed for a reason other than an interruption. [[src/codegen/builtins/errorcode/mod.rs:ErrNetworkFailed]] |
+| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of the host or the `Socket` handle record could not be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

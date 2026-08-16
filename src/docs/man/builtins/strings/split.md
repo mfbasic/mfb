@@ -75,7 +75,7 @@ errors). [[src/builtins/strings.rs:is_tier_a_query]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `delimiter` is the empty string. [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_split]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050002` | `ErrInvalidArgument` | `delimiter` is the empty string. [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_split]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
 
 ## Examples
 

@@ -85,7 +85,7 @@ succeed. [[src/builtins/crypto.rs:call_param_names]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `key` is not exactly 32 bytes, or `nonce` is not exactly 12 bytes. [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmSeal]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050002` | `ErrInvalidArgument` | `key` is not exactly 32 bytes, or `nonce` is not exactly 12 bytes. [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmSeal]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
 
 ## Examples
 

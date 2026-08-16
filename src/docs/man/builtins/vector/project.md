@@ -100,8 +100,8 @@ rounded back to `Integer` half away from zero.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | `dot(b, b)` is zero, meaning `b` has no direction to project onto. [[src/builtins/vector_package.mfb:__vector_project_float2]] |
-| `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, a dot-product term or a scaled component exceeds the checked range of the element type, or an `Integer` component rounds outside the `Integer` range. [[src/builtins/errorcode.rs:ErrOverflow]] |
-| `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a dot product or a scaled component reaches infinity and is caught where it is bound. [[src/builtins/errorcode.rs:ErrFloatOverflow]] |
+| `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, a dot-product term or a scaled component exceeds the checked range of the element type, or an `Integer` component rounds outside the `Integer` range. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
+| `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a dot product or a scaled component reaches infinity and is caught where it is bound. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatOverflow]] |
 
 ## Type checking
 

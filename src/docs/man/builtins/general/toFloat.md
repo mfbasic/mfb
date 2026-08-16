@@ -86,8 +86,8 @@ representable `Float`. Infallible.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | A `String` value is empty or not well-formed decimal `Float` text (bad sign, no digit, or a stray character). [[src/target/shared/code/builder_conversions.rs:emit_parse_decimal_string_to_double]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
-| `77050010` | `ErrOverflow` | Parsing a `String` value yields a magnitude too large to represent, which would round to infinity. [[src/target/shared/code/builder_conversions.rs:emit_double_overflow_check]] [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050003` | `ErrInvalidFormat` | A `String` value is empty or not well-formed decimal `Float` text (bad sign, no digit, or a stray character). [[src/target/shared/code/builder_conversions.rs:emit_parse_decimal_string_to_double]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidFormat]] |
+| `77050010` | `ErrOverflow` | Parsing a `String` value yields a magnitude too large to represent, which would round to infinity. [[src/target/shared/code/builder_conversions.rs:emit_double_overflow_check]] [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 
 The `Integer`, `Fixed`, and `Money` overloads raise no errors. [[src/target/shared/code/builder_conversions.rs:lower_to_float]]
 

@@ -61,7 +61,7 @@ a large coordinate is the common way to hit this: `dot(v, v)` on an `Integer3`
 whose components approach the square root of the `Integer` maximum will exceed
 the range and fail with `ErrOverflow`. There are no other failure modes — `dot`
 never rejects an input, and the zero vector is an entirely ordinary argument
-returning zero. [[src/builtins/errorcode.rs:ErrOverflow]]
+returning zero. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]]
 
 ## Overloads
 
@@ -95,8 +95,8 @@ any kind.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, a component product or the running sum exceeds the checked range of the element type. [[src/builtins/errorcode.rs:ErrOverflow]] |
-| `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a product or the sum reaches infinity and is caught where the result is returned. [[src/builtins/errorcode.rs:ErrFloatOverflow]] |
+| `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, a component product or the running sum exceeds the checked range of the element type. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
+| `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a product or the sum reaches infinity and is caught where the result is returned. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatOverflow]] |
 
 ## Type checking
 

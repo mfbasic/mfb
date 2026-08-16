@@ -96,8 +96,8 @@ of any kind.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, a dot-product term, the doubling, or a scaled component exceeds the checked range of the element type. [[src/builtins/errorcode.rs:ErrOverflow]] |
-| `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a dot product or a result component reaches infinity and is caught where it is bound. [[src/builtins/errorcode.rs:ErrFloatOverflow]] |
+| `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, a dot-product term, the doubling, or a scaled component exceeds the checked range of the element type. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
+| `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a dot product or a result component reaches infinity and is caught where it is bound. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatOverflow]] |
 
 ## Type checking
 

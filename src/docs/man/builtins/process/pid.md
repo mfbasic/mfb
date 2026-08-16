@@ -32,7 +32,7 @@ that). [[src/codegen/builtins/process/func_pid.rs:lower_process_pid_helper_posix
 
 The handle is borrowed and left open. Calling `pid` on a handle that has already
 been dropped or detached raises `ErrResourceClosed`.
-[[src/builtins/errorcode.rs:ErrResourceClosed]]
+[[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]]
 
 ## Parameters
 
@@ -50,7 +50,7 @@ been dropped or detached raises `ErrResourceClosed`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `p` has already been dropped or detached. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
+| `77030004` | `ErrResourceClosed` | `p` has already been dropped or detached. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
 
 ## Examples
 

@@ -59,8 +59,8 @@ This function takes no parameters. [[src/codegen/builtins/fs/mod.rs:register]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77020001` | `ErrRead` | The host `getcwd` call fails, for example when the working directory has been removed, when access to a parent component is denied, or when the path does not fit in the internal 4096-byte buffer. [[src/builtins/errorcode.rs:ErrReadFailed]] |
-| `77010001` | `ErrOutOfMemory` | The internal buffer used to query the path, or the returned `String` resource, cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77020001` | `ErrRead` | The host `getcwd` call fails, for example when the working directory has been removed, when access to a parent component is denied, or when the path does not fit in the internal 4096-byte buffer. [[src/codegen/builtins/errorcode/mod.rs:ErrReadFailed]] |
+| `77010001` | `ErrOutOfMemory` | The internal buffer used to query the path, or the returned `String` resource, cannot be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

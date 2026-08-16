@@ -100,8 +100,8 @@ The argument may also be passed by the name `text`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `value` is not one complete JSON document: it is empty or whitespace only, is truncated, carries non-whitespace content after the document, contains a malformed number, a bad or truncated escape, an unpaired or invalid surrogate, an out-of-range code point, an unescaped raw control character in a string, is nested beyond the structural depth limit (256 levels of arrays and objects), or any other syntax the grammar does not accept. [[src/builtins/errorcode.rs:ErrInvalidFormat]] [[src/codegen/builtins/json/func_parse.rs:__json_parse]] |
-| `77010001` | `ErrOutOfMemory` | The lists, maps, or strings that hold the parsed document cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77050003` | `ErrInvalidFormat` | `value` is not one complete JSON document: it is empty or whitespace only, is truncated, carries non-whitespace content after the document, contains a malformed number, a bad or truncated escape, an unpaired or invalid surrogate, an out-of-range code point, an unescaped raw control character in a string, is nested beyond the structural depth limit (256 levels of arrays and objects), or any other syntax the grammar does not accept. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidFormat]] [[src/codegen/builtins/json/func_parse.rs:__json_parse]] |
+| `77010001` | `ErrOutOfMemory` | The lists, maps, or strings that hold the parsed document cannot be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

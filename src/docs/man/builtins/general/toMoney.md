@@ -105,8 +105,8 @@ range. Infallible.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | A `String` value is not well-formed decimal text, or a `Float` value is NaN or infinite. [[src/target/shared/code/builder_conversions.rs:raise_error]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
-| `77050010` | `ErrOverflow` | The value is outside the representable `Money` range: a `String` or `Float` whose magnitude is too large, an `Integer` whose scaled value overflows 64 bits, or a `Fixed` too large for the `Money` range. [[src/target/shared/code/builder_error_emission.rs:raise_error_bare]] [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050003` | `ErrInvalidFormat` | A `String` value is not well-formed decimal text, or a `Float` value is NaN or infinite. [[src/target/shared/code/builder_conversions.rs:raise_error]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidFormat]] |
+| `77050010` | `ErrOverflow` | The value is outside the representable `Money` range: a `String` or `Float` whose magnitude is too large, an `Integer` whose scaled value overflows 64 bits, or a `Fixed` too large for the `Money` range. [[src/target/shared/code/builder_error_emission.rs:raise_error_bare]] [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 
 The `Byte` overload raises no errors. [[src/target/shared/code/builder_conversions.rs:lower_to_money]]
 

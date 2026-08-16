@@ -82,7 +82,7 @@ the same. [[src/target/shared/code/builder_search.rs:lower_list_mid]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050001` | `ErrIndexOutOfRange` | `start` is negative, `count` is negative, `start` is greater than the length of `value`, `start + count` overflows, or `start + count` is greater than the length of `value`. [[src/builtins/errorcode.rs:ErrIndexOutOfRange]] [[src/target/shared/code/builder_search.rs:lower_list_mid]] |
+| `77050001` | `ErrIndexOutOfRange` | `start` is negative, `count` is negative, `start` is greater than the length of `value`, `start + count` overflows, or `start + count` is greater than the length of `value`. [[src/codegen/builtins/errorcode/mod.rs:ErrIndexOutOfRange]] [[src/target/shared/code/builder_search.rs:lower_list_mid]] |
 
 ## Type checking
 

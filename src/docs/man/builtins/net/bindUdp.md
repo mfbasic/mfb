@@ -70,9 +70,9 @@ before the error is raised, so a failed `bindUdp` leaks neither.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77070001` | `ErrAddressInvalid` | `host` could not be resolved into a local endpoint — the resolver rejected it as malformed or unknown. [[src/builtins/errorcode.rs:ErrAddressInvalid]] |
-| `77070003` | `ErrNetworkFailed` | The socket could not be created, or `bind` failed — for example the address and port are already in use, or the port requires privileges the process does not hold. [[src/builtins/errorcode.rs:ErrNetworkFailed]] |
-| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of `host` or the `UdpSocket` handle record could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77070001` | `ErrAddressInvalid` | `host` could not be resolved into a local endpoint — the resolver rejected it as malformed or unknown. [[src/codegen/builtins/errorcode/mod.rs:ErrAddressInvalid]] |
+| `77070003` | `ErrNetworkFailed` | The socket could not be created, or `bind` failed — for example the address and port are already in use, or the port requires privileges the process does not hold. [[src/codegen/builtins/errorcode/mod.rs:ErrNetworkFailed]] |
+| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of `host` or the `UdpSocket` handle record could not be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

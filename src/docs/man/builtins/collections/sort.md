@@ -68,7 +68,7 @@ list value and leaves its argument intact.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77010001` | `ErrOutOfMemory` | The arena cannot allocate a list the merge passes need to build. Ordering itself never fails: no comparison, index, or length is rejected. [[src/target/shared/code/list_mutate.rs:lower_list_insert_collection]] [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77010001` | `ErrOutOfMemory` | The arena cannot allocate a list the merge passes need to build. Ordering itself never fails: no comparison, index, or length is rejected. [[src/target/shared/code/list_mutate.rs:lower_list_insert_collection]] [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Type checking
 

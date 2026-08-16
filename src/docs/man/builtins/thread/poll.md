@@ -71,8 +71,8 @@ and `Out` types do not affect the result. [[src/builtins/thread.rs:THREAD]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `ms` is negative. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
-| `77030004` | `ErrResourceClosed` | The parent `Thread` handle's state is closed — after `thread::waitFor` retrieved the outcome, or after the handle was dropped. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
+| `77050002` | `ErrInvalidArgument` | `ms` is negative. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
+| `77030004` | `ErrResourceClosed` | The parent `Thread` handle's state is closed — after `thread::waitFor` retrieved the outcome, or after the handle was dropped. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
 
 ## Type checking
 

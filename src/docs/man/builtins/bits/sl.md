@@ -56,7 +56,7 @@ native and Binary Representation execution paths. [[src/codegen/builtins/bits/na
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `count` is less than `0` or greater than `63`. [[src/codegen/builtins/bits/native.rs:lower_bits_shift]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050002` | `ErrInvalidArgument` | `count` is less than `0` or greater than `63`. [[src/codegen/builtins/bits/native.rs:lower_bits_shift]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
 
 ## Examples
 

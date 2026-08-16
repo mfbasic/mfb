@@ -104,7 +104,7 @@ with `ErrOverflow`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | The running total of a `List OF Integer` or a `List OF Fixed` leaves the destination range during a checked addition. The `Float` overload cannot raise this. [[src/builtins/errorcode.rs:ErrOverflow]] [[src/target/shared/code/builder_numeric.rs:emit_checked_integer_add]] |
+| `77050010` | `ErrOverflow` | The running total of a `List OF Integer` or a `List OF Fixed` leaves the destination range during a checked addition. The `Float` overload cannot raise this. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] [[src/target/shared/code/builder_numeric.rs:emit_checked_integer_add]] |
 
 ## Examples
 

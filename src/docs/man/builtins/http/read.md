@@ -101,9 +101,9 @@ shorter overloads default `headers` to an empty map and `method` to `GET`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `method` is empty or contains a space, or a caller header name/value or the URL-derived request target/`Host` contains a control byte (below `0x20`). [[src/builtins/errorcode.rs:ErrInvalidArgument]] [[src/builtins/http_package.mfb:__http_normalizeMethod]] |
-| `77050003` | `ErrInvalidFormat` | The response status line, header block, or `chunked` framing (chunk-size field, chunk length, or terminator) is malformed. [[src/builtins/errorcode.rs:ErrInvalidFormat]] [[src/builtins/http_package.mfb:__http_parseStatusLine]] |
-| `77050010` | `ErrOverflow` | The accumulated response exceeds the internal 64 MiB size cap. [[src/builtins/errorcode.rs:ErrOverflow]] [[src/builtins/http_package.mfb:__HTTP_MAX_RESPONSE]] |
+| `77050002` | `ErrInvalidArgument` | `method` is empty or contains a space, or a caller header name/value or the URL-derived request target/`Host` contains a control byte (below `0x20`). [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] [[src/builtins/http_package.mfb:__http_normalizeMethod]] |
+| `77050003` | `ErrInvalidFormat` | The response status line, header block, or `chunked` framing (chunk-size field, chunk length, or terminator) is malformed. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidFormat]] [[src/builtins/http_package.mfb:__http_parseStatusLine]] |
+| `77050010` | `ErrOverflow` | The accumulated response exceeds the internal 64 MiB size cap. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] [[src/builtins/http_package.mfb:__HTTP_MAX_RESPONSE]] |
 
 Connect, DNS, read, write, timeout, and TLS failures are not raised by `read`
 itself: they propagate unchanged from the underlying `net` and `tls` calls (for

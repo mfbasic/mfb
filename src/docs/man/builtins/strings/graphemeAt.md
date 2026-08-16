@@ -66,7 +66,7 @@ errors). [[src/builtins/strings.rs:is_tier_a_query]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050001` | `ErrIndexOutOfRange` | `index` is negative, or is at or beyond the grapheme-cluster count of `value` — including every index applied to the empty string. [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_grapheme_at]] [[src/builtins/errorcode.rs:ErrIndexOutOfRange]] |
+| `77050001` | `ErrIndexOutOfRange` | `index` is negative, or is at or beyond the grapheme-cluster count of `value` — including every index applied to the empty string. [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_grapheme_at]] [[src/codegen/builtins/errorcode/mod.rs:ErrIndexOutOfRange]] |
 
 ## Examples
 

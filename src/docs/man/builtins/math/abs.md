@@ -105,7 +105,7 @@ element triggered it; no list is returned in that case.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | `value` is the minimum representable `Integer`, `Fixed`, or `Money` (`-9223372036854775808` as a raw 64-bit value), whose magnitude has no in-range counterpart. The `Float` overload never raises this. [[src/builtins/errorcode.rs:ErrOverflow]] [[src/target/shared/code/builder_math.rs:lower_math_abs]] |
+| `77050010` | `ErrOverflow` | `value` is the minimum representable `Integer`, `Fixed`, or `Money` (`-9223372036854775808` as a raw 64-bit value), whose magnitude has no in-range counterpart. The `Float` overload never raises this. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] [[src/target/shared/code/builder_math.rs:lower_math_abs]] |
 
 ## Type checking
 

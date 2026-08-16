@@ -87,8 +87,8 @@ It does not mutate `value`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050001` | `ErrIndexOutOfRange` | After negative resolution, the effective end index is less than `0` or greater than or equal to `len(value)`. This includes every call on an empty list, and any `endIndex` more negative than `-len(value)`. [[src/builtins/errorcode.rs:ErrIndexOutOfRange]] |
-| `77050004` | `ErrNotFound` | The backward scan reaches index `0` without `predicate` returning `TRUE`. [[src/builtins/errorcode.rs:ErrNotFound]] |
+| `77050001` | `ErrIndexOutOfRange` | After negative resolution, the effective end index is less than `0` or greater than or equal to `len(value)`. This includes every call on an empty list, and any `endIndex` more negative than `-len(value)`. [[src/codegen/builtins/errorcode/mod.rs:ErrIndexOutOfRange]] |
+| `77050004` | `ErrNotFound` | The backward scan reaches index `0` without `predicate` returning `TRUE`. [[src/codegen/builtins/errorcode/mod.rs:ErrNotFound]] |
 
 ## Type checking
 
