@@ -377,7 +377,7 @@ fn emit_cf_release_slot(
     Ok(())
 }
 
-pub(in crate::target::shared::code::tls) fn lower_tls_listen_macos(
+pub(in crate::codegen::builtins::tls::native) fn lower_tls_listen_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1223,7 +1223,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_listen_macos(
     }
 }
 
-pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
+pub(in crate::codegen::builtins::tls::native) fn lower_tls_accept_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1652,7 +1652,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_accept_macos(
     }
 }
 
-pub(in crate::target::shared::code::tls) fn lower_tls_close_listener_macos(
+pub(in crate::codegen::builtins::tls::native) fn lower_tls_close_listener_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,

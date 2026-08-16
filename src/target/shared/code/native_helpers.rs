@@ -18,7 +18,7 @@ use crate::target::shared::abi;
 /// Hex-encode `text` as a NUL-terminated C string payload (two hex digits per
 /// byte, then `00`). Used to lay down read-only C-string data objects (library
 /// sonames, `dlsym` names, framework paths).
-pub(super) fn hex_encode_cstring(text: &str) -> String {
+pub(crate) fn hex_encode_cstring(text: &str) -> String {
     let mut hex = String::new();
     for byte in text.bytes() {
         hex.push_str(&format!("{byte:02x}"));
@@ -28,7 +28,7 @@ pub(super) fn hex_encode_cstring(text: &str) -> String {
 }
 
 /// Load the address of a read-only data symbol into `dst` (adrp + add).
-pub(super) fn emit_data_address(
+pub(crate) fn emit_data_address(
     from: &str,
     // plan-85-B: accept a typed `Operand` (`abi::c_arg(1)`) or a legacy `&str`.
     dst: impl Into<Operand>,
@@ -87,7 +87,7 @@ pub(super) fn emit_data_address(
 /// to a bare `emit_libc_call`. Only Win64 (4 register args) actually spills, and
 /// only for a call that passes more than four — exactly the sites bug-384
 /// describes. Args 0..4 stay in `rcx/rdx/r8/r9` on Win64 regardless.
-pub(super) fn emit_external_int_call(
+pub(crate) fn emit_external_int_call(
     platform: &dyn CodegenPlatform,
     symbol: &str,
     from: &str,
@@ -227,7 +227,7 @@ pub(super) fn emit_read_byte_list(
 /// All three knobs exist so every caller reproduces its previous instruction
 /// stream exactly. `scripts/artifact-gate.sh` covers all of them across
 /// macos-aarch64 / linux-aarch64 / linux-x86_64.
-pub(super) fn emit_build_byte_list(
+pub(crate) fn emit_build_byte_list(
     symbol: &str,
     entry_loop: &str,
     entry_done: &str,

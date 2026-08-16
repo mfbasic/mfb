@@ -838,7 +838,9 @@ impl plan::NativePlanPlatform for Platform {
                     })
                     .collect()
             }
-            call if crate::builtins::tls::is_tls_runtime_call(call) => {
+            call if crate::codegen::registry::registry().owning_package(call) == Some("tls")
+                || call == "tls.closeListener" =>
+            {
                 // The macOS TLS backend resolves Network.framework (and, for the
                 // server side, Security.framework + CoreFoundation) entirely
                 // through dlopen/dlsym at load time; only dlopen/dlsym (plus

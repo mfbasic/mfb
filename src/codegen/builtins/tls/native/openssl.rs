@@ -2796,6 +2796,7 @@ mod error_path_release_tests {
     // sequence so a post-handshake OOM cannot silently leak the fd + SSL(+CTX),
     // and so the alloc_fail cleanup is null/-1-guarded.
     use super::*;
+    use crate::arch::ops::CodeOp;
     use crate::target::shared::code::mir;
     use crate::target::shared::code::test_support::{has_label, TestPlatform};
 

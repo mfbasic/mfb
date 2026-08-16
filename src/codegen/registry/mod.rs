@@ -1271,6 +1271,7 @@ fn build() -> Registry {
     crate::codegen::builtins::os::register(&mut r);
     crate::codegen::builtins::fs::register(&mut r);
     crate::codegen::builtins::io::register(&mut r);
+    crate::codegen::builtins::tls::register(&mut r);
     r
 }
 
@@ -1514,6 +1515,25 @@ pub(crate) fn call_return_type(qualified: &str) -> Option<&'static str> {
 fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool) -> bool {
     if pattern == concrete {
         return true;
+    }
+    // A container CONCRETE against a leaf pattern matches only when their spelled names
+    // are equal. A parameter authored as the string blob `Named("List OF String")`
+    // (fs::pathJoin) must still accept a structural `List OF String` argument — same
+    // name, so it matches. But a genuine nominal leaf (`Named("tls.TlsSocket")`) is NOT
+    // a container spelling, so it is correctly rejected against a `List OF RES
+    // TlsSocket` concrete — which is what lets a same-arity nominal-vs-list overload pair
+    // (`tls::poll`: scalar `TlsSocket → Boolean` vs `List OF RES TlsSocket → TlsSocket`)
+    // select by argument shape on the lenient dispatch / return-inference path, not only
+    // under strict validation. (Container PATTERNS are handled by the arms above; this is
+    // the mirror case — a container concrete against a leaf pattern.)
+    if matches!(
+        concrete,
+        ParameterType::ListOf(_)
+            | ParameterType::SetOf(_)
+            | ParameterType::MapOf(_, _)
+            | ParameterType::Func(_, _)
+    ) {
+        return pattern.name() == concrete.name();
     }
     // Two unequal scalars never match, in either mode.
     if pattern.is_scalar() && concrete.is_scalar() {

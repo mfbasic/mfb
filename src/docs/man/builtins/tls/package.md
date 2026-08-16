@@ -32,7 +32,7 @@ and `tls::accept` accepts one inbound connection and completes the server-side
 handshake, returning a socket that is byte-for-byte interchangeable with a client
 socket. `tls::read` and `tls::readText` receive decrypted data; `tls::write` and
 `tls::writeText` send data; and `tls::close` tears down a socket or a listener.
-For plain unencrypted TCP and UDP, use `net`. [[src/builtins/tls.rs:is_tls_call]]
+For plain unencrypted TCP and UDP, use `net`. [[src/codegen/builtins/tls/mod.rs:register]]
 
 The package defines two built-in types. `TlsSocket` is a connected TLS stream —
 either an outbound client connection from `tls::connect` or an accepted server
@@ -44,7 +44,7 @@ Each is closed automatically by lexical drop when its binding leaves scope, so
 `tls::close` consumes the handle and treats an already-closed handle as success
 rather than an error. Neither handle type is thread-sendable, and neither can be
 stored as a collection element or carried in a record.
-[[src/builtins/tls.rs:TLS_SOCKET_TYPE]] [[src/builtins/tls.rs:consumes_argument]]
+[[src/codegen/builtins/tls/mod.rs:TLS_SOCKET_TYPE]] [[src/syntaxcheck/builtins.rs:tls_consumes_argument]]
 
 The server's TLS context is owned by the `TlsListener` and borrowed by every
 `TlsSocket` that `tls::accept` returns from it: closing an accepted socket never
@@ -53,7 +53,7 @@ closes. Accepted sockets may therefore be closed in any order, and the listener
 may be closed while accepted sockets are still live. The server presents its
 certificate but does not request or verify a client certificate — there is no
 mutual TLS, session resumption, ALPN, or SNI-based certificate selection in this
-version. [[src/target/shared/code/tls/mod.rs:lower_tls_close_helper]]
+version. [[src/codegen/builtins/tls/native/mod.rs:lower_tls_close_helper]]
 
 Hosts are UTF-8 `String` values naming either a textual IP address or a name
 passed to the system host resolver, which connects to the first resolved IPv4
@@ -66,7 +66,7 @@ is needed when connecting to a literal IP or a virtual host. Ports and the
 `timeoutMs` argument to `tls::connect` is `Integer` milliseconds; a positive
 value bounds the connection and handshake and raises `ErrTimeout` when it
 elapses, while `0` means no bound. Host resolution runs before the deadline
-starts and is not counted against it. [[src/target/shared/code/tls/openssl.rs:connect_timeout]]
+starts and is not counted against it. [[src/codegen/builtins/tls/native/openssl.rs:connect_timeout]]
 
 The read and write functions come in paired byte/text forms: the byte form
 transfers a `List OF Byte` verbatim, while the text form transfers a `String`'s
@@ -83,7 +83,7 @@ TLS layer cannot be initialized — neither library can be loaded, or a required
 symbol is missing — the call fails. Unlike `net`, the `tls` functions map every
 underlying read or write failure — a closed peer, a reset connection, or any
 other SSL error during transfer — to a single TLS error rather than
-distinguishing timeouts and closes. [[src/target/shared/code/tls/mod.rs:lower_tls_read_helper]]
+distinguishing timeouts and closes. [[src/codegen/builtins/tls/native/mod.rs:lower_tls_read_helper]]
 
 ## Errors
 
@@ -105,4 +105,4 @@ Two of the codes above are raised only by the Linux (OpenSSL) backend. The macOS
 failure — an unresolvable host included — into `ErrTlsFailed`, so a program that
 branches on `ErrAddressNotFound` or `ErrAddressInvalid` takes a different branch
 there. Branch on `ErrTlsFailed` as well when the behavior must be identical on
-both platforms. [[src/target/shared/code/tls/macos/client.rs:lower_tls_connect_macos]]
+both platforms. [[src/codegen/builtins/tls/native/macos/client.rs:lower_tls_connect_macos]]

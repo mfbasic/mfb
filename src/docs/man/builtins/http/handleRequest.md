@@ -38,7 +38,7 @@ The accepted socket is owned by the call and closed by lexical drop on return.
 The server is single-threaded and blocking: the accept call blocks until a client
 arrives, and one request is served at a time in the caller's loop. No timeout is
 passed to the underlying `net::accept` / `tls::accept`, so the wait is unbounded.
-[[src/builtins/net.rs:ACCEPT]] [[src/builtins/tls.rs:ACCEPT]]
+[[src/builtins/net.rs:ACCEPT]] [[src/codegen/builtins/tls/func_accept.rs:accept]]
 
 **Reading.** Bytes are read in 64 KiB chunks and appended to a raw byte buffer
 until the frame is complete — the header terminator `\r\n\r\n` has been seen and
@@ -122,7 +122,7 @@ and handlers are interchangeable between the two.
 | --- | --- | --- |
 | `77030004` | `ErrResourceClosed` | `listener` has already been closed. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
 | `77070003` | `ErrNetworkFailed` | The `accept` call on `listener` fails for a reason other than an interrupting signal (`EINTR` is retried). [[src/target/shared/code/net/io.rs:lower_net_accept_helper]] |
-| `77070008` | `ErrTlsFailed` | TLS overload only: the server-side handshake, or the per-connection TLS setup, fails. [[src/target/shared/code/tls/mod.rs:lower_tls_accept_helper]] |
+| `77070008` | `ErrTlsFailed` | TLS overload only: the server-side handshake, or the per-connection TLS setup, fails. [[src/codegen/builtins/tls/native/mod.rs:lower_tls_accept_helper]] |
 | `77010001` | `ErrOutOfMemory` | An arena allocation for the accepted socket handle, the request buffer, or the response text fails. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 Malformed, oversized, unmatched, and handler-failing requests are **not** errors:

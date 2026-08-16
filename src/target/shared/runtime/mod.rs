@@ -124,7 +124,6 @@ mod net_specs;
 mod perf_specs;
 mod term_specs;
 mod thread_specs;
-mod tls_specs;
 mod usage;
 
 pub(crate) use catalog::{spec_for_call, spec_for_symbol, supported_helper_specs};
@@ -137,7 +136,6 @@ use net_specs::*;
 use perf_specs::*;
 use term_specs::*;
 use thread_specs::*;
-use tls_specs::*;
 
 pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
     if builtins::app::is_app_call(name) {
@@ -171,7 +169,12 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         || name == "process.__drop"
     {
         Some(RuntimeHelper::Process)
-    } else if builtins::tls::is_tls_runtime_call(name) {
+    } else if crate::codegen::registry::registry().owning_package(name) == Some("tls")
+        || name == "tls.closeListener"
+    {
+        // `tls.closeListener` is the internal listener-shaped scope-drop close body
+        // (not a descriptor member), synthesized during IR lowering — routed here like
+        // `process.__drop`.
         Some(RuntimeHelper::Tls)
     } else {
         None

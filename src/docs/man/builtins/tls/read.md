@@ -24,7 +24,7 @@ IMPORT tls
 returns it as a `List OF Byte`. A single call performs one underlying TLS read:
 it returns as soon as any plaintext is available rather than waiting to fill the
 requested size, so the returned list is frequently shorter than `maxBytes`. The
-socket must still be open. [[src/builtins/tls.rs:TLS]]
+socket must still be open. [[src/codegen/builtins/tls/mod.rs:register]]
 
 The call blocks until at least one byte of application data has been decrypted,
 the peer closes its side of the TLS session, or the underlying read fails.
@@ -45,7 +45,7 @@ socket. TLS is implemented on Linux by driving the system OpenSSL library
 (`libssl.so.3`, falling back to `libssl.so.1.1`); the macOS backend drives
 Network.framework through a synchronous bridge. If the TLS layer cannot be
 initialized — neither OpenSSL library can be loaded, or a required symbol is
-missing — `read` raises `ErrTlsFailed`. [[src/builtins/tls.rs:TLS_SOCKET_TYPE]]
+missing — `read` raises `ErrTlsFailed`. [[src/codegen/builtins/tls/mod.rs:TLS_SOCKET_TYPE]]
 
 ## Parameters
 
@@ -58,7 +58,7 @@ missing — `read` raises `ErrTlsFailed`. [[src/builtins/tls.rs:TLS_SOCKET_TYPE]
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The decrypted bytes received in this read, in the order they arrived, with length between `1` and `maxBytes` inclusive. End of stream is not reported as an empty list; it is reported as an `ErrConnectionClosed` error. [[src/builtins/tls.rs:TLS]] |
+| `List OF Byte` | The decrypted bytes received in this read, in the order they arrived, with length between `1` and `maxBytes` inclusive. End of stream is not reported as an empty list; it is reported as an `ErrConnectionClosed` error. [[src/codegen/builtins/tls/mod.rs:register]] |
 
 ## Errors
 

@@ -104,6 +104,14 @@ fn fs_consumes_argument(name: &str, index: usize) -> bool {
     index == 0 && name == crate::codegen::builtins::fs::CLOSE
 }
 
+/// The argument-consumption predicate for `tls::`, replacing the deleted
+/// `builtins::tls::consumes_argument`. `tls::close` consumes the handle it closes —
+/// either the socket-shaped `tls.close` or the listener-shaped internal
+/// `tls.closeListener` — while every other `tls` call only borrows.
+fn tls_consumes_argument(name: &str, index: usize) -> bool {
+    index == 0 && (name == "tls.close" || name == crate::codegen::builtins::tls::CLOSE_LISTENER)
+}
+
 const BUILTIN_ARG_MODES: &[BuiltinArgMode] = &[
     BuiltinArgMode {
         name: "encoding",
@@ -152,7 +160,7 @@ const BUILTIN_ARG_MODES: &[BuiltinArgMode] = &[
     BuiltinArgMode {
         name: "tls",
         args: ArgMode::Consuming {
-            consumes: builtins::tls::consumes_argument,
+            consumes: tls_consumes_argument,
             default: ExprMode::Use,
         },
     },

@@ -25,7 +25,7 @@ returns it decoded as a UTF-8 `String`. A single call performs one underlying TL
 read: it returns as soon as any plaintext is available rather than waiting to
 fill the requested size, so the returned `String` is frequently built from fewer
 than `maxBytes` bytes. The socket must still be open.
-[[src/builtins/tls.rs:TLS]]
+[[src/codegen/builtins/tls/mod.rs:register]]
 
 The call blocks until at least one byte of application data has been decrypted,
 the peer closes its side of the TLS session, or the underlying read fails.
@@ -37,13 +37,13 @@ Unlike a plain stream read that signals end of stream with a zero-length result,
 `readText` raises an error when the peer has closed the connection: there is no
 empty-`String` sentinel. To consume a whole response, call `readText` in a loop,
 appending each result, and stop when an `ErrConnectionClosed` error is raised.
-[[src/target/shared/code/tls/mod.rs:lower_tls_read_helper]]
+[[src/codegen/builtins/tls/native/mod.rs:lower_tls_read_helper]]
 
 The decrypted bytes are validated as UTF-8 before being returned; invalid UTF-8
 raises an `ErrEncoding` error. Because a single TLS read may split a multi-byte
 UTF-8 sequence across calls, use `tls::read` instead when the peer sends raw
 binary data, or when you need to reassemble bytes spanning multiple reads before
-decoding. [[src/target/shared/code/tls/openssl.rs:emit_call_validate_utf8]]
+decoding. [[src/codegen/builtins/tls/native/openssl.rs:emit_call_validate_utf8]]
 
 The bytes are read into a freshly allocated `maxBytes` buffer and copied into a
 new `String`; the function has no other side effects and does not close the
@@ -51,7 +51,7 @@ socket. TLS is implemented on Linux by driving the system OpenSSL library
 (`libssl.so.3`, falling back to `libssl.so.1.1`); the macOS backend drives
 Network.framework through a synchronous bridge. If the TLS layer cannot be
 initialized — neither OpenSSL library can be loaded, or a required symbol is
-missing — `readText` raises `ErrTlsFailed`. [[src/builtins/tls.rs:TLS_SOCKET_TYPE]]
+missing — `readText` raises `ErrTlsFailed`. [[src/codegen/builtins/tls/mod.rs:TLS_SOCKET_TYPE]]
 
 ## Parameters
 
@@ -64,7 +64,7 @@ missing — `readText` raises `ErrTlsFailed`. [[src/builtins/tls.rs:TLS_SOCKET_T
 
 | Type | Description |
 | --- | --- |
-| `String` | The decrypted bytes received in this read, decoded as UTF-8, in the order they arrived. The `String` is built from between `1` and `maxBytes` bytes inclusive. End of stream is not reported as an empty `String`; it is reported as an `ErrConnectionClosed` error. [[src/builtins/tls.rs:TLS]] |
+| `String` | The decrypted bytes received in this read, decoded as UTF-8, in the order they arrived. The `String` is built from between `1` and `maxBytes` bytes inclusive. End of stream is not reported as an empty `String`; it is reported as an `ErrConnectionClosed` error. [[src/codegen/builtins/tls/mod.rs:register]] |
 
 ## Errors
 

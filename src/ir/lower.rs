@@ -2106,7 +2106,8 @@ fn expression_type(
                 // `fs`/`io` migrated to the clean-room registry — covered by
                 // `migrated_arg_typed` (`registry::is_member`) below.
                 || builtins::net::is_net_call(&canonical_callee)
-                || builtins::tls::is_tls_call(&canonical_callee)
+                // `tls` migrated to the clean-room registry — covered by
+                // `migrated_arg_typed` (`registry::is_member`) below.
                 || builtins::audio::is_audio_call(&canonical_callee)
                 || builtins::http::is_http_call(&canonical_callee)
                 || migrated_arg_typed
@@ -2887,8 +2888,8 @@ fn lower_expression_with_expected(
                         .first()
                         .map(call_arg_value)
                         .and_then(|argument| expression_type(argument, locals, context))
-                        .filter(|type_| type_ == builtins::tls::TLS_LISTENER_TYPE)
-                        .map(|_| builtins::tls::CLOSE_LISTENER.to_string())
+                        .filter(|type_| type_ == crate::codegen::builtins::tls::TLS_LISTENER_TYPE)
+                        .map(|_| crate::codegen::builtins::tls::CLOSE_LISTENER.to_string())
                 })
                 .or_else(|| {
                     // `audio::` rewrites the overloads whose *body* differs while

@@ -518,7 +518,7 @@ pub(super) fn lower_tls_poll(
         // >0→clamp INT_MAX. No external call precedes WSAPoll, so the record pointer in
         // x0 stays live for the fd load below.
         abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT),
-        abi::move_immediate("%v10", "Integer", super::super::TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::move_immediate("%v10", "Integer", crate::target::shared::code::TIMEOUT_UNBOUNDED_SENTINEL),
         abi::compare_registers("%v9", "%v10"),
         abi::branch_eq(&poll_infinite),
         abi::compare_immediate("%v9", "0"),
