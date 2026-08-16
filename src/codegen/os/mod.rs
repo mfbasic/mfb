@@ -25,8 +25,17 @@ use crate::target::shared::code::{CodegenPlatform, HelperResult};
 pub(crate) fn dispatch_runtime_helper(
     call: &str,
     symbol: &str,
+    build_mode: crate::target::NativeBuildMode,
+    module_name: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Option<HelperResult> {
-    crate::codegen::registry::os_helper(call, symbol, platform_imports, platform)
+    crate::codegen::registry::os_helper(
+        call,
+        symbol,
+        build_mode,
+        module_name,
+        platform_imports,
+        platform,
+    )
 }

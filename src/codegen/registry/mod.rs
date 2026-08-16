@@ -41,13 +41,21 @@ pub(crate) type NativeLower =
 
 /// An OS-seam member's per-platform native emission — the
 /// `target::shared::registry::OsLower` shape: given the runtime-call name, the
-/// mangled `_mfb_rt_<pkg>_<call>_<target>` helper symbol, the platform imports, and
-/// the target platform, emit that **runtime-helper body**. Held by the `posix` and
-/// `win` slots of [`Body::Native`]. This is a genuinely different codegen shape from
+/// mangled `_mfb_rt_<pkg>_<call>_<target>` helper symbol, the per-compilation build
+/// context (`build_mode` + `module_name`), the platform imports, and the target
+/// platform, emit that **runtime-helper body**. Held by the `posix` and `win` slots
+/// of [`Body::Native`]. This is a genuinely different codegen shape from
 /// [`NativeLower`] (a helper-body emitter, not a call-site value emitter) — which is
 /// why the two slots keep distinct types rather than being force-unified.
+///
+/// The `build_mode`/`module_name` pair carries the per-compilation context an
+/// OS-seam member may bake into its emission (`os.resourcePath` derives its
+/// `(strip, suffix)` from them). Most emitters ignore both — they are threaded so a
+/// context-dependent member can migrate onto this contract without changing it.
 pub(crate) type OsLower = fn(
     &str,
+    &str,
+    crate::target::NativeBuildMode,
     &str,
     &std::collections::HashMap<String, String>,
     &dyn crate::target::shared::code::CodegenPlatform,
@@ -1779,6 +1787,8 @@ fn function_has_unary_callback(function: &RegistryFunction) -> bool {
 pub(crate) fn os_helper(
     call: &str,
     symbol: &str,
+    build_mode: crate::target::NativeBuildMode,
+    module_name: &str,
     platform_imports: &std::collections::HashMap<String, String>,
     platform: &dyn crate::target::shared::code::CodegenPlatform,
 ) -> Option<crate::target::shared::code::HelperResult> {
@@ -1807,7 +1817,14 @@ pub(crate) fn os_helper(
             } else {
                 (*posix)?
             };
-            return Some(lower(call, symbol, platform_imports, platform));
+            return Some(lower(
+                call,
+                symbol,
+                build_mode,
+                module_name,
+                platform_imports,
+                platform,
+            ));
         }
     }
     None
@@ -2406,6 +2423,8 @@ mod tests {
     fn sample_os_lower(
         _call: &str,
         _symbol: &str,
+        _build_mode: crate::target::NativeBuildMode,
+        _module_name: &str,
         _imports: &std::collections::HashMap<String, String>,
         _platform: &dyn crate::target::shared::code::CodegenPlatform,
     ) -> crate::target::shared::code::HelperResult {
