@@ -18,7 +18,7 @@ fs::openFile(path)
 The `fs` package provides filesystem access: one-shot whole-file reads and
 writes, an open `File` handle for streaming I/O, purely syntactic path-string
 manipulation, directory creation and listing, and existence tests. `fs` is a
-built-in package: `IMPORT fs` needs no manifest dependency. [[src/builtins/fs.rs:is_fs_call]]
+built-in package: `IMPORT fs` needs no manifest dependency. [[src/codegen/builtins/fs/mod.rs:register]]
 
 Paths are UTF-8 `String` values, interpreted as bytes and passed to the host
 filesystem, so they may carry Unicode characters where the host accepts such
@@ -32,7 +32,7 @@ requires a NUL-terminated path. The path-syntax functions — `fs::pathJoin`,
 and symlinks. Where a path names a symlink, the final component is followed (so
 reads and writes act on the target) except in `fs::openFileNoFollow`, which
 refuses a symlinked final component, and `fs::deleteFile`, which removes the link
-itself. [[src/builtins/fs.rs:PATH_JOIN]]
+itself. [[src/codegen/builtins/fs/mod.rs:register]]
 
 Whole-file functions operate directly on a path. `fs::readText` and
 `fs::readBytes` read the entire file in one call; `fs::writeText` and
@@ -41,7 +41,7 @@ to it; and the `fs::writeTextAtomic` and `fs::writeBytesAtomic` variants stage
 the new contents in a temporary file and swap it in with an OS rename so readers
 never observe a partial write. Text functions require and produce well-formed
 UTF-8; byte functions transfer a `List OF Byte` verbatim, with no encoding or
-newline translation, and so suit binary data. [[src/builtins/fs.rs:FS]]
+newline translation, and so suit binary data. [[src/codegen/builtins/fs/mod.rs:register]]
 
 Handle functions work through the opaque `File` resource type. `fs::open`,
 `fs::openFile`, `fs::openFileNoFollow`, and `fs::createTempFile` return a `File`;
@@ -50,7 +50,7 @@ Handle functions work through the opaque `File` resource type. `fs::open`,
 `"read"`/`"r"`, `"write"`/`"w"`, `"readWrite"`/`"rw"`, and `"append"`/`"a"`. A
 `File` is an owned, non-copyable handle closed automatically by lexical drop when
 its binding leaves scope; call `fs::close` only to release it earlier. Using a
-`File` after it is closed fails. [[src/builtins/fs.rs:resource_close_function]]
+`File` after it is closed fails. [[src/codegen/builtins/fs/mod.rs:CLOSE]]
 
 Each `File` handle can independently opt in to output buffering. It is off by
 default, so `fs::writeAll`/`fs::writeAllBytes` reach the OS immediately;
@@ -72,7 +72,7 @@ excluding `.` and `..`, sorted in ascending byte-wise order for deterministic
 results. The existence predicates `fs::exists`, `fs::fileExists`, and
 `fs::directoryExists` return a `Boolean` and report a missing or unreadable path
 as `FALSE` rather than raising; only an internal allocation failure can raise
-from them. [[src/builtins/fs.rs:LIST_DIRECTORY]]
+from them. [[src/codegen/builtins/fs/mod.rs:register]]
 
 ## Errors
 

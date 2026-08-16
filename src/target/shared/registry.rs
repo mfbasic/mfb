@@ -1047,7 +1047,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::errorcode::ERRORCODE,
     &crate::builtins::io::IO,
     &crate::builtins::general::GENERAL,
-    &crate::builtins::fs::FS,
+    // fs migrated to the clean-room registry (crate::codegen::registry).
     &crate::builtins::http::HTTP,
     &crate::builtins::resource::RESOURCE,
     &crate::builtins::strings::STRINGS,
@@ -1761,8 +1761,10 @@ mod tests {
         assert!(REGISTRY.module("collections").is_none());
         assert!(REGISTRY.module("money").is_none());
         assert!(REGISTRY.module("os").is_none());
+        // `fs` has migrated onto the clean-room registry too.
+        assert!(REGISTRY.module("fs").is_none());
         // The 28 builtin packages minus the migrated ones.
-        assert_eq!(REGISTRY.modules().len(), 18);
+        assert_eq!(REGISTRY.modules().len(), 17);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);

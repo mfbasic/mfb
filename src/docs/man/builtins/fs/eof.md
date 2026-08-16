@@ -19,7 +19,7 @@ IMPORT fs
 ```
 
 `fs` is a built-in package, so no manifest dependency is required.
-[[src/builtins/fs.rs:is_fs_call]]
+[[src/codegen/builtins/fs/mod.rs:register]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT fs
 its contents. It returns `TRUE` when the position is at or beyond the last byte
 and `FALSE` while one or more bytes remain to be read. `file` must be an open
 `File` resource, such as one returned by `fs::openFile` or `fs::open`.
-[[src/target/shared/code/fs/io.rs:lower_fs_eof_helper]]
+[[src/codegen/builtins/fs/native/io.rs:lower_fs_eof_helper]]
 
 The test is buffer-aware (plan-14-C): if the transparent per-handle read buffer
 still holds unconsumed bytes (its read cursor is before its fill mark), `fs::eof`
@@ -37,13 +37,13 @@ is captured, the handle is seeked to end to read the length, then seeked back to
 the captured position, so the read position is left exactly where it was. The
 function reads no contents and has no side effects: it does not advance the
 position, write anything, or close `file`.
-[[src/target/shared/code/fs/io.rs:lower_fs_eof_helper]]
+[[src/codegen/builtins/fs/native/io.rs:lower_fs_eof_helper]]
 
 Because determining the length requires seeking, `fs::eof` only works on a
 seekable handle — a regular file on disk. On a pipe, a socket, or another
 non-seekable handle the host cannot report a position or length, and the call
 raises an error instead of returning a `Boolean`.
-[[src/target/shared/code/fs/io.rs:lower_fs_eof_helper]]
+[[src/codegen/builtins/fs/native/io.rs:lower_fs_eof_helper]]
 
 Use `fs::eof` to guard a read loop so that `fs::readLine` and the other reading
 functions are only called while input remains. This is the intended pattern
@@ -55,20 +55,20 @@ file.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `file` | `File` | An open, seekable `File` resource to test, as returned by `fs::open`, `fs::openFile`, `fs::openFileNoFollow`, or `fs::createTempFile`. Must not have been closed. [[src/builtins/fs.rs:call_param_names]] |
+| `file` | `File` | An open, seekable `File` resource to test, as returned by `fs::open`, `fs::openFile`, `fs::openFileNoFollow`, or `fs::createTempFile`. Must not have been closed. [[src/codegen/builtins/fs/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `file`'s read position is at or beyond the end of its contents, `FALSE` when one or more bytes remain to be read. An empty file reports `TRUE`. The read position is unchanged either way. [[src/builtins/fs.rs:FS]] |
+| `Boolean` | `TRUE` when `file`'s read position is at or beyond the end of its contents, `FALSE` when one or more bytes remain to be read. An empty file reports `TRUE`. The read position is unchanged either way. [[src/codegen/builtins/fs/mod.rs:register]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `file` has already been closed, whether by an earlier `fs::close` on the same value or by a prior scope-drop. [[src/target/shared/code/fs/io.rs:ErrResourceClosed]] |
-| `77020001` | `ErrRead` | The host cannot determine the file's position or length — for example on a pipe, socket, or other non-seekable handle — so a seek fails. [[src/target/shared/code/fs/io.rs:ErrReadFailed]] |
+| `77030004` | `ErrResourceClosed` | `file` has already been closed, whether by an earlier `fs::close` on the same value or by a prior scope-drop. [[src/codegen/builtins/fs/native/io.rs:ErrResourceClosed]] |
+| `77020001` | `ErrRead` | The host cannot determine the file's position or length — for example on a pipe, socket, or other non-seekable handle — so a seek fails. [[src/codegen/builtins/fs/native/io.rs:ErrReadFailed]] |
 
 ## Examples
 

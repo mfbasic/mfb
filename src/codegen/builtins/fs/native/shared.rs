@@ -1,4 +1,5 @@
 use super::*;
+use crate::target::shared::abi;
 
 /// Emit the shared path→C-string copy loop (bug-331 §A): copy `len` bytes from
 /// `src` into `dst`, advancing both, then write the trailing NUL. When
@@ -7,7 +8,7 @@ use super::*;
 /// `openFile`/`openFileWithin` behaviour. All registers and labels are
 /// caller-owned so the emitted bytes match each site exactly.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn emit_cstring_copy(
+pub(crate) fn emit_cstring_copy(
     instructions: &mut Vec<CodeInstruction>,
     reject_nul: bool,
     len: &str,
@@ -40,7 +41,7 @@ pub(super) fn emit_cstring_copy(
     ]);
 }
 
-pub(super) fn emit_errno_error_mapping(
+pub(crate) fn emit_errno_error_mapping(
     symbol: &str,
     errno_reg: &str,
     instructions: &mut Vec<CodeInstruction>,
@@ -78,7 +79,7 @@ pub(super) fn emit_errno_error_mapping(
 /// routes host errnos that indicate an unusable path string to `ErrInvalidPath`,
 /// and (for no-follow opens) maps a final-symlink `ELOOP` to `ErrAccessDenied`.
 /// The host errno is expected in `x9`, as produced by `emit_errno`.
-pub(super) fn emit_fs_path_errno_error_mapping(
+pub(crate) fn emit_fs_path_errno_error_mapping(
     symbol: &str,
     errno_reg: &str,
     family: PlatformFamily,
@@ -166,11 +167,3 @@ pub(super) fn emit_fs_path_errno_error_mapping(
     raise_error_into(symbol, "ErrWriteFailed", instructions, relocations);
     instructions.push(abi::branch(done));
 }
-
-mod atomic;
-mod io;
-mod paths;
-
-pub(in crate::target::shared::code) use atomic::*;
-pub(in crate::target::shared::code) use io::*;
-pub(in crate::target::shared::code) use paths::*;

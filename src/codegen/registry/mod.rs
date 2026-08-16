@@ -1227,6 +1227,7 @@ fn build() -> Registry {
     crate::codegen::builtins::collections::register(&mut r);
     crate::codegen::builtins::money::register(&mut r);
     crate::codegen::builtins::os::register(&mut r);
+    crate::codegen::builtins::fs::register(&mut r);
     r
 }
 
@@ -1440,6 +1441,16 @@ fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool)
     // nested-list argument degrading to `List OF Unknown`).
     if strict && (pattern.is_scalar() || concrete.is_scalar()) {
         return false;
+    }
+    // STRICT (argument validation): two distinct nominal (non-scalar) leaves match only
+    // when they name the same base resource — bug-427 STATE/ownership-agnostic, so a
+    // `File STATE Cursor` argument still satisfies a `File` parameter. An unrelated
+    // nominal or a resource UNION does NOT satisfy a concrete resource parameter:
+    // `fs::close(<Stream union>)` must be rejected (a use-after-free class error the
+    // legacy exact-name `DefaultResolver` caught). LENIENT dispatch/inference stays coarse
+    // (falls through to `true`) so overload selection and type propagation are unperturbed.
+    if strict {
+        return resource_base_eq(pattern, concrete);
     }
     true
 }

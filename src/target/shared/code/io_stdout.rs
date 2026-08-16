@@ -137,7 +137,7 @@ pub(super) fn lower_stdout_drain(
 /// How the direct-write fallback obtains the destination fd (bug-331 §E): stdout
 /// writes fd `1` as an immediate; a file loads its fd from the handle once per
 /// direct-write path and moves it into the return register.
-pub(in crate::target::shared::code) struct FdLoad<'a> {
+pub(crate) struct FdLoad<'a> {
     pub reg: &'a str,
     pub off: usize,
 }
@@ -149,7 +149,7 @@ pub(in crate::target::shared::code) struct FdLoad<'a> {
 /// symbol (and, for a file, the handle passed to the drain in `x0`), the capacity
 /// constant, the label infix, the nine role registers (`%v20`..`%v28` for stdout,
 /// their irregularly-renumbered file counterparts), and the fd source.
-pub(in crate::target::shared::code) struct BufferSink<'a> {
+pub(crate) struct BufferSink<'a> {
     pub state_reg: &'a str,
     pub buf_ptr_off: usize,
     pub filled_off: usize,
@@ -164,7 +164,7 @@ pub(in crate::target::shared::code) struct BufferSink<'a> {
 /// Emit the shared "append `len` bytes from `src` into the sink's buffer, draining
 /// or writing through as needed" sequence (bug-331 §E). Behaviour is identical to
 /// the two former copies; every divergence is carried by `s`.
-pub(in crate::target::shared::code) fn emit_append_to_buffer(
+pub(crate) fn emit_append_to_buffer(
     ctx: &mut EmitCtx,
     src: &str,
     len: &str,

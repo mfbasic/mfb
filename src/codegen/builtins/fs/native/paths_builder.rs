@@ -1,4 +1,6 @@
 use super::*;
+use crate::target::shared::abi;
+use crate::target::shared::nir::NirValue;
 
 impl CodeBuilder<'_> {
     /// Emit the shared trailing-`/` trim loop (bug-331 §J): walk `length` down
@@ -30,7 +32,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(trim_done));
     }
 
-    pub(super) fn lower_fs_path_call(
+    pub(crate) fn lower_fs_path_call(
         &mut self,
         target: &str,
         args: &[NirValue],
@@ -700,4 +702,55 @@ impl CodeBuilder<'_> {
             text: "fs.pathNormalize".to_string(),
         })
     }
+}
+
+/// `Body::native` `common` [`crate::codegen::registry::NativeLower`] wrappers for
+/// the five `path*` members. Each delegates to the shared
+/// [`CodeBuilder::lower_fs_path_call`] dispatcher (kept because the same lowering
+/// also serves the `RuntimeCall` node and the standalone `pathJoin` helper), which
+/// always lowers these single-arg path calls. A free fn per member so the HRTB
+/// fn-pointer coerces (a method would E0308).
+fn dispatch_path(
+    builder: &mut CodeBuilder,
+    target: &str,
+    args: &[NirValue],
+) -> Result<ValueResult, String> {
+    builder
+        .lower_fs_path_call(target, args)?
+        .ok_or_else(|| format!("native code cannot lower runtime call '{target}'"))
+}
+
+pub(crate) fn lower_fs_path_join_nl(
+    builder: &mut CodeBuilder,
+    args: &[NirValue],
+) -> Result<ValueResult, String> {
+    dispatch_path(builder, "fs.pathJoin", args)
+}
+
+pub(crate) fn lower_fs_path_base_name_nl(
+    builder: &mut CodeBuilder,
+    args: &[NirValue],
+) -> Result<ValueResult, String> {
+    dispatch_path(builder, "fs.pathBaseName", args)
+}
+
+pub(crate) fn lower_fs_path_dir_name_nl(
+    builder: &mut CodeBuilder,
+    args: &[NirValue],
+) -> Result<ValueResult, String> {
+    dispatch_path(builder, "fs.pathDirName", args)
+}
+
+pub(crate) fn lower_fs_path_extension_nl(
+    builder: &mut CodeBuilder,
+    args: &[NirValue],
+) -> Result<ValueResult, String> {
+    dispatch_path(builder, "fs.pathExtension", args)
+}
+
+pub(crate) fn lower_fs_path_normalize_nl(
+    builder: &mut CodeBuilder,
+    args: &[NirValue],
+) -> Result<ValueResult, String> {
+    dispatch_path(builder, "fs.pathNormalize", args)
 }

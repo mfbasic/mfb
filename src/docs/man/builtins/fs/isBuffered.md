@@ -19,7 +19,7 @@ IMPORT fs
 ```
 
 `fs` is a built-in package, so no manifest dependency is required.
-[[src/builtins/fs.rs:is_fs_call]]
+[[src/codegen/builtins/fs/mod.rs:register]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT fs
 returns `TRUE` when output buffering is currently enabled for that handle and
 `FALSE` otherwise. It only inspects the handle's state — it writes no data, drains
 nothing, and has no side effect.
-[[src/target/shared/code/fs/io.rs:lower_fs_is_buffered_helper]]
+[[src/codegen/builtins/fs/native/io.rs:lower_fs_is_buffered_helper]]
 
 Buffering is a per-handle flag stored on the `File` resource itself, so this call
 reflects only `file` and no other open handle; each `File` carries its own buffer
@@ -40,25 +40,25 @@ flag clear, so a program that never calls `fs::setBuffered` always observes
 returns to `FALSE` after `fs::setBuffered(file, FALSE)`. Transferring a buffered
 handle to another thread resets it to unbuffered, so the receiving thread again
 observes `FALSE`.
-[[src/target/shared/code/fs/io.rs:lower_fs_set_buffered_helper]]
+[[src/codegen/builtins/fs/native/io.rs:lower_fs_set_buffered_helper]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `file` | `File` | An open `File` resource whose buffering flag is being queried. [[src/builtins/fs.rs:call_param_names]] |
+| `file` | `File` | An open `File` resource whose buffering flag is being queried. [[src/codegen/builtins/fs/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when output buffering is enabled for this handle; `FALSE` otherwise (including on a freshly opened handle that has never enabled it). [[src/builtins/fs.rs:FS]] |
+| `Boolean` | `TRUE` when output buffering is enabled for this handle; `FALSE` otherwise (including on a freshly opened handle that has never enabled it). [[src/codegen/builtins/fs/mod.rs:register]] |
 
 ## Errors
 
 No errors. `fs::isBuffered` only reads the handle's buffering flag and always
 returns success; it never raises.
-[[src/target/shared/code/fs/io.rs:lower_fs_is_buffered_helper]]
+[[src/codegen/builtins/fs/native/io.rs:lower_fs_is_buffered_helper]]
 
 ## Examples
 

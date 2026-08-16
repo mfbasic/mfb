@@ -1,212 +1,5 @@
-use super::super::*;
-
-/// `EINTR` — a syscall interrupted by a signal handler before it transferred any
-/// bytes. Its numeric value is `4` on both Linux and macOS/BSD (bug-62), so the
-/// EINTR-retry guards can compare against a single literal on every backend.
-/// `pub(in ...)` so sibling emit sites (e.g. the `term::` present-write loop's
-/// bug-410 retry test) can assert against the canonical value rather than a
-/// restated `"4"`.
-pub(in crate::target::shared::code) const EINTR_ERRNO: &str = "4";
-
-/// Whether this program links the platform's `errno` accessor (`___error` on
-/// macOS, `__errno_location` on Linux). Both `fs::` (a `File` only comes from
-/// `fs::openFile`, which pulls the accessor in) and the `io::` read helpers
-/// (`readByte`/`readChar`/`readLine`/`input` — their `plan.rs` arms co-import the
-/// accessor, bug-62) link it, so their read/write/seek loops always read `errno`
-/// and retry `EINTR`. The only path that links no accessor is a program whose sole
-/// syscall use is an `io::` output drain (`io.print`/`io.write`/`io.flush`, never a
-/// read and never `fs`): there the libc-write negative return cannot be classified
-/// and is a hard error — acceptable, since a drain-only `EINTR` is degenerate and
-/// `linux-x86_64`'s raw-`svc` write still retries via its `-errno` return. Checking
-/// the merged import table keeps that boundary honest: the libc `EINTR` retry is
-/// emitted exactly when `errno` is actually readable at runtime.
-pub(in crate::target::shared::code) fn errno_accessor_available(
-    platform_imports: &HashMap<String, String>,
-) -> bool {
-    platform_imports.contains_key("___error") || platform_imports.contains_key("__errno_location")
-}
-
-/// Whether `platform`'s `write` (used by every fs/io output loop, including the
-/// stdout/File drains) is issued as a bare kernel `syscall` rather than through
-/// the libc wrapper. Only the `linux-x86_64` backend does this — its `emit_write`
-/// is a raw `svc`, so a failing `write` returns the negative `-errno` directly in
-/// the return register and does NOT set the libc `errno` cell. Every other
-/// backend's `write` (and every backend's `read`/`lseek`) goes through libc: a
-/// `-1` return with the real code behind the `errno` accessor. The EINTR guard has
-/// to read the two conventions differently, so the write sites consult this.
-pub(in crate::target::shared::code) fn write_uses_raw_syscall(
-    platform: &dyn CodegenPlatform,
-) -> bool {
-    platform.target() == "linux-x86_64"
-}
-
-/// Emit the tail of a fs/io read/write site for the case where the syscall return
-/// (`ret`) has already been compared against `0` and is known to be negative
-/// here. On `EINTR` — a signal interrupted the call before any byte moved —
-/// branch back to `retry_label` to re-issue the identical syscall (the
-/// loop-carried cursor and remaining count are unchanged); on any other error
-/// branch to `error_label`.
-///
-/// Two conventions (bug-62):
-/// * `raw_return` (the `linux-x86_64` raw-`svc` `write`): the return value is
-///   `-errno`, so `EINTR` is exactly `ret == -EINTR`, tested as `ret + EINTR == 0`
-///   with no libc call — this even works in a pure-`io::` program that never links
-///   the accessor.
-/// * otherwise (every libc `read`/`write`/`lseek`): re-read `errno` through the
-///   platform accessor (`___error` / `__errno_location`, left in `x9`). `fs::` and
-///   the `io::` read helpers import the accessor, so they retry `EINTR`. Only an
-///   output-drain-only program (`io.print`/`io.write`/`io.flush` with no read and
-///   no `fs`) omits it; there the negative return cannot be classified, so it is a
-///   hard error.
-///
-/// `emit_errno` issues a `bl` to the accessor, which the register allocator treats
-/// like any other call (all caller-saved integer registers clobbered); the
-/// `retry_label`/`error_label` targets reload every value they need from vregs or
-/// stack slots, so nothing live is read out of a caller-saved register across the
-/// call (see `.ai/compiler.md`, "Native Codegen Register Lifetimes"). `x9` is the
-/// established errno scratch and is dead on the negative-return path.
-pub(in crate::target::shared::code) fn emit_eintr_retry_or_error(
-    ctx: &mut EmitCtx,
-    ret: impl Into<Operand>,
-    raw_return: bool,
-    retry_label: &str,
-    error_label: &str,
-) -> Result<(), String> {
-    let ret = ret.into();
-    let symbol = ctx.symbol;
-    let platform = ctx.platform;
-    let platform_imports = ctx.platform_imports;
-
-    // `ret` (the syscall return) is dead once we branch to retry/error here, so
-    // reuse it as the errno scratch instead of naming a physical register
-    // (plan-34-C): the retry edge reloads its cursor/remaining from spill slots.
-    let eintr = EINTR_ERRNO
-        .parse::<usize>()
-        .expect("EINTR_ERRNO is numeric");
-    if raw_return {
-        // Raw-`svc` return is `-errno`: EINTR iff `ret == -EINTR`, i.e.
-        // `ret + EINTR == 0`.
-        ctx.instructions.extend([
-            abi::add_immediate(&ret, &ret, eintr),
-            abi::compare_immediate(&ret, "0"),
-            abi::branch_eq(retry_label),
-            abi::branch(error_label),
-        ]);
-    } else if errno_accessor_available(platform_imports) {
-        // `emit_errno` loads the current `errno` into `ret` (reused).
-        platform.emit_errno(
-            symbol,
-            (ret.clone()).into(),
-            platform_imports,
-            ctx.instructions,
-            ctx.relocations,
-        )?;
-        ctx.instructions.extend([
-            abi::compare_immediate(&ret, EINTR_ERRNO),
-            abi::branch_eq(retry_label),
-            abi::branch(error_label),
-        ]);
-    } else {
-        ctx.instructions.push(abi::branch(error_label));
-    }
-    Ok(())
-}
-
-/// Advance-and-retry tail for a write/read loop whose body re-issues the syscall
-/// at `loop_label` from the loop-carried `cursor`/`remaining` vregs (bug-51's
-/// short-transfer loop, extended for bug-62). `ret` holds the syscall return: a
-/// positive count advances the cursor and re-loops; a `0` return moved nothing for
-/// a nonzero request and is a hard error (never a spin); a negative return is
-/// `EINTR`-retried at `loop_label` or errored via [`emit_eintr_retry_or_error`].
-/// `raw_return` selects the errno convention (see [`write_uses_raw_syscall`]);
-/// pass `false` for every `read` loop (reads always go through libc).
-pub(in crate::target::shared::code) fn emit_transfer_loop_tail(
-    ctx: &mut EmitCtx,
-    ret: impl Into<Operand>,
-    raw_return: bool,
-    cursor: &str,
-    remaining: &str,
-    loop_label: &str,
-    error_label: &str,
-) -> Result<(), String> {
-    let ret = ret.into();
-    let symbol = ctx.symbol;
-    let platform = ctx.platform;
-    let platform_imports = ctx.platform_imports;
-
-    let advance = format!("{loop_label}_advance");
-    ctx.instructions.extend([
-        abi::compare_immediate(&ret, "0"),
-        abi::branch_gt(&advance),
-        abi::branch_eq(error_label),
-    ]);
-    emit_eintr_retry_or_error(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: ctx.instructions,
-            relocations: ctx.relocations,
-        },
-        &ret,
-        raw_return,
-        loop_label,
-        error_label,
-    )?;
-    ctx.instructions.extend([
-        abi::label(&advance),
-        abi::add_registers(cursor, cursor, &ret),
-        abi::subtract_registers(remaining, remaining, &ret),
-        abi::branch(loop_label),
-    ]);
-    Ok(())
-}
-
-/// Guard the negative return of a single (non-advancing) `read` whose result in
-/// `x0` has just been compared against `0` by the caller. A non-negative return
-/// branches to `resume_label`; a negative return is `EINTR`-retried at
-/// `retry_label` — which re-runs the syscall's argument setup — or errored. Reads
-/// always go through libc on every backend, so this uses the `errno`-accessor
-/// convention.
-///
-/// The caller emits its own follow-on branch on the same `x0 vs 0` comparison
-/// (e.g. `branch_eq <eof>`) right after this guard. RISC-V has no persistent
-/// condition flags — the MIR fuser welds each compare to the single branch that
-/// immediately follows it — so the caller's `cmp x0, 0` is consumed by the
-/// `branch_ge` here and cannot also feed the caller's branch. This guard therefore
-/// re-issues `cmp x0, 0` at `resume_label`; `x0` is untouched on the `>= 0` path
-/// (the guard body is skipped), so the re-comparison is exact and the caller's
-/// branch fuses with it on every backend.
-pub(in crate::target::shared::code) fn emit_single_op_eintr_guard(
-    ctx: &mut EmitCtx,
-    retry_label: &str,
-    resume_label: &str,
-    error_label: &str,
-) -> Result<(), String> {
-    let symbol = ctx.symbol;
-    let platform = ctx.platform;
-    let platform_imports = ctx.platform_imports;
-
-    ctx.instructions.push(abi::branch_ge(resume_label));
-    emit_eintr_retry_or_error(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: ctx.instructions,
-            relocations: ctx.relocations,
-        },
-        abi::return_register(),
-        false,
-        retry_label,
-        error_label,
-    )?;
-    ctx.instructions.extend([
-        abi::label(resume_label),
-        abi::compare_immediate(abi::return_register(), "0"),
-    ]);
-    Ok(())
-}
+use super::*;
+use crate::target::shared::abi;
 
 /// `_mfb_rt_fs_file_drain` (plan-14-B): flush one `File`'s per-handle output buffer
 /// to its fd. `x0 = File*`. No-op when the handle is unbuffered (`BUF_ENABLED == 0`)
@@ -215,7 +8,7 @@ pub(in crate::target::shared::code) fn emit_single_op_eintr_guard(
 /// (including the no-op cases) and `x0 = 1` on a write failure — on failure the
 /// buffer is left intact so a later flush can retry. Shared by `fs::flush`, the
 /// buffered-write overflow path, `fs::setBuffered(FALSE)`, and flush-on-close.
-pub(in crate::target::shared::code) fn lower_fs_file_drain(
+pub(crate) fn lower_fs_file_drain(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {
@@ -365,7 +158,7 @@ fn emit_append_to_file_buffer(
 }
 
 /// `fs::isBuffered(file)` (plan-14-B §4.5): report whether this handle is buffered.
-pub(in crate::target::shared::code) fn lower_fs_is_buffered_helper(symbol: &str) -> HelperResult {
+pub(crate) fn lower_fs_is_buffered_helper(symbol: &str) -> HelperResult {
     let yes = format!("{symbol}_yes");
     let done = format!("{symbol}_done");
     let mut instructions = vec![
@@ -388,7 +181,7 @@ pub(in crate::target::shared::code) fn lower_fs_is_buffered_helper(symbol: &str)
 
 /// `fs::setBuffered(file, enabled)` (plan-14-B §4.5): turn per-handle buffering on
 /// or off. Disabling drains any pending bytes first, then clears the flag.
-pub(in crate::target::shared::code) fn lower_fs_set_buffered_helper(symbol: &str) -> HelperResult {
+pub(crate) fn lower_fs_set_buffered_helper(symbol: &str) -> HelperResult {
     let enable = format!("{symbol}_enable");
     let done = format!("{symbol}_done");
     // x0 = File*, x1 = enabled (Boolean).
@@ -419,7 +212,7 @@ pub(in crate::target::shared::code) fn lower_fs_set_buffered_helper(symbol: &str
 /// `fs::flush(file)` (plan-14-B §4.5): drain this handle's buffer now. Raises the
 /// write-path ErrOutput on a failing final write; a no-op when the handle is
 /// unbuffered.
-pub(in crate::target::shared::code) fn lower_fs_flush_helper(symbol: &str) -> HelperResult {
+pub(crate) fn lower_fs_flush_helper(symbol: &str) -> HelperResult {
     let flush_error = format!("{symbol}_flush_error");
     let done = format!("{symbol}_done");
     // x0 = File*.
@@ -443,7 +236,7 @@ pub(in crate::target::shared::code) fn lower_fs_flush_helper(symbol: &str) -> He
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_open_helper(
+pub(crate) fn lower_fs_open_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -805,7 +598,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
 /// canonical root is symlink-free and every component is re-checked at open time,
 /// a post-canonicalization component swap to a symlink is *rejected* rather than
 /// followed — so the open cannot be redirected outside `root`.
-pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
+pub(crate) fn lower_fs_open_within_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1282,7 +1075,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_close_helper(
+pub(crate) fn lower_fs_close_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1400,7 +1193,7 @@ pub(in crate::target::shared::code) fn lower_fs_close_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_write_all_helper(
+pub(crate) fn lower_fs_write_all_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1524,7 +1317,7 @@ pub(in crate::target::shared::code) fn lower_fs_write_all_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_read_all_helper(
+pub(crate) fn lower_fs_read_all_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1701,7 +1494,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_write_all_bytes_helper(
+pub(crate) fn lower_fs_write_all_bytes_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1832,7 +1625,7 @@ pub(in crate::target::shared::code) fn lower_fs_write_all_bytes_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_read_all_bytes_helper(
+pub(crate) fn lower_fs_read_all_bytes_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -2052,7 +1845,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_all_bytes_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_eof_helper(
+pub(crate) fn lower_fs_eof_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -2290,7 +2083,7 @@ fn emit_reconcile_read_buffer(
     Ok(())
 }
 
-pub(in crate::target::shared::code) fn lower_fs_read_line_helper(
+pub(crate) fn lower_fs_read_line_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -2563,17 +2356,14 @@ pub(in crate::target::shared::code) fn lower_fs_read_line_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) struct OpenFlagSet {
-    pub(super) read: &'static str,
-    pub(super) write: &'static str,
-    pub(super) read_write: &'static str,
-    pub(super) append: &'static str,
+pub(crate) struct OpenFlagSet {
+    pub(crate) read: &'static str,
+    pub(crate) write: &'static str,
+    pub(crate) read_write: &'static str,
+    pub(crate) append: &'static str,
 }
 
-pub(in crate::target::shared::code) fn open_flag_set(
-    family: PlatformFamily,
-    no_follow: bool,
-) -> OpenFlagSet {
+pub(crate) fn open_flag_set(family: PlatformFamily, no_follow: bool) -> OpenFlagSet {
     // Linux (any arch) shares one set of O_* bit values; macOS differs. Keying only
     // on "linux-aarch64" gave linux-x86_64 the macOS bits — on Linux those decode
     // WITHOUT O_CREAT (write 1537 = O_WRONLY|O_APPEND|O_TRUNC → ENOENT "path not

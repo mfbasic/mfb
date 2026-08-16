@@ -47,21 +47,30 @@ pub(crate) use entry::lower_program_entry;
 pub(crate) use runtime_helpers::lower_thread_trampoline;
 pub(crate) mod codegen_utils;
 use codegen_utils::*;
-pub(crate) use codegen_utils::{finalize_vreg_body, finalize_vreg_body_with_locals, Vregs};
+pub(crate) use codegen_utils::{
+    emit_call_validate_utf8, finalize_vreg_body, finalize_vreg_body_with_locals,
+    finalize_vreg_helper, Vregs, SORT_STRING_LIST_SYMBOL,
+};
+// Shared syscall / EINTR-retry emission primitives (formerly in `code/fs/io.rs`;
+// used by io/net/term, so they stay in the shared code layer, not the migrated
+// `fs` package).
+mod syscall_io;
+pub(crate) use syscall_io::*;
 mod code_impl;
 use code_impl::{join_json, ToCodeJson};
 mod operand;
 pub(crate) use operand::{AbiConvention, AbiRole, Operand, VirtualRegister};
 mod selfmove_probe;
 pub(crate) use selfmove_probe::bug387_selfmove_lines;
-mod fs;
-use fs::*;
 mod float_format;
 use float_format::*;
 mod io_stdin;
 use io_stdin::*;
 mod io_stdout;
 use io_stdout::*;
+// Re-exported flat for the relocated `fs` `native/io.rs` buffered-drain emitter
+// (its `File` output-buffer drain shares the stdout buffer-sink primitives).
+pub(crate) use io_stdout::{emit_append_to_buffer, BufferSink, FdLoad};
 mod io_terminal;
 use io_terminal::*;
 mod stdin_broadcast;
@@ -92,7 +101,6 @@ mod builder_conversions;
 mod builder_emit_helpers;
 mod builder_fixed_math;
 mod builder_fmod;
-mod builder_fs_paths;
 mod builder_inplace_assign;
 mod builder_math;
 mod builder_money_math;
@@ -130,7 +138,9 @@ mod term_grid;
 mod tests;
 pub(crate) mod tls;
 pub(crate) mod type_utils;
+// Re-exported flat for the relocated `fs` `native/paths_builder.rs` path emitters.
 use builder_vector_inline::{vector_call_is_inlined, vector_field_count};
+pub(crate) use type_utils::list_element_type;
 use type_utils::*;
 mod function_lowering;
 use function_lowering::*;
@@ -154,6 +164,8 @@ pub(crate) use mir::MirPlan;
 /// Rust permits disjoint mutable references to `instructions` and `relocations` through a
 /// single `&mut EmitCtx`, so a callee needing both still compiles.
 pub(crate) struct EmitCtx<'a> {
+    // `pub(crate)`: the relocated `fs` `native/io.rs` emitters construct an `EmitCtx`
+    // to drive the shared `emit_transfer_loop_tail`/EINTR helpers.
     pub(crate) symbol: &'a str,
     pub(crate) platform_imports: &'a HashMap<String, String>,
     pub(crate) platform: &'a dyn CodegenPlatform,
@@ -196,7 +208,10 @@ pub(crate) type AppHookBody = (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocati
 pub(crate) type HelperResult = Result<HelperBody, String>;
 
 pub(crate) struct CodeBuilder<'a> {
-    current_symbol: String,
+    // `pub(crate)`: the relocated `fs` path-string emitters
+    // (`crate::codegen::builtins::fs::native::paths_builder`) read these two fields
+    // directly, as they did when they lived in this module.
+    pub(crate) current_symbol: String,
     function_symbols: &'a HashMap<String, String>,
     functions: &'a HashMap<String, &'a NirFunction>,
     package_return_types: &'a HashMap<String, String>,
@@ -206,7 +221,7 @@ pub(crate) struct CodeBuilder<'a> {
     string_symbols: &'a HashMap<String, String>,
     locals: HashMap<String, LocalValue>,
     instructions: Vec<CodeInstruction>,
-    relocations: Vec<CodeRelocation>,
+    pub(crate) relocations: Vec<CodeRelocation>,
     stack_slots: Vec<CodeStackSlot>,
     used_callee_saved: Vec<String>,
     stack_size: usize,
@@ -1482,7 +1497,10 @@ pub(crate) fn lower_module_for_platform(
         )
     });
     if uses_file_buffer {
-        code_functions.push(lower_fs_file_drain(&platform_imports, platform)?);
+        code_functions.push(crate::codegen::builtins::fs::native::lower_fs_file_drain(
+            &platform_imports,
+            platform,
+        )?);
     }
     if module.entry.is_some() {
         code_functions.push(lower_shutdown(
@@ -1784,7 +1802,7 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_float_to_string_helper());
     }
     if module_uses_call(module, "fs.pathJoin") {
-        code_functions.push(lower_fs_path_join_helper());
+        code_functions.push(crate::codegen::builtins::fs::native::lower_fs_path_join_helper());
     }
     if runtime_symbols
         .iter()
@@ -2025,12 +2043,12 @@ fn lower_runtime_helper(
                 "perf.init" | "perf.start" | "perf.end" | "perf.done" => {
                     perf::lower_perf_helper(spec.call, symbol, platform_imports, platform)?
                 }
-                // Every `os.*` member carries a `Body::native` OS-seam lowering: the
-                // per-platform emission lives in `codegen::builtins::os::native`, and
-                // the generic registry-driven dispatch picks posix/win by
+                // Every `os.*`/`fs.*` member carries a `Body::native` OS-seam lowering:
+                // the per-platform emission lives in `codegen::builtins::{os,fs}::native`,
+                // and the generic registry-driven dispatch picks posix/win by
                 // `platform.family()`. `os.resourcePath` receives the real
-                // `build_mode`/`module_name`; every other `os` member ignores them.
-                call if call.starts_with("os.") => {
+                // `build_mode`/`module_name`; every other member ignores them.
+                call if call.starts_with("os.") || call.starts_with("fs.") => {
                     match crate::codegen::os::dispatch_runtime_helper(
                         call,
                         symbol,
@@ -2047,7 +2065,7 @@ fn lower_runtime_helper(
                         }
                     }
                 }
-                call if call.starts_with("io.") || call.starts_with("fs.") => match call {
+                call if call.starts_with("io.") => match call {
                     "io.print" | "io.write" | "io.printError" | "io.writeError" => {
                         let stderr = matches!(spec.call, "io.printError" | "io.writeError");
                         let newline = matches!(spec.call, "io.print" | "io.printError");
@@ -2161,115 +2179,8 @@ fn lower_runtime_helper(
                             lower_io_is_terminal_helper(symbol, platform_imports, platform, fd)?
                         }
                     }
-                    "fs.exists" => lower_fs_exists_helper(symbol, platform_imports, platform)?,
-                    "fs.fileExists" | "fs.directoryExists" => {
-                        let kind = if spec.call == "fs.fileExists" {
-                            FS_MODE_REGULAR
-                        } else {
-                            FS_MODE_DIRECTORY
-                        };
-                        lower_fs_kind_exists_helper(symbol, platform_imports, platform, kind)?
-                    }
-                    "fs.currentDirectory" | "fs.tempDirectory" => {
-                        if spec.call == "fs.currentDirectory" {
-                            lower_fs_current_directory_helper(symbol, platform_imports, platform)?
-                        } else {
-                            lower_fs_temp_directory_helper(symbol, platform_imports, platform)?
-                        }
-                    }
-                    "fs.setCurrentDirectory"
-                    | "fs.deleteFile"
-                    | "fs.createDirectory"
-                    | "fs.deleteDirectory" => {
-                        let operation = match spec.call {
-                            "fs.setCurrentDirectory" => FsPathOperation::Chdir,
-                            "fs.deleteFile" => FsPathOperation::Unlink,
-                            "fs.createDirectory" => FsPathOperation::Mkdir,
-                            "fs.deleteDirectory" => FsPathOperation::Rmdir,
-                            _ => unreachable!(),
-                        };
-                        lower_fs_path_operation_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                            operation,
-                        )?
-                    }
-                    "fs.createDirectories" => {
-                        lower_fs_create_directories_helper(symbol, platform_imports, platform)?
-                    }
-                    "fs.listDirectory" => {
-                        lower_fs_list_directory_helper(symbol, platform_imports, platform)?
-                    }
-                    "fs.open" | "fs.openFile" | "fs.openFileNoFollow" => {
-                        let no_follow = spec.call == "fs.openFileNoFollow";
-                        lower_fs_open_helper(symbol, platform_imports, platform, no_follow)?
-                    }
-                    "fs.openWithin" => {
-                        lower_fs_open_within_helper(symbol, platform_imports, platform)?
-                    }
-                    "fs.createTempFile" => {
-                        lower_fs_create_temp_file_helper(symbol, platform_imports, platform)?
-                    }
-                    "fs.close" => lower_fs_close_helper(symbol, platform_imports, platform, true)?,
-                    "fs.setBuffered" => lower_fs_set_buffered_helper(symbol)?,
-                    "fs.isBuffered" => lower_fs_is_buffered_helper(symbol)?,
-                    "fs.flush" => lower_fs_flush_helper(symbol)?,
-                    "fs.writeAll" => lower_fs_write_all_helper(symbol, platform_imports, platform)?,
-                    "fs.writeAllBytes" => {
-                        lower_fs_write_all_bytes_helper(symbol, platform_imports, platform)?
-                    }
-                    "fs.readText" => {
-                        lower_fs_read_text_path_helper(symbol, platform_imports, platform)?
-                    }
-                    "fs.readBytes" => {
-                        lower_fs_read_bytes_path_helper(symbol, platform_imports, platform)?
-                    }
-                    "fs.writeText" | "fs.appendText" => {
-                        let append = spec.call == "fs.appendText";
-                        lower_fs_write_path_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                            append,
-                            false,
-                        )?
-                    }
-                    "fs.writeBytes" | "fs.appendBytes" => {
-                        let append = spec.call == "fs.appendBytes";
-                        lower_fs_write_path_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                            append,
-                            true,
-                        )?
-                    }
-                    "fs.writeTextAtomic" | "fs.writeBytesAtomic" => {
-                        let value_kind = if spec.call == "fs.writeTextAtomic" {
-                            AtomicWriteValueKind::String
-                        } else {
-                            AtomicWriteValueKind::Bytes
-                        };
-                        lower_fs_atomic_write_helper(
-                            symbol,
-                            platform_imports,
-                            platform,
-                            value_kind,
-                        )?
-                    }
-                    "fs.readAll" => lower_fs_read_all_helper(symbol, platform_imports, platform)?,
-                    "fs.readAllBytes" => {
-                        lower_fs_read_all_bytes_helper(symbol, platform_imports, platform)?
-                    }
-                    "fs.readLine" => lower_fs_read_line_helper(symbol, platform_imports, platform)?,
-                    "fs.eof" => lower_fs_eof_helper(symbol, platform_imports, platform)?,
-                    "fs.canonicalPath" => {
-                        lower_fs_canonical_path_helper(symbol, platform_imports, platform)?
-                    }
-                    "fs.isWithin" => lower_fs_is_within_helper(symbol, platform_imports, platform)?,
                     // Defensive: unreachable — `spec_for_symbol` at the top already
-                    // rejects any io.*/fs.* symbol that has no spec. Kept only because
+                    // rejects any io.* symbol that has no spec. Kept only because
                     // matching a `&str` is not exhaustive without a catch-all.
                     other => {
                         return Err(format!(
@@ -2337,9 +2248,12 @@ fn lower_runtime_helper(
                     }
                     // A socket/listener handle shares the `File` record layout, so the
                     // standard (vreg-allocated) file close helper closes net handles too.
-                    "net.close" => {
-                        lower_fs_close_helper(symbol, platform_imports, platform, false)?
-                    }
+                    "net.close" => crate::codegen::builtins::fs::native::lower_fs_close_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        false,
+                    )?,
                     "net.localAddress" => {
                         net::lower_net_address_helper(symbol, platform_imports, platform, false)?
                     }

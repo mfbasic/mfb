@@ -19,7 +19,7 @@ IMPORT fs
 ```
 
 `fs` is a built-in package, so no manifest dependency is required.
-[[src/builtins/fs.rs:is_fs_call]]
+[[src/codegen/builtins/fs/mod.rs:register]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT fs
 position, advances the position to just past the line's terminator, and returns
 the line as a `String` with the terminator removed. `file` must be an open `File`
 resource — such as one returned by `fs::openFile` or `fs::open` — opened in a mode
-that permits reading. [[src/target/shared/code/fs/io.rs:lower_fs_read_line_helper]]
+that permits reading. [[src/codegen/builtins/fs/native/io.rs:lower_fs_read_line_helper]]
 
 A line ends at the first line feed (LF, byte `0x0A`) at or after the current
 position. Both LF and CRLF terminators are accepted: when the byte immediately
@@ -36,7 +36,7 @@ terminator and is also stripped from the returned `String`. A bare CR with no
 following LF is not a terminator and is returned as an ordinary character. When
 the remaining bytes contain no LF, the entire remainder of the file is returned
 as the final line and the position is advanced to end of input; the next call
-then fails with end-of-input. [[src/target/shared/code/fs/io.rs:lower_fs_read_line_helper]]
+then fails with end-of-input. [[src/codegen/builtins/fs/native/io.rs:lower_fs_read_line_helper]]
 
 The returned `String` never includes the terminating LF or the CR of a CRLF pair.
 An empty line (an LF, or a CRLF, with nothing before it) yields an empty `String`
@@ -57,7 +57,7 @@ line. This is invisible — the lines, terminators, EOF point, and errors are
 identical to an unbuffered read. A whole-file read (`fs::readAll`,
 `fs::readAllBytes`) or a write (`fs::writeAll`) on the same handle transparently
 reconciles the buffer first, so mixing them with `fs::readLine` sees the exact
-logical position. [[src/target/shared/code/fs/io.rs:lower_fs_read_line_helper]]
+logical position. [[src/codegen/builtins/fs/native/io.rs:lower_fs_read_line_helper]]
 
 Thread cancellation is cooperative. The current runtime does not asynchronously
 interrupt arbitrary host file reads; workers that need prompt cancellation around
@@ -68,22 +68,22 @@ cancellation-point operations.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `file` | `File` | An open `File` resource to read from, positioned at the start of the line to read. Must not have been closed and must have been opened in a mode that permits reading. [[src/builtins/fs.rs:call_param_names]] |
+| `file` | `File` | An open `File` resource to read from, positioned at the start of the line to read. Must not have been closed and must have been opened in a mode that permits reading. [[src/codegen/builtins/fs/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The next line of text, in file order, with the trailing LF or CRLF removed. An empty line returns an empty `String`; a final line with no terminator returns the remaining bytes of the file. [[src/builtins/fs.rs:FS]] |
+| `String` | The next line of text, in file order, with the trailing LF or CRLF removed. An empty line returns an empty `String`; a final line with no terminator returns the remaining bytes of the file. [[src/codegen/builtins/fs/mod.rs:register]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `file` has already been closed. [[src/target/shared/code/fs/io.rs:ErrResourceClosed]] |
-| `77020003` | `ErrEof` | `file` is already at end of input, so no bytes remain to form a line. [[src/target/shared/code/fs/io.rs:ErrEndOfFile]] |
-| `77020001` | `ErrRead` | Repositioning the file or reading its bytes fails, including when `file` was not opened for reading and when the host read fails partway through. [[src/target/shared/code/fs/io.rs:ErrReadFailed]] |
-| `77020004` | `ErrEncoding` | The bytes of the line are not valid UTF-8. [[src/target/shared/code/fs/io.rs:ErrEncoding]] |
+| `77030004` | `ErrResourceClosed` | `file` has already been closed. [[src/codegen/builtins/fs/native/io.rs:ErrResourceClosed]] |
+| `77020003` | `ErrEof` | `file` is already at end of input, so no bytes remain to form a line. [[src/codegen/builtins/fs/native/io.rs:ErrEndOfFile]] |
+| `77020001` | `ErrRead` | Repositioning the file or reading its bytes fails, including when `file` was not opened for reading and when the host read fails partway through. [[src/codegen/builtins/fs/native/io.rs:ErrReadFailed]] |
+| `77020004` | `ErrEncoding` | The bytes of the line are not valid UTF-8. [[src/codegen/builtins/fs/native/io.rs:ErrEncoding]] |
 | `77010001` | `ErrOutOfMemory` | The read block, the line accumulator, or the `String` holding the returned line cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
 
 ## Examples

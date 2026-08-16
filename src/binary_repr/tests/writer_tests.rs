@@ -181,7 +181,7 @@ fn is_resource_type_name_matches_builtins() {
 
 #[test]
 fn standard_resource_flags_marks_sendable_types() {
-    let file = standard_resource_flags(builtins::fs::FILE_TYPE_ID);
+    let file = standard_resource_flags(crate::codegen::builtins::fs::FILE_TYPE_ID);
     assert!(file & RESOURCE_FLAG_SENDABLE != 0);
     let listener = standard_resource_flags(builtins::net::LISTENER_TYPE_ID);
     assert!(listener & RESOURCE_FLAG_SENDABLE == 0);

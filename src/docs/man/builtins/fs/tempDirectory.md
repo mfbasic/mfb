@@ -19,7 +19,7 @@ IMPORT fs
 ```
 
 `fs` is a built-in package, so no manifest dependency is required.
-[[src/builtins/fs.rs:is_fs_call]]
+[[src/codegen/builtins/fs/mod.rs:register]]
 
 ## Description
 
@@ -33,7 +33,7 @@ The directory path is queried from the operating system on every call rather
 than cached, so the result reflects the host environment at the moment of the
 call. The returned `String` holds only the path bytes, with the trailing NUL
 that the host query produces stripped off; no trailing path separator is added.
-[[src/target/shared/code/fs/paths.rs:lower_fs_temp_directory_helper]]
+[[src/codegen/builtins/fs/native/paths.rs:lower_fs_temp_directory_helper]]
 
 The source of the path is platform specific:
 
@@ -49,17 +49,17 @@ The function takes no arguments and has no filesystem side effects: it neither
 creates the directory nor verifies that it exists, it only reports the
 configured path. Internally it reads into a fixed 4096-byte buffer before
 copying the result into an arena-backed `String`.
-[[src/target/shared/code/fs/paths.rs:lower_fs_temp_directory_helper]]
+[[src/codegen/builtins/fs/native/paths.rs:lower_fs_temp_directory_helper]]
 
 ## Parameters
 
-This function takes no parameters. [[src/builtins/fs.rs:call_param_names]]
+This function takes no parameters. [[src/codegen/builtins/fs/mod.rs:register]]
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The path of the host temporary directory, decoded as a UTF-8 `String` with no terminating NUL and no added trailing separator. On macOS this is the Darwin per-process user temporary directory; on Linux it is `TMPDIR` when set and usable, otherwise `/tmp`. [[src/builtins/fs.rs:FS]] |
+| `String` | The path of the host temporary directory, decoded as a UTF-8 `String` with no terminating NUL and no added trailing separator. On macOS this is the Darwin per-process user temporary directory; on Linux it is `TMPDIR` when set and usable, otherwise `/tmp`. [[src/codegen/builtins/fs/mod.rs:register]] |
 
 ## Errors
 

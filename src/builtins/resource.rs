@@ -140,11 +140,13 @@ impl ResourceRegistry {
 static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::new(|| {
     let mut entries = HashMap::new();
     entries.insert(
-        super::fs::FILE_TYPE_ID.to_string(),
+        crate::codegen::builtins::fs::FILE_TYPE_ID.to_string(),
         ResourceInfo {
-            close_function: super::fs::resource_close_function(super::fs::FILE_TYPE)
-                .expect("File has a built-in close op")
-                .to_string(),
+            close_function: crate::codegen::registry::resource_close_function(
+                crate::codegen::builtins::fs::FILE_TYPE,
+            )
+            .expect("File has a built-in close op")
+            .to_string(),
             sendable: true,
             close_may_fail: true,
             kind: ResourceKind::Builtin,

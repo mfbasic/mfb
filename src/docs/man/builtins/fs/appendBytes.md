@@ -19,7 +19,7 @@ IMPORT fs
 ```
 
 `fs` is a built-in package, so no manifest dependency is required.
-[[src/builtins/fs.rs:is_fs_call]]
+[[src/codegen/builtins/fs/mod.rs:register]]
 
 ## Description
 
@@ -29,7 +29,7 @@ after whatever the file already held, flushes the file to disk, closes it, and
 returns nothing. Any existing contents are preserved and the new bytes are added
 after them; to replace a file's contents instead of extending them, use
 `fs::writeBytes`.
-[[src/target/shared/code/fs/atomic.rs:lower_fs_write_path_helper]]
+[[src/codegen/builtins/fs/native/atomic.rs:lower_fs_write_path_helper]]
 
 The file is opened with the append flag set, so every write is positioned at the
 current end of the file. The byte payload is written directly from the byte
@@ -41,21 +41,21 @@ empty byte list leaves the file's length unchanged, creating it as an empty file
 if it did not exist. Bytes are written exactly as held in the list, with no
 encoding, decoding, or newline translation, so the function is suitable for
 binary data as well as text.
-[[src/target/shared/code/fs/atomic.rs:lower_fs_write_path_helper]]
+[[src/codegen/builtins/fs/native/atomic.rs:lower_fs_write_path_helper]]
 
 When the file is created it is given mode `384` (octal `0600`), owner read/write
 only, before the process umask is applied — not the world-readable `0666`. An
 existing file keeps its current mode. The file is created and opened only after
 `path` has been validated, and the final path component is followed when it is a
 symlink, so appending through a symlink appends to the target file.
-[[src/target/shared/code/fs/atomic.rs:lower_fs_write_path_helper]]
+[[src/codegen/builtins/fs/native/atomic.rs:lower_fs_write_path_helper]]
 
 `path` is interpreted as UTF-8 bytes and passed to the host filesystem. It may be
 absolute or relative to the current working directory and may contain Unicode
 characters when the host filesystem accepts those names. The string must not be
 empty and must not contain an embedded NUL byte, because the host `open` call
 requires a NUL-terminated path.
-[[src/target/shared/code/fs/atomic.rs:lower_fs_write_path_helper]]
+[[src/codegen/builtins/fs/native/atomic.rs:lower_fs_write_path_helper]]
 
 The file is closed before the function returns on both the success and the
 write-failure paths. The append is not atomic: a reader observing the file while
@@ -66,25 +66,25 @@ partway through leaves the file extended by only the bytes written so far.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `path` | `String` | The filesystem path of the file to append to, as UTF-8 bytes; absolute or relative to the current working directory. Must be non-empty and free of embedded NUL bytes. The file is created if it does not exist. [[src/builtins/fs.rs:call_param_names]] |
-| `bytes` | `List OF Byte` | The bytes to append, in order, taken verbatim from the list's data region after the file's existing contents. An empty list leaves the file's length unchanged. [[src/builtins/fs.rs:call_param_names]] |
+| `path` | `String` | The filesystem path of the file to append to, as UTF-8 bytes; absolute or relative to the current working directory. Must be non-empty and free of embedded NUL bytes. The file is created if it does not exist. [[src/codegen/builtins/fs/mod.rs:register]] |
+| `bytes` | `List OF Byte` | The bytes to append, in order, taken verbatim from the list's data region after the file's existing contents. An empty list leaves the file's length unchanged. [[src/codegen/builtins/fs/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing on success, after every byte has been written, flushed, and the file has been closed. [[src/builtins/fs.rs:FS]] |
+| `Nothing` | Returns nothing on success, after every byte has been written, flushed, and the file has been closed. [[src/codegen/builtins/fs/mod.rs:register]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `path` is empty or contains an embedded NUL byte, so it cannot be turned into a valid NUL-terminated host path. [[src/target/shared/code/fs/atomic.rs:lower_fs_write_path_helper]] |
+| `77050002` | `ErrInvalidArgument` | `path` is empty or contains an embedded NUL byte, so it cannot be turned into a valid NUL-terminated host path. [[src/codegen/builtins/fs/native/atomic.rs:lower_fs_write_path_helper]] |
 | `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of `path` cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
-| `77050004` | `ErrNotFound` | The file cannot be opened because a component of `path` does not exist, such as a missing parent directory (host `ENOENT`). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
-| `77030003` | `ErrAccessDenied` | The host denies permission to create or open the file (host `EACCES`). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
-| `77050005` | `ErrAlreadyExists` | The host reports the target already exists in a form that conflicts with the open (host `EEXIST`). [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
-| `77020002` | `ErrOutput` | The file cannot be opened for any other host reason, including `path` referring to a directory or another non-writable target, and when writing, flushing, or closing the file fails partway through. [[src/target/shared/code/fs/mod.rs:emit_errno_error_mapping]] |
+| `77050004` | `ErrNotFound` | The file cannot be opened because a component of `path` does not exist, such as a missing parent directory (host `ENOENT`). [[src/codegen/builtins/fs/native/shared.rs:emit_errno_error_mapping]] |
+| `77030003` | `ErrAccessDenied` | The host denies permission to create or open the file (host `EACCES`). [[src/codegen/builtins/fs/native/shared.rs:emit_errno_error_mapping]] |
+| `77050005` | `ErrAlreadyExists` | The host reports the target already exists in a form that conflicts with the open (host `EEXIST`). [[src/codegen/builtins/fs/native/shared.rs:emit_errno_error_mapping]] |
+| `77020002` | `ErrOutput` | The file cannot be opened for any other host reason, including `path` referring to a directory or another non-writable target, and when writing, flushing, or closing the file fails partway through. [[src/codegen/builtins/fs/native/shared.rs:emit_errno_error_mapping]] |
 
 ## Examples
 

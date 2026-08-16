@@ -648,11 +648,11 @@ impl ResourceTable {
     }
 
     pub(super) fn add_standard_file(&mut self, types: &mut TypeTable, strings: &mut StringPool) {
-        let type_id = types.type_id(strings, builtins::fs::FILE_TYPE);
+        let type_id = types.type_id(strings, crate::codegen::builtins::fs::FILE_TYPE);
         self.entries.push(ResourceEntry {
             type_id,
             close_function_id: BUILTIN_FS_CLOSE_FUNCTION_ID,
-            flags: standard_resource_flags(builtins::fs::FILE_TYPE),
+            flags: standard_resource_flags(crate::codegen::builtins::fs::FILE_TYPE),
         });
     }
 

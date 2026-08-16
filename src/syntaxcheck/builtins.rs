@@ -94,6 +94,16 @@ struct BuiltinArgMode {
     args: ArgMode,
 }
 
+/// Whether argument `index` of a migrated `fs` call consumes (moves) its resource
+/// operand. `fs::close` consumes the `RES File` it closes; every other `fs` call
+/// only borrows the file, which stays open. Consume-on-close is genuinely
+/// `fs`-specific (`process::close`/`net::close` borrow), so it is not modeled on
+/// the registry; this tiny predicate replaces the deleted
+/// `builtins::fs::consumes_argument`, keyed on the migrated close-op constant.
+fn fs_consumes_argument(name: &str, index: usize) -> bool {
+    index == 0 && name == crate::codegen::builtins::fs::CLOSE
+}
+
 const BUILTIN_ARG_MODES: &[BuiltinArgMode] = &[
     BuiltinArgMode {
         name: "encoding",
@@ -124,7 +134,7 @@ const BUILTIN_ARG_MODES: &[BuiltinArgMode] = &[
     BuiltinArgMode {
         name: "fs",
         args: ArgMode::Consuming {
-            consumes: builtins::fs::consumes_argument,
+            consumes: fs_consumes_argument,
             default: ExprMode::Use,
         },
     },
