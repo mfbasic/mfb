@@ -1,0 +1,75 @@
+//! `bits::bswap16` — reverse the byte order of the low 16 bits of an integer.
+//!
+//! Descriptor + docs migrated from `src/docs/man/builtins/bits/bswap16.md`; lowering
+//! from the former `src/target/shared/code/builder_bits.rs::lower_bits_bswap`.
+
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+};
+use crate::target::shared::code::{CodeBuilder, ValueResult};
+use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
+
+const INTRO: &str = r#"Reverse the byte order of the low 16 bits of an integer."#;
+const DESC: &str = r#"`bswap16` swaps the two bytes that make up the low 16 bits of `value`: byte `0`
+(bits `0`..`7`) and byte `1` (bits `8`..`15`) exchange places, so a value laid
+out as `0xHHLL` becomes `0xLLHH`. Every bit above bit `15` (bits `16`..`63`) is
+cleared to zero in the result, so the output is always a non-negative 16-bit
+quantity regardless of the high bits of `value`.
+
+`value` is treated as a raw two's-complement 64-bit `Integer` bit pattern;
+`bswap16` does not interpret sign. The operation is total — it is defined for
+every `Integer` and never raises — has no side effects, and lowers to native
+byte-reversal instructions inline rather than calling a runtime helper."#;
+const EX: &str = r#"Swap the two low bytes of a 16-bit value:
+
+```
+IMPORT bits
+IMPORT io
+
+SUB main()
+  LET result AS Integer = bits::bswap16(0x00FF)
+  io::print(toString(result))
+END SUB
+```
+
+Bits above bit 15 are cleared, so the result stays in `0`..`65535`:
+
+```
+IMPORT bits
+IMPORT io
+
+SUB main()
+  io::print(toString(bits::bswap16(0x11223344)))
+END SUB
+```"#;
+
+pub(super) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "bswap16",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: None,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "value",
+                desc: "The value whose low 16 bits are byte-reversed. Bits above bit `15` are ignored and do not appear in the result.",
+                aliases: &[],
+                ty: ParameterType::Integer,
+                default: DefaultValue::None,
+            }],
+            return_type: ParameterType::Integer,
+            errors: vec![],
+            body: Body::native(None, None, Some(lower_bits_bswap16)),
+        }],
+    });
+}
+
+/// Target-generic call-site lowering for `bits::bswap16`.
+pub(crate) fn lower_bits_bswap16(
+    builder: &mut CodeBuilder,
+    args: &[NirValue],
+) -> Result<ValueResult, String> {
+    super::native::lower_bits_bswap(builder, "bswap16", &args[0])
+}

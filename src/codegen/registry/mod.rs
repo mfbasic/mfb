@@ -1125,6 +1125,7 @@ pub(crate) fn registry() -> &'static Registry {
 /// from its own module, `crate::codegen::builtins::csv`.
 fn build() -> Registry {
     let mut r = Registry::new();
+    crate::codegen::builtins::bits::register(&mut r);
     crate::codegen::builtins::csv::register(&mut r);
     crate::codegen::builtins::json::register(&mut r);
     crate::codegen::builtins::regex::register(&mut r);
@@ -1512,6 +1513,36 @@ pub(crate) fn native_lower(qualified: &str) -> Option<NativeLower> {
         }
     }
     None
+}
+
+/// The inline-`TRAP` fallibility of a migrated **common-native** member (a
+/// [`Body::Native`] carrying a `common` call-site lowering — the `bits` ops,
+/// collections' `get`/`transform`/…): `Some(true)` when it declares at least one
+/// error (so an inline `TRAP` on it must route through the raw-capture path),
+/// `Some(false)` when it declares none (an inline `TRAP` is always-`Ok`), and
+/// `None` when `qualified` is not a common-native member. This grounds the
+/// inline-`TRAP` fallibility census (`builtins::inline_builtin_raw_supported` /
+/// `inline_builtin_is_infallible`) in registry data instead of a per-package
+/// name predicate (`is_bits_shift`).
+pub(crate) fn native_member_declares_error(qualified: &str) -> Option<bool> {
+    let function = registry().resolve_func(qualified)?.function;
+    let mut common_native = false;
+    let mut declares = false;
+    for implementation in &function.implementations {
+        if matches!(
+            implementation.body,
+            Body::Native {
+                common: Some(_),
+                ..
+            }
+        ) {
+            common_native = true;
+            if !implementation.errors.is_empty() {
+                declares = true;
+            }
+        }
+    }
+    common_native.then_some(declares)
 }
 
 /// The native HOF **fast path** for a source-generic monomorph `target`
