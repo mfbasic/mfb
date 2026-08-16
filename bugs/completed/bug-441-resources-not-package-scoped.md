@@ -5,8 +5,34 @@ Effort: x-large (1d–3d)
 Severity: MEDIUM (footgun today; latent HIGH once a second package registers a same-named resource)
 Class: Footgun (+ latent Correctness)
 
-Status: Open
-Regression Test: <to add — a compile-fail test that a user `TYPE <ResourceName>` collides, and a cross-package resource-resolution test; see Phases>
+STATUS: FIXED (process eb010b7d8; fs 8a0bd49c2; net/tls/audio b61003c20; docs 36fbb17c3)
+
+All nine builtin resources now carry a package-qualified type identity end to end
+(`fs.File`, `net.Socket`, `net.Listener`, `net.UdpSocket`, `tls.TlsSocket`,
+`tls.TlsListener`, `audio.AudioInput`, `audio.AudioOutput`, `process.Process`).
+Bare resource names no longer resolve (hard cutover, plan-97) — the bare
+namespace is free for user types, so a user `TYPE File` / `RESOURCE Socket`
+compiles as a distinct user type (the bug-373 shadow ban is inverted; its fixture
+is now `tests/syntax/resources/user-resource-shadows-builtin-valid`). Cross-package
+collisions (`process.Process` vs `foo.Process`) are impossible.
+
+Regression coverage: `src/syntaxcheck/link.rs` `user_resource_named_like_a_builtin_is_accepted`;
+the resource unit tests across `src/builtins/{fs,net,tls,audio}.rs` +
+`src/codegen/builtins/process`; the swept rt-behavior/syntax resource fixtures;
+and the converted valid shadow fixture. Full `cargo test` green; acceptance
+green for every resource fixture.
+
+Deviation: the plan expected a *narrow* Phase-5 sweep, but the earlier fs slice's
+`File`-substring seds had corrupted user identifiers (`SoundFile`, `SfFile`,
+`FileInfo`) and left several `.mfb`/`.mfp`/thread-package sources half-migrated;
+those were repaired here (see the net/tls/audio commit), and `bug221_worker.mfp`
+(a sourceless committed copy) was reconstructed as an in-tree package source.
+A separate, pre-existing, non-resource regression in source-companion arg-mismatch
+diagnostics was surfaced and captured as bug-442 (not fixed here).
+
+Regression Test: user `RESOURCE File`/`TYPE File` accepted (link.rs unit test +
+`user-resource-shadows-builtin-valid` fixture); cross-package resolution via the
+per-package qualified identities in `resolver::BUILTIN_TYPES`.
 
 Every builtin resource type name — `File`, `Socket`, `Listener`, `UdpSocket`,
 `AudioInput`, `AudioOutput`, `TlsSocket`, `TlsListener`, `Process` — is a
