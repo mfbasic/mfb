@@ -1,0 +1,1137 @@
+IMPORT term
+IMPORT io
+IMPORT process
+IMPORT json
+IMPORT strings
+IMPORT collections
+
+' ai_chat - a multi-session Claude chat TUI built on the term:: double-buffered
+' surface and the process:: streaming child API.
+'
+' Each session drives its own `claude` CLI child in streaming-JSON mode
+' (claude -p <prompt> --output-format stream-json --include-partial-messages
+' --verbose, plus --resume <id> to continue a conversation). Children run
+' concurrently: the main tick loop drains every live child's stdout without
+' blocking, so switching sessions never stalls an in-flight generation.
+'
+' A resource may not be a record field (TYPE_RESOURCE_FIELD_FORBIDDEN), so the
+' live children live in a `Map OF Integer TO RES process::Process` keyed by
+' session id (§15.6 "Resources in collections"); the plain Session data record
+' just carries the id. Ownership floats up to the map's scope in main, so a
+' child spawned in an inner block is closed exactly once when the map's scope
+' ends -- and reaped explicitly with process::waitFor when its stream finishes.
+'
+' Build and run it from an interactive terminal:
+'   mfb build examples/ai_chat
+'   ./examples/ai_chat/build/ai_chat.out
+'
+' Controls:
+'   Tab              cycle focus: Sidebar -> Transcript -> Input
+'   Up / Down        scroll the transcript (in Sidebar focus: switch session)
+'   PageUp/PageDown  scroll the transcript by a page
+'   Enter            Input: send the prompt / run a slash command
+'   ^N               new session
+'   ^X               close the active session (asks to confirm)
+'   ^C               quit
+'
+' Slash commands (typed into the input line):
+'   /new [message]   new session, optionally sending a first message
+'   /model           open a picker to change this session's model
+'   /close           close this session (confirmation modal)
+'   /exit            quit
+'   /help            show the help modal
+'
+' A modal (help, model picker, close-confirm) owns all input while open:
+' Up/Down + Enter in the picker, Y/N in the confirm, any key closes help, Esc
+' cancels.
+
+' ---------------------------------------------------------------------------
+' Data model
+' ---------------------------------------------------------------------------
+
+' role: 0 = you, 1 = Claude, 2 = system/error
+TYPE Message
+  role AS Integer
+  content AS String
+  done AS Boolean
+END TYPE
+
+TYPE Session
+  id AS Integer
+  title AS String
+  history AS List OF Message
+  scroll AS Integer      ' lines scrolled up from the bottom; 0 = pinned to bottom
+  streaming AS Boolean
+  resumeId AS String     ' claude session id for --resume ("" = a fresh conversation)
+  model AS String        ' model name reported by the stream ("" until first turn)
+  tokCur AS Integer      ' tokens the latest turn touched (prompt + cache + output)
+  tokMax AS Integer      ' the model's context window (0 until known)
+  pickModel AS String    ' user-chosen --model id ("" = the CLI default)
+END TYPE
+
+' One selectable entry in the /model picker.
+TYPE ModelOption
+  label AS String
+  id AS String           ' passed to `claude --model`; "" = the CLI default
+END TYPE
+
+' All non-resource UI state, bundled so the keypress handlers can be pure
+' functions (they return a new UiState). The live child processes live in a
+' separate Map OF RES in main -- a record may not hold a resource, and keeping
+' the handlers resource-free is also what lets them be split out of main to stay
+' under the AArch64 per-function branch-range limit.
+TYPE UiState
+  sessions AS List OF Session
+  activeIdx AS Integer
+  focus AS Integer
+  inputBuf AS String
+  nextId AS Integer
+  modal AS Integer
+  modelSel AS Integer
+  running AS Boolean
+END TYPE
+
+' A resource action a keypress asks main to perform (main owns the child map).
+' kind: 0 none, 1 spawn a turn, 2 close a session's child.
+TYPE Intent
+  kind AS Integer
+  sessionId AS Integer
+  prompt AS String
+  resumeId AS String
+  model AS String
+END TYPE
+
+' A keypress handler's result: the new UI state plus any resource intent.
+TYPE KeyStep
+  ui AS UiState
+  intent AS Intent
+END TYPE
+
+' One rendered transcript line plus a colour class (see setColorFor).
+TYPE Line
+  text AS String
+  kind AS Integer
+END TYPE
+
+' What one stream-json line contributed: a text delta, a session id, a model
+' name, and/or a usage snapshot (0 when the line carries no usage block).
+TYPE Parsed
+  text AS String
+  resumeId AS String
+  model AS String
+  tokCur AS Integer
+END TYPE
+
+' ---------------------------------------------------------------------------
+' Layout constants
+' ---------------------------------------------------------------------------
+
+FUNC sidebarW() AS Integer
+  RETURN 26
+END FUNC
+
+FUNC minCols() AS Integer
+  RETURN sidebarW() + 24
+END FUNC
+
+FUNC minRows() AS Integer
+  RETURN 8
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Low-level input helpers (mirrors the snake example's key decoder)
+' ---------------------------------------------------------------------------
+
+FUNC getChar() AS String
+  LET c AS String = io::readChar() TRAP(e)
+    RECOVER ""
+  END TRAP
+  RETURN c
+END FUNC
+
+FUNC ready(ms AS Integer) AS Boolean
+  LET r AS Boolean = io::pollInput(ms) TRAP(e)
+    RECOVER FALSE
+  END TRAP
+  RETURN r
+END FUNC
+
+' Decode one keypress into a symbolic name, or return the literal character for
+' a printable key. Recognises Ctrl chords, Tab/Enter/Backspace, arrows, and the
+' PageUp/PageDown CSI sequences.
+FUNC readKey() AS String
+  LET c AS String = getChar()
+  IF c = "" THEN RETURN "EOF"
+  IF c = "\u{03}" THEN RETURN "CTRL_C"
+  IF c = "\u{0E}" THEN RETURN "CTRL_N"
+  IF c = "\u{18}" THEN RETURN "CTRL_X"
+  IF c = "\u{09}" THEN RETURN "TAB"
+  IF c = "\r" OR c = "\n" THEN RETURN "ENTER"
+  IF c = "\u{7F}" OR c = "\u{08}" THEN RETURN "BACKSPACE"
+  IF c = "\u{1B}" THEN
+    IF NOT ready(30) THEN RETURN "ESC"
+    LET c2 AS String = getChar()
+    IF c2 = "[" OR c2 = "O" THEN
+      LET c3 AS String = getChar()
+      IF c3 = "A" THEN RETURN "UP"
+      IF c3 = "B" THEN RETURN "DOWN"
+      IF c3 = "C" THEN RETURN "RIGHT"
+      IF c3 = "D" THEN RETURN "LEFT"
+      IF c3 = "H" THEN RETURN "HOME"
+      IF c3 = "F" THEN RETURN "END"
+      IF c3 = "5" THEN
+        LET t5 AS String = getChar()   ' consume the trailing '~'
+        RETURN "PAGEUP"
+      END IF
+      IF c3 = "6" THEN
+        LET t6 AS String = getChar()   ' consume the trailing '~'
+        RETURN "PAGEDOWN"
+      END IF
+    END IF
+    RETURN "ESC"
+  END IF
+  RETURN c
+END FUNC
+
+' ---------------------------------------------------------------------------
+' stream-json parsing
+' ---------------------------------------------------------------------------
+
+' Read one String member out of a Json object path, or "" if it is absent or
+' not a string. Enumerates every Json variant so the MATCH stays exhaustive.
+FUNC jsonStr(doc AS json::Json, path AS List OF String) AS String
+  LET absent AS json::Json = JsonNull[NOTHING]
+  LET v AS json::Json = json::getOr(doc, path, absent)
+  MATCH v
+    CASE JsonStr(s)
+      RETURN s.value
+    CASE JsonNull(n)
+      RETURN ""
+    CASE JsonBool(b)
+      RETURN ""
+    CASE JsonNum(m)
+      RETURN ""
+    CASE JsonArr(a)
+      RETURN ""
+    CASE JsonObj(o)
+      RETURN ""
+  END MATCH
+END FUNC
+
+' Read one Integer member out of a Json object path, or 0 if it is absent or not
+' a number. JSON numbers are Float; toInt narrows (token counts are finite).
+FUNC jsonInt(doc AS json::Json, path AS List OF String) AS Integer
+  LET absent AS json::Json = JsonNull[NOTHING]
+  LET v AS json::Json = json::getOr(doc, path, absent)
+  MATCH v
+    CASE JsonNum(m)
+      LET n AS Integer = toInt(m.value) TRAP(e)
+        RECOVER 0
+      END TRAP
+      RETURN n
+    CASE JsonStr(s)
+      RETURN 0
+    CASE JsonNull(nu)
+      RETURN 0
+    CASE JsonBool(b)
+      RETURN 0
+    CASE JsonArr(a)
+      RETURN 0
+    CASE JsonObj(o)
+      RETURN 0
+  END MATCH
+END FUNC
+
+' Sum the tokens a `usage` block reports under `base` (prompt + both cache
+' buckets + output) -- a snapshot of how much context the turn touched. Absent
+' fields read as 0, so this is safe on a line whose usage lives elsewhere.
+FUNC usageTokens(doc AS json::Json, base AS List OF String) AS Integer
+  MUT total AS Integer = 0
+  total = total + jsonInt(doc, collections::append(base, "input_tokens"))
+  total = total + jsonInt(doc, collections::append(base, "cache_creation_input_tokens"))
+  total = total + jsonInt(doc, collections::append(base, "cache_read_input_tokens"))
+  total = total + jsonInt(doc, collections::append(base, "output_tokens"))
+  RETURN total
+END FUNC
+
+' Turn one line of `claude --output-format stream-json` into the text it
+' contributes plus any session id, model name, and usage snapshot it carries.
+' Only text_delta chunks are collected, so the trailing `assistant`/`result`
+' full-text lines never double the transcript.
+' NB: json::parse is called without a local TRAP on purpose. Binding a fallible
+' union-returning call (parse returns the Json union) through a TRAP hits a
+' codegen limitation -- "native code cannot materialize default value for type
+' 'Json'" -- because the trap temp needs a synthesized union default. Instead a
+' parse failure auto-propagates out of this FUNC, and the caller TRAPs the call
+' to parseStreamLine, whose Parsed record default IS materializable.
+FUNC parseStreamLine(line AS String) AS Parsed
+  LET doc AS json::Json = json::parse(line)
+  MUT text AS String = ""
+  LET rid AS String = jsonStr(doc, ["session_id"])
+
+  ' model: `system/init` reports it at ["model"] (with any cache-tier marker);
+  ' `message_start` reports a clean name at ["event","message","model"].
+  MUT model AS String = jsonStr(doc, ["model"])
+  IF len(model) = 0 THEN model = jsonStr(doc, ["event", "message", "model"])
+
+  ' usage: result → ["usage"], message_delta → ["event","usage"],
+  ' message_start → ["event","message","usage"]. Only one resolves per line.
+  MUT tokCur AS Integer = 0
+  tokCur = tokCur + usageTokens(doc, ["usage"])
+  tokCur = tokCur + usageTokens(doc, ["event", "usage"])
+  tokCur = tokCur + usageTokens(doc, ["event", "message", "usage"])
+
+  IF jsonStr(doc, ["type"]) = "stream_event" THEN
+    IF jsonStr(doc, ["event", "type"]) = "content_block_delta" THEN
+      IF jsonStr(doc, ["event", "delta", "type"]) = "text_delta" THEN
+        text = jsonStr(doc, ["event", "delta", "text"])
+      END IF
+    END IF
+  END IF
+  RETURN Parsed[text, rid, model, tokCur]
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Word wrapping
+' ---------------------------------------------------------------------------
+
+' Wrap text to `width` columns, honouring embedded newlines and hard-breaking
+' any single word longer than the whole width. Measured in Unicode scalars.
+FUNC wrapText(text AS String, width AS Integer) AS List OF String
+  MUT out AS List OF String = []
+  IF width < 1 THEN
+    out = collections::append(out, text)
+    RETURN out
+  END IF
+  LET paras AS List OF String = strings::split(text, "\n")
+  FOR EACH para IN paras
+    IF len(para) = 0 THEN
+      out = collections::append(out, "")
+    ELSE
+      MUT cur AS String = ""
+      LET words AS List OF String = strings::split(para, " ")
+      FOR EACH raw IN words
+        MUT w AS String = raw
+        DO WHILE len(w) > width
+          IF len(cur) > 0 THEN
+            out = collections::append(out, cur)
+            cur = ""
+          END IF
+          out = collections::append(out, strings::mid(w, 0, width))
+          w = strings::mid(w, width, len(w) - width)
+        LOOP
+        IF len(cur) = 0 THEN
+          cur = w
+        ELSEIF len(cur) + 1 + len(w) <= width THEN
+          cur = cur & " " & w
+        ELSE
+          out = collections::append(out, cur)
+          cur = w
+        END IF
+      NEXT
+      out = collections::append(out, cur)
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+' Flatten a whole history into coloured render lines: a role header, the
+' word-wrapped body, then a blank spacer between messages.
+FUNC transcriptLines(history AS List OF Message, width AS Integer) AS List OF Line
+  MUT lines AS List OF Line = []
+  FOR EACH m IN history
+    MUT headKind AS Integer = 0
+    MUT bodyKind AS Integer = 1
+    MUT label AS String = "You"
+    IF m.role = 1 THEN
+      headKind = 2
+      bodyKind = 3
+      label = "Claude"
+    ELSEIF m.role = 2 THEN
+      headKind = 4
+      bodyKind = 4
+      label = "system"
+    END IF
+
+    lines = collections::append(lines, Line[label, headKind])
+
+    MUT body AS String = m.content
+    IF NOT m.done THEN
+      body = body & "\u{2588}"   ' a full block as a "still typing" caret
+    END IF
+    IF len(body) = 0 THEN body = "(no response)"
+
+    LET wrapped AS List OF String = wrapText(body, width)
+    FOR EACH wl IN wrapped
+      lines = collections::append(lines, Line[wl, bodyKind])
+    NEXT
+    lines = collections::append(lines, Line["", 5])
+  NEXT
+  RETURN lines
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Session-list update helpers (pure: return a new List OF Session)
+' ---------------------------------------------------------------------------
+
+FUNC indexOfId(sessions AS List OF Session, id AS Integer) AS Integer
+  FOR i = 0 TO len(sessions) - 1
+    LET s AS Session = collections::get(sessions, i)
+    IF s.id = id THEN RETURN i
+  NEXT
+  RETURN -1
+END FUNC
+
+FUNC withSession(sessions AS List OF Session, idx AS Integer, s AS Session) AS List OF Session
+  RETURN collections::set(sessions, idx, s)
+END FUNC
+
+' The model's context window, inferred from the model name. The "[1m]" marker
+' (seen on the init line) is claude's 1M-token tier; otherwise assume 200k.
+FUNC contextMaxFor(model AS String) AS Integer
+  IF strings::contains(model, "[1m]") OR strings::contains(model, "-1m") THEN RETURN 1000000
+  RETURN 200000
+END FUNC
+
+' Append text to the trailing (in-progress) message of a session.
+FUNC applyDelta(sessions AS List OF Session, idx AS Integer, delta AS String) AS List OF Session
+  LET s AS Session = collections::get(sessions, idx)
+  LET n AS Integer = len(s.history)
+  IF n = 0 THEN RETURN sessions
+  LET last AS Message = collections::get(s.history, n - 1)
+  LET nl AS Message = Message[last.role, last.content & delta, last.done]
+  LET nh AS List OF Message = collections::set(s.history, n - 1, nl)
+  RETURN withSession(sessions, idx, WITH s { history := nh })
+END FUNC
+
+FUNC setResume(sessions AS List OF Session, idx AS Integer, rid AS String) AS List OF Session
+  LET s AS Session = collections::get(sessions, idx)
+  RETURN withSession(sessions, idx, WITH s { resumeId := rid })
+END FUNC
+
+' Record the model name (first one wins so the init line's cache-tier marker is
+' kept) and derive the context window from it.
+FUNC setModel(sessions AS List OF Session, idx AS Integer, model AS String) AS List OF Session
+  LET s AS Session = collections::get(sessions, idx)
+  IF len(s.model) > 0 THEN RETURN sessions
+  RETURN withSession(sessions, idx, WITH s { model := model, tokMax := contextMaxFor(model) })
+END FUNC
+
+FUNC setTokens(sessions AS List OF Session, idx AS Integer, tok AS Integer) AS List OF Session
+  LET s AS Session = collections::get(sessions, idx)
+  RETURN withSession(sessions, idx, WITH s { tokCur := tok })
+END FUNC
+
+' Mark the trailing message complete and clear the streaming flag.
+FUNC finishSession(sessions AS List OF Session, idx AS Integer) AS List OF Session
+  LET s AS Session = collections::get(sessions, idx)
+  MUT nh AS List OF Message = s.history
+  LET n AS Integer = len(s.history)
+  IF n > 0 THEN
+    LET last AS Message = collections::get(s.history, n - 1)
+    nh = collections::set(s.history, n - 1, Message[last.role, last.content, TRUE])
+  END IF
+  RETURN withSession(sessions, idx, WITH s { history := nh, streaming := FALSE })
+END FUNC
+
+' Append the user's prompt plus an empty in-progress Claude message, and pin to
+' the bottom so the reply scrolls into view.
+FUNC startTurn(sessions AS List OF Session, idx AS Integer, prompt AS String) AS List OF Session
+  LET s AS Session = collections::get(sessions, idx)
+  MUT nh AS List OF Message = s.history
+  nh = collections::append(nh, Message[0, prompt, TRUE])
+  nh = collections::append(nh, Message[1, "", FALSE])
+  MUT title AS String = s.title
+  IF title = "New chat" THEN
+    title = clip(prompt, 22)
+  END IF
+  RETURN withSession(sessions, idx, WITH s { title := title, history := nh, scroll := 0, streaming := TRUE })
+END FUNC
+
+' Replace the in-progress reply with an error message and stop streaming.
+FUNC failTurn(sessions AS List OF Session, idx AS Integer, msg AS String) AS List OF Session
+  LET s AS Session = collections::get(sessions, idx)
+  MUT nh AS List OF Message = s.history
+  LET n AS Integer = len(s.history)
+  IF n > 0 THEN
+    nh = collections::set(s.history, n - 1, Message[2, msg, TRUE])
+  ELSE
+    nh = collections::append(nh, Message[2, msg, TRUE])
+  END IF
+  RETURN withSession(sessions, idx, WITH s { history := nh, streaming := FALSE })
+END FUNC
+
+FUNC setScroll(sessions AS List OF Session, idx AS Integer, val AS Integer) AS List OF Session
+  LET s AS Session = collections::get(sessions, idx)
+  MUT v AS Integer = val
+  IF v < 0 THEN v = 0
+  RETURN withSession(sessions, idx, WITH s { scroll := v })
+END FUNC
+
+FUNC min2(a AS Integer, b AS Integer) AS Integer
+  IF a < b THEN RETURN a
+  RETURN b
+END FUNC
+
+FUNC max2(a AS Integer, b AS Integer) AS Integer
+  IF a > b THEN RETURN a
+  RETURN b
+END FUNC
+
+' A fresh, empty session with the given id.
+FUNC newSession(id AS Integer) AS Session
+  RETURN Session[id, "New chat", [], 0, FALSE, "", "", 0, 0, ""]
+END FUNC
+
+' Append a system/error line to a session's transcript.
+FUNC addSystem(sessions AS List OF Session, idx AS Integer, msg AS String) AS List OF Session
+  LET s AS Session = collections::get(sessions, idx)
+  LET nh AS List OF Message = collections::append(s.history, Message[2, msg, TRUE])
+  RETURN withSession(sessions, idx, WITH s { history := nh })
+END FUNC
+
+' Record the user's chosen --model id for a session.
+FUNC chooseModel(sessions AS List OF Session, idx AS Integer, id AS String) AS List OF Session
+  LET s AS Session = collections::get(sessions, idx)
+  RETURN withSession(sessions, idx, WITH s { pickModel := id })
+END FUNC
+
+' The models offered by the /model picker. Index 0 is the CLI default; the rest
+' pass a `claude --model` alias.
+FUNC modelOptions() AS List OF ModelOption
+  MUT m AS List OF ModelOption = []
+  m = collections::append(m, ModelOption["Default (CLI setting)", ""])
+  m = collections::append(m, ModelOption["Claude Opus", "opus"])
+  m = collections::append(m, ModelOption["Claude Sonnet", "sonnet"])
+  m = collections::append(m, ModelOption["Claude Haiku", "haiku"])
+  RETURN m
+END FUNC
+
+' The picker row matching a chosen id (0 = Default when unset/unknown).
+FUNC modelIndexFor(id AS String) AS Integer
+  LET opts AS List OF ModelOption = modelOptions()
+  FOR i = 0 TO len(opts) - 1
+    IF collections::get(opts, i).id = id THEN RETURN i
+  NEXT
+  RETURN 0
+END FUNC
+
+' Build the argv for one `claude` turn: the streaming-JSON flags, plus --resume
+' to continue a conversation and --model when the user picked one.
+FUNC claudeArgs(prompt AS String, resumeId AS String, pickModel AS String) AS List OF String
+  MUT a AS List OF String = ["claude", "-p", prompt, "--output-format", "stream-json", "--include-partial-messages", "--verbose"]
+  IF len(resumeId) > 0 THEN
+    a = collections::append(a, "--resume")
+    a = collections::append(a, resumeId)
+  END IF
+  IF len(pickModel) > 0 THEN
+    a = collections::append(a, "--model")
+    a = collections::append(a, pickModel)
+  END IF
+  RETURN a
+END FUNC
+
+' The command word of a slash line ("/new hi" -> "/new"), lowercased.
+FUNC cmdName(raw AS String) AS String
+  LET idx AS Integer = strings::find(raw, " ") TRAP(e)
+    RECOVER len(raw)
+  END TRAP
+  RETURN strings::lower(strings::left(raw, idx))
+END FUNC
+
+' The argument text after the command word ("/new hi there" -> "hi there").
+FUNC cmdRest(raw AS String) AS String
+  LET idx AS Integer = strings::find(raw, " ") TRAP(e)
+    RECOVER -1
+  END TRAP
+  IF idx < 0 THEN RETURN ""
+  RETURN strings::trim(strings::mid(raw, idx + 1, len(raw) - idx - 1))
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Rendering
+' ---------------------------------------------------------------------------
+
+SUB setColorFor(kind AS Integer)
+  IF kind = 0 THEN
+    term::setBold(TRUE)
+    term::setForeground(0, 200, 255)        ' You header (cyan)
+  ELSEIF kind = 1 THEN
+    term::setBold(FALSE)
+    term::setForeground(210, 210, 220)      ' You body
+  ELSEIF kind = 2 THEN
+    term::setBold(TRUE)
+    term::setForeground(80, 220, 100)       ' Claude header (green)
+  ELSEIF kind = 3 THEN
+    term::setBold(FALSE)
+    term::setForeground(200, 220, 200)      ' Claude body
+  ELSEIF kind = 4 THEN
+    term::setBold(TRUE)
+    term::setForeground(240, 120, 120)      ' system/error (red)
+  ELSE
+    term::setBold(FALSE)
+    term::setForeground(255, 255, 255)
+  END IF
+END SUB
+
+SUB resetPen()
+  term::setBold(FALSE)
+  term::setForeground(235, 235, 235)
+  term::setBackground(0, 0, 0)
+END SUB
+
+FUNC spinnerChar(frame AS Integer) AS String
+  LET spin AS String = "|/-\\"
+  RETURN strings::mid(spin, frame - (frame / 4) * 4, 1)
+END FUNC
+
+' Truncate to at most `w` scalars. strings::mid RAISES when count > length, so
+' it cannot be used as a clamp -- this is the safe truncation used everywhere a
+' label must not bleed past its panel (drawText only clips at the screen edge).
+FUNC clip(s AS String, w AS Integer) AS String
+  IF w <= 0 THEN RETURN ""
+  IF len(s) <= w THEN RETURN s
+  RETURN strings::mid(s, 0, w)
+END FUNC
+
+FUNC fitRight(s AS String, width AS Integer) AS String
+  IF width <= 0 THEN RETURN ""
+  IF len(s) <= width THEN RETURN s
+  RETURN strings::mid(s, len(s) - width, width)
+END FUNC
+
+SUB renderSidebar(sessions AS List OF Session, activeIdx AS Integer, focused AS Boolean, panelBottom AS Integer, frame AS Integer)
+  LET w AS Integer = sidebarW()
+  IF focused THEN
+    term::setForeground(120, 180, 220)
+  ELSE
+    term::setForeground(90, 90, 110)
+  END IF
+  term::drawBox(LineStyle.Light, 0, 0, w, panelBottom)
+  resetPen()
+  term::setBold(TRUE)
+  term::setForeground(150, 200, 255)
+  term::drawText(2, 0, " SESSIONS ")
+  resetPen()
+
+  LET inner AS Integer = w - 1
+  MUT row AS Integer = 1
+  FOR i = 0 TO len(sessions) - 1
+    IF row < panelBottom THEN
+      LET s AS Session = collections::get(sessions, i)
+      MUT tag AS String = "  "
+      IF s.streaming THEN tag = spinnerChar(frame) & " "
+      LET label AS String = tag & toString(i + 1) & ". " & s.title
+      LET shown AS String = strings::padRight(clip(label, inner - 1), inner - 1)
+      IF i = activeIdx THEN
+        term::setBold(TRUE)
+        term::setForeground(255, 255, 255)
+        term::setBackground(40, 45, 80)
+        term::drawText(1, row, " " & shown)
+        resetPen()
+      ELSE
+        term::setForeground(200, 200, 210)
+        term::drawText(1, row, " " & shown)
+        resetPen()
+      END IF
+      row = row + 1
+    END IF
+  NEXT
+
+  ' Hint pinned to the last interior row.
+  term::setForeground(110, 110, 130)
+  term::drawText(1, panelBottom - 1, clip(" ^N new  ^X close", inner))
+  resetPen()
+END SUB
+
+SUB renderTranscript(session AS Session, focused AS Boolean, panelBottom AS Integer, cols AS Integer)
+  LET x0 AS Integer = sidebarW() + 1
+  LET x1 AS Integer = cols - 1
+  IF focused THEN
+    term::setForeground(120, 180, 220)
+  ELSE
+    term::setForeground(90, 90, 110)
+  END IF
+  term::drawBox(LineStyle.Light, sidebarW(), 0, x1, panelBottom)
+  resetPen()
+
+  term::setBold(TRUE)
+  term::setForeground(150, 200, 255)
+  term::drawText(x0 + 1, 0, clip(" " & session.title & " ", max2(1, x1 - x0 - 1)))
+  resetPen()
+
+  LET innerW AS Integer = x1 - x0 - 1
+  LET height AS Integer = panelBottom - 1
+  IF innerW < 1 OR height < 1 THEN EXIT SUB
+
+  LET lines AS List OF Line = transcriptLines(session.history, innerW)
+  LET total AS Integer = len(lines)
+  MUT scroll AS Integer = session.scroll
+  LET maxScroll AS Integer = max2(0, total - height)
+  IF scroll > maxScroll THEN scroll = maxScroll
+  LET first AS Integer = max2(0, total - height - scroll)
+
+  MUT r AS Integer = 1
+  FOR i = first TO total - 1
+    IF r <= height THEN
+      LET ln AS Line = collections::get(lines, i)
+      setColorFor(ln.kind)
+      term::drawText(x0 + 1, r, ln.text)
+      r = r + 1
+    END IF
+  NEXT
+  resetPen()
+
+  ' A small "more above" marker when the view is scrolled up.
+  IF scroll > 0 THEN
+    term::setForeground(150, 150, 90)
+    term::drawText(x1 - 4, 0, " ^ ")
+    resetPen()
+  END IF
+
+  ' Footer embedded in the chat box's bottom border: model on the left, the
+  ' current/max token usage on the right. Sized so the two never overlap.
+  ' A user-picked model wins over the stream-reported one for display.
+  MUT dispModel AS String = session.model
+  MUT dispMax AS Integer = session.tokMax
+  IF len(session.pickModel) > 0 THEN
+    dispModel = session.pickModel
+    dispMax = contextMaxFor(session.pickModel)
+  END IF
+  MUT tokStr AS String = ""
+  IF dispMax > 0 THEN
+    tokStr = " " & toString(session.tokCur) & "/" & toString(dispMax) & " tok "
+  END IF
+  term::setForeground(120, 140, 170)
+  IF len(dispModel) > 0 THEN
+    LET modelMax AS Integer = max2(1, innerW - len(tokStr) - 1)
+    term::drawText(x0 + 1, panelBottom, clip(" " & dispModel & " ", modelMax))
+  END IF
+  IF len(tokStr) > 0 THEN
+    LET tx AS Integer = x1 - len(tokStr)
+    IF tx > x0 THEN term::drawText(tx, panelBottom, tokStr)
+  END IF
+  resetPen()
+END SUB
+
+SUB renderInput(buf AS String, focused AS Boolean, streaming AS Boolean, inputTop AS Integer, cols AS Integer)
+  IF focused THEN
+    term::setForeground(120, 180, 220)
+  ELSE
+    term::setForeground(90, 90, 110)
+  END IF
+  term::drawBox(LineStyle.Light, 0, inputTop, cols - 1, inputTop + 2)
+  resetPen()
+
+  MUT hint AS String = " Enter send   /help for commands   Tab focus   ^C quit "
+  IF streaming THEN hint = " Claude is replying...   Tab focus   ^C quit "
+  term::setForeground(110, 110, 130)
+  term::drawText(2, inputTop, clip(hint, max2(1, cols - 4)))
+  resetPen()
+
+  LET innerW AS Integer = cols - 4
+  LET shown AS String = fitRight(buf, innerW - 2)
+  term::setForeground(235, 235, 235)
+  term::drawText(2, inputTop + 1, "> " & shown)
+  IF focused THEN
+    term::setForeground(255, 255, 0)
+    term::drawText(2 + 2 + len(shown), inputTop + 1, "\u{2588}")
+  END IF
+  resetPen()
+END SUB
+
+' Draw the active modal centred over everything else: 1 = close-confirm,
+' 2 = model picker, 3 = help. A no-op when modal = 0.
+SUB renderModal(modal AS Integer, modelSel AS Integer, cols AS Integer, rows AS Integer)
+  IF modal = 0 THEN EXIT SUB
+
+  MUT title AS String = ""
+  MUT body AS List OF String = []
+  IF modal = 1 THEN
+    title = "Close session"
+    body = collections::append(body, "Are you sure you want to close this session?")
+    body = collections::append(body, "")
+    body = collections::append(body, "  Y  yes, close       N  no, keep")
+  ELSEIF modal = 2 THEN
+    title = "Change model"
+    LET opts AS List OF ModelOption = modelOptions()
+    FOR i = 0 TO len(opts) - 1
+      MUT pre AS String = "    "
+      IF i = modelSel THEN pre = "  > "
+      body = collections::append(body, pre & collections::get(opts, i).label)
+    NEXT
+    body = collections::append(body, "")
+    body = collections::append(body, "  Up/Down select    Enter apply    Esc cancel")
+  ELSE
+    title = "ai_chat help"
+    body = collections::append(body, "Slash commands (type into the input line):")
+    body = collections::append(body, "  /new [message]   new session, optional first message")
+    body = collections::append(body, "  /model           change the model for this session")
+    body = collections::append(body, "  /close           close the current session")
+    body = collections::append(body, "  /exit            quit ai_chat")
+    body = collections::append(body, "  /help            this screen")
+    body = collections::append(body, "")
+    body = collections::append(body, "Keys:  Tab focus   Up/Down scroll   PgUp/PgDn page")
+    body = collections::append(body, "       ^N new   ^X close   ^C quit")
+    body = collections::append(body, "")
+    body = collections::append(body, "  Press any key to close")
+  END IF
+
+  ' Box geometry: width from the widest line, centred on the screen.
+  MUT w AS Integer = len(title) + 2
+  FOR EACH bl IN body
+    IF len(bl) + 2 > w THEN w = len(bl) + 2
+  NEXT
+  IF w > cols - 4 THEN w = cols - 4
+  LET nlines AS Integer = len(body)
+  LET bx AS Integer = max2(0, (cols - w) / 2)
+  LET by AS Integer = max2(0, (rows - (nlines + 2)) / 2)
+  LET bottom AS Integer = by + nlines + 1
+
+  ' Opaque backdrop: drawText paints the background of every cell it writes
+  ' (spaces included), so a row of spaces on a dark background blanks whatever
+  ' the panels drew underneath.
+  term::setBackground(28, 30, 44)
+  term::setForeground(210, 215, 235)
+  FOR ry = by TO bottom
+    term::drawText(bx, ry, strings::repeat(" ", w + 1))
+  NEXT
+
+  term::setForeground(150, 170, 220)
+  term::drawBox(LineStyle.Double, bx, by, bx + w, bottom)
+  term::setBold(TRUE)
+  term::setForeground(220, 228, 255)
+  term::drawText(bx + 2, by, " " & title & " ")
+  term::setBold(FALSE)
+
+  FOR i = 0 TO nlines - 1
+    IF modal = 2 AND i = modelSel THEN
+      term::setBold(TRUE)
+      term::setForeground(255, 255, 255)
+      term::setBackground(60, 70, 110)
+      term::drawText(bx + 1, by + 1 + i, strings::padRight(clip(collections::get(body, i), w - 1), w - 1))
+      term::setBold(FALSE)
+      term::setBackground(28, 30, 44)
+    ELSE
+      term::setForeground(210, 215, 235)
+      term::drawText(bx + 2, by + 1 + i, clip(collections::get(body, i), w - 2))
+    END IF
+  NEXT
+  resetPen()
+END SUB
+
+' ---------------------------------------------------------------------------
+' Keypress handlers (pure: UiState in, KeyStep out; main executes any Intent)
+' ---------------------------------------------------------------------------
+
+FUNC noIntent() AS Intent
+  RETURN Intent[0, 0, "", "", ""]
+END FUNC
+
+FUNC stepOf(ui AS UiState) AS KeyStep
+  RETURN KeyStep[ui, noIntent()]
+END FUNC
+
+' Global chords that work regardless of focus (no resource actions).
+FUNC handleGlobal(ui AS UiState, key AS String, panelBottom AS Integer) AS UiState
+  MUT u AS UiState = ui
+  IF key = "TAB" THEN
+    MUT f AS Integer = u.focus + 1
+    IF f > 2 THEN f = 0
+    u = WITH u { focus := f }
+  ELSEIF key = "CTRL_N" THEN
+    LET ns AS List OF Session = collections::append(u.sessions, newSession(u.nextId))
+    u = WITH u { sessions := ns, nextId := u.nextId + 1, activeIdx := len(ns) - 1, focus := 2 }
+  ELSEIF key = "CTRL_X" THEN
+    u = WITH u { modal := 1 }
+  ELSEIF key = "PAGEUP" THEN
+    LET sc AS Integer = collections::get(u.sessions, u.activeIdx).scroll + max2(1, panelBottom - 3)
+    u = WITH u { sessions := setScroll(u.sessions, u.activeIdx, sc) }
+  ELSEIF key = "PAGEDOWN" THEN
+    LET sc AS Integer = collections::get(u.sessions, u.activeIdx).scroll - max2(1, panelBottom - 3)
+    u = WITH u { sessions := setScroll(u.sessions, u.activeIdx, sc) }
+  END IF
+  RETURN u
+END FUNC
+
+FUNC handleSidebar(ui AS UiState, key AS String) AS UiState
+  MUT u AS UiState = ui
+  IF key = "UP" THEN
+    u = WITH u { activeIdx := max2(0, u.activeIdx - 1) }
+  ELSEIF key = "DOWN" THEN
+    u = WITH u { activeIdx := min2(len(u.sessions) - 1, u.activeIdx + 1) }
+  ELSEIF key = "ENTER" THEN
+    u = WITH u { focus := 2 }
+  END IF
+  RETURN u
+END FUNC
+
+FUNC handleTranscript(ui AS UiState, key AS String) AS UiState
+  MUT u AS UiState = ui
+  IF key = "UP" THEN
+    u = WITH u { sessions := setScroll(u.sessions, u.activeIdx, collections::get(u.sessions, u.activeIdx).scroll + 1) }
+  ELSEIF key = "DOWN" THEN
+    u = WITH u { sessions := setScroll(u.sessions, u.activeIdx, collections::get(u.sessions, u.activeIdx).scroll - 1) }
+  END IF
+  RETURN u
+END FUNC
+
+' A modal owns all input while open. Confirming a close returns a close Intent.
+FUNC handleModal(ui AS UiState, key AS String) AS KeyStep
+  MUT u AS UiState = ui
+  IF u.modal = 1 THEN
+    IF key = "y" OR key = "Y" THEN
+      LET sid AS Integer = collections::get(u.sessions, u.activeIdx).id
+      LET ns AS List OF Session = collections::removeAt(u.sessions, u.activeIdx)
+      MUT ai AS Integer = u.activeIdx
+      MUT run AS Boolean = TRUE
+      IF len(ns) = 0 THEN
+        run = FALSE
+      ELSEIF ai >= len(ns) THEN
+        ai = len(ns) - 1
+      END IF
+      u = WITH u { sessions := ns, activeIdx := ai, modal := 0, running := run }
+      RETURN KeyStep[u, Intent[2, sid, "", "", ""]]
+    ELSEIF key = "n" OR key = "N" OR key = "ESC" THEN
+      u = WITH u { modal := 0 }
+    END IF
+  ELSEIF u.modal = 2 THEN
+    IF key = "UP" THEN
+      u = WITH u { modelSel := max2(0, u.modelSel - 1) }
+    ELSEIF key = "DOWN" THEN
+      u = WITH u { modelSel := min2(len(modelOptions()) - 1, u.modelSel + 1) }
+    ELSEIF key = "ENTER" THEN
+      LET opt AS ModelOption = collections::get(modelOptions(), u.modelSel)
+      u = WITH u { sessions := chooseModel(u.sessions, u.activeIdx, opt.id), modal := 0 }
+    ELSEIF key = "ESC" THEN
+      u = WITH u { modal := 0 }
+    END IF
+  ELSE
+    ' help: any key dismisses
+    u = WITH u { modal := 0 }
+  END IF
+  RETURN stepOf(u)
+END FUNC
+
+' Input-field keys: Enter runs a slash command or sends a prompt (a send/new
+' returns a spawn Intent); everything else edits the buffer or scrolls.
+FUNC handleInput(ui AS UiState, key AS String) AS KeyStep
+  MUT u AS UiState = ui
+  IF key = "ENTER" THEN
+    LET raw AS String = strings::trim(u.inputBuf)
+    IF strings::startsWith(raw, "/") THEN
+      LET name AS String = cmdName(raw)
+      LET rest AS String = cmdRest(raw)
+      u = WITH u { inputBuf := "" }
+      IF name = "/exit" THEN
+        u = WITH u { running := FALSE }
+      ELSEIF name = "/help" THEN
+        u = WITH u { modal := 3 }
+      ELSEIF name = "/close" THEN
+        u = WITH u { modal := 1 }
+      ELSEIF name = "/model" THEN
+        u = WITH u { modelSel := modelIndexFor(collections::get(u.sessions, u.activeIdx).pickModel), modal := 2 }
+      ELSEIF name = "/new" THEN
+        LET ns AS List OF Session = collections::append(u.sessions, newSession(u.nextId))
+        LET newIdx AS Integer = len(ns) - 1
+        LET newSid AS Integer = u.nextId
+        MUT u2 AS UiState = WITH u { sessions := ns, nextId := u.nextId + 1, activeIdx := newIdx, focus := 2 }
+        IF len(rest) > 0 THEN
+          u2 = WITH u2 { sessions := startTurn(u2.sessions, newIdx, rest) }
+          RETURN KeyStep[u2, Intent[1, newSid, rest, "", ""]]
+        END IF
+        RETURN stepOf(u2)
+      ELSE
+        u = WITH u { sessions := addSystem(u.sessions, u.activeIdx, "unknown command: " & name & "   (try /help)") }
+      END IF
+      RETURN stepOf(u)
+    ELSE
+      LET s AS Session = collections::get(u.sessions, u.activeIdx)
+      IF NOT s.streaming AND len(raw) > 0 THEN
+        LET nu AS UiState = WITH u { sessions := startTurn(u.sessions, u.activeIdx, raw), inputBuf := "" }
+        RETURN KeyStep[nu, Intent[1, s.id, raw, s.resumeId, s.pickModel]]
+      END IF
+      u = WITH u { inputBuf := "" }
+      RETURN stepOf(u)
+    END IF
+  ELSEIF key = "UP" THEN
+    u = WITH u { sessions := setScroll(u.sessions, u.activeIdx, collections::get(u.sessions, u.activeIdx).scroll + 1) }
+  ELSEIF key = "DOWN" THEN
+    u = WITH u { sessions := setScroll(u.sessions, u.activeIdx, collections::get(u.sessions, u.activeIdx).scroll - 1) }
+  ELSEIF key = "BACKSPACE" THEN
+    IF len(u.inputBuf) > 0 THEN u = WITH u { inputBuf := strings::mid(u.inputBuf, 0, len(u.inputBuf) - 1) }
+  ELSEIF len(key) = 1 AND strings::displayWidth(key) > 0 THEN
+    ' single printable scalar; named keys (UP, ENTER, TAB, ...) are len > 1
+    u = WITH u { inputBuf := u.inputBuf & key }
+  END IF
+  RETURN stepOf(u)
+END FUNC
+
+' Route one decoded keypress to the right handler.
+FUNC handleKey(ui AS UiState, key AS String, panelBottom AS Integer) AS KeyStep
+  IF key = "CTRL_C" OR key = "EOF" THEN
+    RETURN stepOf(WITH ui { running := FALSE })
+  END IF
+  IF ui.modal <> 0 THEN RETURN handleModal(ui, key)
+  IF key = "TAB" OR key = "CTRL_N" OR key = "CTRL_X" OR key = "PAGEUP" OR key = "PAGEDOWN" THEN
+    RETURN stepOf(handleGlobal(ui, key, panelBottom))
+  END IF
+  IF ui.focus = 0 THEN RETURN stepOf(handleSidebar(ui, key))
+  IF ui.focus = 1 THEN RETURN stepOf(handleTranscript(ui, key))
+  RETURN handleInput(ui, key)
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Main loop
+' ---------------------------------------------------------------------------
+
+FUNC main() AS Integer
+  IF NOT io::isOutputTerminal() OR NOT io::isInputTerminal() THEN
+    io::printError("ai_chat: run this from an interactive terminal.")
+    RETURN 1
+  END IF
+
+  term::on()
+  term::hideCursor()
+
+  MUT sessions AS List OF Session = [newSession(1)]
+  MUT kids AS Map OF Integer TO RES process::Process = Map OF Integer TO RES process::Process {}
+  MUT activeIdx AS Integer = 0
+  MUT focus AS Integer = 2          ' 0 sidebar, 1 transcript, 2 input
+  MUT inputBuf AS String = ""
+  MUT nextId AS Integer = 2
+  MUT frame AS Integer = 0
+  MUT modal AS Integer = 0          ' 0 none, 1 close-confirm, 2 model picker, 3 help
+  MUT modelSel AS Integer = 0       ' highlighted row in the model picker
+  MUT running AS Boolean = TRUE
+
+  DO WHILE running
+    LET size AS TermSize = term::terminalSize() TRAP(e)
+      EXIT DO
+    END TRAP
+    frame = frame + 1
+
+    IF term::didResize() THEN term::clear()
+
+    ' -- too small to draw: show a hint and poll for quit ------------------
+    IF size.columns < minCols() OR size.rows < minRows() THEN
+      term::clear()
+      term::setForeground(255, 255, 255)
+      term::drawText(0, 0, "Enlarge the terminal to at least " & toString(minCols()) & "x" & toString(minRows()) & ".")
+      term::drawText(0, 1, "Press ^C to quit.")
+      term::sync()
+      IF ready(120) THEN
+        IF readKey() = "CTRL_C" THEN running = FALSE
+      END IF
+      CONTINUE DO
+    END IF
+
+    LET panelBottom AS Integer = size.rows - 4
+    LET inputTop AS Integer = size.rows - 3
+
+    ' -- drain every live child's stdout without blocking ------------------
+    LET ids AS List OF Integer = collections::keys(kids)
+    FOR EACH id IN ids
+      LET sidx AS Integer = indexOfId(sessions, id)
+      MUT accum AS String = ""
+      MUT newResume AS String = ""
+      MUT newModel AS String = ""
+      MUT newTok AS Integer = 0
+      MUT finished AS Boolean = FALSE
+      MUT guard AS Integer = 0
+      RES p = collections::get(kids, id)
+      DO WHILE process::poll(p, 0) AND guard < 500
+        guard = guard + 1
+        LET line AS String = process::receive(p) TRAP(e)
+          finished = TRUE
+          EXIT DO
+        END TRAP
+        LET bit AS Parsed = parseStreamLine(line) TRAP(pe)
+          RECOVER Parsed["", "", "", 0]
+        END TRAP
+        IF len(bit.text) > 0 THEN accum = accum & bit.text
+        IF len(bit.resumeId) > 0 THEN newResume = bit.resumeId
+        IF len(bit.model) > 0 AND len(newModel) = 0 THEN newModel = bit.model
+        IF bit.tokCur > 0 THEN newTok = bit.tokCur
+      LOOP
+
+      IF sidx >= 0 THEN
+        IF len(newResume) > 0 THEN sessions = setResume(sessions, sidx, newResume)
+        IF len(newModel) > 0 THEN sessions = setModel(sessions, sidx, newModel)
+        IF newTok > 0 THEN sessions = setTokens(sessions, sidx, newTok)
+        IF len(accum) > 0 THEN sessions = applyDelta(sessions, sidx, accum)
+      END IF
+
+      IF finished THEN
+        LET code AS Integer = process::waitFor(p)
+        IF sidx >= 0 THEN sessions = finishSession(sessions, sidx)
+        kids = collections::removeKey(kids, id)
+      END IF
+    NEXT
+
+    ' -- render one frame --------------------------------------------------
+    term::clear()
+    renderSidebar(sessions, activeIdx, focus = 0, panelBottom, frame)
+    renderTranscript(collections::get(sessions, activeIdx), focus = 1, panelBottom, size.columns)
+    renderInput(inputBuf, focus = 2, collections::get(sessions, activeIdx).streaming, inputTop, size.columns)
+    renderModal(modal, modelSel, size.columns, size.rows)
+    term::sync()
+
+    ' -- input: short wait while streaming so draining stays responsive ----
+    MUT waitMs AS Integer = 120
+    IF len(collections::keys(kids)) > 0 THEN waitMs = 15
+    IF ready(waitMs) THEN
+      LET key AS String = readKey()
+
+      ' term::on leaves ISIG enabled, so on a normal terminal ^C is delivered as
+      ' SIGINT and the runtime's own handler restores the screen and exits -- the
+      ' CTRL_C key path here is a fallback (and the reachable path for stdin EOF).
+      '
+      ' handleKey is pure: it returns the new UI state plus any resource Intent.
+      ' main is the only place that touches the child map, so all spawning and
+      ' terminating stays here -- and keeping the big keypress ladder in its own
+      ' functions is what holds each function under the AArch64 branch range.
+      LET ui0 AS UiState = UiState[sessions, activeIdx, focus, inputBuf, nextId, modal, modelSel, running]
+      LET ks AS KeyStep = handleKey(ui0, key, panelBottom)
+      sessions = ks.ui.sessions
+      activeIdx = ks.ui.activeIdx
+      focus = ks.ui.focus
+      inputBuf = ks.ui.inputBuf
+      nextId = ks.ui.nextId
+      modal = ks.ui.modal
+      modelSel = ks.ui.modelSel
+      running = ks.ui.running
+
+      LET it AS Intent = ks.intent
+      IF it.kind = 1 THEN
+        ' spawn one claude turn for session it.sessionId
+        RES child = process::spawn(claudeArgs(it.prompt, it.resumeId, it.model)) TRAP(e)
+          LET si AS Integer = indexOfId(sessions, it.sessionId)
+          IF si >= 0 THEN sessions = failTurn(sessions, si, "could not start claude: " & e.message)
+          CONTINUE DO
+        END TRAP
+        kids = collections::set(kids, it.sessionId, child)
+      ELSEIF it.kind = 2 THEN
+        ' terminate the child of the session being closed, if it is streaming
+        IF collections::hasKey(kids, it.sessionId) THEN
+          RES doomed = collections::get(kids, it.sessionId)
+          process::signal(doomed, Signal.Terminate)
+          LET dc AS Integer = process::waitFor(doomed)
+          kids = collections::removeKey(kids, it.sessionId)
+        END IF
+      END IF
+    END IF
+  LOOP
+
+  term::showCursor()
+  term::off()
+  io::print("ai_chat: bye.")
+  RETURN 0
+
+  TRAP(e)
+    term::showCursor()
+    term::off()
+    io::printError("ai_chat: " & e.message)
+    RETURN 1
+  END TRAP
+END FUNC
