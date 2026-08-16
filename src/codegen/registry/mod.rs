@@ -1619,6 +1619,17 @@ fn unify(
                 return false;
             }
             match bindings.get(name) {
+                // A prior binding to `Unknown` (an earlier *unresolved* occurrence of this
+                // variable) is REFINED by a later concrete occurrence, not treated as a
+                // conflict: `Unknown` means "not yet resolved", so a re-occurring variable
+                // whose first sighting was an unknown-typed argument still unifies with a
+                // later concrete one — `send(Thread OF Unknown TO Out, Integer)` binds
+                // `Msg = Unknown` from the handle then refines it to `Integer` from the
+                // message arg, instead of failing `resource_base_eq(Unknown, Integer)`.
+                Some(ParameterType::Unknown) => {
+                    bindings.insert(name, concrete.clone());
+                    true
+                }
                 // A re-occurring variable must match its binding — but resource element
                 // types compare STATE/ownership-agnostically (bug-427): a bound element
                 // `Handle STATE Cursor` accepts an item spelled `Handle`, mirroring
