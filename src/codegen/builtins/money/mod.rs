@@ -134,10 +134,7 @@ mod tests {
     fn only_round_is_fallible() {
         // `round` declares `ErrInvalidArgument`/`ErrOverflow`; the two mode ops are
         // total. This is the fact the inline-`TRAP` fallibility census keys on.
-        assert_eq!(
-            registry::native_member_declares_error(ROUND),
-            Some(true)
-        );
+        assert_eq!(registry::native_member_declares_error(ROUND), Some(true));
         assert!(registry().declares_error(ROUND, "ErrInvalidArgument"));
         assert!(registry().declares_error(ROUND, "ErrOverflow"));
         assert_eq!(

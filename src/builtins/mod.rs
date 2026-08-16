@@ -516,8 +516,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
 /// non-signature shapes (variadic `"1 to 5 Integer"`, zero-arg `"()"`, the
 /// optional-tail brackets, `utf8Decode`'s `"or"`-union) decline via the guard.
 pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
-    let machine_table = term::param_types(callee)
-        .or_else(|| app::argument_types(callee));
+    let machine_table = term::param_types(callee).or_else(|| app::argument_types(callee));
     if let Some(types) = machine_table {
         return Some(types.iter().map(|type_| (*type_).to_string()).collect());
     }

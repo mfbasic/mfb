@@ -4,9 +4,7 @@
 //! lowering from the former
 //! `src/target/shared/code/builder_money.rs::lower_money_get_rounding`.
 
-use crate::codegen::registry::{
-    Body, Implementation, RegistryFunction, RegistryPackage,
-};
+use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::target::shared::abi;
 use crate::target::shared::code::{
     CodeBuilder, Operand, ValueResult, ARENA_ROUNDING_MODE_OFFSET, ARENA_STATE_REGISTER,
