@@ -264,8 +264,7 @@ pub(crate) fn native_builtin_target(name: &str) -> Option<&'static str> {
 /// `collections.get`, `bits.sl`) or a bare inline general-builtin name (`len`,
 /// `toString`, `typeName`).
 pub(crate) fn inline_trap_unsupported(target: &str) -> bool {
-    (native_builtin_target(target).is_some()
-        || matches!(target, "len" | "toString" | "typeName"))
+    (native_builtin_target(target).is_some() || matches!(target, "len" | "toString" | "typeName"))
         && !inline_builtin_raw_supported(target)
         && !inline_builtin_is_infallible(target)
 }
@@ -297,21 +296,21 @@ pub(crate) fn inline_builtin_raw_supported(target: &str) -> bool {
         crate::codegen::registry::native_member_declares_error(target),
         Some(true)
     ) || matches!(
-            native_builtin_target(target),
-            Some(
-                "get"
-                    | "set"
-                    | "insert"
-                    | "removeAt"
-                    | "find"
-                    | "mid"
-                    | "forEach"
-                    | "transform"
-                    | "filter"
-                    | "reduce"
-                    | "reduceRight"
-            )
+        native_builtin_target(target),
+        Some(
+            "get"
+                | "set"
+                | "insert"
+                | "removeAt"
+                | "find"
+                | "mid"
+                | "forEach"
+                | "transform"
+                | "filter"
+                | "reduce"
+                | "reduceRight"
         )
+    )
 }
 
 /// Whether an inline-lowered built-in callee can raise **no** user-trappable

@@ -132,7 +132,9 @@ pub(crate) fn lower_bits_shift(
     match function {
         "sl" => builder.emit(abi::shift_left_variable(dst, value_reg, count_reg)),
         "sr" => builder.emit(abi::shift_right_variable(dst, value_reg, count_reg)),
-        "sra" => builder.emit(abi::arithmetic_shift_right_variable(dst, value_reg, count_reg)),
+        "sra" => builder.emit(abi::arithmetic_shift_right_variable(
+            dst, value_reg, count_reg,
+        )),
         other => {
             return Err(format!(
                 "native bits lowering does not support bits.{other}"
