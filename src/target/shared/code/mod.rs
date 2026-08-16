@@ -1964,6 +1964,17 @@ fn lower_runtime_helper(
         ));
     };
     let app_mode = build_mode.is_app();
+    // The per-compilation OS-seam context bundle, threaded to every `Body::native`
+    // OS-seam emitter (os/fs/process/datetime) through the generic dispatch. Carries
+    // the build identity `os.resourcePath` bakes in plus the arena offsets the io
+    // TUI/cooked-mode routing consumes (both `Option<usize>`, exactly as
+    // `ArenaLayout` holds them).
+    let os_ctx = crate::codegen::registry::OsLowerCtx {
+        build_mode,
+        module_name,
+        term_state_offset: arena_layout.term_state_offset,
+        presentation_mode_offset: arena_layout.presentation_mode_offset,
+    };
     // Every runtime helper lowers to the same CodeFunction shape — an empty
     // `params` list and the spec's return type — differing only in the
     // (frame, instructions, relocations, stack_slots) tuple each arm computes.
@@ -2033,8 +2044,7 @@ fn lower_runtime_helper(
                     crate::codegen::builtins::datetime::lower_datetime_helper(
                         spec.call,
                         symbol,
-                        build_mode,
-                        module_name,
+                        &os_ctx,
                         platform_imports,
                         platform,
                     )?
@@ -2052,8 +2062,7 @@ fn lower_runtime_helper(
                     match crate::codegen::os::dispatch_runtime_helper(
                         call,
                         symbol,
-                        build_mode,
-                        module_name,
+                        &os_ctx,
                         platform_imports,
                         platform,
                     ) {
@@ -2315,8 +2324,7 @@ fn lower_runtime_helper(
                     match crate::codegen::os::dispatch_runtime_helper(
                         call,
                         symbol,
-                        build_mode,
-                        module_name,
+                        &os_ctx,
                         platform_imports,
                         platform,
                     ) {

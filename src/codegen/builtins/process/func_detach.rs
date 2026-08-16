@@ -78,8 +78,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
 pub(crate) fn lower_process_detach_helper_posix(
     _call: &str,
     symbol: &str,
-    _build_mode: crate::target::NativeBuildMode,
-    _module_name: &str,
+    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
@@ -153,8 +152,7 @@ pub(crate) fn lower_process_detach_helper_posix(
 pub(crate) fn lower_process_detach_helper_win(
     _call: &str,
     symbol: &str,
-    _build_mode: crate::target::NativeBuildMode,
-    _module_name: &str,
+    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {

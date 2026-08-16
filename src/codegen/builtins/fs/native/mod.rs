@@ -41,12 +41,12 @@ pub(crate) use shared::*;
 /// both the `posix` and `win` slots of each member's `Body::native`; the relocated
 /// `lower_fs_*_helper` emitters branch on `platform.family()` internally. This is
 /// the verbatim `match call` block relocated from `src/target/shared/code/mod.rs`.
-/// `fs` carries no build context, so `_build_mode`/`_module_name` are ignored.
+/// `fs` carries no build context, so the [`OsLowerCtx`](crate::codegen::registry::OsLowerCtx)
+/// is ignored.
 pub(crate) fn lower_fs_helper(
     call: &str,
     symbol: &str,
-    _build_mode: crate::target::NativeBuildMode,
-    _module_name: &str,
+    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {

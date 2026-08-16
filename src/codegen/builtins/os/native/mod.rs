@@ -71,8 +71,7 @@ const OS_ENV_LOCK_CALLS: &[&str] = &[
 pub(crate) fn lower_os_helper(
     call: &str,
     symbol: &str,
-    build_mode: crate::target::NativeBuildMode,
-    module_name: &str,
+    ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
@@ -90,9 +89,13 @@ pub(crate) fn lower_os_helper(
         "os.hostName" => lower_host_name(symbol, platform_imports, platform),
         "os.userName" => lower_user_name(symbol, platform_imports, platform),
         "os.executablePath" => lower_executable_path(symbol, platform_imports, platform),
-        "os.resourcePath" => {
-            lower_resource_path(symbol, build_mode, module_name, platform_imports, platform)
-        }
+        "os.resourcePath" => lower_resource_path(
+            symbol,
+            ctx.build_mode,
+            ctx.module_name,
+            platform_imports,
+            platform,
+        ),
         "os.args" => lower_args(symbol),
         other => Err(format!(
             "native os lowering does not support runtime call '{other}'"
