@@ -345,6 +345,28 @@ Commit: —
   green process-slice baseline (`38f1dbd2c`) rather than land a rushed 360-edit
   mass-sweep; the fs slice needs a deliberate pass. net/tls/audio are the same shape
   (Socket/Listener/UdpSocket/Datagram, Tls*, Audio* — each similarly pervasive).
+- **CRITICAL: old-branch resources are codegen-coupled — a materially DEEPER change
+  than the front-end-only process slice.** A second fs attempt got the fs core right
+  (FILE_TYPE_ID split, descriptor `ov` return + param specs → `fs.File`,
+  `resource.rs` key, `BUILTIN_TYPES`, `fs_specs.rs` ABI `returns: "fs.File"`,
+  `plan/lower.rs is_reference_type` + `builder_resource_cleanup::resource_uses_io_buffers`
+  `== "fs.File"`) — and a user `TYPE File` compiled + ran. But a *real* fs program
+  (`RES f = fs::openFile(...)` then `fs::readLine(f)`) still failed type-check:
+  openFile's return reached the checker as bare `File`, not `fs.File`, despite the
+  descriptor `ov` **and** `fs_specs` both saying `fs.File` and `FS` being in the old
+  `target::shared::registry::REGISTRY`. So there is **yet another return-type /
+  resource-canonicalization layer** in the type checker (likely a resource-binding
+  normalization to the registered resource name, or a return-type path that bypasses
+  `builtins::call_return_type_name`) that must be found and updated. Unlike process
+  (whose native `.ncodesum` was byte-identical), File is threaded into codegen
+  (`fs_specs` ABI, cleanup io-buffer special-case @offsets, `plan/lower` reference
+  class), so old-branch native goldens WILL shift. **Implication:** each old-branch
+  slice (fs/net/tls/audio) is a deliberate multi-layer trace (type-checker return +
+  param + resource-normalization + codegen + ~63 unit tests + ~299 fixtures +
+  native&host goldens), not a mechanical apply-the-recipe. Second fs WIP was reset to
+  green baseline. Next fs pass: FIRST trace where `fs::openFile`'s return becomes
+  bare `File` in the checker (add a temporary dbg or grep the resource-binding path in
+  `syntaxcheck`), fix that layer, THEN the mechanical sweep.
 
 ## Summary
 
