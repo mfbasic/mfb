@@ -15,9 +15,7 @@
 use std::io::IsTerminal;
 
 use crate::cli::spec::detect_terminal_width;
-use crate::codegen::registry::{
-    self, registry, DefaultValue, RegistryFunction, RegistryPackage,
-};
+use crate::codegen::registry::{self, registry, DefaultValue, RegistryFunction, RegistryPackage};
 use crate::docs::render;
 
 pub(crate) fn show_man2(args: &[String]) -> Result<(), String> {

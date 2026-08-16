@@ -184,7 +184,9 @@ mod tests {
             .map(|c| {
                 (
                     c.name.to_string(),
-                    c.value.expect("errorCode constant folds to a value").to_string(),
+                    c.value
+                        .expect("errorCode constant folds to a value")
+                        .to_string(),
                 )
             })
             .collect();
@@ -193,7 +195,10 @@ mod tests {
         // Every exported constant resolves through the package-qualified fold API.
         for c in errorcode_constants() {
             let key = format!("errorCode.{}", c.name);
-            assert!(registry::is_package_constant(&key), "`{key}` not recognized");
+            assert!(
+                registry::is_package_constant(&key),
+                "`{key}` not recognized"
+            );
             assert_eq!(registry::constant_type_name(&key), Some("Integer"));
             assert_eq!(registry::constant_value(&key), c.value);
         }
@@ -234,11 +239,18 @@ mod tests {
         let mut codes = std::collections::HashSet::new();
         let mut symbols = std::collections::HashSet::new();
         for c in errorcode_constants() {
-            assert!(names.insert(c.name), "duplicate errorCode name `{}`", c.name);
+            assert!(
+                names.insert(c.name),
+                "duplicate errorCode name `{}`",
+                c.name
+            );
             let code = c.value.expect("value");
             assert!(codes.insert(code), "duplicate errorCode code `{code}`");
             let symbol = c.symbol.expect("symbol");
-            assert!(symbols.insert(symbol), "duplicate message symbol `{symbol}`");
+            assert!(
+                symbols.insert(symbol),
+                "duplicate message symbol `{symbol}`"
+            );
         }
         // The migration reproduces every legacy row: 45 constants.
         assert_eq!(names.len(), 45);
