@@ -128,3 +128,8 @@ The 6 leak-adapters (`resolve_call`, `rewrite_target`, `call_return_type`, `expe
   - Plus `vector`'s SIMD inline carrier (`builder_vector_inline.rs`, `VECTOR_NATIVE_MARKER`) needs a registry home (not a per-call `Body::native`).
 - Also special (not plain native/source): `general` (IS the overridable-builtin subsystem), `resource` (RES), `testing` (desugar).
 - Tractable now (no constants/overrides/resolver-context): `money`, `os`, `io`, `fs`, `thread`, `tls`, `audio`, `http`(w/ net), `strings`/`astrings`/`term`(cluster), `app`(name-overloaded — care). `crypto` has a context-dependent resolver — verify before attempting.
+
+### Phase 1 — a second infra prerequisite surfaced (os attempt, 2026-08-16)
+
+- `os` is 14/15 members clean; `os.resourcePath` alone needs per-compilation build context (`build_mode` + `module_name`) that the OS-seam `OsLower` contract can't carry. Fix (greenlit, do BEFORE re-attempting os / io / fs / thread / tls, which likely share the need): extend `OsLower` (`src/codegen/registry/mod.rs:49`), `os_helper` (`:1640`), and `codegen/os/dispatch_runtime_helper` (`src/codegen/os/mod.rs:25`) to carry `build_mode: NativeBuildMode` + `module_name: &str`; thread from the two `code/mod.rs` dispatch sites (~2024 os, ~2382 process); update the ~18 existing OsLower emitters (process/datetime) to accept-and-ignore. Additive/mechanical; keeps os uniform with process. (`code/os/paths.rs:186-215` is the sole build-dependent member.)
+- **Infra sequencing (serial — all touch registry/mod.rs):** (1) constant + override API [in flight], (2) OS-seam build-context, THEN the blocked migrations: constant/override → vector/math/errorcode/net; OS-seam-context → os (and de-risks io/fs/thread/tls).
