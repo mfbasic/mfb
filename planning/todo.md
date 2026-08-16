@@ -90,7 +90,7 @@ Tier 2 — source companion + light native:
 Tier 3 — coupled clusters (migrate together to avoid half-cut seams):
 - [ ] `net` + `http` — `net::Url`/`http::Response` types shared (net resource-owning; Phase 0.5 satisfied)
 - [ ] `astrings` + `term` + `strings` — bound by `term_astrings_bridge.mfb`; `strings` also unblocks the shared `find`/`mid`/`replace` List overloads pending from collections
-- [ ] `crypto` — 5 files, five `.mfb` companions (hash/aead/ecdsa/ed25519/util)
+- [x] `crypto` — DONE (33 members: source `Body::Rewrite` + native per-backend; `_bytes`/`_text` selection = distinct overloads + rewrite_target, NO custom resolver; f149af4e6, merged). Confirmed the design's no-infra prediction. Gate 0 diffs, KAT vectors byte-identical.
 - [ ] `audio` — 5 files, MML + render source (resource-owning; Phase 0.5 satisfied)
 
 Tier 4 — descriptor / data-only:
