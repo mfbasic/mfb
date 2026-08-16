@@ -330,6 +330,21 @@ Commit: —
   `expected Process` (not `process.Process`) — the message renders the base
   resource name — so the `tests/syntax/process/type_*` diagnostic goldens did not
   shift; only the fixture *sources* needed `p AS process::Process`.
+- **fs slice is far larger than process — measured, attempted, reset to green.**
+  The fs core (validated: FILE_TYPE_ID="fs.File", split like process, `TYPE File`
+  compiles + prints, fs core ~6 edits) works, but File is pervasive: it breaks
+  **63 unit tests across ~12 modules** (ir::verify 25, binary_repr 9, syntaxcheck
+  ~14, builtins::resource 5, target::shared::validate 2, …) that carry bare `"File"`
+  as resource *test data*, plus **299 explicit `File` spellings in `.mfb` fixtures**
+  (`AS File`/`RES File`/`File STATE`/`OF RES File`) + all their goldens. All 63 are
+  pure identity-rename test-data updates (no real codegen/format change — same
+  front-end-only property as process; binary_repr failures are `is_resource_type_name("File")`
+  assertions, not format shifts). This is a delicate sweep (several failing files —
+  `fs.rs`, `resource.rs`, `mod.rs` — mix *production* `"File"` that must NOT be
+  rewritten with test `"File"` that must). The incomplete fs WIP was reset to the
+  green process-slice baseline (`38f1dbd2c`) rather than land a rushed 360-edit
+  mass-sweep; the fs slice needs a deliberate pass. net/tls/audio are the same shape
+  (Socket/Listener/UdpSocket/Datagram, Tls*, Audio* — each similarly pervasive).
 
 ## Summary
 
