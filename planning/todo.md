@@ -140,6 +140,12 @@ The 6 leak-adapters (`resolve_call`, `rewrite_target`, `call_return_type`, `expe
 - Migration note for `vector`/record-constants: a migrated package's record types (e.g. `Float3`) must register as a `RegistryRecord` with element-typed props (the registry record-constant path reads element types from the record's fields in declaration order).
 - Pre-existing: `net` has ~5 STALE byte-identity goldens on `worktree-builtin` (verified on clean base, unrelated to any migration) — regenerate when `net` migrates or as a standalone cleanup.
 
+### Phase 1 — io needs an ARENA-context OsLower extension (io attempt, 2026-08-16)
+
+- `io` migration STOPPED at a real infra gap (correct stop, no code changed). io is 15 members; the stdin↔thread coupling is CLEAN (io readers reach thread-owned broadcast state by the linked symbol `_mfb_rt_stdin_next_byte`, NOT shared compile-time layout — thread stays out of scope).
+- **The gap:** `io.print`/`io.write` (plan-35-B TUI shadow-grid routing, `io_stdout.rs:364` `lower_io_write_helper`) and `io.readLine`/`io.input` (bug-149 cooked-mode restore, `io_stdin.rs:799` `lower_io_read_line_helper`) bake the **per-compilation** `arena_layout.term_state_offset` (+ post-dispatch `presentation_mode_offset` wrong-mode gate) into their runtime-helper bodies. The `OsLower` contract (`registry/mod.rs:55`) carries `build_mode`/`module_name` but NOT arena layout. `app_mode` is fine (derivable from `build_mode.is_app()`). Precedents miss it: process/datetime OsLower emitters never read arena state; money reads arena state only at a FIXED offset via the `NativeLower`/`CodeBuilder` path, not the `OsLower` runtime-helper path.
+- **Fix (greenlit, do AFTER os/fs land — same OsLower-signature serialization):** extend the OS-seam contract to thread the arena context (`term_state_offset` + `presentation_mode_offset`, computed in the dispatch at `code/mod.rs:1132-1147`), existing process/datetime emitters accept-and-ignore. **Design note:** OsLower now grows to ~6 params — bundle `build_mode`/`module_name`/arena into a single `OsLowerCtx` struct at the same time (lean end-state per migrate.md), re-touching the process/datetime emitters once. Then re-run the io migration (its analysis is done: 15 members, io_stdout/io_stdin/io_terminal emission, `io.` dispatch arm at `code/mod.rs:2033`, `io_specs.rs`).
+
 ### Phase 1 — remaining-package difficulty audit + fan-out plan (2026-08-16)
 
 Every remaining package is more entangled than `bits`/`money` (the easy leaves). Audited shapes:
