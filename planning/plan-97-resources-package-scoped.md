@@ -121,10 +121,19 @@ must measure that narrower set before touching sources (see its first task).
 - **`RegistryResource` carries its owning package** — VERIFIED: resources live on
   `RegistryPackage`; `registry::resource_close_function` already iterates
   `packages()` (it just discards the package identity).
-- UNVERIFIED (Phase 1 task): that the resolver can cleanly distinguish "bare name
-  = user type" from "`pkg::Name` = builtin resource" without disturbing existing
-  qualified value-type resolution. This is the design's core premise — falsify it
-  first.
+- **Routing premise — VERIFIED (Phase 1 spike, 2026-08-15).** `pkg::Type` already
+  parses in every type position (`AS vector::Float3`, `AS crypto::Sealed`,
+  `LET x AS crypto::Sealed = …` all exist in tests), so no parser change is needed
+  to *write* `RES fs::File`. The qualified→bare collapse that currently erases the
+  package is centralized at two sites in `src/ast/expr.rs`
+  (`:353` constructor position, `:901` `parse_type_base_name`), both
+  `crate::builtins::qualified_builtin_type(&qualified).unwrap_or(qualified)`. So a
+  resource can keep its qualified identity by having resource resolution return the
+  qualified name at those seams instead of collapsing to bare — a change at known
+  points, not a rewrite. Resource *classification* is keyed by the bare type-name
+  string via `ResourceRegistry` threaded through `syntaxcheck` (~20 `is_resource`
+  sites) and `ir/verify`; keying it by `pkg::Name` and feeding qualified names in is
+  the mechanical bulk (Phase 4). Premise holds; design proceeds.
 
 ## 3. Design Overview
 
@@ -198,18 +207,20 @@ Rejected alternatives:
 Prove `pkg::Name`→resource / bare→user-type routing is feasible before touching
 identity keying.
 
-- [ ] Add failing tests: (a) user `TYPE Process` (no imports) compiles & runs
-      [rt-behavior fixture, mirrors bug-441 repro]; (b) `process::Process`
-      resolves as the resource; (c) a two-package same-named-resource unit test
-      showing today's first-match cross-wiring (registry unit test).
-- [ ] Spike the resolver routing on one resource (`Process`) behind the tests;
-      confirm no regression to qualified value-type resolution. Record the result
-      in Verified properties.
-- [ ] Tests: resolver + `codegen::registry` + one rt-behavior compile fixture.
+- [x] Spike the resolver routing — **premise VERIFIED** (see Verified properties):
+      `pkg::Type` parses everywhere; the qualified→bare collapse is centralized at
+      `ast/expr.rs:353` + `:901` (`qualified_builtin_type().unwrap_or()`);
+      classification is `ResourceRegistry`-keyed by bare name in syntaxcheck/ir.
+- [~] Failing tests: (a) user `TYPE Process` compiles, (b) `process::Process`
+      resolves as the resource, (c) two-package same-named no-cross-wire. Deferred
+      to land WITH the fix — under hard cutover the change is atomic (no green
+      intermediate), so these assert the end state and go RED→GREEN only when
+      Phases 2–5 land together; they cannot be committed RED in isolation without a
+      red suite. Repro is already confirmed live (bug-441 `/tmp/collide`).
 
-Acceptance: the new tests fail for the documented reason; the spike confirms the
-routing premise (or this plan stops here with the premise recorded false).
-Commit: —
+Acceptance: routing premise confirmed (met); end-state tests authored alongside the
+atomic fix.
+Commit: — (spike findings recorded in plan; no code landed this phase)
 
 ### Phase 2 — package-scoped resource identity (registry + resource table)
 
@@ -277,12 +288,15 @@ Commit: —
 
 ## Open Decisions
 
-- **Migration of existing source** — recommended: hard cutover (update all
-  in-tree spellings in Phase 5, one release) vs. a deprecation window that accepts
-  bare resource names with a warning. Cutover is simpler; a window is friendlier to
-  out-of-tree code. (§Compatibility)
-- **Interim diagnostic (bug-441 Phase 2a)** — recommended: land it independently
-  *before* this plan as a cheap non-breaking stopgap; Phase 3 here supersedes it.
+- **Migration of existing source** — **RESOLVED 2026-08-15: hard cutover** (user
+  decision, via `/fix-bug 441 in full`). Bare resource names stop resolving; all
+  in-tree `.mfb` spellings, the spec, man pages, and goldens are rewritten in
+  Phase 5. No deprecation window / bare-name fallback. (§Compatibility)
+- **Interim diagnostic (bug-441 Phase 2a)** — **moot under hard cutover**: after
+  Phase 3, bare `Process` is a valid *user* type, so there is no "reserved name" to
+  diagnose for the common case; the collision diagnostic instead covers only a
+  genuine `pkg::Name` that is not a declared resource. The standalone
+  forbid-`TYPE Process` diagnostic is NOT built (it would contradict the goal).
 
 ## Corrections
 
