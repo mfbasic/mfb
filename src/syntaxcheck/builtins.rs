@@ -241,7 +241,15 @@ impl<'a> SyntaxChecker<'a> {
                 line,
             );
         }
-        if crate::codegen::registry::registry().owning_package(callee) == Some("collections") {
+        if crate::codegen::registry::registry().owning_package(callee) == Some("collections")
+            || (callee.starts_with("collections.")
+                && crate::codegen::registry::is_source_generic_member(callee))
+        {
+            // Source-generic collections members (`sort`/`partition`/…) are not
+            // registered functions, so `owning_package` (which keys on `resolve_func`)
+            // returns `None` for them — they must still route to the collections
+            // checker so a wrong-arg call is validated instead of falling through to
+            // the unchecked generic tail and silently compiling (bug-443).
             return self.check_collections_builtin_call(
                 file,
                 display_callee,

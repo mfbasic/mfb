@@ -109,18 +109,37 @@ a well-arity'd call (e.g. `json::get("bad", ["x"])` with first param `Named("Jso
 silently accepted) — a distinct gap from the encoding/collections mangle, present with or
 without Layer 1.
 
-**Correct fix shape (do all together, coordinate goldens):** (a) monomorph falls back to
-the public callee on overload-resolution failure; (b) `check_builtin_call` routes
-source-generic members to their package checker (`owning_package(..)==Some(pkg) ||
-is_source_generic_member(callee)`); (c) restore the dropped per-member argument
-validation in `check_collections_builtin_call` (transform, …) and close the json/regex
-argument-type gap in the table path; (d) also render resolver diagnostics through
-`internal_name::display_name` as defense-in-depth. Verify by running the 11 `*_invalid`
-fixtures against their committed goldens AND a full `cargo test` (the monomorph fallback
-touches every failed-overload call, so guard against silent-accept regressions).
+### Status: Layers 1+2 FIXED (2026-08-15); Layer 3 remains
 
-A partial attempt (Layers 1+2 only) was implemented and reverted 2026-08-15 because it
-regressed `collections/func_collection_transform_invalid` to a silent exit-0 compile.
+- **Layer 1 (monomorph public fallback) — DONE.** `src/monomorph/lower.rs` now keeps the
+  public callee on overload-resolution failure. Fixes the SYMBOL_UNKNOWN class:
+  `encoding/utf8Decode` and `utf8Encode` now emit the correct
+  `TYPE_CALL_ARITY_MISMATCH`/`TYPE_CALL_ARGUMENT_MISMATCH`.
+- **Layer 2 (source-generic routing) — DONE.** `check_builtin_call`
+  (`src/syntaxcheck/builtins.rs`) now routes source-generic collections members
+  (`owning_package==collections || is_source_generic_member`) to the collections checker,
+  so a wrong-arg `collections::sort()` is validated (`TYPE_CALL_ARGUMENT_MISMATCH`) rather
+  than silently compiling. (An earlier revert wrongly attributed a pre-existing
+  `transform` silent-accept to Layer 1; it is Layer 3, see below — Layers 1+2 introduce no
+  regression, verified by full `cargo test` + acceptance.)
+
+- **Layer 3 (nominal/callback argument-TYPE validation) — REMAINING.** The clean registry's
+  `select` is a *coarser* filter than the old per-package resolvers (json's `JsonResolver`,
+  etc.). `leaf_matches` (`src/codegen/registry/mod.rs:1261`) is
+  `pattern == concrete || !(pattern.is_scalar() && concrete.is_scalar())`: a **nominal**
+  pattern (`Named("Json")`, or a callback `Func(..)`) is non-scalar, so it accepts ANY
+  scalar/other arg. Hence `registry::resolve_call("json.get", ["String", "List OF String"])`
+  wrongly returns `Some`, so no `TYPE_CALL_ARGUMENT_MISMATCH` fires for
+  `json::get("bad", ["x"])`. Same root cause leaves these `*_invalid` fixtures red:
+  `json/{get,getOr,stringify}`, `regex/{find,findAll,match,replace}`,
+  `collections/transform` (a `SUB` where a value-returning `FUNC` is required), and
+  `encoding/utf8Encode_ambiguous` (a distinct overload-ambiguity wording). Fixing it means
+  tightening the registry matcher for nominal/callback leaves (or restoring per-package
+  strictness) — a core-matcher change with broad blast radius; verify against a full
+  `cargo test` + acceptance, since `select`/`unify` gate every migrated-package call.
+- **Optional (not yet done):** render resolver diagnostics through
+  `internal_name::display_name` (`src/resolver/resolution.rs:1236`) as defense-in-depth
+  against any future `#`-sigil leak.
 
 ## Notes
 

@@ -1211,6 +1211,14 @@ impl<'a> Monomorphizer<'a> {
                             .unwrap_or_else(|| "Unknown".to_string())
                     })
                     .collect::<Vec<_>>();
+                // The public callee (`encoding.utf8Decode`, `collections.sort`)
+                // before the internal-name rewrite below. A call that fails overload
+                // resolution must keep this resolvable, dotted name rather than the
+                // mangled `#name`: otherwise the post-monomorph resolver pass reports
+                // SYMBOL_UNKNOWN_IDENTIFIER on an unresolvable `#encoding_utf8Decode`
+                // and aborts before syntaxcheck can emit the real
+                // TYPE_CALL_ARITY_MISMATCH / TYPE_CALL_ARGUMENT_MISMATCH (bug-443).
+                let public_callee = callee.clone();
                 // Rewrite the public overloaded `encoding::utf8Encode`/`utf8Decode`
                 // onto their internal `__encoding_*` overload sets, and a
                 // `collections::` call onto its internal generic implementation —
@@ -1250,7 +1258,11 @@ impl<'a> Monomorphizer<'a> {
                 {
                     target
                 } else {
-                    callee.clone()
+                    // Overload resolution failed (wrong arity/argument types): keep
+                    // the PUBLIC callee, not the mangled `#name`, so the second
+                    // resolver pass resolves it and syntaxcheck emits the proper
+                    // argument diagnostic naming the public call (bug-443).
+                    public_callee.clone()
                 };
                 if target != *callee {
                     self.add_function_to_context(&target, context);
