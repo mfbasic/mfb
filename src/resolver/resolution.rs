@@ -1277,7 +1277,7 @@ impl Resolver<'_> {
         // any non-thread position (`List OF (Map OF String TO Integer)`,
         // `AS (Integer)`) resolves through its inner type instead of falling to
         // the bare-name arm and being rejected as unknown (bug-105).
-        let stripped = crate::builtins::thread::strip_type_group(type_name);
+        let stripped = crate::types::strip_type_group(type_name);
         if stripped != type_name {
             self.resolve_type_name(file, stripped, line, imports);
             return;
@@ -1317,9 +1317,7 @@ impl Resolver<'_> {
             self.resolve_type_name(file, element, line, imports);
             return;
         }
-        if let Some((_, message, resource, output)) =
-            crate::builtins::thread::thread_parts_full(type_name)
-        {
+        if let Some((_, message, resource, output)) = crate::types::thread_parts_full(type_name) {
             self.resolve_type_name(file, message, line, imports);
             if let Some(resource) = resource {
                 self.resolve_type_name(file, resource, line, imports);

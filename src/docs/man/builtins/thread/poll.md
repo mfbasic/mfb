@@ -19,7 +19,7 @@ IMPORT thread
 ```
 
 `thread` is a built-in package, so no manifest dependency is required.
-[[src/builtins/thread.rs:is_thread_call]]
+[[src/codegen/builtins/thread/mod.rs:is_thread_call]]
 
 ## Description
 
@@ -52,20 +52,20 @@ answering `TRUE`/`FALSE` from the queue contents rather than failing.
 `poll` accepts only a parent `Thread` handle; a `ThreadWorker` is rejected at
 compile time, and there is no worker-side poll of the inbound queue — worker code
 uses `thread::receive(t, 0)` for a non-blocking read instead. The thread's `Msg`
-and `Out` types do not affect the result. [[src/builtins/thread.rs:THREAD]]
+and `Out` types do not affect the result. [[src/codegen/builtins/thread/mod.rs:register]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `t` (also `thread`) | `Thread OF Msg TO Out` | The parent handle whose outbound queue is polled. Borrowed, not consumed. A `ThreadWorker` handle is rejected at compile time. [[src/builtins/thread.rs:call_param_names]] |
-| `ms` | `Integer` | Required. Milliseconds to wait for a message. `0` returns immediately without waiting; a positive value waits up to that long; a negative value is rejected with `ErrInvalidArgument`. [[src/builtins/thread.rs:call_param_names]] |
+| `t` (also `thread`) | `Thread OF Msg TO Out` | The parent handle whose outbound queue is polled. Borrowed, not consumed. A `ThreadWorker` handle is rejected at compile time. [[src/codegen/builtins/thread/mod.rs:register]] |
+| `ms` | `Integer` | Required. Milliseconds to wait for a message. `0` returns immediately without waiting; a positive value waits up to that long; a negative value is rejected with `ErrInvalidArgument`. [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when a message is queued on the outbound queue, so a following `thread::receive(t)` returns without waiting; `FALSE` when none arrived before the deadline, including when the worker has completed with an empty queue. [[src/builtins/thread.rs:THREAD]] |
+| `Boolean` | `TRUE` when a message is queued on the outbound queue, so a following `thread::receive(t)` returns without waiting; `FALSE` when none arrived before the deadline, including when the worker has completed with an empty queue. [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Errors
 
@@ -79,7 +79,7 @@ and `Out` types do not affect the result. [[src/builtins/thread.rs:THREAD]]
 Generic over `Msg` and `Out`. Exactly two arguments: a parent
 `Thread OF Msg TO Out` and an `Integer`. A `ThreadWorker` handle, a missing `ms`,
 or a non-`Integer` `ms` fails to resolve. The result is always `Boolean`.
-[[src/builtins/thread.rs:THREAD]]
+[[src/codegen/builtins/thread/mod.rs:register]]
 
 ## Examples
 

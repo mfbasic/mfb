@@ -1248,7 +1248,7 @@ pub(super) fn static_type_name_with_types(
         NirValue::MemberAccess { target, member } => {
             let target_type = static_type_name_with_types(target, types, fields)?;
             if member == "result" {
-                if let Some(output_type) = builtins::thread::parent_thread_output(&target_type) {
+                if let Some(output_type) = crate::types::parent_thread_output(&target_type) {
                     return Some(format!("Result OF {output_type}"));
                 }
             }

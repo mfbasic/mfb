@@ -60,7 +60,7 @@ pub(super) fn static_nir_value_type(
         NirValue::MemberAccess { target, member } => {
             let target_type = static_nir_value_type(target, locals, fields)?;
             if member == "result" {
-                if let Some(output_type) = builtins::thread::parent_thread_output(&target_type) {
+                if let Some(output_type) = crate::types::parent_thread_output(&target_type) {
                     return Some(format!("Result OF {output_type}"));
                 }
             }

@@ -20,7 +20,7 @@ IMPORT thread
 ```
 
 `thread` is a built-in package, so no manifest dependency is required.
-[[src/builtins/thread.rs:is_thread_call]]
+[[src/codegen/builtins/thread/mod.rs:is_thread_call]]
 
 ## Description
 
@@ -61,19 +61,19 @@ Unsubscribes the calling thread.
 **`thread::closeStdIn(t AS Thread OF Msg TO Out) AS Nothing`**
 
 Unsubscribes the worker behind a parent `Thread` handle. A `ThreadWorker` handle is
-not accepted. [[src/builtins/thread.rs:THREAD]] [[src/builtins/thread.rs:THREAD]]
+not accepted. [[src/codegen/builtins/thread/mod.rs:register]] [[src/codegen/builtins/thread/mod.rs:register]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `t` (also `thread`) | `Thread OF Msg TO Out` | Optional. A parent `Thread` handle whose worker should be unsubscribed. When omitted, the calling thread is unsubscribed. Borrowed, not consumed; the call reads only the worker's arena-state pointer. [[src/builtins/thread.rs:call_param_names]] |
+| `t` (also `thread`) | `Thread OF Msg TO Out` | Optional. A parent `Thread` handle whose worker should be unsubscribed. When omitted, the calling thread is unsubscribed. Borrowed, not consumed; the call reads only the worker's arena-state pointer. [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | No value. On return the target thread is not subscribed. [[src/builtins/thread.rs:THREAD]] |
+| `Nothing` | No value. On return the target thread is not subscribed. [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Errors
 
@@ -83,7 +83,7 @@ No errors.
 
 Either zero arguments, or exactly one parent `Thread OF Msg TO Out`. A
 `ThreadWorker` handle or any other type fails to resolve. The result is always
-`Nothing`. [[src/builtins/thread.rs:is_parent_thread_type]]
+`Nothing`. [[src/types.rs:is_parent_thread_type]]
 
 ## Examples
 

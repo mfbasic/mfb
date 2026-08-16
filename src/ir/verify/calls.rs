@@ -164,7 +164,7 @@ impl TypeEnv {
         args: &[IrValue],
         locals: &HashMap<String, String>,
     ) {
-        if target != crate::builtins::thread::TRANSFER_RESOURCE {
+        if target != crate::codegen::builtins::thread::TRANSFER_RESOURCE {
             return;
         }
         let (Some(handle), Some(resource)) = (args.first(), args.get(1)) else {
@@ -176,7 +176,7 @@ impl TypeEnv {
         ) else {
             return;
         };
-        let Some(plane_resource) = crate::builtins::thread::thread_resource(&handle_type) else {
+        let Some(plane_resource) = crate::types::thread_resource(&handle_type) else {
             return;
         };
         let plane_state = crate::builtins::resource::state_type_name(plane_resource);

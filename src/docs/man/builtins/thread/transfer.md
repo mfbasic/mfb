@@ -22,7 +22,7 @@ IMPORT thread
 ```
 
 `thread` is a built-in package, so no manifest dependency is required.
-[[src/builtins/thread.rs:is_thread_call]]
+[[src/codegen/builtins/thread/mod.rs:is_thread_call]]
 
 ## Description
 
@@ -64,7 +64,7 @@ a bare resource on a stateful plane, and two disagreeing states, all with
 the resource, so — unlike a `RES` parameter, which is an opaque non-escaping alias
 — "bare" does not accept any state here. The `STATE` payload travels with the
 resource and is deep-copied into the receiving thread's arena, so the accepted
-handle owns an independent copy. [[src/ir/verify/calls.rs:check_thread_transfer_state]] [[src/builtins/thread.rs:THREAD]]
+handle owns an independent copy. [[src/ir/verify/calls.rs:check_thread_transfer_state]] [[src/codegen/builtins/thread/mod.rs:register]]
 
 `timeoutMs` bounds the wait for space on a full destination resource queue,
 following the language timeout convention (see
@@ -92,21 +92,21 @@ completed or cancelled worker.
 
 Worker-side transfer onto the parent-visible outbound resource queue. Fails with
 `ErrInterrupted` when this worker is cancelled or the queue is closed.
-[[src/builtins/thread.rs:THREAD]] [[src/builtins/thread.rs:THREAD]]
+[[src/codegen/builtins/thread/mod.rs:register]] [[src/codegen/builtins/thread/mod.rs:register]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `t` (also `thread`) | `Thread OF Msg RES Res TO Out` or `ThreadWorker OF Msg RES Res TO Out` | The handle whose resource-plane queue receives the resource. Must declare a `RES` plane. Borrowed, not consumed. [[src/builtins/thread.rs:call_param_names]] |
-| `res` (also `resource`) | `Res` | The resource to move. Its base resource type must match the plane's, and its `STATE` must equal the plane's `STATE`. **Consumed** on success; still owned by the sender on failure. [[src/builtins/thread.rs:call_param_names]] |
+| `t` (also `thread`) | `Thread OF Msg RES Res TO Out` or `ThreadWorker OF Msg RES Res TO Out` | The handle whose resource-plane queue receives the resource. Must declare a `RES` plane. Borrowed, not consumed. [[src/codegen/builtins/thread/mod.rs:register]] |
+| `res` (also `resource`) | `Res` | The resource to move. Its base resource type must match the plane's, and its `STATE` must equal the plane's `STATE`. **Consumed** on success; still owned by the sender on failure. [[src/codegen/builtins/thread/mod.rs:register]] |
 | `timeoutMs` | `Integer` | Optional. Milliseconds to wait for space on a full resource queue. Omit to block until space frees; `0` makes one immediate attempt and fails with `ErrTimeout` if full; a positive value waits that long; a negative value is rejected. |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | No value. Returns once the resource has been enqueued on the resource plane and the queue's *not-empty* condition signalled. [[src/builtins/thread.rs:THREAD]] |
+| `Nothing` | No value. Returns once the resource has been enqueued on the resource plane and the queue's *not-empty* condition signalled. [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Errors
 

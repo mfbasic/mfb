@@ -797,7 +797,7 @@ fn decode_type_name_body(
             } else {
                 None
             };
-            builtins::thread::format_thread_type("Thread", &message, resource.as_deref(), &output)
+            crate::types::format_thread_type("Thread", &message, resource.as_deref(), &output)
         }
         8 => decode_function_type(payload, raw, strings, decoded, in_progress)?,
         9 => {
@@ -820,12 +820,7 @@ fn decode_type_name_body(
             } else {
                 None
             };
-            builtins::thread::format_thread_type(
-                "ThreadWorker",
-                &message,
-                resource.as_deref(),
-                &output,
-            )
+            crate::types::format_thread_type("ThreadWorker", &message, resource.as_deref(), &output)
         }
         // A resource carrying a `STATE` payload (plan-52-D §4). Reconstructs the
         // `" STATE "` spelling every front-end stage pattern-matches on, so an

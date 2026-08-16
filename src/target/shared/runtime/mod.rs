@@ -157,7 +157,7 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::Math)
     } else if builtins::term::is_term_call(name) {
         Some(RuntimeHelper::Term)
-    } else if builtins::thread::is_thread_runtime_call(name) {
+    } else if crate::codegen::builtins::thread::is_thread_runtime_call(name) {
         Some(RuntimeHelper::Thread)
     } else if builtins::net::is_net_call(name) {
         Some(RuntimeHelper::Net)

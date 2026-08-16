@@ -9,7 +9,6 @@ pub(crate) mod resource;
 pub(crate) mod strings;
 pub(crate) mod term;
 pub(crate) mod testing;
-pub(crate) mod thread;
 pub(crate) mod vector;
 
 pub(crate) use resource::{ResourceInfo, ResourceKind, ResourceRegistry};
@@ -96,10 +95,10 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
 }
 
 /// Whether `name` is a builtin value/opaque type contributed by any package
-/// (plan-72-BB: iterated over the descriptor registry's `types`). Every package's
-/// base type names live in its descriptor; `thread`'s parametric
-/// `Thread OF ...` / `ThreadWorker OF ...` forms are the one shape a static type
-/// list cannot enumerate, so they stay a structural prefix check.
+/// (plan-72-BB: iterated over the descriptor registry's `types`). `thread`'s opaque
+/// `Thread`/`ThreadWorker` handles — bare and the parametric `Thread OF ... TO ...`
+/// spelling — are recognized by the clean-room registry's `is_builtin_type`
+/// (source-declared-type + parametric-head extension).
 pub(crate) fn is_builtin_type(name: &str) -> bool {
     // Migrated (clean-room registry) types first; else the old REGISTRY.
     // `datetime`'s value records/enums (authored in `package.mfb`) are recognized
@@ -109,8 +108,6 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
             .modules()
             .iter()
             .any(|module| module.types.iter().any(|ty| ty.name == name))
-        || name.starts_with("Thread OF ")
-        || name.starts_with("ThreadWorker OF ")
 }
 
 /// The record `(field, type)` list of a builtin type, or `None` when the type is
@@ -188,7 +185,9 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         // `process` (the `Process` resource) is resolved by the migrated-registry
         // check above (`registry::qualified_builtin_type`), so it needs no arm here.
         "term" => term::is_builtin_type(member),
-        "thread" => thread::is_builtin_type(member),
+        // `thread`'s opaque `Thread`/`ThreadWorker` handle types resolve via the
+        // migrated-registry check above (`registry::qualified_builtin_type`), so no arm
+        // is needed here.
         // `tls`'s `TlsSocket`/`TlsListener` resources resolve via the migrated-registry
         // check above (`registry::qualified_builtin_type`), so no arm is needed here.
         "vector" => vector::is_builtin_type(member),
@@ -486,7 +485,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
         .or_else(|| http::expected_arguments(name))
         .or_else(|| vector::expected_arguments(name))
         .or_else(|| general::expected_arguments(name))
-        .or_else(|| thread::expected_arguments(name))
         .or_else(|| strings::expected_arguments(name))
         .or_else(|| crate::codegen::registry::expected_arguments(name))
     {
@@ -528,8 +526,7 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| math::expected_arguments(callee))
         .or_else(|| net::argument_types(callee))
         .or_else(|| audio::argument_types(callee))
-        .or_else(|| http::expected_arguments(callee))
-        .or_else(|| thread::expected_arguments(callee))?;
+        .or_else(|| http::expected_arguments(callee))?;
     // A description that is not a concrete positional signature is not a coercion
     // table: an optional-argument bracket (`strings.find`'s
     // `"String, String[, Integer]"`), an argument union (`" or "`), a variadic range
@@ -559,9 +556,7 @@ pub(crate) fn default_argument_padding(
     callee: &str,
     provided: usize,
 ) -> &'static [(&'static str, &'static str)] {
-    for pad in [
-        http::default_argument_padding(callee, provided),
-    ] {
+    for pad in [http::default_argument_padding(callee, provided)] {
         if !pad.is_empty() {
             return pad;
         }
@@ -778,7 +773,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
         .or_else(|| net::call_param_names(name))
         .or_else(|| http::call_param_names(name))
         .or_else(|| term::call_param_names(name))
-        .or_else(|| thread::call_param_names(name))
         .or_else(|| vector::call_param_names(name))?;
     Some(borrowed.iter().map(|aliases| aliases.to_vec()).collect())
 }

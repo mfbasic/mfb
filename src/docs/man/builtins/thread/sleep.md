@@ -20,7 +20,7 @@ IMPORT thread
 ```
 
 `thread` is a built-in package, so no manifest dependency is required.
-[[src/builtins/thread.rs:is_thread_call]]
+[[src/codegen/builtins/thread/mod.rs:is_thread_call]]
 
 ## Description
 
@@ -77,14 +77,14 @@ does not interrupt package or native code. [[src/target/shared/code/runtime_help
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `t` (also `thread`) | `Thread OF Msg TO Out` or `ThreadWorker OF Msg TO Out` | The handle the sleep is issued against. Borrowed, not consumed; no message is read from it. A parent handle gives the plain delay, a worker handle the cancellation-aware delay. [[src/builtins/thread.rs:call_param_names]] |
-| `ms` | `Integer` | Milliseconds to block the calling thread. `0` returns immediately; a positive value blocks for at least that long; a negative value is rejected with `ErrInvalidArgument`. [[src/builtins/thread.rs:call_param_names]] |
+| `t` (also `thread`) | `Thread OF Msg TO Out` or `ThreadWorker OF Msg TO Out` | The handle the sleep is issued against. Borrowed, not consumed; no message is read from it. A parent handle gives the plain delay, a worker handle the cancellation-aware delay. [[src/codegen/builtins/thread/mod.rs:register]] |
+| `ms` | `Integer` | Milliseconds to block the calling thread. `0` returns immediately; a positive value blocks for at least that long; a negative value is rejected with `ErrInvalidArgument`. [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns after the requested delay has elapsed (or immediately when `ms = 0`). [[src/builtins/thread.rs:THREAD]] |
+| `Nothing` | Returns after the requested delay has elapsed (or immediately when `ms = 0`). [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Errors
 
@@ -99,7 +99,7 @@ does not interrupt package or native code. [[src/target/shared/code/runtime_help
 Generic over `Msg` and `Out`. Exactly two arguments: a `Thread OF Msg TO Out` or
 `ThreadWorker OF Msg TO Out` handle and an `Integer`. A missing `ms` or a
 non-`Integer` `ms` fails to resolve. The result is always `Nothing`.
-[[src/builtins/thread.rs:THREAD]]
+[[src/codegen/builtins/thread/mod.rs:register]]
 
 ## Examples
 

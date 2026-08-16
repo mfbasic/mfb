@@ -19,7 +19,7 @@ IMPORT thread
 ```
 
 `thread` is a built-in package, so no manifest dependency is required.
-[[src/builtins/thread.rs:is_thread_call]]
+[[src/codegen/builtins/thread/mod.rs:is_thread_call]]
 
 ## Description
 
@@ -55,19 +55,19 @@ live so the caller can still join the worker and read its outcome. Note that
 worker actually finishes — cancellation and execution are separate pieces of
 state. The only way `cancel` itself fails is when the handle is already closed.
 A `ThreadWorker` handle is rejected at compile time.
-[[src/builtins/thread.rs:THREAD]]
+[[src/codegen/builtins/thread/mod.rs:register]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `t` (also `thread`) | `Thread OF Msg TO Out` | The parent handle whose worker should be cancelled. Borrowed, not consumed — the handle stays usable for `thread::waitFor`. Must not already be closed. A `ThreadWorker` handle is rejected at compile time. [[src/builtins/thread.rs:call_param_names]] |
+| `t` (also `thread`) | `Thread OF Msg TO Out` | The parent handle whose worker should be cancelled. Borrowed, not consumed — the handle stays usable for `thread::waitFor`. Must not already be closed. A `ThreadWorker` handle is rejected at compile time. [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | No value. On success the worker's cancelled flag is set and all four of its queues are closed and broadcast. [[src/builtins/thread.rs:THREAD]] |
+| `Nothing` | No value. On success the worker's cancelled flag is set and all four of its queues are closed and broadcast. [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Errors
 
@@ -79,7 +79,7 @@ A `ThreadWorker` handle is rejected at compile time.
 
 Generic over `Msg` and `Out`. The single argument must be a parent
 `Thread OF Msg TO Out`; a `ThreadWorker` or any other type fails to resolve. The
-result is always `Nothing`. [[src/builtins/thread.rs:is_parent_thread_type]]
+result is always `Nothing`. [[src/types.rs:is_parent_thread_type]]
 
 ## Examples
 

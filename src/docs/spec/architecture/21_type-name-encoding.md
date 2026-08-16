@@ -158,14 +158,14 @@ The single source of truth for **emitting** a thread type is
 `thread_parts_full`, which returns `(kind, message, resource, output)`. Both the
 parser and these helpers must agree on the three shapes, including the
 `message == "Nothing"` collapse that drops the message segment for a
-resource-only thread. [[src/builtins/thread.rs:format_thread_type]]
-[[src/builtins/thread.rs:thread_parts_full]]
+resource-only thread. [[src/types.rs:format_thread_type]]
+[[src/types.rs:thread_parts_full]]
 
 Because a thread output may itself be a grouped or nested type, the thread body
 is split by measuring a balanced type prefix (`type_prefix_len`) rather than a
 naive `split_once`, and each segment is unwrapped of redundant grouping by
-`strip_type_group`. [[src/builtins/thread.rs:split_thread_types]]
-[[src/builtins/thread.rs:strip_type_group]]
+`strip_type_group`. [[src/types.rs:split_thread_types]]
+[[src/types.rs:strip_type_group]]
 
 ## User templates
 

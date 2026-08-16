@@ -21,7 +21,7 @@ IMPORT thread
 ```
 
 `thread` is a built-in package, so no manifest dependency is required.
-[[src/builtins/thread.rs:is_thread_call]]
+[[src/codegen/builtins/thread/mod.rs:is_thread_call]]
 
 ## Description
 
@@ -31,14 +31,14 @@ handle immediately — it never waits for the worker to make progress or finish.
 `f` is called with two arguments: the worker's own `ThreadWorker` handle, created
 by the runtime, and `data` passed through as the second argument. The worker's
 return value becomes the thread outcome, retrieved later in the parent with
-`thread::waitFor`. [[src/builtins/thread.rs:matches_start]]
+`thread::waitFor`. [[src/codegen/builtins/thread/mod.rs:start]]
 
 The returned handle's type is derived structurally from the worker parameter of
 `f`, so a worker declared `ThreadWorker OF Msg RES Res TO Out` yields a
 `Thread OF Msg RES Res TO Out` and the started thread carries both the data plane
 and the resource plane. A worker with no data channel (`ThreadWorker OF RES Res
 TO Out`) yields the resource-only spelling.
-[[src/builtins/thread.rs:start_thread_type]] [[src/builtins/thread.rs:format_thread_type]]
+[[src/codegen/builtins/thread/mod.rs:start]] [[src/types.rs:format_thread_type]]
 
 `inboundLimit` and `outboundLimit` bound the queues in number of queued entries.
 The call allocates **four** queues: the inbound and outbound data queues, and the
@@ -73,7 +73,7 @@ lambdas, closures, non-isolated functions, and entry points without the leading
 only the `self::`-qualified path lifts the current-package restriction, and only
 in a package project (an executable's `IMPORT self` is `IMPORT_SELF_IN_EXECUTABLE`).
 See `./mfb spec language modules-and-packages` for the `self` specifier.
-[[src/builtins/thread.rs:matches_start]] [[src/builtins/thread.rs:THREAD]]
+[[src/codegen/builtins/thread/mod.rs:start]] [[src/codegen/builtins/thread/mod.rs:register]]
 
 The returned `Thread` is a non-copyable owned handle closed by lexical drop.
 Dropping a still-running handle requests cancellation, closes and broadcasts all
@@ -92,13 +92,13 @@ Sets the parent-to-worker limit; `outboundLimit` still defaults to `64`.
 
 **`thread::start(f, data, inboundLimit, outboundLimit) AS Thread OF Msg TO Out`**
 
-Sets both limits explicitly. [[src/builtins/thread.rs:THREAD]] [[src/builtins/thread.rs:THREAD]]
+Sets both limits explicitly. [[src/codegen/builtins/thread/mod.rs:register]] [[src/codegen/builtins/thread/mod.rs:register]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `f` (also `entry`) | `ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out` | The exported isolated worker entry point to run. Receives the worker's `ThreadWorker` handle and `data`, and returns the thread outcome of type `Out`. [[src/builtins/thread.rs:call_param_names]] |
+| `f` (also `entry`) | `ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out` | The exported isolated worker entry point to run. Receives the worker's `ThreadWorker` handle and `data`, and returns the thread outcome of type `Out`. [[src/codegen/builtins/thread/mod.rs:register]] |
 | `data` | `In` | The value handed to the worker as its second argument. Moved into the call, not borrowed, and must be thread-sendable. [[src/syntaxcheck/types.rs:thread_argument_mode]] |
 | `inboundLimit` | `Integer` | Optional. Capacity of both parent-to-worker queues (data and resource plane), in entries. Must be in `1 ..= u64::MAX / 8`. Defaults to `64`. |
 | `outboundLimit` | `Integer` | Optional. Capacity of both worker-to-parent queues (data and resource plane), in entries. Must be in `1 ..= u64::MAX / 8`. Defaults to `64`. |
@@ -107,7 +107,7 @@ Sets both limits explicitly. [[src/builtins/thread.rs:THREAD]] [[src/builtins/th
 
 | Type | Description |
 | --- | --- |
-| `Thread OF Msg TO Out` | A live parent-side handle for the newly started worker, carrying the worker's `Msg`, optional `RES Res` plane, and `Out` types. Usable with `thread::send`, `thread::receive`, `thread::poll`, `thread::isRunning`, `thread::cancel`, `thread::transfer`, `thread::accept`, and `thread::waitFor`. [[src/builtins/thread.rs:THREAD]] |
+| `Thread OF Msg TO Out` | A live parent-side handle for the newly started worker, carrying the worker's `Msg`, optional `RES Res` plane, and `Out` types. Usable with `thread::send`, `thread::receive`, `thread::poll`, `thread::isRunning`, `thread::cancel`, `thread::transfer`, `thread::accept`, and `thread::waitFor`. [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Errors
 
@@ -123,7 +123,7 @@ Generic over `In`, `Msg`, and `Out`. `Msg` and `Out` come from the first
 (`ThreadWorker`) parameter of `f`; `In` must equal both the second parameter type
 of `f` and the static type of `data`. The declared output of `f` must equal the
 worker's `Out`. Optional limits must be `Integer`. Any mismatch fails to resolve
-at compile time. [[src/builtins/thread.rs:matches_start]]
+at compile time. [[src/codegen/builtins/thread/mod.rs:start]]
 
 ## Examples
 

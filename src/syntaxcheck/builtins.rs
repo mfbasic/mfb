@@ -287,7 +287,7 @@ impl<'a> SyntaxChecker<'a> {
                 line,
             );
         }
-        if builtins::thread::is_thread_call(callee) {
+        if crate::codegen::builtins::thread::is_thread_call(callee) {
             return self.check_thread_builtin_call(
                 file,
                 display_callee,
@@ -1334,7 +1334,7 @@ mod builtins_tests {
                 }) as fn(&str) -> bool,
             ),
             ("term", builtins::term::is_term_call),
-            ("thread", builtins::thread::is_thread_call),
+            ("thread", crate::codegen::builtins::thread::is_thread_call),
         ];
 
         let mut claimants: std::collections::BTreeMap<String, Vec<&str>> =

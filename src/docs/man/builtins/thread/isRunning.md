@@ -19,7 +19,7 @@ IMPORT thread
 ```
 
 `thread` is a built-in package, so no manifest dependency is required.
-[[src/builtins/thread.rs:is_thread_call]]
+[[src/codegen/builtins/thread/mod.rs:is_thread_call]]
 
 ## Description
 
@@ -46,19 +46,19 @@ compile time; worker code observes its own status through `thread::isCancelled`
 instead. Note that `isRunning` reports execution, not cancellation: a worker for
 which `thread::cancel` has been requested keeps reporting `TRUE` until it actually
 finishes, because cancellation is cooperative and sets a separate flag.
-[[src/builtins/thread.rs:THREAD]] [[src/target/shared/code/runtime_helpers_thread.rs:simple_thread_handle_helper]]
+[[src/codegen/builtins/thread/mod.rs:register]] [[src/target/shared/code/runtime_helpers_thread.rs:simple_thread_handle_helper]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `t` (also `thread`) | `Thread OF Msg TO Out` | The parent handle returned by `thread::start`. Borrowed, not consumed. Must not already be closed. A `ThreadWorker` handle is rejected at compile time. [[src/builtins/thread.rs:call_param_names]] |
+| `t` (also `thread`) | `Thread OF Msg TO Out` | The parent handle returned by `thread::start`. Borrowed, not consumed. Must not already be closed. A `ThreadWorker` handle is rejected at compile time. [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` while the worker entry function is still running; `FALSE` once the worker has completed or failed and its outcome is stored but not yet retrieved. [[src/builtins/thread.rs:THREAD]] |
+| `Boolean` | `TRUE` while the worker entry function is still running; `FALSE` once the worker has completed or failed and its outcome is stored but not yet retrieved. [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Errors
 
@@ -71,7 +71,7 @@ finishes, because cancellation is cooperative and sets a separate flag.
 Generic over the message type `Msg` and output type `Out`. The single argument
 must be a parent `Thread OF Msg TO Out` (a `RES Res` plane on the handle is
 accepted and ignored); a `ThreadWorker` or any other type fails to resolve. The
-result is always `Boolean`. [[src/builtins/thread.rs:is_parent_thread_type]]
+result is always `Boolean`. [[src/types.rs:is_parent_thread_type]]
 
 ## Examples
 

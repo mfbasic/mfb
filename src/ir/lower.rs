@@ -2114,7 +2114,7 @@ fn expression_type(
                     == Some("datetime")
                 // `crypto` migrated to the clean-room registry — covered by
                 // `migrated_arg_typed` (`registry::is_member`) above.
-                || builtins::thread::is_thread_call(&canonical_callee)
+                || crate::codegen::builtins::thread::is_thread_call(&canonical_callee)
             {
                 let arg_types =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)

@@ -1207,14 +1207,22 @@ impl Registry {
     }
 
     /// Whether `name` is a value type (`EXPORT TYPE`/`UNION`/`ENUM`) declared by any
-    /// migrated package (`CsvReader`/`CsvRow`).
+    /// migrated package (`CsvReader`/`CsvRow`), a source-declared/opaque type
+    /// (`datetime.Instant`, thread's `Thread`/`ThreadWorker`), or a **parametric**
+    /// spelling of an opaque type (`Thread OF Msg TO Out`) whose head token before the
+    /// first ` OF ` names a source-declared type.
     pub(crate) fn is_builtin_type(&self, name: &str) -> bool {
+        // The head token of a parametric spelling (`Thread OF …`): a source-declared
+        // opaque type used with type arguments. `List`/`Map`/… are never source types,
+        // so their `X OF …` spellings are correctly not matched here.
+        let head = name.split_once(" OF ").map(|(head, _)| head);
         self.packages().iter().any(|package| {
             package.records().iter().any(|record| record.name == name)
                 || package.unions().iter().any(|union| union.name == name)
                 || package.enums().iter().any(|r#enum| r#enum.name == name)
                 // `datetime`'s value records/enums live in its injected companion source.
                 || package.source_types().contains(&name)
+                || head.is_some_and(|head| package.source_types().contains(&head))
         })
     }
 
@@ -1273,6 +1281,7 @@ fn build() -> Registry {
     crate::codegen::builtins::io::register(&mut r);
     crate::codegen::builtins::crypto::register(&mut r);
     crate::codegen::builtins::tls::register(&mut r);
+    crate::codegen::builtins::thread::register(&mut r);
     r
 }
 
@@ -1535,7 +1544,7 @@ fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool)
             ParameterType::ListOf(_)
                 | ParameterType::SetOf(_)
                 | ParameterType::MapOf(_, _)
-                | ParameterType::Func(_, _)
+                | ParameterType::Func(_, _, _)
         )
     {
         return pattern.name() == concrete.name();
@@ -1652,25 +1661,80 @@ fn unify(
             unify(key, concrete_key, bindings, strict)
                 && unify(value, concrete_value, bindings, strict)
         }
-        (ParameterType::Func(params, ret), ParameterType::Func(concrete_params, concrete_ret)) => {
-            params.len() == concrete_params.len()
+        (
+            ParameterType::Func(params, ret, isolated),
+            ParameterType::Func(concrete_params, concrete_ret, concrete_isolated),
+        ) => {
+            // An isolated worker entry (`thread::start`) only accepts an isolated
+            // concrete, and a plain callback param only a plain concrete.
+            isolated == concrete_isolated
+                && params.len() == concrete_params.len()
                 && params
                     .iter()
                     .zip(concrete_params.iter())
                     .all(|(p, c)| unify(p, c, bindings, strict))
                 && unify(ret, concrete_ret, bindings, strict)
         }
-        // A container/function pattern against a non-matching concrete fails.
+        // Two thread handles unify structurally, exactly like the container arms: the
+        // kind (parent `Thread` vs worker `ThreadWorker`) must match — the two never
+        // interconvert — and each slot unifies via [`thread_slot_unifies`]. A slot the
+        // member does NOT echo is spelled `Unknown` and wildcards (accepting any
+        // concrete slot, including a `Nothing` message/output or an absent resource
+        // plane); an echoed slot is a `Var`/concrete and unifies STATE-agnostically
+        // (bug-427), so a `File STATE Cursor` handle satisfies a `File` plane and a
+        // data-only handle's `Nothing` resource plane fails a `Var` `res` under strict.
+        (
+            ParameterType::ThreadHandle {
+                worker: p_worker,
+                msg: p_msg,
+                res: p_res,
+                out: p_out,
+            },
+            ParameterType::ThreadHandle {
+                worker: c_worker,
+                msg: c_msg,
+                res: c_res,
+                out: c_out,
+            },
+        ) => {
+            p_worker == c_worker
+                && thread_slot_unifies(p_msg, c_msg, bindings, strict)
+                && thread_slot_unifies(p_out, c_out, bindings, strict)
+                && thread_slot_unifies(p_res, c_res, bindings, strict)
+        }
+        // A container/function/thread pattern against a non-matching concrete fails.
         (
             ParameterType::ListOf(_)
             | ParameterType::SetOf(_)
             | ParameterType::MapOf(_, _)
-            | ParameterType::Func(_, _),
+            | ParameterType::Func(_, _, _)
+            | ParameterType::ThreadHandle { .. },
             _,
         ) => false,
         // Scalar or nominal leaf.
         (leaf, _) => leaf_matches(leaf, concrete, strict),
     }
+}
+
+/// Unify one slot (`msg`/`res`/`out`) of a [`ParameterType::ThreadHandle`]. A member
+/// that does NOT echo the slot spells it [`ParameterType::Unknown`], which wildcards —
+/// it accepts any concrete slot, including a `Nothing` message/output (a resource-only
+/// or `Nothing`-returning thread) or an absent resource plane — so the strict-`Nothing`
+/// guard only bites where a slot is genuinely captured. A member that ECHOES the slot
+/// spells it a `Var`/concrete, which unifies STATE-agnostically through the normal
+/// recursion (the `Var` arm uses [`resource_base_eq`]); a data-only concrete `res`
+/// (`Nothing`) then fails the `Var`'s strict-`Nothing` guard, correctly rejecting
+/// `accept`/`transfer` on a resource-free handle exactly as the legacy resolver did.
+fn thread_slot_unifies(
+    pattern: &ParameterType,
+    concrete: &ParameterType,
+    bindings: &mut BTreeMap<&'static str, ParameterType>,
+    strict: bool,
+) -> bool {
+    if matches!(pattern, ParameterType::Unknown) {
+        return true;
+    }
+    unify(pattern, concrete, bindings, strict)
 }
 
 /// STATE/ownership-agnostic type equality, matching
@@ -1700,12 +1764,31 @@ fn substitute(
         ParameterType::MapOf(key, value) => {
             ParameterType::map_of(substitute(key, bindings)?, substitute(value, bindings)?)
         }
-        ParameterType::Func(params, ret) => ParameterType::func(
-            params
+        ParameterType::Func(params, ret, isolated) => {
+            let params = params
                 .iter()
                 .map(|p| substitute(p, bindings))
-                .collect::<Option<Vec<_>>>()?,
-            substitute(ret, bindings)?,
+                .collect::<Option<Vec<_>>>()?;
+            let ret = substitute(ret, bindings)?;
+            if *isolated {
+                ParameterType::func_isolated(params, ret)
+            } else {
+                ParameterType::func(params, ret)
+            }
+        }
+        // A thread-handle return (only `start` builds one) rebuilds each slot with the
+        // bindings unified from the call — the fresh parent `Thread` handle whose
+        // `msg`/`res`/`out` echo the worker's, exactly like the `List`/`Map` arms.
+        ParameterType::ThreadHandle {
+            worker,
+            msg,
+            res,
+            out,
+        } => ParameterType::thread_handle(
+            *worker,
+            substitute(msg, bindings)?,
+            substitute(res, bindings)?,
+            substitute(out, bindings)?,
         ),
         other => other.clone(),
     })
@@ -1720,7 +1803,10 @@ fn contains_var(ty: &ParameterType) -> bool {
         ParameterType::Var(_) | ParameterType::Arg(_) => true,
         ParameterType::ListOf(elem) | ParameterType::SetOf(elem) => contains_var(elem),
         ParameterType::MapOf(key, value) => contains_var(key) || contains_var(value),
-        ParameterType::Func(params, ret) => params.iter().any(contains_var) || contains_var(ret),
+        ParameterType::Func(params, ret, _) => params.iter().any(contains_var) || contains_var(ret),
+        ParameterType::ThreadHandle { msg, res, out, .. } => {
+            contains_var(msg) || contains_var(res) || contains_var(out)
+        }
         _ => false,
     }
 }
@@ -1924,10 +2010,9 @@ pub(crate) fn callback_member_bare(member: &str) -> bool {
 /// `FUNC(<one param>) AS <ret>` (a unary function value).
 fn function_has_unary_callback(function: &RegistryFunction) -> bool {
     function.implementations.iter().any(|implementation| {
-        implementation
-            .params
-            .iter()
-            .any(|param| matches!(&param.ty, ParameterType::Func(params, _) if params.len() == 1))
+        implementation.params.iter().any(
+            |param| matches!(&param.ty, ParameterType::Func(params, _, _) if params.len() == 1),
+        )
     })
 }
 
@@ -2459,6 +2544,293 @@ mod tests {
                 .return_type
                 .name(),
             "Integer"
+        );
+    }
+
+    // --- thread ThreadHandle probe: empirical reproduction of the legacy resolver ---
+    //
+    // (`src/builtins/thread.rs:719-1006`) against the new `parse`/`unify`/`substitute`.
+    // These assert the LEGACY behavior and are the regression guard for the settled
+    // two-overload model (plan §"PART B obstacle resolution"): the resource plane is a
+    // SIGNATURE-LEVEL overload split on the existing `RES` spelling (`start` = a
+    // resource overload tried first + a data overload; `accept`/`transfer` =
+    // resource-only), the strict-`Nothing` guard rejects a data-only handle from the
+    // resource overload FOR us, and the `Var`-refines-`Unknown` rule (bug-443 latent
+    // fix) makes `send(Thread OF Unknown TO Out, Integer)` resolve.
+    fn th(
+        worker: bool,
+        msg: ParameterType,
+        res: ParameterType,
+        out: ParameterType,
+    ) -> ParameterType {
+        ParameterType::thread_handle(worker, msg, res, out)
+    }
+
+    #[test]
+    fn thread_probe_waitfor_receive_send_poll() {
+        use ParameterType::{Integer, Nothing, String, Unknown, Var};
+        let data_handle = |m, o| th(false, m, Unknown, o);
+        // waitFor(Thread OF Msg TO Out) AS Out
+        let wait_for = func(
+            "waitFor",
+            vec![generic_impl(
+                vec![data_handle(Var("Msg"), Var("Out"))],
+                Var("Out"),
+            )],
+        );
+        let parent = th(false, Integer, Nothing, String);
+        assert_eq!(
+            wait_for
+                .resolve(&CallShape {
+                    args: vec![parent.clone()]
+                })
+                .map(|s| s.return_type.name().into_owned()),
+            Some("String".into()),
+            "waitFor parent (strict)"
+        );
+        // worker handle rejected (kind mismatch)
+        assert!(
+            wait_for
+                .resolve(&CallShape {
+                    args: vec![th(true, Integer, Nothing, String)]
+                })
+                .is_none(),
+            "waitFor rejects worker"
+        );
+
+        // receive(Thread OF Msg TO Out) AS Msg — including the Unknown-message case.
+        let receive = func(
+            "receive",
+            vec![generic_impl(
+                vec![data_handle(Var("Msg"), Var("Out"))],
+                Var("Msg"),
+            )],
+        );
+        assert_eq!(
+            receive
+                .dispatch(&CallShape {
+                    args: vec![parent.clone()]
+                })
+                .map(|s| s.return_type.name().into_owned()),
+            Some("Integer".into()),
+            "receive Msg"
+        );
+        assert_eq!(
+            receive
+                .dispatch(&CallShape {
+                    args: vec![th(false, Unknown, Nothing, String)]
+                })
+                .map(|s| s.return_type.name().into_owned()),
+            Some("Unknown".into()),
+            "receive Unknown message"
+        );
+
+        // send(Thread OF Msg TO Out, Msg) AS Nothing — cross-param constraint.
+        let send = func(
+            "send",
+            vec![generic_impl(
+                vec![data_handle(Var("Msg"), Var("Out")), Var("Msg")],
+                Nothing,
+            )],
+        );
+        assert_eq!(
+            send.resolve(&CallShape {
+                args: vec![parent.clone(), Integer]
+            })
+            .map(|s| s.return_type.name().into_owned()),
+            Some("Nothing".into()),
+            "send matching message"
+        );
+        assert!(
+            send.resolve(&CallShape {
+                args: vec![parent.clone(), String]
+            })
+            .is_none(),
+            "send message mismatch rejected"
+        );
+        // Legacy resolve_send_unknown_message: handle message Unknown accepts any arg.
+        assert_eq!(
+            send.resolve(&CallShape {
+                args: vec![th(false, Unknown, Nothing, String), Integer]
+            })
+            .map(|s| s.return_type.name().into_owned()),
+            Some("Nothing".into()),
+            "send Unknown-message accepts any arg (LEGACY)"
+        );
+    }
+
+    #[test]
+    fn thread_probe_transfer_accept_resource_plane() {
+        use ParameterType::{Integer, Nothing, String, Var};
+        let file = ParameterType::Named("fs.File");
+        // transfer(Thread OF Msg RES Res TO Out, Res) AS Nothing — resource-ONLY overload.
+        let transfer = func(
+            "transfer",
+            vec![generic_impl(
+                vec![th(false, Var("Msg"), Var("Res"), Var("Out")), Var("Res")],
+                Nothing,
+            )],
+        );
+        assert_eq!(
+            transfer
+                .resolve(&CallShape {
+                    args: vec![th(false, Integer, file.clone(), String), file.clone()]
+                })
+                .map(|s| s.return_type.name().into_owned()),
+            Some("Nothing".into()),
+            "transfer matching resource"
+        );
+        // A data-only handle has no resource plane: STRICT validation rejects it (the
+        // resource overload's `res` Var can't bind `Nothing`) -> TYPE_CALL_ARGUMENT_MISMATCH.
+        assert!(
+            transfer
+                .resolve(&CallShape {
+                    args: vec![th(false, Integer, Nothing, String), file.clone()]
+                })
+                .is_none(),
+            "transfer on data-only handle rejected by strict validation (LEGACY)"
+        );
+
+        // accept(Thread OF Msg RES Res TO Out) AS Res — resource-ONLY overload.
+        let accept = func(
+            "accept",
+            vec![generic_impl(
+                vec![th(false, Var("Msg"), Var("Res"), Var("Out"))],
+                Var("Res"),
+            )],
+        );
+        assert_eq!(
+            accept
+                .dispatch(&CallShape {
+                    args: vec![th(false, Integer, file.clone(), String)]
+                })
+                .map(|s| s.return_type.name().into_owned()),
+            Some("fs.File".into()),
+            "accept returns resource"
+        );
+        // A data-only handle is rejected by STRICT validation (the strict-`Nothing`
+        // guard), exactly as legacy `resolve_call` returns None on a data-only thread.
+        assert!(
+            accept
+                .resolve(&CallShape {
+                    args: vec![th(false, Integer, Nothing, String)]
+                })
+                .is_none(),
+            "accept on data-only handle rejected by strict validation (LEGACY)"
+        );
+    }
+
+    #[test]
+    fn thread_probe_start_extraction_and_resource_echo() {
+        use ParameterType::{Integer, Nothing, String, Var};
+        let file = ParameterType::Named("fs.File");
+        // start = TWO overloads (resource first, data second), the settled model.
+        //   RESOURCE: ISOLATED FUNC(ThreadWorker OF Msg RES Res TO Out, In) AS Out
+        //             -> Thread OF Msg RES Res TO Out
+        //   DATA:     ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out
+        //             -> Thread OF Msg TO Out  (worker/return carry NO res var)
+        let opt_int = |name| Parameter {
+            name,
+            desc: "",
+            aliases: &[],
+            ty: Integer,
+            default: DefaultValue::Optional,
+        };
+        let overload = |worker_res: ParameterType, ret_res: ParameterType| Implementation {
+            params: vec![
+                param(
+                    "f",
+                    ParameterType::func_isolated(
+                        vec![th(true, Var("Msg"), worker_res, Var("Out")), Var("In")],
+                        Var("Out"),
+                    ),
+                ),
+                param("data", Var("In")),
+                opt_int("inboundLimit"),
+                opt_int("outboundLimit"),
+            ],
+            return_type: th(false, Var("Msg"), ret_res, Var("Out")),
+            errors: vec![],
+            body: Body::Intrinsic,
+        };
+        let start = func(
+            "start",
+            vec![overload(Var("Res"), Var("Res")), overload(Nothing, Nothing)],
+        );
+
+        // Data-only worker: strict validation MUST accept (via the data overload), and
+        // dispatch echoes a data-only parent handle (via the resource overload, whose
+        // `Res` binds `Nothing` under lenient and elides).
+        let data_fn =
+            ParameterType::func_isolated(vec![th(true, Integer, Nothing, String), Integer], String);
+        assert!(
+            start
+                .resolve(&CallShape {
+                    args: vec![data_fn.clone(), Integer]
+                })
+                .is_some(),
+            "start STRICT-validates a data-only worker"
+        );
+        assert_eq!(
+            start
+                .dispatch(&CallShape {
+                    args: vec![data_fn, Integer]
+                })
+                .map(|s| s.return_type.name().into_owned()),
+            Some("Thread OF Integer TO String".into()),
+            "start echoes a data-only worker"
+        );
+
+        // Resourced worker: start echoes the resource plane onto the parent handle.
+        let res_fn =
+            ParameterType::func_isolated(vec![th(true, Integer, file, String), Integer], String);
+        assert!(
+            start
+                .resolve(&CallShape {
+                    args: vec![res_fn.clone(), Integer]
+                })
+                .is_some(),
+            "start STRICT-validates a resourced worker"
+        );
+        assert_eq!(
+            start
+                .dispatch(&CallShape {
+                    args: vec![res_fn, Integer]
+                })
+                .map(|s| s.return_type.name().into_owned()),
+            Some("Thread OF Integer RES fs.File TO String".into()),
+            "start echoes a resourced worker's plane"
+        );
+
+        // A plain (non-isolated) worker is NOT accepted where start demands ISOLATED.
+        let plain_fn =
+            ParameterType::func(vec![th(true, Integer, Nothing, String), Integer], String);
+        assert!(
+            start
+                .resolve(&CallShape {
+                    args: vec![plain_fn, Integer]
+                })
+                .is_none(),
+            "start rejects a non-isolated worker"
+        );
+    }
+
+    #[test]
+    fn thread_probe_parse_isolated_func_arg() {
+        // The type checker hands `start`'s callback arg as `ISOLATED FUNC(...) AS ...`;
+        // `parse` decomposes it into an isolated `Func` whose first param is a
+        // `ThreadHandle`, and `name()` round-trips the `ISOLATED ` marker byte-exactly.
+        let spelling = "ISOLATED FUNC(ThreadWorker OF Integer TO String, Integer) AS String";
+        let parsed = ParameterType::parse(spelling);
+        assert_eq!(parsed.name(), spelling, "ISOLATED FUNC round-trips");
+        let ParameterType::Func(params, _, isolated) = &parsed else {
+            panic!("parse decomposes ISOLATED FUNC into a Func (got {parsed:?})");
+        };
+        assert!(isolated, "the Func is marked isolated");
+        assert!(
+            matches!(&params[0], ParameterType::ThreadHandle { worker: true, .. }),
+            "the first param is a ThreadWorker handle (got {:?})",
+            params[0]
         );
     }
 

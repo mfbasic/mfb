@@ -22,7 +22,7 @@ IMPORT thread
 ```
 
 `thread` is a built-in package, so no manifest dependency is required.
-[[src/builtins/thread.rs:is_thread_call]]
+[[src/codegen/builtins/thread/mod.rs:is_thread_call]]
 
 ## Description
 
@@ -84,20 +84,20 @@ closes, or cancellation is observed.
 Bounded read on either handle kind: `timeoutMs` must be `>= 0`; `0` is one
 immediate attempt that fails with `ErrTimeout` when the (still-open) queue is
 empty, a positive value waits that long and then fails with `ErrTimeout`.
-[[src/builtins/thread.rs:THREAD]] [[src/builtins/thread.rs:THREAD]]
+[[src/codegen/builtins/thread/mod.rs:register]] [[src/codegen/builtins/thread/mod.rs:register]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `t` (also `thread`) | `Thread OF Msg TO Out` or `ThreadWorker OF Msg TO Out` | The handle whose data-plane queue is read. A parent handle reads the worker's outbound queue; a worker handle reads its own inbound queue. Borrowed, not consumed. [[src/builtins/thread.rs:call_param_names]] |
-| `timeoutMs` | `Integer` | Optional. Omit to block until a message arrives, the queue closes, or cancellation is observed. When supplied it must be `>= 0`: `0` is one immediate attempt (`ErrTimeout` if the open queue is empty), a positive value waits that many milliseconds. A negative value is rejected with `ErrInvalidArgument`. [[src/builtins/thread.rs:call_param_names]] |
+| `t` (also `thread`) | `Thread OF Msg TO Out` or `ThreadWorker OF Msg TO Out` | The handle whose data-plane queue is read. A parent handle reads the worker's outbound queue; a worker handle reads its own inbound queue. Borrowed, not consumed. [[src/codegen/builtins/thread/mod.rs:register]] |
+| `timeoutMs` | `Integer` | Optional. Omit to block until a message arrives, the queue closes, or cancellation is observed. When supplied it must be `>= 0`: `0` is one immediate attempt (`ErrTimeout` if the open queue is empty), a positive value waits that many milliseconds. A negative value is rejected with `ErrInvalidArgument`. [[src/codegen/builtins/thread/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Msg` | The dequeued message, of the thread's message type, removed from the queue and moved to the caller. A handle typed `Unknown` yields a value of type `Unknown`. [[src/builtins/thread.rs:thread_message]] |
+| `Msg` | The dequeued message, of the thread's message type, removed from the queue and moved to the caller. A handle typed `Unknown` yields a value of type `Unknown`. [[src/types.rs:thread_message]] |
 
 ## Errors
 
@@ -114,7 +114,7 @@ empty, a positive value waits that long and then fails with `ErrTimeout`.
 Generic over `Msg` and `Out`. `t` must be a `Thread` or `ThreadWorker` handle; the
 queue read is selected by which of the two it is, and the result type is the
 handle's `Msg` (`Unknown` for a handle typed `Unknown`). `timeoutMs`, when
-supplied, must be `Integer`. [[src/builtins/thread.rs:THREAD]]
+supplied, must be `Integer`. [[src/codegen/builtins/thread/mod.rs:register]]
 
 ## Examples
 

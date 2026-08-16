@@ -28,7 +28,7 @@ signature that is simultaneously an imported-package export, a `FUNC`,
 and isolated; failure reports `TYPE_CALL_ARGUMENT_MISMATCH` with the message
 `thread.start entry point must be an exported ISOLATED FUNC from an imported
 package.`. The parameter-shape and return-type checks are the ordinary
-function-reference signature match. [[src/syntaxcheck/builtins.rs:check_thread_builtin_call]] [[src/builtins/thread.rs:resolve_call]]
+function-reference signature match. [[src/syntaxcheck/builtins.rs:check_thread_builtin_call]] [[src/codegen/registry/mod.rs:resolve_call]]
 
 The `imported_package_export` requirement is not weakened by the reserved
 `IMPORT self` specifier. In a `kind: "package"` project, `IMPORT self` registers
@@ -49,7 +49,7 @@ defaulting to `Nothing`) — are documented by `./mfb spec language threads`. Th
 compiler parses them, producing
 the internal structural view `(message, resource, output)` where `resource`
 is an `Option`. `thread::start` derives the parent `Thread` type from the worker's
-`ThreadWorker` first parameter, preserving the `RES` clause. [[src/builtins/thread.rs:split_thread_types]]
+`ThreadWorker` first parameter, preserving the `RES` clause. [[src/types.rs:split_thread_types]]
 
 ## Sendability enforcement
 

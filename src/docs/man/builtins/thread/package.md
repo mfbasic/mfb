@@ -23,13 +23,13 @@ cancellation state, and the worker's result. Retrieving the result with
 **no `t.result` member**: it was removed from the language, and a `.result`
 member access on a `Thread` is rejected before IR lowering with
 `TYPE_THREAD_RESULT_REMOVED`. `thread::waitFor` is the only way to retrieve a
-worker's outcome. [[src/builtins/thread.rs:is_thread_call]] [[src/rules/table.rs:TYPE_THREAD_RESULT_REMOVED]]
+worker's outcome. [[src/codegen/builtins/thread/mod.rs:is_thread_call]] [[src/rules/table.rs:TYPE_THREAD_RESULT_REMOVED]]
 
 A worker entry point must have the shape
 `ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out` and must be an exported
 function from an imported package. Lambdas, closures, `SUB`s, non-isolated
 functions, current-package functions, and functions without the leading
-`ThreadWorker` parameter are rejected at compile time. [[src/builtins/thread.rs:matches_start]]
+`ThreadWorker` parameter are rejected at compile time. [[src/codegen/builtins/thread/mod.rs:start]]
 
 Threads are spelled `Thread OF Msg TO Out` (parent handle) and
 `ThreadWorker OF Msg TO Out` (worker handle), where `Msg` is the message type
@@ -40,7 +40,7 @@ resource-only thread). The data plane moves plain values with `thread::send` and
 `thread::receive`; the separate resource plane moves owned resource handles with
 `thread::transfer` and `thread::accept`, keeping the data channel resource-free.
 A handle whose message or resource type is `Unknown` accepts any value and yields
-a value of type `Unknown`. [[src/builtins/thread.rs:thread_parts_full]] [[src/builtins/thread.rs:format_thread_type]]
+a value of type `Unknown`. [[src/types.rs:thread_parts_full]] [[src/types.rs:format_thread_type]]
 
 Both queues are bounded; their capacities are set when the thread starts
 (`inboundLimit` and `outboundLimit`, each at least 1). Sending into a full queue
@@ -51,7 +51,7 @@ are `Integer` milliseconds. `send` and `transfer` default `timeoutMs` to `0`
 message/resource arrives, the queue closes, or the worker is cancelled; with an
 explicit `timeoutMs` (which must be `>= 0`) `0` polls without waiting and a positive
 value bounds the wait, while a negative value is rejected with
-`ErrInvalidArgument`. [[src/builtins/thread.rs:call_param_names]]
+`ErrInvalidArgument`. [[src/codegen/builtins/thread/mod.rs:register]]
 
 `thread::sleep(t, ms)` blocks the *calling* thread for `ms` milliseconds and
 returns nothing. It is unrelated to the queues: `ms = 0` returns immediately, a
@@ -87,7 +87,7 @@ the calling thread and `thread::openStdIn(t)` subscribes the worker behind a par
 unsubscribes). A single-threaded program is byte-identical to a direct reader: the
 compiler subscribes the main thread at entry, so it never needs to call `openStdIn`.
 A thread that reads stdin without a subscription raises `ErrInvalidContext`.
-[[src/builtins/thread.rs:OPEN_STD_IN]]
+[[src/codegen/builtins/thread/mod.rs:openStdIn]]
 
 ## Errors
 

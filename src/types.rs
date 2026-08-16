@@ -51,7 +51,12 @@ pub(crate) enum ParameterType {
     /// callback's shape structurally (binding `T`/`U`) instead of matching an opaque
     /// `Named("FUNC(Integer) AS String")` blob. Built by [`parse`](Self::parse) from a
     /// concrete `FUNC(...)` argument, and written in a descriptor with [`func`](Self::func).
-    Func(Vec<ParameterType>, Box<ParameterType>),
+    ///
+    /// The trailing `bool` is `isolated`: an `ISOLATED FUNC(...)` (a capture-free
+    /// worker entry — `thread::start`'s callback) renders and round-trips with the
+    /// `ISOLATED ` prefix, and only unifies against a matching-isolation concrete, so a
+    /// plain `FUNC` is not accepted where `thread::start` demands an isolated worker.
+    Func(Vec<ParameterType>, Box<ParameterType>, bool),
     /// A return-type marker meaning "the concrete type of argument `n`, echoed
     /// **verbatim**". Only valid in a return position. Unlike a substituted [`Var`],
     /// which is reconstructed from parsed pieces (and so drops a `RES ` ownership
@@ -63,6 +68,23 @@ pub(crate) enum ParameterType {
     /// An unresolved concrete argument type. Only appears on the concrete side (from
     /// [`parse`](Self::parse)); it unifies with any pattern as a wildcard.
     Unknown,
+    /// A thread handle type — the structured decomposition of `Thread OF Msg TO Out`
+    /// / `ThreadWorker OF Msg TO Out`, with an optional resource plane
+    /// (`Thread OF Msg RES Res TO Out`). `worker` distinguishes a parent `Thread`
+    /// handle from a `ThreadWorker` handle (the two never unify with each other).
+    /// `msg`/`out` are the data-plane message and output types; `res` is the
+    /// resource-plane type, defaulting to [`Nothing`](Self::Nothing) when the handle
+    /// carries no `RES Res` clause (elided by [`name`](Self::name)). The three slots
+    /// may themselves be generic ([`Var`](Self::Var)), so `start` can return a fresh
+    /// parent handle and `waitFor`/`receive`/`accept` can return `out`/`msg`/`res`
+    /// with no per-package resolver — the variant rides the same
+    /// [`unify`](crate::codegen::registry)/`substitute` recursion as `ListOf`/`Func`.
+    ThreadHandle {
+        worker: bool,
+        msg: Box<ParameterType>,
+        res: Box<ParameterType>,
+        out: Box<ParameterType>,
+    },
 }
 
 impl ParameterType {
@@ -76,7 +98,28 @@ impl ParameterType {
         ParameterType::SetOf(Box::new(elem))
     }
     pub(crate) fn func(params: Vec<ParameterType>, ret: ParameterType) -> Self {
-        ParameterType::Func(params, Box::new(ret))
+        ParameterType::Func(params, Box::new(ret), false)
+    }
+    /// An `ISOLATED FUNC(...)` value type — a capture-free worker entry
+    /// (`thread::start`'s callback).
+    pub(crate) fn func_isolated(params: Vec<ParameterType>, ret: ParameterType) -> Self {
+        ParameterType::Func(params, Box::new(ret), true)
+    }
+    /// A thread-handle type from its parts; `res` defaults to
+    /// [`Nothing`](Self::Nothing) at the call site when the handle carries no
+    /// resource plane.
+    pub(crate) fn thread_handle(
+        worker: bool,
+        msg: ParameterType,
+        res: ParameterType,
+        out: ParameterType,
+    ) -> Self {
+        ParameterType::ThreadHandle {
+            worker,
+            msg: Box::new(msg),
+            res: Box::new(res),
+            out: Box::new(out),
+        }
     }
 
     /// Parse a concrete type *name* — the currency the type checker still speaks at
@@ -92,6 +135,20 @@ impl ParameterType {
         if name == "Unknown" {
             return ParameterType::Unknown;
         }
+        // A parametric thread type (`Thread OF Msg [RES Res] TO Out` /
+        // `ThreadWorker OF ...`) decomposes structurally into a `ThreadHandle`, its
+        // three slots recursively parsed — mirroring the `List`/`Map`/`FUNC` arms.
+        // The resource plane defaults to `Nothing` when absent (elided by `name`).
+        // A bare opaque `Thread` / `ThreadWorker` (no ` OF ` body) is not a handle
+        // and falls through to `Named`.
+        if let Some((kind, message, resource, output)) = thread_parts_full(name) {
+            return ParameterType::thread_handle(
+                kind == THREAD_WORKER_TYPE,
+                ParameterType::parse(message),
+                resource.map_or(ParameterType::Nothing, ParameterType::parse),
+                ParameterType::parse(output),
+            );
+        }
         if let Some(elem) = name.strip_prefix("List OF ") {
             return ParameterType::list_of(ParameterType::parse(elem));
         }
@@ -104,15 +161,26 @@ impl ParameterType {
         {
             return ParameterType::map_of(ParameterType::parse(key), ParameterType::parse(value));
         }
-        if let Some(rest) = name.strip_prefix("FUNC(") {
+        // `ISOLATED FUNC(...)` (a capture-free worker entry — `thread::start`'s
+        // callback) parses to an isolated [`Func`](Self::Func), so the `Func` arm can
+        // reach the nested `ThreadWorker` handle in its first parameter; the
+        // `ISOLATED ` marker is preserved for a byte-exact `name()` round-trip.
+        let (isolated, func_rest) = match name.strip_prefix("ISOLATED FUNC(") {
+            Some(rest) => (true, Some(rest)),
+            None => (false, name.strip_prefix("FUNC(")),
+        };
+        if let Some(rest) = func_rest {
             // Split `<params>) AS <return>` at paren depth 0: the closing paren and the
             // separating commas are the ones at depth 0 (a parameter may itself be a
             // `FUNC(...)`). Mirrors `builtins::general::function_parts`.
             if let Some((params, ret)) = crate::builtins::split_func_params_and_return(rest) {
-                return ParameterType::func(
-                    params.into_iter().map(ParameterType::parse).collect(),
-                    ParameterType::parse(ret),
-                );
+                let params = params.into_iter().map(ParameterType::parse).collect();
+                let ret = ParameterType::parse(ret);
+                return if isolated {
+                    ParameterType::func_isolated(params, ret)
+                } else {
+                    ParameterType::func(params, ret)
+                };
             }
         }
         match name {
@@ -148,8 +216,9 @@ impl ParameterType {
             ParameterType::SetOf(elem) => Cow::Owned(format!("Set OF {}", elem.name())),
             ParameterType::Named(elem) => Cow::Borrowed(elem),
             ParameterType::Var(name) => Cow::Borrowed(name),
-            ParameterType::Func(params, ret) => Cow::Owned(format!(
-                "FUNC({}) AS {}",
+            ParameterType::Func(params, ret, isolated) => Cow::Owned(format!(
+                "{}FUNC({}) AS {}",
+                if *isolated { "ISOLATED " } else { "" },
                 params
                     .iter()
                     .map(|p| p.name())
@@ -159,6 +228,30 @@ impl ParameterType {
             )),
             ParameterType::Arg(n) => Cow::Owned(format!("Arg{n}")),
             ParameterType::Unknown => Cow::Borrowed("Unknown"),
+            ParameterType::ThreadHandle {
+                worker,
+                msg,
+                res,
+                out,
+            } => {
+                let kind = if *worker {
+                    THREAD_WORKER_TYPE
+                } else {
+                    THREAD_TYPE
+                };
+                // The resource plane is elided when `Nothing`, exactly reproducing
+                // `format_thread_type` (a data-only `Thread OF Msg TO Out`).
+                let res_name = match res.as_ref() {
+                    ParameterType::Nothing => None,
+                    other => Some(other.name()),
+                };
+                Cow::Owned(format_thread_type(
+                    kind,
+                    &msg.name(),
+                    res_name.as_deref(),
+                    &out.name(),
+                ))
+            }
         }
     }
 
@@ -181,5 +274,361 @@ impl ParameterType {
 impl fmt::Display for ParameterType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name())
+    }
+}
+
+// --- Thread-type string vocabulary --------------------------------------------
+//
+// The parent `Thread` and worker `ThreadWorker` handle types are spelled as
+// parametric strings (`Thread OF Msg [RES Res] TO Out`). Their structural
+// splitters/renderers live here — not under `builtins` — because
+// [`ParameterType::parse`]/[`name`](ParameterType::name) decompose/render them into
+// the [`ParameterType::ThreadHandle`] variant, and every other consumer (monomorph,
+// syntaxcheck, codegen, binary_repr) speaks the same string vocabulary. This is the
+// former `builtins::thread` splitter set, kept byte-identical so the migrated
+// `thread` package and all its codegen citations agree on the spelling.
+
+/// The parent thread handle's type name.
+pub(crate) const THREAD_TYPE: &str = "Thread";
+/// The worker thread handle's type name.
+pub(crate) const THREAD_WORKER_TYPE: &str = "ThreadWorker";
+
+/// Render a thread type string from its parts, emitting the optional `RES Res`
+/// clause and the resource-only spelling (`message == "Nothing"`) symmetrically
+/// with [`split_thread_types`].
+pub(crate) fn format_thread_type(
+    kind: &str,
+    message: &str,
+    resource: Option<&str>,
+    output: &str,
+) -> String {
+    match resource {
+        Some(resource) if message == "Nothing" => {
+            format!("{kind} OF RES {resource} TO {output}")
+        }
+        Some(resource) => format!("{kind} OF {message} RES {resource} TO {output}"),
+        None => format!("{kind} OF {message} TO {output}"),
+    }
+}
+
+/// Whether `name` spells a parent `Thread` handle type. Part of the thread-type
+/// vocabulary the man pages cite; the parent/worker split is now enforced structurally
+/// by the `thread` descriptor's kind-split overloads, so this predicate has no
+/// remaining code caller.
+#[allow(dead_code)]
+pub(crate) fn is_parent_thread_type(name: &str) -> bool {
+    thread_parts(name).is_some_and(|(kind, _, _)| kind == THREAD_TYPE)
+}
+
+/// Whether `name` spells a worker `ThreadWorker` handle type.
+pub(crate) fn is_worker_thread_type(name: &str) -> bool {
+    thread_parts(name).is_some_and(|(kind, _, _)| kind == THREAD_WORKER_TYPE)
+}
+
+/// The data-plane message type of a thread handle (`"Nothing"` for a resource-only
+/// thread), or `None` for a non-thread type.
+pub(crate) fn thread_message(name: &str) -> Option<&str> {
+    thread_parts(name).map(|(_, message, _)| message)
+}
+
+/// The resource type carried on the thread's resource plane
+/// (`thread::transfer`/`thread::accept`), or `None` for a data-only thread. A
+/// data-only thread is spelled `Thread OF Msg TO Out`; the resource plane is the
+/// optional `RES Res` clause: `Thread OF Msg RES Res TO Out` (or `Thread OF RES
+/// Res TO Out` when there is no data channel).
+pub(crate) fn thread_resource(name: &str) -> Option<&str> {
+    thread_parts_full(name).and_then(|(_, _, resource, _)| resource)
+}
+
+/// Output type for `thread::waitFor`, which is only valid on a parent `Thread`
+/// handle (not a `ThreadWorker`).
+pub(crate) fn parent_thread_output(name: &str) -> Option<&str> {
+    thread_parts(name).and_then(|(kind, _, output)| (kind == THREAD_TYPE).then_some(output))
+}
+
+/// A thread handle's `(kind, message, output)`, dropping the resource plane.
+pub(crate) fn thread_parts(name: &str) -> Option<(&str, &str, &str)> {
+    thread_parts_full(name).map(|(kind, message, _, output)| (kind, message, output))
+}
+
+/// Full structural view of a thread type: `(kind, message, resource, output)`.
+/// `message` is the data-plane message type (`"Nothing"` for a resource-only
+/// thread); `resource` is the resource-plane type, present only when the type
+/// carries a `RES Res` clause.
+pub(crate) fn thread_parts_full(name: &str) -> Option<(&'static str, &str, Option<&str>, &str)> {
+    let (kind, rest) = if let Some(rest) = name.strip_prefix("Thread OF ") {
+        (THREAD_TYPE, rest)
+    } else if let Some(rest) = name.strip_prefix("ThreadWorker OF ") {
+        (THREAD_WORKER_TYPE, rest)
+    } else {
+        return None;
+    };
+    let (message, resource, output) = split_thread_types(rest)?;
+    Some((
+        kind,
+        strip_type_group(message),
+        resource.map(strip_type_group),
+        strip_type_group(output),
+    ))
+}
+
+/// Parse the body after `Thread OF ` / `ThreadWorker OF ` into
+/// `(message, resource, output)`. Accepts three shapes:
+///   `<msg> TO <out>`              (data-only)
+///   `<msg> RES <res> TO <out>`    (data + resource planes)
+///   `RES <res> TO <out>`          (resource-only; message defaults to Nothing)
+fn split_thread_types(rest: &str) -> Option<(&str, Option<&str>, &str)> {
+    let rest = rest.trim();
+
+    // Resource-only: no data message before the `RES` clause.
+    if let Some(after_res) = rest.strip_prefix("RES ") {
+        let res_end = resource_element_len(after_res)?;
+        let resource = after_res[..res_end].trim();
+        let output = after_res.get(res_end..)?.strip_prefix(" TO ")?.trim();
+        return Some(("Nothing", Some(resource), output));
+    }
+
+    let message_end = type_prefix_len(rest)?;
+    let message = rest[..message_end].trim();
+    let tail = rest.get(message_end..)?;
+
+    // Optional ` RES <res>` clause between the message and ` TO `.
+    if let Some(after_res) = tail.strip_prefix(" RES ") {
+        let res_end = resource_element_len(after_res)?;
+        let resource = after_res[..res_end].trim();
+        let output = after_res.get(res_end..)?.strip_prefix(" TO ")?.trim();
+        return Some((message, Some(resource), output));
+    }
+
+    let output = tail.strip_prefix(" TO ")?.trim();
+    Some((message, None, output))
+}
+
+/// Strip a fully-parenthesized outer group (`(Integer)` → `Integer`), leaving a
+/// non-span group (`(a), b`) unchanged.
+pub(crate) fn strip_type_group(type_: &str) -> &str {
+    let trimmed = type_.trim();
+    if !(trimmed.starts_with('(') && trimmed.ends_with(')')) {
+        return trimmed;
+    }
+    let mut depth = 0usize;
+    for (index, ch) in trimmed.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 && index + ch.len_utf8() != trimmed.len() {
+                    return trimmed;
+                }
+            }
+            _ => {}
+        }
+    }
+    &trimmed[1..trimmed.len() - 1]
+}
+
+/// Length consumed by a thread plane's `RES` element: the resource base type plus
+/// an optional ` STATE <T>` clause (plan-54).
+fn resource_element_len(after_res: &str) -> Option<usize> {
+    let base = type_prefix_len(after_res)?;
+    match after_res
+        .get(base..)
+        .and_then(|tail| tail.strip_prefix(" STATE "))
+    {
+        Some(after_state) => {
+            let state_len = type_prefix_len(after_state)?;
+            Some(base + " STATE ".len() + state_len)
+        }
+        None => Some(base),
+    }
+}
+
+/// Length consumed by a single type prefix at the start of `input`, descending
+/// through `List`/`Result`/`Map`/`MapEntry`/`Thread`/`ThreadWorker` nesting.
+fn type_prefix_len(input: &str) -> Option<usize> {
+    let input = input.trim_start();
+    if input.starts_with('(') {
+        let mut depth = 0usize;
+        for (index, ch) in input.char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return Some(index + ch.len_utf8());
+                    }
+                }
+                _ => {}
+            }
+        }
+        return None;
+    }
+
+    let base_end = input
+        .char_indices()
+        .find_map(|(index, ch)| {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == ':' || ch == '.' {
+                None
+            } else {
+                Some(index)
+            }
+        })
+        .unwrap_or(input.len());
+    if base_end == 0 {
+        return None;
+    }
+    let base = &input[..base_end];
+    let Some(after_of) = input[base_end..].strip_prefix(" OF ") else {
+        return Some(base_end);
+    };
+
+    if matches!(base, "List" | "Result") {
+        return type_prefix_len(after_of).map(|len| base_end + 4 + len);
+    }
+
+    if matches!(base, "Map" | "MapEntry") {
+        let first_len = type_prefix_len(after_of)?;
+        let after_first = after_of.get(first_len..)?;
+        let second_input = after_first.strip_prefix(" TO ")?;
+        let second_len = type_prefix_len(second_input)?;
+        return Some(base_end + 4 + first_len + 4 + second_len);
+    }
+
+    if matches!(base, "Thread" | "ThreadWorker") {
+        // `[msg] [RES res] TO out` — mirror split_thread_types' three shapes.
+        return thread_body_len(after_of).map(|len| base_end + 4 + len);
+    }
+
+    Some(base_end)
+}
+
+/// Length consumed by a thread type body (`[msg] [RES res] TO out`) starting at
+/// `rest`. Used by [`type_prefix_len`] to measure a nested thread type.
+fn thread_body_len(rest: &str) -> Option<usize> {
+    if let Some(after_res) = rest.strip_prefix("RES ") {
+        let res_len = resource_element_len(after_res)?;
+        let to = after_res.get(res_len..)?.strip_prefix(" TO ")?;
+        let out_len = type_prefix_len(to)?;
+        // "RES " (4) + res + " TO " (4) + out
+        return Some(4 + res_len + 4 + out_len);
+    }
+
+    let msg_len = type_prefix_len(rest)?;
+    let tail = rest.get(msg_len..)?;
+
+    if let Some(after_res) = tail.strip_prefix(" RES ") {
+        let res_len = resource_element_len(after_res)?;
+        let to = after_res.get(res_len..)?.strip_prefix(" TO ")?;
+        let out_len = type_prefix_len(to)?;
+        // msg + " RES " (5) + res + " TO " (4) + out
+        return Some(msg_len + 5 + res_len + 4 + out_len);
+    }
+
+    let to = tail.strip_prefix(" TO ")?;
+    let out_len = type_prefix_len(to)?;
+    // msg + " TO " (4) + out
+    Some(msg_len + 4 + out_len)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Round-trip a thread-type spelling through `parse` → `name` and assert it is
+    /// byte-identical — the core `ThreadHandle` guarantee (nested threads,
+    /// parenthesized groups, `RES … STATE …` planes all preserved).
+    fn round_trip(spelling: &str) {
+        assert_eq!(
+            ParameterType::parse(spelling).name(),
+            spelling,
+            "round-trip mismatch for `{spelling}`"
+        );
+    }
+
+    #[test]
+    fn thread_handle_parses_into_variant() {
+        assert_eq!(
+            ParameterType::parse("Thread OF Integer TO String"),
+            ParameterType::thread_handle(
+                false,
+                ParameterType::Integer,
+                ParameterType::Nothing,
+                ParameterType::String,
+            )
+        );
+        assert_eq!(
+            ParameterType::parse("ThreadWorker OF Integer TO String"),
+            ParameterType::thread_handle(
+                true,
+                ParameterType::Integer,
+                ParameterType::Nothing,
+                ParameterType::String,
+            )
+        );
+        assert_eq!(
+            ParameterType::parse("Thread OF RES fs.File TO String"),
+            ParameterType::thread_handle(
+                false,
+                ParameterType::Nothing,
+                ParameterType::Named("fs.File"),
+                ParameterType::String,
+            )
+        );
+        assert_eq!(
+            ParameterType::parse("Thread"),
+            ParameterType::Named("Thread")
+        );
+        assert_eq!(
+            ParameterType::parse("ThreadWorker"),
+            ParameterType::Named("ThreadWorker")
+        );
+    }
+
+    #[test]
+    fn thread_handle_round_trips_byte_exact() {
+        for spelling in [
+            "Thread OF Integer TO String",
+            "ThreadWorker OF Integer TO String",
+            "Thread OF Integer RES fs.File TO String",
+            "Thread OF RES fs.File TO String",
+            "Thread OF RES fs.File STATE Cursor TO Integer",
+            "Thread OF Integer RES fs.File STATE Cursor TO String",
+            "Thread OF List OF Integer TO Map OF String TO Integer",
+            "Thread OF Thread OF Integer TO String TO Boolean",
+            "Thread OF Thread OF Integer RES fs.File TO String TO Boolean",
+            "Thread OF Unknown TO String",
+            "Thread OF Nothing TO String",
+        ] {
+            round_trip(spelling);
+        }
+    }
+
+    #[test]
+    fn isolated_func_round_trips_and_decomposes() {
+        // `thread::start`'s worker callback: the `ISOLATED ` marker round-trips, and the
+        // nested `ThreadWorker` handle is reachable through the `Func` params.
+        let spelling =
+            "ISOLATED FUNC(ThreadWorker OF Integer RES fs.File TO String, Integer) AS String";
+        assert_eq!(ParameterType::parse(spelling).name(), spelling);
+        assert_eq!(
+            ParameterType::parse("FUNC(Integer) AS String").name(),
+            "FUNC(Integer) AS String"
+        );
+        match ParameterType::parse(spelling) {
+            ParameterType::Func(params, ret, isolated) => {
+                assert!(isolated);
+                assert_eq!(ret.name(), "String");
+                assert_eq!(
+                    params[0],
+                    ParameterType::thread_handle(
+                        true,
+                        ParameterType::Integer,
+                        ParameterType::Named("fs.File"),
+                        ParameterType::String,
+                    )
+                );
+            }
+            other => panic!("expected Func, got {other:?}"),
+        }
     }
 }
