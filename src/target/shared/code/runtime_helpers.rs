@@ -604,7 +604,7 @@ fn lower_thread_sleep_helper(
         abi::move_immediate(
             RESULT_VALUE_REGISTER,
             "Integer",
-            crate::builtins::errorcode::runtime_error("ErrInvalidArgument")
+            crate::codegen::registry::runtime_error("ErrInvalidArgument")
                 .expect("errorCode name")
                 .0,
         ),
@@ -612,7 +612,7 @@ fn lower_thread_sleep_helper(
     ]);
     push_error_message_address(
         symbol,
-        crate::builtins::errorcode::runtime_error_emission("ErrInvalidArgument")
+        crate::codegen::registry::runtime_error_emission("ErrInvalidArgument")
             .expect("errorCode name")
             .1,
         &mut instructions,
@@ -624,7 +624,7 @@ fn lower_thread_sleep_helper(
         abi::move_immediate(
             RESULT_VALUE_REGISTER,
             "Integer",
-            crate::builtins::errorcode::runtime_error("ErrResourceClosed")
+            crate::codegen::registry::runtime_error("ErrResourceClosed")
                 .expect("errorCode name")
                 .0,
         ),
@@ -632,7 +632,7 @@ fn lower_thread_sleep_helper(
     ]);
     push_error_message_address(
         symbol,
-        crate::builtins::errorcode::runtime_error_emission("ErrResourceClosed")
+        crate::codegen::registry::runtime_error_emission("ErrResourceClosed")
             .expect("errorCode name")
             .1,
         &mut instructions,

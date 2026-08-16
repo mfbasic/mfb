@@ -1029,11 +1029,11 @@ impl BuiltinRegistry {
 /// miss). BB then deletes the legacy helpers the adapters fall back to.
 ///
 /// Migrated so far: `app` (B), `crypto` (F), `audio` (C),
-/// `errorCode` (J), `fs` (K), `general` (L), `http` (M), `io` (N), `math` (P),
+/// `fs` (K), `general` (L), `http` (M), `io` (N), `math` (P),
 /// `money` (Q), `net` (R), `os` (S), `resource` (U), `strings` (V), `term` (W),
 /// `testing` (X). (`bits` D, `collections` E, `csv` G, `datetime` H, `encoding` I,
-/// `json` O, `regex` T, and `process` have since moved to the clean-room registry
-/// `crate::codegen::registry` and are no longer held here.)
+/// `errorCode` J, `json` O, `regex` T, and `process` have since moved to the
+/// clean-room registry `crate::codegen::registry` and are no longer held here.)
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
     &crate::builtins::astrings::ASTRINGS,
@@ -1044,7 +1044,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::audio::AUDIO,
     // datetime migrated to the clean-room registry (crate::codegen::registry).
     // encoding migrated to the clean-room registry (crate::codegen::registry).
-    &crate::builtins::errorcode::ERRORCODE,
+    // errorCode migrated to the clean-room registry (crate::codegen::registry).
     // io migrated to the clean-room registry (crate::codegen::registry).
     &crate::builtins::general::GENERAL,
     // fs migrated to the clean-room registry (crate::codegen::registry).
@@ -1761,11 +1761,12 @@ mod tests {
         assert!(REGISTRY.module("collections").is_none());
         assert!(REGISTRY.module("money").is_none());
         assert!(REGISTRY.module("os").is_none());
-        // `fs` / `io` have migrated onto the clean-room registry too.
+        // `fs` / `io` / `errorCode` have migrated onto the clean-room registry too.
         assert!(REGISTRY.module("fs").is_none());
         assert!(REGISTRY.module("io").is_none());
+        assert!(REGISTRY.module("errorCode").is_none());
         // The 28 builtin packages minus the migrated ones.
-        assert_eq!(REGISTRY.modules().len(), 16);
+        assert_eq!(REGISTRY.modules().len(), 15);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);

@@ -157,10 +157,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&after_alloc));
         self.emit(abi::label(&ovf));
         self.emit_error_code_return(
-            crate::builtins::errorcode::runtime_error("ErrOutOfMemory")
+            crate::codegen::registry::runtime_error("ErrOutOfMemory")
                 .expect("errorCode name")
                 .0,
-            crate::builtins::errorcode::runtime_error("ErrOutOfMemory")
+            crate::codegen::registry::runtime_error("ErrOutOfMemory")
                 .expect("errorCode name")
                 .1,
         )?;

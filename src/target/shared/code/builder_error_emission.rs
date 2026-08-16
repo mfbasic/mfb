@@ -28,7 +28,7 @@ impl CodeBuilder<'_> {
     /// validate against. Resolves `(code, message)` from `ERRORCODE_CONSTANTS`
     /// and emits.
     pub(crate) fn raise_error_bare(&mut self, error_name: &'static str) -> Result<(), String> {
-        let (code, message) = crate::builtins::errorcode::runtime_error(error_name)
+        let (code, message) = crate::codegen::registry::runtime_error(error_name)
             .unwrap_or_else(|| panic!("{error_name} is not a known errorCode constant"));
         self.emit_error_code_return(code, message)
     }

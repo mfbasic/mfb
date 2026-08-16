@@ -2841,7 +2841,7 @@ fn native_link_error_messages() -> Vec<(&'static str, &'static str, &'static str
     ]
     .into_iter()
     .map(|name| {
-        crate::builtins::errorcode::runtime_error_triple(name)
+        crate::codegen::registry::runtime_error_triple(name)
             .expect("native-link error name is an errorCode constant")
     })
     .collect()
@@ -2893,7 +2893,7 @@ fn standard_error_messages() -> Vec<(&'static str, &'static str, &'static str)> 
     ]
     .into_iter()
     .map(|name| {
-        crate::builtins::errorcode::runtime_error_triple(name)
+        crate::codegen::registry::runtime_error_triple(name)
             .expect("standard error name is an errorCode constant")
     })
     .collect()
