@@ -1,0 +1,106 @@
+{
+  "project": "user_resource_shadows_builtin_valid",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    ],
+    "items": [
+    { "kind": "resource", "visibility": "public", "name": "File", "closeFn": "demoLink.close", "threadSendable": false, "line": 11 },
+    { "kind": "resource", "visibility": "public", "name": "Socket", "closeFn": "demoLink.finalize", "threadSendable": false, "line": 12 },
+    {
+      "kind": "link",
+      "library": "sqlite3",
+      "alias": "demoLink",
+      "line": 14,
+      "cstructs": [
+      ],
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "open",
+        "symbol": "sqlite3_open",
+        "returnResource": true,
+        "returnType": "File",
+        "returnState": null,
+        "line": 15,
+        "params": [
+        { "name": "path", "type": "String", "default": null, "line": 15 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "path", "ctype": "CString", "out": false, "line": 17 },
+          { "name": "db", "ctype": "CPtr", "out": true, "line": 17 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": { "kind": "identifier", "value": "db" },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "close",
+        "symbol": "sqlite3_close",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "returnState": null,
+        "line": 22,
+        "params": [
+        { "name": "db", "type": "File", "resource": true, "state": null, "default": null, "line": 22 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 24 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "finalize",
+        "symbol": "sqlite3_finalize",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "returnState": null,
+        "line": 28,
+        "params": [
+        { "name": "sock", "type": "Socket", "resource": true, "state": null, "default": null, "line": 28 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "sock", "ctype": "CPtr", "out": false, "line": 30 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      }
+      ]
+    }
+    ]
+  }
+  ]
+}
