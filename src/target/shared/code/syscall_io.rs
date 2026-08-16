@@ -72,6 +72,9 @@ pub(crate) fn write_uses_raw_syscall(platform: &dyn CodegenPlatform) -> bool {
 /// stack slots, so nothing live is read out of a caller-saved register across the
 /// call (see `.ai/compiler.md`, "Native Codegen Register Lifetimes"). `x9` is the
 /// established errno scratch and is dead on the negative-return path.
+// The `(ret.clone()).into()` at the `emit_errno` call is load-bearing for emission
+// (see the note there); `clippy::useless_conversion` is a false positive.
+#[allow(clippy::useless_conversion)]
 pub(crate) fn emit_eintr_retry_or_error(
     ctx: &mut EmitCtx,
     ret: impl Into<Operand>,
@@ -103,6 +106,9 @@ pub(crate) fn emit_eintr_retry_or_error(
         // `emit_errno` loads the current `errno` into `ret` (reused).
         platform.emit_errno(
             symbol,
+            // The `.into()` is load-bearing for emission (removing it changes the native
+            // code — `clippy::useless_conversion` is a false positive here); kept to
+            // preserve byte-identity with the pre-migration `code/fs/io.rs`.
             (ret.clone()).into(),
             platform_imports,
             ctx.instructions,
