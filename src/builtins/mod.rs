@@ -556,9 +556,7 @@ pub(crate) fn default_argument_padding(
     callee: &str,
     provided: usize,
 ) -> &'static [(&'static str, &'static str)] {
-    for pad in [
-        http::default_argument_padding(callee, provided),
-    ] {
+    for pad in [http::default_argument_padding(callee, provided)] {
         if !pad.is_empty() {
             return pad;
         }
