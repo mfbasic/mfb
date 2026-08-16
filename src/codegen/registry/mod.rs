@@ -590,6 +590,51 @@ pub(crate) struct RegistryResource {
     pub(crate) kind: crate::builtins::resource::ResourceKind,
 }
 
+/// A compile-time package **constant** that folds to a literal at every use site —
+/// the registry twin of the hand tables `math::{is_math_constant,…}`,
+/// `errorcode::{…}`, and `vector::{is_vector_constant,…}`. Two shapes:
+///
+/// * a **scalar** constant (`math.pi`, `errorCode.ErrNotFound`) sets [`value`](Self::value)
+///   to its literal (`"3.14159…"`, `"77050004"`) and leaves [`components`](Self::components) `None`;
+/// * a **record** constant (`vector.zeroFloat3`) leaves `value` `None` and sets
+///   `components` to the ordered per-field literals (`["0.0", "0.0", "0.0"]`) that a
+///   constructor of [`type_name`](Self::type_name) (`Float3`) inlines from — each
+///   field's element type coming from the package's [`RegistryRecord`].
+///
+/// Construct with a named struct literal; add via [`RegistryPackage::add_constant`].
+#[derive(Clone, Debug)]
+pub(crate) struct RegistryConstant {
+    /// The constant's member name (unqualified), e.g. `"pi"` / `"zeroFloat3"`.
+    pub(crate) name: &'static str,
+    /// The type the constant evaluates to — a scalar type name (`"Float"`,
+    /// `"Integer"`) for a scalar constant, or the record type (`"Float3"`) a record
+    /// constant constructs.
+    pub(crate) type_name: &'static str,
+    /// The literal a **scalar** constant folds to (`"3.14159…"`); `None` for a record
+    /// constant.
+    pub(crate) value: Option<&'static str>,
+    /// The ordered per-field literals a **record** constant inlines into a
+    /// constructor of [`type_name`](Self::type_name); `None` for a scalar constant.
+    pub(crate) components: Option<&'static [&'static str]>,
+}
+
+/// A migrated package's **override** of an overridable general builtin (`toString`,
+/// …) for one of its value types — the registry twin of the hand rows in
+/// `builtins::general_override_target` (`toString(net.Url)` → `"__net_urlToString"`,
+/// `toString(Float3)` → `"__vector_toString_float3"`). A general call `f(x)` whose
+/// sole argument has `arg_type` routes to `helper` instead of the scalar builtin.
+///
+/// Construct with a named struct literal; add via [`RegistryPackage::add_override`].
+#[derive(Clone, Debug)]
+pub(crate) struct RegistryOverride {
+    /// The overridable general builtin (`"toString"`).
+    pub(crate) builtin: &'static str,
+    /// The argument value type this override fires on (`"Float3"`, a `net.Url` id).
+    pub(crate) arg_type: &'static str,
+    /// The internal `__pkg_*` helper the call routes to (`"__net_urlToString"`).
+    pub(crate) helper: &'static str,
+}
+
 /// One builtin package: its import name, documentation, the packages it imports, its
 /// records, unions, and functions. Fields are private — construct via
 /// [`Registry::add_package`] and fill with [`RegistryPackage::add_imports`] /
@@ -635,6 +680,15 @@ pub(crate) struct RegistryPackage {
     /// [`mfb_fast_path`] can answer a `#<pkg>_<member>$…` monomorph target without a
     /// per-package table.
     source_generic_fast_paths: Vec<(&'static str, MfbFastPath)>,
+    /// Compile-time package constants (scalar folds + record-constructor inlines) the
+    /// package owns — the registry home of the `math`/`errorcode`/`vector` constant
+    /// hand tables. Queried by the [`is_package_constant`] / [`constant_type_name`] /
+    /// [`constant_value`] / [`constant_components`] boundary fns.
+    constants: Vec<RegistryConstant>,
+    /// General-builtin overrides (`toString`, …) this package provides for its value
+    /// types — the registry home of the `builtins::general_override_target` rows.
+    /// Queried by [`general_override_target`].
+    overrides: Vec<RegistryOverride>,
 }
 
 impl RegistryPackage {
@@ -657,6 +711,8 @@ impl RegistryPackage {
             source_generics: Vec::new(),
             source_types: Vec::new(),
             source_generic_fast_paths: Vec::new(),
+            constants: Vec::new(),
+            overrides: Vec::new(),
         }
     }
 
@@ -914,6 +970,34 @@ impl RegistryPackage {
             function.name,
         );
         self.functions.push(function);
+        self
+    }
+
+    /// The package's compile-time constants, in registration order.
+    pub(crate) fn constants(&self) -> &[RegistryConstant] {
+        &self.constants
+    }
+
+    /// Add a compile-time package constant (a `RegistryConstant { … }`). Scalar
+    /// constants set `value`; record constants set `components`.
+    pub(crate) fn add_constant(&mut self, constant: RegistryConstant) -> &mut Self {
+        debug_assert!(
+            constant.value.is_some() != constant.components.is_some(),
+            "constant `{}` must set exactly one of `value` (scalar) / `components` (record)",
+            constant.name,
+        );
+        self.constants.push(constant);
+        self
+    }
+
+    /// The package's general-builtin overrides, in registration order.
+    pub(crate) fn overrides(&self) -> &[RegistryOverride] {
+        &self.overrides
+    }
+
+    /// Add a general-builtin override (a `RegistryOverride { … }`).
+    pub(crate) fn add_override(&mut self, r#override: RegistryOverride) -> &mut Self {
+        self.overrides.push(r#override);
         self
     }
 }
@@ -1242,6 +1326,61 @@ pub(crate) fn is_source_generic_member(qualified: &str) -> bool {
         .iter()
         .find(|p| p.import_name == pkg_name)
         .is_some_and(|package| package.source_generics.contains(&member))
+}
+
+/// The [`RegistryConstant`] a migrated package declares for `qualified`
+/// (`"math.pi"`, `"vector.zeroFloat3"`), or `None`. The single lookup behind the four
+/// constant boundary fns below — splits `pkg.member`, finds the package, finds the
+/// constant.
+fn find_constant(qualified: &str) -> Option<&'static RegistryConstant> {
+    let (_, member) = qualified.split_once('.')?;
+    registry()
+        .resolve_package(qualified)?
+        .constants()
+        .iter()
+        .find(|constant| constant.name == member)
+}
+
+/// Whether a migrated package declares the compile-time constant `qualified` — the
+/// registry half of the `builtins::is_package_constant` dual-path. `false` (fall
+/// through to the hand tables) for every un-migrated package.
+pub(crate) fn is_package_constant(qualified: &str) -> bool {
+    find_constant(qualified).is_some()
+}
+
+/// The type name the migrated constant `qualified` evaluates to (scalar type or record
+/// type), or `None` — the registry half of `builtins::package_constant_type_name`.
+pub(crate) fn constant_type_name(qualified: &str) -> Option<&'static str> {
+    find_constant(qualified).map(|constant| constant.type_name)
+}
+
+/// The literal a migrated **scalar** constant `qualified` folds to, or `None` (a record
+/// constant, or an un-migrated package) — the registry half of
+/// `builtins::package_constant_value`.
+pub(crate) fn constant_value(qualified: &str) -> Option<&'static str> {
+    find_constant(qualified).and_then(|constant| constant.value)
+}
+
+/// The ordered per-field literals a migrated **record** constant `qualified` inlines
+/// into a constructor of its [`type_name`](RegistryConstant::type_name), or `None` (a
+/// scalar constant, or an un-migrated package) — the registry half of the
+/// `vector::constant_components` read in `ir/lower.rs`.
+pub(crate) fn constant_components(qualified: &str) -> Option<&'static [&'static str]> {
+    find_constant(qualified).and_then(|constant| constant.components)
+}
+
+/// The internal `__pkg_*` helper a migrated package provides as an **override** of the
+/// overridable general builtin `builtin` over `arg_type`, or `None` — the registry half
+/// of the `builtins::general_override_target` dual-path. `None` (fall through to the
+/// hand match) for every un-migrated package.
+pub(crate) fn general_override_target(builtin: &str, arg_type: &str) -> Option<&'static str> {
+    registry().packages().iter().find_map(|package| {
+        package
+            .overrides()
+            .iter()
+            .find(|o| o.builtin == builtin && o.arg_type == arg_type)
+            .map(|o| o.helper)
+    })
 }
 
 /// The *static* nominal return type of the migrated call `qualified`, independent of
@@ -1992,6 +2131,69 @@ mod tests {
             ty,
             default: DefaultValue::None,
         }
+    }
+
+    #[test]
+    fn package_constants_and_overrides_round_trip_through_the_builders() {
+        // Scalar constant, record constant, and an override on one throwaway package.
+        let mut pkg = RegistryPackage::new("demo", "i", "d");
+        pkg.add_constant(RegistryConstant {
+            name: "pi",
+            type_name: "Float",
+            value: Some("3.14159"),
+            components: None,
+        })
+        .add_constant(RegistryConstant {
+            name: "zero3",
+            type_name: "Float3",
+            value: None,
+            components: Some(&["0.0", "0.0", "0.0"]),
+        })
+        .add_override(RegistryOverride {
+            builtin: "toString",
+            arg_type: "Float3",
+            helper: "__demo_toString_float3",
+        });
+
+        // Accessors expose exactly what was added.
+        assert_eq!(pkg.constants().len(), 2);
+        assert_eq!(pkg.overrides().len(), 1);
+
+        // The scalar constant answers `value` (not `components`).
+        let scalar = pkg.constants().iter().find(|c| c.name == "pi").unwrap();
+        assert_eq!(scalar.type_name, "Float");
+        assert_eq!(scalar.value, Some("3.14159"));
+        assert_eq!(scalar.components, None);
+
+        // The record constant answers `components` (not `value`).
+        let record = pkg.constants().iter().find(|c| c.name == "zero3").unwrap();
+        assert_eq!(record.type_name, "Float3");
+        assert_eq!(record.value, None);
+        assert_eq!(record.components, Some(&["0.0", "0.0", "0.0"][..]));
+
+        // The override is keyed by (builtin, arg_type).
+        let ov = &pkg.overrides()[0];
+        assert_eq!(
+            (ov.builtin, ov.arg_type, ov.helper),
+            ("toString", "Float3", "__demo_toString_float3")
+        );
+    }
+
+    #[test]
+    fn constant_and_override_boundary_fns_are_absent_until_a_package_migrates() {
+        // No package registers constants/overrides yet, so every boundary query must
+        // report absent — the dual-path in `builtins`/`ir::lower` therefore always
+        // falls through to the hand tables (byte-identical). A throwaway package built
+        // above is not wired into the frozen `registry()`, so its names stay absent too.
+        assert!(!is_package_constant("demo.pi"));
+        assert_eq!(constant_type_name("demo.pi"), None);
+        assert_eq!(constant_value("demo.pi"), None);
+        assert_eq!(constant_components("demo.zero3"), None);
+        assert_eq!(general_override_target("toString", "Float3"), None);
+
+        // A malformed (unqualified) name never panics.
+        assert!(!is_package_constant("bare"));
+        assert_eq!(constant_components("bare"), None);
     }
 
     #[test]
