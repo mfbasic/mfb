@@ -50,6 +50,9 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
   load `mfbasic` (`mfb_man`,`mfb_spec`); prefer over reading files.
 * No compound background jobs — one command each. Don't wait on completion notices;
   poll the effect (`pgrep -f` ERE `"a|b"`). No-completion-record job = dead; re-derive.
+* Run `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`
+  at the end of any session with Rust code changes (root `--all` does NOT reach the
+  `repository/` path dependency — no `[workspace]` table; see `.ai/build-tooling.md`).
 
 ## Auto memory rules
 * Record only durable, transferable lessons — things that would burn a future session
