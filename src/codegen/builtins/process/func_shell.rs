@@ -94,6 +94,8 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
 pub(crate) fn lower_process_shell_helper_posix(
     _call: &str,
     symbol: &str,
+    _build_mode: crate::target::NativeBuildMode,
+    _module_name: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
@@ -206,6 +208,8 @@ pub(crate) fn lower_process_shell_helper_posix(
 pub(crate) fn lower_process_shell_helper_win(
     _call: &str,
     _symbol: &str,
+    _build_mode: crate::target::NativeBuildMode,
+    _module_name: &str,
     _platform_imports: &HashMap<String, String>,
     _platform: &dyn CodegenPlatform,
 ) -> HelperResult {

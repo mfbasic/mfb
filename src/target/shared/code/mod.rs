@@ -2012,6 +2012,8 @@ fn lower_runtime_helper(
                     crate::codegen::builtins::datetime::lower_datetime_helper(
                         spec.call,
                         symbol,
+                        build_mode,
+                        module_name,
                         platform_imports,
                         platform,
                     )?
@@ -2382,6 +2384,8 @@ fn lower_runtime_helper(
                     match crate::codegen::os::dispatch_runtime_helper(
                         call,
                         symbol,
+                        build_mode,
+                        module_name,
                         platform_imports,
                         platform,
                     ) {
