@@ -783,9 +783,8 @@ impl CodeBuilder<'_> {
                 if let Some(function) = target.strip_prefix("math.") {
                     return self.lower_math_call(function, args);
                 }
-                if let Some(function) = target.strip_prefix("money.") {
-                    return self.lower_money_call(function, args);
-                }
+                // `money.*` migrated to the clean-room registry (`Body::Native`
+                // `common`), reached above through `try_native_lower`.
                 if target == "isEven" && args.len() == 1 {
                     return self.lower_integer_parity_predicate("isEven", &args[0], false);
                 }

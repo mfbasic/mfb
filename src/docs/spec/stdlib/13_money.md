@@ -2,7 +2,7 @@
 
 The `money` package controls how `Money` **arithmetic** settles the half case
 and provides one explicit settling function. Called with the `money::` qualifier;
-`IMPORT money` needs no manifest dependency. [[src/builtins/money.rs:is_money_call]]
+`IMPORT money` needs no manifest dependency. [[src/codegen/builtins/money/mod.rs:register]]
 
 This topic specifies the *model behind* the package: the exact base-10 fixed-point
 representation that makes decimal amounts exact, the rounding-mode state the
@@ -48,7 +48,7 @@ discriminants are exactly their stored values:
 
 `Commercial` is the **default** at program and thread start. `Banker` removes the
 small upward bias of always rounding ties away, which matters when many rounded
-amounts are summed. [[src/builtins/money_package.mfb:Rounding]]
+amounts are summed. [[src/codegen/builtins/money/mod.rs:Rounding]]
 
 The mode is **mutable, per-execution-context state**, not a global constant. It
 lives in a single word of the per-thread arena state — the `moneyRoundingMode`
@@ -57,9 +57,9 @@ field, whose layout is owned by `./mfb spec memory arenas`.
 
 - `money::setRounding(mode)` writes the field. The stored value is masked to its
   low bit (`mode & 1`), so only the two defined modes are ever recorded.
-  [[src/target/shared/code/builder_money.rs:lower_money_set_rounding]]
+  [[src/codegen/builtins/money/func_set_rounding.rs:lower_money_set_rounding]]
 - `money::getRounding()` reads the field and returns it as a `Rounding` value.
-  [[src/target/shared/code/builder_money.rs:lower_money_get_rounding]]
+  [[src/codegen/builtins/money/func_get_rounding.rs:lower_money_get_rounding]]
 
 Because the field is part of the arena state, the mode is **per-thread**: each OS
 thread owns its own arena and therefore its own mode word. A worker thread
@@ -110,7 +110,7 @@ itself approximate — the rounding step applied to it is still deterministic.)
 `money::round` explicitly settles a `Money` to `decimals` fractional places under
 the current mode — the "compute at five places, book at two" operation. It stays a
 `Money` (contrast `math::round(Money)`, which exits the currency dimension to a
-dimensionless whole-unit `Integer`). [[src/target/shared/code/builder_money.rs:lower_money_round]]
+dimensionless whole-unit `Integer`). [[src/codegen/builtins/money/func_round.rs:lower_money_round]]
 
 `decimals` must be in the range `0` through `5`:
 
@@ -135,7 +135,7 @@ split: rounding to two places yields `0.13` under `Commercial` and `0.12` under
 - **Overflow on re-scale** — rounding can carry (`q → q+1`), so for a near-maximum
   `Money`, `(q+1) * divisor` can exceed `i64::MAX`. The re-multiply is
   **overflow-checked**: it traps `ErrOverflow` (`77050010`) rather than wrapping to
-  a spuriously negative amount. [[src/target/shared/code/builder_money.rs:lower_money_round]]
+  a spuriously negative amount. [[src/codegen/builtins/money/func_round.rs:lower_money_round]]
 - **`setRounding` / `getRounding`** — neither can fail; both are simple loads and
   stores of a single arena word, and `setRounding` masks its argument to the two
   valid modes.

@@ -19,7 +19,7 @@ IMPORT money
 ```
 
 `money` is a built-in package, so `IMPORT money` needs no manifest dependency.
-[[src/builtins/money.rs:package_source_glue]]
+[[src/codegen/builtins/money/mod.rs:register]]
 
 ## Description
 
@@ -27,14 +27,14 @@ IMPORT money
 `mode` is one of the two `Rounding` enum members: `Rounding.Commercial` (round
 half **away from zero**, the default) or `Rounding.Banker` (round half to
 **even**, which removes the small upward bias of always rounding ties away).
-The call returns nothing. [[src/builtins/money_package.mfb:Rounding]]
-[[src/builtins/money.rs:MONEY]]
+The call returns nothing. [[src/codegen/builtins/money/mod.rs:Rounding]]
+[[src/codegen/builtins/money/mod.rs:MONEY]]
 
 The call is lowered inline to a mask and a single store into the
 per-execution-context rounding-mode field in the arena state region. The stored
 value is the enum discriminant masked to its low bit, so exactly `0` or `1` is
 ever written and a later `money::getRounding` reads back the same member.
-[[src/target/shared/code/builder_money.rs:lower_money_set_rounding]]
+[[src/codegen/builtins/money/func_set_rounding.rs:lower_money_set_rounding]]
 
 The mode is per-execution-context state. A worker thread inherits the spawning
 thread's mode at spawn and then changes independently, so setting the mode on one
@@ -59,19 +59,19 @@ amount is a pure function of the value.
 
 The `Rounding` enum is referenced bare, like every other builtin type: write
 `Rounding.Banker`, not `money::Rounding.Banker`.
-[[src/builtins/money.rs:MONEY]]
+[[src/codegen/builtins/money/mod.rs:MONEY]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `mode` | `Rounding` | The mode to install for `Money` arithmetic on the calling thread: `Rounding.Commercial` or `Rounding.Banker`. Any other type is rejected at compile time. [[src/builtins/money.rs:call_param_names]] [[src/builtins/money.rs:MONEY]] |
+| `mode` | `Rounding` | The mode to install for `Money` arithmetic on the calling thread: `Rounding.Commercial` or `Rounding.Banker`. Any other type is rejected at compile time. [[src/codegen/builtins/money/func_set_rounding.rs:register]] [[src/codegen/builtins/money/mod.rs:MONEY]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `money::setRounding` produces no value; call it as a statement. [[src/builtins/money.rs:MONEY]] |
+| `Nothing` | `money::setRounding` produces no value; call it as a statement. [[src/codegen/builtins/money/mod.rs:MONEY]] |
 
 ## Errors
 

@@ -94,7 +94,6 @@ mod builder_fmod;
 mod builder_fs_paths;
 mod builder_inplace_assign;
 mod builder_math;
-mod builder_money;
 mod builder_money_math;
 mod builder_numeric;
 mod builder_pow;
