@@ -4,18 +4,22 @@ Serial, judgment-heavy. NOT a clean lift like bits/money — 3 of 5 lowering fil
 **surgically split** (precise keep/move boundaries below). Execute on the main thread with
 per-slice byte-identity gating; the split-file surgery needs human review of the keep/move line.
 
-## Decision: add a `NumericVar` type-class (lean end-state)
-The registry has no numeric-constrained type variable — `ParameterType::Var` binds to ANY type, so
-a single generic `abs(Var T) AS Arg(0)` would wrongly accept `abs("hello")` under strict validation.
-Two options:
-1. **Enumerated concrete-type overloads + `Arg(0)` returns** — byte-identical, reproduces legacy
-   `resolve_call` exactly, but ~90–100 `Implementation` entries across 21 members. NOT lean.
-2. **`NumericVar` (a numeric-constrained `ParameterType`)** + its `unify`/`leaf_matches` leaf rule
-   (the bug-443 machinery) — collapses each type-preserving member to ONE overload. LEAN + uniform.
-**Chosen: option 2** (matches the user's "lean and uniform as existing builtins" goal). It is a serial
-infra prerequisite that must land + be gated (full `cargo test`) BEFORE the member move. Model it so
-strict validation rejects non-numeric and lenient inference still propagates (mirror the bug-443
-strict/lenient `select`/`resolve`/`dispatch` split).
+## Decision (2026-08-16, user): ENUMERATED concrete-type overloads — NO NumericVar
+The `NumericVar` idea was REJECTED after the migration agent proved (against `func_math_*_invalid`
+goldens + `math.rs::resolve_call`) that a single 4-type `NumericVar` (`Int/Float/Fixed/Money`) is WRONG:
+math has FIVE distinct per-member numeric classes (transcendentals/pow/atan2 accept `Float`/`Fixed`
+ONLY — `sqrt(1)` must error `expected Float | Fixed`; abs/min/max/clamp accept all 4; floor/ceil/round
+scalar accept `Float|Fixed|Money`; the list-element sets differ again). And `NumericVar` only ever
+collapses the SCALAR overload — list/SIMD overloads must be enumerated concretely regardless.
+
+**Chosen: enumerate every member as plain concrete-type `Implementation`s** — the MOST uniform with the
+existing migrated packages (tls/thread/process/datetime all enumerate; none uses a numeric type-class),
+ZERO matcher change (safest — no bug-443 surgery), byte-identical (reproduces legacy `resolve_call`
+per-member acceptance EXACTLY, so `func_math_*_invalid` goldens stay green). Cost ~90–100 small
+`Implementation` struct literals (mechanical). Each type-preserving overload returns `ParameterType::Arg(0)`;
+floor/ceil/round return `Integer`; rand `(Integer,Integer)→Integer` + `(Money,Money)→Money`; seed → Nothing.
+The exact per-member type sets MUST mirror legacy `math.rs::resolve_call` (`one_float_or_fixed`,
+`two_same_float_or_fixed`, `is_numeric_list`, the abs/min/max/clamp all-4, floor/ceil/round FloatishMoney).
 
 ## Members (21 callables) — all pure-move at the call-site level
 Only external caller of the math dispatcher is `builder_values.rs:784 self.lower_math_call(...)`.
