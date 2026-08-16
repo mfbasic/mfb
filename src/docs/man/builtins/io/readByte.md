@@ -19,13 +19,13 @@ IMPORT io
 ```
 
 `io` is a built-in package, so no manifest dependency is required.
-[[src/builtins/io.rs:is_io_call]]
+[[src/codegen/builtins/io/mod.rs:register]]
 
 ## Description
 
 `io::readByte` reads exactly one byte from standard input and returns it as a
 `Byte` in the range 0 through 255. It takes no arguments and does not wait for a
-newline. [[src/target/shared/code/io_stdin.rs:lower_io_read_byte_helper]]
+newline. [[src/codegen/builtins/io/native/stdin.rs:lower_io_read_byte_helper]]
 
 **On a terminal the read is a single keypress.** For the duration of the call,
 standard input is switched out of canonical mode and echo is suppressed
@@ -56,13 +56,13 @@ must subscribe with `thread::openStdIn` before reading, or the call raises
 
 ## Parameters
 
-`io::readByte` takes no parameters. [[src/builtins/io.rs:call_param_names]]
+`io::readByte` takes no parameters. [[src/codegen/builtins/io/mod.rs:register]]
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Byte` | The next byte of standard input, 0 through 255, uninterpreted. [[src/builtins/io.rs:IO]] |
+| `Byte` | The next byte of standard input, 0 through 255, uninterpreted. [[src/codegen/builtins/io/mod.rs:register]] |
 
 ## Errors
 

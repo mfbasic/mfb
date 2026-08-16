@@ -1,12 +1,12 @@
 use super::*;
 
-pub(super) struct TerminalModeSlots {
-    pub(super) active: usize,
-    pub(super) saved_tag: usize,
-    pub(super) saved_value: usize,
-    pub(super) saved_message: usize,
-    pub(super) original: usize,
-    pub(super) modified: usize,
+pub(crate) struct TerminalModeSlots {
+    pub(crate) active: usize,
+    pub(crate) saved_tag: usize,
+    pub(crate) saved_value: usize,
+    pub(crate) saved_message: usize,
+    pub(crate) original: usize,
+    pub(crate) modified: usize,
 }
 
 /// Configure stdin's line discipline for a single-key read: `tcgetattr` the
@@ -18,7 +18,7 @@ pub(super) struct TerminalModeSlots {
 /// per-read toggle in the read helpers, or `ARENA_STATE_REGISTER` for
 /// `term::on`'s persistent console raw mode (bug-149), which parks the buffers
 /// in the term-state region rather than a read-scoped stack frame.
-pub(super) fn emit_configure_stdin_terminal(
+pub(crate) fn emit_configure_stdin_terminal(
     ctx: &mut EmitCtx,
     slots: &TerminalModeSlots,
     base_register: &str,
@@ -91,7 +91,7 @@ pub(super) fn emit_configure_stdin_terminal(
     Ok(())
 }
 
-pub(super) fn emit_restore_stdin_terminal(
+pub(crate) fn emit_restore_stdin_terminal(
     ctx: &mut EmitCtx,
     slots: &TerminalModeSlots,
 ) -> Result<(), String> {
@@ -162,7 +162,7 @@ pub(super) fn emit_restore_stdin_terminal(
 /// so nothing is read from a read-scoped stack frame. When `preserve_result` is
 /// set the `Result` registers are parked across the `tcsetattr` call (needed for
 /// the post-read re-apply, which runs after the read result is already staged).
-pub(super) fn emit_console_raw_line_mode(
+pub(crate) fn emit_console_raw_line_mode(
     ctx: &mut EmitCtx,
     term_state_offset: usize,
     line_mode: bool,
@@ -216,43 +216,4 @@ pub(super) fn emit_console_raw_line_mode(
     }
     ctx.instructions.push(abi::label(&skip));
     Ok(())
-}
-
-pub(super) fn lower_io_is_terminal_helper(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    fd: u8,
-) -> HelperResult {
-    const FRAME_SIZE: usize = 16;
-    let yes = format!("{symbol}_yes");
-    let done = format!("{symbol}_done");
-
-    let mut instructions = vec![abi::label("entry")];
-    let mut relocations = Vec::new();
-    instructions.push(abi::move_immediate(
-        abi::return_register(),
-        "Integer",
-        &fd.to_string(),
-    ));
-    platform.emit_is_terminal(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_gt(&yes),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::branch(&done),
-        abi::label(&yes),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::label(&done),
-    ]);
-    instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
 }

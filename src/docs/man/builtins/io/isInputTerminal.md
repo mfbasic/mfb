@@ -19,18 +19,18 @@ IMPORT io
 ```
 
 `io` is a built-in package, so no manifest dependency is required.
-[[src/builtins/io.rs:is_io_call]]
+[[src/codegen/builtins/io/mod.rs:register]]
 
 ## Description
 
 `io::isInputTerminal` returns `TRUE` when standard input is connected to a
 terminal and `FALSE` when it is redirected from a file, a pipe, or any other
-non-terminal source. It takes no arguments. [[src/builtins/io.rs:IO]]
+non-terminal source. It takes no arguments. [[src/codegen/builtins/io/mod.rs:register]]
 
 The answer comes from an `isatty` probe of file descriptor 0: a result greater
 than zero yields `TRUE`, anything else — including an error return — yields
 `FALSE`. Because a failure is folded into `FALSE`, the call never raises.
-[[src/target/shared/code/io_terminal.rs:lower_io_is_terminal_helper]]
+[[src/codegen/builtins/io/native/terminal.rs:lower_io_is_terminal_helper]]
 
 The probe inspects state only. It does not modify the stream, consume any input,
 or block waiting for data, so it is safe to call before deciding whether to
@@ -44,13 +44,13 @@ so this call returns `TRUE` without probing a descriptor.
 
 ## Parameters
 
-`io::isInputTerminal` takes no parameters. [[src/builtins/io.rs:call_param_names]]
+`io::isInputTerminal` takes no parameters. [[src/codegen/builtins/io/mod.rs:register]]
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when standard input is an interactive terminal; `FALSE` when it is a file, a pipe, or any other non-terminal source. Always `TRUE` in app mode. [[src/builtins/io.rs:IO]] |
+| `Boolean` | `TRUE` when standard input is an interactive terminal; `FALSE` when it is a file, a pipe, or any other non-terminal source. Always `TRUE` in app mode. [[src/codegen/builtins/io/mod.rs:register]] |
 
 ## Errors
 

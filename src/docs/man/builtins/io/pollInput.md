@@ -20,7 +20,7 @@ IMPORT io
 ```
 
 `io` is a built-in package, so no manifest dependency is required.
-[[src/builtins/io.rs:is_io_call]]
+[[src/codegen/builtins/io/mod.rs:register]]
 
 ## Description
 
@@ -28,7 +28,7 @@ IMPORT io
 without blocking. It returns `TRUE` when input is ready and `FALSE` when the wait
 elapses first, and it **consumes nothing** — the bytes are still there for
 `io::readLine`, `io::readChar`, `io::readByte`, or `io::input`.
-[[src/target/shared/code/io_stdin.rs:lower_io_poll_input_helper]]
+[[src/codegen/builtins/io/native/stdin.rs:lower_io_poll_input_helper]]
 
 `timeoutMs` bounds the wait, in milliseconds, following the language timeout
 convention (see `mfb spec language builtin-functions` → "Timeout convention").
@@ -57,7 +57,7 @@ will succeed.
 A signal delivered while the call is blocked (`SIGWINCH` from a terminal resize,
 `SIGCHLD`, the console interrupt handler) is not an error: the `poll` is re-armed
 and retried rather than surfacing as `ErrInput`.
-[[src/target/shared/code/io_stdin.rs:lower_io_poll_input_helper]]
+[[src/codegen/builtins/io/native/stdin.rs:lower_io_poll_input_helper]]
 
 On a terminal in the default canonical mode, the line discipline holds typed
 characters until Return, so readiness is reported per line rather than per key.
@@ -70,7 +70,7 @@ poll should see individual keypresses.
 
 Blocks until standard input becomes ready, then returns `TRUE` (omitted
 `timeoutMs` = unbounded wait). For the old immediate check, pass `0`.
-[[src/builtins/io.rs:IO]]
+[[src/codegen/builtins/io/mod.rs:register]]
 
 **`io::pollInput(timeoutMs AS Integer) AS Boolean`**
 
@@ -81,13 +81,13 @@ that many milliseconds; a negative value is rejected with `ErrInvalidArgument`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `timeoutMs` | `Integer` | Optional. Omit to block until standard input is ready; `0` is an immediate non-blocking check; a positive value waits up to that many milliseconds, clamped to `2147483647`. Must not be negative. [[src/builtins/io.rs:call_param_names]] |
+| `timeoutMs` | `Integer` | Optional. Omit to block until standard input is ready; `0` is an immediate non-blocking check; a positive value waits up to that many milliseconds, clamped to `2147483647`. Must not be negative. [[src/codegen/builtins/io/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when standard input is ready to read — including when it has reached end of input — before the timeout elapses; `FALSE` when the wait elapses with nothing available. [[src/builtins/io.rs:IO]] |
+| `Boolean` | `TRUE` when standard input is ready to read — including when it has reached end of input — before the timeout elapses; `FALSE` when the wait elapses with nothing available. [[src/codegen/builtins/io/mod.rs:register]] |
 
 ## Errors
 

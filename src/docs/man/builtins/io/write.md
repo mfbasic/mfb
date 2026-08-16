@@ -19,7 +19,7 @@ IMPORT io
 ```
 
 `io` is a built-in package, so no manifest dependency is required.
-[[src/builtins/io.rs:is_io_call]]
+[[src/codegen/builtins/io/mod.rs:register]]
 
 ## Description
 
@@ -27,16 +27,16 @@ IMPORT io
 The text is treated as UTF-8 and emitted byte for byte, with no escaping and no
 newline translation. An empty `String` writes nothing at all. It is the
 newline-free counterpart of `io::print`, which is the same call with a trailing
-LF appended. [[src/target/shared/code/io_stdout.rs:lower_io_write_helper]]
+LF appended. [[src/codegen/builtins/io/native/stdout.rs:lower_io_write_helper]]
 
 Only `String` is accepted, and exactly one argument; there is no implicit
 conversion, so convert other values first — for example with `toString`.
-[[src/builtins/io.rs:IO]] [[src/builtins/io.rs:IO]]
+[[src/codegen/builtins/io/mod.rs:register]] [[src/codegen/builtins/io/mod.rs:register]]
 
 The underlying write loops until every byte has been transferred: a short write
 advances the cursor and re-issues, and an `EINTR` interruption retries with the
 cursor unchanged. A zero-byte or failing write is a failure and raises
-`ErrOutput`. [[src/target/shared/code/io_stdout.rs:lower_io_write_helper]]
+`ErrOutput`. [[src/codegen/builtins/io/native/stdout.rs:lower_io_write_helper]]
 
 With standard-output buffering enabled by `io::setBuffered(TRUE)` the text is
 appended to a per-thread 4 KiB buffer rather than written immediately, so it may
@@ -60,13 +60,13 @@ console program, and the application transcript window in app mode
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The text to write. Interpreted as UTF-8 and emitted unchanged; may be empty. [[src/builtins/io.rs:call_param_names]] |
+| `value` | `String` | The text to write. Interpreted as UTF-8 and emitted unchanged; may be empty. [[src/codegen/builtins/io/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of writing to standard output. [[src/builtins/io.rs:IO]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of writing to standard output. [[src/codegen/builtins/io/mod.rs:register]] |
 
 ## Errors
 

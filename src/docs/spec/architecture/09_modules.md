@@ -23,7 +23,7 @@ A map of the compiler's source modules and their responsibilities.
 | Filesystem built-ins[[src/codegen/builtins/fs/mod.rs]] | Filesystem built-in signatures and validation. |
 | General built-ins[[src/builtins/general.rs]] | General-purpose built-in signatures. |
 | Collections built-ins[[src/codegen/builtins/collections/mod.rs]] | Collections (`List`/`Map`) built-in signatures. |
-| IO built-ins[[src/builtins/io.rs]] | IO built-in signatures and validation. |
+| IO built-ins[[src/codegen/builtins/io/mod.rs]] | IO built-in signatures and validation. |
 | JSON built-ins[[src/codegen/builtins/json/mod.rs]] | JSON built-in type and call signatures. |
 | Math built-ins[[src/builtins/math.rs]] | Math built-in signatures and constants. |
 | String built-ins[[src/builtins/strings.rs]] | String built-in signatures. |

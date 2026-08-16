@@ -120,7 +120,6 @@ mod app_specs;
 mod audio_specs;
 mod catalog;
 mod crypto_specs;
-mod io_specs;
 mod net_specs;
 mod perf_specs;
 mod term_specs;
@@ -134,7 +133,6 @@ pub(crate) use usage::{is_native_direct_call, required_helpers};
 use app_specs::*;
 use audio_specs::*;
 use crypto_specs::*;
-use io_specs::*;
 use net_specs::*;
 use perf_specs::*;
 use term_specs::*;
@@ -157,7 +155,7 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::Fs)
     } else if builtins::general::is_general_call(name) {
         Some(RuntimeHelper::General)
-    } else if builtins::io::is_io_call(name) {
+    } else if crate::codegen::registry::registry().owning_package(name) == Some("io") {
         Some(RuntimeHelper::Io)
     } else if builtins::math::is_math_call(name) {
         Some(RuntimeHelper::Math)

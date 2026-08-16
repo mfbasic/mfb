@@ -1495,7 +1495,7 @@ mod builtins_tests {
     #[test]
     fn strings_argument_mismatch() {
         assert!(rejects_with(
-            "IMPORT io\nIMPORT strings\nFUNC main AS Integer\n  io::print(strings::toUpper(42))\n  RETURN 0\nEND FUNC\n",
+            "IMPORT io\nIMPORT strings\nFUNC main AS Integer\n  io::print(strings::upper(42))\n  RETURN 0\nEND FUNC\n",
             "TYPE_CALL_ARGUMENT_MISMATCH"
         ));
     }

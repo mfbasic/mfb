@@ -19,18 +19,18 @@ IMPORT io
 ```
 
 `io` is a built-in package, so no manifest dependency is required.
-[[src/builtins/io.rs:is_io_call]]
+[[src/codegen/builtins/io/mod.rs:register]]
 
 ## Description
 
 `io::isOutputTerminal` returns `TRUE` when standard output is connected to a
 terminal and `FALSE` when it is redirected to a file, a pipe, or any other
-non-terminal destination. It takes no arguments. [[src/builtins/io.rs:IO]]
+non-terminal destination. It takes no arguments. [[src/codegen/builtins/io/mod.rs:register]]
 
 The answer comes from an `isatty` probe of file descriptor 1: a result greater
 than zero yields `TRUE`, anything else — including an error return — yields
 `FALSE`. Because a failure is folded into `FALSE`, the call never raises.
-[[src/target/shared/code/io_terminal.rs:lower_io_is_terminal_helper]]
+[[src/codegen/builtins/io/native/terminal.rs:lower_io_is_terminal_helper]]
 
 The probe inspects state only: it writes nothing and changes nothing. Use it to
 decide whether emitting ANSI colour, progress bars, or cursor tricks is
@@ -47,13 +47,13 @@ interactive console — so this call returns `TRUE` without probing a descriptor
 
 ## Parameters
 
-`io::isOutputTerminal` takes no parameters. [[src/builtins/io.rs:call_param_names]]
+`io::isOutputTerminal` takes no parameters. [[src/codegen/builtins/io/mod.rs:register]]
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when standard output is an interactive terminal; `FALSE` when it is a file, a pipe, or any other non-terminal destination. Always `TRUE` in app mode. [[src/builtins/io.rs:IO]] |
+| `Boolean` | `TRUE` when standard output is an interactive terminal; `FALSE` when it is a file, a pipe, or any other non-terminal destination. Always `TRUE` in app mode. [[src/codegen/builtins/io/mod.rs:register]] |
 
 ## Errors
 

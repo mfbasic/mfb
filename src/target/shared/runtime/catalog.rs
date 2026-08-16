@@ -35,21 +35,9 @@ static LEGACY_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     // `datetime` is migrated: its three OS-seam intrinsics (`nowNanos`,
     // `monotonicNanos`, `localOffset`) are DERIVED from the registry
     // (`registry::runtime_specs`), so no hand-written `DATETIME_*_SPEC` rows here.
-    IO_PRINT_SPEC,
-    IO_WRITE_SPEC,
-    IO_PRINT_ERROR_SPEC,
-    IO_WRITE_ERROR_SPEC,
-    IO_FLUSH_SPEC,
-    IO_IS_BUFFERED_SPEC,
-    IO_SET_BUFFERED_SPEC,
-    IO_INPUT_SPEC,
-    IO_READ_LINE_SPEC,
-    IO_READ_CHAR_SPEC,
-    IO_READ_BYTE_SPEC,
-    IO_POLL_INPUT_SPEC,
-    IO_IS_INPUT_TERMINAL_SPEC,
-    IO_IS_OUTPUT_TERMINAL_SPEC,
-    IO_IS_ERROR_TERMINAL_SPEC,
+    // `io` is migrated: its specs are DERIVED from the registry
+    // (`registry::runtime_specs`) and merged in by `supported_helper_specs`, so no
+    // hand-written `IO_*_SPEC` rows live here.
     TERM_ON_SPEC,
     TERM_OFF_SPEC,
     TERM_IS_ON_SPEC,

@@ -74,8 +74,7 @@ const WIN_FILETIME_MAX_UNIX_SEC: &str = "910692730085";
 pub(crate) fn lower_datetime_helper(
     call: &str,
     symbol: &str,
-    _build_mode: crate::target::NativeBuildMode,
-    _module_name: &str,
+    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
