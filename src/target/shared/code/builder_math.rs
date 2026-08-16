@@ -6,7 +6,7 @@ pub(super) enum FloatInfinityError {
 }
 
 impl CodeBuilder<'_> {
-    pub(super) fn lower_math_call(
+    pub(crate) fn lower_math_call(
         &mut self,
         function: &str,
         args: &[NirValue],

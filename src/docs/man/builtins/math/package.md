@@ -22,11 +22,11 @@ The `math` package provides numeric constants and helper functions over the
 (`sqrt`, `pow`, `exp`, `log`, `log10`), trigonometry (`sin`, `cos`, `tan`,
 `asin`, `acos`, `atan`, `atan2`), and pseudo-random integers (`rand`, `seed`).
 `math` is a built-in package: `IMPORT math` needs no manifest dependency.
-[[src/builtins/math.rs:is_math_call]]
+[[src/codegen/builtins/math/mod.rs:is_math_call]]
 
 Constants are `LET` values, each provided in a `Float` form and a `Fixed` form —
 for example `math::pi` as `Float` and `math::piFixed` as `Fixed`.
-[[src/builtins/math.rs:constant_type_name]] The functions are overloaded by the
+[[src/codegen/builtins/math/mod.rs:constant_type_name]] The functions are overloaded by the
 exact numeric type of their arguments, and the return type matches that type:
 `abs`, `min`, `max`, and `clamp` accept `Integer`, `Float`, `Fixed`, or `Money`
 and return that same type; the rounding functions (`floor`, `ceil`, `round`)
@@ -35,12 +35,12 @@ deliberate exit from the dimension, the count of whole units; the transcendental
 functions accept `Float` or `Fixed` only; `seed` works on `Integer`, and `rand`
 takes either two `Integer` bounds (returning `Integer`) or two `Money` bounds
 (returning `Money`).
-[[src/builtins/math.rs:MATH]] There is no mixed-type or
+[[src/codegen/builtins/math/mod.rs:MATH]] There is no mixed-type or
 automatic-promotion overload, so the arguments to a call must already share one
 numeric type; convert explicitly before calling when they differ. Each scalar
 function also has an array (SIMD) overload that maps element-wise over a
 homogeneous `List OF` numeric list and returns a list of the matching type.
-[[src/builtins/math.rs:MATH]]
+[[src/codegen/builtins/math/mod.rs:MATH]]
 
 Integer and Fixed computation is deterministic and identical across targets: the
 Fixed transcendental and root functions use raw Q32.32 fixed-point arithmetic

@@ -25,7 +25,7 @@ A map of the compiler's source modules and their responsibilities.
 | Collections built-ins[[src/codegen/builtins/collections/mod.rs]] | Collections (`List`/`Map`) built-in signatures. |
 | IO built-ins[[src/codegen/builtins/io/mod.rs]] | IO built-in signatures and validation. |
 | JSON built-ins[[src/codegen/builtins/json/mod.rs]] | JSON built-in type and call signatures. |
-| Math built-ins[[src/builtins/math.rs]] | Math built-in signatures and constants. |
+| Math built-ins[[src/codegen/builtins/math/mod.rs]] | Math built-in signatures and constants. |
 | String built-ins[[src/builtins/strings.rs]] | String built-in signatures. |
 | Thread built-ins[[src/codegen/builtins/thread/mod.rs]] | Thread built-in type and call signatures. |
 | Date/time built-ins[[src/codegen/builtins/datetime/mod.rs]] | Date/time built-in signatures. |

@@ -23,7 +23,7 @@ IMPORT math
 ```
 
 `math` is a built-in package, so no manifest dependency is required.
-[[src/builtins/math.rs:is_math_call]]
+[[src/codegen/builtins/math/mod.rs:is_math_call]]
 
 ## Description
 
@@ -32,13 +32,13 @@ IMPORT math
 The result is **always** an `Integer`, whatever the argument type — this
 function converts out of the fractional type rather than rounding within it. A
 value that is already a whole number is returned unchanged.
-[[src/builtins/math.rs:MATH]]
+[[src/codegen/builtins/math/mod.rs:MATH]]
 
 `math::floor(3.75)` is `3` and `math::floor(-2.25)` is `-3`.
 
 `math::floor` accepts `Float`, `Fixed`, and `Money` — but **not** `Integer`,
 which is already whole; `math::floor(3)` is a compile-time error.
-[[src/builtins/math.rs:MATH]]
+[[src/codegen/builtins/math/mod.rs:MATH]]
 
 Applying `math::floor` to a `Money` yields the largest whole-unit count at or below the amount: an `Integer`, not a
 `Money`. This is a deliberate exit from the `Money` dimension — the amount-ness
@@ -57,7 +57,7 @@ result would not be representable.
 The array overloads map `math::floor` over a `List OF Float` or `List OF Fixed`
 and return a new `List OF Integer` of the same length; the input list is not
 mutated. There is no `List OF Money` array form.
-[[src/builtins/math.rs:one_floatish_list]]
+[[src/codegen/builtins/math/mod.rs:one_floatish_list]]
 
 ## Overloads
 
@@ -94,15 +94,15 @@ element triggered it; no list is returned in that case.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Float`, `Fixed`, or `Money` | The number to convert. `Integer` is rejected at compile time. For the `Float` overload, a value whose result falls outside `Integer` range — including a NaN or an infinity — fails. This parameter has no alternate name. [[src/builtins/math.rs:call_param_names]] |
-| `values` | `List OF Float` or `List OF Fixed` | The array form: a homogeneous list, mapped element-wise. The empty list yields an empty list. [[src/builtins/math.rs:one_floatish_list]] |
+| `value` | `Float`, `Fixed`, or `Money` | The number to convert. `Integer` is rejected at compile time. For the `Float` overload, a value whose result falls outside `Integer` range — including a NaN or an infinity — fails. This parameter has no alternate name. [[src/codegen/builtins/math/mod.rs:call_param_names]] |
+| `values` | `List OF Float` or `List OF Fixed` | The array form: a homogeneous list, mapped element-wise. The empty list yields an empty list. [[src/codegen/builtins/math/mod.rs:one_floatish_list]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The greatest integer that is less than or equal to `value`. Whole-number inputs return their exact integer value. For a `Money` argument, the dimensionless count of whole currency units. [[src/builtins/math.rs:MATH]] |
-| `List OF Integer` | For the array forms: a new list of the same length, each element the scalar result for the corresponding input. [[src/builtins/math.rs:MATH]] |
+| `Integer` | The greatest integer that is less than or equal to `value`. Whole-number inputs return their exact integer value. For a `Money` argument, the dimensionless count of whole currency units. [[src/codegen/builtins/math/mod.rs:MATH]] |
+| `List OF Integer` | For the array forms: a new list of the same length, each element the scalar result for the corresponding input. [[src/codegen/builtins/math/mod.rs:MATH]] |
 
 ## Errors
 
@@ -112,12 +112,12 @@ element triggered it; no list is returned in that case.
 
 ## Type checking
 
-`math::floor` takes exactly one argument. [[src/builtins/math.rs:MATH]] It must
+`math::floor` takes exactly one argument. [[src/codegen/builtins/math/mod.rs:MATH]] It must
 be a single `Float`, `Fixed`, or `Money`, or a `List OF Float` or
 `List OF Fixed`. An `Integer` argument, a `Money` list, or any non-numeric value
 such as a `String`, `Boolean`, `Byte`, `Scalar`, record, union, resource,
 thread, or function value is a compile-time type error.
-[[src/builtins/math.rs:MATH]]
+[[src/codegen/builtins/math/mod.rs:MATH]]
 
 ## Examples
 

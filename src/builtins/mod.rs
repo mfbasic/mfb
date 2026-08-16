@@ -3,7 +3,6 @@ pub(crate) mod astrings;
 pub(crate) mod audio;
 pub(crate) mod general;
 pub(crate) mod http;
-pub(crate) mod math;
 pub(crate) mod net;
 pub(crate) mod resource;
 pub(crate) mod strings;
@@ -479,8 +478,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
     // process — no longer own an `expected_arguments` seam: their bespoke phrasing
     // rides on the `RegistryFunction::expected_arguments` descriptor field and is
     // served by the generic `registry::expected_arguments` below.
-    if let Some(text) = math::expected_arguments(name)
-        .or_else(|| net::expected_arguments(name))
+    if let Some(text) = net::expected_arguments(name)
         .or_else(|| audio::expected_arguments(name))
         .or_else(|| http::expected_arguments(name))
         .or_else(|| vector::expected_arguments(name))
@@ -523,7 +521,6 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
 
     let expected = general::expected_arguments(callee)
         .or_else(|| strings::expected_arguments(callee))
-        .or_else(|| math::expected_arguments(callee))
         .or_else(|| net::argument_types(callee))
         .or_else(|| audio::argument_types(callee))
         .or_else(|| http::expected_arguments(callee))?;
@@ -638,19 +635,15 @@ pub(crate) fn is_builtin_member(name: &str) -> bool {
 /// friends (`Float`/`Fixed`) or an `errorCode::Err*` registry value (`Integer`).
 /// These are keyed package-qualified (`"math.pi"`, `"errorCode.ErrNotFound"`).
 pub(crate) fn is_package_constant(name: &str) -> bool {
-    crate::codegen::registry::is_package_constant(name)
-        || math::is_math_constant(name)
-        || vector::is_vector_constant(name)
+    crate::codegen::registry::is_package_constant(name) || vector::is_vector_constant(name)
 }
 
 pub(crate) fn package_constant_type_name(name: &str) -> Option<&'static str> {
-    crate::codegen::registry::constant_type_name(name)
-        .or_else(|| math::constant_type_name(name))
-        .or_else(|| vector::constant_type_name(name))
+    crate::codegen::registry::constant_type_name(name).or_else(|| vector::constant_type_name(name))
 }
 
 pub(crate) fn package_constant_value(name: &str) -> Option<&'static str> {
-    crate::codegen::registry::constant_value(name).or_else(|| math::constant_value(name))
+    crate::codegen::registry::constant_value(name)
 }
 
 /// Split a comma-separated type list on the commas at paren depth 0.
@@ -769,7 +762,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
         .or_else(|| audio::call_param_names(name))
         .or_else(|| general::call_param_names(name))
         .or_else(|| strings::call_param_names(name))
-        .or_else(|| math::call_param_names(name))
         .or_else(|| net::call_param_names(name))
         .or_else(|| http::call_param_names(name))
         .or_else(|| term::call_param_names(name))

@@ -153,7 +153,7 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::General)
     } else if crate::codegen::registry::registry().owning_package(name) == Some("io") {
         Some(RuntimeHelper::Io)
-    } else if builtins::math::is_math_call(name) {
+    } else if crate::codegen::registry::registry().owning_package(name) == Some("math") {
         Some(RuntimeHelper::Math)
     } else if builtins::term::is_term_call(name) {
         Some(RuntimeHelper::Term)

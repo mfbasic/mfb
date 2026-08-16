@@ -221,7 +221,9 @@ mod tests {
     fn rejects_unknown_and_unqualified() {
         assert!(!registry::is_package_constant("errorCode.NotARealName"));
         assert!(!registry::is_package_constant("ErrNotFound"));
-        assert!(!registry::is_package_constant("math.pi"));
+        // `math.abs` is a migrated math *function*, not a constant (`math.pi` now IS a
+        // registry constant via `add_constant`, so it is no longer a negative case).
+        assert!(!registry::is_package_constant("math.abs"));
         assert_eq!(registry::constant_value("errorCode.NotARealName"), None);
         // The bare-name emission lookup rejects an unknown name too.
         assert_eq!(registry::runtime_error("NotARealName"), None);

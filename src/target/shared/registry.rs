@@ -1053,7 +1053,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::strings::STRINGS,
     &crate::builtins::term::TERM,
     &crate::builtins::testing::TESTING,
-    &crate::builtins::math::MATH,
+    // math migrated to the clean-room registry (crate::codegen::registry).
     // money migrated to the clean-room registry (crate::codegen::registry).
     &crate::builtins::net::NET,
     // os migrated to the clean-room registry (crate::codegen::registry).
@@ -1764,8 +1764,10 @@ mod tests {
         assert!(REGISTRY.module("crypto").is_none());
         assert!(REGISTRY.module("tls").is_none());
         assert!(REGISTRY.module("thread").is_none());
+        // `math` migrated to the clean-room registry too.
+        assert!(REGISTRY.module("math").is_none());
         // The 28 builtin packages minus the migrated ones.
-        assert_eq!(REGISTRY.modules().len(), 12);
+        assert_eq!(REGISTRY.modules().len(), 11);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);

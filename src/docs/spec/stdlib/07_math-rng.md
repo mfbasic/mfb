@@ -99,7 +99,7 @@ The two `step` calls scramble the seed so that adjacent seed values (e.g. 41 and
 42) yield well-separated streams. Any 64-bit value is a valid seed — including
 0 and negative `Integer`s (interpreted as their two's-complement bit pattern).
 Equal seeds produce identical subsequent `math::rand` sequences on the same
-build. [[src/builtins/math.rs:SEED]]
+build. [[src/codegen/builtins/math/mod.rs:SEED]]
 
 ## Per-thread seeding
 
@@ -152,7 +152,7 @@ each spawn; and spawning a child advances the parent's own sequence by one draw.
 
 `math::rand` validates `min <= max` (reporting `ErrInvalidArgument` otherwise),
 computes the inclusive span, and maps a raw draw into range with Lemire's
-multiply-shift rejection sampling. [[src/builtins/math.rs:RAND]]
+multiply-shift rejection sampling. [[src/codegen/builtins/math/mod.rs:RAND]]
 
 ```text
 if min > max: report ErrInvalidArgument

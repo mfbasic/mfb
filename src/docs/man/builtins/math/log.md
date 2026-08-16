@@ -22,7 +22,7 @@ IMPORT math
 ```
 
 `math` is a built-in package, so no manifest dependency is required.
-[[src/builtins/math.rs:is_math_call]]
+[[src/codegen/builtins/math/mod.rs:is_math_call]]
 
 ## Description
 
@@ -49,7 +49,7 @@ evaluates `ln(m)` by series expansion, and recombines as
 `math::log` accepts `Float` or `Fixed` **only**. `Integer` is not accepted and
 neither is `Money`: the transcendental functions do not take part in the `Money`
 dimension, so `math::log(2)` and `math::log(2.00m)` are both compile-time errors.
-Convert explicitly first. [[src/builtins/math.rs:one_float_or_fixed]]
+Convert explicitly first. [[src/codegen/builtins/math/mod.rs:one_float_or_fixed]]
 
 The `Float` overload is computed by a hand-written **in-tree kernel**: MFBASIC
 never links or calls a platform math library, so the answer does not vary with
@@ -68,7 +68,7 @@ guarantee. [[src/docs/spec/architecture/18_math-kernels.md]]
 
 The array overloads map `math::log` over a list and return a new list of the same
 element type and length; the input list is not mutated. Both a `List OF Float` and a `List OF Fixed` array overload exist.
-[[src/builtins/math.rs:MATH]]
+[[src/codegen/builtins/math/mod.rs:MATH]]
 
 ## Overloads
 
@@ -94,14 +94,14 @@ which element triggered it; no list is returned in that case.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Float` or `Fixed` | The number whose natural logarithm is taken. Must be strictly positive. This parameter has no alternate name. [[src/builtins/math.rs:call_param_names]] |
-| `values` | `List OF Float` or `List OF Fixed` | The array form: a homogeneous list, mapped element-wise. The empty list yields an empty list. [[src/builtins/math.rs:MATH]] |
+| `value` | `Float` or `Fixed` | The number whose natural logarithm is taken. Must be strictly positive. This parameter has no alternate name. [[src/codegen/builtins/math/mod.rs:call_param_names]] |
+| `values` | `List OF Float` or `List OF Fixed` | The array form: a homogeneous list, mapped element-wise. The empty list yields an empty list. [[src/codegen/builtins/math/mod.rs:MATH]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| Same as the argument | The natural logarithm of `value`, in the argument's own type. `1` returns zero. The array forms return a new list of the same element type and length. [[src/builtins/math.rs:MATH]] |
+| Same as the argument | The natural logarithm of `value`, in the argument's own type. `1` returns zero. The array forms return a new list of the same element type and length. [[src/codegen/builtins/math/mod.rs:MATH]] |
 
 ## Errors
 
@@ -112,11 +112,11 @@ which element triggered it; no list is returned in that case.
 
 ## Type checking
 
-`math::log` takes exactly one argument. [[src/builtins/math.rs:MATH]] It must be
+`math::log` takes exactly one argument. [[src/codegen/builtins/math/mod.rs:MATH]] It must be
 a single `Float` or `Fixed`, or `List OF Float` or `List OF Fixed`. An `Integer`, a `Money`, or any
 non-numeric value such as a `String`, `Boolean`, `Byte`, `Scalar`, record,
 union, resource, thread, or function value is a compile-time type error.
-[[src/builtins/math.rs:MATH]]
+[[src/codegen/builtins/math/mod.rs:MATH]]
 
 ## Examples
 

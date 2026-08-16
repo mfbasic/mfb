@@ -19,7 +19,7 @@ IMPORT math
 ```
 
 `math` is a built-in package, so no manifest dependency is required.
-[[src/builtins/math.rs:is_math_call]]
+[[src/codegen/builtins/math/mod.rs:is_math_call]]
 
 ## Description
 
@@ -48,22 +48,22 @@ each child's stream reproducible.
 
 The call replaces the generator state and returns `Nothing` — it produces no draw
 of its own, and it is a statement rather than an expression you bind.
-[[src/builtins/math.rs:MATH]]
+[[src/codegen/builtins/math/mod.rs:MATH]]
 
 The argument may be given by name as well as positionally, under either the name
-`value` or the name `seed`. [[src/builtins/math.rs:call_param_names]]
+`value` or the name `seed`. [[src/codegen/builtins/math/mod.rs:call_param_names]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `Integer` | The seed for the calling thread's generator. Also accepted under the name `seed`. Every `Integer` across the full signed 64-bit range is valid, including zero and negative values; the same seed always yields the same subsequent `math::rand` sequence for a given build. [[src/builtins/math.rs:call_param_names]] |
+| `value` | `Integer` | The seed for the calling thread's generator. Also accepted under the name `seed`. Every `Integer` across the full signed 64-bit range is valid, including zero and negative values; the same seed always yields the same subsequent `math::rand` sequence for a given build. [[src/codegen/builtins/math/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | No value is returned. The effect is the reseeding of the calling thread's generator. [[src/builtins/math.rs:MATH]] |
+| `Nothing` | No value is returned. The effect is the reseeding of the calling thread's generator. [[src/codegen/builtins/math/mod.rs:MATH]] |
 
 ## Errors
 

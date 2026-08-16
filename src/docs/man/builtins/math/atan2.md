@@ -21,7 +21,7 @@ IMPORT math
 ```
 
 `math` is a built-in package, so no manifest dependency is required.
-[[src/builtins/math.rs:is_math_call]]
+[[src/codegen/builtins/math/mod.rs:is_math_call]]
 
 ## Description
 
@@ -44,7 +44,7 @@ Both arguments must already be the same numeric type, and the return type is
 that type: two `Float`s yield a `Float` and two `Fixed`s a `Fixed`. `math::atan2`
 accepts `Float` or `Fixed` **only** — `Integer` and `Money` are compile-time
 errors, and there is no mixed-type overload.
-[[src/builtins/math.rs:two_same_float_or_fixed]]
+[[src/codegen/builtins/math/mod.rs:two_same_float_or_fixed]]
 
 The `Float` overload is computed by a hand-written **in-tree kernel** within
 1 ULP of macOS `libm`: MFBASIC never links or calls a platform math library, so
@@ -95,14 +95,14 @@ does not depend on which element triggered it.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `y` | `Float`, `Fixed`, or `List OF Float` | The **vertical** component, and the first positional argument. Any value is accepted; there is no restricted domain. This parameter has no alternate name. [[src/builtins/math.rs:call_param_names]] |
-| `x` | Same type as `y` | The **horizontal** component. Its sign selects the half-plane in which the angle is measured. Must be exactly the same type as `y`. This parameter has no alternate name. [[src/builtins/math.rs:call_param_names]] |
+| `y` | `Float`, `Fixed`, or `List OF Float` | The **vertical** component, and the first positional argument. Any value is accepted; there is no restricted domain. This parameter has no alternate name. [[src/codegen/builtins/math/mod.rs:call_param_names]] |
+| `x` | Same type as `y` | The **horizontal** component. Its sign selects the half-plane in which the angle is measured. Must be exactly the same type as `y`. This parameter has no alternate name. [[src/codegen/builtins/math/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| Same as the arguments | The angle in radians of the vector `(x, y)`, in `(-pi, pi]`. `atan2(0, 0)` is zero. The array form returns a new `List OF Float` of the same length. [[src/builtins/math.rs:MATH]] |
+| Same as the arguments | The angle in radians of the vector `(x, y)`, in `(-pi, pi]`. `atan2(0, 0)` is zero. The array form returns a new `List OF Float` of the same length. [[src/codegen/builtins/math/mod.rs:MATH]] |
 
 ## Errors
 
@@ -113,12 +113,12 @@ does not depend on which element triggered it.
 
 ## Type checking
 
-`math::atan2` takes exactly two arguments. [[src/builtins/math.rs:MATH]] They
+`math::atan2` takes exactly two arguments. [[src/codegen/builtins/math/mod.rs:MATH]] They
 must share one type: two `Float`s, two `Fixed`s, or two `List OF Float`. Mixing
 `Float` with `Fixed`, passing an `Integer`, a `Money`, a `List OF Fixed`, or any
 non-numeric value such as a `String`, `Boolean`, `Byte`, `Scalar`, record,
 union, resource, thread, or function value is a compile-time type error.
-[[src/builtins/math.rs:MATH]]
+[[src/codegen/builtins/math/mod.rs:MATH]]
 
 ## Examples
 
