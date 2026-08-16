@@ -14,9 +14,8 @@
 
 use std::io::IsTerminal;
 
-use crate::builtins::errorcode;
 use crate::cli::spec::detect_terminal_width;
-use crate::codegen::registry::{registry, DefaultValue, RegistryFunction, RegistryPackage};
+use crate::codegen::registry::{self, registry, DefaultValue, RegistryFunction, RegistryPackage};
 use crate::docs::render;
 
 pub(crate) fn show_man2(args: &[String]) -> Result<(), String> {
@@ -345,7 +344,7 @@ fn render_errors_table(md: &mut String, names: &[&'static str]) {
     }
     let mut ordered = names.to_vec();
     ordered.sort_by_key(|name| {
-        errorcode::runtime_error(name)
+        registry::runtime_error(name)
             .map(|(code, _)| code)
             .unwrap_or("")
     });
@@ -353,7 +352,7 @@ fn render_errors_table(md: &mut String, names: &[&'static str]) {
     md.push_str("## Errors\n\n");
     md.push_str("| Code | Name | Message |\n| --- | --- | --- |\n");
     for name in ordered {
-        let (code, message) = errorcode::runtime_error(name).unwrap_or(("", ""));
+        let (code, message) = registry::runtime_error(name).unwrap_or(("", ""));
         md.push_str(&format!("| `{code}` | `{name}` | {message} |\n"));
     }
     md.push('\n');

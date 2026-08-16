@@ -69,7 +69,7 @@ effects. [[src/codegen/builtins/datetime/func_civil.rs:__datetime_civil]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | The month-index arithmetic (`year * 12 + month - 1 + months`), or the conversion of the shifted date back to epoch seconds during zone resolution, produces a value outside the signed `Integer` range. [[src/codegen/builtins/datetime/func_add_months.rs:__datetime_addMonths]] [[src/codegen/builtins/datetime/func_civil.rs:__datetime_civil]] [[src/target/shared/code/builder_error_emission.rs:raise_error_bare]] [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | The month-index arithmetic (`year * 12 + month - 1 + months`), or the conversion of the shifted date back to epoch seconds during zone resolution, produces a value outside the signed `Integer` range. [[src/codegen/builtins/datetime/func_add_months.rs:__datetime_addMonths]] [[src/codegen/builtins/datetime/func_civil.rs:__datetime_civil]] [[src/target/shared/code/builder_error_emission.rs:raise_error_bare]] [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 
 ## Examples
 

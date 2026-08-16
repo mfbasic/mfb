@@ -92,7 +92,7 @@ whose result the caller stores.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | A segment equal to `*` is not the final segment, or a segment ending in `?` is followed by a segment not ending in `?`. [[src/builtins/errorcode.rs:ErrInvalidArgument]] [[src/builtins/http_package.mfb:__http_validatePattern]] |
+| `77050002` | `ErrInvalidArgument` | A segment equal to `*` is not the final segment, or a segment ending in `?` is followed by a segment not ending in `?`. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] [[src/builtins/http_package.mfb:__http_validatePattern]] |
 
 ## Examples
 

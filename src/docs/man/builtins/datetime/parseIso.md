@@ -74,8 +74,8 @@ host state and has no side effects. [[src/codegen/builtins/datetime/package.mfb:
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `value` does not conform to RFC 3339: a required digit is missing, a `-`, `:`, or date/time separator is absent or wrong, or the offset is missing or malformed (neither `Z`/`z` nor a signed `+/-HH:MM` offset). [[src/codegen/builtins/datetime/func_parse_iso.rs:__datetime_parseIso]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
-| `77050002` | `ErrInvalidArgument` | The parsed offset decodes to a magnitude of 24 hours (86400 seconds) or more, which is out of range for a fixed-offset zone. [[src/codegen/builtins/datetime/package.mfb:__datetime_fixedOffset1]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050003` | `ErrInvalidFormat` | `value` does not conform to RFC 3339: a required digit is missing, a `-`, `:`, or date/time separator is absent or wrong, or the offset is missing or malformed (neither `Z`/`z` nor a signed `+/-HH:MM` offset). [[src/codegen/builtins/datetime/func_parse_iso.rs:__datetime_parseIso]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidFormat]] |
+| `77050002` | `ErrInvalidArgument` | The parsed offset decodes to a magnitude of 24 hours (86400 seconds) or more, which is out of range for a fixed-offset zone. [[src/codegen/builtins/datetime/package.mfb:__datetime_fixedOffset1]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
 
 ## Examples
 

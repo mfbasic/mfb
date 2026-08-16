@@ -79,9 +79,9 @@ Reports the endpoint a UDP socket is bound to.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | The resource has already been closed, or the host's `getsockname` fails — which it does when the descriptor is no longer a usable socket. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
-| `77070001` | `ErrAddressInvalid` | The address the host reported could not be converted to its textual form, so it cannot be represented as an `Address`. [[src/builtins/errorcode.rs:ErrAddressInvalid]] |
-| `77010001` | `ErrOutOfMemory` | The host string or the `Address` record could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77030004` | `ErrResourceClosed` | The resource has already been closed, or the host's `getsockname` fails — which it does when the descriptor is no longer a usable socket. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
+| `77070001` | `ErrAddressInvalid` | The address the host reported could not be converted to its textual form, so it cannot be represented as an `Address`. [[src/codegen/builtins/errorcode/mod.rs:ErrAddressInvalid]] |
+| `77010001` | `ErrOutOfMemory` | The host string or the `Address` record could not be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

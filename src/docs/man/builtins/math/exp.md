@@ -101,9 +101,9 @@ which element triggered it; no list is returned in that case.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050014` | `ErrFloatInf` | The `Float` overload only: the result overflowed to an infinity, which happens for a sufficiently large positive `value`. [[src/builtins/errorcode.rs:ErrFloatInf]] |
-| `77050013` | `ErrFloatNaN` | The `Float` overload only: `value` is a NaN, so the result is a NaN. [[src/builtins/errorcode.rs:ErrFloatNaN]] |
-| `77050010` | `ErrOverflow` | The `Fixed` overload only: the result lies outside `Fixed` range. [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050014` | `ErrFloatInf` | The `Float` overload only: the result overflowed to an infinity, which happens for a sufficiently large positive `value`. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatInf]] |
+| `77050013` | `ErrFloatNaN` | The `Float` overload only: `value` is a NaN, so the result is a NaN. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatNaN]] |
+| `77050010` | `ErrOverflow` | The `Fixed` overload only: the result lies outside `Fixed` range. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 
 ## Type checking
 

@@ -59,10 +59,10 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrOutOfMemory")?;
         self.emit(abi::label(&overflow));
         self.emit_error_code_return(
-            crate::builtins::errorcode::runtime_error("ErrOutOfMemory")
+            crate::codegen::registry::runtime_error("ErrOutOfMemory")
                 .expect("errorCode name")
                 .0,
-            crate::builtins::errorcode::runtime_error("ErrOutOfMemory")
+            crate::codegen::registry::runtime_error("ErrOutOfMemory")
                 .expect("errorCode name")
                 .1,
         )?;

@@ -1621,7 +1621,7 @@ fn emit_app_terminal_size(symbol: &str, term_state_offset: usize) -> AppHookBody
     // shared `raise_error_into` emitter does not fit; the values are table-sourced
     // and loaded here, byte-identical to the former local `ERR_UNSUPPORTED_*` consts.
     let (unsupported_code, unsupported_symbol) =
-        crate::builtins::errorcode::runtime_error_emission("ErrUnsupported")
+        crate::codegen::registry::runtime_error_emission("ErrUnsupported")
             .expect("ErrUnsupported is an errorCode constant");
     asm.push(abi::label(&unsupported));
     asm.push(abi::move_immediate("x1", "Integer", unsupported_code));

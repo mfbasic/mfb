@@ -114,7 +114,7 @@ Sets both limits explicitly. [[src/builtins/thread.rs:THREAD]] [[src/builtins/th
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | `inboundLimit` or `outboundLimit` is below `1`, or above `u64::MAX / 8` (the cap that keeps the backing array size from wrapping). [[src/target/shared/code/runtime_helpers.rs:lower_thread_start_helper]] |
-| `77010001` | `ErrOutOfMemory` | The thread control block, the worker's arena state, any of the four queue structures, or any queue's backing value array cannot be allocated — including when `capacity * 8` would overflow 64 bits. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77010001` | `ErrOutOfMemory` | The thread control block, the worker's arena state, any of the four queue structures, or any queue's backing value array cannot be allocated — including when `capacity * 8` would overflow 64 bits. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 | `77050009` | `ErrInterrupted` | The OS thread cannot be spawned (`pthread_create` fails), or a queue's mutex or condition variable cannot be initialized (`pthread_mutex_init` / `pthread_cond_init` fails). [[src/target/shared/code/runtime_helpers.rs:lower_thread_start_helper]] |
 
 ## Type checking

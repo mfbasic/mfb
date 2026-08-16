@@ -93,8 +93,8 @@ that many milliseconds; a negative value is rejected with `ErrInvalidArgument`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
-| `77020005` | `ErrInput` | The poll of standard input fails for a reason other than an interrupting signal, which is retried instead. [[src/builtins/errorcode.rs:ErrInputFailed]] |
+| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
+| `77020005` | `ErrInput` | The poll of standard input fails for a reason other than an interrupting signal, which is retried instead. [[src/codegen/builtins/errorcode/mod.rs:ErrInputFailed]] |
 
 ## Examples
 

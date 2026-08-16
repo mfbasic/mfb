@@ -96,8 +96,8 @@ Q32.32, then rounds each component back to `Integer` half away from zero.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | On the `Fixed2` and `Integer2` overloads, converting `angle` with `toFixed` is out of the Q32.32 range, a product exceeds it, or an `Integer2` component rounds outside the `Integer` range. [[src/builtins/errorcode.rs:ErrOverflow]] |
-| `77050015` | `ErrFloatOverflow` | On the `Float2` overload, a product or sum reaches infinity and is caught where the result component is bound. [[src/builtins/errorcode.rs:ErrFloatOverflow]] |
+| `77050010` | `ErrOverflow` | On the `Fixed2` and `Integer2` overloads, converting `angle` with `toFixed` is out of the Q32.32 range, a product exceeds it, or an `Integer2` component rounds outside the `Integer` range. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
+| `77050015` | `ErrFloatOverflow` | On the `Float2` overload, a product or sum reaches infinity and is caught where the result component is bound. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatOverflow]] |
 
 ## Type checking
 

@@ -104,7 +104,7 @@ one. This overload cannot fail. Note that the key parameter is still spelled
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050001` | `ErrIndexOutOfRange` | **List overload only.** `index` is negative, or `index` is greater than or equal to `len(value)`. The map overload raises no error for any key, present or absent. [[src/builtins/errorcode.rs:ErrIndexOutOfRange]] [[src/target/shared/code/list_mutate.rs:lower_list_set_in_place]] |
+| `77050001` | `ErrIndexOutOfRange` | **List overload only.** `index` is negative, or `index` is greater than or equal to `len(value)`. The map overload raises no error for any key, present or absent. [[src/codegen/builtins/errorcode/mod.rs:ErrIndexOutOfRange]] [[src/target/shared/code/list_mutate.rs:lower_list_set_in_place]] |
 
 ## Type checking
 

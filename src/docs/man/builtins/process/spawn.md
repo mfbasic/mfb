@@ -47,7 +47,7 @@ is left; call `process::waitFor` first if the child should be allowed to finish,
 `process::detach` to let it outlive the program. [[src/codegen/registry/mod.rs:resource_close_function]]
 
 The empty argument list is rejected with `ErrInvalidArgument` — there is no program
-to run. [[src/builtins/errorcode.rs:ErrInvalidArgument]]
+to run. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]]
 
 ## Overloads
 
@@ -84,9 +84,9 @@ are merged over the inherited environment. [[src/codegen/builtins/process/func_s
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `args` is empty — there is no program to run. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
-| `77080001` | `ErrSpawnFailed` | The child could not be created: `fork`/`pipe` failed, or the program was not found or could not be `exec`'d. [[src/builtins/errorcode.rs:ErrSpawnFailed]] |
-| `77010001` | `ErrOutOfMemory` | The `argv`/environment C strings or the `Process` handle record could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77050002` | `ErrInvalidArgument` | `args` is empty — there is no program to run. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
+| `77080001` | `ErrSpawnFailed` | The child could not be created: `fork`/`pipe` failed, or the program was not found or could not be `exec`'d. [[src/codegen/builtins/errorcode/mod.rs:ErrSpawnFailed]] |
+| `77010001` | `ErrOutOfMemory` | The `argv`/environment C strings or the `Process` handle record could not be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

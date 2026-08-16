@@ -84,9 +84,9 @@ Binds `host` on `port` and listens with the given backlog hint.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77070001` | `ErrAddressInvalid` | `host` could not be resolved into a local endpoint — the resolver rejected it as malformed or unknown. [[src/builtins/errorcode.rs:ErrAddressInvalid]] |
-| `77070003` | `ErrNetworkFailed` | The socket could not be created, bound, or placed in the listening state — for example the address and port are already in use, or the port requires privileges the process does not hold. [[src/builtins/errorcode.rs:ErrNetworkFailed]] |
-| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of `host` or the `Listener` handle record could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77070001` | `ErrAddressInvalid` | `host` could not be resolved into a local endpoint — the resolver rejected it as malformed or unknown. [[src/codegen/builtins/errorcode/mod.rs:ErrAddressInvalid]] |
+| `77070003` | `ErrNetworkFailed` | The socket could not be created, bound, or placed in the listening state — for example the address and port are already in use, or the port requires privileges the process does not hold. [[src/codegen/builtins/errorcode/mod.rs:ErrNetworkFailed]] |
+| `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of `host` or the `Listener` handle record could not be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

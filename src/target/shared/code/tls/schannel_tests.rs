@@ -20,7 +20,7 @@ fn reads_reject_invalid_maxbytes(text: bool) {
     let (_frame, _ins, rel, _slots) =
         lower_tls_read("t_read", &imports, &TestPlatform, text).expect("lower schannel tls::read");
     let invalid_argument_symbol =
-        crate::builtins::errorcode::runtime_error_emission("ErrInvalidArgument")
+        crate::codegen::registry::runtime_error_emission("ErrInvalidArgument")
             .expect("errorCode name")
             .1;
     assert!(

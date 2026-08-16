@@ -632,6 +632,15 @@ pub(crate) struct RegistryResource {
 ///   constructor of [`type_name`](Self::type_name) (`Float3`) inlines from — each
 ///   field's element type coming from the package's [`RegistryRecord`].
 ///
+/// An `errorCode` scalar constant additionally carries the two error-**emission**
+/// columns the codegen error path consults ([`message`](Self::message) /
+/// [`symbol`](Self::symbol)): the human-readable message and the interned message
+/// data-object symbol (`_mfb_str_error_*`). These are `Some` only for the `errorCode`
+/// rows — the single authority the [`runtime_error`] / [`runtime_error_emission`] /
+/// [`runtime_error_triple`] free fns scan by bare error name — and `None` for every
+/// value constant (`math.pi`, `vector.zeroFloat3`), which never enters the emission
+/// path.
+///
 /// Construct with a named struct literal; add via [`RegistryPackage::add_constant`].
 #[derive(Clone, Debug)]
 pub(crate) struct RegistryConstant {
@@ -647,6 +656,15 @@ pub(crate) struct RegistryConstant {
     /// The ordered per-field literals a **record** constant inlines into a
     /// constructor of [`type_name`](Self::type_name); `None` for a scalar constant.
     pub(crate) components: Option<&'static [&'static str]>,
+    /// The human-readable error **message** the codegen error-emission path emits for
+    /// an `errorCode` constant (`"Requested item, key, file, or resource was not
+    /// found."`); `None` for a value constant. Feeds [`runtime_error`] /
+    /// [`runtime_error_triple`].
+    pub(crate) message: Option<&'static str>,
+    /// The interned message data-object **symbol** (`_mfb_str_error_not_found`) the
+    /// fixed-runtime-helper error path references for an `errorCode` constant; `None`
+    /// for a value constant. Feeds [`runtime_error_emission`] / [`runtime_error_triple`].
+    pub(crate) symbol: Option<&'static str>,
 }
 
 /// A migrated package's **override** of an overridable general builtin (`toString`,
@@ -1247,6 +1265,7 @@ fn build() -> Registry {
     crate::codegen::builtins::process::register(&mut r);
     crate::codegen::builtins::datetime::register(&mut r);
     crate::codegen::builtins::encoding::register(&mut r);
+    crate::codegen::builtins::errorcode::register(&mut r);
     crate::codegen::builtins::collections::register(&mut r);
     crate::codegen::builtins::money::register(&mut r);
     crate::codegen::builtins::os::register(&mut r);
@@ -1402,6 +1421,49 @@ pub(crate) fn constant_value(qualified: &str) -> Option<&'static str> {
 /// `vector::constant_components` read in `ir/lower.rs`.
 pub(crate) fn constant_components(qualified: &str) -> Option<&'static [&'static str]> {
     find_constant(qualified).and_then(|constant| constant.components)
+}
+
+/// The migrated `errorCode` package's constant with the bare error `name`
+/// (`"ErrNotFound"`, NOT the qualified `errorCode.ErrNotFound`), or `None`. The
+/// single lookup behind the three error-**emission** free fns below — the codegen
+/// error path keys on the bare name a builtin declares in its `errors` list, while
+/// constant-folding keys on the qualified `errorCode.<name>` via [`find_constant`].
+fn errorcode_constant(name: &str) -> Option<&'static RegistryConstant> {
+    registry()
+        .resolve_package("errorCode")?
+        .constants()
+        .iter()
+        .find(|constant| constant.name == name)
+}
+
+/// The `(code, message)` for a runtime error *name* (e.g. `"ErrIndexOutOfRange"`), as
+/// declared in a builtin's `errors` list, or `None` if the name is not a known
+/// `errorCode` constant. The codegen-facing lookup the native error-emission path
+/// resolves a builtin's declared error to before passing it to `emit_error_code_return`.
+/// Distinct from [`constant_value`], which takes the package-qualified
+/// `errorCode.<Name>` key and returns only the code for constant folding.
+pub(crate) fn runtime_error(name: &str) -> Option<(&'static str, &'static str)> {
+    let constant = errorcode_constant(name)?;
+    Some((constant.value?, constant.message?))
+}
+
+/// The `(code, message-symbol)` for a runtime error *name*, or `None` if unknown. The
+/// fixed-runtime-helper emission lookup: `raise_error_into` sets the code immediate and
+/// loads the message data-object symbol, reproducing the historical lightweight
+/// fixed-helper error sequence byte-for-byte from the registered constant.
+pub(crate) fn runtime_error_emission(name: &str) -> Option<(&'static str, &'static str)> {
+    let constant = errorcode_constant(name)?;
+    Some((constant.value?, constant.symbol?))
+}
+
+/// The full `(code, message, symbol)` for a runtime error *name*, all borrowed from the
+/// migrated `errorCode` package's constant. Feeds the codegen data-object tables that
+/// emit the fixed `_mfb_str_error_*` string objects.
+pub(crate) fn runtime_error_triple(
+    name: &str,
+) -> Option<(&'static str, &'static str, &'static str)> {
+    let constant = errorcode_constant(name)?;
+    Some((constant.value?, constant.message?, constant.symbol?))
 }
 
 /// The internal `__pkg_*` helper a migrated package provides as an **override** of the
@@ -2208,12 +2270,16 @@ mod tests {
             type_name: "Float",
             value: Some("3.14159"),
             components: None,
+            message: None,
+            symbol: None,
         })
         .add_constant(RegistryConstant {
             name: "zero3",
             type_name: "Float3",
             value: None,
             components: Some(&["0.0", "0.0", "0.0"]),
+            message: None,
+            symbol: None,
         })
         .add_override(RegistryOverride {
             builtin: "toString",

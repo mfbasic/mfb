@@ -72,7 +72,7 @@ console program, and the application transcript window in app mode
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77020002` | `ErrOutput` | The write fails, or a buffered write's drain fails — for example the descriptor is closed or the disk is full. [[src/builtins/errorcode.rs:ErrWriteFailed]] |
+| `77020002` | `ErrOutput` | The write fails, or a buffered write's drain fails — for example the descriptor is closed or the disk is full. [[src/codegen/builtins/errorcode/mod.rs:ErrWriteFailed]] |
 
 ## Examples
 

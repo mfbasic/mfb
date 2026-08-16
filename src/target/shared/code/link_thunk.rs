@@ -323,7 +323,7 @@ pub(super) fn emit_link_support(
         })
     }) {
         for (_, message, symbol) in ["ErrResourceClosed", "ErrResourceMoved"].map(|name| {
-            crate::builtins::errorcode::runtime_error_triple(name).expect("errorCode name")
+            crate::codegen::registry::runtime_error_triple(name).expect("errorCode name")
         }) {
             if !data_objects.iter().any(|object| object.symbol == symbol) {
                 data_objects.push(CodeDataObject {

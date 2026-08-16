@@ -107,7 +107,7 @@ fn emit_app_term_terminal_size(symbol: &str) -> AppHookBody {
     // returns via x0/x1 and the custom `asm.local_address`, so the shared
     // `raise_error_into` does not fit; table-sourced, byte-identical).
     let (unsupported_code, unsupported_symbol) =
-        crate::builtins::errorcode::runtime_error_emission("ErrUnsupported")
+        crate::codegen::registry::runtime_error_emission("ErrUnsupported")
             .expect("ErrUnsupported is an errorCode constant");
     asm.push(abi::label("ts_unsupported"));
     asm.push(abi::move_immediate(

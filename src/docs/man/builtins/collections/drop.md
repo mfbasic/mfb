@@ -71,7 +71,7 @@ the returned list does not share storage with `value`. `value` is not modified.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77010001` | `ErrOutOfMemory` | The arena cannot allocate the result list, or its computed size overflows. No value of `count` is itself rejected. [[src/codegen/builtins/collections/common/slice.rs:lower_list_slice_range]] [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77010001` | `ErrOutOfMemory` | The arena cannot allocate the result list, or its computed size overflows. No value of `count` is itself rejected. [[src/codegen/builtins/collections/common/slice.rs:lower_list_slice_range]] [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Type checking
 

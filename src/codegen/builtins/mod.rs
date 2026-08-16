@@ -7,6 +7,7 @@ pub(crate) mod collections;
 pub(crate) mod csv;
 pub(crate) mod datetime;
 pub(crate) mod encoding;
+pub(crate) mod errorcode;
 pub(crate) mod fs;
 pub(crate) mod io;
 pub(crate) mod json;

@@ -319,7 +319,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &closed_code,
             "Integer",
-            crate::builtins::errorcode::runtime_error("ErrResourceClosed")
+            crate::codegen::registry::runtime_error("ErrResourceClosed")
                 .expect("errorCode name")
                 .0,
         ));

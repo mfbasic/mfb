@@ -38,7 +38,7 @@ one byte is available or the stream ends. A pipe read returns any buffered bytes
 before signalling end of stream, so late output is drained; only a read that finds
 end of stream with nothing buffered raises `ErrResourceClosed`. On success the
 result always holds at least one byte — end of output is never an empty list.
-[[src/builtins/errorcode.rs:ErrResourceClosed]]
+[[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]]
 [[src/codegen/builtins/process/mod.rs:STREAM_TYPE]]
 
 ## Overloads
@@ -69,8 +69,8 @@ Reads the next chunk from the selected stream — `Stream.StdOut` or `Stream.Std
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | End of the selected stream was reached with nothing buffered, or `p` has already been dropped or detached. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
-| `77010001` | `ErrOutOfMemory` | The read buffer or the returned `List OF Byte` could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77030004` | `ErrResourceClosed` | End of the selected stream was reached with nothing buffered, or `p` has already been dropped or detached. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
+| `77010001` | `ErrOutOfMemory` | The read buffer or the returned `List OF Byte` could not be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

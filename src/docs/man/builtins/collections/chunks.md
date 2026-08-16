@@ -71,8 +71,8 @@ no block shares storage with `value`. `value` is not modified.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `chunkSize` is less than 1. [[src/codegen/builtins/collections/package.mfb:__collections_chunks]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
-| `77010001` | `ErrOutOfMemory` | The arena cannot allocate a block or the result list, or a computed size overflows. [[src/codegen/builtins/collections/common/slice.rs:lower_list_slice_range]] [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77050002` | `ErrInvalidArgument` | `chunkSize` is less than 1. [[src/codegen/builtins/collections/package.mfb:__collections_chunks]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
+| `77010001` | `ErrOutOfMemory` | The arena cannot allocate a block or the result list, or a computed size overflows. [[src/codegen/builtins/collections/common/slice.rs:lower_list_slice_range]] [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Type checking
 

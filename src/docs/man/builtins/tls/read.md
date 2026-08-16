@@ -64,11 +64,11 @@ missing — `read` raises `ErrTlsFailed`. [[src/builtins/tls.rs:TLS_SOCKET_TYPE]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `maxBytes` is not positive. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
-| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
-| `77070004` | `ErrConnectionClosed` | The peer has closed the TLS session (an end-of-stream read), as reported by a zero-length read. [[src/builtins/errorcode.rs:ErrConnectionClosed]] |
-| `77070008` | `ErrTlsFailed` | The underlying TLS read fails, or the system OpenSSL library or a required symbol could not be loaded. [[src/builtins/errorcode.rs:ErrTlsFailed]] |
-| `77010001` | `ErrOutOfMemory` | The `maxBytes` read buffer or the returned `List OF Byte` could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77050002` | `ErrInvalidArgument` | `maxBytes` is not positive. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
+| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
+| `77070004` | `ErrConnectionClosed` | The peer has closed the TLS session (an end-of-stream read), as reported by a zero-length read. [[src/codegen/builtins/errorcode/mod.rs:ErrConnectionClosed]] |
+| `77070008` | `ErrTlsFailed` | The underlying TLS read fails, or the system OpenSSL library or a required symbol could not be loaded. [[src/codegen/builtins/errorcode/mod.rs:ErrTlsFailed]] |
+| `77010001` | `ErrOutOfMemory` | The `maxBytes` read buffer or the returned `List OF Byte` could not be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

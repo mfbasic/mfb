@@ -78,7 +78,7 @@ is still closed in that case. [[src/target/shared/code/tls/mod.rs:lower_tls_clos
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77070008` | `ErrTlsFailed` | The system OpenSSL library (or, on macOS, Network.framework) or a required symbol could not be loaded while tearing down the session. The underlying socket file descriptor is still closed in this case. [[src/builtins/errorcode.rs:ErrTlsFailed]] |
+| `77070008` | `ErrTlsFailed` | The system OpenSSL library (or, on macOS, Network.framework) or a required symbol could not be loaded while tearing down the session. The underlying socket file descriptor is still closed in this case. [[src/codegen/builtins/errorcode/mod.rs:ErrTlsFailed]] |
 
 ## Examples
 

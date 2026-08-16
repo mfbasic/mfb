@@ -72,11 +72,11 @@ more convenient than raw bytes.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `maxBytes` is not positive. [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
-| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/builtins/errorcode.rs:ErrResourceClosed]] |
-| `77070004` | `ErrConnectionClosed` | The peer has closed the connection (a zero-length receive), or the receive fails for a host reason other than a timeout or an interruption. [[src/builtins/errorcode.rs:ErrConnectionClosed]] |
-| `77050008` | `ErrTimeout` | The socket's read timeout elapsed before any data arrived. [[src/builtins/errorcode.rs:ErrTimeout]] |
-| `77010001` | `ErrOutOfMemory` | The temporary read buffer or the returned `List OF Byte` could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77050002` | `ErrInvalidArgument` | `maxBytes` is not positive. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
+| `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
+| `77070004` | `ErrConnectionClosed` | The peer has closed the connection (a zero-length receive), or the receive fails for a host reason other than a timeout or an interruption. [[src/codegen/builtins/errorcode/mod.rs:ErrConnectionClosed]] |
+| `77050008` | `ErrTimeout` | The socket's read timeout elapsed before any data arrived. [[src/codegen/builtins/errorcode/mod.rs:ErrTimeout]] |
+| `77010001` | `ErrOutOfMemory` | The temporary read buffer or the returned `List OF Byte` could not be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

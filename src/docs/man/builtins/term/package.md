@@ -87,8 +87,8 @@ glyph for `term::fillRect`. [[src/builtins/term.rs:TERM]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77010001` | `ErrOutOfMemory` | `term::on` cannot allocate the shadow grid, or `term::getForeground`/`getBackground` cannot allocate the 24-byte `TermColor` record they return. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
-| `77050007` | `ErrUnsupported` | `term::terminalSize` is called while TUI mode is off, the size ioctl fails, or the host reports zero rows or columns. [[src/builtins/errorcode.rs:ErrUnsupported]] |
+| `77010001` | `ErrOutOfMemory` | `term::on` cannot allocate the shadow grid, or `term::getForeground`/`getBackground` cannot allocate the 24-byte `TermColor` record they return. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
+| `77050007` | `ErrUnsupported` | `term::terminalSize` is called while TUI mode is off, the size ioctl fails, or the host reports zero rows or columns. [[src/codegen/builtins/errorcode/mod.rs:ErrUnsupported]] |
 
 Every other `term::` function is infallible. The writers mutate the back buffer
 and cannot fail; the remaining readers return an inert default while TUI mode is

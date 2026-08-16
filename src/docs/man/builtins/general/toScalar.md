@@ -79,7 +79,7 @@ Widens a `Byte` to the `Scalar` with the same code point. Never fails.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | An `Integer` value is negative, above `1114111`, or a surrogate (`55296` through `57343`), or a `String` value is empty or contains more than one scalar. The `Byte` overload never raises. [[src/target/shared/code/builder_conversions.rs:lower_to_scalar]] [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050002` | `ErrInvalidArgument` | An `Integer` value is negative, above `1114111`, or a surrogate (`55296` through `57343`), or a `String` value is empty or contains more than one scalar. The `Byte` overload never raises. [[src/target/shared/code/builder_conversions.rs:lower_to_scalar]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
 
 ## Type checking
 

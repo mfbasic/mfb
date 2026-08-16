@@ -92,7 +92,7 @@ exactly. Lists of differing length fail with `ErrInvalidArgument`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | Array overloads only: the two lists have different lengths. The scalar overloads raise no errors. [[src/builtins/errorcode.rs:ErrInvalidArgument]] [[src/target/shared/code/builder_math.rs:lower_math_min_max_array]] |
+| `77050002` | `ErrInvalidArgument` | Array overloads only: the two lists have different lengths. The scalar overloads raise no errors. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] [[src/target/shared/code/builder_math.rs:lower_math_min_max_array]] |
 
 ## Type checking
 

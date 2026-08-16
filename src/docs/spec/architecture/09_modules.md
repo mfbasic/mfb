@@ -35,7 +35,7 @@ A map of the compiler's source modules and their responsibilities.
 | HTTP built-ins[[src/builtins/http.rs]] | HTTP built-in signatures. |
 | CSV built-ins[[src/codegen/builtins/csv/mod.rs]] | CSV built-in signatures. |
 | Regex built-ins[[src/codegen/builtins/regex/mod.rs]] | Regex built-in signatures. |
-| `errorCode` package[[src/builtins/errorcode.rs]] | `errorCode` integer-constant package. |
+| `errorCode` package[[src/codegen/builtins/errorcode/mod.rs]] | `errorCode` integer-constant package. |
 | Resource-type registry[[src/builtins/resource.rs]] | Data-driven resource-type registry. |
 | MFBASIC-source built-in packages[[src/builtins/]] | MFBASIC-source built-in packages injected at build (`collections`, `crypto`, `csv`, `datetime`, `encoding`, `http`, `json`, `net`, `regex`, `vector`); the regex Unicode file is a plain source companion, not a package source. |
 | Unicode constant-fold oracles[[src/unicode/backend.rs]] | Compile-time (constant-fold) Unicode oracles: upper/lower/caseFold/normalizeNfc/graphemes on static strings. |

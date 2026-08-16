@@ -112,8 +112,8 @@ Angle and weights in `Fixed` through a dedicated helper, components widened to
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | Either `a` or `b` has zero length. Raised by the delegated angle computation, so the message names `vector::angle`. [[src/builtins/vector_package.mfb:__vector_angle_float2]] |
-| `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, converting `t`, a squared component, a weight, or a blended component exceeds the checked range of the element type, or an `Integer` component rounds outside the `Integer` range. [[src/builtins/errorcode.rs:ErrOverflow]] |
-| `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a squared component, a weight, or a blended component reaches infinity and is caught where it is bound. [[src/builtins/errorcode.rs:ErrFloatOverflow]] |
+| `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, converting `t`, a squared component, a weight, or a blended component exceeds the checked range of the element type, or an `Integer` component rounds outside the `Integer` range. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
+| `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a squared component, a weight, or a blended component reaches infinity and is caught where it is bound. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatOverflow]] |
 
 ## Type checking
 

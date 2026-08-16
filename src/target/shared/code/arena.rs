@@ -545,7 +545,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::move_immediate(
             abi::return_register(),
             "Integer",
-            crate::builtins::errorcode::runtime_error("ErrInvalidArgument")
+            crate::codegen::registry::runtime_error("ErrInvalidArgument")
                 .expect("errorCode name")
                 .0,
         ),
@@ -555,7 +555,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::move_immediate(
             abi::return_register(),
             "Integer",
-            crate::builtins::errorcode::runtime_error("ErrOutOfMemory")
+            crate::codegen::registry::runtime_error("ErrOutOfMemory")
                 .expect("errorCode name")
                 .0,
         ),

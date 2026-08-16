@@ -65,7 +65,7 @@ console program, and the application transcript in app mode (`mfb build --app`).
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77020002` | `ErrOutput` | The write of the text or of the trailing newline to standard error fails. [[src/builtins/errorcode.rs:ErrWriteFailed]] |
+| `77020002` | `ErrOutput` | The write of the text or of the trailing newline to standard error fails. [[src/codegen/builtins/errorcode/mod.rs:ErrWriteFailed]] |
 
 ## Examples
 

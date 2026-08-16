@@ -63,7 +63,7 @@ a sequence encoding more than 64 significant bits overflows.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `data` is empty, the sequence is truncated (the bytes end before a terminator with a clear high bit), or the value overflows 64 bits (the shift exceeds `63`). [[src/codegen/builtins/encoding/func_sleb128_decode.rs:__encoding_sleb128Decode]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | `data` is empty, the sequence is truncated (the bytes end before a terminator with a clear high bit), or the value overflows 64 bits (the shift exceeds `63`). [[src/codegen/builtins/encoding/func_sleb128_decode.rs:__encoding_sleb128Decode]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidFormat]] |
 
 ## Examples
 

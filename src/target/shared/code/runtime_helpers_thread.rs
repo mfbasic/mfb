@@ -935,7 +935,7 @@ pub(super) fn lower_thread_sleep_worker_helper(
         abi::move_immediate(
             RESULT_VALUE_REGISTER,
             "Integer",
-            crate::builtins::errorcode::runtime_error("ErrInterrupted")
+            crate::codegen::registry::runtime_error("ErrInterrupted")
                 .expect("errorCode name")
                 .0,
         ),
@@ -943,7 +943,7 @@ pub(super) fn lower_thread_sleep_worker_helper(
     ]);
     push_error_message_address(
         symbol,
-        crate::builtins::errorcode::runtime_error_emission("ErrInterrupted")
+        crate::codegen::registry::runtime_error_emission("ErrInterrupted")
             .expect("errorCode name")
             .1,
         &mut instructions,
@@ -955,7 +955,7 @@ pub(super) fn lower_thread_sleep_worker_helper(
         abi::move_immediate(
             RESULT_VALUE_REGISTER,
             "Integer",
-            crate::builtins::errorcode::runtime_error("ErrInvalidArgument")
+            crate::codegen::registry::runtime_error("ErrInvalidArgument")
                 .expect("errorCode name")
                 .0,
         ),
@@ -963,7 +963,7 @@ pub(super) fn lower_thread_sleep_worker_helper(
     ]);
     push_error_message_address(
         symbol,
-        crate::builtins::errorcode::runtime_error_emission("ErrInvalidArgument")
+        crate::codegen::registry::runtime_error_emission("ErrInvalidArgument")
             .expect("errorCode name")
             .1,
         &mut instructions,

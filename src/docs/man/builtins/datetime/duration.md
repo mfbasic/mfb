@@ -107,7 +107,7 @@ A span of `days*86400 + hours*3600 + mins*60 + seconds` whole seconds, plus
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | Folding the components into a second count, or carrying the normalized nanoseconds into the `seconds` field, produces a value outside the signed `Integer` range. [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | Folding the components into a second count, or carrying the normalized nanoseconds into the `seconds` field, produces a value outside the signed `Integer` range. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 
 ## Examples
 

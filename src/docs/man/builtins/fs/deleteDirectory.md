@@ -63,7 +63,7 @@ same symbolic error is produced on each platform.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | `path` is empty or contains an embedded NUL byte, so it cannot become a valid NUL-terminated host path. [[src/codegen/builtins/fs/native/paths.rs:lower_fs_path_operation_helper]] |
-| `77010001` | `ErrOutOfMemory` | The internal NUL-terminated copy of `path` cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77010001` | `ErrOutOfMemory` | The internal NUL-terminated copy of `path` cannot be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 | `77030001` | `ErrPathNotFound` | No entry exists at `path` (host `ENOENT`). [[src/codegen/builtins/fs/native/shared.rs:emit_fs_path_errno_error_mapping]] |
 | `77030003` | `ErrAccessDenied` | The host denies permission to remove the directory (host `EACCES`). [[src/codegen/builtins/fs/native/shared.rs:emit_fs_path_errno_error_mapping]] |
 | `77050005` | `ErrAlreadyExists` | The host reports a conflicting existing target (host `EEXIST`). [[src/codegen/builtins/fs/native/shared.rs:emit_fs_path_errno_error_mapping]] |

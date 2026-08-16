@@ -69,7 +69,7 @@ return the negated key. `value` is not modified.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77010001` | `ErrOutOfMemory` | The arena cannot allocate the key list or a list the merge passes need to build. Ordering itself never fails: no key, index, or length is rejected. [[src/target/shared/code/list_mutate.rs:lower_list_insert_collection]] [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77010001` | `ErrOutOfMemory` | The arena cannot allocate the key list or a list the merge passes need to build. Ordering itself never fails: no key, index, or length is rejected. [[src/target/shared/code/list_mutate.rs:lower_list_insert_collection]] [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 An error raised inside `keyFn` is not caught here; it propagates to the caller as
 that function's own failure.

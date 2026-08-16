@@ -67,7 +67,7 @@ different DST rule.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | Adding the resolved local offset to the instant's seconds-since-epoch produces a value outside the signed `Integer` range, which can occur only for an instant at the extreme edge of the timeline. [[src/codegen/builtins/datetime/func_in_zone.rs:__datetime_inZone]] [[src/builtins/errorcode.rs:ErrOverflow]] |
+| `77050010` | `ErrOverflow` | Adding the resolved local offset to the instant's seconds-since-epoch produces a value outside the signed `Integer` range, which can occur only for an instant at the extreme edge of the timeline. [[src/codegen/builtins/datetime/func_in_zone.rs:__datetime_inZone]] [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 
 ## Examples
 

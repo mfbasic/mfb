@@ -62,7 +62,7 @@ The empty string decodes to the empty list. For the standard variant that uses
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | `text` contains a character outside the URL-safe Base64 alphabet (`A`–`Z`, `a`–`z`, `0`–`9`, `-`, `_`, `=`); has a non-padding character following a `=` padding character; or has a non-padding symbol count whose remainder modulo four is `1`. [[src/codegen/builtins/encoding/func_base64_url_decode.rs:__encoding_base64UrlDecode]] [[src/codegen/builtins/encoding/package.mfb:__encoding_base64Symbols]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | `text` contains a character outside the URL-safe Base64 alphabet (`A`–`Z`, `a`–`z`, `0`–`9`, `-`, `_`, `=`); has a non-padding character following a `=` padding character; or has a non-padding symbol count whose remainder modulo four is `1`. [[src/codegen/builtins/encoding/func_base64_url_decode.rs:__encoding_base64UrlDecode]] [[src/codegen/builtins/encoding/package.mfb:__encoding_base64Symbols]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidFormat]] |
 
 ## Examples
 

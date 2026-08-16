@@ -61,7 +61,7 @@ therefore never raises `ErrInvalidArgument`. It is not, however, error-free: the
 squaring step is ordinary checked arithmetic in the element type and can overflow
 for large coordinates, and on the `Integer` overloads the *difference* itself can
 overflow before any squaring, when subtracting a large negative coordinate from a
-large positive one. [[src/builtins/errorcode.rs:ErrOverflow]]
+large positive one. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]]
 
 ## Overloads
 
@@ -96,8 +96,8 @@ rounding integer square root, halves away from zero.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, a per-component difference, one of its squares, or the sum of squares exceeds the checked range of the element type. [[src/builtins/errorcode.rs:ErrOverflow]] |
-| `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a difference, square, or sum reaches infinity and is caught where it is bound or returned. [[src/builtins/errorcode.rs:ErrFloatOverflow]] |
+| `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, a per-component difference, one of its squares, or the sum of squares exceeds the checked range of the element type. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
+| `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a difference, square, or sum reaches infinity and is caught where it is bound or returned. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatOverflow]] |
 
 ## Type checking
 

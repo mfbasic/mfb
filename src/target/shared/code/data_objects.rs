@@ -87,7 +87,7 @@ pub(crate) fn raise_error_into(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) {
-    let (code, symbol) = crate::builtins::errorcode::runtime_error_emission(error_name)
+    let (code, symbol) = crate::codegen::registry::runtime_error_emission(error_name)
         .unwrap_or_else(|| panic!("raise_error_into: `{error_name}` is not an errorCode constant"));
     instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", code));
     instructions.push(abi::move_immediate(
@@ -103,7 +103,7 @@ pub(crate) fn raise_error_into(
 /// sources every message from `ERRORCODE_CONSTANTS` (the single metadata authority)
 /// instead of the deleted per-error `ERR_*_MESSAGE` codegen constants.
 fn err_msg(name: &str) -> String {
-    crate::builtins::errorcode::runtime_error(name)
+    crate::codegen::registry::runtime_error(name)
         .unwrap_or_else(|| panic!("err_msg: `{name}` is not an errorCode constant"))
         .1
         .to_string()

@@ -99,12 +99,12 @@ writing the prompt is reported before any input is consumed.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77020002` | `ErrOutput` | Writing the prompt to standard output fails. Only possible for a non-empty prompt. [[src/builtins/errorcode.rs:ErrWriteFailed]] |
-| `77020003` | `ErrEof` | Standard input reaches end of input before any byte of the line is read. [[src/builtins/errorcode.rs:ErrEndOfFile]] |
-| `77020004` | `ErrEncoding` | The bytes read do not form a valid UTF-8 sequence. [[src/builtins/errorcode.rs:ErrEncoding]] |
-| `77020005` | `ErrInput` | Reading standard input fails for any other reason. [[src/builtins/errorcode.rs:ErrInputFailed]] |
-| `77010001` | `ErrOutOfMemory` | The growing line accumulator or the returned `String` cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
-| `77050019` | `ErrInvalidContext` | The calling thread is not the main thread and has not subscribed to standard input with `thread::openStdIn`. [[src/builtins/errorcode.rs:ErrInvalidContext]] |
+| `77020002` | `ErrOutput` | Writing the prompt to standard output fails. Only possible for a non-empty prompt. [[src/codegen/builtins/errorcode/mod.rs:ErrWriteFailed]] |
+| `77020003` | `ErrEof` | Standard input reaches end of input before any byte of the line is read. [[src/codegen/builtins/errorcode/mod.rs:ErrEndOfFile]] |
+| `77020004` | `ErrEncoding` | The bytes read do not form a valid UTF-8 sequence. [[src/codegen/builtins/errorcode/mod.rs:ErrEncoding]] |
+| `77020005` | `ErrInput` | Reading standard input fails for any other reason. [[src/codegen/builtins/errorcode/mod.rs:ErrInputFailed]] |
+| `77010001` | `ErrOutOfMemory` | The growing line accumulator or the returned `String` cannot be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
+| `77050019` | `ErrInvalidContext` | The calling thread is not the main thread and has not subscribed to standard input with `thread::openStdIn`. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidContext]] |
 
 ## Examples
 

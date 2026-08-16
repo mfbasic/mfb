@@ -69,7 +69,7 @@ argument may also be passed by the name `key`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050004` | `ErrNotFound` | A path element names a key that is absent from the current `JsonObj`, or traversal reaches a non-object value (`JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, or `JsonArr`) while path elements remain. [[src/builtins/errorcode.rs:ErrNotFound]] [[src/codegen/builtins/json/func_get.rs:__json_get]] |
+| `77050004` | `ErrNotFound` | A path element names a key that is absent from the current `JsonObj`, or traversal reaches a non-object value (`JsonNull`, `JsonBool`, `JsonNum`, `JsonStr`, or `JsonArr`) while path elements remain. [[src/codegen/builtins/errorcode/mod.rs:ErrNotFound]] [[src/codegen/builtins/json/func_get.rs:__json_get]] |
 
 ## Examples
 

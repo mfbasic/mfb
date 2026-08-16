@@ -60,4 +60,4 @@ placement is not reintroduced and a CRLF separator is normalized to LF. [[src/co
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | raised by `parse` when a quoted field is opened but never closed before the end of input, or when the closing quote of a quoted field is followed by a byte that is neither a comma, a record separator, nor the end of input [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | raised by `parse` when a quoted field is opened but never closed before the end of input, or when the closing quote of a quoted field is followed by a byte that is neither a comma, a record separator, nor the end of input [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidFormat]] |

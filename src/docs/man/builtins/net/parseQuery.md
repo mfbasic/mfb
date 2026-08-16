@@ -70,7 +70,7 @@ soft query-decode failures do the same.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77010001` | `ErrOutOfMemory` | The split pair list, a decoded component, or the result map could not be allocated. Malformed escapes do *not* raise an error; they fall back to the raw text. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77010001` | `ErrOutOfMemory` | The split pair list, a decoded component, or the result map could not be allocated. Malformed escapes do *not* raise an error; they fall back to the raw text. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

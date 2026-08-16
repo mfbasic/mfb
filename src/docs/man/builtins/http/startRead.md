@@ -88,7 +88,7 @@ default `headers` to an empty map and `method` to `GET`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `method` is empty or contains a space, or a caller header name/value or the URL-derived request target/`Host` contains a control byte (below `0x20`). [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050002` | `ErrInvalidArgument` | `method` is empty or contains a space, or a caller header name/value or the URL-derived request target/`Host` contains a control byte (below `0x20`). [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
 
 Connect, DNS, write, and TLS failures propagate unchanged from the underlying
 `net`/`tls` calls (for example `ErrAddressNotFound`, `ErrNetworkFailed`, or

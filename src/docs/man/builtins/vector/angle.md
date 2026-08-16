@@ -100,8 +100,8 @@ from zero. The result is one of `0`, `1`, `2`, `3`.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | Either `a` or `b` has zero length, so the angle between them is undefined. [[src/builtins/vector_package.mfb:__vector_angle_float2]] |
-| `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, a squared component or a dot-product sum exceeds the checked range of the element type, or the `Integer` overload's conversion of a large squared sum into `Fixed` is out of range. [[src/builtins/errorcode.rs:ErrOverflow]] |
-| `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a squared component or dot-product sum reaches infinity and is caught where the length is bound. [[src/builtins/errorcode.rs:ErrFloatOverflow]] |
+| `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, a squared component or a dot-product sum exceeds the checked range of the element type, or the `Integer` overload's conversion of a large squared sum into `Fixed` is out of range. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
+| `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a squared component or dot-product sum reaches infinity and is caught where the length is bound. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatOverflow]] |
 
 ## Type checking
 

@@ -2,7 +2,6 @@ pub(crate) mod app;
 pub(crate) mod astrings;
 pub(crate) mod audio;
 pub(crate) mod crypto;
-pub(crate) mod errorcode;
 pub(crate) mod general;
 pub(crate) mod http;
 pub(crate) mod math;
@@ -651,21 +650,17 @@ pub(crate) fn is_builtin_member(name: &str) -> bool {
 pub(crate) fn is_package_constant(name: &str) -> bool {
     crate::codegen::registry::is_package_constant(name)
         || math::is_math_constant(name)
-        || errorcode::is_errorcode_constant(name)
         || vector::is_vector_constant(name)
 }
 
 pub(crate) fn package_constant_type_name(name: &str) -> Option<&'static str> {
     crate::codegen::registry::constant_type_name(name)
         .or_else(|| math::constant_type_name(name))
-        .or_else(|| errorcode::constant_type_name(name))
         .or_else(|| vector::constant_type_name(name))
 }
 
 pub(crate) fn package_constant_value(name: &str) -> Option<&'static str> {
-    crate::codegen::registry::constant_value(name)
-        .or_else(|| math::constant_value(name))
-        .or_else(|| errorcode::constant_value(name))
+    crate::codegen::registry::constant_value(name).or_else(|| math::constant_value(name))
 }
 
 /// Split a comma-separated type list on the commas at paren depth 0.

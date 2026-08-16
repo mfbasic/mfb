@@ -84,7 +84,7 @@ cancellation-point operations.
 | `77020003` | `ErrEof` | `file` is already at end of input, so no bytes remain to form a line. [[src/codegen/builtins/fs/native/io.rs:ErrEndOfFile]] |
 | `77020001` | `ErrRead` | Repositioning the file or reading its bytes fails, including when `file` was not opened for reading and when the host read fails partway through. [[src/codegen/builtins/fs/native/io.rs:ErrReadFailed]] |
 | `77020004` | `ErrEncoding` | The bytes of the line are not valid UTF-8. [[src/codegen/builtins/fs/native/io.rs:ErrEncoding]] |
-| `77010001` | `ErrOutOfMemory` | The read block, the line accumulator, or the `String` holding the returned line cannot be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77010001` | `ErrOutOfMemory` | The read block, the line accumulator, or the `String` holding the returned line cannot be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

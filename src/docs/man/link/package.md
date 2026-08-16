@@ -181,7 +181,7 @@ wrap native handles in `RESOURCE` types instead. [[src/syntaxcheck/helpers.rs:is
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | a native wrapper is called with a closed resource handle [[src/builtins/errorcode.rs:ErrResourceClosed]] |
+| `77030004` | `ErrResourceClosed` | a native wrapper is called with a closed resource handle [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
 | `77030007` | `ErrNativeBindingUnavailable` | `_mfb_linker_init` cannot load a required native library or resolve a required symbol |
 | `77030008` | `ErrNativeBindingCallFailed` | a native call fails its `SUCCESS_ON` or `ERROR_ON` gate |
 

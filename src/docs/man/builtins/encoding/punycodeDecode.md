@@ -65,7 +65,7 @@ than producing a partial result. [[src/codegen/builtins/encoding/package.mfb:__e
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | An `xn--` label is malformed Punycode: a pre-delimiter byte is `>= 128`, a variable-length integer is truncated or contains a non-base-36 digit, or a decoded scalar value falls outside the valid Unicode range. [[src/codegen/builtins/encoding/package.mfb:__encoding_punyDecodeLabel]] [[src/codegen/builtins/encoding/package.mfb:__encoding_fromCodepoint]] [[src/builtins/errorcode.rs:ErrInvalidFormat]] |
+| `77050003` | `ErrInvalidFormat` | An `xn--` label is malformed Punycode: a pre-delimiter byte is `>= 128`, a variable-length integer is truncated or contains a non-base-36 digit, or a decoded scalar value falls outside the valid Unicode range. [[src/codegen/builtins/encoding/package.mfb:__encoding_punyDecodeLabel]] [[src/codegen/builtins/encoding/package.mfb:__encoding_fromCodepoint]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidFormat]] |
 
 ## Examples
 

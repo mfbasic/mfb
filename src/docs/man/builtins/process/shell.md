@@ -59,8 +59,8 @@ it is first awaited with `process::waitFor` or released with `process::detach`.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77080001` | `ErrSpawnFailed` | The shell child could not be created: `fork`/`pipe` failed, or the shell could not be `exec`'d. [[src/builtins/errorcode.rs:ErrSpawnFailed]] |
-| `77010001` | `ErrOutOfMemory` | The `argv` C strings or the `Process` handle record could not be allocated. [[src/builtins/errorcode.rs:ErrOutOfMemory]] |
+| `77080001` | `ErrSpawnFailed` | The shell child could not be created: `fork`/`pipe` failed, or the shell could not be `exec`'d. [[src/codegen/builtins/errorcode/mod.rs:ErrSpawnFailed]] |
+| `77010001` | `ErrOutOfMemory` | The `argv` C strings or the `Process` handle record could not be allocated. [[src/codegen/builtins/errorcode/mod.rs:ErrOutOfMemory]] |
 
 ## Examples
 

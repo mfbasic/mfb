@@ -94,5 +94,5 @@ Two categories bind the platform instead of computing in source:
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | an argument is out of range or the wrong length — an AEAD `key` that is not 32 bytes or `nonce` that is not 12 bytes; an HKDF/PBKDF2 length or iteration count out of range; `randomInt` called with `min > max` or too large a range; a signing private key of the wrong length [[src/builtins/errorcode.rs:ErrInvalidArgument]] |
+| `77050002` | `ErrInvalidArgument` | an argument is out of range or the wrong length — an AEAD `key` that is not 32 bytes or `nonce` that is not 12 bytes; an HKDF/PBKDF2 length or iteration count out of range; `randomInt` called with `min > max` or too large a range; a signing private key of the wrong length [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
 | `77050016` | `ErrAuthenticationFailed` | AEAD `open` (`aes256GcmOpen`, `chacha20Poly1305Open`) when the authentication tag does not verify — the ciphertext, tag, nonce, or aad was altered or does not belong to the key. Fails closed: no plaintext is returned [[src/docs/spec/diagnostics/02_error-codes.md]] |

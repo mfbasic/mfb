@@ -30,7 +30,7 @@ magic number: `errorCode::ErrPathNotFound` rather than `77020001`.
 Each name resolves to the same `Integer` the runtime puts in `Error.code`, so a
 comparison is an ordinary integer equality with no conversion and no allocation.
 The constants are compile-time values; referencing one costs nothing at run time.
-[[src/builtins/errorcode.rs:is_errorcode_constant]]
+[[src/codegen/registry/mod.rs:is_package_constant]]
 
 `errorCode` is a built-in package: `IMPORT errorCode` needs no manifest
 dependency. The capitalization is part of the name — `IMPORT errorcode` is not
