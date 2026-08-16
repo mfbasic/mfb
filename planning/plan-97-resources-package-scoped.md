@@ -300,7 +300,36 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Execution is per-resource green slices, not the phase-by-phase order above.**
+  A hard-cutover identity change is atomic per resource, but *different* resources
+  can be mixed (registry keyed by string, so `process.Process` qualified while
+  `File` still bare is a valid intermediate). So each resource is taken end-to-end
+  (identity + consumers + fixtures + goldens) to full-suite-green, then committed.
+  Slice 1 = **`process::Process` — DONE** (commit `eb010b7d8`): user `TYPE Process`
+  compiles (bug-441 repro fixed), process programs run, full `cargo test` green,
+  artifact-gate[process] clean.
+- **The per-slice recipe** (validated on process): (1) split the bare type-name
+  constant into a registry-name (`PROCESS_TYPE="Process"`) + a qualified flowing
+  identity (`PROCESS_TYPE_ID="process.Process"`, dot form — the parser normalizes
+  `::`→`.`); (2) point func return/param types, the `resource.rs` `BUILTIN_RESOURCES`
+  key, and the resolver `BUILTIN_TYPES` entry at the qualified id; (3) at the
+  parse seam (`ast/expr.rs:parse_type_base_name`) keep a package-qualified
+  *resource* qualified while value types still collapse; (4) migrate any explicit
+  `AS <Type>` spellings in fixtures to `pkg::Type`; (5) regenerate `.ast`/`.ir`
+  goldens (native `.ncodesum` are byte-identical — the type string is front-end
+  only) and confirm the diff is only the qualification.
+- **Old-branch wrinkle for fs/net/tls/audio.** Those packages are NOT on the
+  clean registry, so `builtins::is_qualified_builtin_resource` (which consults
+  `registry().resolve_type`) will not recognize them. Their slices must extend the
+  resource-detection at the parse seam to also consult the old resource table
+  (`resource::is_builtin_resource_type` on the qualified id) or migrate the
+  package's resource onto the registry first. Their return/param types live in the
+  `target::shared::registry` descriptors + `src/builtins/<pkg>.rs`, a larger edit
+  surface than process's per-`func_*.rs` registry descriptors.
+- **Diagnostic display uses the base name.** A type-mismatch error still prints
+  `expected Process` (not `process.Process`) — the message renders the base
+  resource name — so the `tests/syntax/process/type_*` diagnostic goldens did not
+  shift; only the fixture *sources* needed `p AS process::Process`.
 
 ## Summary
 
