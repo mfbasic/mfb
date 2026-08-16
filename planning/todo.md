@@ -106,7 +106,7 @@ Tier 5 — heavy native leaves (do last; most code, highest byte-identity risk):
 - [ ] `fs` — 9 files (filesystem syscalls; resource-owning, Phase 0.5 satisfied)
 - [ ] `io` — 11 files (print/read/stdin, per-arch)
 - [ ] `thread` — 9 files (concurrency runtime)
-- [ ] `tls` — 13 files (TLS/network runtime, most target-coupled; resource-owning, Phase 0.5 satisfied)
+- [x] `tls` — DONE (9 members, TlsSocket/TlsListener resources; poll list/scalar = 2 overloads; e50ec8abc, merged dcfa75d1a). Confirmed no-infra prediction. Carried a `leaf_matches` poll fix that I NARROWED to resource-leaf patterns (de1323783) to avoid perturbing every package's lenient overload dispatch.
 
 ## Phase 2 — delete the old branch
 
@@ -154,7 +154,8 @@ The 6 leak-adapters (`resolve_call`, `rewrite_target`, `call_return_type`, `expe
 - **The next frontier is RESOLVER-HEAVY packages** — `thread`/`tls`/`crypto` carry custom `BuiltinResolver`s the registry's generic overload/return machinery may not model:
   - `thread`: `ThreadResolver` parses PARAMETRIC handle types (`Thread OF Msg TO Out`, `ThreadWorker OF Msg TO Out`) to compute return types (`receive→Msg`, `result→Out`) + a resource plane (transfer/accept/emit/read → parent-vs-worker `*Resource` targets). Likely needs a `ParameterType` extension for parametric opaque handles + `unify` rules. DESIGN ANALYSIS in flight.
   - **UPDATE (thread design done, `planning/thread-migration.md`): `tls` and `crypto` need NO new infra** — their custom resolvers are pure arity/exact-nominal dispatch the clean-room `select()` already handles (datetime/process proved multi-overload return variance). Migrate them as multi-overload members. ONLY `thread` needs a new `ParameterType::ThreadHandle` variant (+6 mechanical arms parallel to List/Map/Func; select() untouched). Order: tls → crypto (cheap, no infra) → ThreadHandle infra → thread.
-- DONE: `errorcode` (b488ca72f, acceptance-green). IN FLIGHT: `tls` + `crypto` (multi-overload members on existing `select()`, NO new infra per the design; each stop-and-reports if that's wrong).
+- DONE: `errorcode` (b488ca72f), `crypto` (f149af4e6), `tls` (e50ec8abc) — all acceptance-green (sidecars). 8 packages migrated this session (bits/money/os/fs/io/errorcode/crypto/tls). Legacy `REGISTRY` down to 13.
+- **DEFERRED byte-identity `.ncode` debt (final-sweep TODO):** the full byte-identity sweep (`artifact-gate all`) shows ~31 `.ncode`/`.ncodesum` diffs in packages that CALL migrated packages (http/thread call tls; json/crypto/audio native-form ripple). PROVEN BENIGN: http `.ir` shows `tls.writeText`→Nothing / `tls.poll`→Boolean (correct return-type resolution vs pre-migration Unknown); crypto-ec-valid/json `.ir` are IDENTICAL (native-form-only) and their program OUTPUT passes. These will RE-SHIFT with every remaining migration (caller return-type ripple), so regenerating now is churn — do ONE controlled `regen-ncodesum` + rt/app `.ncode` sweep at the END, verify behavior-preserved. Per-migration, verify OUTPUT/run (not sidecar) preservation. (byte-identity is a SIGNAL, not a hard gate — user-confirmed.)
 - NEXT after tls/crypto: `ParameterType::ThreadHandle` infra + `thread` (per `planning/thread-migration.md`); then `math` (`NumericVar`, per `planning/math-migration.md`); then `net`/`http`, `vector`, `audio`, strings-cluster (`strings`/`astrings`/`term`), `app`; then specials `general`/`resource`/`testing`.
 - LESSON: run FULL acceptance after each migration merge, not just a package sample — the io migration's lenient-`Unknown` behavior (io.print no longer rejects `Unknown` args, bug-443) dropped a cascading diagnostic in a `resources/` fixture that only the full sweep caught.
 
