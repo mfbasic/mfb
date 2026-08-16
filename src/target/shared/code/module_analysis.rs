@@ -92,7 +92,7 @@ pub(super) fn module_uses_type_name(module: &NirModule) -> bool {
         .any(|function| ops_use_type_name(&function.body))
 }
 
-pub(super) fn module_uses_call(module: &NirModule, target: &str) -> bool {
+pub(crate) fn module_uses_call(module: &NirModule, target: &str) -> bool {
     module
         .functions
         .iter()

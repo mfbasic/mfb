@@ -74,7 +74,7 @@ pub(crate) fn lower_program_entry(
         if args_in_registers {
             push_symbol_address(
                 entry_symbol,
-                super::os::OS_ARGC_GLOBAL_SYMBOL,
+                crate::codegen::builtins::os::OS_ARGC_GLOBAL_SYMBOL,
                 abi::SCRATCH[0],
                 &mut instructions,
                 &mut relocations,
@@ -82,7 +82,7 @@ pub(crate) fn lower_program_entry(
             instructions.push(abi::store_u64(abi::c_arg(0), abi::SCRATCH[0], 0));
             push_symbol_address(
                 entry_symbol,
-                super::os::OS_ARGV_GLOBAL_SYMBOL,
+                crate::codegen::builtins::os::OS_ARGV_GLOBAL_SYMBOL,
                 abi::SCRATCH[0],
                 &mut instructions,
                 &mut relocations,
@@ -92,7 +92,7 @@ pub(crate) fn lower_program_entry(
             instructions.push(abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), 0));
             push_symbol_address(
                 entry_symbol,
-                super::os::OS_ARGC_GLOBAL_SYMBOL,
+                crate::codegen::builtins::os::OS_ARGC_GLOBAL_SYMBOL,
                 abi::SCRATCH[0],
                 &mut instructions,
                 &mut relocations,
@@ -101,7 +101,7 @@ pub(crate) fn lower_program_entry(
             instructions.push(abi::add_immediate(abi::SCRATCH[1], abi::stack_pointer(), 8));
             push_symbol_address(
                 entry_symbol,
-                super::os::OS_ARGV_GLOBAL_SYMBOL,
+                crate::codegen::builtins::os::OS_ARGV_GLOBAL_SYMBOL,
                 abi::SCRATCH[0],
                 &mut instructions,
                 &mut relocations,
@@ -249,7 +249,7 @@ pub(crate) fn lower_program_entry(
         )?;
         push_symbol_address(
             entry_symbol,
-            super::os::OS_ARGC_GLOBAL_SYMBOL,
+            crate::codegen::builtins::os::OS_ARGC_GLOBAL_SYMBOL,
             abi::SCRATCH[0],
             &mut instructions,
             &mut relocations,
@@ -257,7 +257,7 @@ pub(crate) fn lower_program_entry(
         instructions.push(abi::store_u64(abi::c_arg(0), abi::SCRATCH[0], 0));
         push_symbol_address(
             entry_symbol,
-            super::os::OS_ARGV_GLOBAL_SYMBOL,
+            crate::codegen::builtins::os::OS_ARGV_GLOBAL_SYMBOL,
             abi::SCRATCH[0],
             &mut instructions,
             &mut relocations,

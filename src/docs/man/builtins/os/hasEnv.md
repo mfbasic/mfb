@@ -19,7 +19,7 @@ IMPORT os
 ```
 
 `os` is a built-in package, so no manifest dependency is required.
-[[src/builtins/os.rs:is_os_call]]
+[[src/codegen/builtins/os/mod.rs:register]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT os
 present in the live process environment and `FALSE` otherwise. It is the host
 `getenv` call reduced to a non-NULL test, so it reflects both inherited variables
 and any set earlier by `os::setEnv`. A variable set to the empty string still
-counts as present. [[src/target/shared/code/os/env.rs:lower_has_env]]
+counts as present. [[src/codegen/builtins/os/native/env.rs:lower_has_env]]
 
 `os::hasEnv` is **not pure**: its result depends on host and prior-`setEnv`
 state. It reads process state only and has no side effects, and never raises.
@@ -36,13 +36,13 @@ state. It reads process state only and has no side effects, and never raises.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `name` | `String` | The variable name to test. Must be non-empty and free of embedded NUL bytes. [[src/builtins/os.rs:call_param_names]] |
+| `name` | `String` | The variable name to test. Must be non-empty and free of embedded NUL bytes. [[src/codegen/builtins/os/func_has_env.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` if `name` is set (even to an empty value), else `FALSE`. [[src/builtins/os.rs:OS]] |
+| `Boolean` | `TRUE` if `name` is set (even to an empty value), else `FALSE`. [[src/codegen/builtins/os/func_has_env.rs:register]] |
 
 ## Errors
 

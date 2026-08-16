@@ -1,5 +1,6 @@
 use super::*;
 use crate::target::shared::abi;
+use crate::target::shared::nir::NirModule;
 use std::collections::HashMap;
 
 /// Whether `module` uses any `os::` helper that must serialize on the env/pwd

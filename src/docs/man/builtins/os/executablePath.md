@@ -19,14 +19,14 @@ IMPORT os
 ```
 
 `os` is a built-in package, so no manifest dependency is required.
-[[src/builtins/os.rs:is_os_call]]
+[[src/codegen/builtins/os/mod.rs:register]]
 
 ## Description
 
 `os::executablePath` returns the filesystem path of the running binary as an
 owned `String`. On macOS it uses `_NSGetExecutablePath`; on Linux it reads the
 `/proc/self/exe` symlink with `readlink`, which yields the absolute, symlink-
-resolved path. [[src/target/shared/code/os/paths.rs:lower_executable_path]]
+resolved path. [[src/codegen/builtins/os/native/paths.rs:lower_executable_path]]
 
 Use it to locate resources beside the executable, or to report the program's own
 path. If the host cannot determine the path, `os::executablePath` raises
@@ -36,13 +36,13 @@ path. If the host cannot determine the path, `os::executablePath` raises
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `os::executablePath` takes no arguments. [[src/builtins/os.rs:OS]] |
+| — | — | `os::executablePath` takes no arguments. [[src/codegen/builtins/os/func_executable_path.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The path to the running executable. [[src/builtins/os.rs:OS]] |
+| `String` | The path to the running executable. [[src/codegen/builtins/os/func_executable_path.rs:register]] |
 
 ## Errors
 

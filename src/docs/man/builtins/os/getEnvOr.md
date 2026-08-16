@@ -19,7 +19,7 @@ IMPORT os
 ```
 
 `os` is a built-in package, so no manifest dependency is required.
-[[src/builtins/os.rs:is_os_call]]
+[[src/codegen/builtins/os/mod.rs:register]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT os
 is set, and otherwise returns `fallback`. It never raises for a missing variable,
 mirroring `collections::getOr(map, key, fallback)`. The lookup reflects the live
 environment, including values written earlier by `os::setEnv`.
-[[src/target/shared/code/os/env.rs:lower_get_env]]
+[[src/codegen/builtins/os/native/env.rs:lower_get_env]]
 
 Both the found value and the fallback are returned as fresh owned `String`
 values. Because absence yields `fallback` rather than a raised error, a variable
@@ -41,14 +41,14 @@ state. It reads process state only and has no side effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `name` | `String` | The variable name to read. Must be non-empty and free of embedded NUL bytes. [[src/builtins/os.rs:call_param_names]] |
-| `fallback` | `String` | The value returned when `name` is not set. [[src/builtins/os.rs:call_param_names]] |
+| `name` | `String` | The variable name to read. Must be non-empty and free of embedded NUL bytes. [[src/codegen/builtins/os/func_get_env_or.rs:register]] |
+| `fallback` | `String` | The value returned when `name` is not set. [[src/codegen/builtins/os/func_get_env_or.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The variable's value when set, otherwise `fallback`. [[src/builtins/os.rs:OS]] |
+| `String` | The variable's value when set, otherwise `fallback`. [[src/codegen/builtins/os/func_get_env_or.rs:register]] |
 
 ## Errors
 

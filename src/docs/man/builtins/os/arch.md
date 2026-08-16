@@ -19,26 +19,26 @@ IMPORT os
 ```
 
 `os` is a built-in package, so no manifest dependency is required.
-[[src/builtins/os.rs:is_os_call]]
+[[src/codegen/builtins/os/mod.rs:register]]
 
 ## Description
 
 `os::arch` returns the CPU architecture of the build target: `"aarch64"`,
 `"x86_64"`, or `"riscv64"`. Like `os::name`, it is a compile-time constant fixed
 at build time and materialized directly into an owned `String`, with no host
-call. [[src/target/shared/code/os/introspect.rs:lower_const_string]]
+call. [[src/codegen/builtins/os/native/introspect.rs:lower_const_string]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `os::arch` takes no arguments. [[src/builtins/os.rs:OS]] |
+| — | — | `os::arch` takes no arguments. [[src/codegen/builtins/os/func_arch.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The CPU architecture: `"aarch64"`, `"x86_64"`, or `"riscv64"`. [[src/builtins/os.rs:OS]] |
+| `String` | The CPU architecture: `"aarch64"`, `"x86_64"`, or `"riscv64"`. [[src/codegen/builtins/os/func_arch.rs:register]] |
 
 ## Errors
 

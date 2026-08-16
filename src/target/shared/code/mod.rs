@@ -71,9 +71,10 @@ use runtime_helpers::*;
 mod runtime_helpers_thread;
 use runtime_helpers_thread::*;
 mod data_objects;
-pub(crate) use data_objects::raise_error_into;
 use data_objects::*;
+pub(crate) use data_objects::{push_symbol_address, raise_error_into};
 mod module_analysis;
+pub(crate) use module_analysis::module_uses_call;
 use module_analysis::*;
 mod audio;
 mod builder_collection_compare;
@@ -120,7 +121,6 @@ pub(crate) mod link_thunk;
 mod list_mutate;
 mod map_mutate;
 pub(crate) mod net;
-mod os;
 mod perf;
 mod private;
 mod simd_kernel_coeffs;
@@ -153,12 +153,12 @@ pub(crate) use mir::MirPlan;
 ///
 /// Rust permits disjoint mutable references to `instructions` and `relocations` through a
 /// single `&mut EmitCtx`, so a callee needing both still compiles.
-pub(super) struct EmitCtx<'a> {
-    pub(super) symbol: &'a str,
-    pub(super) platform_imports: &'a HashMap<String, String>,
-    pub(super) platform: &'a dyn CodegenPlatform,
-    pub(super) instructions: &'a mut Vec<CodeInstruction>,
-    pub(super) relocations: &'a mut Vec<CodeRelocation>,
+pub(crate) struct EmitCtx<'a> {
+    pub(crate) symbol: &'a str,
+    pub(crate) platform_imports: &'a HashMap<String, String>,
+    pub(crate) platform: &'a dyn CodegenPlatform,
+    pub(crate) instructions: &'a mut Vec<CodeInstruction>,
+    pub(crate) relocations: &'a mut Vec<CodeRelocation>,
 }
 
 /// The body of a lowered runtime helper: its frame, instruction stream,
@@ -911,7 +911,10 @@ pub(crate) fn lower_module_for_platform(
     // `os::args()` builds its `List OF String`. Emitted only when the module uses
     // `os.args`, so existing programs' data layout is unchanged.
     if module_uses_call(module, "os.args") {
-        for symbol in [os::OS_ARGC_GLOBAL_SYMBOL, os::OS_ARGV_GLOBAL_SYMBOL] {
+        for symbol in [
+            crate::codegen::builtins::os::OS_ARGC_GLOBAL_SYMBOL,
+            crate::codegen::builtins::os::OS_ARGV_GLOBAL_SYMBOL,
+        ] {
             data_objects.push(CodeDataObject {
                 symbol: symbol.to_string(),
                 kind: "raw".to_string(),
@@ -930,14 +933,14 @@ pub(crate) fn lower_module_for_platform(
     // (the same section guarantee as the arena/argv globals above), and emitted only
     // when the module uses an env/pwd helper so existing programs' layout is
     // unchanged.
-    if os::module_uses_env_lock(module) {
+    if crate::codegen::builtins::os::module_uses_env_lock(module) {
         data_objects.push(CodeDataObject {
-            symbol: os::OS_ENV_LOCK_SYMBOL.to_string(),
+            symbol: crate::codegen::builtins::os::OS_ENV_LOCK_SYMBOL.to_string(),
             kind: "raw".to_string(),
             layout: "mfb.runtime.os_env_lock.v1 { u8 pthread_mutex[64] }".to_string(),
             align: 8,
-            size: os::OS_ENV_LOCK_SIZE,
-            value: os::os_env_lock_init_hex(platform.family()),
+            size: crate::codegen::builtins::os::OS_ENV_LOCK_SIZE,
+            value: crate::codegen::builtins::os::os_env_lock_init_hex(platform.family()),
         });
     }
     // Process-global stdin broadcast log (plan-15): one zero-initialized writable
@@ -2022,14 +2025,28 @@ fn lower_runtime_helper(
                 "perf.init" | "perf.start" | "perf.end" | "perf.done" => {
                     perf::lower_perf_helper(spec.call, symbol, platform_imports, platform)?
                 }
-                call if builtins::os::is_os_call(call) => os::lower_os_helper(
-                    spec.call,
-                    symbol,
-                    build_mode,
-                    module_name,
-                    platform_imports,
-                    platform,
-                )?,
+                // Every `os.*` member carries a `Body::native` OS-seam lowering: the
+                // per-platform emission lives in `codegen::builtins::os::native`, and
+                // the generic registry-driven dispatch picks posix/win by
+                // `platform.family()`. `os.resourcePath` receives the real
+                // `build_mode`/`module_name`; every other `os` member ignores them.
+                call if call.starts_with("os.") => {
+                    match crate::codegen::os::dispatch_runtime_helper(
+                        call,
+                        symbol,
+                        build_mode,
+                        module_name,
+                        platform_imports,
+                        platform,
+                    ) {
+                        Some(result) => result?,
+                        None => {
+                            return Err(format!(
+                                "native code plan does not emit runtime call '{call}'"
+                            ));
+                        }
+                    }
+                }
                 call if call.starts_with("io.") || call.starts_with("fs.") => match call {
                     "io.print" | "io.write" | "io.printError" | "io.writeError" => {
                         let stderr = matches!(spec.call, "io.printError" | "io.writeError");
@@ -2515,7 +2532,7 @@ pub(super) fn emit_arena_free(
     relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
 }
 
-fn internal_branch(from: &str, to: &str) -> CodeRelocation {
+pub(crate) fn internal_branch(from: &str, to: &str) -> CodeRelocation {
     CodeRelocation {
         from: from.to_string(),
         to: to.to_string(),

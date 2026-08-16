@@ -23,8 +23,8 @@
 
 use std::collections::HashMap;
 
-use super::*;
 use crate::target::shared::abi;
+use crate::target::shared::code::*;
 
 // `setenv`/`unsetenv` set `errno` on failure; ENOMEM/EINVAL are identical on
 // Linux and macOS.
@@ -63,10 +63,12 @@ const OS_ENV_LOCK_CALLS: &[&str] = &[
     "os.unsetEnv",
 ];
 
-/// Whether `module` uses any `os::` helper that must serialize on the env/pwd
-/// lock, so the writable mutex global is emitted (see `OS_ENV_LOCK_SYMBOL`).
-
-pub(super) fn lower_os_helper(
+/// The generic OS-seam entry point for every `os::` runtime helper — registered
+/// as both the `posix` and `win` slot of each member's `Body::native`. It
+/// dispatches on the runtime-call name; the per-member lowering handles the OS
+/// family internally. `os.resourcePath` is the one arm that consumes the
+/// per-compilation `build_mode`/`module_name`; every other arm ignores them.
+pub(crate) fn lower_os_helper(
     call: &str,
     symbol: &str,
     build_mode: crate::target::NativeBuildMode,

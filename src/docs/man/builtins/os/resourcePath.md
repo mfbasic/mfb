@@ -19,7 +19,7 @@ IMPORT os
 ```
 
 `os` is a built-in package, so no manifest dependency is required.
-[[src/builtins/os.rs:is_os_call]]
+[[src/codegen/builtins/os/mod.rs:register]]
 
 ## Description
 
@@ -43,7 +43,7 @@ regardless of the working directory — including a macOS `.app` launched from
 Finder or a mounted `.AppImage`. Resolution reads only the executable's own path
 (`/proc/self/exe` on Linux, `_NSGetExecutablePath` on macOS) and never consults
 `$APPDIR` or any other environment variable.
-[[src/target/shared/code/os/paths.rs:lower_resource_path]]
+[[src/codegen/builtins/os/native/paths.rs:lower_resource_path]]
 
 A `relative` containing a `.` or `..` **path component** raises `ErrInvalidPath`
 — a resource path must not navigate out of the base. A dot *inside* a filename
@@ -56,13 +56,13 @@ the host cannot determine the executable path, `os::resourcePath` raises
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `relative` | `String` | The resource path below the build output (for example `music/song.ogg`); no `.`/`..` path component. [[src/builtins/os.rs:call_param_names]] |
+| `relative` | `String` | The resource path below the build output (for example `music/song.ogg`); no `.`/`..` path component. [[src/codegen/builtins/os/func_resource_path.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The absolute on-disk path of the resource. [[src/builtins/os.rs:OS]] |
+| `String` | The absolute on-disk path of the resource. [[src/codegen/builtins/os/func_resource_path.rs:register]] |
 
 ## Errors
 

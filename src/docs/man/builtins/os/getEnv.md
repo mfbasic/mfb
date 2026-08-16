@@ -19,14 +19,14 @@ IMPORT os
 ```
 
 `os` is a built-in package, so no manifest dependency is required.
-[[src/builtins/os.rs:is_os_call]]
+[[src/codegen/builtins/os/mod.rs:register]]
 
 ## Description
 
 `os::getEnv` returns the value of the environment variable named `name` as it
 appears in the live process environment, including any value written earlier by
 `os::setEnv`. The lookup is the host `getenv` call; the returned bytes are copied
-into a fresh owned `String`. [[src/target/shared/code/os/env.rs:lower_get_env]]
+into a fresh owned `String`. [[src/codegen/builtins/os/native/env.rs:lower_get_env]]
 
 If the variable is not set, `os::getEnv` raises `ErrNotFound` rather than
 returning an empty string, so a program can distinguish an unset variable from
@@ -40,13 +40,13 @@ state. It reads process state only and has no side effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `name` | `String` | The variable name to read. Must be non-empty and free of embedded NUL bytes. [[src/builtins/os.rs:call_param_names]] |
+| `name` | `String` | The variable name to read. Must be non-empty and free of embedded NUL bytes. [[src/codegen/builtins/os/func_get_env.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The variable's current value. May be the empty string if the variable is set to an empty value. [[src/builtins/os.rs:OS]] |
+| `String` | The variable's current value. May be the empty string if the variable is set to an empty value. [[src/codegen/builtins/os/func_get_env.rs:register]] |
 
 ## Errors
 

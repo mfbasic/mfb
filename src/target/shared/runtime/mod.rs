@@ -123,7 +123,6 @@ mod crypto_specs;
 mod fs_specs;
 mod io_specs;
 mod net_specs;
-mod os_specs;
 mod perf_specs;
 mod term_specs;
 mod thread_specs;
@@ -139,7 +138,6 @@ use crypto_specs::*;
 use fs_specs::*;
 use io_specs::*;
 use net_specs::*;
-use os_specs::*;
 use perf_specs::*;
 use term_specs::*;
 use thread_specs::*;
@@ -171,7 +169,7 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::Thread)
     } else if builtins::net::is_net_call(name) {
         Some(RuntimeHelper::Net)
-    } else if builtins::os::is_os_call(name) {
+    } else if crate::codegen::registry::registry().owning_package(name) == Some("os") {
         Some(RuntimeHelper::Os)
     } else if crate::codegen::registry::registry().owning_package(name) == Some("process")
         || name == "process.__drop"
