@@ -1649,17 +1649,66 @@ fn unify(
                     .all(|(p, c)| unify(p, c, bindings, strict))
                 && unify(ret, concrete_ret, bindings, strict)
         }
-        // A container/function pattern against a non-matching concrete fails.
+        // Two thread handles unify structurally, exactly like the container arms: the
+        // kind (parent `Thread` vs worker `ThreadWorker`) must match — the two never
+        // interconvert — and the data-plane `msg`/`out` slots unify recursively
+        // (binding `Var`s so `waitFor`/`receive` echo them). The resource plane is
+        // STATE/ownership-agnostic (bug-427): a pattern whose `res` is `Unknown` is a
+        // data-plane member that ignores the concrete resource plane entirely, and a
+        // pattern with a concrete/`Var` `res` unifies it via `resource_base_eq` so a
+        // `File STATE Cursor` handle satisfies a `File` plane.
+        (
+            ParameterType::ThreadHandle {
+                worker: p_worker,
+                msg: p_msg,
+                res: p_res,
+                out: p_out,
+            },
+            ParameterType::ThreadHandle {
+                worker: c_worker,
+                msg: c_msg,
+                res: c_res,
+                out: c_out,
+            },
+        ) => {
+            p_worker == c_worker
+                && unify(p_msg, c_msg, bindings, strict)
+                && unify(p_out, c_out, bindings, strict)
+                && thread_res_unifies(p_res, c_res, bindings, strict)
+        }
+        // A container/function/thread pattern against a non-matching concrete fails.
         (
             ParameterType::ListOf(_)
             | ParameterType::SetOf(_)
             | ParameterType::MapOf(_, _)
-            | ParameterType::Func(_, _),
+            | ParameterType::Func(_, _)
+            | ParameterType::ThreadHandle { .. },
             _,
         ) => false,
         // Scalar or nominal leaf.
         (leaf, _) => leaf_matches(leaf, concrete, strict),
     }
+}
+
+/// Unify a [`ParameterType::ThreadHandle`]'s resource-plane slot. A data-plane
+/// member spells its handle's `res` as [`ParameterType::Unknown`] — it ignores the
+/// concrete resource plane entirely (a data-only *or* resourced handle is accepted),
+/// mirroring the legacy resolver, whose data members never inspect the `RES` clause.
+/// A resource-plane member (`transfer`/`accept`) spells `res` as a real
+/// pattern/`Var`, which unifies STATE-agnostically through the normal recursion (the
+/// `Var` arm uses [`resource_base_eq`]); a data-only concrete `res` (`Nothing`) then
+/// fails the `Var`'s strict-`Nothing` guard, correctly rejecting `accept` on a
+/// resource-free handle.
+fn thread_res_unifies(
+    pattern: &ParameterType,
+    concrete: &ParameterType,
+    bindings: &mut BTreeMap<&'static str, ParameterType>,
+    strict: bool,
+) -> bool {
+    if matches!(pattern, ParameterType::Unknown) {
+        return true;
+    }
+    unify(pattern, concrete, bindings, strict)
 }
 
 /// STATE/ownership-agnostic type equality, matching
@@ -1696,6 +1745,20 @@ fn substitute(
                 .collect::<Option<Vec<_>>>()?,
             substitute(ret, bindings)?,
         ),
+        // A thread-handle return (only `start` builds one) rebuilds each slot with the
+        // bindings unified from the call — the fresh parent `Thread` handle whose
+        // `msg`/`res`/`out` echo the worker's, exactly like the `List`/`Map` arms.
+        ParameterType::ThreadHandle {
+            worker,
+            msg,
+            res,
+            out,
+        } => ParameterType::thread_handle(
+            *worker,
+            substitute(msg, bindings)?,
+            substitute(res, bindings)?,
+            substitute(out, bindings)?,
+        ),
         other => other.clone(),
     })
 }
@@ -1710,6 +1773,9 @@ fn contains_var(ty: &ParameterType) -> bool {
         ParameterType::ListOf(elem) | ParameterType::SetOf(elem) => contains_var(elem),
         ParameterType::MapOf(key, value) => contains_var(key) || contains_var(value),
         ParameterType::Func(params, ret) => params.iter().any(contains_var) || contains_var(ret),
+        ParameterType::ThreadHandle { msg, res, out, .. } => {
+            contains_var(msg) || contains_var(res) || contains_var(out)
+        }
         _ => false,
     }
 }
@@ -2448,6 +2514,272 @@ mod tests {
                 .return_type
                 .name(),
             "Integer"
+        );
+    }
+
+    // --- thread ThreadHandle probe: empirical reproduction of the legacy resolver ---
+    //
+    // (`src/builtins/thread.rs:719-1006`) against the new `parse`/`unify`/`substitute`.
+    // These assert the LEGACY behavior; the four `#[ignore]`d cases FAIL and localize
+    // the exact obstacle the plan's six mechanical arms cannot express — the
+    // plan-flagged STOP conditions ("the start nested-Func extraction … a
+    // resource-plane routing the overloads can't express"). Kept in-tree as the
+    // reproduction for review; they must NOT be made green by hacking the bug-443
+    // `select`/`unify` beyond the planned `ThreadHandle` arm. See the migration report.
+    fn th(
+        worker: bool,
+        msg: ParameterType,
+        res: ParameterType,
+        out: ParameterType,
+    ) -> ParameterType {
+        ParameterType::thread_handle(worker, msg, res, out)
+    }
+
+    #[test]
+    #[ignore = "OBSTACLE 4: send Unknown-message re-occur — a Var bound to Unknown fails \
+                the generic re-occur check; refining it is a bug-443 unify change beyond \
+                the planned arms"]
+    fn thread_probe_waitfor_receive_send_poll() {
+        use ParameterType::{Integer, Nothing, String, Unknown, Var};
+        let data_handle = |m, o| th(false, m, Unknown, o);
+        // waitFor(Thread OF Msg TO Out) AS Out
+        let wait_for = func(
+            "waitFor",
+            vec![generic_impl(
+                vec![data_handle(Var("Msg"), Var("Out"))],
+                Var("Out"),
+            )],
+        );
+        let parent = th(false, Integer, Nothing, String);
+        assert_eq!(
+            wait_for
+                .resolve(&CallShape {
+                    args: vec![parent.clone()]
+                })
+                .map(|s| s.return_type.name().into_owned()),
+            Some("String".into()),
+            "waitFor parent (strict)"
+        );
+        // worker handle rejected (kind mismatch)
+        assert!(
+            wait_for
+                .resolve(&CallShape {
+                    args: vec![th(true, Integer, Nothing, String)]
+                })
+                .is_none(),
+            "waitFor rejects worker"
+        );
+
+        // receive(Thread OF Msg TO Out) AS Msg — including the Unknown-message case.
+        let receive = func(
+            "receive",
+            vec![generic_impl(
+                vec![data_handle(Var("Msg"), Var("Out"))],
+                Var("Msg"),
+            )],
+        );
+        assert_eq!(
+            receive
+                .dispatch(&CallShape {
+                    args: vec![parent.clone()]
+                })
+                .map(|s| s.return_type.name().into_owned()),
+            Some("Integer".into()),
+            "receive Msg"
+        );
+        assert_eq!(
+            receive
+                .dispatch(&CallShape {
+                    args: vec![th(false, Unknown, Nothing, String)]
+                })
+                .map(|s| s.return_type.name().into_owned()),
+            Some("Unknown".into()),
+            "receive Unknown message"
+        );
+
+        // send(Thread OF Msg TO Out, Msg) AS Nothing — cross-param constraint.
+        let send = func(
+            "send",
+            vec![generic_impl(
+                vec![data_handle(Var("Msg"), Var("Out")), Var("Msg")],
+                Nothing,
+            )],
+        );
+        assert_eq!(
+            send.resolve(&CallShape {
+                args: vec![parent.clone(), Integer]
+            })
+            .map(|s| s.return_type.name().into_owned()),
+            Some("Nothing".into()),
+            "send matching message"
+        );
+        assert!(
+            send.resolve(&CallShape {
+                args: vec![parent.clone(), String]
+            })
+            .is_none(),
+            "send message mismatch rejected"
+        );
+        // Legacy resolve_send_unknown_message: handle message Unknown accepts any arg.
+        assert_eq!(
+            send.resolve(&CallShape {
+                args: vec![th(false, Unknown, Nothing, String), Integer]
+            })
+            .map(|s| s.return_type.name().into_owned()),
+            Some("Nothing".into()),
+            "send Unknown-message accepts any arg (LEGACY)"
+        );
+    }
+
+    #[test]
+    #[ignore = "OBSTACLE 3: accept on a data-only handle — the uniform res-slot arm \
+                cannot both echo an optional Nothing plane (start) and reject it (accept)"]
+    fn thread_probe_transfer_accept_resource_plane() {
+        use ParameterType::{Integer, Nothing, String, Var};
+        let file = ParameterType::Named("fs.File");
+        // transfer(Thread OF Msg RES Res TO Out, Res) AS Nothing
+        let transfer = func(
+            "transfer",
+            vec![generic_impl(
+                vec![th(false, Var("Msg"), Var("Res"), Var("Out")), Var("Res")],
+                Nothing,
+            )],
+        );
+        assert_eq!(
+            transfer
+                .resolve(&CallShape {
+                    args: vec![th(false, Integer, file.clone(), String), file.clone()]
+                })
+                .map(|s| s.return_type.name().into_owned()),
+            Some("Nothing".into()),
+            "transfer matching resource"
+        );
+        // transfer on a data-only handle (no resource plane) is rejected.
+        assert!(
+            transfer
+                .dispatch(&CallShape {
+                    args: vec![th(false, Integer, Nothing, String), file.clone()]
+                })
+                .is_none(),
+            "transfer on data-only handle rejected (LEGACY)"
+        );
+
+        // accept(Thread OF Msg RES Res TO Out) AS Res
+        let accept = func(
+            "accept",
+            vec![generic_impl(
+                vec![th(false, Var("Msg"), Var("Res"), Var("Out"))],
+                Var("Res"),
+            )],
+        );
+        assert_eq!(
+            accept
+                .dispatch(&CallShape {
+                    args: vec![th(false, Integer, file.clone(), String)]
+                })
+                .map(|s| s.return_type.name().into_owned()),
+            Some("fs.File".into()),
+            "accept returns resource"
+        );
+        // Legacy: accept on a data-only thread has no resource plane -> None (lenient path).
+        assert!(
+            accept
+                .dispatch(&CallShape {
+                    args: vec![th(false, Integer, Nothing, String)]
+                })
+                .is_none(),
+            "accept on data-only handle returns None (LEGACY, lenient)"
+        );
+    }
+
+    #[test]
+    #[ignore = "OBSTACLE 2: start STRICT-validates a data-only worker — the res Var \
+                cannot bind Nothing under the bug-443 strict-Nothing guard"]
+    fn thread_probe_start_extraction_and_resource_echo() {
+        use ParameterType::{Integer, Nothing, String, Var};
+        let file = ParameterType::Named("fs.File");
+        // start(ISOLATED FUNC(ThreadWorker OF Msg RES Res TO Out, In) AS Out, In,
+        //       [inboundLimit], [outboundLimit]) AS Thread OF Msg RES Res TO Out
+        let worker = th(true, Var("Msg"), Var("Res"), Var("Out"));
+        let start = func(
+            "start",
+            vec![Implementation {
+                params: vec![
+                    param(
+                        "f",
+                        ParameterType::func(vec![worker, Var("In")], Var("Out")),
+                    ),
+                    param("data", Var("In")),
+                    Parameter {
+                        name: "inboundLimit",
+                        desc: "",
+                        aliases: &[],
+                        ty: Integer,
+                        default: DefaultValue::Optional,
+                    },
+                    Parameter {
+                        name: "outboundLimit",
+                        desc: "",
+                        aliases: &[],
+                        ty: Integer,
+                        default: DefaultValue::Optional,
+                    },
+                ],
+                return_type: th(false, Var("Msg"), Var("Res"), Var("Out")),
+                errors: vec![],
+                body: Body::Intrinsic,
+            }],
+        );
+
+        // Data-only worker: strict validation MUST accept, dispatch MUST echo the
+        // (data-only) handle. Concrete FUNC arg built directly (parse can't decompose
+        // `ISOLATED FUNC(...)`).
+        let data_fn =
+            ParameterType::func(vec![th(true, Integer, Nothing, String), Integer], String);
+        assert!(
+            start
+                .resolve(&CallShape {
+                    args: vec![data_fn.clone(), Integer]
+                })
+                .is_some(),
+            "start STRICT-validates a data-only worker (LEGACY)"
+        );
+        assert_eq!(
+            start
+                .dispatch(&CallShape {
+                    args: vec![data_fn, Integer]
+                })
+                .map(|s| s.return_type.name().into_owned()),
+            Some("Thread OF Integer TO String".into()),
+            "start echoes a data-only worker"
+        );
+
+        // Resourced worker: start echoes the resource plane onto the parent handle.
+        let res_fn = ParameterType::func(vec![th(true, Integer, file, String), Integer], String);
+        assert_eq!(
+            start
+                .dispatch(&CallShape {
+                    args: vec![res_fn, Integer]
+                })
+                .map(|s| s.return_type.name().into_owned()),
+            Some("Thread OF Integer RES fs.File TO String".into()),
+            "start echoes a resourced worker's plane"
+        );
+    }
+
+    #[test]
+    #[ignore = "OBSTACLE 1: parse cannot decompose ISOLATED FUNC(...) into a Func; \
+                stripping the ISOLATED marker loses it on name() round-trip"]
+    fn thread_probe_parse_isolated_func_arg() {
+        // The type checker hands `start`'s callback arg as `ISOLATED FUNC(...) AS ...`.
+        // For `start` to select via the registry, `parse` must decompose it into a
+        // `Func` whose first param is a `ThreadHandle`.
+        let parsed = ParameterType::parse(
+            "ISOLATED FUNC(ThreadWorker OF Integer TO String, Integer) AS String",
+        );
+        assert!(
+            matches!(parsed, ParameterType::Func(_, _)),
+            "parse decomposes ISOLATED FUNC into a Func (got {parsed:?})"
         );
     }
 

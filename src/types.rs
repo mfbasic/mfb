@@ -63,6 +63,23 @@ pub(crate) enum ParameterType {
     /// An unresolved concrete argument type. Only appears on the concrete side (from
     /// [`parse`](Self::parse)); it unifies with any pattern as a wildcard.
     Unknown,
+    /// A thread handle type — the structured decomposition of `Thread OF Msg TO Out`
+    /// / `ThreadWorker OF Msg TO Out`, with an optional resource plane
+    /// (`Thread OF Msg RES Res TO Out`). `worker` distinguishes a parent `Thread`
+    /// handle from a `ThreadWorker` handle (the two never unify with each other).
+    /// `msg`/`out` are the data-plane message and output types; `res` is the
+    /// resource-plane type, defaulting to [`Nothing`](Self::Nothing) when the handle
+    /// carries no `RES Res` clause (elided by [`name`](Self::name)). The three slots
+    /// may themselves be generic ([`Var`](Self::Var)), so `start` can return a fresh
+    /// parent handle and `waitFor`/`receive`/`accept` can return `out`/`msg`/`res`
+    /// with no per-package resolver — the variant rides the same
+    /// [`unify`](crate::codegen::registry)/`substitute` recursion as `ListOf`/`Func`.
+    ThreadHandle {
+        worker: bool,
+        msg: Box<ParameterType>,
+        res: Box<ParameterType>,
+        out: Box<ParameterType>,
+    },
 }
 
 impl ParameterType {
@@ -78,6 +95,22 @@ impl ParameterType {
     pub(crate) fn func(params: Vec<ParameterType>, ret: ParameterType) -> Self {
         ParameterType::Func(params, Box::new(ret))
     }
+    /// A thread-handle type from its parts; `res` defaults to
+    /// [`Nothing`](Self::Nothing) at the call site when the handle carries no
+    /// resource plane.
+    pub(crate) fn thread_handle(
+        worker: bool,
+        msg: ParameterType,
+        res: ParameterType,
+        out: ParameterType,
+    ) -> Self {
+        ParameterType::ThreadHandle {
+            worker,
+            msg: Box::new(msg),
+            res: Box::new(res),
+            out: Box::new(out),
+        }
+    }
 
     /// Parse a concrete type *name* — the currency the type checker still speaks at
     /// the registry boundary (`"List OF Integer"`, `"Instant"`, `"Unknown"`) — into a
@@ -91,6 +124,22 @@ impl ParameterType {
         let name = name.strip_prefix("RES ").unwrap_or(name);
         if name == "Unknown" {
             return ParameterType::Unknown;
+        }
+        // A parametric thread type (`Thread OF Msg [RES Res] TO Out` /
+        // `ThreadWorker OF ...`) decomposes structurally into a `ThreadHandle`, its
+        // three slots recursively parsed — mirroring the `List`/`Map`/`FUNC` arms.
+        // The resource plane defaults to `Nothing` when absent (elided by `name`).
+        // A bare opaque `Thread` / `ThreadWorker` (no ` OF ` body) is not a handle
+        // and falls through to `Named`.
+        if let Some((kind, message, resource, output)) =
+            crate::builtins::thread::thread_parts_full(name)
+        {
+            return ParameterType::thread_handle(
+                kind == crate::builtins::thread::THREAD_WORKER_TYPE,
+                ParameterType::parse(message),
+                resource.map_or(ParameterType::Nothing, ParameterType::parse),
+                ParameterType::parse(output),
+            );
         }
         if let Some(elem) = name.strip_prefix("List OF ") {
             return ParameterType::list_of(ParameterType::parse(elem));
@@ -159,6 +208,30 @@ impl ParameterType {
             )),
             ParameterType::Arg(n) => Cow::Owned(format!("Arg{n}")),
             ParameterType::Unknown => Cow::Borrowed("Unknown"),
+            ParameterType::ThreadHandle {
+                worker,
+                msg,
+                res,
+                out,
+            } => {
+                let kind = if *worker {
+                    crate::builtins::thread::THREAD_WORKER_TYPE
+                } else {
+                    crate::builtins::thread::THREAD_TYPE
+                };
+                // The resource plane is elided when `Nothing`, exactly reproducing
+                // `format_thread_type` (a data-only `Thread OF Msg TO Out`).
+                let res_name = match res.as_ref() {
+                    ParameterType::Nothing => None,
+                    other => Some(other.name()),
+                };
+                Cow::Owned(crate::builtins::thread::format_thread_type(
+                    kind,
+                    &msg.name(),
+                    res_name.as_deref(),
+                    &out.name(),
+                ))
+            }
         }
     }
 
@@ -181,5 +254,79 @@ impl ParameterType {
 impl fmt::Display for ParameterType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Round-trip a thread-type spelling through `parse` → `name` and assert it is
+    /// byte-identical — the core `ThreadHandle` guarantee (nested threads,
+    /// parenthesized groups, `RES … STATE …` planes all preserved).
+    fn round_trip(spelling: &str) {
+        assert_eq!(
+            ParameterType::parse(spelling).name(),
+            spelling,
+            "round-trip mismatch for `{spelling}`"
+        );
+    }
+
+    #[test]
+    fn thread_handle_parses_into_variant() {
+        assert_eq!(
+            ParameterType::parse("Thread OF Integer TO String"),
+            ParameterType::thread_handle(
+                false,
+                ParameterType::Integer,
+                ParameterType::Nothing,
+                ParameterType::String,
+            )
+        );
+        assert_eq!(
+            ParameterType::parse("ThreadWorker OF Integer TO String"),
+            ParameterType::thread_handle(
+                true,
+                ParameterType::Integer,
+                ParameterType::Nothing,
+                ParameterType::String,
+            )
+        );
+        assert_eq!(
+            ParameterType::parse("Thread OF RES fs.File TO String"),
+            ParameterType::thread_handle(
+                false,
+                ParameterType::Nothing,
+                ParameterType::Named("fs.File"),
+                ParameterType::String,
+            )
+        );
+        assert_eq!(
+            ParameterType::parse("Thread"),
+            ParameterType::Named("Thread")
+        );
+        assert_eq!(
+            ParameterType::parse("ThreadWorker"),
+            ParameterType::Named("ThreadWorker")
+        );
+    }
+
+    #[test]
+    fn thread_handle_round_trips_byte_exact() {
+        for spelling in [
+            "Thread OF Integer TO String",
+            "ThreadWorker OF Integer TO String",
+            "Thread OF Integer RES fs.File TO String",
+            "Thread OF RES fs.File TO String",
+            "Thread OF RES fs.File STATE Cursor TO Integer",
+            "Thread OF Integer RES fs.File STATE Cursor TO String",
+            "Thread OF List OF Integer TO Map OF String TO Integer",
+            "Thread OF Thread OF Integer TO String TO Boolean",
+            "Thread OF Thread OF Integer RES fs.File TO String TO Boolean",
+            "Thread OF Unknown TO String",
+            "Thread OF Nothing TO String",
+        ] {
+            round_trip(spelling);
+        }
     }
 }
