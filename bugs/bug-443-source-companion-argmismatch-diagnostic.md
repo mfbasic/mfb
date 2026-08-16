@@ -1,7 +1,10 @@
 # bug-443: source-companion call with wrong args reports "not a top-level function" (and leaks the `#` sigil)
 
-STATUS: OPEN (pre-existing; unrelated to bug-441 — discovered while regenerating
-acceptance goldens for the resource package-scoping cutover).
+STATUS: FIXED 2026-08-15. All 12 `*_invalid` fixtures (encoding/json/regex/collections)
+now emit the correct `TYPE_CALL_ARITY_MISMATCH` / `TYPE_CALL_ARGUMENT_MISMATCH`; no
+`SYMBOL_UNKNOWN_IDENTIFIER`, no `#`-sigil leak. Fixed across four layers (see below);
+full `cargo test` (3812) + full acceptance green. Two under-coercion bugs surfaced and
+were fixed as a bonus (json.getOr union-wrap, process arg `List OF Byte` typing).
 
 ## The single correct behavior a fix produces
 
@@ -139,26 +142,35 @@ without Layer 1.
   codegen `.ir` byte-identical (verified full acceptance). `process/*_invalid` goldens gained the
   now-correct `expected process.Process` rejection (regenerated, purely additive).
 
-### Still remaining (smaller, separate)
+### Layer 4 — remaining pieces, all FIXED (2026-08-15)
 
-- **json/regex `*_invalid` "expected …" WORDING.** They now emit the correct
-  `TYPE_CALL_ARGUMENT_MISMATCH`, but the generic `expected_arguments`
-  (`registry/mod.rs`) renders only parameter 0 (`expected Json` instead of
-  `Json, List OF String`). **Blocked by a coupling:** `expected_arguments` is NOT
-  diagnostic-only — the coercion/inference path consumes it, so widening it to the full
-  parameter list (generic render OR a per-member `Some(hint)`) *changes codegen*
-  (`json.getOr`'s `Json`-union arg starts `unionWrap`-ing; `csv.stringify`'s grid degrades
-  to `List OF Unknown`). Fix = decouple `expected_arguments` from coercion (make it truly
-  diagnostic-only), THEN widen the render. This is also the root of the `csv`/`json` `.ir`
-  sensitivity seen while iterating.
-- **`collections/transform`** — a `SUB` (`FUNC(T) AS Nothing`) satisfies the callback
-  parameter `FUNC(T) AS U` because `unify` binds `U = Nothing`; needs a callback-return
-  strictness rule.
-- **`encoding/utf8Encode_ambiguous`** — the monomorph overload-ambiguity diagnostic
-  (`monomorph/lower.rs` ~718) prints the mangled `#encoding_utf8Encode` and a `{count}` the
-  golden omits; thread the public callee + drop the count.
-- **Optional:** render resolver diagnostics through `internal_name::display_name`
-  (`src/resolver/resolution.rs:1236`) as defense-in-depth against a future `#`-sigil leak.
+- **json/regex `*_invalid` "expected …" WORDING — FIXED by decoupling the diagnostic
+  from coercion.** The generic `expected_arguments` rendered only parameter 0. The blocker
+  was that `expected_arguments` was NOT diagnostic-only: `builtins::argument_types` (the IR
+  lowering per-argument coercion table) *parsed the `expected_arguments` string positionally*
+  and skipped any string containing `[`. So widening the diagnostic changed codegen
+  (`json.getOr`'s `Json` arg wrapped; `csv.stringify`'s bracketed render degraded its grid to
+  `List OF Unknown`). Fix: a new **machine** table `registry::argument_types` (positional
+  parameter types from the descriptor, `None` for overload/generic members) now drives
+  coercion; `builtins::argument_types` consults it before the old string path; and
+  `expected_arguments` is now diagnostic-only and full-renders the signature
+  (`Json, List OF String`; `regex.find` → `String, String[, Integer]`). Widening the wording
+  no longer touches codegen. Bonus: the decoupling *fixed* the truncated coercion table —
+  `json.getOr`'s union arg now correctly `unionWrap`s and a `process` arg types as
+  `List OF Byte` instead of `List OF Unknown` (both regenerated, native `.ncodesum`
+  unchanged).
+- **`collections/transform` — FIXED.** `unify` no longer binds a type variable to `Nothing`
+  in STRICT (validation) mode, so a `SUB` (`FUNC(T) AS Nothing`) no longer satisfies the
+  value-returning callback `FUNC(T) AS U`. The lenient dispatch path still binds it, so
+  `Nothing`-returning callbacks (`forEach`) keep lowering.
+- **`encoding/utf8Encode_ambiguous` — FIXED.** The monomorph overload-ambiguity diagnostic
+  threads the PUBLIC callee (`resolve_overload`'s new `display` param), so it names
+  `encoding.utf8Encode`, not the mangled `#encoding_utf8Encode`. The count stays (it matches
+  the two user-function ambiguity fixtures `func_return_overload_ambiguous`/`bug107`); this
+  fixture's golden regenerated to the consistent `matches 2 overloads`.
+- **Defense-in-depth (not done, no longer reachable):** the `internal_name::display_name`
+  guard at `resolution.rs:1236` is moot now that no source-companion call reaches the 2nd
+  resolver pass mangled.
 
 ## Notes
 

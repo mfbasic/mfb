@@ -516,6 +516,14 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
         return Some(types.iter().map(|type_| (*type_).to_string()).collect());
     }
 
+    // Migrated packages: the registry's MACHINE coercion table (positional parameter
+    // types), decoupled from the human `expected_arguments` diagnostic string so
+    // widening the diagnostic never changes per-argument coercion (bug-443). A generic
+    // or overloaded member yields `None` here and needs no coercion table.
+    if let Some(types) = crate::codegen::registry::argument_types(callee) {
+        return Some(types);
+    }
+
     let expected = general::expected_arguments(callee)
         .or_else(|| strings::expected_arguments(callee))
         .or_else(|| math::expected_arguments(callee))
@@ -523,7 +531,6 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| fs::expected_arguments(callee))
         .or_else(|| os::expected_arguments(callee))
         .or_else(|| io::expected_arguments(callee))
-        .or_else(|| crate::codegen::registry::expected_arguments(callee))
         .or_else(|| net::argument_types(callee))
         .or_else(|| tls::argument_types(callee))
         .or_else(|| audio::argument_types(callee))

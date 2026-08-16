@@ -1317,18 +1317,28 @@ fn unify(
     }
 
     match (pattern, concrete) {
-        (ParameterType::Var(name), _) => match bindings.get(name) {
-            // A re-occurring variable must match its binding — but resource element
-            // types compare STATE/ownership-agnostically (bug-427): a bound element
-            // `Handle STATE Cursor` accepts an item spelled `Handle`, mirroring
-            // `general::element_accepts_item`. `resource_base_eq` is plain `==` for
-            // every non-resource type.
-            Some(bound) => resource_base_eq(bound, concrete),
-            None => {
-                bindings.insert(name, concrete.clone());
-                true
+        (ParameterType::Var(name), _) => {
+            // STRICT validation: a type variable never binds to `Nothing`. A
+            // value-returning callback parameter (`transform`'s `FUNC(T) AS U`) is not
+            // satisfied by a `SUB` / `FUNC(..) AS Nothing` argument, and no value can be
+            // "nothing" (bug-443). The lenient dispatch/inference path still binds it, so
+            // `Nothing`-returning callbacks (`forEach`) keep lowering.
+            if strict && matches!(concrete, ParameterType::Nothing) {
+                return false;
             }
-        },
+            match bindings.get(name) {
+                // A re-occurring variable must match its binding — but resource element
+                // types compare STATE/ownership-agnostically (bug-427): a bound element
+                // `Handle STATE Cursor` accepts an item spelled `Handle`, mirroring
+                // `general::element_accepts_item`. `resource_base_eq` is plain `==` for
+                // every non-resource type.
+                Some(bound) => resource_base_eq(bound, concrete),
+                None => {
+                    bindings.insert(name, concrete.clone());
+                    true
+                }
+            }
+        }
         (ParameterType::ListOf(elem), ParameterType::ListOf(concrete_elem)) => {
             unify(elem, concrete_elem, bindings, strict)
         }
@@ -1637,27 +1647,77 @@ pub(crate) fn os_helper(
 /// `qualified`, or `None`.
 /// This leaks, once migration is complete it goes away
 /// #[deprecated(note = "migrate registry().*")]
-pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
+/// The **machine** argument-coercion table for a migrated call: each parameter's
+/// concrete type name in signature order (`json.getOr` → `["Json", "List OF String",
+/// "Json"]`). `None` for an overload set (>1 implementation — no single positional
+/// signature) or a member with a generic (`Var`) parameter (`collections`'s
+/// `List OF T` — nothing concrete to coerce against).
+///
+/// Deliberately SEPARATE from [`expected_arguments`] (the human diagnostic string,
+/// which carries optional-tail brackets / unions the coercion path must not see):
+/// IR lowering consumes THIS to decide per-argument expected types (e.g. union
+/// wrapping), so widening the diagnostic wording never perturbs codegen (bug-443).
+pub(crate) fn argument_types(qualified: &str) -> Option<Vec<String>> {
     let function = &registry().resolve_func(qualified)?.function;
-    // A hand-authored phrasing on the descriptor wins — the union/range/bracket/
-    // zero-arg/generic-`or` forms the per-position render below cannot reproduce.
-    // This is the only place these strings live now (moved off the per-package
-    // `expected_arguments` seams).
-    if let Some(hint) = function.expected_arguments {
-        return Some(hint);
-    }
-    // A multi-implementation (overloaded / variadic) member has no single
-    // first-parameter rendering — its overloads disagree on position 0 — so it
-    // yields None here (and a package needing a diagnostic supplies the hint above).
     if function.implementations.len() > 1 {
         return None;
     }
-    let name = function.implementations.first()?.params.first()?.ty.name();
+    let params = &function.implementations.first()?.params;
+    if params
+        .iter()
+        .any(|param| contains_var(&param.ty) || matches!(param.ty, ParameterType::Arg(_)))
+    {
+        return None;
+    }
+    Some(
+        params
+            .iter()
+            .map(|param| param.ty.name().into_owned())
+            .collect(),
+    )
+}
 
-    Some(match name {
-        Cow::Borrowed(s) => s,
-        Cow::Owned(s) => Box::leak(s.into_boxed_str()),
-    })
+pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
+    let function = &registry().resolve_func(qualified)?.function;
+    // A hand-authored phrasing on the descriptor wins — the union/range/generic-`or`
+    // forms the per-position render below cannot reproduce.
+    if let Some(hint) = function.expected_arguments {
+        return Some(hint);
+    }
+    // A multi-implementation (overloaded / variadic) member has no single positional
+    // rendering — its overloads can disagree on position 0 — so it yields None here (a
+    // package needing a diagnostic supplies the hint above).
+    if function.implementations.len() > 1 {
+        return None;
+    }
+    // Render the WHOLE parameter list (`json.get` → "Json, List OF String"), not just
+    // position 0: the argument-mismatch diagnostic's "expected …" clause names every
+    // parameter. Required parameters join with ", "; trailing OPTIONAL parameters
+    // (`Fill`/`Optional`) render in a bracket — `regex.find` → "String, String[, Integer]".
+    // This is diagnostic-only; the coercion path uses [`argument_types`] (bug-443).
+    let params = &function.implementations.first()?.params;
+    if params.is_empty() {
+        return None;
+    }
+    let mut required = Vec::new();
+    let mut optional = Vec::new();
+    for param in params {
+        if matches!(param.default, DefaultValue::None) {
+            required.push(param.ty.name());
+        } else {
+            optional.push(param.ty.name());
+        }
+    }
+    let mut rendered = required.join(", ");
+    if !optional.is_empty() {
+        let tail = optional.join(", ");
+        if rendered.is_empty() {
+            rendered = format!("[{tail}]");
+        } else {
+            rendered = format!("{rendered}[, {tail}]");
+        }
+    }
+    Some(Box::leak(rendered.into_boxed_str()))
 }
 
 /// Whether a function's overloads disagree on their **position-0** parameter name

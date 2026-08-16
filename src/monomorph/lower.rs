@@ -681,6 +681,7 @@ impl<'a> Monomorphizer<'a> {
     fn resolve_overload(
         &mut self,
         name: &str,
+        display: &str,
         arg_types: &[String],
         expected: Option<&str>,
         line: usize,
@@ -717,9 +718,9 @@ impl<'a> Monomorphizer<'a> {
                         self.report(
                             "TYPE_OVERLOAD_AMBIGUOUS",
                             &format!(
-                                "Call to `{name}` matches {} overloads that differ only by return \
-                                 type; supply the expected type (e.g. a `LET … AS` annotation) to \
-                                 select one.",
+                                "Call to `{display}` matches {} overloads that differ only by \
+                                 return type; supply the expected type (e.g. a `LET … AS` \
+                                 annotation) to select one.",
                                 param_matches.len()
                             ),
                             line,
@@ -1250,7 +1251,7 @@ impl<'a> Monomorphizer<'a> {
                 {
                     target
                 } else if let Some(target) =
-                    self.resolve_overload(callee, &arg_types, expected_type, line)
+                    self.resolve_overload(callee, &public_callee, &arg_types, expected_type, line)
                 {
                     target
                 } else if let Some(target) =
