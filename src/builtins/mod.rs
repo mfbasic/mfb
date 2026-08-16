@@ -9,7 +9,6 @@ pub(crate) mod http;
 pub(crate) mod io;
 pub(crate) mod math;
 pub(crate) mod net;
-pub(crate) mod os;
 pub(crate) mod resource;
 pub(crate) mod strings;
 pub(crate) mod term;
@@ -494,7 +493,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
         .or_else(|| thread::expected_arguments(name))
         .or_else(|| strings::expected_arguments(name))
         .or_else(|| fs::expected_arguments(name))
-        .or_else(|| os::expected_arguments(name))
         .or_else(|| io::expected_arguments(name))
         .or_else(|| crate::codegen::registry::expected_arguments(name))
     {
@@ -535,7 +533,6 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| strings::expected_arguments(callee))
         .or_else(|| math::expected_arguments(callee))
         .or_else(|| fs::expected_arguments(callee))
-        .or_else(|| os::expected_arguments(callee))
         .or_else(|| io::expected_arguments(callee))
         .or_else(|| net::argument_types(callee))
         .or_else(|| tls::argument_types(callee))
@@ -798,7 +795,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
         .or_else(|| fs::call_param_names(name))
         .or_else(|| io::call_param_names(name))
         .or_else(|| net::call_param_names(name))
-        .or_else(|| os::call_param_names(name))
         .or_else(|| http::call_param_names(name))
         .or_else(|| term::call_param_names(name))
         .or_else(|| tls::call_param_names(name))

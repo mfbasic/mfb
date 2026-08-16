@@ -19,13 +19,13 @@ IMPORT os
 ```
 
 `os` is a built-in package, so no manifest dependency is required.
-[[src/builtins/os.rs:is_os_call]]
+[[src/codegen/builtins/os/mod.rs:register]]
 
 ## Description
 
 `os::hostName` returns the host's network name via the host `gethostname` call,
 copied into an owned `String`. The name is whatever the host is configured to
-report (often the short hostname). [[src/target/shared/code/os/introspect.rs:lower_host_name]]
+report (often the short hostname). [[src/codegen/builtins/os/native/introspect.rs:lower_host_name]]
 
 If the host cannot supply the name, `os::hostName` raises `ErrUnsupported`. It
 reads host state only and has no side effects.
@@ -34,13 +34,13 @@ reads host state only and has no side effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `os::hostName` takes no arguments. [[src/builtins/os.rs:OS]] |
+| — | — | `os::hostName` takes no arguments. [[src/codegen/builtins/os/func_host_name.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The host's network name. [[src/builtins/os.rs:OS]] |
+| `String` | The host's network name. [[src/codegen/builtins/os/func_host_name.rs:register]] |
 
 ## Errors
 

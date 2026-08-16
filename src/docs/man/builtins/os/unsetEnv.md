@@ -19,7 +19,7 @@ IMPORT os
 ```
 
 `os` is a built-in package, so no manifest dependency is required.
-[[src/builtins/os.rs:is_os_call]]
+[[src/codegen/builtins/os/mod.rs:register]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT os
 process environment. It is a SUB and returns nothing. Removing a variable that is
 not set is a no-op, not an error, so the call is idempotent. After it returns,
 `os::hasEnv(name)` reports `FALSE` and `os::getEnv(name)` raises `ErrNotFound`.
-It maps to the host `unsetenv(name)`. [[src/target/shared/code/os/env.rs:lower_unset_env]]
+It maps to the host `unsetenv(name)`. [[src/codegen/builtins/os/native/env.rs:lower_unset_env]]
 
 `os::unsetEnv` mutates process-global state and is **not** synchronized against a
 concurrent read in another `thread::` worker.
@@ -36,13 +36,13 @@ concurrent read in another `thread::` worker.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `name` | `String` | The variable name to remove. Must be non-empty and free of embedded NUL bytes. [[src/builtins/os.rs:call_param_names]] |
+| `name` | `String` | The variable name to remove. Must be non-empty and free of embedded NUL bytes. [[src/codegen/builtins/os/func_unset_env.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `os::unsetEnv` is a SUB and produces no value. [[src/builtins/os.rs:OS]] |
+| `Nothing` | `os::unsetEnv` is a SUB and produces no value. [[src/codegen/builtins/os/func_unset_env.rs:register]] |
 
 ## Errors
 

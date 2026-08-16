@@ -19,7 +19,7 @@ IMPORT os
 ```
 
 `os` is a built-in package, so no manifest dependency is required.
-[[src/builtins/os.rs:is_os_call]]
+[[src/codegen/builtins/os/mod.rs:register]]
 
 ## Description
 
@@ -29,7 +29,7 @@ splitting each `NAME=VALUE` entry at its **first** `=`: the text before it is th
 key and everything after it — including any further `=` — is the value. An entry
 with no `=` maps its whole text to an empty-string value. The snapshot reflects
 variables written earlier by `os::setEnv` and omits those removed by
-`os::unsetEnv`. [[src/target/shared/code/os/env.rs:lower_environ]]
+`os::unsetEnv`. [[src/codegen/builtins/os/native/env.rs:lower_environ]]
 
 The returned map is an ordinary owned value captured at the moment of the call;
 later `os::setEnv`/`os::unsetEnv` calls do not change it, so re-read the
@@ -44,13 +44,13 @@ state. It reads process state only and has no side effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `os::environ` takes no arguments. [[src/builtins/os.rs:OS]] |
+| — | — | `os::environ` takes no arguments. [[src/codegen/builtins/os/func_environ.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Map OF String TO String` | A snapshot of the environment, mapping each variable name to its value. [[src/builtins/os.rs:OS]] |
+| `Map OF String TO String` | A snapshot of the environment, mapping each variable name to its value. [[src/codegen/builtins/os/func_environ.rs:register]] |
 
 ## Errors
 

@@ -2106,7 +2106,6 @@ fn expression_type(
                 || builtins::fs::is_fs_call(&canonical_callee)
                 || builtins::io::is_io_call(&canonical_callee)
                 || builtins::net::is_net_call(&canonical_callee)
-                || builtins::os::is_os_call(&canonical_callee)
                 || builtins::tls::is_tls_call(&canonical_callee)
                 || builtins::audio::is_audio_call(&canonical_callee)
                 || builtins::http::is_http_call(&canonical_callee)

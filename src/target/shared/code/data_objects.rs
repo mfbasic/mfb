@@ -4,7 +4,7 @@ use super::*;
 /// the `adrp`/`add` page pair. The `data` binding is the internal-symbol-address
 /// relocation regardless of the target's section — the linker resolves it through
 /// `symbol_vmaddr` (the same pattern used for the thread-trampoline address).
-pub(super) fn push_symbol_address(
+pub(crate) fn push_symbol_address(
     from: &str,
     symbol: &str,
     // plan-85-B: accept a typed `Operand` (`abi::c_arg(0)`) or a legacy `&str`.

@@ -19,7 +19,7 @@ IMPORT os
 ```
 
 `os` is a built-in package, so no manifest dependency is required.
-[[src/builtins/os.rs:is_os_call]]
+[[src/codegen/builtins/os/mod.rs:register]]
 
 ## Description
 
@@ -28,7 +28,7 @@ process environment, overwriting any existing value. It is a SUB and returns
 nothing. The change is visible to every later `os::getEnv`, `os::getEnvOr`,
 `os::hasEnv`, and `os::environ` in the same process, and is inherited by child
 processes spawned afterward. It maps to the host `setenv(name, value, 1)`.
-[[src/target/shared/code/os/env.rs:lower_set_env]]
+[[src/codegen/builtins/os/native/env.rs:lower_set_env]]
 
 `os::setEnv` mutates process-global state and is **not** synchronized against a
 concurrent read in another `thread::` worker; avoid setting a variable while
@@ -40,14 +40,14 @@ from its value.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `name` | `String` | The variable name to set. Must be non-empty, free of embedded NUL bytes, and free of `=`. [[src/builtins/os.rs:call_param_names]] |
-| `value` | `String` | The value to store. Must be free of embedded NUL bytes. [[src/builtins/os.rs:call_param_names]] |
+| `name` | `String` | The variable name to set. Must be non-empty, free of embedded NUL bytes, and free of `=`. [[src/codegen/builtins/os/func_set_env.rs:register]] |
+| `value` | `String` | The value to store. Must be free of embedded NUL bytes. [[src/codegen/builtins/os/func_set_env.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `os::setEnv` is a SUB and produces no value. [[src/builtins/os.rs:OS]] |
+| `Nothing` | `os::setEnv` is a SUB and produces no value. [[src/codegen/builtins/os/func_set_env.rs:register]] |
 
 ## Errors
 

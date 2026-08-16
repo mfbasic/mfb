@@ -19,13 +19,13 @@ IMPORT os
 ```
 
 `os` is a built-in package, so no manifest dependency is required.
-[[src/builtins/os.rs:is_os_call]]
+[[src/codegen/builtins/os/mod.rs:register]]
 
 ## Description
 
 `os::pid` returns the process id of the running program as an `Integer`, via the
 host `getpid` call. The value is positive and stable for the life of the process.
-[[src/target/shared/code/os/introspect.rs:lower_pid]]
+[[src/codegen/builtins/os/native/introspect.rs:lower_pid]]
 
 `os::pid` is **not pure** in the sense that different processes see different
 values, but within one process every call returns the same id. It reads process
@@ -35,13 +35,13 @@ state only and has no side effects.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| — | — | `os::pid` takes no arguments. [[src/builtins/os.rs:OS]] |
+| — | — | `os::pid` takes no arguments. [[src/codegen/builtins/os/func_pid.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The current process id (a positive value). [[src/builtins/os.rs:OS]] |
+| `Integer` | The current process id (a positive value). [[src/codegen/builtins/os/func_pid.rs:register]] |
 
 ## Errors
 

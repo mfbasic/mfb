@@ -110,21 +110,9 @@ static LEGACY_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     FS_EOF_SPEC,
     FS_CANONICAL_PATH_SPEC,
     FS_IS_WITHIN_SPEC,
-    OS_GET_ENV_SPEC,
-    OS_GET_ENV_OR_SPEC,
-    OS_HAS_ENV_SPEC,
-    OS_SET_ENV_SPEC,
-    OS_UNSET_ENV_SPEC,
-    OS_ENVIRON_SPEC,
-    OS_ARGS_SPEC,
-    OS_PID_SPEC,
-    OS_EXECUTABLE_PATH_SPEC,
-    OS_RESOURCE_PATH_SPEC,
-    OS_NAME_SPEC,
-    OS_ARCH_SPEC,
-    OS_HOST_NAME_SPEC,
-    OS_USER_NAME_SPEC,
-    OS_CPU_COUNT_SPEC,
+    // `os` is migrated: its specs are DERIVED from the registry
+    // (`registry::runtime_specs`) and merged in by `supported_helper_specs`, so no
+    // hand-written `OS_*_SPEC` rows live here.
     // `process` is migrated: its specs are DERIVED from the registry
     // (`registry::runtime_specs`) and merged in by `supported_helper_specs`, so no
     // hand-written `PROCESS_*_SPEC` rows live here.
