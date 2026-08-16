@@ -208,7 +208,9 @@ mod tests {
 
     #[test]
     fn crypto_registered_on_the_clean_room_registry() {
-        let pkg = registry().resolve_package("crypto").expect("crypto package");
+        let pkg = registry()
+            .resolve_package("crypto")
+            .expect("crypto package");
         // 33 documented members (23 source + 10 native).
         assert_eq!(pkg.functions().len(), 33);
     }
@@ -302,9 +304,18 @@ mod tests {
             registry::rewrite_target(call, &types)
         };
         // Hash: bytes arg -> `_bytes`, String arg -> `_text`.
-        assert_eq!(sel("crypto.sha256", &["List OF Byte"]), Some("__crypto_sha256_bytes"));
-        assert_eq!(sel("crypto.sha256", &["String"]), Some("__crypto_sha256_text"));
-        assert_eq!(sel("crypto.sha512", &["String"]), Some("__crypto_sha512_text"));
+        assert_eq!(
+            sel("crypto.sha256", &["List OF Byte"]),
+            Some("__crypto_sha256_bytes")
+        );
+        assert_eq!(
+            sel("crypto.sha256", &["String"]),
+            Some("__crypto_sha256_text")
+        );
+        assert_eq!(
+            sel("crypto.sha512", &["String"]),
+            Some("__crypto_sha512_text")
+        );
         // HMAC selects on `data` (arg index 1).
         assert_eq!(
             sel("crypto.hmacSha256", &["List OF Byte", "String"]),
@@ -316,18 +327,27 @@ mod tests {
         );
         // PBKDF2 selects on `password` (arg index 0).
         assert_eq!(
-            sel("crypto.pbkdf2Sha256", &["String", "List OF Byte", "Integer", "Integer"]),
+            sel(
+                "crypto.pbkdf2Sha256",
+                &["String", "List OF Byte", "Integer", "Integer"]
+            ),
             Some("__crypto_pbkdf2Sha256_text")
         );
         // Single-body source member.
         assert_eq!(sel("crypto.uuid4", &[]), Some("__crypto_uuid4"));
         assert_eq!(
-            sel("crypto.constantTimeEqual", &["List OF Byte", "List OF Byte"]),
+            sel(
+                "crypto.constantTimeEqual",
+                &["List OF Byte", "List OF Byte"]
+            ),
             Some("__crypto_constantTimeEqual")
         );
         // Native member -> no rewrite target.
         assert_eq!(sel("crypto.randomBytes", &["Integer"]), None);
-        assert_eq!(sel("crypto.p256Sign", &["List OF Byte", "List OF Byte"]), None);
+        assert_eq!(
+            sel("crypto.p256Sign", &["List OF Byte", "List OF Byte"]),
+            None
+        );
     }
 
     #[test]
@@ -336,26 +356,46 @@ mod tests {
             let types: Vec<String> = args.iter().map(|s| s.to_string()).collect();
             registry::resolve_call(call, &types, false)
         };
-        assert_eq!(r("crypto.sha256", &["List OF Byte"]), Some("List OF Byte".into()));
+        assert_eq!(
+            r("crypto.sha256", &["List OF Byte"]),
+            Some("List OF Byte".into())
+        );
         assert_eq!(r("crypto.sha256", &["String"]), Some("List OF Byte".into()));
         assert_eq!(r("crypto.sha256", &["Integer"]), None);
         assert_eq!(
-            r("crypto.aes256GcmSeal", &["List OF Byte", "List OF Byte", "List OF Byte"]),
+            r(
+                "crypto.aes256GcmSeal",
+                &["List OF Byte", "List OF Byte", "List OF Byte"]
+            ),
             Some("Sealed".into())
         );
         assert_eq!(
             r(
                 "crypto.aes256GcmSeal",
-                &["List OF Byte", "List OF Byte", "List OF Byte", "List OF Byte"]
+                &[
+                    "List OF Byte",
+                    "List OF Byte",
+                    "List OF Byte",
+                    "List OF Byte"
+                ]
             ),
             Some("Sealed".into())
         );
         assert_eq!(r("crypto.uuid4", &[]), Some("String".into()));
         assert_eq!(r("crypto.generateEd25519", &[]), Some("KeyPair".into()));
-        assert_eq!(r("crypto.randomBytes", &["Integer"]), Some("List OF Byte".into()));
-        assert_eq!(r("crypto.randomInt", &["Integer", "Integer"]), Some("Integer".into()));
         assert_eq!(
-            r("crypto.ed25519Verify", &["List OF Byte", "List OF Byte", "List OF Byte"]),
+            r("crypto.randomBytes", &["Integer"]),
+            Some("List OF Byte".into())
+        );
+        assert_eq!(
+            r("crypto.randomInt", &["Integer", "Integer"]),
+            Some("Integer".into())
+        );
+        assert_eq!(
+            r(
+                "crypto.ed25519Verify",
+                &["List OF Byte", "List OF Byte", "List OF Byte"]
+            ),
             Some("Boolean".into())
         );
     }
@@ -380,12 +420,18 @@ mod tests {
             registry::default_argument_padding("crypto.chacha20Poly1305Open", 5).len(),
             0
         );
-        assert_eq!(registry::default_argument_padding("crypto.sha256", 1).len(), 0);
+        assert_eq!(
+            registry::default_argument_padding("crypto.sha256", 1).len(),
+            0
+        );
     }
 
     #[test]
     fn reassembled_source_parses() {
-        let source = registry().resolve_package("crypto").expect("crypto").get_mfb();
+        let source = registry()
+            .resolve_package("crypto")
+            .expect("crypto")
+            .get_mfb();
         crate::ast::parse_source_internal(
             std::path::Path::new("<builtin-crypto>"),
             "builtins/crypto.mfb",

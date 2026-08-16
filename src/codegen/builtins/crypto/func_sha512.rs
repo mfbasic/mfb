@@ -6,7 +6,9 @@
 //! `_bytes`/`_text` `implementation_name` the clean-room `select()` subsumes). Docs
 //! migrated from `src/docs/man/builtins/crypto/sha512.md`.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
 const INTRO: &str = r#"Compute the SHA-512 cryptographic hash (FIPS 180-4) of a message."#;
 const DESC: &str = r#"`crypto::sha512` computes the SHA-512 message digest of `data`, as specified by

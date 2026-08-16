@@ -6,7 +6,9 @@
 //! `package.mfb` helper. Docs migrated from
 //! `src/docs/man/builtins/crypto/constantTimeEqual.md`.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
 const INTRO: &str =
     r#"Compare two byte lists for equality in time that does not depend on their contents."#;

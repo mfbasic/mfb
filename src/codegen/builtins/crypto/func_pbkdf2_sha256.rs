@@ -5,7 +5,9 @@
 //! `_bytes`/`_text` `Body::Rewrite` body in `package.mfb`. Docs migrated from
 //! `src/docs/man/builtins/crypto/pbkdf2Sha256.md`.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
 const INTRO: &str = r#"Derive a key from a password with PBKDF2 (RFC 8018) over HMAC-SHA-256."#;
 const DESC: &str = r#"`crypto::pbkdf2Sha256` is the PBKDF2 password-based key-derivation function of

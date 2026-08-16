@@ -6,7 +6,9 @@
 //! (the legacy `_bytes`/`_text` `implementation_name` the clean-room `select()`
 //! subsumes). Docs migrated from `src/docs/man/builtins/crypto/hmacSha256.md`.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
 const INTRO: &str =
     r#"Compute the HMAC-SHA-256 message authentication code (RFC 2104) of a message under a key."#;

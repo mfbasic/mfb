@@ -5,7 +5,9 @@
 //! `package.mfb` helper. The optional `aad` parameter fills to the empty byte list.
 //! Docs migrated from `src/docs/man/builtins/crypto/aes256GcmSeal.md`.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
 const INTRO: &str =
     r#"Encrypt and authenticate a message with AES-256 in Galois/Counter Mode (NIST SP 800-38D)."#;

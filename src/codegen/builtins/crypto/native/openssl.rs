@@ -327,7 +327,7 @@ fn emit_copy(
 fn emit_len_check(len_off: usize, expected: usize, fail: &str, ins: &mut Vec<CodeInstruction>) {
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), len_off),
-        abi::compare_immediate("%v9", &expected.to_string()),
+        abi::compare_immediate("%v9", expected.to_string()),
         abi::branch_ne(fail),
     ]);
 }
@@ -666,7 +666,7 @@ fn generate(
     // point_len; route to gen_fail otherwise (bug-177 E).
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), SPKILEN),
-        abi::compare_immediate("%v9", &(p.spki_prefix_len() + p.point_len).to_string()),
+        abi::compare_immediate("%v9", (p.spki_prefix_len() + p.point_len).to_string()),
         abi::branch_lo(&gen_fail),
     ]);
     // point = SPKI bytes after the constant-length prefix (04||X||Y follows the
@@ -691,7 +691,7 @@ fn generate(
     // SEC1LEN >= sec1_scalar_off + field_len; route to gen_fail otherwise.
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), SEC1LEN),
-        abi::compare_immediate("%v9", &(p.sec1_scalar_off + p.field_len).to_string()),
+        abi::compare_immediate("%v9", (p.sec1_scalar_off + p.field_len).to_string()),
         abi::branch_lo(&gen_fail),
     ]);
     emit_copy(

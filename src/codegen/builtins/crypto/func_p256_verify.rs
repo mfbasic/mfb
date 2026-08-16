@@ -4,10 +4,11 @@
 //! OS-seam slots point at [`super::native::lower_crypto_ec`], the shared elliptic-curve
 //! lowering. Docs migrated from `src/docs/man/builtins/crypto/p256Verify.md`.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
-const INTRO: &str =
-    r#"Verify an ECDSA P-256/SHA-256 signature against a public key (FIPS 186)."#;
+const INTRO: &str = r#"Verify an ECDSA P-256/SHA-256 signature against a public key (FIPS 186)."#;
 const DESC: &str = r#"`crypto::p256Verify` checks whether `signature` is a valid ECDSA signature of
 `message` under `publicKey` on the NIST P-256 curve with SHA-256 (FIPS 186). It
 returns `TRUE` if and only if the signature verifies for that exact key and

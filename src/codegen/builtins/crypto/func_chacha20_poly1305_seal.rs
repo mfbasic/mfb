@@ -6,7 +6,9 @@
 //! empty byte list. Docs migrated from
 //! `src/docs/man/builtins/crypto/chacha20Poly1305Seal.md`.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
 const INTRO: &str = r#"Encrypt and authenticate a message with the ChaCha20-Poly1305 AEAD construction (RFC 8439)."#;
 const DESC: &str = r#"`crypto::chacha20Poly1305Seal` encrypts and authenticates `plaintext` with the

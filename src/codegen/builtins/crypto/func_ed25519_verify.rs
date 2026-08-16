@@ -4,7 +4,9 @@
 //! checks an Ed25519 signature over a message and returns a `Boolean`. Docs
 //! migrated from `src/docs/man/builtins/crypto/ed25519Verify.md`.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
 const INTRO: &str = r#"Verify an Ed25519 signature over a message with a public key (RFC 8032)."#;
 const DESC: &str = r#"`crypto::ed25519Verify` checks whether `signature` is a valid Ed25519 signature

@@ -4,10 +4,11 @@
 //! OS-seam slots point at [`super::native::lower_crypto_ec`], the shared elliptic-curve
 //! lowering. Docs migrated from `src/docs/man/builtins/crypto/p384Verify.md`.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
-const INTRO: &str =
-    r#"Verify an ECDSA P-384/SHA-384 signature against a public key (FIPS 186)."#;
+const INTRO: &str = r#"Verify an ECDSA P-384/SHA-384 signature against a public key (FIPS 186)."#;
 const DESC: &str = r#"`crypto::p384Verify` checks whether `signature` is a valid ECDSA signature of
 `message` under `publicKey` on the NIST P-384 curve with SHA-384 (FIPS 186). It
 returns `TRUE` if and only if the signature verifies for that exact key and

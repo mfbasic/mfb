@@ -5,7 +5,9 @@
 //! `__crypto_hkdfSha512` in `package.mfb`. Docs migrated from
 //! `src/docs/man/builtins/crypto/hkdfSha512.md`.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
 const INTRO: &str = r#"Derive key material with HKDF (RFC 5869) instantiated over HMAC-SHA-512."#;
 const DESC: &str = r#"`crypto::hkdfSha512` is the HKDF key-derivation function of RFC 5869 instantiated

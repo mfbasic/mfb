@@ -6,7 +6,9 @@
 //! `_bytes`/`_text` `implementation_name` the clean-room `select()` subsumes). Docs
 //! migrated from `src/docs/man/builtins/crypto/sha384.md`.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
 const INTRO: &str = r#"Compute the SHA-384 cryptographic hash (FIPS 180-4) of a message."#;
 const DESC: &str = r#"`crypto::sha384` computes the SHA-384 message digest of `data`, as specified by

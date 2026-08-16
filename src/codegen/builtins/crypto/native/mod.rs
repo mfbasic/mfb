@@ -112,7 +112,9 @@ pub(crate) fn lower_crypto_ec_helper(
 // keep importing them from their parent.
 // ---------------------------------------------------------------------------
 
-pub(crate) use crate::target::shared::code::native_helpers::{emit_build_byte_list, emit_fail, emit_read_byte_list};
+pub(crate) use crate::target::shared::code::native_helpers::{
+    emit_build_byte_list, emit_fail, emit_read_byte_list,
+};
 
 /// Call the function pointer stored at `fn_off` (args already in x0..). Result
 /// left in the return register. Shared by both EC backends.

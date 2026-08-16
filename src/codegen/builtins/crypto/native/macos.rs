@@ -973,7 +973,7 @@ fn verify(
     // validation (bug-317 T4).
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), PUBLEN),
-        abi::compare_immediate("%v9", &curve.point_len().to_string()),
+        abi::compare_immediate("%v9", curve.point_len().to_string()),
         abi::branch_ne(&invalid_fail),
     ]);
     emit_read_byte_list(

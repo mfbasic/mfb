@@ -306,7 +306,7 @@ fn sign(
     // priv len must be the SEC1 private (point ‖ scalar).
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), PRIVLEN),
-        abi::compare_immediate("%v9", &priv_raw.to_string()),
+        abi::compare_immediate("%v9", priv_raw.to_string()),
         abi::branch_ne(&invalid),
     ]);
     // Allocate the CNG blob + rs + der buffers.
@@ -468,7 +468,7 @@ fn verify(
     // macOS/OpenSSL backends (bug-415 #1).
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), PUBLEN),
-        abi::compare_immediate("%v9", &pub_raw.to_string()),
+        abi::compare_immediate("%v9", pub_raw.to_string()),
         abi::branch_ne(&invalid),
     ]);
     for (cap, slot) in [(BLOBCAP, BLOB), (2 * 66, RS)] {

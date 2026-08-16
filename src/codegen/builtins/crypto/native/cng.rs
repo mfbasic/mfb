@@ -371,6 +371,7 @@ fn generate(
 }
 
 /// Destroy `hKey` (at `hkey_off`) and close `hAlg` (at `halg_off`), each null-guarded.
+#[allow(clippy::too_many_arguments)]
 fn emit_cleanup(
     symbol: &str,
     tag: &str,

@@ -6,7 +6,9 @@
 //! `registry::os_helper` and its runtime spec DERIVED by `registry::runtime_specs`.
 //! Docs migrated from `src/docs/man/builtins/crypto/randomBytes.md`.
 
-use super::{bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
+use super::{
+    bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
+};
 
 const INTRO: &str = r#"Return cryptographically secure random bytes drawn from the OS CSPRNG."#;
 const DESC: &str = r#"`crypto::randomBytes` returns `count` fresh bytes drawn from the operating
