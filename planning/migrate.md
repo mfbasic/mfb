@@ -23,6 +23,35 @@ authoring seams), `.ai/collections.md` (List/Map/Set + fast paths),
 
 ---
 
+## Byte-identity is a SIGNAL, not a hard gate
+
+`scripts/artifact-gate.sh` byte-identity (`.ast`/`.ir`/`.ncode` diffs) is a **nice-to-have
+tripwire, not a pass/fail requirement**. Its value is that for *pure code motion* it should
+be neutral — so a diff you did **not** expect is worth investigating. It does **not** mean a
+diff is a hard stop.
+
+The real bar for any golden change is: **it is explained.** A migration legitimately changes
+some goldens — the member/`.mfb` registration order can shift the injected source (moving
+`.ast`/`.ir` line numbers), the descriptor's full parameter list can improve coercion
+(better-typed args, added union wraps), a corrected diagnostic can add/reword an error. Those
+are fine. When a golden changes:
+
+1. **Understand the diff** — objdump/`.ncode`- or `.ir`-diff ONE fixture and name the cause.
+2. **Classify it.** A legitimate consequence of the migration (order shift, better coercion,
+   corrected diagnostic — with the program still running correctly, `_rt` fixture green) →
+   **regenerate the golden and write the one-line reason** in the commit. An *unexplained* or
+   *wrong* diff (broke a program, dropped a symbol, changed emitted behavior) → that's the
+   bug; fix the code, do not regenerate.
+3. **Never regenerate to HIDE a defect.** "It changed and I don't know why" is not an
+   explanation — that's still a bug to hunt (AGENTS.md). The distinction is *explained vs
+   unexplained*, not *zero vs non-zero*.
+
+So: keep the gate green **when the change is pure motion** (Phases 1–2), and expect+explain
+diffs where the migration genuinely changes output (Phases 3–5). A non-zero gate never blocks
+landing on its own.
+
+---
+
 ## Two worlds: what you are migrating FROM and TO
 
 There are two parallel descriptor vocabularies. Migration deletes the first for
@@ -262,15 +291,18 @@ Measure first: `grep -c 'Implementation::' src/builtins/<pkg>.rs`; `ls src/built
   `src/builtins/mod.rs`'s module list and the `REGISTRY` array **once the registry
   serves it** (the compiler dual-paths `registry().X(name).or(old(name))` during the
   transition — see todo.md Phase 2).
-- **Acceptance:** `cargo build --bin mfb` clean; `artifact-gate <pkg>` = 0 diffs (pure
-  code motion, no `Body` chosen yet).
+- **Acceptance:** `cargo build --bin mfb` clean; `artifact-gate <pkg>` reviewed — this is
+  pure code motion so it should be neutral; if the registration order differs from the old
+  module's, the injected `.mfb` order (and its `.ast`/`.ir` line numbers) shifts — that's an
+  acceptable, explained diff (regenerate + note it), not a bug.
 
 ### Phase 2 — Split each member into `func_<name>.rs`
 
 - One file per member: `pub(super) fn register(pkg: &mut RegistryPackage)` +
   `INTRO`/`DESC`/`EX` consts. `mod.rs`'s body becomes `func_<name>::register(&mut pkg)`
   calls. File = `func_<snake(slug)>.rs`.
-- **Acceptance:** build clean, `artifact-gate <pkg>` = 0 diffs.
+- **Acceptance:** build clean; `artifact-gate <pkg>` reviewed (pure motion — should be
+  neutral; explain any diff).
 
 ### Phase 3 — Move each member's implementation onto its `Body` (the real migration)
 
@@ -292,8 +324,12 @@ Per member, by its taxonomy row:
 - **Transitivity trap.** A helper called *only* by a shared/non-`<pkg>` function is not
   `<pkg>`-only — it stays in `src/target`. Census each helper's callers by *effect*, not
   by one name.
-- **Acceptance:** build clean; **`artifact-gate <pkg>` = 0 diffs** (a diff here is a real
-  bug — objdump/`.ncode`-diff ONE fixture and fix it, never re-baseline).
+- **Acceptance:** build clean; **review the gate.** Pure `Body::mfb` extraction should be
+  neutral, so an unexpected diff there is worth an objdump/`.ncode`-diff of ONE fixture. But
+  moving native lowering onto `Body::Native` can legitimately shift output (order, better
+  coercion) — understand each diff, keep it if it's an explained consequence (`_rt` fixture
+  still green) and regenerate with the reason, fix the code if it's not (byte-identity is a
+  signal, not a gate — see the top).
 
 ### Phase 4 — Resources, runtime specs, coercion (native packages)
 
@@ -310,7 +346,10 @@ Per member, by its taxonomy row:
   `registry::argument_types` (machine coercion table) and `registry::expected_arguments`
   (diagnostic). Delete the hand `expected_arguments`/`argument_types`/`call_param_names`
   tables in `<pkg>.rs`.
-- **Acceptance:** `artifact-gate <pkg>` = 0 diffs; the runtime/catalog + coercion tests pass.
+- **Acceptance:** runtime/catalog + coercion tests pass; `artifact-gate` reviewed — the fuller
+  descriptor param list can legitimately improve coercion (better-typed args / added union
+  wraps): keep those explained diffs (`_rt` green, native `.ncodesum` usually unchanged),
+  regenerate with the reason.
 
 ### Phase 5 — Docs / man2
 
@@ -321,7 +360,8 @@ Per member, by its taxonomy row:
   `man_citations_resolve` / `spec_citations_resolve` tests break the instant a file
   moves; repoint each `[[…]]` in the *same* commit that moves the file. Use `\b` so
   `__<pkg>_add` doesn't match `__<pkg>_addDays`.
-- **Acceptance:** citation tests pass; man2 renders; `artifact-gate <pkg>` = 0 diffs.
+- **Acceptance:** citation tests pass; man2 renders; `artifact-gate` reviewed (docs are
+  metadata — usually neutral; explain any diff).
 
 ### Phase 6 — Delete the legacy surface + land
 
@@ -366,9 +406,11 @@ similar. Delete or repoint each:
 
 ## Byte-identity & gotchas (hard-won)
 
-- **A gate diff is a bug-hunt trigger, never "the design is dead."** Objdump/`.ncode`-diff
-  ONE fixture, localize, fix. A diff on a target you *expected* to change is the plan
-  working.
+- **An UNEXPLAINED gate diff is a bug-hunt trigger; an explained one is fine.** Objdump/
+  `.ncode`-diff ONE fixture, localize, name the cause. A diff on a target you *expected* to
+  change (order shift, better coercion, corrected diagnostic) is the plan working —
+  regenerate + note it. Only "changed for no reason I can name" is the bug. Byte-identity is
+  a signal, not the gate.
 - **Preserve the synthetic source path/doc labels** exactly (`.ast`/`.ir` loc metadata).
 - **Marker substitution restores exact bytes** (`get_mfb()` splices `BODY` with no
   leading/trailing newline; surrounding newlines come from `package.mfb`). Choose
@@ -384,8 +426,9 @@ similar. Delete or repoint each:
   `scripts/check-generated.sh`, `scripts/list_functions.py`; re-run `check-generated.sh`).
 - **Subagent edits can silently vanish** — `git diff --stat` before trusting any
   "tests pass" from delegated file moves.
-- **No test/golden re-baseline to make it pass** (AGENTS.md): a real diff is a bug; a
-  stale golden is proven benign + regenerated in its own pre-migration commit.
+- **No test/golden re-baseline to HIDE a defect** (AGENTS.md): you may regenerate a golden the
+  migration legitimately changed (with the reason in the commit), but never to paper over an
+  unexplained/wrong diff. Explained → regenerate; unexplained → hunt the bug.
 - **Own the deviation.** If a package tempts you to keep a resolver, an `IMPL_NAMES`
   table, a `specs.rs`, or the member table inline "because it's special" — it is not.
   Do it the uniform way or ask in review before deviating.
@@ -397,8 +440,9 @@ similar. Delete or repoint each:
 - [ ] `cargo build --bin mfb` clean, **0 warnings**.
 - [ ] `cargo test --bin mfb` fully green (citations, monomorph, syntaxcheck, resolver,
       man2, `catalog_is_consistent`, package unit tests).
-- [ ] `scripts/artifact-gate.sh target/release/mfb <pkg>` = **0 diffs**; a dependent
-      package's gate = 0 diffs (ripple check).
+- [ ] `scripts/artifact-gate.sh target/release/mfb <pkg>` reviewed (+ a dependent package
+      for ripple): every diff is either zero or **explained + regenerated with its reason** —
+      no unexplained diff remains.
 - [ ] Acceptance (`test-accept.sh` for `<pkg>` + a dependent) green.
 - [ ] `cargo clippy --bin mfb` clean on `src/codegen/builtins/<pkg>/**`.
 - [ ] `mfb man2 <pkg>` and `mfb man2 <pkg> <fn>` render intro/params/desc/examples.
