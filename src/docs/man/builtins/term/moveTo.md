@@ -19,7 +19,7 @@ IMPORT term
 ```
 
 `term` is a built-in package, so no manifest dependency is required.
-[[src/builtins/term.rs:is_term_call]]
+[[src/codegen/builtins/term/mod.rs:register]]
 
 ## Description
 
@@ -57,14 +57,14 @@ The call is gated: while TUI mode is off it does nothing and reports no error.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `row` | `Integer` | Zero-based row, counting from 0 at the top. Clamped to `0` at the low end and to `rows-1` at the high end. [[src/builtins/term.rs:call_param_names]] |
-| `column` | `Integer` | Zero-based column, counting from 0 at the left. Clamped to `0` at the low end and to `columns-1` at the high end. [[src/builtins/term.rs:call_param_names]] |
+| `row` | `Integer` | Zero-based row, counting from 0 at the top. Clamped to `0` at the low end and to `rows-1` at the high end. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `column` | `Integer` | Zero-based column, counting from 0 at the left. Clamped to `0` at the low end and to `columns-1` at the high end. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of moving the shadow cursor. [[src/builtins/term.rs:TERM]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of moving the shadow cursor. [[src/codegen/builtins/term/mod.rs:register]] |
 
 ## Errors
 

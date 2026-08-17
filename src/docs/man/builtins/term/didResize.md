@@ -19,7 +19,7 @@ IMPORT term
 ```
 
 `term` is a built-in package, so no manifest dependency is required.
-[[src/builtins/term.rs:is_term_call]]
+[[src/codegen/builtins/term/mod.rs:register]]
 
 ## Description
 
@@ -48,13 +48,13 @@ touches the terminal, the alternate screen, or the shadow grid. Before any
 
 ## Parameters
 
-`term::didResize` takes no parameters. [[src/builtins/term.rs:call_param_names]]
+`term::didResize` takes no parameters. [[src/codegen/registry/mod.rs:call_param_names]]
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` if a resize occurred since the last call, `FALSE` otherwise. [[src/builtins/term.rs:TERM]] |
+| `Boolean` | `TRUE` if a resize occurred since the last call, `FALSE` otherwise. [[src/codegen/builtins/term/mod.rs:register]] |
 
 ## Errors
 

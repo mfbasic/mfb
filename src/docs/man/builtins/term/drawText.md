@@ -20,7 +20,7 @@ IMPORT term
 ```
 
 `term` is a built-in package, so no manifest dependency is required.
-[[src/builtins/term.rs:is_term_call]]
+[[src/codegen/builtins/term/mod.rs:register]]
 
 ## Description
 
@@ -54,21 +54,21 @@ with those attributes and grapheme-cluster and wide-glyph handling is identical 
 the `String` overload. The surface's current bold/underline are restored
 afterwards, so like the `String` overload the call leaves the pen it found. Using
 this overload requires `IMPORT astrings` (the only way to build an
-`AttributedString`). [[src/builtins/term_astrings_bridge.mfb:__term_drawTextAttr]]
+`AttributedString`). [[src/codegen/builtins/term/term_astrings_bridge.mfb:__term_drawTextAttr]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `x` | `Integer` | Zero-based start column. Negative columns are skipped; the run clips at the right edge. [[src/builtins/term.rs:call_param_names]] |
-| `y` | `Integer` | Zero-based row. Outside `0 .. rows-1` the call draws nothing. [[src/builtins/term.rs:call_param_names]] |
-| `text` | `String` \| `AttributedString` | The text to stamp, one cell per Unicode scalar. Control characters are skipped. An `AttributedString` additionally applies its per-scalar bold/underline (other attributes ignored). [[src/builtins/term.rs:call_param_names]] |
+| `x` | `Integer` | Zero-based start column. Negative columns are skipped; the run clips at the right edge. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `y` | `Integer` | Zero-based row. Outside `0 .. rows-1` the call draws nothing. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `text` | `String` \| `AttributedString` | The text to stamp, one cell per Unicode scalar. Control characters are skipped. An `AttributedString` additionally applies its per-scalar bold/underline (other attributes ignored). [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of stamping the text into the back buffer. [[src/builtins/term.rs:TERM]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of stamping the text into the back buffer. [[src/codegen/builtins/term/mod.rs:register]] |
 
 ## Errors
 

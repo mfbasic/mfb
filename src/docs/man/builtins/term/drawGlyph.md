@@ -19,7 +19,7 @@ IMPORT term
 ```
 
 `term` is a built-in package, so no manifest dependency is required.
-[[src/builtins/term.rs:is_term_call]]
+[[src/codegen/builtins/term/mod.rs:register]]
 
 ## Description
 
@@ -43,15 +43,15 @@ The call is gated: while TUI mode is off it does nothing and reports no error.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `x` | `Integer` | Zero-based column. Off-grid cells draw nothing. [[src/builtins/term.rs:call_param_names]] |
-| `y` | `Integer` | Zero-based row. Off-grid cells draw nothing. [[src/builtins/term.rs:call_param_names]] |
-| `codepoint` | `Integer` | The Unicode scalar to stamp. Control code points (< 0x20) are skipped. [[src/builtins/term.rs:call_param_names]] |
+| `x` | `Integer` | Zero-based column. Off-grid cells draw nothing. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `y` | `Integer` | Zero-based row. Off-grid cells draw nothing. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `codepoint` | `Integer` | The Unicode scalar to stamp. Control code points (< 0x20) are skipped. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of stamping the cell. [[src/builtins/term.rs:TERM]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of stamping the cell. [[src/codegen/builtins/term/mod.rs:register]] |
 
 ## Errors
 

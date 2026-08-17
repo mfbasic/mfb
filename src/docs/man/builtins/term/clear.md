@@ -19,7 +19,7 @@ IMPORT term
 ```
 
 `term` is a built-in package, so no manifest dependency is required.
-[[src/builtins/term.rs:is_term_call]]
+[[src/codegen/builtins/term/mod.rs:register]]
 
 ## Description
 
@@ -53,13 +53,13 @@ frames — which is exactly what the canonical render loop does.
 
 ## Parameters
 
-`term::clear` takes no parameters. [[src/builtins/term.rs:call_param_names]]
+`term::clear` takes no parameters. [[src/codegen/registry/mod.rs:call_param_names]]
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of blanking the back buffer and homing the cursor. [[src/builtins/term.rs:TERM]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of blanking the back buffer and homing the cursor. [[src/codegen/builtins/term/mod.rs:register]] |
 
 ## Errors
 

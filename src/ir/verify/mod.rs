@@ -1130,8 +1130,7 @@ pub(crate) fn is_resource_element_pointer(value: &IrValue) -> bool {
 /// Compiler-owned record types users may neither construct nor WITH-update —
 /// mirrors `syntaxcheck::helpers::read_only_record_type`.
 fn read_only_record_type(type_name: &str) -> bool {
-    type_name == builtins::term::TERM_COLOR_TYPE
-        || type_name == builtins::term::TERM_SIZE_TYPE
+    crate::codegen::builtins::term::is_read_only_record(type_name)
         || type_name == crate::codegen::builtins::net::ADDRESS_TYPE
         || type_name == crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE
         || type_name.starts_with("MapEntry OF ")

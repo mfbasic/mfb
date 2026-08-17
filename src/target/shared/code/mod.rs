@@ -106,6 +106,10 @@ use builder_collection_layout::{
     list_block_kind, recursive_transfer_types, thread_copy_symbol, type_participates_in_cycle,
 };
 mod app;
+// The cross-package presentation-mode gate (app owns `Mode`) stays in the shared
+// code layer; re-exported so the migrated `term` package's native dispatcher
+// (`codegen::builtins::term::native`) can fence its app-mode helpers.
+pub(crate) use app::prepend_wrong_mode_gate;
 mod builder_control;
 mod builder_conversions;
 mod builder_emit_helpers;
@@ -142,6 +146,10 @@ mod perf;
 mod private;
 mod simd_kernel_coeffs;
 mod term;
+// The heavy console terminal emitter stays in the shared code layer (like the
+// `strings`/`vector` codegen carriers); re-exported so the migrated `term`
+// package's native dispatcher reaches it.
+pub(crate) use term::lower_term_helper;
 pub(crate) mod term_grid;
 #[cfg(test)]
 mod tests;
@@ -1974,13 +1982,11 @@ fn lower_runtime_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {
-    let term_state_offset = arena_layout.term_state_offset;
     let Some(spec) = runtime::spec_for_symbol(symbol) else {
         return Err(format!(
             "native code plan does not emit runtime helper '{symbol}'"
         ));
     };
-    let app_mode = build_mode.is_app();
     // The per-compilation OS-seam context bundle, threaded to every `Body::native`
     // OS-seam emitter (os/fs/process/datetime) through the generic dispatch. Carries
     // the build identity `os.resourcePath` bakes in plus the arena offsets the io
@@ -1998,43 +2004,27 @@ fn lower_runtime_helper(
     // Build that tuple here, then construct the single CodeFunction after the
     // match (the shape the net.*/tls.* inner-match arms already used).
     let (frame, mut instructions, mut relocations, stack_slots) =
-        if builtins::term::is_term_call(spec.call) {
-            let term_state_offset = term_state_offset.ok_or_else(|| {
-                format!("native code plan emits '{symbol}' without reserving term state")
-            })?;
-            // App mode drives the synthesized TermView surface (plan-01-term.md §6.3):
-            // `emit_app_term_helper` now dispatches EVERY term:: helper — the mode
-            // toggle plus clear/sync/moveTo/color/attr/cursor/size — to the platform's
-            // app backend (Phase 5 landed on every app platform). It falls through to
-            // the shared console backend below only in non-app builds.
-            let app_term_helper = if app_mode {
-                platform.emit_app_term_helper(spec.call, symbol, term_state_offset)
-            } else {
-                None
-            };
-            match app_term_helper {
-                Some(result) => {
-                    // plan-62-E: every app-mode `term::` helper (including `on`) is gated
-                    // on the `Console` presentation mode — outside it, `term::` raises the
-                    // trappable `ErrWrongMode` before touching the (absent) grid. No-op
-                    // when the program cannot leave `Console` (`presentation_mode_offset`
-                    // is `None`), so a program that never uses `app::` is unchanged.
-                    let mut body = pad_no_slots(result?);
-                    app::prepend_wrong_mode_gate(
-                        &mut body.1,
-                        &mut body.2,
-                        symbol,
-                        arena_layout.presentation_mode_offset,
-                    );
-                    body
+        if crate::codegen::registry::registry().owning_package(spec.call) == Some("term") {
+            // Every `term.*` member carries a `Body::native_os_seam` OS-seam lowering
+            // in `codegen::builtins::term::native`; the generic registry-driven
+            // dispatch reaches its `lower_term_helper`, which branches app-vs-console
+            // internally off `os_ctx.build_mode`/`term_state_offset`/
+            // `presentation_mode_offset` (the app-mode `ErrWrongMode` gate — cross-package,
+            // app owns `Mode` — stays in the shared code layer, called from there).
+            match crate::codegen::os::dispatch_runtime_helper(
+                spec.call,
+                symbol,
+                &os_ctx,
+                platform_imports,
+                platform,
+            ) {
+                Some(result) => result?,
+                None => {
+                    return Err(format!(
+                        "native code plan does not emit runtime call '{}'",
+                        spec.call
+                    ));
                 }
-                None => term::lower_term_helper(
-                    spec.call,
-                    symbol,
-                    term_state_offset,
-                    platform_imports,
-                    platform,
-                )?,
             }
         } else {
             match spec.call {

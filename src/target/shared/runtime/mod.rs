@@ -118,7 +118,6 @@ pub(crate) struct RuntimeHelperAbi {
 
 mod catalog;
 mod perf_specs;
-mod term_specs;
 mod thread_specs;
 mod usage;
 
@@ -126,7 +125,6 @@ pub(crate) use catalog::{spec_for_call, spec_for_symbol, supported_helper_specs}
 pub(crate) use usage::{is_native_direct_call, required_helpers};
 
 use perf_specs::*;
-use term_specs::*;
 use thread_specs::*;
 
 pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
@@ -155,7 +153,7 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::Io)
     } else if crate::codegen::registry::registry().owning_package(name) == Some("math") {
         Some(RuntimeHelper::Math)
-    } else if builtins::term::is_term_call(name) {
+    } else if crate::codegen::registry::registry().owning_package(name) == Some("term") {
         Some(RuntimeHelper::Term)
     } else if crate::codegen::builtins::thread::is_thread_runtime_call(name) {
         Some(RuntimeHelper::Thread)

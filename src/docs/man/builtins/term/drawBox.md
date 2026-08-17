@@ -19,7 +19,7 @@ IMPORT term
 ```
 
 `term` is a built-in package, so no manifest dependency is required.
-[[src/builtins/term.rs:is_term_call]]
+[[src/codegen/builtins/term/mod.rs:register]]
 
 ## Description
 
@@ -38,7 +38,7 @@ dashed or dotted edges — but those styles have no dashed corner glyphs, so the
 corners fall back to the solid **Light** or **Heavy** corner of the same weight
 (`Double` uses the double corners). So `LineStyle.LightDash` draws `┄`/`┆` edges
 with `┌┐└┘` corners, and `LineStyle.HeavyDot` draws `┉`/`┋` edges with `┏┓┗┛`
-corners. [[src/builtins/term.rs:LINE_STYLE_TYPE]]
+corners. [[src/codegen/builtins/term/mod.rs:LineStyle]]
 
 Each edge and each corner is **clamped to the surface independently**, so a box
 that runs off one side still draws the parts that are on-screen (including the
@@ -55,17 +55,17 @@ The call is gated: while TUI mode is off it does nothing and reports no error.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `line` | `LineStyle` | The box-drawing style; the edges use its line glyph and the corners the matching Light/Heavy/Double corner. [[src/builtins/term.rs:call_param_names]] |
-| `x1` | `Integer` | Column of the first corner (zero-based). Clamped to the surface. [[src/builtins/term.rs:call_param_names]] |
-| `y1` | `Integer` | Row of the first corner (zero-based). Clamped to the surface. [[src/builtins/term.rs:call_param_names]] |
-| `x2` | `Integer` | Column of the opposite corner; may be less or greater than `x1`. [[src/builtins/term.rs:call_param_names]] |
-| `y2` | `Integer` | Row of the opposite corner; may be less or greater than `y1`. [[src/builtins/term.rs:call_param_names]] |
+| `line` | `LineStyle` | The box-drawing style; the edges use its line glyph and the corners the matching Light/Heavy/Double corner. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `x1` | `Integer` | Column of the first corner (zero-based). Clamped to the surface. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `y1` | `Integer` | Row of the first corner (zero-based). Clamped to the surface. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `x2` | `Integer` | Column of the opposite corner; may be less or greater than `x1`. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `y2` | `Integer` | Row of the opposite corner; may be less or greater than `y1`. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of stamping the box into the back buffer. [[src/builtins/term.rs:TERM]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of stamping the box into the back buffer. [[src/codegen/builtins/term/mod.rs:register]] |
 
 ## Errors
 

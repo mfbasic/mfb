@@ -23,30 +23,10 @@ static LEGACY_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     // `io` is migrated: its specs are DERIVED from the registry
     // (`registry::runtime_specs`) and merged in by `supported_helper_specs`, so no
     // hand-written `IO_*_SPEC` rows live here.
-    TERM_ON_SPEC,
-    TERM_OFF_SPEC,
-    TERM_IS_ON_SPEC,
-    TERM_SET_FOREGROUND_SPEC,
-    TERM_SET_BACKGROUND_SPEC,
-    TERM_SET_BOLD_SPEC,
-    TERM_SET_UNDERLINE_SPEC,
-    TERM_SHOW_CURSOR_SPEC,
-    TERM_HIDE_CURSOR_SPEC,
-    TERM_CLEAR_SPEC,
-    TERM_SYNC_SPEC,
-    TERM_MOVE_TO_SPEC,
-    TERM_DRAW_HLINE_SPEC,
-    TERM_DRAW_VLINE_SPEC,
-    TERM_DRAW_BOX_SPEC,
-    TERM_FILL_RECT_SPEC,
-    TERM_DRAW_TEXT_SPEC,
-    TERM_DRAW_GLYPH_SPEC,
-    TERM_GET_FOREGROUND_SPEC,
-    TERM_GET_BACKGROUND_SPEC,
-    TERM_GET_BOLD_SPEC,
-    TERM_GET_UNDERLINE_SPEC,
-    TERM_TERMINAL_SIZE_SPEC,
-    TERM_DID_RESIZE_SPEC,
+    // `term` is migrated: its 24 native OS-seam helpers (the mode toggle, colors,
+    // attributes, cursor, clear/sync, box-drawing, text/glyph, size/resize) are
+    // DERIVED from the registry (`registry::runtime_specs`) and merged in by
+    // `supported_helper_specs`, so no hand-written `TERM_*_SPEC` rows live here.
     // `fs` is migrated: its specs are DERIVED from the registry
     // (`registry::runtime_specs`, including the `File` resource close op) and merged
     // in by `supported_helper_specs`, so no hand-written `FS_*_SPEC` rows live here.

@@ -1,6 +1,5 @@
 pub(crate) mod general;
 pub(crate) mod resource;
-pub(crate) mod term;
 pub(crate) mod testing;
 
 pub(crate) use resource::{ResourceInfo, ResourceKind, ResourceRegistry};
@@ -15,45 +14,6 @@ pub(super) fn exact(arg_types: &[String], expected: &[&str]) -> bool {
             .zip(expected.iter())
             .all(|(actual, expected)| actual == expected)
 }
-
-/// bug-340 A2: generate the `source_file` / `uses_package` / `augmented_project`
-/// trio that was copied byte-for-byte into every uniform builtin-package module.
-/// The four per-module literals are the package name, the synthetic path label,
-/// the doc path, and the package source text. `$src` is an *expression* (not a
-/// path), so the `include_str!` is written at the invocation site and resolves
-/// relative to the invoking module's file; a module may also pass a `concat!` of
-/// several `include_str!`s (crypto's five-file companion).
-///
-/// `regex`, `strings`, and `collections` opt out: `regex::source_file` joins two
-/// sources via `format!`; `strings::uses_package` gates on scalar-seam member
-/// usage; `collections::augmented_project` takes `AstProject` by value.
-macro_rules! package_source_glue {
-    ($pkg:literal, $label:literal, $doc:literal, $src:expr $(,)?) => {
-        pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
-            crate::ast::parse_source_internal(std::path::Path::new($label), $doc, $src)
-        }
-
-        pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
-            ast.files.iter().any(|file| {
-                file.imports
-                    .iter()
-                    .any(|import| import.package_name() == $pkg)
-            })
-        }
-
-        pub(crate) fn augmented_project(
-            ast: &crate::ast::AstProject,
-        ) -> Result<crate::ast::AstProject, ()> {
-            if !uses_package(ast) {
-                return Ok(ast.clone());
-            }
-            let mut augmented = ast.clone();
-            augmented.files.push(source_file()?);
-            Ok(augmented)
-        }
-    };
-}
-pub(crate) use package_source_glue;
 
 pub(crate) fn is_builtin_import(name: &str) -> bool {
     matches!(
@@ -148,45 +108,12 @@ pub(crate) fn is_qualified_builtin_resource(qualified: &str) -> bool {
 /// `http.Response`) to its bare internal type id, or `None` when it is not a
 /// qualified built-in type (plan-03-http.md §A.1).
 pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
-    // Migrated (clean-room registry) packages first (`csv.CsvReader`).
-    if let Some(member) = crate::codegen::registry::registry().qualified_builtin_type(qualified) {
-        return Some(member);
-    }
-    let (package, member) = qualified.split_once('.')?;
-    // The member type must belong to the *named* package — an independent
-    // `is_builtin_type(member)` check would accept any cross pairing (`io.Url`,
-    // `csv.Thread`) because that predicate ORs every package together (bug-98).
-    let belongs = match package {
-        // `app`'s `Mode` enum resolves via the migrated-registry check above
-        // (`registry::qualified_builtin_type`), so it needs no arm here.
-        // `audio`'s records (`AudioDevice`/`AudioEnvelope`/`AudioNote`) and resource
-        // handles resolve via the migrated-registry check above, so no arm is needed.
-        // `crypto`'s `Sealed`/`KeyPair` records resolve via the migrated-registry
-        // check above (`registry::qualified_builtin_type`), so no arm is needed here.
-        // `datetime`'s source-declared value types resolve via the migrated-registry
-        // check above (`registry::qualified_builtin_type`), so no arm is needed here.
-        // `fs`'s `File` resource likewise resolves via the migrated-registry check
-        // above, so it needs no arm here.
-        // `http`'s `Response`/`Request`/`RequestPart`/`Route`/`Stream`/`PendingState`
-        // value types resolve via the migrated-registry check above, so no arm here.
-        // `money`'s `Rounding` enum resolves via the migrated-registry check above
-        // (`registry::qualified_builtin_type`), so it needs no arm here.
-        // `net`'s `Url`/`Address`/`Datagram`/`DatagramText` value types resolve via
-        // the migrated-registry check above, so no arm is needed here.
-        // `process` (the `Process` resource) is resolved by the migrated-registry
-        // check above (`registry::qualified_builtin_type`), so it needs no arm here.
-        "term" => term::is_builtin_type(member),
-        // `thread`'s opaque `Thread`/`ThreadWorker` handle types resolve via the
-        // migrated-registry check above (`registry::qualified_builtin_type`), so no arm
-        // is needed here.
-        // `tls`'s `TlsSocket`/`TlsListener` resources resolve via the migrated-registry
-        // check above (`registry::qualified_builtin_type`), so no arm is needed here.
-        // `vector`'s nine value records resolve via the migrated-registry check above
-        // (`registry::qualified_builtin_type`), so no arm is needed here.
-        // io + the non-type packages expose no qualified value types.
-        _ => false,
-    };
-    belongs.then(|| member.to_string())
+    // Every builtin value type now resolves through the clean-room registry
+    // (`csv.CsvReader`, `net.Url`, `term.TermColor`/`term.LineStyle`, …) — package-scoped
+    // there, so a cross pairing (`io.Url`, `csv.Thread`) is correctly rejected (bug-98).
+    // `term` was the last package to retain a hand-written fallback arm; with it
+    // migrated, no per-package fallback remains.
+    crate::codegen::registry::registry().qualified_builtin_type(qualified)
 }
 
 pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
@@ -482,10 +409,6 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
 /// `vector` package's prose (`"two vectors of the same type"`) rides on the
 /// `RegistryFunction::expected_arguments` field, served by `registry::expected_arguments`.
 pub(crate) fn expected_arguments(name: &str) -> Option<String> {
-    // `term` alone returns an owned `String` (its `"no arguments"` zero-arg form).
-    if let Some(text) = term::expected_arguments(name) {
-        return Some(text);
-    }
     // Every package that still owns an `expected_arguments` free function keeps its
     // hand-authored phrasing — the `[optional]` bracket (`strings.find`'s
     // `"String, String[, Integer]"`), the `"or"`-union, or prose — that the
@@ -518,11 +441,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
 /// non-signature shapes (variadic `"1 to 5 Integer"`, zero-arg `"()"`, the
 /// optional-tail brackets, `utf8Decode`'s `"or"`-union) decline via the guard.
 pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
-    let machine_table = term::param_types(callee);
-    if let Some(types) = machine_table {
-        return Some(types.iter().map(|type_| (*type_).to_string()).collect());
-    }
-
     // Migrated packages: the registry's MACHINE coercion table (positional parameter
     // types), decoupled from the human `expected_arguments` diagnostic string so
     // widening the diagnostic never changes per-argument coercion (bug-443). A generic
@@ -760,8 +678,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
     }
     // `astrings` migrated to the clean-room registry (plan-99 PART C); its per-position
     // parameter names are served by the generic `registry::call_param_names` above.
-    let borrowed: &'static [&'static [&'static str]] =
-        general::call_param_names(name).or_else(|| term::call_param_names(name))?;
+    let borrowed: &'static [&'static [&'static str]] = general::call_param_names(name)?;
     Some(borrowed.iter().map(|aliases| aliases.to_vec()).collect())
 }
 

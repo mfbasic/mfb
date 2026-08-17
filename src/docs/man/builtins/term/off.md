@@ -19,7 +19,7 @@ IMPORT term
 ```
 
 `term` is a built-in package, so no manifest dependency is required.
-[[src/builtins/term.rs:is_term_call]]
+[[src/codegen/builtins/term/mod.rs:register]]
 
 ## Description
 
@@ -56,13 +56,13 @@ the alternate screen.
 
 ## Parameters
 
-`term::off` takes no parameters. [[src/builtins/term.rs:call_param_names]]
+`term::off` takes no parameters. [[src/codegen/registry/mod.rs:call_param_names]]
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of leaving TUI mode and restoring the terminal. [[src/builtins/term.rs:TERM]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of leaving TUI mode and restoring the terminal. [[src/codegen/builtins/term/mod.rs:register]] |
 
 ## Errors
 

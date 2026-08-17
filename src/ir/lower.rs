@@ -95,18 +95,16 @@ pub fn lower_project_with_external_functions(
         .augment_project(ast)
         .expect("clean-room registry package source must parse");
 
-    // The `term`↔`astrings` drawText bridge, injected only when a program imports
-    // BOTH packages; it imports term/astrings/strings, so it precedes all three so
-    // their `uses_package` sees the dependency (mirrors `http` before `net`).
-    let augmented = builtins::term::bridge_augmented_project(&augmented)
-        .expect("built-in term/astrings bridge source must parse");
+    // `term`'s source companion (`package.mfb` — the `LineStyle`/`FillStyle` enums)
+    // and the `term`↔`astrings` `drawText(AttributedString)` bridge are injected by
+    // the clean-room `registry::augment_project` above (the companion as an `Always`
+    // helper on the migrated `term` package, the bridge as a `WhenImported("astrings")`
+    // gated helper).
     // `astrings`' source companion (`package.mfb`) is injected by the clean-room
     // `registry::augment_project` above (plan-99 PART C), as an `Always` helper on
     // the migrated `astrings` package — emitted whenever a program `IMPORT astrings`.
     // app + datetime + money source is injected by the clean-room
     // `registry::augment_project` above.
-    let augmented = builtins::term::augmented_project(&augmented)
-        .expect("built-in term package source must parse");
     // `vector` source (its nine `TYPE`s + `__vector_*` FUNC bodies) is injected by the
     // clean-room `registry::augment_project` above.
     // `http` before `net`: `http_package.mfb` imports `net`, so net's late pass must
@@ -2919,7 +2917,7 @@ fn lower_expression_with_expected(
                     // drawText. A `String` third argument stays the native
                     // `term.drawText` runtime helper. The companion body is a source
                     // rewrite, so its target is internalized.
-                    if canonical_callee != builtins::term::DRAW_TEXT {
+                    if canonical_callee != crate::codegen::builtins::term::DRAW_TEXT {
                         return None;
                     }
                     let text_arg_type = arguments

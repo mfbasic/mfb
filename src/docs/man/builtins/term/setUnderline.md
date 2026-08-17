@@ -19,14 +19,14 @@ IMPORT term
 ```
 
 `term` is a built-in package, so no manifest dependency is required.
-[[src/builtins/term.rs:is_term_call]]
+[[src/codegen/builtins/term/mod.rs:register]]
 
 ## Description
 
 `term::setUnderline` sets whether text drawn through the `term::` surface from now
 on is underlined. It takes exactly one `Boolean`: `TRUE` enables the attribute,
 `FALSE` disables it.
-[[src/builtins/term.rs:TERM]] [[src/builtins/term.rs:param_types]]
+[[src/codegen/builtins/term/mod.rs:register]] [[src/codegen/registry/mod.rs:argument_types]]
 
 The flag is stored in the module's current-attribute state and **no escape
 sequence is emitted**. Like every other drawing operation on this retained
@@ -52,13 +52,13 @@ The call is gated: while TUI mode is off it does nothing and reports no error.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `enabled` | `Boolean` | `TRUE` to draw subsequent text underlined, `FALSE` to draw it without an underline. [[src/builtins/term.rs:call_param_names]] |
+| `enabled` | `Boolean` | `TRUE` to draw subsequent text underlined, `FALSE` to draw it without an underline. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of setting the current underline attribute. [[src/builtins/term.rs:TERM]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of setting the current underline attribute. [[src/codegen/builtins/term/mod.rs:register]] |
 
 ## Errors
 
