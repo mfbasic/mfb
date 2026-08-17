@@ -53,7 +53,7 @@ Every `Integer` result that comes from a real-valued computation — `length`,
 `slerp`, `rotate_2d`, `clamp_length` — rounds half away from zero (matching
 `math::round`). `dot` and `cross` are exact. Most `Integer` unit vectors are
 therefore degenerate (components in -1, 0, 1), but the rounding keeps them as
-direction-faithful as integers allow. [[src/builtins/vector_package.mfb:__vector_normalize_integer3]]
+direction-faithful as integers allow. [[src/codegen/builtins/vector/package.mfb:__vector_normalize_integer3]]
 
 `toString` over any vector renders `"(x, y, z)"` with each component formatted by
 its own scalar `toString`. The package also exports 42 direction constants named
@@ -66,5 +66,5 @@ its own scalar `toString`. The package also exports 42 direction constants named
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `normalize` of a zero-length vector; `project` or `reject` onto a zero-length vector; `angle` or `slerp` with a zero-length input; `clamp_length` with a negative maximum [[src/builtins/vector_package.mfb:__vector_normalize_float3]] |
+| `77050002` | `ErrInvalidArgument` | `normalize` of a zero-length vector; `project` or `reject` onto a zero-length vector; `angle` or `slerp` with a zero-length input; `clamp_length` with a negative maximum [[src/codegen/builtins/vector/package.mfb:__vector_normalize_float3]] |
 | `77050010` | `ErrOverflow` | `abs` of the minimum representable `Integer` or `Fixed` value, and any `Integer` computation whose intermediate or result exceeds the `Integer` range, as in the scalar `math::` functions [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |

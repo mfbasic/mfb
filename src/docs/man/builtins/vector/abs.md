@@ -27,7 +27,7 @@ IMPORT vector
 ```
 
 `vector` is a built-in package, so `IMPORT vector` needs no manifest dependency.
-[[src/builtins/vector.rs:uses_package]]
+[[src/codegen/builtins/vector/mod.rs:uses_package]]
 
 ## Description
 
@@ -36,7 +36,7 @@ absolute value of the corresponding component of `v`. Each component is computed
 by the scalar `math::abs` of that component, evaluated in declared field order
 (`x`, then `y`, then `z`, then `w`), and the results are assembled into a fresh
 record. `v` is not modified — like every `vector` type these records copy by
-value. [[src/builtins/vector_package.mfb:__vector_abs_float3]]
+value. [[src/codegen/builtins/vector/package.mfb:__vector_abs_float3]]
 
 This is a purely component-wise operation with no cross-component interaction:
 `abs` reflects the vector into the all-positive orthant, so it is not a
@@ -77,13 +77,13 @@ Fails with `ErrOverflow` if any component is the minimum representable
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `v` | one of the nine vector types | The vector whose components are taken in absolute value. Any finite value is accepted except the minimum representable `Integer`/`Fixed`. Also spelled `v` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
+| `v` | one of the nine vector types | The vector whose components are taken in absolute value. Any finite value is accepted except the minimum representable `Integer`/`Fixed`. Also spelled `v` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| the same type as `v` | A new vector of the same type and dimension whose components are the absolute values of `v`'s components, in the same order. A vector that is already all non-negative is returned with identical components. [[src/builtins/vector.rs:VECTOR]] |
+| the same type as `v` | A new vector of the same type and dimension whose components are the absolute values of `v`'s components, in the same order. A vector that is already all non-negative is returned with identical components. [[src/codegen/builtins/vector/mod.rs:VECTOR]] |
 
 ## Errors
 
@@ -98,7 +98,7 @@ is selected at compile time from the exact record type of the single argument;
 no implicit conversion or numeric promotion is applied to a vector argument, and
 a non-vector argument or any arity other than one is rejected by the syntax
 check. The return type is always the argument's own type.
-[[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:VECTOR]]
+[[src/codegen/builtins/vector/mod.rs:VECTOR]] [[src/codegen/builtins/vector/mod.rs:VECTOR]]
 
 ## Examples
 

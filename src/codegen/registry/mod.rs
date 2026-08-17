@@ -1283,6 +1283,7 @@ fn build() -> Registry {
     crate::codegen::builtins::crypto::register(&mut r);
     crate::codegen::builtins::tls::register(&mut r);
     crate::codegen::builtins::thread::register(&mut r);
+    crate::codegen::builtins::vector::register(&mut r);
     r
 }
 
@@ -1429,8 +1430,9 @@ pub(crate) fn constant_value(qualified: &str) -> Option<&'static str> {
 
 /// The ordered per-field literals a migrated **record** constant `qualified` inlines
 /// into a constructor of its [`type_name`](RegistryConstant::type_name), or `None` (a
-/// scalar constant, or an un-migrated package) — the registry half of the
-/// `vector::constant_components` read in `ir/lower.rs`.
+/// scalar constant, or an un-migrated package) — read by `registry_record_constant` in
+/// `ir/lower.rs` to fold a `vector` record constant (`vector.zeroFloat3`) into a
+/// constructor.
 pub(crate) fn constant_components(qualified: &str) -> Option<&'static [&'static str]> {
     find_constant(qualified).and_then(|constant| constant.components)
 }
@@ -2434,16 +2436,21 @@ mod tests {
     }
 
     #[test]
-    fn constant_and_override_boundary_fns_are_absent_until_a_package_migrates() {
-        // No package registers constants/overrides yet, so every boundary query must
-        // report absent — the dual-path in `builtins`/`ir::lower` therefore always
-        // falls through to the hand tables (byte-identical). A throwaway package built
-        // above is not wired into the frozen `registry()`, so its names stay absent too.
+    fn constant_and_override_boundary_fns_fall_through_for_unowned_names() {
+        // A throwaway `demo` package built in the test above is not wired into the
+        // frozen `registry()`, so its constant/override names stay absent and the
+        // dual-path in `builtins`/`ir::lower` falls through to the hand tables.
         assert!(!is_package_constant("demo.pi"));
         assert_eq!(constant_type_name("demo.pi"), None);
         assert_eq!(constant_value("demo.pi"), None);
         assert_eq!(constant_components("demo.zero3"), None);
-        assert_eq!(general_override_target("toString", "Float3"), None);
+        // A general override the frozen registry does NOT own falls through.
+        assert_eq!(general_override_target("toString", "Nope"), None);
+        // The migrated `vector` package DOES own `toString(Float3)` now (add_override).
+        assert_eq!(
+            general_override_target("toString", "Float3"),
+            Some("__vector_toString_float3")
+        );
 
         // A malformed (unqualified) name never panics.
         assert!(!is_package_constant("bare"));

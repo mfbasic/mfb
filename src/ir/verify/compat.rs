@@ -331,10 +331,16 @@ impl TypeEnv {
         fn is_math_call(name: &str) -> bool {
             crate::codegen::registry::registry().owning_package(name) == Some("math")
         }
+        // `vector` migrated to the clean-room registry; membership is the narrow
+        // `owning_package == "vector"` (function members only — constants are folded, not
+        // called), replacing the deleted `builtins::vector::is_vector_call`.
+        fn is_vector_call(name: &str) -> bool {
+            crate::codegen::registry::registry().owning_package(name) == Some("vector")
+        }
         let checked: [IsCall; 9] = [
             is_math_call,
             is_bits_call,
-            builtins::vector::is_vector_call,
+            is_vector_call,
             builtins::strings::is_strings_call,
             is_encoding_call,
             is_io_call,

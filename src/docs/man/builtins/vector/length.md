@@ -27,7 +27,7 @@ IMPORT vector
 ```
 
 `vector` is a built-in package, so `IMPORT vector` needs no manifest dependency.
-[[src/builtins/vector.rs:uses_package]]
+[[src/codegen/builtins/vector/mod.rs:uses_package]]
 
 ## Description
 
@@ -37,14 +37,14 @@ the dimension. The squares are accumulated strictly left to right in declared
 field order, `x` before `y` before `z` before `w`, which is what makes the result
 reproducible bit for bit across targets. The result is always non-negative, and
 is zero exactly when every component of `v` is zero.
-[[src/builtins/vector_package.mfb:__vector_length_float3]]
+[[src/codegen/builtins/vector/package.mfb:__vector_length_float3]]
 
 The return type is the vector type's **element** type, not the vector type: a
 `Float4` measures to a `Float`, a `Fixed2` to a `Fixed`, an `Integer3` to an
 `Integer`. The zero vector is an entirely ordinary argument here — `length` has no
 degenerate input to reject and never raises `ErrInvalidArgument`, in contrast to
 `vector::normalize`, which needs a direction and refuses the zero vector.
-[[src/builtins/vector.rs:VECTOR]]
+[[src/codegen/builtins/vector/mod.rs:VECTOR]]
 
 The `Float` overloads sum in IEEE doubles and take the root with `math::sqrt`.
 The `Fixed` overloads work entirely in deterministic Q32.32 arithmetic. The
@@ -56,7 +56,7 @@ rounds up when the remainder exceeds the floor. The floating-point seed is only 
 starting point — the integer correction loops guarantee the exact floor
 regardless of how the seed rounded — so the `Integer` result is deterministic and
 independent of the host's floating-point behavior.
-[[src/builtins/vector_package.mfb:__vector_isqrtFloor]]
+[[src/codegen/builtins/vector/package.mfb:__vector_isqrtFloor]]
 
 The rounding rule for the `Integer` overloads is half away from zero, matching
 `math::round`. Because `(f + 0.5)^2` is never an integer, no exact tie can ever
@@ -64,7 +64,7 @@ occur, so the rule is unambiguous in practice: the result rounds up exactly when
 the remainder above the floor exceeds the floor itself. An `Integer` length is
 therefore the nearest integer to the true magnitude, not a truncation —
 `length(Integer2[3, 4])` is exactly `5`, and `length(Integer2[1, 1])` is `1`.
-[[src/builtins/vector_package.mfb:__vector_isqrtRound]]
+[[src/codegen/builtins/vector/package.mfb:__vector_isqrtRound]]
 
 ## Overloads
 
@@ -86,13 +86,13 @@ integer square root, halves away from zero.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `v` | one of the nine vector types | The vector to measure. The zero vector is accepted and measures zero. Also spelled `v` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
+| `v` | one of the nine vector types | The vector to measure. The zero vector is accepted and measures zero. Also spelled `v` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| the element type of `v` (`Float`, `Fixed`, or `Integer`) | The non-negative Euclidean magnitude of `v`, zero exactly when every component is zero. The `Integer` overloads return the magnitude rounded to the nearest integer, halves away from zero. [[src/builtins/vector.rs:VECTOR]] |
+| the element type of `v` (`Float`, `Fixed`, or `Integer`) | The non-negative Euclidean magnitude of `v`, zero exactly when every component is zero. The `Integer` overloads return the magnitude rounded to the nearest integer, halves away from zero. [[src/codegen/builtins/vector/mod.rs:VECTOR]] |
 
 ## Errors
 
@@ -108,7 +108,7 @@ overload is selected at compile time from the exact record type of the single
 argument; no implicit conversion or numeric promotion is applied to a vector
 argument, and a non-vector argument or any arity other than one is rejected by the
 syntax check. The return type is the element type of that vector type, not the
-vector type itself. [[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:VECTOR]]
+vector type itself. [[src/codegen/builtins/vector/mod.rs:VECTOR]] [[src/codegen/builtins/vector/mod.rs:VECTOR]]
 
 ## Examples
 

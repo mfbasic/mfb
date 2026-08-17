@@ -27,7 +27,7 @@ IMPORT vector
 ```
 
 `vector` is a built-in package, so `IMPORT vector` needs no manifest dependency.
-[[src/builtins/vector.rs:uses_package]]
+[[src/codegen/builtins/vector/mod.rs:uses_package]]
 
 ## Description
 
@@ -38,7 +38,7 @@ every component is multiplied by the ratio `max / length(v)`, producing a vector
 that points the same way as `v` with a length of approximately `max`. This is the
 standard "speed limit" operation: it is a no-op inside the ball of radius `max`
 and a projection onto its surface outside it.
-[[src/builtins/vector_package.mfb:__vector_clamp_length_float3]]
+[[src/codegen/builtins/vector/package.mfb:__vector_clamp_length_float3]]
 
 The zero vector is a special case. It has no direction, so it cannot be rescaled,
 but it also never exceeds a non-negative `max`. The implementation checks
@@ -46,7 +46,7 @@ but it also never exceeds a non-negative `max`. The implementation checks
 vector is passed through rather than raising an error — unlike
 `vector::normalize`, which rejects it. Note that the length test is inclusive:
 a vector already exactly at length `max` is returned unchanged with no division
-performed. [[src/builtins/vector_package.mfb:__vector_clamp_length_float2]]
+performed. [[src/codegen/builtins/vector/package.mfb:__vector_clamp_length_float2]]
 
 `max` must not be negative. A negative cap is meaningless, since no magnitude can
 be below zero, and the implementation rejects it up front — before computing any
@@ -54,20 +54,20 @@ length — with `ErrInvalidArgument` and the message
 `vector::clamp_length with negative max`. A `max` of exactly zero is accepted and
 is not an error: the length test `len <= 0` matches only the zero vector, and any
 non-zero vector is scaled by the ratio `0 / len`, collapsing it to the zero
-vector. [[src/builtins/vector_package.mfb:__vector_clamp_length_fixed2]]
+vector. [[src/codegen/builtins/vector/package.mfb:__vector_clamp_length_fixed2]]
 
 `max` is a scalar of the vector's own **element** type, not a `Float` for all
 overloads: a `Fixed3` is capped by a `Fixed`, and an `Integer4` by an `Integer`.
 This differs from `vector::lerp` and `vector::rotate_2d`, whose scalar parameter
 is a `Float` for every element type. The compile-time check requires `max` to
-match the element type exactly. [[src/builtins/vector.rs:VECTOR]]
+match the element type exactly. [[src/codegen/builtins/vector/mod.rs:VECTOR]]
 
 The `Integer` overloads compute the length with the package's rounding integer
 square root, then form the ratio and rescale each component in `Float` before
 rounding back with `math::round`, half away from zero. Because the length itself
 was already rounded, and each component is then rounded again, the resulting
 vector's length is only approximately `max` — for small integer vectors it can
-differ from `max` by a whole unit. [[src/builtins/vector_package.mfb:__vector_clamp_length_integer2]]
+differ from `max` by a whole unit. [[src/codegen/builtins/vector/package.mfb:__vector_clamp_length_integer2]]
 
 ## Overloads
 
@@ -90,20 +90,20 @@ component rounded back to `Integer` half away from zero.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `v` | one of the nine vector types | The vector whose magnitude is capped. The zero vector is accepted and returned unchanged. Also spelled `v` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
-| `max` | the element type of `v` (`Float`, `Fixed`, or `Integer`) | The maximum permitted magnitude. Must be greater than or equal to zero; `0` is valid and collapses any non-zero `v` to the zero vector. Also spelled `max` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
+| `v` | one of the nine vector types | The vector whose magnitude is capped. The zero vector is accepted and returned unchanged. Also spelled `v` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
+| `max` | the element type of `v` (`Float`, `Fixed`, or `Integer`) | The maximum permitted magnitude. Must be greater than or equal to zero; `0` is valid and collapses any non-zero `v` to the zero vector. Also spelled `max` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| the same type as `v` | `v` itself when `vector::length(v)` is at most `max` or when `v` is the zero vector; otherwise a vector in the same direction as `v` with magnitude approximately `max`. [[src/builtins/vector.rs:VECTOR]] |
+| the same type as `v` | `v` itself when `vector::length(v)` is at most `max` or when `v` is the zero vector; otherwise a vector in the same direction as `v` with magnitude approximately `max`. [[src/codegen/builtins/vector/mod.rs:VECTOR]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `max` is negative. Checked before any other work, so this is reported even for a zero-length `v`. [[src/builtins/vector_package.mfb:__vector_clamp_length_float2]] |
+| `77050002` | `ErrInvalidArgument` | `max` is negative. Checked before any other work, so this is reported even for a zero-length `v`. [[src/codegen/builtins/vector/package.mfb:__vector_clamp_length_float2]] |
 | `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, a squared component or the sum of squares exceeds the checked range of the element type, or a rescaled `Integer` component rounds outside the `Integer` range. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 | `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a squared component or the sum of squares reaches infinity and is caught where the length is bound. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatOverflow]] |
 
@@ -114,7 +114,7 @@ first argument selects the overload by its exact record type, and the second mus
 be a scalar of exactly that vector type's element type — an `Integer` `max` for a
 `Float3` is a compile-time error, with no implicit numeric promotion. The return
 type is always the first argument's own type.
-[[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:VECTOR]]
+[[src/codegen/builtins/vector/mod.rs:VECTOR]] [[src/codegen/builtins/vector/mod.rs:VECTOR]]
 
 ## Examples
 

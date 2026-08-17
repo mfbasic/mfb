@@ -21,7 +21,7 @@ IMPORT vector
 ```
 
 `vector` is a built-in package, so `IMPORT vector` needs no manifest dependency.
-[[src/builtins/vector.rs:uses_package]]
+[[src/codegen/builtins/vector/mod.rs:uses_package]]
 
 ## Description
 
@@ -32,12 +32,12 @@ once and reused for both output components. A positive `angle` turns from the `+
 axis toward the `+y` axis; a negative `angle` turns the other way. `angle` is
 unbounded — it is passed straight to the trigonometric kernels with no range
 reduction of its own — so multiple full turns are accepted and behave as the
-equivalent angle. [[src/builtins/vector_package.mfb:__vector_rotate_2d_float2]]
+equivalent angle. [[src/codegen/builtins/vector/package.mfb:__vector_rotate_2d_float2]]
 
 This function is **2D only**. There are just three overloads, one per element
 type, and there is no 3D or 4D form: rotation in higher dimensions needs an axis
 or a plane, which a single scalar angle cannot specify. Passing a 3D or 4D vector
-is a compile-time error. [[src/builtins/vector.rs:VECTOR]]
+is a compile-time error. [[src/codegen/builtins/vector/mod.rs:VECTOR]]
 
 `angle` is a `Float` for **every** overload, including the `Fixed2` and `Integer2`
 ones — it is not the vector's element type, in contrast to
@@ -47,7 +47,7 @@ overload uses the in-tree `Float` `math::sin` and `math::cos` directly. The
 the deterministic Q32.32 `sin` and `cos`, so their results are bit-identical on
 every target; that conversion is also a range check, and an `angle` too large to
 represent as a `Fixed` fails with `ErrOverflow`.
-[[src/builtins/vector_package.mfb:__vector_rotate_2d_fixed2]]
+[[src/codegen/builtins/vector/package.mfb:__vector_rotate_2d_fixed2]]
 
 The `Integer2` overload is the coarsest. It widens both components to `Fixed`,
 applies the rotation in Q32.32, and rounds each result back with `math::round`,
@@ -58,7 +58,7 @@ need not return the original vector. Only the multiples of a quarter turn are
 exact on `Integer2`, and even those depend on the `Fixed` sine and cosine landing
 exactly on `0` and `1`. For an exact quarter turn counterclockwise, prefer
 `vector::perpendicular`, which is a pure swap and negation with no trigonometry at
-all. [[src/builtins/vector_package.mfb:__vector_rotate_2d_integer2]]
+all. [[src/codegen/builtins/vector/package.mfb:__vector_rotate_2d_integer2]]
 
 Rotation preserves magnitude on the `Float2` overload up to double-precision
 rounding, and approximately on the other two.
@@ -83,14 +83,14 @@ Q32.32, then rounds each component back to `Integer` half away from zero.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `v` | `Float2`, `Fixed2`, or `Integer2` | The 2D vector to rotate about the origin. The zero vector is accepted and returns the zero vector. Also spelled `v` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
-| `angle` | `Float` | The rotation angle in radians, counterclockwise for a positive value. Unbounded; always a `Float`, whatever the vector's element type. Also spelled `angle` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
+| `v` | `Float2`, `Fixed2`, or `Integer2` | The 2D vector to rotate about the origin. The zero vector is accepted and returns the zero vector. Also spelled `v` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
+| `angle` | `Float` | The rotation angle in radians, counterclockwise for a positive value. Unbounded; always a `Float`, whatever the vector's element type. Also spelled `angle` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| the same type as `v` | The vector `v` rotated counterclockwise by `angle` radians about the origin, with the same magnitude up to the rounding of the element type. The zero vector maps to the zero vector. [[src/builtins/vector.rs:VECTOR]] |
+| the same type as `v` | The vector `v` rotated counterclockwise by `angle` radians about the origin, with the same magnitude up to the rounding of the element type. The zero vector maps to the zero vector. [[src/codegen/builtins/vector/mod.rs:VECTOR]] |
 
 ## Errors
 
@@ -107,7 +107,7 @@ three, with no implicit numeric promotion from `Integer`. A 3D or 4D first
 argument, a non-`Float` second argument, or any arity other than two is rejected
 by the syntax check with the message that a 2D vector and a `Float` angle were
 expected. The return type is always the first argument's own type.
-[[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:VECTOR]]
+[[src/codegen/builtins/vector/mod.rs:VECTOR]] [[src/codegen/builtins/vector/mod.rs:VECTOR]]
 
 ## Examples
 

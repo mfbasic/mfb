@@ -123,9 +123,9 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     // nothing, so it has no source ordering dependency (the attribute bridge is a
     // separate gated source, injected above).
     let augmented = builtins::term::augmented_project(&augmented)?;
-    // `vector` imports only the intrinsic `math` package, so it has no source
-    // ordering dependency (plan-06-vector.md §5).
-    let augmented = builtins::vector::augmented_project(&augmented)?;
+    // `vector` source is injected by the clean-room `registry::augment_project` above
+    // (it imports only the intrinsic `math` package, so it has no source-ordering
+    // dependency).
     // `http` is injected before `net`: `http_package.mfb` imports `net`, so the
     // net source companion must be added only after http's source is present for
     // `net::uses_package` to see the dependency (plan-03-http.md Phase 4).

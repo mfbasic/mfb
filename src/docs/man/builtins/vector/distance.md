@@ -27,7 +27,7 @@ IMPORT vector
 ```
 
 `vector` is a built-in package, so `IMPORT vector` needs no manifest dependency.
-[[src/builtins/vector.rs:uses_package]]
+[[src/codegen/builtins/vector/mod.rs:uses_package]]
 
 ## Description
 
@@ -36,7 +36,7 @@ Euclidean distance between them: the square root of the sum of the squared
 per-component differences, `sqrt((a.x-b.x)^2 + (a.y-b.y)^2 + ...)`. The result is
 always non-negative and is symmetric in the arguments — `distance(a, b)` equals
 `distance(b, a)`, because each difference is squared before it is summed.
-`distance(a, a)` is zero for every input. [[src/builtins/vector_package.mfb:__vector_distance_float3]]
+`distance(a, a)` is zero for every input. [[src/codegen/builtins/vector/package.mfb:__vector_distance_float3]]
 
 The differences are formed component by component into named locals first, in
 declared field order, and only then squared and summed; the sum is accumulated
@@ -45,7 +45,7 @@ is what makes the result reproducible bit for bit across targets. The function i
 mathematically equal to `vector::length` of the componentwise difference of the
 two vectors, and shares its per-element-type behavior, but it is a distinct
 implementation that never materializes that difference vector as a record.
-[[src/builtins/vector_package.mfb:__vector_distance_float4]]
+[[src/codegen/builtins/vector/package.mfb:__vector_distance_float4]]
 
 The `Float` overloads take the square root with `math::sqrt` over IEEE doubles.
 The `Fixed` overloads use the deterministic Q32.32 square root. The `Integer`
@@ -53,7 +53,7 @@ overloads square and sum in exact checked integer arithmetic and then apply the
 package's rounding integer square root, which returns the nearest integer to the
 true root with halves rounded away from zero — so an `Integer` distance is a
 rounded distance, not a truncated one, and `distance(Integer2[0,0], Integer2[3,4])`
-is exactly `5`. [[src/builtins/vector_package.mfb:__vector_isqrtRound]]
+is exactly `5`. [[src/codegen/builtins/vector/package.mfb:__vector_isqrtRound]]
 
 Unlike `vector::normalize` or `vector::angle`, `distance` has no degenerate input
 to reject: coincident points are a perfectly ordinary case returning zero. It
@@ -83,14 +83,14 @@ rounding integer square root, halves away from zero.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | one of the nine vector types | The first point. Also spelled `v` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
-| `b` | the same type as `a` | The second point, which must be the same vector type as `a`. Also spelled `n` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
+| `a` | one of the nine vector types | The first point. Also spelled `v` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
+| `b` | the same type as `a` | The second point, which must be the same vector type as `a`. Also spelled `n` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| the element type of `a` (`Float`, `Fixed`, or `Integer`) | The non-negative Euclidean distance between the two points. Zero when the points coincide. The `Integer` overloads return the distance rounded to the nearest integer, halves away from zero. [[src/builtins/vector.rs:VECTOR]] |
+| the element type of `a` (`Float`, `Fixed`, or `Integer`) | The non-negative Euclidean distance between the two points. Zero when the points coincide. The `Integer` overloads return the distance rounded to the nearest integer, halves away from zero. [[src/codegen/builtins/vector/mod.rs:VECTOR]] |
 
 ## Errors
 
@@ -105,7 +105,7 @@ rounding integer square root, halves away from zero.
 arguments must be the *same* one of the nine types: there is no mixed-element-type
 and no cross-dimension overload, and no implicit conversion is applied to a vector
 argument. The return type is the element type of that vector type, not the vector
-type itself. [[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:same_vector]]
+type itself. [[src/codegen/builtins/vector/mod.rs:VECTOR]] [[src/codegen/builtins/vector/mod.rs:same_vector]]
 
 ## Examples
 

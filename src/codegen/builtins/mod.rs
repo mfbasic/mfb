@@ -19,3 +19,4 @@ pub(crate) mod process;
 pub(crate) mod regex;
 pub(crate) mod thread;
 pub(crate) mod tls;
+pub(crate) mod vector;

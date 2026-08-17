@@ -27,7 +27,7 @@ IMPORT vector
 ```
 
 `vector` is a built-in package, so `IMPORT vector` needs no manifest dependency.
-[[src/builtins/vector.rs:uses_package]]
+[[src/codegen/builtins/vector/mod.rs:uses_package]]
 
 ## Description
 
@@ -35,7 +35,7 @@ IMPORT vector
 field order, using `t` **verbatim** with no clamping. It is otherwise identical to
 `vector::lerp` and shares its per-element-type behavior; the only difference
 between the two implementations is the missing `math::clamp` call on `t`.
-[[src/builtins/vector_package.mfb:__vector_lerp_unclamped_float3]]
+[[src/codegen/builtins/vector/package.mfb:__vector_lerp_unclamped_float3]]
 
 That single difference changes what the function is for. Because `t` is not
 restricted to `0` through `1`, values outside that range **extrapolate** along the
@@ -45,7 +45,7 @@ distance before `a`. Use this when the parameter legitimately runs past the
 endpoints — projecting a trajectory forward, or overshooting deliberately for an
 easing effect — and use `vector::lerp` when an out-of-range `t` should be treated
 as a mistake and pinned to the segment.
-[[src/builtins/vector_package.mfb:__vector_lerp_unclamped_float2]]
+[[src/codegen/builtins/vector/package.mfb:__vector_lerp_unclamped_float2]]
 
 Extrapolation is also where this function's failure modes come from. Since `t` is
 unbounded, so is the result: a large `t` scales the difference `b - a` without
@@ -61,7 +61,7 @@ interpolate there, and round back with `math::round`, half away from zero.
 `vector::slerp` falls back to this function, not to `vector::lerp`, when its two
 inputs are too nearly parallel for the spherical formula to be stable — which is
 why an out-of-range `t` passed to `slerp` still extrapolates in that degenerate
-case. [[src/builtins/vector_package.mfb:__vector_slerp_float3]]
+case. [[src/codegen/builtins/vector/package.mfb:__vector_slerp_float3]]
 
 ## Overloads
 
@@ -83,15 +83,15 @@ back to `Integer` half away from zero.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | one of the nine vector types | The start vector, returned when `t` is exactly `0`. [[src/builtins/vector.rs:call_param_names]] |
-| `b` | the same type as `a` | The end vector, returned when `t` is exactly `1`. Must be the same vector type as `a`. [[src/builtins/vector.rs:call_param_names]] |
-| `t` | `Float` | The interpolation parameter, used verbatim with no clamping. Values below `0` or above `1` extrapolate beyond the endpoints. Always a `Float`, whatever the vector's element type. [[src/builtins/vector.rs:call_param_names]] |
+| `a` | one of the nine vector types | The start vector, returned when `t` is exactly `0`. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
+| `b` | the same type as `a` | The end vector, returned when `t` is exactly `1`. Must be the same vector type as `a`. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
+| `t` | `Float` | The interpolation parameter, used verbatim with no clamping. Values below `0` or above `1` extrapolate beyond the endpoints. Always a `Float`, whatever the vector's element type. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| the same type as `a` | A vector on the infinite line through `a` and `b`, at parameter `t`. On the segment for `t` in `0` through `1`, beyond `b` for `t` above `1`, and before `a` for `t` below `0`. [[src/builtins/vector.rs:VECTOR]] |
+| the same type as `a` | A vector on the infinite line through `a` and `b`, at parameter `t`. On the segment for `t` in `0` through `1`, beyond `b` for `t` above `1`, and before `a` for `t` below `0`. [[src/codegen/builtins/vector/mod.rs:VECTOR]] |
 
 ## Errors
 
@@ -106,7 +106,7 @@ back to `Integer` half away from zero.
 The first two arguments must be the *same* one of the nine types, and the third
 must be a `Float` for every overload — an `Integer` `t` is a compile-time error
 with no implicit numeric promotion. The return type is always the first argument's
-own type. [[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:VECTOR]]
+own type. [[src/codegen/builtins/vector/mod.rs:VECTOR]] [[src/codegen/builtins/vector/mod.rs:VECTOR]]
 
 ## Examples
 

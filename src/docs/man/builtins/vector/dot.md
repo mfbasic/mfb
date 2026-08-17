@@ -27,7 +27,7 @@ IMPORT vector
 ```
 
 `vector` is a built-in package, so `IMPORT vector` needs no manifest dependency.
-[[src/builtins/vector.rs:uses_package]]
+[[src/codegen/builtins/vector/mod.rs:uses_package]]
 
 ## Description
 
@@ -37,7 +37,7 @@ The products are formed and accumulated strictly left to right in declared field
 order, which is what makes the result reproducible bit for bit across targets.
 The dot product is symmetric — `dot(a, b)` equals `dot(b, a)` — and is a scalar,
 so the return type is the vector type's element type rather than a vector.
-[[src/builtins/vector_package.mfb:__vector_dot_float3]]
+[[src/codegen/builtins/vector/package.mfb:__vector_dot_float3]]
 
 Geometrically the dot product equals `length(a) * length(b) * cos(angle(a, b))`,
 which makes its **sign** the useful part in most code: positive when the two
@@ -46,7 +46,7 @@ when they are exactly orthogonal, and negative when they point broadly opposite
 ways. `dot(v, v)` is the squared length of `v`, which is why several other
 functions in this package — `project`, `reject`, `angle`, and the `Integer`
 `normalize` — use it to test for a zero-length vector without paying for a square
-root. [[src/builtins/vector_package.mfb:__vector_project_float3]]
+root. [[src/codegen/builtins/vector/package.mfb:__vector_project_float3]]
 
 The implementation is multiplication and addition only: no division, no square
 root, and no trigonometry. It therefore performs **no rounding** on any element
@@ -54,7 +54,7 @@ type. The `Integer` overloads are exact checked integer arithmetic, so
 `vector::dot` is one of the few members of this package (with `cross` and `scale`)
 whose `Integer` results carry no approximation at all. The `Fixed` overloads are
 exact within the Q32.32 grid, and the `Float` overloads are ordinary IEEE
-double arithmetic. [[src/builtins/vector_package.mfb:__vector_dot_integer4]]
+double arithmetic. [[src/codegen/builtins/vector/package.mfb:__vector_dot_integer4]]
 
 Because the terms are ordinary checked arithmetic, `dot` can overflow. Squaring
 a large coordinate is the common way to hit this: `dot(v, v)` on an `Integer3`
@@ -82,14 +82,14 @@ any kind.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | one of the nine vector types | The first vector. The zero vector is accepted and yields zero. Also spelled `v` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
-| `b` | the same type as `a` | The second vector, which must be the same vector type as `a`. Also spelled `n` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
+| `a` | one of the nine vector types | The first vector. The zero vector is accepted and yields zero. Also spelled `v` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
+| `b` | the same type as `a` | The second vector, which must be the same vector type as `a`. Also spelled `n` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| the element type of `a` (`Float`, `Fixed`, or `Integer`) | The dot product. Positive when the vectors point broadly the same way, zero when they are orthogonal or either is the zero vector, negative when they point broadly opposite ways. [[src/builtins/vector.rs:VECTOR]] |
+| the element type of `a` (`Float`, `Fixed`, or `Integer`) | The dot product. Positive when the vectors point broadly the same way, zero when they are orthogonal or either is the zero vector, negative when they point broadly opposite ways. [[src/codegen/builtins/vector/mod.rs:VECTOR]] |
 
 ## Errors
 
@@ -104,7 +104,7 @@ any kind.
 arguments must be the *same* one of the nine types: there is no mixed-element-type
 and no cross-dimension overload, and no implicit conversion is applied to a vector
 argument. The return type is the element type of that vector type, not the vector
-type itself. [[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:same_vector]]
+type itself. [[src/codegen/builtins/vector/mod.rs:VECTOR]] [[src/codegen/builtins/vector/mod.rs:same_vector]]
 
 ## Examples
 

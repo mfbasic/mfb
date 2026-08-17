@@ -27,14 +27,14 @@ IMPORT vector
 ```
 
 `vector` is a built-in package, so `IMPORT vector` needs no manifest dependency.
-[[src/builtins/vector.rs:uses_package]]
+[[src/codegen/builtins/vector/mod.rs:uses_package]]
 
 ## Description
 
 `vector::min` returns a new vector whose every component is the smaller of the two
 corresponding components, each computed by the scalar `math::min` in declared
 field order. The result is assembled into a fresh record; neither argument is
-modified. [[src/builtins/vector_package.mfb:__vector_min_float3]]
+modified. [[src/codegen/builtins/vector/package.mfb:__vector_min_float3]]
 
 The comparison is made **per component and independently**, so the returned
 vector is generally not equal to either input: `min(Float2[2.0, 3.0], Float2[4.0, 1.0])`
@@ -43,7 +43,7 @@ the two vectors, not a selection of the shorter one — `vector::min` does not
 compare magnitudes and is not related to `vector::length`. Paired with
 `vector::max` it is the standard way to build an axis-aligned bounding box: `min`
 gives the low corner and `max` the high corner.
-[[src/builtins/vector_package.mfb:__vector_min_integer4]]
+[[src/codegen/builtins/vector/package.mfb:__vector_min_integer4]]
 
 The operation is a comparison and a select on every element type — it does no
 arithmetic at all, so it cannot overflow, performs no rounding, and never fails.
@@ -72,14 +72,14 @@ Per-component minimum of 64-bit signed components by compare and select.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | one of the nine vector types | The first vector. Also spelled `v` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
-| `b` | the same type as `a` | The second vector, which must be the same vector type as `a`. Also spelled `n` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
+| `a` | one of the nine vector types | The first vector. Also spelled `v` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
+| `b` | the same type as `a` | The second vector, which must be the same vector type as `a`. Also spelled `n` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| the same type as `a` | A new vector of the same type and dimension whose `i`-th component is the smaller of `a`'s and `b`'s `i`-th components. Equal to an operand only when that operand is dominated by the other in every component. [[src/builtins/vector.rs:VECTOR]] |
+| the same type as `a` | A new vector of the same type and dimension whose `i`-th component is the smaller of `a`'s and `b`'s `i`-th components. Equal to an operand only when that operand is dominated by the other in every component. [[src/codegen/builtins/vector/mod.rs:VECTOR]] |
 
 ## Errors
 
@@ -91,7 +91,7 @@ No errors.
 arguments must be the *same* one of the nine types: there is no mixed-element-type
 and no cross-dimension overload, and no implicit conversion is applied to a vector
 argument. The return type is always the first argument's own type.
-[[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:same_vector]]
+[[src/codegen/builtins/vector/mod.rs:VECTOR]] [[src/codegen/builtins/vector/mod.rs:same_vector]]
 
 ## Examples
 

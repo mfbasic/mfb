@@ -27,7 +27,7 @@ IMPORT vector
 ```
 
 `vector` is a built-in package, so `IMPORT vector` needs no manifest dependency.
-[[src/builtins/vector.rs:uses_package]]
+[[src/codegen/builtins/vector/mod.rs:uses_package]]
 
 ## Description
 
@@ -35,7 +35,7 @@ IMPORT vector
 `(a.x*b.x, a.y*b.y, ...)`, taking as many terms as the dimension, evaluated in
 declared field order. This is the Hadamard product, also called the elementwise
 product. Neither argument is modified; a fresh record is returned.
-[[src/builtins/vector_package.mfb:__vector_scale_float3]]
+[[src/codegen/builtins/vector/package.mfb:__vector_scale_float3]]
 
 Despite its name, `scale` is **not** multiplication by a scalar: this package
 provides no vector-times-scalar function, and both arguments must be full vectors
@@ -43,13 +43,13 @@ of the same type. To multiply a whole vector by one number, build a vector whose
 components are all that number and pass it as `b` — for a uniform factor of `3`,
 `vector::scale(v, vector::Float3[3.0, 3.0, 3.0])`. The usual application of the
 general form is non-uniform axis scaling, where each axis is stretched by its own
-factor. [[src/builtins/vector.rs:VECTOR]]
+factor. [[src/codegen/builtins/vector/mod.rs:VECTOR]]
 
 It is also not the dot product: `vector::scale` returns a *vector* of the pairwise
 products, whereas `vector::dot` sums those same products into a *scalar*. The two
 are related by `dot(a, b) = scale(a, b).x + scale(a, b).y + ...`, but they have
 different return types and the compiler will not confuse them.
-[[src/builtins/vector_package.mfb:__vector_dot_float3]]
+[[src/codegen/builtins/vector/package.mfb:__vector_dot_float3]]
 
 The implementation is multiplication only — no addition beyond that, no division,
 no square root, no trigonometry — so it performs **no rounding** on any element
@@ -58,7 +58,7 @@ overloads are exact within the Q32.32 grid, putting `scale` in the small exact
 group alongside `dot`, `cross`, `reflect`, and `perpendicular`. Multiplication is
 still ordinary checked arithmetic, however, so a product that leaves the range of
 the element type fails with `ErrOverflow` rather than wrapping.
-[[src/builtins/vector_package.mfb:__vector_scale_integer4]]
+[[src/codegen/builtins/vector/package.mfb:__vector_scale_integer4]]
 
 ## Overloads
 
@@ -80,14 +80,14 @@ rounding of any kind.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | one of the nine vector types | The first vector. Also spelled `v` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
-| `b` | the same type as `a` | The second vector, one factor per axis. Must be the same vector type as `a`. Also spelled `n` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
+| `a` | one of the nine vector types | The first vector. Also spelled `v` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
+| `b` | the same type as `a` | The second vector, one factor per axis. Must be the same vector type as `a`. Also spelled `n` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| the same type as `a` | A new vector of the same type and dimension whose `i`-th component is the product of `a`'s and `b`'s `i`-th components. The zero vector when either argument is the zero vector. [[src/builtins/vector.rs:VECTOR]] |
+| the same type as `a` | A new vector of the same type and dimension whose `i`-th component is the product of `a`'s and `b`'s `i`-th components. The zero vector when either argument is the zero vector. [[src/codegen/builtins/vector/mod.rs:VECTOR]] |
 
 ## Errors
 
@@ -102,7 +102,7 @@ rounding of any kind.
 arguments must be the *same* one of the nine types: there is no mixed-element-type
 and no cross-dimension overload, and — importantly — no overload takes a bare
 scalar as its second argument. The return type is always the first argument's own
-type. [[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:same_vector]]
+type. [[src/codegen/builtins/vector/mod.rs:VECTOR]] [[src/codegen/builtins/vector/mod.rs:same_vector]]
 
 ## Examples
 

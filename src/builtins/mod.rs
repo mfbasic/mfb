@@ -8,7 +8,6 @@ pub(crate) mod resource;
 pub(crate) mod strings;
 pub(crate) mod term;
 pub(crate) mod testing;
-pub(crate) mod vector;
 
 pub(crate) use resource::{ResourceInfo, ResourceKind, ResourceRegistry};
 
@@ -136,11 +135,10 @@ pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str,
 /// the `toString(net::Url)` renderer (plan-03-http.md §A.3).
 pub(crate) fn general_override_target(builtin: &str, arg_type: &str) -> Option<&'static str> {
     crate::codegen::registry::general_override_target(builtin, arg_type).or_else(|| {
+        // The nine `vector::` `toString(VecN)` overrides are registered on the
+        // clean-room registry (`add_override`) and resolved by the call above.
         match (builtin, arg_type) {
             ("toString", t) if t == net::URL_TYPE => Some("__net_urlToString"),
-            // The nine `vector::` value records render `"(x, y, z)"` via a companion
-            // renderer (plan-06-vector.md §4.18).
-            ("toString", t) if vector::is_builtin_type(t) => vector::tostring_override_target(t),
             _ => None,
         }
     })
@@ -189,7 +187,8 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         // is needed here.
         // `tls`'s `TlsSocket`/`TlsListener` resources resolve via the migrated-registry
         // check above (`registry::qualified_builtin_type`), so no arm is needed here.
-        "vector" => vector::is_builtin_type(member),
+        // `vector`'s nine value records resolve via the migrated-registry check above
+        // (`registry::qualified_builtin_type`), so no arm is needed here.
         // io + the non-type packages expose no qualified value types.
         _ => false,
     };
@@ -398,6 +397,12 @@ pub(crate) fn resolve_call_return_type(
     // (argument validation, from syntaxcheck) rejects a scalar-for-nominal argument;
     // the lenient callers (return-type inference feeding IR lowering / codegen) keep the
     // coarse match so a nominally-spelled argument does not perturb type propagation.
+    // `vector` is a registry member but dispatches by EXACT record type (`Float2` ≠
+    // `Integer2`) with a per-type return type, which the generic coarse-nominal matcher
+    // below cannot select. It keeps its own exact resolver over the same overload data.
+    if crate::codegen::registry::registry().owning_package(callee) == Some("vector") {
+        return crate::codegen::builtins::vector::resolve_return_type(callee, arg_types);
+    }
     if crate::codegen::registry::registry().is_member(callee) {
         return crate::codegen::registry::resolve_call(callee, arg_types, strict);
     }
@@ -421,6 +426,15 @@ pub(crate) fn resolve_call_return_type(
 /// functions, so IR lowering's queries for their rewritten targets fall back to
 /// those two packages' explicit internal-name maps.
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
+    // `vector` members have an ARGUMENT-dependent return type (`length(Float3) AS
+    // Float`, `length(Integer3) AS Integer`) with no static nominal — the pre-migration
+    // `ReturnType::Custom` yielded `None` here. The generic `call_return_type` below
+    // would coarsely report the first overload's return (the matcher cannot pick by
+    // record type), so `vector` is excluded to preserve the `None`; its arg-validated
+    // return lives in `resolve_call_return_type`.
+    if crate::codegen::registry::registry().owning_package(name) == Some("vector") {
+        return None;
+    }
     if let Some(return_type) = crate::codegen::registry::call_return_type(name) {
         return Some(return_type);
     }
@@ -460,10 +474,11 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
 /// The human-readable expected-argument rendering for a builtin call's
 /// argument-mismatch diagnostic — plan-72-BB. Most packages render per-position
 /// from the descriptor (`DefaultResolver::expected_arguments`); the packages whose
-/// phrasing is an argument *union* (`"Socket or Listener or UdpSocket"`) or prose
-/// (`vector`'s `"two vectors of the same type"`) keep their hand-authored string,
-/// which the descriptor's per-position join cannot reproduce (a genuine
-/// non-descriptor behavior, per BB's non-goals).
+/// phrasing is an argument *union* (`"Socket or Listener or UdpSocket"`) or prose keep
+/// their hand-authored string, which the descriptor's per-position join cannot
+/// reproduce (a genuine non-descriptor behavior, per BB's non-goals). The migrated
+/// `vector` package's prose (`"two vectors of the same type"`) rides on the
+/// `RegistryFunction::expected_arguments` field, served by `registry::expected_arguments`.
 pub(crate) fn expected_arguments(name: &str) -> Option<String> {
     // `term` alone returns an owned `String` (its `"no arguments"` zero-arg form).
     if let Some(text) = term::expected_arguments(name) {
@@ -481,7 +496,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
     if let Some(text) = net::expected_arguments(name)
         .or_else(|| audio::expected_arguments(name))
         .or_else(|| http::expected_arguments(name))
-        .or_else(|| vector::expected_arguments(name))
         .or_else(|| general::expected_arguments(name))
         .or_else(|| strings::expected_arguments(name))
         .or_else(|| crate::codegen::registry::expected_arguments(name))
@@ -610,11 +624,11 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
     }
     // Migrated (clean-room registry) packages first; else the old REGISTRY.
     // plan-72-BB: descriptor membership is every package's `is_<pkg>_call`
-    // (`DefaultResolver::contains`). The two non-descriptor member surfaces stay
-    // explicit: `collections`' source-generic functions and `vector`'s
-    // dynamically-parsed constants. The `call_return_type_name` tail preserves the
-    // pre-existing admission of lowered-only names whose return type is known
-    // (e.g. `tls.closeListener`).
+    // (`DefaultResolver::contains`). The remaining non-descriptor member surface stays
+    // explicit: `collections`' source-generic functions. (`vector`'s constants are
+    // registry constants, admitted through `is_package_constant`, not as calls.) The
+    // `call_return_type_name` tail preserves the pre-existing admission of lowered-only
+    // names whose return type is known (e.g. `tls.closeListener`).
     crate::codegen::registry::registry().is_member(name)
         || crate::target::shared::registry::REGISTRY
             .function(name)
@@ -623,7 +637,6 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
         // `is_member` covers their registered native members, this their source
         // generics, together reproducing the old `collections::is_collections_call`.
         || crate::codegen::registry::is_source_generic_member(name)
-        || vector::is_vector_call(name)
         || call_return_type_name(name).is_some()
 }
 
@@ -635,11 +648,11 @@ pub(crate) fn is_builtin_member(name: &str) -> bool {
 /// friends (`Float`/`Fixed`) or an `errorCode::Err*` registry value (`Integer`).
 /// These are keyed package-qualified (`"math.pi"`, `"errorCode.ErrNotFound"`).
 pub(crate) fn is_package_constant(name: &str) -> bool {
-    crate::codegen::registry::is_package_constant(name) || vector::is_vector_constant(name)
+    crate::codegen::registry::is_package_constant(name)
 }
 
 pub(crate) fn package_constant_type_name(name: &str) -> Option<&'static str> {
-    crate::codegen::registry::constant_type_name(name).or_else(|| vector::constant_type_name(name))
+    crate::codegen::registry::constant_type_name(name)
 }
 
 pub(crate) fn package_constant_value(name: &str) -> Option<&'static str> {
@@ -764,8 +777,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
         .or_else(|| strings::call_param_names(name))
         .or_else(|| net::call_param_names(name))
         .or_else(|| http::call_param_names(name))
-        .or_else(|| term::call_param_names(name))
-        .or_else(|| vector::call_param_names(name))?;
+        .or_else(|| term::call_param_names(name))?;
     Some(borrowed.iter().map(|aliases| aliases.to_vec()).collect())
 }
 
