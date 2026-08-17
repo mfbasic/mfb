@@ -126,9 +126,13 @@ CLEARED 32/32: regen'd http/json/net/vector byte-identity `.ncodesum` (`799c8b40
 
 **FINISH COMPLETE — `artifact-gate all` 0 diffs (1714 goldens), `cargo test --bin mfb` 3674/0, full acceptance 1263/0. The clean-room registry is the sole builtin authority; the byte-identity baseline is fully restored.**
 
-## Phase 2 — delete the old branch
+## Phase 2 — delete the old branch — DONE (merged dcd071d5a)
 
-Once no package resolves through `target/shared`, delete the plan-72 descriptor vocabulary (including its degenerate `Named(&'static str)` `ParameterType`) and the hand-written free-function fallbacks in `builtins/mod.rs`. The `registry::X(name).or(old(name))` dual-paths collapse to a single registry call. **Now the registry is the one source of truth.** NOTE: legacy `REGISTRY.modules().len()` is now 0 — Phase 2 is unblocked (nothing resolves builtin packages through the legacy descriptor list; verify the `BuiltinRegistry`/`BuiltinModule`/`DefaultResolver`/`Named` vocabulary has no remaining non-test consumers before deleting).
+Once no package resolves through `target/shared`, delete the plan-72 descriptor vocabulary (including its degenerate `Named(&'static str)` `ParameterType`) and the hand-written free-function fallbacks in `builtins/mod.rs`. The `registry::X(name).or(old(name))` dual-paths collapse to a single registry call. **Now the registry is the one source of truth.**
+
+**COMPLETE (705252d58/22aa63978/fa383a748, merged dcd071d5a):** Deleted `src/target/shared/registry.rs` wholesale (2382 lines — `BuiltinRegistry`/`BuiltinModule`/`BuiltinFunction`/`BuiltinOverload`/`BuiltinResolver`/`DefaultResolver`/legacy `ParameterType{Named}`/`ReturnType`/legacy `OsLower`·`NativeLower`·`MfbFastPath`/`BuiltinType`/`BuiltinSource`/`InjectionRule`/`BuiltinFlags`, `static REGISTRY`/`TEST_REGISTRY`, `mod parity`) + unhooked `mod registry;`. Collapsed 8 `builtins/mod.rs` dual-paths to clean-room-only; deleted the 4 `registry_*` migration adapters + tests. Removed the VESTIGIAL `builtin_type_fields` (iterated only the empty legacy REGISTRY → always None; migrated records now resolve as INJECTED SOURCE `TYPE` decls via `add_record`) + its ~9 dead caller branches across ir/verify·ir/lower·module_analysis·validation·inference — CONFIRMED vestigial by 0 acceptance mismatches on all record-field tests (net Address/Datagram, term TermColor/TermSize, audio AudioDevice, io). KEPT `ir/verify`'s local wrapper `Error`/`ErrorLoc` arms (load-bearing, non-vestigial). Net −2617 lines. `cargo test` 3674→3640 (−34, all deleted legacy-machinery tests; no surviving assertion weakened). Pure dead-code deletion: `artifact-gate all` 0 diffs (1714 goldens), acceptance 1263/0 byte-identical.
+
+Phase 3 (flip compiler currency to `ParameterType`) + Phase 4 (Bucket 2 leak-adapters evaporate) remain — NOT started (out of the Phase 2 scope; the boundary adapters `resolve_call`/`native_lower`/`rewrite_target`/`call_return_type`/`expected_arguments`/`call_param_names`/`default_argument_padding` still speak `String` deliberately).
 
 ## Phase 3 — flip the compiler currency to `ParameterType`
 
@@ -140,7 +144,9 @@ Change the type checker / `ir` / `syntaxcheck` to carry `ParameterType` (and `Se
 
 The 6 leak-adapters (`resolve_call`, `rewrite_target`, `call_return_type`, `expected_arguments`, `call_param_names`, `default_argument_padding`) now have no callers doing string marshalling — they evaporate. This isn't a separate effort; it's the *consequence* of Phase 3. (Decide separately whether `resolve_call`/`native_lower` — the two the author left un-`#[deprecated]` — stay as intended permanent `CallShape`/`Selection` seams or get inlined.)
 
-### Phase 1 — migration status & the infra prerequisite (2026-08-16)
+## Migrate Status
+
+### Update 1 — migration status & the infra prerequisite (2026-08-16)
 
 - DONE: `bits` (cc86a30a3), `money` (e6ab61d9b), OS-seam build-context infra (a49568620), `os` (0a274639f), `fs` (73374e779). Wave 1 syscall migrations COMPLETE + acceptance-clean.
 - `fs` surfaced + fixed a registry-core gap (4a42c74f2): strict `leaf_matches` tightened to require `resource_base_eq` ONLY for RESOURCE params (a value-UNION param like `Json` stays coarse so a variant widens in — the broad first cut over-rejected `json::stringify(JsonNull)`, caught by acceptance). See [[registry-strict-matcher-resource-vs-value-union]].
@@ -154,18 +160,18 @@ The 6 leak-adapters (`resolve_call`, `rewrite_target`, `call_return_type`, `expe
 - Also special (not plain native/source): `general` (IS the overridable-builtin subsystem), `resource` (RES), `testing` (desugar).
 - Tractable now (no constants/overrides/resolver-context): `money`, `os`, `io`, `fs`, `thread`, `tls`, `audio`, `http`(w/ net), `strings`/`astrings`/`term`(cluster), `app`(name-overloaded — care). `crypto` has a context-dependent resolver — verify before attempting.
 
-### Phase 1 — a second infra prerequisite surfaced (os attempt, 2026-08-16)
+### Update 2 — a second infra prerequisite surfaced (os attempt, 2026-08-16)
 
 - `os` is 14/15 members clean; `os.resourcePath` alone needs per-compilation build context (`build_mode` + `module_name`) that the OS-seam `OsLower` contract can't carry. Fix (greenlit, do BEFORE re-attempting os / io / fs / thread / tls, which likely share the need): extend `OsLower` (`src/codegen/registry/mod.rs:49`), `os_helper` (`:1640`), and `codegen/os/dispatch_runtime_helper` (`src/codegen/os/mod.rs:25`) to carry `build_mode: NativeBuildMode` + `module_name: &str`; thread from the two `code/mod.rs` dispatch sites (~2024 os, ~2382 process); update the ~18 existing OsLower emitters (process/datetime) to accept-and-ignore. Additive/mechanical; keeps os uniform with process. (`code/os/paths.rs:186-215` is the sole build-dependent member.)
 - **Infra sequencing (serial — all touch registry/mod.rs):** (1) constant + override API [in flight], (2) OS-seam build-context, THEN the blocked migrations: constant/override → vector/math/errorcode/net; OS-seam-context → os (and de-risks io/fs/thread/tls).
 
-### Phase 1 — constant/override infra LANDED (74c08e745)
+### Update 3 — constant/override infra LANDED (74c08e745)
 
 - DONE: registry package-constant API (`add_constant`/`is_package_constant`/`constant_type_name`/`constant_value`/`constant_components`) + general-override API (`add_override`/`general_override_target`), dual-pathed through `builtins/mod.rs` + `ir/lower.rs`, byte-identical (registry empty until a package migrates). Unblocks the constant/override half of `errorcode`/`math`/`net`/`vector`.
 - Migration note for `vector`/record-constants: a migrated package's record types (e.g. `Float3`) must register as a `RegistryRecord` with element-typed props (the registry record-constant path reads element types from the record's fields in declaration order).
 - Pre-existing: `net` has ~5 STALE byte-identity goldens on `worktree-builtin` (verified on clean base, unrelated to any migration) — regenerate when `net` migrates or as a standalone cleanup.
 
-### Phase 1 — wave 1 + arena COMPLETE; resolver-heavy packages are the next infra frontier (2026-08-16)
+### Update 4 — wave 1 + arena COMPLETE; resolver-heavy packages are the next infra frontier (2026-08-16)
 
 - DONE + acceptance-green: `bits`, `money`, `os`, `fs`, `io` (+ pre-existing csv/json/regex/process/datetime/encoding/collections). Registry currency: `REGISTRY.modules().len()` down to 16.
 - Infra landed: constant/override APIs, OS-seam build-context, `OsLowerCtx` (build_mode/module_name/term_state_offset/presentation_mode_offset), strict-matcher resource-vs-value-union fix. Byte-identity debt for fs `.ncode` cleared.
@@ -177,18 +183,18 @@ The 6 leak-adapters (`resolve_call`, `rewrite_target`, `call_return_type`, `expe
 - NEXT after tls/crypto: `ParameterType::ThreadHandle` infra + `thread` (per `planning/thread-migration.md`); then `math` (`NumericVar`, per `planning/math-migration.md`); then `net`/`http`, `vector`, `audio`, strings-cluster (`strings`/`astrings`/`term`), `app`; then specials `general`/`resource`/`testing`.
 - LESSON: run FULL acceptance after each migration merge, not just a package sample — the io migration's lenient-`Unknown` behavior (io.print no longer rejects `Unknown` args, bug-443) dropped a cascading diagnostic in a `resources/` fixture that only the full sweep caught.
 
-### Phase 1 — os LANDED; pre-existing fs byte-identity red is BENIGN (2026-08-16)
+### Update 5 — os LANDED; pre-existing fs byte-identity red is BENIGN (2026-08-16)
 
 - `os` migrated + merged (0a274639f, merge 38eb9cdfd): 15 native OS-seam members, `os.resourcePath` consumes the build-context (validates the OS-seam extension end-to-end), owns NO resource, 0 diffs on os/datetime/process. `3814` tests green. Migrated-package count now: csv/json/regex + process/datetime + bits + money + os.
 - **Pre-existing `fs` byte-identity red is SAFE, not a bug:** `artifact-gate fs` shows 5/7 `fs_codegen_cover_rt.ncode` reds across ALL arches with fs UNCHANGED. Verified benign: **all 94 fs acceptance tests pass** (rt-behavior/rt-error/syntax via `test-accept.sh`), so behavior+diagnostics are correct — the `.ncode` shift is a codegen-FORM change (registration-order/symbol-numbering ripple from the migrations changing the registered-package set, OR a forgotten 13092026c-era regen). Golden last regen'd at `13092026c` (pre-migration). Disposition: regenerate the fs byte-identity golden WHEN fs migrates (the in-flight fs agent does this as part of relocation) — do NOT treat fs's red gate as a migration failure. Same class as the `net` pre-existing reds noted at 967d58ec9.
 
-### Phase 1 — io needs an ARENA-context OsLower extension (io attempt, 2026-08-16)
+### Update 6 — io needs an ARENA-context OsLower extension (io attempt, 2026-08-16)
 
 - `io` migration STOPPED at a real infra gap (correct stop, no code changed). io is 15 members; the stdin↔thread coupling is CLEAN (io readers reach thread-owned broadcast state by the linked symbol `_mfb_rt_stdin_next_byte`, NOT shared compile-time layout — thread stays out of scope).
 - **The gap:** `io.print`/`io.write` (plan-35-B TUI shadow-grid routing, `io_stdout.rs:364` `lower_io_write_helper`) and `io.readLine`/`io.input` (bug-149 cooked-mode restore, `io_stdin.rs:799` `lower_io_read_line_helper`) bake the **per-compilation** `arena_layout.term_state_offset` (+ post-dispatch `presentation_mode_offset` wrong-mode gate) into their runtime-helper bodies. The `OsLower` contract (`registry/mod.rs:55`) carries `build_mode`/`module_name` but NOT arena layout. `app_mode` is fine (derivable from `build_mode.is_app()`). Precedents miss it: process/datetime OsLower emitters never read arena state; money reads arena state only at a FIXED offset via the `NativeLower`/`CodeBuilder` path, not the `OsLower` runtime-helper path.
 - **Fix (greenlit, do AFTER os/fs land — same OsLower-signature serialization):** extend the OS-seam contract to thread the arena context (`term_state_offset` + `presentation_mode_offset`, computed in the dispatch at `code/mod.rs:1132-1147`), existing process/datetime emitters accept-and-ignore. **Design note:** OsLower now grows to ~6 params — bundle `build_mode`/`module_name`/arena into a single `OsLowerCtx` struct at the same time (lean end-state per migrate.md), re-touching the process/datetime emitters once. Then re-run the io migration (its analysis is done: 15 members, io_stdout/io_stdin/io_terminal emission, `io.` dispatch arm at `code/mod.rs:2033`, `io_specs.rs`).
 
-### Phase 1 — remaining-package difficulty audit + fan-out plan (2026-08-16)
+### Update 7 — remaining-package difficulty audit + fan-out plan (2026-08-16)
 
 Every remaining package is more entangled than `bits`/`money` (the easy leaves). Audited shapes:
 - **math** — NOT a leaf. ~280KB of SIMD lowering (`builder_{math,fixed_math,simd_math,simd_float_math,simd_fixed_math}.rs`) is **shared core numeric infra** — ~12 core files (`builder_pow`, `builder_numeric`, `mir`, `builder_value_semantics`, `entry`, `data_objects`…) call `math.*` helpers directly. Migration = decide what stays core vs. moves; only the descriptor + constants (`math.pi`… via `add_constant`, Float) + call-dispatch move. `builder_money_math.rs` is core Money-scalar operator codegen — stays. `vector` depends on math only by call-name (`math.sqrt`/`math.clamp`), safe. SERIAL, judgment-heavy.
@@ -201,7 +207,7 @@ Every remaining package is more entangled than `bits`/`money` (the easy leaves).
   - `tls` (715; +resolver +resource +per-backend macos/openssl/schannel; net-coupled) — backend-heavy
 - **FAN-OUT ORDER once OS-seam lands:** first wave (tractable, parallel) `os` + `fs` + `io`; second wave (resolver+coupling, more care) `thread`, `tls`. Then the serial infra-heavy set: `math`, `crypto`, `errorcode` (error-emission table → extend `RegistryConstant` with message+symbol, repoint `runtime_error*`), `net`/`http` (resource+`Url` type+`toString(Url)` override), `vector` (RegistryRecord + SIMD carrier home), `audio` (resource+MML source). Finally the specials: `general`/`resource`/`testing`.
 
-### Phase 1 — thread obstacle resolution (2026-08-16, collaborative w/ user)
+### Update 8 — thread obstacle resolution (2026-08-16, collaborative w/ user)
 - thread PART A (ThreadHandle variant) landed clean; PART B hit 4 proven obstacles (the res-slot optional-vs-required contradiction + strict-Nothing guard + Unknown re-occur + ISOLATED FUNC parse).
 - RESOLVED without matcher-core surgery or a resolver hook (user-designed): #2+#3 via SIGNATURE-LEVEL OVERLOAD SPLIT (two `start` overloads data/resource; resource-only `accept`/`transfer` — the strict-Nothing guard then rejects a data-handle from `accept` automatically, reproducing legacy). #4 = Unknown-refinement in the Var arm (LANDED de834e95b, verified no dispatch shift: acceptance 1263/0, byte-identity unchanged). #1 = bounded ISOLATED FUNC parse fix.
 - thread agent resumed to implement PART B on this model. `planning/thread-migration.md` "PART B obstacle resolution" is the spec.
