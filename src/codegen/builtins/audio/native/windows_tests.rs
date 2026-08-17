@@ -3,9 +3,9 @@
 // private helpers with the shared `TestPlatform` and pin the neutral instruction
 // stream so the four batched defects cannot silently regress.
 use super::*;
+use crate::arch::ops::CodeOp;
 use crate::target::shared::code::mir;
 use crate::target::shared::code::test_support::TestPlatform;
-use crate::target::shared::code::CodeOp;
 
 /// Count of `emit_read_fill` expansions in an instruction stream: each emits one
 /// unique `rfill_direct_<n>` label (the EXCLUSIVE branch target).

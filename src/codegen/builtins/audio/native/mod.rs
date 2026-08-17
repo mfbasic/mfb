@@ -10,11 +10,11 @@
 
 use std::collections::HashMap;
 
-use super::*;
+use crate::target::shared::code::*;
 // Moved to `builder_collection_layout` (plan-58-B) so `link_thunk`'s
 // `OUT CBuffer` staging can reach it without depending on `audio`. Re-imported
 // here so both backends keep naming it unqualified.
-use super::builder_collection_layout::emit_alloc_byte_list;
+use crate::target::shared::code::builder_collection_layout::emit_alloc_byte_list;
 
 // --- AudioHandle: arena record, pointer-sized reference (plan-33-A §5.1) ------
 // Identical layout for both resource types. Shares the canonical plan-80
@@ -102,18 +102,16 @@ pub(super) const DEVICE_RECORD_SIZE: usize = 48;
 // are the package-neutral emitters that used to live in `tls`. Reuse them
 // rather than duplicating. `emit_data_address` is re-exported for the
 // AudioQueue phases.
-pub(super) use super::emit_alloc;
-pub(super) use super::native_helpers::{
+pub(crate) use crate::target::shared::code::emit_alloc;
+pub(crate) use crate::target::shared::code::native_helpers::{
     emit_arena_free, emit_data_address, emit_external_int_call, emit_fail, hex_encode_cstring,
 };
 
 // The emitted AudioQueue output callback (macOS): a C-ABI function the OS calls
 // on an ordinary internal thread when a played buffer is free. openOutput takes
 // its address; mod.rs registers the body when an output program is built.
-pub(in crate::target::shared::code) const AUDIO_OUTPUT_CALLBACK_SYMBOL: &str =
-    "_mfb_rt_audio_output_callback";
-pub(in crate::target::shared::code) const AUDIO_INPUT_CALLBACK_SYMBOL: &str =
-    "_mfb_rt_audio_input_callback";
+pub(crate) const AUDIO_OUTPUT_CALLBACK_SYMBOL: &str = "_mfb_rt_audio_output_callback";
+pub(crate) const AUDIO_INPUT_CALLBACK_SYMBOL: &str = "_mfb_rt_audio_input_callback";
 
 mod alsa;
 mod common;
@@ -124,14 +122,16 @@ mod windows;
 // `use super::*` picks them up.
 use common::{emit_validate_open, Query, READ_FRAMES_MAX};
 
-pub(in crate::target::shared::code) use macos::{
-    lower_audio_input_callback, lower_audio_output_callback,
-};
+pub(crate) use macos::{lower_audio_input_callback, lower_audio_output_callback};
 
-/// Dispatch an `audio.*` runtime-helper body to the platform backend.
-pub(in crate::target::shared::code) fn lower_audio_helper(
+/// Dispatch an `audio.*` runtime-helper body to the platform backend. The
+/// `OsLower` shape (`Body::native_os_seam` slot): the `_ctx` is unused (audio
+/// helpers need no build-mode/term-state context), and the generic registry OS
+/// dispatch (`registry::os_helper`) picks this by `platform.family()`.
+pub(crate) fn lower_audio_helper(
     call: &str,
     symbol: &str,
+    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
@@ -155,7 +155,7 @@ fn alsa_data_objects() -> Vec<CodeDataObject> {
 /// that `code/mod.rs` used to re-derive from `platform.target()` plus
 /// hand-maintained literal symbol lists (bug-330 cause #3): which read-only data
 /// objects the audio backend needs, and which AudioQueue callbacks to emit.
-pub(in crate::target::shared::code) enum AudioBackend {
+pub(crate) enum AudioBackend {
     CoreAudio,
     Alsa,
     /// Windows WASAPI over COM (plan-66 G+H). Emits the read-only GUID/CLSID/IID
@@ -173,7 +173,7 @@ pub(in crate::target::shared::code) enum AudioBackend {
 impl AudioBackend {
     /// Select the backend for `platform`. The single place the audio macOS/Linux
     /// decision is made.
-    pub(in crate::target::shared::code) fn select(platform: &dyn CodegenPlatform) -> Self {
+    pub(crate) fn select(platform: &dyn CodegenPlatform) -> Self {
         match platform.family() {
             PlatformFamily::MacOS => AudioBackend::CoreAudio,
             PlatformFamily::Linux => AudioBackend::Alsa,
@@ -184,10 +184,7 @@ impl AudioBackend {
     /// Read-only data objects the backend references, given the plan's runtime
     /// symbols. CoreAudio links AudioToolbox directly and needs none; ALSA emits
     /// its `dlopen`/`dlsym` C strings only when the plan uses an audio helper.
-    pub(in crate::target::shared::code) fn data_objects(
-        &self,
-        runtime_symbols: &[String],
-    ) -> Vec<CodeDataObject> {
+    pub(crate) fn data_objects(&self, runtime_symbols: &[String]) -> Vec<CodeDataObject> {
         match self {
             AudioBackend::CoreAudio | AudioBackend::NoAudio => Vec::new(),
             AudioBackend::Alsa => {
@@ -216,7 +213,7 @@ impl AudioBackend {
     /// The AudioQueue callback functions to emit (macOS only): the output
     /// callback when the plan builds an output stream, the input callback when it
     /// builds an input stream. `openOutput`/`openInput` take these addresses.
-    pub(in crate::target::shared::code) fn callback_functions(
+    pub(crate) fn callback_functions(
         &self,
         platform_imports: &HashMap<String, String>,
         platform: &dyn CodegenPlatform,

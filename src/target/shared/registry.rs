@@ -1028,12 +1028,12 @@ impl BuiltinRegistry {
 /// legacy per-package helper (the `mod.rs` adapters fall back on a registry
 /// miss). BB then deletes the legacy helpers the adapters fall back to.
 ///
-/// Migrated so far: `app` (B), `crypto` (F), `audio` (C),
+/// Migrated so far: `app` (B), `crypto` (F),
 /// `fs` (K), `general` (L), `http` (M), `io` (N), `math` (P),
 /// `money` (Q), `net` (R), `os` (S), `resource` (U), `strings` (V), `term` (W),
-/// `testing` (X). (`bits` D, `collections` E, `csv` G, `datetime` H, `encoding` I,
-/// `errorCode` J, `json` O, `regex` T, and `process` have since moved to the
-/// clean-room registry `crate::codegen::registry` and are no longer held here.)
+/// `testing` (X). (`audio` C, `bits` D, `collections` E, `csv` G, `datetime` H,
+/// `encoding` I, `errorCode` J, `json` O, `regex` T, and `process` have since moved
+/// to the clean-room registry `crate::codegen::registry` and are no longer held here.)
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     &crate::builtins::app::APP,
     &crate::builtins::astrings::ASTRINGS,
@@ -1041,7 +1041,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     // collections migrated to the clean-room registry (crate::codegen::registry).
     // csv migrated to the clean-room registry (crate::codegen::registry).
     // crypto migrated to the clean-room registry (crate::codegen::registry).
-    &crate::builtins::audio::AUDIO,
+    // audio migrated to the clean-room registry (crate::codegen::registry).
     // datetime migrated to the clean-room registry (crate::codegen::registry).
     // encoding migrated to the clean-room registry (crate::codegen::registry).
     // errorCode migrated to the clean-room registry (crate::codegen::registry).
@@ -1768,8 +1768,11 @@ mod tests {
         assert!(REGISTRY.module("thread").is_none());
         // `math` / `vector` migrated to the clean-room registry too.
         assert!(REGISTRY.module("math").is_none());
+        // `audio` migrated to the clean-room registry too.
+        assert!(REGISTRY.module("audio").is_none());
+        assert!(REGISTRY.function("audio.devices").is_none());
         // The 28 builtin packages minus the migrated ones.
-        assert_eq!(REGISTRY.modules().len(), 10);
+        assert_eq!(REGISTRY.modules().len(), 9);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);

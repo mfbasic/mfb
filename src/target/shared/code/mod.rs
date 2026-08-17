@@ -91,9 +91,13 @@ pub(crate) use data_objects::{push_symbol_address, raise_error_into};
 mod module_analysis;
 pub(crate) use module_analysis::module_uses_call;
 use module_analysis::*;
-mod audio;
+// `audio`'s per-backend device emission moved to `crate::codegen::builtins::audio::native`
+// (clean-room registry migration). The `AudioBackend` selector (data objects + macOS
+// AudioQueue callbacks) is reached there; runtime-helper bodies flow through the generic
+// `crate::codegen::os::dispatch_runtime_helper` (registry OS-seam), like tls/process.
+use crate::codegen::builtins::audio::native::AudioBackend;
 mod builder_collection_compare;
-mod builder_collection_layout;
+pub(crate) mod builder_collection_layout;
 pub(crate) use builder_collection_layout::{
     byte_list_block_kind, byte_list_entry_stride, kind2_payload_size, list_element_is_fixed_width,
     list_entry_stride, push_collection_data_base_from_capacity,
@@ -1040,8 +1044,7 @@ pub(crate) fn lower_module_for_platform(
     // The audio backend's read-only data objects (the Linux libasound soname +
     // ALSA symbol names; none on macOS). The backend owns the platform decision
     // and the symbol gate (bug-330).
-    data_objects
-        .extend(audio::AudioBackend::select(platform).data_objects(&native_plan.runtime_symbols));
+    data_objects.extend(AudioBackend::select(platform).data_objects(&native_plan.runtime_symbols));
     // NIST-EC helpers reference read-only C strings (framework paths + dlsym
     // names) for their load-time dlopen/dlsym.
     if native_plan
@@ -1525,7 +1528,7 @@ pub(crate) fn lower_module_for_platform(
     // output stream is built and the input callback when an input stream is,
     // since openOutput/openInput take their addresses. The backend owns the
     // platform decision and the symbol gate (bug-330).
-    code_functions.extend(audio::AudioBackend::select(platform).callback_functions(
+    code_functions.extend(AudioBackend::select(platform).callback_functions(
         &platform_imports,
         platform,
         &runtime_symbols,
@@ -1695,6 +1698,10 @@ pub(crate) fn lower_module_for_platform(
     {
         runtime_symbols.push("_mfb_rt_tls_tls_pollList".to_string());
     }
+    // audio's overload-split runtime calls (named-device `open*`, timed `read`/`poll`,
+    // per-direction `close`) are rewritten at IR level (`audio::runtime_overload_name`),
+    // so the NIR already names each one and the required-helper scan collects them — no
+    // code-layer synthesis push is needed (unlike net/process/tls).
     // App-mode io.input composes io.write (prompt -> transcript) + io.readLine
     // (read the window input pipe), so ensure both helpers are emitted
     // (plan-04-macos-app.md §5.4).
@@ -2229,8 +2236,27 @@ fn lower_runtime_helper(
                         ));
                     }
                 },
+                // Every `audio.*` device-I/O member carries `Body::native_os_seam` on the
+                // clean-room registry: the per-backend emission lives in
+                // `codegen::builtins::audio::native` (`lower_audio_helper`), and the generic
+                // registry-driven dispatch routes each member plus its
+                // openInputDevice/openOutputDevice/readTimeout/pollTimeout/closeInput/
+                // closeOutput code forms by `platform.family()`.
                 call if call.starts_with("audio.") => {
-                    audio::lower_audio_helper(call, symbol, platform_imports, platform)?
+                    match crate::codegen::os::dispatch_runtime_helper(
+                        call,
+                        symbol,
+                        &os_ctx,
+                        platform_imports,
+                        platform,
+                    ) {
+                        Some(result) => result?,
+                        None => {
+                            return Err(format!(
+                                "native code plan does not emit runtime call '{call}'"
+                            ));
+                        }
+                    }
                 }
                 // Every `process.*` member carries `Implementation::Os`: the
                 // per-platform emission lives in its `func_*.rs`, and the generic

@@ -1601,7 +1601,7 @@ pub(super) const INPUT_CALLBACK_SYMBOLS: &[&str] = &[
 /// The AudioQueue output callback (C-ABI): void cb(void* handle, AudioQueueRef,
 /// AudioQueueBufferRef). Runs on an ordinary AudioQueue thread, so taking the
 /// mutex is legal (plan-33-B §3.1). Marks the played buffer free and signals.
-pub(in crate::target::shared::code) fn lower_audio_output_callback(
+pub(crate) fn lower_audio_output_callback(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {
@@ -2533,7 +2533,7 @@ fn lower_close_input(
 /// The AudioQueue input callback (C-ABI, 6 args): copies the captured buffer into
 /// the ring (discarding oldest whole frames on overrun, xruns++), signals, and
 /// re-enqueues the buffer.
-pub(in crate::target::shared::code) fn lower_audio_input_callback(
+pub(crate) fn lower_audio_input_callback(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {

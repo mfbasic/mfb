@@ -112,6 +112,16 @@ fn tls_consumes_argument(name: &str, index: usize) -> bool {
     index == 0 && (name == "tls.close" || name == crate::codegen::builtins::tls::CLOSE_LISTENER)
 }
 
+/// `audio::close` consumes its stream handle (a move); the same applies to the
+/// per-direction internal close bodies scope-drop reaches directly. Every other
+/// `audio::` call only borrows its handle.
+fn audio_consumes_argument(name: &str, index: usize) -> bool {
+    index == 0
+        && (name == "audio.close"
+            || name == crate::codegen::builtins::audio::CLOSE_INPUT
+            || name == crate::codegen::builtins::audio::CLOSE_OUTPUT)
+}
+
 const BUILTIN_ARG_MODES: &[BuiltinArgMode] = &[
     BuiltinArgMode {
         name: "encoding",
@@ -167,7 +177,7 @@ const BUILTIN_ARG_MODES: &[BuiltinArgMode] = &[
     BuiltinArgMode {
         name: "audio",
         args: ArgMode::Consuming {
-            consumes: builtins::audio::consumes_argument,
+            consumes: audio_consumes_argument,
             default: ExprMode::Use,
         },
     },
