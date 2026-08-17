@@ -116,7 +116,10 @@ pub(crate) fn register(r: &mut Registry) {
     // bodies — mirroring `package.mfb`'s original leading `IMPORT`s and `__encoding_*`
     // helper block (which also declares the four overloaded utf8 bodies).
     pkg.add_imports(vec!["bits", "strings", "collections"]);
-    pkg.add_helper_functions(vec![include_str!("package.mfb")]);
+    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
+        "encoding_package",
+        include_str!("package.mfb"),
+    ));
 
     // The two overloaded names first, then the non-overloaded codecs, mirroring the
     // pre-migration descriptor order.

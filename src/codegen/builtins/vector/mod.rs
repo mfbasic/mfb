@@ -650,7 +650,10 @@ pub(crate) fn register(r: &mut Registry) {
     // The overloaded `__vector_*` FUNC bodies (member implementations + the internal
     // integer-sqrt helpers + the per-type `toString` renderers) as one companion chunk;
     // the nine `TYPE` declarations are registered above (add_record), not here.
-    pkg.add_helper_functions(vec![include_str!("package.mfb")]);
+    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
+        "vector_package",
+        include_str!("package.mfb"),
+    ));
 
     add_constants(&mut pkg);
     add_overrides(&mut pkg);

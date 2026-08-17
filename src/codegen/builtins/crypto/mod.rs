@@ -109,7 +109,10 @@ pub(crate) fn register(r: &mut Registry) {
     // former five `crypto_*.mfb` files), so the reassembled source is identical to the
     // legacy `package_source_glue!` `concat!` and public members rewrite onto it via
     // `Body::Rewrite`.
-    pkg.add_helper_functions(vec![include_str!("package.mfb")]);
+    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
+        "crypto_package",
+        include_str!("package.mfb"),
+    ));
 
     // The public value RECORDS `Sealed`/`KeyPair` are authored (with their `DOC` blocks
     // and byte-exact fields) in `package.mfb`; recording their names as source-declared

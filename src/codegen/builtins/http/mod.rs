@@ -125,7 +125,10 @@ pub(crate) fn register(r: &mut Registry) {
 
     // The whole `http` protocol implementation: the value-type declarations, the
     // private `__http_*` helpers, and every member body (reached by `Body::Rewrite`).
-    pkg.add_helper_functions(vec![include_str!("package.mfb")]);
+    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
+        "http_package",
+        include_str!("package.mfb"),
+    ));
 
     func_read::register(&mut pkg);
     func_write::register(&mut pkg);

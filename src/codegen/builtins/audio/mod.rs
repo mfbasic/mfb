@@ -334,7 +334,10 @@ pub(crate) fn register(r: &mut Registry) {
     // The source companion: the `__audio_*` tone renderer + MML sequencer helper
     // FUNCs (including the `__audio_render`/`__audio_play`/`__audio_playTracks`
     // rewrite targets). The three value records are registered above (add_record).
-    pkg.add_helper_functions(vec![include_str!("package.mfb")]);
+    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
+        "audio_package",
+        include_str!("package.mfb"),
+    ));
 
     r.add_package(pkg);
 }

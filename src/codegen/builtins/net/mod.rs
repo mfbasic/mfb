@@ -255,7 +255,10 @@ pub(crate) fn register(r: &mut Registry) {
 
     // The shared private `__net_*` helpers, the `Url` TYPE, and the three
     // source-member bodies (`__net_toUrl`/`__net_percentDecode`/`__net_parseQuery`).
-    pkg.add_helper_functions(vec![include_str!("package.mfb")]);
+    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
+        "net_package",
+        include_str!("package.mfb"),
+    ));
 
     func_lookup::register(&mut pkg);
     func_connect_tcp::register(&mut pkg);

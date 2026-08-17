@@ -526,8 +526,8 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
         return Some(types);
     }
 
-    let expected = general::expected_arguments(callee)
-        .or_else(|| strings::expected_arguments(callee))?;
+    let expected =
+        general::expected_arguments(callee).or_else(|| strings::expected_arguments(callee))?;
     // A description that is not a concrete positional signature is not a coercion
     // table: an optional-argument bracket (`strings.find`'s
     // `"String, String[, Integer]"`), an argument union (`" or "`), a variadic range
