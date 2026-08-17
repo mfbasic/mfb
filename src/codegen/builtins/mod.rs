@@ -23,6 +23,7 @@ pub(crate) mod os;
 pub(crate) mod process;
 pub(crate) mod regex;
 pub(crate) mod strings;
+pub(crate) mod term;
 pub(crate) mod thread;
 pub(crate) mod tls;
 pub(crate) mod vector;

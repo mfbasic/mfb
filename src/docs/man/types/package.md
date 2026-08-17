@@ -105,10 +105,10 @@ user code. See `mfb man errors`.
 
 - **`TermColor`** — the `term` record returned by `term::getForeground` and
   `term::getBackground`, with `r`, `g`, and `b` (`Byte`) fields for the current
-  24-bit color components. [[src/builtins/term.rs:TERM_COLOR_TYPE]]
+  24-bit color components. [[src/codegen/builtins/term/mod.rs:TERM_COLOR_TYPE]]
 - **`TermSize`** — the `term` record returned by `term::terminalSize`, with
   `columns` and `rows` (`Integer`) fields for terminal width and height in
-  character cells. [[src/builtins/term.rs:TERM_SIZE_TYPE]]
+  character cells. [[src/codegen/builtins/term/mod.rs:TERM_SIZE_TYPE]]
 
 ## Comparability and ownership
 

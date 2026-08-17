@@ -19,7 +19,7 @@ IMPORT term
 ```
 
 `term` is a built-in package, so no manifest dependency is required.
-[[src/builtins/term.rs:is_term_call]]
+[[src/codegen/builtins/term/mod.rs:register]]
 
 ## Description
 
@@ -47,13 +47,13 @@ nor the shadow grid, and it cannot fail.
 
 ## Parameters
 
-`term::isOn` takes no parameters. [[src/builtins/term.rs:call_param_names]]
+`term::isOn` takes no parameters. [[src/codegen/registry/mod.rs:call_param_names]]
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when TUI mode is on, `FALSE` otherwise. [[src/builtins/term.rs:TERM]] |
+| `Boolean` | `TRUE` when TUI mode is on, `FALSE` otherwise. [[src/codegen/builtins/term/mod.rs:register]] |
 
 ## Errors
 

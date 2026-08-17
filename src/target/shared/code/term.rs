@@ -149,7 +149,7 @@ fn emit_unsupported(
     raise_error_into(symbol, "ErrUnsupported", instructions, relocations);
 }
 
-pub(super) fn lower_term_helper(
+pub(crate) fn lower_term_helper(
     call: &str,
     symbol: &str,
     term_state_offset: usize,

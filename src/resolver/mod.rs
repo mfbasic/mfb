@@ -27,8 +27,8 @@ const BUILTIN_TYPES: &[&str] = &[
     "Scalar",
     "String",
     crate::codegen::builtins::fs::FILE_TYPE_ID,
-    builtins::term::TERM_COLOR_TYPE,
-    builtins::term::TERM_SIZE_TYPE,
+    crate::codegen::builtins::term::TERM_COLOR_TYPE,
+    crate::codegen::builtins::term::TERM_SIZE_TYPE,
     crate::codegen::builtins::net::SOCKET_TYPE_ID,
     crate::codegen::builtins::net::LISTENER_TYPE_ID,
     crate::codegen::builtins::net::ADDRESS_TYPE,
@@ -108,20 +108,16 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     // registry-driven augmentation.
     let augmented = crate::codegen::registry::registry().augment_project(ast)?;
 
-    // The `term`↔`astrings` drawText bridge, injected only when a program imports
-    // BOTH packages; it imports term/astrings/strings, so it precedes all three so
-    // their `uses_package` sees the dependency (mirrors `http` before `net`).
-    let augmented = builtins::term::bridge_augmented_project(&augmented)?;
+    // `term`'s source companion (`package.mfb` — the `LineStyle`/`FillStyle` enums)
+    // and the `term`↔`astrings` `drawText(AttributedString)` bridge are injected by
+    // the clean-room `registry::augment_project` above (an `Always` helper on the
+    // migrated `term` package and a `WhenImported("astrings")` gated helper).
     // `astrings`' source companion (`package.mfb`) is injected by the generic
     // clean-room `registry::augment_project` above (plan-99 PART C), as an `Always`
     // helper on the migrated `astrings` package — emitted whenever a program
     // `IMPORT astrings`.
     // app + datetime + money source is injected by the clean-room
     // `registry::augment_project` above.
-    // `term_package.mfb` declares only the `LineStyle`/`FillStyle` enums and imports
-    // nothing, so it has no source ordering dependency (the attribute bridge is a
-    // separate gated source, injected above).
-    let augmented = builtins::term::augmented_project(&augmented)?;
     // `vector` source is injected by the clean-room `registry::augment_project` above
     // (it imports only the intrinsic `math` package, so it has no source-ordering
     // dependency).

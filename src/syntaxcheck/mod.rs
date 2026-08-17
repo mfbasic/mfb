@@ -162,16 +162,15 @@ pub fn check_project_collect(
 ) -> Result<Vec<crate::rules::PendingDiagnostic>, ()> {
     let augmented = crate::codegen::registry::registry().augment_project(ast)?;
 
-    // The `term`↔`astrings` drawText bridge, injected only when a program imports
-    // BOTH packages; it imports term/astrings/strings, so it precedes all three so
-    // their `uses_package` sees the dependency (mirrors `http` before `net`).
-    let augmented = builtins::term::bridge_augmented_project(&augmented)?;
+    // `term`'s source companion (`package.mfb`) and the `term`↔`astrings`
+    // `drawText(AttributedString)` bridge are injected by the clean-room
+    // `registry::augment_project` above (an `Always` helper on the migrated `term`
+    // package and a `WhenImported("astrings")` gated helper).
     // `astrings`' source companion (`package.mfb`) is injected by the generic
     // clean-room `registry::augment_project` above (plan-99 PART C), as an `Always`
     // helper on the migrated `astrings` package.
     // app + datetime + money source is injected by the clean-room
     // `registry::augment_project` above.
-    let augmented = builtins::term::augmented_project(&augmented)?;
     // `vector` source is injected by the clean-room `registry::augment_project` above.
     // `http` before `net`: `http_package.mfb` imports `net` (plan-03-http.md Phase 4).
     let augmented = crate::codegen::builtins::http::augmented_project(&augmented)?;

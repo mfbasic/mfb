@@ -19,13 +19,13 @@ IMPORT term
 ```
 
 `term` is a built-in package, so no manifest dependency is required.
-[[src/builtins/term.rs:is_term_call]]
+[[src/codegen/builtins/term/mod.rs:register]]
 
 ## Description
 
 `term::getUnderline` returns `TRUE` when subsequently drawn text will be
 underlined and `FALSE` when it will not. It takes no arguments.
-[[src/builtins/term.rs:TERM]]
+[[src/codegen/builtins/term/mod.rs:register]]
 
 The value is the module's current underline attribute read directly. Immediately
 after `term::on` — which resets underline to off — it is `FALSE`; afterwards it is
@@ -47,13 +47,13 @@ nothing, and cannot fail.
 
 ## Parameters
 
-`term::getUnderline` takes no parameters. [[src/builtins/term.rs:call_param_names]]
+`term::getUnderline` takes no parameters. [[src/codegen/registry/mod.rs:call_param_names]]
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when the underline attribute is set for subsequently drawn text, `FALSE` otherwise — including whenever TUI mode is off. [[src/builtins/term.rs:TERM]] |
+| `Boolean` | `TRUE` when the underline attribute is set for subsequently drawn text, `FALSE` otherwise — including whenever TUI mode is off. [[src/codegen/builtins/term/mod.rs:register]] |
 
 ## Errors
 

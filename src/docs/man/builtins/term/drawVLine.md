@@ -19,7 +19,7 @@ IMPORT term
 ```
 
 `term` is a built-in package, so no manifest dependency is required.
-[[src/builtins/term.rs:is_term_call]]
+[[src/codegen/builtins/term/mod.rs:register]]
 
 ## Description
 
@@ -45,7 +45,7 @@ The `line` argument is a `LineStyle` enum value selecting the weight and pattern
 `LineStyle.Light` (`│`), `LineStyle.Heavy` (`┃`), `LineStyle.LightDash` (`┆`),
 `LineStyle.HeavyDash` (`┇`), `LineStyle.LightDot` (`┊`), `LineStyle.HeavyDot`
 (`┋`), and `LineStyle.Double` (`║`). `term::drawHLine` draws the matching
-horizontal forms. [[src/builtins/term.rs:LINE_STYLE_TYPE]]
+horizontal forms. [[src/codegen/builtins/term/mod.rs:LineStyle]]
 
 Drawing a line does not move the shadow cursor and does not change the current
 colours or attributes; it overwrites only the cells in the run, so a later draw
@@ -60,16 +60,16 @@ The call is gated: while TUI mode is off it does nothing and reports no error.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `line` | `LineStyle` | The box-drawing weight/pattern; its vertical form is used. [[src/builtins/term.rs:call_param_names]] |
-| `col` | `Integer` | Zero-based column the line is drawn on. Outside `0 .. columns-1` the call draws nothing. [[src/builtins/term.rs:call_param_names]] |
-| `rowA` | `Integer` | One end of the row span (inclusive); may be greater or less than `rowB`. Clamped to the surface. [[src/builtins/term.rs:call_param_names]] |
-| `rowB` | `Integer` | The other end of the row span (inclusive). Clamped to the surface. [[src/builtins/term.rs:call_param_names]] |
+| `line` | `LineStyle` | The box-drawing weight/pattern; its vertical form is used. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `col` | `Integer` | Zero-based column the line is drawn on. Outside `0 .. columns-1` the call draws nothing. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `rowA` | `Integer` | One end of the row span (inclusive); may be greater or less than `rowB`. Clamped to the surface. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `rowB` | `Integer` | The other end of the row span (inclusive). Clamped to the surface. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of stamping the run into the back buffer. [[src/builtins/term.rs:TERM]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of stamping the run into the back buffer. [[src/codegen/builtins/term/mod.rs:register]] |
 
 ## Errors
 

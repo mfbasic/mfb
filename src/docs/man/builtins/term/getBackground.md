@@ -19,14 +19,14 @@ IMPORT term
 ```
 
 `term` is a built-in package, so no manifest dependency is required.
-[[src/builtins/term.rs:is_term_call]]
+[[src/codegen/builtins/term/mod.rs:register]]
 
 ## Description
 
 `term::getBackground` returns the colour drawn behind subsequently written text,
 as a freshly allocated `TermColor` record with three `Byte` fields `r`, `g`, and
 `b` holding the red, green, and blue channels. It takes no arguments.
-[[src/builtins/term.rs:TERM]]
+[[src/codegen/builtins/term/mod.rs:register]]
 
 The value is the module's current background attribute, unpacked from the 24-bit
 value that `term::setBackground` stored. Immediately after `term::on` — which
@@ -52,13 +52,13 @@ allocated.
 
 ## Parameters
 
-`term::getBackground` takes no parameters. [[src/builtins/term.rs:call_param_names]]
+`term::getBackground` takes no parameters. [[src/codegen/registry/mod.rs:call_param_names]]
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `TermColor` | A record whose `r`, `g`, and `b` `Byte` fields are the channels of the current background colour, each 0 to 255. Black (0, 0, 0) immediately after `term::on`, and black while TUI mode is off. [[src/builtins/term.rs:TERM]] |
+| `TermColor` | A record whose `r`, `g`, and `b` `Byte` fields are the channels of the current background colour, each 0 to 255. Black (0, 0, 0) immediately after `term::on`, and black while TUI mode is off. [[src/codegen/builtins/term/mod.rs:register]] |
 
 ## Errors
 

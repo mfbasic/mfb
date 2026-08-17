@@ -11,6 +11,25 @@
   },
   "types": [
   {
+    "kind": "type",
+    "visibility": "export",
+    "name": "TermColor",
+    "fields": [
+    { "visibility": null, "name": "r", "type": "Byte" },
+    { "visibility": null, "name": "g", "type": "Byte" },
+    { "visibility": null, "name": "b", "type": "Byte" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "export",
+    "name": "TermSize",
+    "fields": [
+    { "visibility": null, "name": "columns", "type": "Integer" },
+    { "visibility": null, "name": "rows", "type": "Integer" }
+    ]
+  },
+  {
     "kind": "enum",
     "visibility": "export",
     "name": "LineStyle",

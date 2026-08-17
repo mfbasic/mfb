@@ -19,7 +19,7 @@ IMPORT term
 ```
 
 `term` is a built-in package, so no manifest dependency is required.
-[[src/builtins/term.rs:is_term_call]]
+[[src/codegen/builtins/term/mod.rs:register]]
 
 ## Description
 
@@ -28,7 +28,7 @@ allocated `TermSize` record with two `Integer` fields: `columns`, the width in
 character cells, and `rows`, the height. Both are counts of whole cells, never
 pixels. Valid cursor positions are rows `0` through `rows-1` and columns `0`
 through `columns-1`. It takes no arguments.
-[[src/builtins/term.rs:TERM]]
+[[src/codegen/builtins/term/mod.rs:register]]
 
 **This is the one `term::` read that is not silently inert while TUI mode is
 off.** There is no meaningful default size to report, so calling it before
@@ -61,13 +61,13 @@ is off or no view is attached.
 
 ## Parameters
 
-`term::terminalSize` takes no parameters. [[src/builtins/term.rs:call_param_names]]
+`term::terminalSize` takes no parameters. [[src/codegen/registry/mod.rs:call_param_names]]
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `TermSize` | A record whose `columns` field is the surface width in cells and whose `rows` field is its height. Both are positive. [[src/builtins/term.rs:TERM]] |
+| `TermSize` | A record whose `columns` field is the surface width in cells and whose `rows` field is its height. Both are positive. [[src/codegen/builtins/term/mod.rs:register]] |
 
 ## Errors
 

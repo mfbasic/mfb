@@ -27,7 +27,7 @@ use crate::target::shared::abi;
 /// The gate is spliced in right after the helper's `"entry"` label and *before* its
 /// manual prologue (`subtract_stack`), so the early error return runs with no frame
 /// allocated and an intact link register — a bare `return_()` is safe there.
-pub(super) fn prepend_wrong_mode_gate(
+pub(crate) fn prepend_wrong_mode_gate(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     symbol: &str,

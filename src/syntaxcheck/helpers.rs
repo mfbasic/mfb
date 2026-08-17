@@ -298,8 +298,7 @@ pub(super) fn numeric_type_name(type_: &Type) -> Option<&'static str> {
 }
 
 pub(super) fn read_only_record_type(type_name: &str) -> bool {
-    type_name == builtins::term::TERM_COLOR_TYPE
-        || type_name == builtins::term::TERM_SIZE_TYPE
+    crate::codegen::builtins::term::is_read_only_record(type_name)
         || type_name == crate::codegen::builtins::net::ADDRESS_TYPE
         || type_name == crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE
         || type_name.starts_with("MapEntry OF ")

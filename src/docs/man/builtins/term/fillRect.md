@@ -19,7 +19,7 @@ IMPORT term
 ```
 
 `term` is a built-in package, so no manifest dependency is required.
-[[src/builtins/term.rs:is_term_call]]
+[[src/codegen/builtins/term/mod.rs:register]]
 
 ## Description
 
@@ -41,7 +41,7 @@ cursor. [[src/target/shared/code/term.rs:emit_fill_rect]]
 `Dark` (▓), and the two quadrant patterns `Checker` (▚) and `CheckerAlt` (▞). The
 shade variants read as translucent overlays at a glance; the solid block is opaque.
 The same surface renders identically on the console and in windowed app mode.
-[[src/builtins/term.rs:FILL_STYLE_TYPE]]
+[[src/codegen/builtins/term/mod.rs:FillStyle]]
 
 The call is gated: while TUI mode is off it does nothing and reports no error.
 [[src/target/shared/code/term.rs:emit_gate_inactive]]
@@ -50,17 +50,17 @@ The call is gated: while TUI mode is off it does nothing and reports no error.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `fill` | `FillStyle` | The block or shade glyph stamped into every cell of the region. [[src/builtins/term.rs:call_param_names]] |
-| `x1` | `Integer` | Column of the first corner (zero-based). Clamped to the surface. [[src/builtins/term.rs:call_param_names]] |
-| `y1` | `Integer` | Row of the first corner (zero-based). Clamped to the surface. [[src/builtins/term.rs:call_param_names]] |
-| `x2` | `Integer` | Column of the opposite corner; may be less or greater than `x1`. [[src/builtins/term.rs:call_param_names]] |
-| `y2` | `Integer` | Row of the opposite corner; may be less or greater than `y1`. [[src/builtins/term.rs:call_param_names]] |
+| `fill` | `FillStyle` | The block or shade glyph stamped into every cell of the region. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `x1` | `Integer` | Column of the first corner (zero-based). Clamped to the surface. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `y1` | `Integer` | Row of the first corner (zero-based). Clamped to the surface. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `x2` | `Integer` | Column of the opposite corner; may be less or greater than `x1`. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `y2` | `Integer` | Row of the opposite corner; may be less or greater than `y1`. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of filling the region. [[src/builtins/term.rs:TERM]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of filling the region. [[src/codegen/builtins/term/mod.rs:register]] |
 
 ## Errors
 

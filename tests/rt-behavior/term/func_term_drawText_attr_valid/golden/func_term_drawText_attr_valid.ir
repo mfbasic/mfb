@@ -136,19 +136,28 @@
   },
   {
     "kind": "type",
-    "line": 36,
-    "visibility": "public",
-    "name": "#TermStyle",
+    "line": 1,
+    "visibility": "export",
+    "name": "TermColor",
     "fields": [
-    { "visibility": null, "line": 37, "name": "bold", "type": "Boolean" },
-    { "visibility": null, "line": 38, "name": "underline", "type": "Boolean" },
-    { "visibility": null, "line": 39, "name": "fg", "type": "Integer" },
-    { "visibility": null, "line": 40, "name": "bg", "type": "Integer" }
+    { "visibility": null, "line": 2, "name": "r", "type": "Byte" },
+    { "visibility": null, "line": 3, "name": "g", "type": "Byte" },
+    { "visibility": null, "line": 4, "name": "b", "type": "Byte" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 7,
+    "visibility": "export",
+    "name": "TermSize",
+    "fields": [
+    { "visibility": null, "line": 8, "name": "columns", "type": "Integer" },
+    { "visibility": null, "line": 9, "name": "rows", "type": "Integer" }
     ]
   },
   {
     "kind": "enum",
-    "line": 32,
+    "line": 43,
     "visibility": "export",
     "name": "LineStyle",
     "members": [
@@ -163,7 +172,7 @@
   },
   {
     "kind": "enum",
-    "line": 53,
+    "line": 64,
     "visibility": "export",
     "name": "FillStyle",
     "members": [
@@ -173,6 +182,18 @@
     { "name": "Dark" },
     { "name": "Checker" },
     { "name": "CheckerAlt" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 36,
+    "visibility": "public",
+    "name": "#TermStyle",
+    "fields": [
+    { "visibility": null, "line": 37, "name": "bold", "type": "Boolean" },
+    { "visibility": null, "line": 38, "name": "underline", "type": "Boolean" },
+    { "visibility": null, "line": 39, "name": "fg", "type": "Integer" },
+    { "visibility": null, "line": 40, "name": "bg", "type": "Integer" }
     ]
   }
   ],

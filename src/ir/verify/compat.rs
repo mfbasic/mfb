@@ -201,17 +201,17 @@ impl TypeEnv {
         let Some(arg_types) = arg_types else {
             return;
         };
-        // `term` exposes its per-name signatures (`arity`, `param_types`)
+        // `term` exposes its per-name signatures (`arity`, machine `argument_types`)
         // rather than an arg-typed `resolve_call`, so check against those with
         // the ported `expression_compatible` — the same data syntaxcheck's
         // `check_term_builtin_call` uses, so term's signature is single-source.
-        if builtins::term::is_term_call(target) {
+        if crate::codegen::registry::registry().owning_package(target) == Some("term") {
             if let Some((min, max)) = builtins::arity(target) {
                 if self.builtin_arity_errored(target, arg_types.len(), min, max) {
                     return;
                 }
             }
-            let params = builtins::term::param_types(target).unwrap_or(&[]);
+            let params = builtins::argument_types(target).unwrap_or_default();
             let mut mismatch = false;
             for (i, param) in params.iter().enumerate() {
                 if let (Some(actual), Some(arg)) = (arg_types.get(i), args.get(i)) {

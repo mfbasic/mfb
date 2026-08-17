@@ -19,7 +19,7 @@ IMPORT term
 ```
 
 `term` is a built-in package, so no manifest dependency is required.
-[[src/builtins/term.rs:is_term_call]]
+[[src/codegen/builtins/term/mod.rs:register]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT term
 the `term::` surface. The three channels — red, green, blue — are each a `Byte`
 from 0 to 255, so (0, 0, 0) is black and (255, 255, 255) is white. Exactly three
 arguments are required.
-[[src/builtins/term.rs:TERM]] [[src/builtins/term.rs:param_types]]
+[[src/codegen/builtins/term/mod.rs:register]] [[src/codegen/registry/mod.rs:argument_types]]
 
 The colour is packed into the module's current-attribute state and **no escape
 sequence is emitted**; the effect becomes visible when `term::sync` presents the
@@ -54,15 +54,15 @@ The call is gated: while TUI mode is off it does nothing and reports no error.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `r` | `Byte` | Red channel, 0 to 255. [[src/builtins/term.rs:call_param_names]] |
-| `g` | `Byte` | Green channel, 0 to 255. [[src/builtins/term.rs:call_param_names]] |
-| `b` | `Byte` | Blue channel, 0 to 255. [[src/builtins/term.rs:call_param_names]] |
+| `r` | `Byte` | Red channel, 0 to 255. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `g` | `Byte` | Green channel, 0 to 255. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `b` | `Byte` | Blue channel, 0 to 255. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns nothing. The call is made for its side effect of setting the current background colour. [[src/builtins/term.rs:TERM]] |
+| `Nothing` | Returns nothing. The call is made for its side effect of setting the current background colour. [[src/codegen/builtins/term/mod.rs:register]] |
 
 ## Errors
 

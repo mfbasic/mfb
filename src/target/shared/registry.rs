@@ -1051,7 +1051,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     // http migrated to the clean-room registry (crate::codegen::registry).
     &crate::builtins::resource::RESOURCE,
     // strings migrated to the clean-room registry (crate::codegen::registry).
-    &crate::builtins::term::TERM,
+    // term migrated to the clean-room registry (crate::codegen::registry).
     &crate::builtins::testing::TESTING,
     // math migrated to the clean-room registry (crate::codegen::registry).
     // money migrated to the clean-room registry (crate::codegen::registry).
@@ -1280,6 +1280,17 @@ pub(crate) mod parity {
 mod tests {
     use super::*;
 
+    // A real source loader for the descriptor `source`/`loader` fields, so they are
+    // exercised end to end without a bespoke stub. (Previously borrowed
+    // `crate::builtins::term::source_file`, which moved to the clean-room registry.)
+    fn test_source_file() -> Result<crate::ast::AstFile, ()> {
+        crate::ast::parse_source_internal(
+            std::path::Path::new("<test-src>"),
+            "builtins/test.mfb",
+            "EXPORT ENUM TStyle\n  Light\nEND ENUM\n",
+        )
+    }
+
     // A small data-only test module standing in for a real package, with two
     // functions: a fixed-arity `add(a, b)` and an `emit(value, opts?)` that has
     // an alias, an optional defaulted trailing argument, and a rewrite.
@@ -1417,7 +1428,7 @@ mod tests {
         // loader fields are exercised end to end without a bespoke stub.
         source: Some(BuiltinSource {
             rule: InjectionRule::WhenImported,
-            loader: crate::builtins::term::source_file,
+            loader: test_source_file,
         }),
         resolver: None,
     };
@@ -1781,8 +1792,13 @@ mod tests {
         // `strings` migrated to the clean-room registry (plan-99 PART B).
         assert!(REGISTRY.module("strings").is_none());
         assert!(REGISTRY.function("strings.upper").is_none());
+        // `term` migrated to the clean-room registry (its `TermColor`/`TermSize`
+        // records + `LineStyle`/`FillStyle` enums and the astrings drawText bridge
+        // moved too), so its FUNCTIONS are no longer held here.
+        assert!(REGISTRY.module("term").is_none());
+        assert!(REGISTRY.function("term.clear").is_none());
         // The 28 builtin packages minus the migrated ones.
-        assert_eq!(REGISTRY.modules().len(), 4);
+        assert_eq!(REGISTRY.modules().len(), 3);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);
@@ -1984,7 +2000,7 @@ mod tests {
         types: S_TYPES,
         source: Some(BuiltinSource {
             rule: InjectionRule::WhenUsed,
-            loader: crate::builtins::term::source_file,
+            loader: test_source_file,
         }),
         resolver: Some(&S_RESOLVER),
     };

@@ -32,7 +32,7 @@ the home position). Every other `term::` call except `term::isOn` is a no-op
 while TUI mode is off, so a program must call `term::on` before any cursor,
 color, attribute, or clear call takes effect, and `term::off` later leaves TUI
 mode and restores the user's previous screen. `term::isOn` reports whether TUI
-mode is currently on and works whether or not it is. [[src/builtins/term.rs:ON]]
+mode is currently on and works whether or not it is. [[src/codegen/builtins/term/func_on.rs:on]]
 
 While TUI mode is on the surface is **retained** and **double-buffered**: drawing
 calls (including `io::print`/`io::write`) mutate an in-memory cell grid rather
@@ -44,7 +44,7 @@ app mode `term::sync` coalesces the frame into a single redraw. `term::off`
 performs a final `term::sync` before restoring the screen, so the last frame is
 always shown. A program that draws without a following `term::sync` displays
 nothing - the canonical shape is to compose a whole frame, call `term::sync`
-once, then read input. [[src/builtins/term.rs:SYNC]]
+once, then read input. [[src/codegen/builtins/term/func_sync.rs:sync]]
 
 Coordinates are zero-based and measured from the top-left corner of the surface:
 row 0 is the topmost line and column 0 is the leftmost column, so (0, 0) is the
@@ -55,7 +55,7 @@ triples of three `Byte` channels (red, green, blue), each 0 to 255. Color and
 attribute changes take effect immediately for subsequently drawn text and do not
 alter text already on the screen; each setting is independent, so changing one
 leaves the others untouched, and the matching get function reads the current
-value back. [[src/builtins/term.rs:MOVE_TO]]
+value back. [[src/codegen/builtins/term/func_move_to.rs:moveTo]]
 
 Beyond text, the surface can draw box-drawing rules: `term::drawHLine` stamps a
 horizontal run of a box-drawing glyph across a row, `term::drawVLine` stamps a
@@ -81,7 +81,7 @@ the surface size can change between calls (for example when the terminal window 
 resized), so a program that depends on it should query it again rather than caching
 the result. `LineStyle` selects the box-drawing weight for `term::drawHLine`,
 `term::drawVLine`, and `term::drawBox`; `FillStyle` selects the block or shade
-glyph for `term::fillRect`. [[src/builtins/term.rs:TERM]]
+glyph for `term::fillRect`. [[src/codegen/builtins/term/mod.rs:register]]
 
 ## Errors
 

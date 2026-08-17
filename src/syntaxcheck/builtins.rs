@@ -302,7 +302,7 @@ impl<'a> SyntaxChecker<'a> {
                 line,
             );
         }
-        if builtins::term::is_term_call(callee) {
+        if crate::codegen::registry::registry().owning_package(callee) == Some("term") {
             return self.check_term_builtin_call(
                 file,
                 display_callee,
@@ -487,7 +487,7 @@ impl<'a> SyntaxChecker<'a> {
         // import here so the call cannot route to an uninjected `#term_drawTextAttr`
         // (`AttributedString` is always in scope, so a value can reach this call
         // without `IMPORT astrings`).
-        let third_is_attributed = callee == builtins::term::DRAW_TEXT
+        let third_is_attributed = callee == crate::codegen::builtins::term::DRAW_TEXT
             && arg_types.len() == 3
             && self.type_name(&arg_types[2]) == "AttributedString";
         if third_is_attributed {
@@ -508,10 +508,14 @@ impl<'a> SyntaxChecker<'a> {
                 return self.term_return_type(callee);
             }
         }
-        let param_types: &[&str] = if third_is_attributed {
-            &["Integer", "Integer", "AttributedString"]
+        let param_types: Vec<String> = if third_is_attributed {
+            vec![
+                "Integer".to_string(),
+                "Integer".to_string(),
+                "AttributedString".to_string(),
+            ]
         } else {
-            builtins::term::param_types(callee).unwrap_or(&[])
+            builtins::argument_types(callee).unwrap_or_default()
         };
 
         let mut mismatch = false;
@@ -548,8 +552,13 @@ impl<'a> SyntaxChecker<'a> {
     }
 
     pub(super) fn term_return_type(&mut self, callee: &str) -> Type {
-        match builtins::resolve_call_return_type(callee, &[], true) {
-            Some(return_type) => self.parse_type(&return_type),
+        // `term`'s return type is a function of the NAME alone (the legacy
+        // `TermResolver` ignored argument types), so resolve it by name rather than
+        // arg-typed `resolve_call_return_type` — which, called with the empty arg list
+        // here, would fail the arity match for any parameterful member (e.g.
+        // `term::setForeground`) and mis-report `Unknown`.
+        match builtins::call_return_type_name(callee) {
+            Some(return_type) => self.parse_type(return_type),
             None => Type::Unknown,
         }
     }
@@ -1358,7 +1367,11 @@ mod builtins_tests {
                     crate::codegen::registry::registry().owning_package(c) == Some("collections")
                 }) as fn(&str) -> bool,
             ),
-            ("term", builtins::term::is_term_call),
+            (
+                "term",
+                (|c: &str| crate::codegen::registry::registry().owning_package(c) == Some("term"))
+                    as fn(&str) -> bool,
+            ),
             ("thread", crate::codegen::builtins::thread::is_thread_call),
         ];
 
