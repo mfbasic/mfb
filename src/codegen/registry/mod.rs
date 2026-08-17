@@ -404,6 +404,14 @@ pub(crate) struct RegistryFunction {
     /// for the packages whose diagnostic equals the parameter-derived render
     /// (csv/json/regex), which keeps them byte-identical.
     pub(crate) expected_arguments: Option<&'static str>,
+    /// Whether the member resolves **only** from toolchain-provided (`internal`)
+    /// source — a native primitive the package's own injected companion calls that
+    /// user source must never reach (`astrings`' `readSpans`/`writeSpans`/`scalarLen`
+    /// opaque overlay bridge). Honored by `builtins::is_internal_only_call` (which
+    /// gates it in `resolver::resolution` to non-`internal` files) and, implicitly, by
+    /// the man docs (an internal member ships no man page, so no listing shows it).
+    /// Default `false`.
+    pub(crate) internal_only: bool,
     /// The function's implementations (`>= 1`); more than one means an overload set.
     pub(crate) implementations: Vec<Implementation>,
 }
@@ -1328,6 +1336,16 @@ impl Registry {
         self.resolve_func(qualified).is_some()
     }
 
+    /// Whether the migrated call `qualified` is an **internal-only** member — a native
+    /// primitive resolvable only from toolchain-provided (`internal`) source
+    /// (`astrings.readSpans`/`writeSpans`/`scalarLen`). The registry half of
+    /// `builtins::is_internal_only_call`, replacing the deleted per-package
+    /// `astrings::is_astrings_internal_call`.
+    pub(crate) fn is_internal_only_member(&self, qualified: &str) -> bool {
+        self.resolve_func(qualified)
+            .is_some_and(|resolved| resolved.function.internal_only)
+    }
+
     /// The import name of the migrated package that owns `qualified`, or `None`.
     pub(crate) fn owning_package(&self, qualified: &str) -> Option<&'static str> {
         self.resolve_func(qualified)
@@ -1410,6 +1428,7 @@ pub(crate) fn registry() -> &'static Registry {
 fn build() -> Registry {
     let mut r = Registry::new();
     crate::codegen::builtins::app::register(&mut r);
+    crate::codegen::builtins::astrings::register(&mut r);
     crate::codegen::builtins::audio::register(&mut r);
     crate::codegen::builtins::bits::register(&mut r);
     crate::codegen::builtins::csv::register(&mut r);
@@ -2580,6 +2599,7 @@ mod tests {
             desc: "d",
             example: "e",
             expected_arguments: None,
+            internal_only: false,
             implementations,
         }
     }
@@ -3588,6 +3608,7 @@ mod tests {
             desc: "fn desc",
             example: "fn example",
             expected_arguments: None,
+            internal_only: false,
             implementations: vec![Implementation {
                 params: vec![
                     Parameter {

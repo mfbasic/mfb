@@ -96,6 +96,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         expected_arguments: Some(
             "List OF String or List OF String, String, Map OF String TO String, Boolean",
         ),
+        internal_only: false,
         implementations: vec![
             // Bare argv form.
             Implementation {

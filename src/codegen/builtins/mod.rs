@@ -3,6 +3,7 @@
 //! migrated function, the target-generic lowering carried by `Implementation`.
 
 pub(crate) mod app;
+pub(crate) mod astrings;
 pub(crate) mod audio;
 pub(crate) mod bits;
 pub(crate) mod collections;

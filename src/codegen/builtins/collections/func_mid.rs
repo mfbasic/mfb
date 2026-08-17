@@ -96,6 +96,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: DESC_MID,
         example: EX_MID,
         expected_arguments: Some("List OF T, Integer, Integer"),
+        internal_only: false,
         implementations: vec![Implementation {
             params: vec![
                 Parameter {

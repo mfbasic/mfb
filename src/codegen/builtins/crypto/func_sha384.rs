@@ -66,6 +66,7 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
         desc: DESC,
         example: EX,
         expected_arguments: Some("List OF Byte or String"),
+        internal_only: false,
         implementations: vec![
             Implementation {
                 params: vec![Parameter {

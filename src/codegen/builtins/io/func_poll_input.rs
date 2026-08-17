@@ -69,6 +69,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: DESC,
         example: EX,
         expected_arguments: Some("Integer"),
+        internal_only: false,
         implementations: vec![Implementation {
             params: vec![Parameter {
                 name: "timeoutMs",

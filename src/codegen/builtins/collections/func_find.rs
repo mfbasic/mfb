@@ -105,6 +105,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: DESC_FIND,
         example: EX_FIND,
         expected_arguments: Some("List OF T, T[, Integer]"),
+        internal_only: false,
         implementations: vec![
             Implementation {
                 params: vec![

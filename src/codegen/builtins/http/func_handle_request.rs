@@ -38,6 +38,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: "",
         example: "",
         expected_arguments: Some("Listener or TlsListener, List OF Route"),
+        internal_only: false,
         implementations: vec![
             overload(super::LISTENER_TYPE, "__http_handleRequest"),
             overload(super::TLS_LISTENER_TYPE, "__http_handleRequestSSL"),

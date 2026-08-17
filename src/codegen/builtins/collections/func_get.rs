@@ -95,6 +95,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: DESC_GET,
         example: EX,
         expected_arguments: Some("List OF T, Integer or Map OF K TO V, K"),
+        internal_only: false,
         implementations: vec![
             Implementation {
                 params: vec![

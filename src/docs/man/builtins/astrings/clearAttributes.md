@@ -25,7 +25,7 @@ IMPORT astrings
 empties the entire attribute overlay. The three-argument form clears every attribute over the
 inclusive range `[start, endIndex]`, **splitting** any span that straddles the range so its flanks
 outside the range survive (regardless of member — unlike `removeAttribute`, no structural match is
-required). [[src/builtins/astrings_package.mfb]]
+required). [[src/codegen/builtins/astrings/package.mfb]]
 
 ## Parameters
 

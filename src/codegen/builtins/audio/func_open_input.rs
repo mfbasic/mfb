@@ -54,6 +54,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         expected_arguments: Some(
             "Integer, Integer, Integer or AudioDevice, Integer, Integer, Integer",
         ),
+        internal_only: false,
         implementations: vec![
             Implementation {
                 params: vec![

@@ -26,7 +26,7 @@ vocabulary. It is a read-only projection — `value` is not modified.
 
 **This is not CommonMark.** The format is read by the `astrings` toolchain, not a
 standard markdown engine; do not treat `__`/`^^`/`::…::` as CommonMark.
-[[src/builtins/astrings_package.mfb]]
+[[src/codegen/builtins/astrings/package.mfb]]
 
 - **Flags** wrap each run as nested pairs in canonical (enum-declaration) order —
   `**bold**`, `*italic*`, `__underline__`, `~~strike~~`, `^^overline^^` — opened in

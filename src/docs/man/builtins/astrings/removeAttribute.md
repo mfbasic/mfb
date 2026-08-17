@@ -25,7 +25,7 @@ IMPORT astrings
 (same member and, for font/size, same value). A matching span that straddles the range is **split**:
 its surviving left flank `[s.start, start−1]` and/or right flank `[endIndex+1, s.last]` are kept and
 the overlap dropped. Because overlapping spans resolve by higher-start-wins, removing a covering
-winner can reveal a lower-start loser at read time. [[src/builtins/astrings_package.mfb]]
+winner can reveal a lower-start loser at read time. [[src/codegen/builtins/astrings/package.mfb]]
 
 ## Parameters
 

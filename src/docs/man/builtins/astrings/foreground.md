@@ -26,7 +26,7 @@ a single `0xRRGGBB` Integer — `r` in the high byte, `b` in the low byte. Each
 channel is a `Byte`, so the packing is lossless. Pass it to
 `astrings::addAttribute` to set the text foreground color over a scalar range;
 overlapping foreground spans resolve by higher-start-wins at read time.
-[[src/builtins/astrings_package.mfb]]
+[[src/codegen/builtins/astrings/package.mfb]]
 
 When such an `AttributedString` is drawn with `term::drawText(x, y, value)` (both
 `term` and `astrings` imported), the color is emitted as a truecolor foreground.

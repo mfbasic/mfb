@@ -643,6 +643,7 @@ pub(crate) fn register(r: &mut Registry) {
             desc: "",
             example: "",
             expected_arguments: Some(member.expected),
+            internal_only: false,
             implementations: implementations(member.name, member.shape, member.errors),
         });
     }

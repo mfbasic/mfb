@@ -24,7 +24,7 @@ IMPORT astrings
 range `[start, endIndex]` (length `endIndex − start + 1`; `start == endIndex` is a single scalar).
 Spans are stored as-is and never merged; overlapping same-member spans resolve at read time by
 higher-start-wins (see `getAttributes`). The end-of-range parameter is `endIndex` rather than `end`
-because `end` is a reserved keyword. [[src/builtins/astrings_package.mfb]]
+because `end` is a reserved keyword. [[src/codegen/builtins/astrings/package.mfb]]
 
 ## Parameters
 

@@ -45,6 +45,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         // (`audio.AudioOutput`) — matching the pre-migration message and every other
         // audio member's phrasing.
         expected_arguments: Some("AudioOutput, List OF Byte"),
+        internal_only: false,
         implementations: vec![Implementation {
             params: vec![
                 param(

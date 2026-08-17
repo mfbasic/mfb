@@ -96,6 +96,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: DESC_SUM,
         example: EX,
         expected_arguments: Some("List OF Integer, List OF Float, or List OF Fixed"),
+        internal_only: false,
         implementations: vec![
             Implementation {
                 params: vec![Parameter {

@@ -23,7 +23,7 @@ IMPORT astrings
 `fontSize` returns an `Attribute` wrapping the `AttrNumber` with `kind` `AttrTypeNumber.FontSize` and
 `value` `size`. Pass it to `astrings::addAttribute` to set the font size (e.g. in points) over a
 scalar range. Font size is an Integer-valued attribute: overlapping font-size spans resolve by
-higher-start-wins at read time. [[src/builtins/astrings_package.mfb]]
+higher-start-wins at read time. [[src/codegen/builtins/astrings/package.mfb]]
 
 ## Parameters
 

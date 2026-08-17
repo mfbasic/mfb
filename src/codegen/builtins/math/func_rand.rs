@@ -46,6 +46,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: DESC,
         example: EX,
         expected_arguments: Some("Integer min, Integer max (or Money, Money)"),
+        internal_only: false,
         implementations: impls,
     });
 }

@@ -23,7 +23,7 @@ IMPORT astrings
 `font` returns an `Attribute` wrapping the `AttrText` with `kind` `AttrTypeText.Font` and `value`
 `name`. Pass it to `astrings::addAttribute` to set the font family over a scalar range. Font is a
 String-valued attribute: overlapping font spans resolve by higher-start-wins at read time.
-[[src/builtins/astrings_package.mfb]]
+[[src/codegen/builtins/astrings/package.mfb]]
 
 ## Parameters
 

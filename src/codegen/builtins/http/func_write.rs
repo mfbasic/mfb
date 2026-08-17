@@ -11,6 +11,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: "",
         example: "",
         expected_arguments: Some("Url, String, Map OF String TO String, String"),
+        internal_only: false,
         implementations: vec![Implementation {
             params: vec![
                 super::req("url", &[], ParameterType::Named("Url")),

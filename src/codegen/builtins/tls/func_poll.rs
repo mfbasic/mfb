@@ -103,6 +103,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         // Return-type-overloaded (Boolean vs TlsSocket): the per-position render
         // yields None, so the union phrasing rides on this hand-authored hint.
         expected_arguments: Some("TlsSocket, Integer or List OF RES TlsSocket, Integer"),
+        internal_only: false,
         implementations: vec![
             // Scalar readiness query: `poll(TlsSocket[, timeoutMs]) AS Boolean`.
             Implementation {

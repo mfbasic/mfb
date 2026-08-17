@@ -62,6 +62,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: DESC,
         example: EX,
         expected_arguments: Some("TlsSocket or TlsListener"),
+        internal_only: false,
         implementations: vec![
             // Socket close — lowers to the public `tls.close` body.
             Implementation {

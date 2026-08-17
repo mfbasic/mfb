@@ -11,6 +11,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: "",
         example: "",
         expected_arguments: Some("Socket"),
+        internal_only: false,
         implementations: vec![Implementation {
             params: vec![super::req("sock", &[], super::socket())],
             return_type: ParameterType::Named(super::ADDRESS_TYPE),

@@ -708,14 +708,11 @@ impl CodeBuilder<'_> {
                 if let Some(result) = self.lower_fs_path_call(target, args)? {
                     return Ok(result);
                 }
-                // `strings::` native members migrated to the clean-room registry
-                // (`Body::Native` `common`), reached below through `try_native_lower`
-                // (plan-99 PART B). Their shared codegen carrier
-                // (`lower_strings_package_call`) is unchanged; only the dispatch seam
-                // moved off this per-package call.
-                if let Some(result) = self.lower_astrings_package_call(target, args)? {
-                    return Ok(result);
-                }
+                // `strings::`/`astrings::` native members migrated to the clean-room
+                // registry (`Body::Native` `common`), reached below through
+                // `try_native_lower` (plan-99 PART B/C). Their shared codegen carriers
+                // (`lower_strings_package_call`/`lower_astrings_package_call`) are
+                // unchanged; only the dispatch seam moved off these per-package calls.
                 // Migrated `collections::`/`strings::` members arrive with their
                 // qualified, dot-containing target (`collections.get`,
                 // `strings.find`, ...). `native_builtin_target` maps these to the
@@ -982,14 +979,12 @@ impl CodeBuilder<'_> {
                 if let Some(result) = self.lower_fs_path_call(target, args)? {
                     return Ok(result);
                 }
-                // `strings::` native members migrated to the clean-room registry
-                // (`Body::Native` `common`), reached through `try_native_lower`
-                // (plan-99 PART B) — the same dual-path seam as `collections::`.
+                // `strings::`/`astrings::` native members migrated to the clean-room
+                // registry (`Body::Native` `common`), reached through
+                // `try_native_lower` (plan-99 PART B/C) — the same dual-path seam as
+                // `collections::`.
                 if let Some(result) = self.try_native_lower(target, args) {
                     return result;
-                }
-                if let Some(result) = self.lower_astrings_package_call(target, args)? {
-                    return Ok(result);
                 }
                 if target == "isEven" && args.len() == 1 {
                     return self.lower_integer_parity_predicate("isEven", &args[0], false);

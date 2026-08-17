@@ -14,6 +14,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: "",
         example: "",
         expected_arguments: Some("Socket, Integer or List OF RES Socket, Integer"),
+        internal_only: false,
         implementations: vec![
             // Scalar readiness query: `poll(Socket[, timeoutMs]) AS Boolean`.
             Implementation {

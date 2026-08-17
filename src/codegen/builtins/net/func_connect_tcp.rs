@@ -15,6 +15,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: "",
         example: "",
         expected_arguments: Some("String, Integer, Integer or Address, Integer"),
+        internal_only: false,
         implementations: vec![
             Implementation {
                 params: vec![

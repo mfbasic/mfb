@@ -11,6 +11,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: "",
         example: "",
         expected_arguments: Some("String"),
+        internal_only: false,
         implementations: vec![Implementation {
             params: vec![super::req("text", &[], ParameterType::String)],
             return_type: ParameterType::list_of(ParameterType::Byte),
