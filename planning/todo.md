@@ -85,7 +85,7 @@ Tier 2 — source companion + light native:
 - [x] `io` — DONE (15 members; consumes arena ctx for TUI routing + cooked-mode; needed the OsLowerCtx extension; 0f67f66fc, merged 505d634a0). Bundled OS-seam context into `OsLowerCtx { build_mode, module_name, term_state_offset, presentation_mode_offset }` (c76a70db9). fs `.ncode` byte-identity debt also cleared (768b1a5d9).
 - [x] `fs` — DONE (41 members, `File` resource; 73374e779, merged d98f31872). Surfaced + fixed a registry-core gap: strict `leaf_matches` now requires `resource_base_eq` for nominal-vs-nominal so a resource UNION can't satisfy a concrete resource close-op param (`fs::close(<union>)` rejected).
 - [ ] `app` — 3 files, `app_package.mfb`
-- [ ] `vector` — 1 file, SIMD value-record types (`Vec2/3`) add descriptor-type work
+- [x] `vector` — DONE (9 `add_record` Vec types, 19 members, 42 constants w/ components, 9 toString overrides; 6eaa54117, merged). SIMD carrier (`builder_vector_inline.rs`) KEPT SHARED (codegen-wide hook, not per-call). NOTABLE: the coarse value-nominal matcher (needed for json union widening) CAN'T distinguish concrete records (Float3 vs Integer3), so vector keeps a THIN exact selector in `vector/mod.rs` over its registered overload data (reproduces VectorResolver byte-for-byte, excluded from the generic path, ZERO shared-matcher change). `.run` byte-identical (35 accept), 5 `.ncode` line-shift diffs deferred.
 
 Tier 3 — coupled clusters (migrate together to avoid half-cut seams):
 - [ ] `net` + `http` — `net::Url`/`http::Response` types shared (net resource-owning; Phase 0.5 satisfied)
