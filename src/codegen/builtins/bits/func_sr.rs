@@ -6,7 +6,8 @@
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::code::{CodeBuilder, ValueResult};
+use crate::target::shared::abi;
+use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 
@@ -92,5 +93,22 @@ pub(crate) fn lower_bits_sr(
     builder: &mut CodeBuilder,
     args: &[NirValue],
 ) -> Result<ValueResult, String> {
-    super::native::lower_bits_shift(builder, "sr", args)
+    let (value_reg, count_reg, value_text, count_text) =
+        super::gen_two_integers::lower_bits_two_integers(builder, "sr", args)?;
+    let valid = builder.label("bits_shift_valid");
+    let out_of_range = builder.label("bits_shift_out_of_range");
+    builder.emit(abi::compare_immediate(count_reg, "0"));
+    builder.emit(abi::branch_lt(&out_of_range));
+    builder.emit(abi::compare_immediate(count_reg, "63"));
+    builder.emit(abi::branch_le(&valid));
+    builder.emit(abi::label(&out_of_range));
+    builder.raise_error_bare("ErrInvalidArgument")?;
+    builder.emit(abi::label(&valid));
+    let dst = builder.allocate_register()?;
+    builder.emit(abi::shift_right_variable(dst, value_reg, count_reg));
+    Ok(ValueResult {
+        type_: "Integer".to_string(),
+        location: Operand::from(dst.render()),
+        text: format!("bits.sr({value_text}, {count_text})"),
+    })
 }

@@ -6,7 +6,8 @@
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::code::{CodeBuilder, ValueResult};
+use crate::target::shared::abi;
+use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 
@@ -78,5 +79,12 @@ pub(crate) fn lower_bits_bswap64(
     builder: &mut CodeBuilder,
     args: &[NirValue],
 ) -> Result<ValueResult, String> {
-    super::native::lower_bits_bswap(builder, "bswap64", &args[0])
+    let value = super::gen_one_integer::lower_bits_one_integer(builder, "bswap64", &args[0])?;
+    let dst = builder.allocate_register()?;
+    builder.emit(abi::reverse_bytes(dst, &value.location));
+    Ok(ValueResult {
+        type_: "Integer".to_string(),
+        location: Operand::from(dst.render()),
+        text: format!("bits.bswap64({})", value.text),
+    })
 }

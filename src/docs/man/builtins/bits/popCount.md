@@ -35,7 +35,7 @@ runtime helper: on AArch64 as a short NEON sequence (move into a vector register
 per-byte `CNT`, then `ADDV` the byte counts into one lane), and on other ISAs as
 the portable SWAR (bit-twiddling) sequence over the integer ALU. Both paths
 produce identical results on the native and Binary Representation execution
-paths. [[src/codegen/builtins/bits/mod.rs:register]] [[src/codegen/builtins/bits/native.rs:lower_bits_popcount]]
+paths. [[src/codegen/builtins/bits/mod.rs:register]] [[src/codegen/builtins/bits/func_pop_count.rs:lower_bits_pop_count]]
 
 ## Parameters
 

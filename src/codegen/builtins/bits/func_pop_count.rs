@@ -6,7 +6,9 @@
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::code::{CodeBuilder, ValueResult};
+use crate::target::shared::abi;
+use crate::target::shared::code::mir;
+use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 
@@ -71,10 +73,75 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
     });
 }
 
-/// Target-generic call-site lowering for `bits::popCount`.
+// 64-bit population-count masks (SWAR Hamming weight), as decimal so they round
+// trip through `move_immediate`'s arbitrary-constant path.
+const POPCOUNT_MASK_5555: &str = "6148914691236517205"; // 0x5555555555555555
+const POPCOUNT_MASK_3333: &str = "3689348814741910323"; // 0x3333333333333333
+const POPCOUNT_MASK_0F0F: &str = "1085102592571150095"; // 0x0F0F0F0F0F0F0F0F
+const POPCOUNT_MASK_0101: &str = "72340172838076673"; //  0x0101010101010101
+
+/// Target-generic call-site lowering for `bits::popCount` — the 64-bit Hamming
+/// weight. `popCount` is the sole consumer, so its body lives here; it still
+/// borrows the shared `gen_one_integer::lower_bits_one_integer` operand check.
+/// On AArch64 a short NEON sequence (`CNT`/`ADDV`); on other ISAs the portable
+/// SWAR over the integer ALU.
 pub(crate) fn lower_bits_pop_count(
     builder: &mut CodeBuilder,
     args: &[NirValue],
 ) -> Result<ValueResult, String> {
-    super::native::lower_bits_popcount(builder, &args[0])
+    let value = super::gen_one_integer::lower_bits_one_integer(builder, "popCount", &args[0])?;
+    let text = format!("bits.popCount({})", value.text);
+
+    // plan-39 K2: on AArch64 the 64-bit Hamming weight is a short NEON sequence —
+    // move the value into a `d` register, `CNT` per byte, `ADDV` the 8 byte-counts
+    // into lane 0, and move the (0..=64) sum back — instead of the 12-instruction
+    // SWAR. Other ISAs keep the portable SWAR below.
+    if mir::active_backend().is_aarch64() {
+        let dst = builder.allocate_register()?;
+        builder.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[0], &value.location));
+        builder.emit(abi::vector_cnt8b(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
+        builder.emit(abi::vector_addv8b(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
+        builder.emit(abi::vector_extract_to_x(dst, abi::VEC_SCRATCH[0], 0));
+        return Ok(ValueResult {
+            type_: "Integer".to_string(),
+            location: Operand::from(dst.render()),
+            text,
+        });
+    }
+
+    let acc = builder.allocate_register()?;
+    let temp = builder.allocate_register()?;
+    let mask = builder.allocate_register()?;
+    builder.emit(abi::move_register(acc, &value.location));
+
+    // acc = acc - ((acc >> 1) & 0x5555...)
+    builder.emit(abi::shift_right_immediate(temp, acc, 1));
+    builder.emit(abi::move_immediate(mask, "Integer", POPCOUNT_MASK_5555));
+    builder.emit(abi::and_registers(temp, temp, mask));
+    builder.emit(abi::subtract_registers(acc, acc, temp));
+
+    // acc = (acc & 0x3333...) + ((acc >> 2) & 0x3333...)
+    builder.emit(abi::move_immediate(mask, "Integer", POPCOUNT_MASK_3333));
+    let low = builder.allocate_register()?;
+    builder.emit(abi::and_registers(low, acc, mask));
+    builder.emit(abi::shift_right_immediate(temp, acc, 2));
+    builder.emit(abi::and_registers(temp, temp, mask));
+    builder.emit(abi::add_registers(acc, low, temp));
+
+    // acc = (acc + (acc >> 4)) & 0x0F0F...
+    builder.emit(abi::shift_right_immediate(temp, acc, 4));
+    builder.emit(abi::add_registers(acc, acc, temp));
+    builder.emit(abi::move_immediate(mask, "Integer", POPCOUNT_MASK_0F0F));
+    builder.emit(abi::and_registers(acc, acc, mask));
+
+    // acc = (acc * 0x0101...) >> 56
+    builder.emit(abi::move_immediate(mask, "Integer", POPCOUNT_MASK_0101));
+    builder.emit(abi::multiply_registers(acc, acc, mask));
+    builder.emit(abi::shift_right_immediate(acc, acc, 56));
+
+    Ok(ValueResult {
+        type_: "Integer".to_string(),
+        location: Operand::from(acc.render()),
+        text,
+    })
 }

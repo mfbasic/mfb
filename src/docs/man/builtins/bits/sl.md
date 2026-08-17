@@ -37,14 +37,14 @@ that `count` is in the range `0` to `63` inclusive and raises
 `ErrInvalidArgument` for any value outside it, before performing the shift. The
 operation has no side effects and lowers to a native variable-shift instruction
 inline rather than calling a runtime helper, producing identical results on the
-native and Binary Representation execution paths. [[src/codegen/builtins/bits/native.rs:lower_bits_shift]]
+native and Binary Representation execution paths. [[src/codegen/builtins/bits/func_sl.rs:lower_bits_sl]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `value` | `Integer` | The value to shift. Any 64-bit value; treated as a raw bit pattern. [[src/codegen/registry/mod.rs:call_param_names]] |
-| `count` | `Integer` | The shift amount in bits. Must be in the range `0` to `63` inclusive; any other value raises `ErrInvalidArgument`. [[src/codegen/builtins/bits/native.rs:lower_bits_shift]] |
+| `count` | `Integer` | The shift amount in bits. Must be in the range `0` to `63` inclusive; any other value raises `ErrInvalidArgument`. [[src/codegen/builtins/bits/func_sl.rs:lower_bits_sl]] |
 
 ## Return value
 
@@ -56,7 +56,7 @@ native and Binary Representation execution paths. [[src/codegen/builtins/bits/na
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `count` is less than `0` or greater than `63`. [[src/codegen/builtins/bits/native.rs:lower_bits_shift]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
+| `77050002` | `ErrInvalidArgument` | `count` is less than `0` or greater than `63`. [[src/codegen/builtins/bits/func_sl.rs:lower_bits_sl]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
 
 ## Examples
 

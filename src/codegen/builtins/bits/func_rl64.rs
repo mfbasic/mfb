@@ -6,7 +6,8 @@
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::code::{CodeBuilder, ValueResult};
+use crate::target::shared::abi;
+use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 
@@ -92,5 +93,17 @@ pub(crate) fn lower_bits_rl64(
     builder: &mut CodeBuilder,
     args: &[NirValue],
 ) -> Result<ValueResult, String> {
-    super::native::lower_bits_rotate(builder, "rl64", args)
+    let (value_reg, count_reg, value_text, count_text) =
+        super::gen_two_integers::lower_bits_two_integers(builder, "rl64", args)?;
+    let dst = builder.allocate_register()?;
+    // AArch64 has only rotate-right (`RORV`), so rotate-left by `count` is a
+    // rotate-right by `-count` (the hardware reduces the amount modulo the width).
+    let neg = builder.allocate_register()?;
+    builder.emit(abi::subtract_registers(neg, abi::ZERO, count_reg));
+    builder.emit(abi::rotate_right_registers(dst, value_reg, neg));
+    Ok(ValueResult {
+        type_: "Integer".to_string(),
+        location: Operand::from(dst.render()),
+        text: format!("bits.rl64({value_text}, {count_text})"),
+    })
 }

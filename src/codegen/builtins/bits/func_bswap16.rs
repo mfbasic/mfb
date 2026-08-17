@@ -6,7 +6,8 @@
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::code::{CodeBuilder, ValueResult};
+use crate::target::shared::abi;
+use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 
@@ -72,5 +73,15 @@ pub(crate) fn lower_bits_bswap16(
     builder: &mut CodeBuilder,
     args: &[NirValue],
 ) -> Result<ValueResult, String> {
-    super::native::lower_bits_bswap(builder, "bswap16", &args[0])
+    let value = super::gen_one_integer::lower_bits_one_integer(builder, "bswap16", &args[0])?;
+    let dst = builder.allocate_register()?;
+    // REV of the low word puts the two low bytes at bits [31:16]; a logical
+    // >>16 drops the other two bytes and clears bits 16..63.
+    builder.emit(abi::reverse_bytes_word(dst, &value.location));
+    builder.emit(abi::shift_right_immediate(dst, dst, 16));
+    Ok(ValueResult {
+        type_: "Integer".to_string(),
+        location: Operand::from(dst.render()),
+        text: format!("bits.bswap16({})", value.text),
+    })
 }

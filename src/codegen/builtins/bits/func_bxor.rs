@@ -6,7 +6,8 @@
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::code::{CodeBuilder, ValueResult};
+use crate::target::shared::abi;
+use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 
@@ -92,5 +93,13 @@ pub(crate) fn lower_bits_bxor(
     builder: &mut CodeBuilder,
     args: &[NirValue],
 ) -> Result<ValueResult, String> {
-    super::native::lower_bits_binary(builder, "bxor", args)
+    let (left_reg, right_reg, left_text, right_text) =
+        super::gen_two_integers::lower_bits_two_integers(builder, "bxor", args)?;
+    let dst = builder.allocate_register()?;
+    builder.emit(abi::exclusive_or_registers(dst, left_reg, right_reg));
+    Ok(ValueResult {
+        type_: "Integer".to_string(),
+        location: Operand::from(dst.render()),
+        text: format!("bits.bxor({left_text}, {right_text})"),
+    })
 }

@@ -37,7 +37,7 @@ algorithms such as ChaCha20) and `rl64`/`rr64` rotate all 64 bits. Rotate counts
 are reduced modulo the rotate width, so any count is defined and the rotates do
 not raise. `clz`/`ctz`/`popCount` count leading zeros, trailing zeros, and set
 bits; `bswap16`/`bswap32`/`bswap64` reverse the bytes of the low 16/32 or all 64
-bits. All functions are total except the three shifts. [[src/codegen/builtins/bits/native.rs:lower_bits_rotate]]
+bits. All functions are total except the three shifts. [[src/codegen/builtins/bits/func_rl64.rs:lower_bits_rl64]]
 
 `bits` is a built-in package: `IMPORT bits` needs no manifest dependency.
 
@@ -45,4 +45,4 @@ bits. All functions are total except the three shifts. [[src/codegen/builtins/bi
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | raised by `sl`, `sr`, and `sra` when `count` is outside `0..63` [[src/codegen/builtins/bits/native.rs:lower_bits_shift]] |
+| `77050002` | `ErrInvalidArgument` | raised by `sl`, `sr`, and `sra` when `count` is outside `0..63` [[src/codegen/builtins/bits/func_sl.rs:lower_bits_sl]] |

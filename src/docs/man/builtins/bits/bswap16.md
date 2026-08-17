@@ -26,12 +26,12 @@ IMPORT bits
 (bits `0`..`7`) and byte `1` (bits `8`..`15`) exchange places, so a value laid
 out as `0xHHLL` becomes `0xLLHH`. Every bit above bit `15` (bits `16`..`63`) is
 cleared to zero in the result, so the output is always a non-negative 16-bit
-quantity regardless of the high bits of `value`. [[src/codegen/builtins/bits/native.rs:lower_bits_bswap]]
+quantity regardless of the high bits of `value`. [[src/codegen/builtins/bits/func_bswap16.rs:lower_bits_bswap16]]
 
 `value` is treated as a raw two's-complement 64-bit `Integer` bit pattern;
 `bswap16` does not interpret sign. The operation is total — it is defined for
 every `Integer` and never raises — has no side effects, and lowers to native
-byte-reversal instructions inline rather than calling a runtime helper. [[src/builtins/mod.rs:inline_builtin_raw_supported]] [[src/codegen/builtins/bits/native.rs:lower_bits_bswap]]
+byte-reversal instructions inline rather than calling a runtime helper. [[src/builtins/mod.rs:inline_builtin_raw_supported]] [[src/codegen/builtins/bits/func_bswap16.rs:lower_bits_bswap16]]
 
 ## Parameters
 

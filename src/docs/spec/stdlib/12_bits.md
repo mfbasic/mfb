@@ -37,7 +37,7 @@ keywords in the language and cannot be package member identifiers. `band`, `bor`
 and `bxor` are binary and compute the bitwise conjunction, disjunction, and
 exclusive-or of their two 64-bit operands; `bnot` is unary and complements every
 bit. All four are **total** — they have no failing input.
-[[src/codegen/builtins/bits/native.rs:lower_bits_binary]] [[src/codegen/builtins/bits/native.rs:lower_bits_not]]
+[[src/codegen/builtins/bits/func_band.rs:lower_bits_band]] [[src/codegen/builtins/bits/func_bnot.rs:lower_bits_bnot]]
 
 ## Shifts (sl / sr / sra)
 
@@ -48,7 +48,7 @@ inclusive; a count below `0` or above `63` raises `ErrInvalidArgument`
 reduced modulo the width — an out-of-range shift is an error, not a defined
 no-op, which keeps behavior identical to the native variable-shift instruction
 only over the range where that instruction is unambiguous.
-[[src/codegen/builtins/bits/native.rs:lower_bits_shift]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]]
+[[src/codegen/builtins/bits/func_sl.rs:lower_bits_sl]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]]
 
 Within the valid range:
 
@@ -79,18 +79,18 @@ The rotate amount is reduced **modulo the rotate width** by the hardware, so any
 count — including a negative or large one — is defined and no rotate raises. The
 target architecture provides only a rotate-*right* primitive, so a left rotate by
 `count` is realized as a right rotate by `-count`, which the width-modular
-reduction makes exact. [[src/codegen/builtins/bits/native.rs:lower_bits_rotate]]
+reduction makes exact. [[src/codegen/builtins/bits/func_rl64.rs:lower_bits_rl64]]
 
 ## Bit counting (clz / ctz / popCount)
 
 - **`clz`** counts leading (most-significant) zero bits; **`ctz`** counts
   trailing (least-significant) zero bits. Both return **`64` for a zero input**
   (every bit is a zero to count). `ctz` is realized by reversing the bit order
-  and counting leading zeros. [[src/codegen/builtins/bits/native.rs:lower_bits_count_zeros]]
+  and counting leading zeros. [[src/codegen/builtins/bits/func_clz.rs:lower_bits_clz]]
 - **`popCount`** is the 64-bit Hamming weight — the number of set bits, `0..64`.
   It is computed with the standard SWAR fold (shift/mask/multiply over the
   integer ALU), not a SIMD population-count, so it produces the identical count
-  through the same integer-only path on every backend. [[src/codegen/builtins/bits/native.rs:lower_bits_popcount]]
+  through the same integer-only path on every backend. [[src/codegen/builtins/bits/func_pop_count.rs:lower_bits_pop_count]]
 
 All three are total.
 
@@ -105,7 +105,7 @@ everything above it:
 
 These are pure byte-order reversals — the tool for converting between big-endian
 and little-endian serializations of a fixed-width field. They are total.
-[[src/codegen/builtins/bits/native.rs:lower_bits_bswap]]
+[[src/codegen/builtins/bits/func_bswap16.rs:lower_bits_bswap16]]
 
 ## One native instruction per op
 
@@ -132,7 +132,7 @@ rotate, bit-counting, and byte-swap op is **total** — it is defined for every
 64-bit input and has no failing case (rotate counts are width-modular; `clz`/`ctz`
 define zero as `64`). No `bits::` op range-checks its *value* operand; the only
 check anywhere in the package is the shift-count bounds test.
-[[src/codegen/builtins/bits/native.rs:lower_bits_shift]] [[src/builtins/mod.rs:inline_builtin_raw_supported]]
+[[src/codegen/builtins/bits/func_sl.rs:lower_bits_sl]] [[src/builtins/mod.rs:inline_builtin_raw_supported]]
 
 ## See Also
 

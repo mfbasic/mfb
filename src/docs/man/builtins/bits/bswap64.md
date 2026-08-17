@@ -29,7 +29,7 @@ byte `1` (bits `8`..`15`) and byte `6` (bits `48`..`55`) exchange places, byte `
 (bits `24`..`31`) and byte `4` (bits `32`..`39`) exchange places, so a value laid
 out as `0x1122334455667788` becomes `0x8877665544332211`. This converts the value
 between little-endian and big-endian byte order. Unlike `bswap16` and `bswap32`,
-every one of the 64 bits participates in the swap, so no bits are cleared. [[src/codegen/builtins/bits/native.rs:lower_bits_bswap]]
+every one of the 64 bits participates in the swap, so no bits are cleared. [[src/codegen/builtins/bits/func_bswap64.rs:lower_bits_bswap64]]
 
 `value` is treated as a raw two's-complement 64-bit `Integer` bit pattern;
 `bswap64` does not interpret sign. The operation is total — it is defined for
@@ -37,7 +37,7 @@ every `Integer` and never raises; only the variable-shift ops (`sl`/`sr`/`sra`)
 can raise a `bits::` error — has no side effects, and lowers to a native
 doubleword byte-reversal instruction (`rev Xd, Xn`) inline rather than calling a
 runtime helper, producing identical results on the native and Binary
-Representation execution paths. [[src/codegen/builtins/bits/mod.rs:register]] [[src/builtins/mod.rs:inline_builtin_raw_supported]] [[src/target/shared/abi.rs:reverse_bytes]] [[src/codegen/builtins/bits/native.rs:lower_bits_bswap]]
+Representation execution paths. [[src/codegen/builtins/bits/mod.rs:register]] [[src/builtins/mod.rs:inline_builtin_raw_supported]] [[src/target/shared/abi.rs:reverse_bytes]] [[src/codegen/builtins/bits/func_bswap64.rs:lower_bits_bswap64]]
 
 ## Parameters
 

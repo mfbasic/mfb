@@ -37,7 +37,7 @@ count as trailing zeros and the result is `64`; this zero case is the boundary
 that most bit-scan primitives leave architecturally undefined, and `mfb` defines
 it on every target. The operation is total: it is defined for every `Integer`,
 never raises, and has no side effects. [[src/codegen/builtins/bits/mod.rs:register]]
-[[src/codegen/builtins/bits/native.rs:lower_bits_count_zeros]]
+[[src/codegen/builtins/bits/func_ctz.rs:lower_bits_ctz]]
 
 Because the result is the index of the lowest set bit, `ctz` is the primitive
 behind alignment and power-of-two work. For a positive power of two,
@@ -63,7 +63,7 @@ for every `value` including `0`.
 `ctz` lowers inline rather than calling a runtime helper: the backend reverses
 the bit order of the operand and then counts leading zeros of the reversal, so
 `ctz` costs one `rbit` plus a full `clz` on every architecture.
-[[src/codegen/builtins/bits/native.rs:lower_bits_count_zeros]]
+[[src/codegen/builtins/bits/func_ctz.rs:lower_bits_ctz]]
 [[src/target/shared/abi.rs:reverse_bits]]
 
 The instruction budget of that pair differs sharply by target. AArch64 is the

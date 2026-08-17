@@ -31,7 +31,7 @@ patterns; `band` does not interpret sign. The operation is total — it is defin
 for every pair of inputs and never raises — has no side effects, and lowers to a
 single native AArch64 `and` instruction inline rather than calling a runtime
 helper, producing identical results on the native and Binary Representation
-execution paths. [[src/codegen/builtins/bits/mod.rs:register]] [[src/codegen/builtins/bits/native.rs:lower_bits_binary]] [[src/target/shared/abi.rs:and_registers]]
+execution paths. [[src/codegen/builtins/bits/mod.rs:register]] [[src/codegen/builtins/bits/func_band.rs:lower_bits_band]] [[src/target/shared/abi.rs:and_registers]]
 
 The name is `band` rather than `and` because `AND` is a reserved logical
 (Boolean) keyword and cannot be a package member identifier. [[src/docs/man/builtins/bits/package.md]]

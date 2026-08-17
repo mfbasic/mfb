@@ -8,9 +8,11 @@
 //! companion, no value type, no resource, and no runtime helper.
 //!
 //! Each member is a `Body::native(None, None, Some(lower_bits_*))` intrinsic: its
-//! `Implementation::Native` `common` slot points at a thin per-member
-//! [`crate::codegen::registry::NativeLower`] wrapper (in its `func_*.rs`) that calls
-//! the shared group emitter in [`native`]. The three variable-shift members
+//! `Implementation::Native` `common` slot points at a [`crate::codegen::registry::NativeLower`]
+//! function that lives in that member's own `func_*.rs` and emits its unique
+//! instruction sequence directly through `abi::`. The only shared code is the two
+//! operand helpers ([`gen_two_integers`] for the binary/shift/rotate ops,
+//! [`gen_one_integer`] for the unary ops). The three variable-shift members
 //! (`sl`/`sr`/`sra`) declare `ErrInvalidArgument` (an out-of-range `count`), which
 //! is what routes an inline `TRAP` on them through the raw-capture path; the other
 //! 14 members declare no error and are infallible — a distinction the inline-`TRAP`
@@ -19,7 +21,8 @@
 
 use crate::codegen::registry::{Registry, RegistryPackage};
 
-mod native;
+mod gen_one_integer;
+mod gen_two_integers;
 
 mod func_band;
 mod func_bnot;

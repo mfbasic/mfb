@@ -46,7 +46,7 @@ that `count` is in the range `0` to `63` inclusive and raises
 `ErrInvalidArgument` for any value outside it, before performing the shift.
 Larger shift amounts are not implicitly clamped or reduced modulo the width —
 that is the difference from the rotates `bits::rl64` and `bits::rr64`, which
-accept any `count` and let the hardware reduce it. [[src/codegen/builtins/bits/native.rs:lower_bits_shift]] [[src/codegen/builtins/bits/native.rs:lower_bits_rotate]]
+accept any `count` and let the hardware reduce it. [[src/codegen/builtins/bits/func_sra.rs:lower_bits_sra]] [[src/codegen/builtins/bits/func_rl64.rs:lower_bits_rl64]]
 
 The operation has no side effects and lowers inline to the target-neutral `asrv`
 machine op rather than calling a runtime helper. Every backend encodes it
@@ -61,7 +61,7 @@ paths. [[src/target/shared/abi.rs:arithmetic_shift_right_variable]] [[src/arch/a
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `value` | `Integer` | The value to shift. Any 64-bit value; treated as a signed two's-complement bit pattern. [[src/codegen/registry/mod.rs:call_param_names]] |
-| `count` | `Integer` | The shift amount in bits. Must be in the range `0` to `63` inclusive; any other value raises `ErrInvalidArgument`. [[src/codegen/builtins/bits/native.rs:lower_bits_shift]] |
+| `count` | `Integer` | The shift amount in bits. Must be in the range `0` to `63` inclusive; any other value raises `ErrInvalidArgument`. [[src/codegen/builtins/bits/func_sra.rs:lower_bits_sra]] |
 
 ## Return value
 
@@ -73,7 +73,7 @@ paths. [[src/target/shared/abi.rs:arithmetic_shift_right_variable]] [[src/arch/a
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `count` is less than `0` or greater than `63`. [[src/codegen/builtins/bits/native.rs:lower_bits_shift]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
+| `77050002` | `ErrInvalidArgument` | `count` is less than `0` or greater than `63`. [[src/codegen/builtins/bits/func_sra.rs:lower_bits_sra]] [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
 
 ## Examples
 

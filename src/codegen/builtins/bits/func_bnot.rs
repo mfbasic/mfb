@@ -6,7 +6,8 @@
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::code::{CodeBuilder, ValueResult};
+use crate::target::shared::abi;
+use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 
@@ -72,10 +73,21 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
     });
 }
 
-/// Target-generic call-site lowering for `bits::bnot`.
+/// Target-generic call-site lowering for `bits::bnot` (one's complement).
+///
+/// `bnot` is the sole consumer of this emit sequence, so its body lives here; it
+/// still borrows the shared `gen_one_integer::lower_bits_one_integer` operand
+/// check.
 pub(crate) fn lower_bits_bnot(
     builder: &mut CodeBuilder,
     args: &[NirValue],
 ) -> Result<ValueResult, String> {
-    super::native::lower_bits_not(builder, &args[0])
+    let value = super::gen_one_integer::lower_bits_one_integer(builder, "bnot", &args[0])?;
+    let dst = builder.allocate_register()?;
+    builder.emit(abi::bitwise_not(dst, &value.location));
+    Ok(ValueResult {
+        type_: "Integer".to_string(),
+        location: Operand::from(dst.render()),
+        text: format!("bits.bnot({})", value.text),
+    })
 }

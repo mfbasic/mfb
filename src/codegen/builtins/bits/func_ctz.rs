@@ -6,7 +6,8 @@
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::code::{CodeBuilder, ValueResult};
+use crate::target::shared::abi;
+use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 
@@ -173,5 +174,16 @@ pub(crate) fn lower_bits_ctz(
     builder: &mut CodeBuilder,
     args: &[NirValue],
 ) -> Result<ValueResult, String> {
-    super::native::lower_bits_count_zeros(builder, "ctz", &args[0])
+    let value = super::gen_one_integer::lower_bits_one_integer(builder, "ctz", &args[0])?;
+    let dst = builder.allocate_register()?;
+    // `ctz` reverses the bits (`RBIT`) and then counts leading zeros; both `clz`
+    // and `ctz` return `64` for a zero input.
+    let reversed = builder.allocate_register()?;
+    builder.emit(abi::reverse_bits(reversed, &value.location));
+    builder.emit(abi::count_leading_zeros(dst, reversed));
+    Ok(ValueResult {
+        type_: "Integer".to_string(),
+        location: Operand::from(dst.render()),
+        text: format!("bits.ctz({})", value.text),
+    })
 }

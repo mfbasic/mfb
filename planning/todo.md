@@ -144,6 +144,48 @@ Change the type checker / `ir` / `syntaxcheck` to carry `ParameterType` (and `Se
 
 The 6 leak-adapters (`resolve_call`, `rewrite_target`, `call_return_type`, `expected_arguments`, `call_param_names`, `default_argument_padding`) now have no callers doing string marshalling — they evaporate. This isn't a separate effort; it's the *consequence* of Phase 3. (Decide separately whether `resolve_call`/`native_lower` — the two the author left un-`#[deprecated]` — stay as intended permanent `CallShape`/`Selection` seams or get inlined.)
 
+## Phase 5 - Fix the AI MESS
+
+Marked packages are fully self contained in src/codegen, no remaining lowering code is in src/target/shared/code
+
+X - fully moved to codegen
+@ - fully cleaned up
+
+[ ] app
+[ ] astrings
+[X] audio
+[@] bits
+[ ] collections
+[X] crypto
+[X] csv
+[ ] datetime
+[X] encoding
+[X] errorcode
+[ ] fs
+[X] http
+[ ] io
+[X] json
+[ ] math
+[ ] money
+[ ] net
+[ ] os
+[ ] process
+[X] regex
+[ ] strings
+[ ] term
+[ ] thread
+[ ] tls
+[ ] vector
+
+| package | remaining in `target/shared/code` | LOC |
+| --- | --- | --- |
+| **astrings** | `builder_astrings.rs` | **199** |
+| `vector` | `builder_vector_inline.rs` (SIMD carrier) | 538 |
+| `math` | `builder_math.rs` (+ `builder_simd_*`, `builder_pow`, `fma_fusion`…) | 1339+ |
+| `thread` | `runtime_helpers_thread.rs` | 1662 |
+| `term` | `term.rs` + `term_grid.rs` (+ `io_terminal.rs`) | ~4000 |
+| `strings` | `builder_strings.rs` + `builder_strings_builtins.rs` + `builder_strings_package.rs` | ~5658 |
+
 ## Migrate Status
 
 ### Update 1 — migration status & the infra prerequisite (2026-08-16)

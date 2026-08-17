@@ -6,7 +6,8 @@
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::code::{CodeBuilder, ValueResult};
+use crate::target::shared::abi;
+use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 
@@ -92,5 +93,13 @@ pub(crate) fn lower_bits_rr32(
     builder: &mut CodeBuilder,
     args: &[NirValue],
 ) -> Result<ValueResult, String> {
-    super::native::lower_bits_rotate(builder, "rr32", args)
+    let (value_reg, count_reg, value_text, count_text) =
+        super::gen_two_integers::lower_bits_two_integers(builder, "rr32", args)?;
+    let dst = builder.allocate_register()?;
+    builder.emit(abi::rotate_right_word_registers(dst, value_reg, count_reg));
+    Ok(ValueResult {
+        type_: "Integer".to_string(),
+        location: Operand::from(dst.render()),
+        text: format!("bits.rr32({value_text}, {count_text})"),
+    })
 }

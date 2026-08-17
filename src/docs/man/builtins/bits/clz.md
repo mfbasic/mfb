@@ -31,7 +31,7 @@ count as leading zeros and the result is `64`. When bit 63 is set the result is
 `0`. The operation is total — it is defined for every `Integer` and never raises
 — has no side effects, and lowers to a single native AArch64 count-leading-zeros
 instruction rather than calling a runtime helper, producing identical results on
-the native and Binary Representation execution paths. [[src/codegen/builtins/bits/mod.rs:register]] [[src/codegen/builtins/bits/native.rs:lower_bits_count_zeros]]
+the native and Binary Representation execution paths. [[src/codegen/builtins/bits/mod.rs:register]] [[src/codegen/builtins/bits/func_clz.rs:lower_bits_clz]]
 
 ## Parameters
 
