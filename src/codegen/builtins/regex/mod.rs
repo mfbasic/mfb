@@ -12,6 +12,79 @@ mod func_find_all;
 mod func_match;
 mod func_replace;
 
+mod helper_all_digits;
+mod helper_anchor_match;
+mod helper_ascii_class_bitset;
+mod helper_canon_prop;
+mod helper_cat_is_letter;
+mod helper_cat_is_mark;
+mod helper_char_eq;
+mod helper_chr;
+mod helper_class_match;
+mod helper_class_match_one;
+mod helper_compile;
+mod helper_depth_limit;
+mod helper_expand;
+mod helper_fail;
+mod helper_init_caps;
+mod helper_is_ascii_punct;
+mod helper_is_counted_at;
+mod helper_is_digit;
+mod helper_is_gc_name;
+mod helper_is_name_cont;
+mod helper_is_name_start;
+mod helper_is_pat_space;
+mod helper_is_script_name;
+mod helper_is_simple_node;
+mod helper_is_space_cp;
+mod helper_is_word;
+mod helper_is_word_cp;
+mod helper_lookup_name;
+mod helper_lookup_num;
+mod helper_lookup_ref;
+mod helper_make_class;
+mod helper_make_ctx;
+mod helper_match_alt;
+mod helper_match_cont;
+mod helper_match_node;
+mod helper_match_rep;
+mod helper_match_results;
+mod helper_parse_alt;
+mod helper_parse_atom;
+mod helper_parse_class;
+mod helper_parse_class_endpoint;
+mod helper_parse_concat;
+mod helper_parse_counted;
+mod helper_parse_depth_limit;
+mod helper_parse_escape_atom;
+mod helper_parse_flag_spec;
+mod helper_parse_hex_escape;
+mod helper_parse_int_clamp;
+mod helper_parse_literal_escape;
+mod helper_parse_name;
+mod helper_parse_named_group;
+mod helper_parse_paren;
+mod helper_parse_posix;
+mod helper_parse_prop;
+mod helper_parse_quant_suffix;
+mod helper_posix_prop;
+mod helper_prop_match_item;
+mod helper_prop_test;
+mod helper_required_first_cp;
+mod helper_scalar_to_cp;
+mod helper_script_canon;
+mod helper_script_test;
+mod helper_search_from;
+mod helper_set_cap;
+mod helper_short_kind;
+mod helper_shorthand_match;
+mod helper_simple_match_at;
+mod helper_step_budget;
+mod helper_steps;
+mod helper_to_scalars;
+mod helper_try_at;
+mod helper_word_boundary;
+
 const INTRO: &str = r#"Match, search, and replace text with regular expressions"#;
 
 const DESC: &str = r#"The `regex` package searches and rewrites text with a single portable
@@ -705,14 +778,85 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
-    // The shared private `__regex_*` helpers the member bodies call: the engine
-    // helpers plus the two generated Unicode tables shared from `src/codegen/unicode/`
-    // (the general-category table `__regex_genCat` and the Script-property table
+    // The shared private `__regex_*` helpers the member bodies call. Each lives in
+    // its own `helper_*.rs` and registers via `add_helper`; order preserved from the
+    // old `package.mfb` blob so the compiled `.ncode` stays byte-identical.
+    helper_chr::register(&mut pkg);
+    helper_scalar_to_cp::register(&mut pkg);
+    helper_to_scalars::register(&mut pkg);
+    helper_make_ctx::register(&mut pkg);
+    helper_cat_is_letter::register(&mut pkg);
+    helper_cat_is_mark::register(&mut pkg);
+    helper_is_space_cp::register(&mut pkg);
+    helper_is_word_cp::register(&mut pkg);
+    helper_is_word::register(&mut pkg);
+    helper_shorthand_match::register(&mut pkg);
+    helper_is_gc_name::register(&mut pkg);
+    helper_script_canon::register(&mut pkg);
+    helper_script_test::register(&mut pkg);
+    helper_is_script_name::register(&mut pkg);
+    helper_prop_test::register(&mut pkg);
+    helper_canon_prop::register(&mut pkg);
+    helper_class_match_one::register(&mut pkg);
+    helper_prop_match_item::register(&mut pkg);
+    helper_class_match::register(&mut pkg);
+    helper_word_boundary::register(&mut pkg);
+    helper_anchor_match::register(&mut pkg);
+    helper_fail::register(&mut pkg);
+    helper_set_cap::register(&mut pkg);
+    helper_char_eq::register(&mut pkg);
+    helper_match_node::register(&mut pkg);
+    helper_match_alt::register(&mut pkg);
+    helper_steps::register(&mut pkg);
+    helper_step_budget::register(&mut pkg);
+    helper_depth_limit::register(&mut pkg);
+    helper_parse_depth_limit::register(&mut pkg);
+    helper_is_simple_node::register(&mut pkg);
+    helper_simple_match_at::register(&mut pkg);
+    helper_match_rep::register(&mut pkg);
+    helper_match_cont::register(&mut pkg);
+    helper_init_caps::register(&mut pkg);
+    helper_try_at::register(&mut pkg);
+    helper_search_from::register(&mut pkg);
+    helper_is_digit::register(&mut pkg);
+    helper_is_name_start::register(&mut pkg);
+    helper_is_name_cont::register(&mut pkg);
+    helper_is_ascii_punct::register(&mut pkg);
+    helper_is_pat_space::register(&mut pkg);
+    helper_parse_int_clamp::register(&mut pkg);
+    helper_parse_hex_escape::register(&mut pkg);
+    helper_parse_literal_escape::register(&mut pkg);
+    helper_parse_prop::register(&mut pkg);
+    helper_short_kind::register(&mut pkg);
+    helper_parse_posix::register(&mut pkg);
+    helper_posix_prop::register(&mut pkg);
+    helper_parse_class_endpoint::register(&mut pkg);
+    helper_parse_class::register(&mut pkg);
+    helper_is_counted_at::register(&mut pkg);
+    helper_parse_counted::register(&mut pkg);
+    helper_parse_flag_spec::register(&mut pkg);
+    helper_parse_name::register(&mut pkg);
+    helper_parse_named_group::register(&mut pkg);
+    helper_parse_paren::register(&mut pkg);
+    helper_parse_escape_atom::register(&mut pkg);
+    helper_parse_atom::register(&mut pkg);
+    helper_parse_quant_suffix::register(&mut pkg);
+    helper_parse_concat::register(&mut pkg);
+    helper_parse_alt::register(&mut pkg);
+    helper_compile::register(&mut pkg);
+    helper_all_digits::register(&mut pkg);
+    helper_lookup_num::register(&mut pkg);
+    helper_lookup_name::register(&mut pkg);
+    helper_lookup_ref::register(&mut pkg);
+    helper_expand::register(&mut pkg);
+    helper_match_results::register(&mut pkg);
+    helper_ascii_class_bitset::register(&mut pkg);
+    helper_make_class::register(&mut pkg);
+    helper_required_first_cp::register(&mut pkg);
+
+    // The two generated Unicode tables shared from `src/codegen/unicode/` (the
+    // general-category table `__regex_genCat` and the Script-property table
     // `__regex_scriptOf` / `__regex_scriptCanonName`).
-    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
-        "regex_package",
-        include_str!("package.mfb"),
-    ));
     pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
         "regex_unicode_gencat",
         include_str!("../../unicode/unicode_gencat.mfb"),

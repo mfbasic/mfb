@@ -170,7 +170,7 @@ X - fully moved to codegen
 [ ] net
 [ ] os
 [ ] process
-[X] regex
+[@] regex
 [ ] strings
 [ ] term
 [ ] thread
