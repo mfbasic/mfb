@@ -21,9 +21,40 @@ use crate::codegen::registry::{
 use crate::docs::render;
 
 pub(crate) fn show_man2(args: &[String]) -> Result<(), String> {
-    let positional: Vec<&str> = args.iter().map(String::as_str).collect();
+    let mut all = false;
+    let mut positional: Vec<&str> = Vec::new();
+    for arg in args {
+        match arg.as_str() {
+            "--all" => all = true,
+            other if other.starts_with("--") => {
+                return Err(format!("unknown option `{other}`"));
+            }
+            other => positional.push(other),
+        }
+    }
+
     match positional.as_slice() {
+        [] => {
+            if all {
+                print_markdown(&render_all_markdown());
+                Ok(())
+            } else {
+                Err("Usage: mfb man2 <package> [function] [--all]".to_string())
+            }
+        }
+        [package] => {
+            let package = lookup_package(package)?;
+            if all {
+                print_markdown(&render_package_all_markdown(package));
+            } else {
+                print_markdown(&render_package_markdown(package));
+            }
+            Ok(())
+        }
         [package, function_name] => {
+            if all {
+                return Err("mfb man2 --all cannot be combined with a function".to_string());
+            }
             let package = lookup_package(package)?;
             // `types` is a reserved page name (matching the old `mfb man <pkg> types`),
             // intercepted only for packages that actually declare a public record or
@@ -42,13 +73,37 @@ pub(crate) fn show_man2(args: &[String]) -> Result<(), String> {
             print_markdown(&render_function_markdown(package, function));
             Ok(())
         }
-        [package] => {
-            let package = lookup_package(package)?;
-            print_markdown(&render_package_markdown(package));
-            Ok(())
-        }
-        [] | [_, _, _, ..] => Err("Usage: mfb man2 <package> [function]".to_string()),
+        [_, _, _, ..] => Err("Usage: mfb man2 <package> [function] [--all]".to_string()),
     }
+}
+
+/// A full-width horizontal rule matching the separators `mfb man --all` uses.
+fn man2_rule() -> String {
+    format!("\n\n{}\n\n", "─".repeat(detect_terminal_width()))
+}
+
+/// `mfb man2 --all`: the whole registry manual — every package overview followed by
+/// all of its function pages, in registration order, as one document.
+fn render_all_markdown() -> String {
+    let mut md = String::new();
+    for (index, package) in registry().packages().iter().enumerate() {
+        if index > 0 {
+            md.push_str(&man2_rule());
+        }
+        md.push_str(&render_package_all_markdown(package));
+    }
+    md
+}
+
+/// `mfb man2 <package> --all`: the package overview followed by the full page for
+/// every function it documents, each separated by a full-width rule.
+fn render_package_all_markdown(package: &RegistryPackage) -> String {
+    let mut md = render_package_markdown(package);
+    for function in package.functions() {
+        md.push_str(&man2_rule());
+        md.push_str(&render_function_markdown(package, function));
+    }
+    md
 }
 
 /// Resolve a package name to its clean-room descriptor, or a user-facing error.
@@ -624,6 +679,38 @@ mod tests {
     fn rejects_unknown_package() {
         let err = show_man2(&s(&["definitely-not-a-package"])).unwrap_err();
         assert!(err.contains("unknown package"));
+    }
+
+    #[test]
+    fn all_renders_the_whole_registry_manual() {
+        assert!(show_man2(&s(&["--all"])).is_ok());
+        let md = render_all_markdown();
+        // Every package overview appears, each with its functions expanded.
+        assert!(md.contains("# csv\n"));
+        assert!(md.contains("# parse\n"));
+    }
+
+    #[test]
+    fn all_renders_one_package_in_full() {
+        assert!(show_man2(&s(&["csv", "--all"])).is_ok());
+        let package = registry().resolve_package("csv").unwrap();
+        let md = render_package_all_markdown(package);
+        // The package overview followed by each function's full page.
+        assert!(md.starts_with("# csv\n"));
+        assert!(md.contains("# parse\n"));
+        assert!(md.contains("# stringify\n"));
+    }
+
+    #[test]
+    fn all_rejects_a_function_argument() {
+        let err = show_man2(&s(&["csv", "parse", "--all"])).unwrap_err();
+        assert!(err.contains("--all cannot be combined with a function"));
+    }
+
+    #[test]
+    fn rejects_unknown_option() {
+        let err = show_man2(&s(&["--bogus"])).unwrap_err();
+        assert!(err.contains("unknown option"));
     }
 
     #[test]

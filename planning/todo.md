@@ -187,3 +187,9 @@ Every remaining package is more entangled than `bits`/`money` (the easy leaves).
 - thread PART A (ThreadHandle variant) landed clean; PART B hit 4 proven obstacles (the res-slot optional-vs-required contradiction + strict-Nothing guard + Unknown re-occur + ISOLATED FUNC parse).
 - RESOLVED without matcher-core surgery or a resolver hook (user-designed): #2+#3 via SIGNATURE-LEVEL OVERLOAD SPLIT (two `start` overloads data/resource; resource-only `accept`/`transfer` — the strict-Nothing guard then rejects a data-handle from `accept` automatically, reproducing legacy). #4 = Unknown-refinement in the Var arm (LANDED de834e95b, verified no dispatch shift: acceptance 1263/0, byte-identity unchanged). #1 = bounded ISOLATED FUNC parse fix.
 - thread agent resumed to implement PART B on this model. `planning/thread-migration.md` "PART B obstacle resolution" is the spec.
+
+---
+
+> resource can not be stored as a collection element
+
+I need to review all documentation and remove this claim as it is false.
