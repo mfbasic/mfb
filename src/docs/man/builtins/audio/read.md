@@ -21,7 +21,7 @@ IMPORT audio
 
 `audio` is a built-in package, so no manifest dependency is required. A program
 that does not `IMPORT audio` gains no audio symbol and no dynamic-library
-dependency. [[src/builtins/audio.rs:package_source_glue]]
+dependency. [[src/codegen/builtins/audio/mod.rs:register]]
 
 ## Description
 
@@ -30,9 +30,9 @@ dependency. [[src/builtins/audio.rs:package_source_glue]]
 one frame is `channels * 2` bytes, so a successful blocking read yields exactly
 `frames * channels * 2` bytes. `read` is defined only over `AudioInput`; passing
 an `AudioOutput` is a compile-time overload-resolution error, never a runtime
-check. [[src/builtins/audio.rs:AUDIO]] The stream is borrowed, not
+check. [[src/codegen/builtins/audio/mod.rs:register]] The stream is borrowed, not
 consumed — the handle stays open and must still be closed with `audio::close`
-or by lexical drop. [[src/builtins/audio.rs:consumes_argument]]
+or by lexical drop. [[src/syntaxcheck/builtins.rs:audio_consumes_argument]]
 
 `frames` must be in `1..=1048576`: a value below `1` or above `1048576` raises
 `ErrInvalidArgument` before capture begins. The timed form's `timeoutMs` follows
@@ -41,14 +41,14 @@ the language timeout convention (see `mfb spec language builtin-functions` →
 returns immediately with whatever whole frames are already buffered (a poll); a
 positive value waits up to that many milliseconds, **clamped to `2147483647`**
 (the deadline math takes a C `int`) rather than raising the former 24-hour cap.
-[[src/target/shared/code/audio/macos.rs:READ_FRAMES_MAX]][[src/target/shared/code/audio/alsa.rs:TIMEOUT_CLAMP_MS]]
+[[src/codegen/builtins/audio/native/macos.rs:READ_FRAMES_MAX]][[src/codegen/builtins/audio/native/alsa.rs:TIMEOUT_CLAMP_MS]]
 
 The two-argument form blocks until exactly `frames` frames are captured. The
 three-argument form returns early when `timeoutMs` elapses, yielding only whole
 frames gathered so far — possibly an empty list, never a partial frame, and
 never more than `frames`; the result is right-sized to the frames actually
 returned. A `timeoutMs` of `0` polls: it returns whatever whole frames are
-already buffered without blocking. [[src/target/shared/code/audio/macos.rs:lower_read]][[src/target/shared/code/audio/alsa.rs:lower_read]]
+already buffered without blocking. [[src/codegen/builtins/audio/native/macos.rs:lower_read]][[src/codegen/builtins/audio/native/alsa.rs:lower_read]]
 
 On macOS, capture is drained from an internal ring filled by the Core Audio
 callback thread, so the ring may be small relative to a large `frames` request.
@@ -56,11 +56,11 @@ On Linux, capture reads directly through `snd_pcm_readi` on the calling thread
 via a `libasound.so.2` resolved at runtime with `dlopen`; a binary that imports
 `audio` still starts on a host without alsa-lib, but a `read` there raises
 `ErrAudioUnavailable` when the library or a required symbol cannot be resolved.
-[[src/target/shared/code/audio/alsa.rs:emit_dlopen]] macOS drives Core Audio
-directly and has no such runtime-library failure. [[src/target/shared/code/audio/macos.rs:lower_read]]
+[[src/codegen/builtins/audio/native/alsa.rs:emit_dlopen]] macOS drives Core Audio
+directly and has no such runtime-library failure. [[src/codegen/builtins/audio/native/macos.rs:lower_read]]
 
 Reading a stream that has been closed, or one whose device has failed, raises
-`ErrAudioDevice`. [[src/target/shared/code/audio/macos.rs:lower_read]]
+`ErrAudioDevice`. [[src/codegen/builtins/audio/native/macos.rs:lower_read]]
 
 ## Overloads
 
@@ -74,30 +74,30 @@ Block until exactly `frames` frames are captured, then return
 Return early once `timeoutMs` elapses, with only the whole frames captured so
 far (possibly none). A `timeoutMs` of `0` (or any non-positive value) returns
 immediately with whatever whole frames are already buffered, without blocking.
-[[src/builtins/audio.rs:implementation_name]]
+[[src/codegen/builtins/audio/mod.rs:runtime_overload_name]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `input` | `AudioInput` | An open capture stream, from `audio::openInput`. Borrowed, not consumed. Reading after close raises `ErrAudioDevice`. [[src/builtins/audio.rs:consumes_argument]] |
-| `frames` | `Integer` | Number of frames to capture. Must be in `1..=1048576`. [[src/target/shared/code/audio/macos.rs:READ_FRAMES_MAX]] |
-| `timeoutMs` | `Integer` | Maximum wait in milliseconds (timed overload only). A negative value raises `ErrInvalidArgument`; `0` returns immediately with whatever is buffered; a positive value is clamped to `2147483647`. [[src/target/shared/code/audio/macos.rs:TIMEOUT_CLAMP_MS]] |
+| `input` | `AudioInput` | An open capture stream, from `audio::openInput`. Borrowed, not consumed. Reading after close raises `ErrAudioDevice`. [[src/syntaxcheck/builtins.rs:audio_consumes_argument]] |
+| `frames` | `Integer` | Number of frames to capture. Must be in `1..=1048576`. [[src/codegen/builtins/audio/native/macos.rs:READ_FRAMES_MAX]] |
+| `timeoutMs` | `Integer` | Maximum wait in milliseconds (timed overload only). A negative value raises `ErrInvalidArgument`; `0` returns immediately with whatever is buffered; a positive value is clamped to `2147483647`. [[src/codegen/builtins/audio/native/macos.rs:TIMEOUT_CLAMP_MS]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | Interleaved `s16le` PCM. The blocking form returns exactly `frames * channels * 2` bytes; the timed form returns a whole-frame-aligned list of at most that size, possibly empty. [[src/builtins/audio.rs:AUDIO]] |
+| `List OF Byte` | Interleaved `s16le` PCM. The blocking form returns exactly `frames * channels * 2` bytes; the timed form returns a whole-frame-aligned list of at most that size, possibly empty. [[src/codegen/builtins/audio/mod.rs:register]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `frames` is below `1` or above `1048576`, or (timed form) `timeoutMs` is negative. [[src/target/shared/code/audio/macos.rs:READ_FRAMES_MAX]][[src/target/shared/code/audio/alsa.rs:TIMEOUT_CLAMP_MS]] |
-| `77050018` | `ErrAudioDevice` | The stream is already closed, or the device failed during capture. [[src/target/shared/code/audio/macos.rs:lower_read]][[src/target/shared/code/audio/alsa.rs:lower_read]] |
-| `77050017` | `ErrAudioUnavailable` | Linux only: `libasound.so.2` (or a required symbol) could not be resolved at runtime. [[src/target/shared/code/audio/alsa.rs:emit_dlopen]] |
-| `77010001` | `ErrOutOfMemory` | Allocation of the result byte list failed. [[src/target/shared/code/audio/macos.rs:lower_read]][[src/target/shared/code/audio/alsa.rs:lower_read]] |
+| `77050002` | `ErrInvalidArgument` | `frames` is below `1` or above `1048576`, or (timed form) `timeoutMs` is negative. [[src/codegen/builtins/audio/native/macos.rs:READ_FRAMES_MAX]][[src/codegen/builtins/audio/native/alsa.rs:TIMEOUT_CLAMP_MS]] |
+| `77050018` | `ErrAudioDevice` | The stream is already closed, or the device failed during capture. [[src/codegen/builtins/audio/native/macos.rs:lower_read]][[src/codegen/builtins/audio/native/alsa.rs:lower_read]] |
+| `77050017` | `ErrAudioUnavailable` | Linux only: `libasound.so.2` (or a required symbol) could not be resolved at runtime. [[src/codegen/builtins/audio/native/alsa.rs:emit_dlopen]] |
+| `77010001` | `ErrOutOfMemory` | Allocation of the result byte list failed. [[src/codegen/builtins/audio/native/macos.rs:lower_read]][[src/codegen/builtins/audio/native/alsa.rs:lower_read]] |
 
 ## Examples
 

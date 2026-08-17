@@ -1275,6 +1275,7 @@ pub(crate) fn registry() -> &'static Registry {
 /// from its own module, `crate::codegen::builtins::csv`.
 fn build() -> Registry {
     let mut r = Registry::new();
+    crate::codegen::builtins::audio::register(&mut r);
     crate::codegen::builtins::bits::register(&mut r);
     crate::codegen::builtins::csv::register(&mut r);
     crate::codegen::builtins::json::register(&mut r);

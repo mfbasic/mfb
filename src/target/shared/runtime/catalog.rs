@@ -8,20 +8,10 @@ use std::sync::OnceLock;
 static LEGACY_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     APP_GET_MODE_SPEC,
     APP_SET_MODE_SPEC,
-    AUDIO_DEVICES_SPEC,
-    AUDIO_OPEN_INPUT_SPEC,
-    AUDIO_OPEN_INPUT_DEVICE_SPEC,
-    AUDIO_OPEN_OUTPUT_SPEC,
-    AUDIO_OPEN_OUTPUT_DEVICE_SPEC,
-    AUDIO_READ_SPEC,
-    AUDIO_READ_TIMEOUT_SPEC,
-    AUDIO_WRITE_SPEC,
-    AUDIO_POLL_SPEC,
-    AUDIO_POLL_TIMEOUT_SPEC,
-    AUDIO_AVAILABLE_SPEC,
-    AUDIO_XRUNS_SPEC,
-    AUDIO_CLOSE_INPUT_SPEC,
-    AUDIO_CLOSE_OUTPUT_SPEC,
+    // `audio` is migrated: its specs (including the two per-direction resource close
+    // ops and the openInputDevice/openOutputDevice/readTimeout/pollTimeout code forms)
+    // are DERIVED from the registry (`registry::runtime_specs`) and merged in by
+    // `supported_helper_specs`, so no hand-written `AUDIO_*_SPEC` rows live here.
     // `crypto` is migrated: its ten native runtime helpers (`randomBytes`, the
     // NIST-EC `generateP*Raw` / `p{256,384,521}{Sign,Verify}`) are DERIVED from the
     // registry (`registry::runtime_specs`) and merged in by `supported_helper_specs`,
@@ -201,6 +191,12 @@ mod tests {
             "process.pollFrom",
             "process.receiveFrom",
             "process.receiveBytesFrom",
+            // audio's overload-split runtime calls (`openInputDevice`/`openOutputDevice`/
+            // `readTimeout`/`pollTimeout`/`closeInput`/`closeOutput`) are rewritten at IR
+            // level (`audio::runtime_overload_name`), so they DO exist at the NIR level
+            // and `helper_for_call` classifies them — they are deliberately NOT listed
+            // here (the `audio.close` base member, which always rewrites away, never
+            // reaches a runtime symbol but is still classified by `owning_package`).
             // plan-76-A: `net.poll(List OF RES Socket)` is rewritten to `net.pollList`
             // in the code layer (`builder_values`), so it never exists at the NIR
             // level and `helper_for_call` must not classify it.

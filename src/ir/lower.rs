@@ -116,8 +116,9 @@ pub fn lower_project_with_external_functions(
         .expect("built-in http package source must parse");
     let augmented = crate::codegen::builtins::net::augmented_project(&augmented)
         .expect("built-in net package source must parse");
-    let augmented = builtins::audio::augmented_project(&augmented)
-        .expect("built-in audio package source must parse");
+    // `audio` (its `render`/`play` synthesis companion + `AudioDevice`/`AudioEnvelope`/
+    // `AudioNote` records) is injected by the generic clean-room
+    // `registry::augment_project` above.
     // `process` (its `Stream`/`Signal` enum companion) is injected by the generic
     // clean-room `registry::augment_project` above.
     // `crypto` source is injected by the clean-room `registry::augment_project` above
@@ -2100,9 +2101,9 @@ fn expression_type(
                     != Some("encoding");
             if builtins::strings::is_strings_call(&canonical_callee)
                 || builtins::astrings::is_astrings_call(&canonical_callee)
-                // `math`/`vector`/`fs`/`io`/`net`/`tls`/`http` migrated to the clean-room
-                // registry — covered by `migrated_arg_typed` (`registry::is_member`) below.
-                || builtins::audio::is_audio_call(&canonical_callee)
+                // `math`/`vector`/`fs`/`io`/`net`/`tls`/`http`/`audio` migrated to the
+                // clean-room registry — covered by `migrated_arg_typed`
+                // (`registry::is_member`) below.
                 || migrated_arg_typed
                 || crate::codegen::registry::registry().owning_package(&canonical_callee)
                     == Some("datetime")
@@ -2865,13 +2866,17 @@ fn lower_expression_with_expected(
                         .map(|_| crate::codegen::builtins::tls::CLOSE_LISTENER.to_string())
                 })
                 .or_else(|| {
-                    // `audio::` rewrites the overloads whose *body* differs while
-                    // no user error is reachable onto their own internal
-                    // runtime-helper name: the named-device opens, timed
-                    // `read`/`poll`, and per-direction `close` (plan-33-A §5).
-                    // The target is a runtime helper, not a source companion, so
-                    // it is not internalized.
-                    if !builtins::audio::is_audio_call(&canonical_callee) {
+                    // `audio::` rewrites the overloads whose *body* differs while no user
+                    // error is reachable onto their own internal runtime-helper name: the
+                    // named-device opens, the timed `read`/`poll`, and the per-direction
+                    // `close` (plan-33-A §5). Done at IR level (the `tls.closeListener`
+                    // idiom) so the NIR carries the exact runtime-call name and the spec
+                    // catalog / required-helper emission / import planning stay
+                    // byte-identical. The target is a runtime helper, not a source
+                    // companion, so it is not internalized.
+                    if crate::codegen::registry::registry().owning_package(&canonical_callee)
+                        != Some("audio")
+                    {
                         return None;
                     }
                     let arg_types: Vec<String> = arguments
@@ -2881,8 +2886,11 @@ fn lower_expression_with_expected(
                             expression_type(argument, locals, context).unwrap_or_default()
                         })
                         .collect();
-                    builtins::audio::implementation_name(&canonical_callee, &arg_types)
-                        .map(str::to_string)
+                    crate::codegen::builtins::audio::runtime_overload_name(
+                        &canonical_callee,
+                        &arg_types,
+                    )
+                    .map(str::to_string)
                 })
                 .or_else(|| {
                     // `astrings::` Attribute-model + Tier-C members rewrite to their
@@ -2911,25 +2919,6 @@ fn lower_expression_with_expected(
                         })
                         .collect();
                     crate::codegen::builtins::vector::rewrite_target(&canonical_callee, &arg_types)
-                        .map(crate::internal_name::internalize)
-                })
-                .or_else(|| {
-                    // `audio::render`/`audio::play` are source-companion members
-                    // (`audio_render.mfb + audio_mml.mfb`); `play` selects its single- vs
-                    // multi-track body from the second argument's type. The
-                    // native capture/playback surface returned `None` above and
-                    // stays a runtime-helper call.
-                    if !builtins::audio::is_audio_call(&canonical_callee) {
-                        return None;
-                    }
-                    let arg_types: Vec<String> = arguments
-                        .iter()
-                        .map(call_arg_value)
-                        .map(|argument| {
-                            expression_type(argument, locals, context).unwrap_or_default()
-                        })
-                        .collect();
-                    builtins::audio::source_implementation_name(&canonical_callee, &arg_types)
                         .map(crate::internal_name::internalize)
                 })
                 .or_else(|| {

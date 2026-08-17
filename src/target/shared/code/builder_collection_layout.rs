@@ -2565,7 +2565,7 @@ fn refined_list_literal_type(declared: &str, first_element_type: Option<&str>) -
 /// A free function rather than a `CodeBuilder` method because both callers are
 /// standalone `CodeFunction` emitters with no builder in scope (plan-57-A §Open
 /// Decisions).
-pub(super) fn emit_alloc_byte_list(
+pub(crate) fn emit_alloc_byte_list(
     symbol: &str,
     tag: &str,
     count_off: usize,

@@ -12,8 +12,8 @@ topic specifies the behavior behind it.
 The only format is raw interleaved signed 16-bit little-endian PCM (`s16le`).
 One **frame** is `channels * 2` bytes: for stereo, a frame is a left sample
 (2 bytes) followed by a right sample (2 bytes). A byte buffer handed to
-`audio::write` [[src/builtins/audio.rs:WRITE]] must be a nonzero whole number of
-frames; a buffer returned by `audio::read` [[src/builtins/audio.rs:READ]] is
+`audio::write` [[src/codegen/builtins/audio/func_write.rs:write]] must be a nonzero whole number of
+frames; a buffer returned by `audio::read` [[src/codegen/builtins/audio/func_read.rs:read]] is
 always whole frames. There is no file, container, codec, mixer, resampler, or
 channel-conversion API at any layer.
 
@@ -37,12 +37,12 @@ underrun event.
 
 ## `render`: synthesize a note to PCM
 
-`audio::render(note)` [[src/builtins/audio.rs:RENDER]] is a pure MFBASIC tone
+`audio::render(note)` [[src/codegen/builtins/audio/func_render.rs:render]] is a pure MFBASIC tone
 synthesizer — not a device call. It renders an `AudioNote` to mono `s16le` PCM at
 48 kHz and returns it as the same `List OF Byte` layout `write` consumes, so a
 rendered tone plays with no conversion. It opens no hardware and never raises.
 Unlike the native surface, `render` and its two value records (`AudioEnvelope`,
-`AudioNote`) live in the package's MFBASIC source companion,[[src/builtins/audio_render.mfb]]
+`AudioNote`) live in the package's MFBASIC source companion,[[src/codegen/builtins/audio/package.mfb]]
 injected on `IMPORT audio` exactly like
 `net`'s `Url`. `AudioEnvelope` and `AudioNote` are ordinary value records the
 program constructs (`AudioEnvelope[...]`, `AudioNote[...]`) — unlike the
@@ -57,7 +57,7 @@ little-endian; the result is `noteFrames * 2` bytes.
 
 ## `play`: an MML sequencer
 
-`audio::play(output, mml)` [[src/builtins/audio.rs:PLAY]] plays music written in
+`audio::play(output, mml)` [[src/codegen/builtins/audio/func_play.rs:play]] plays music written in
 **MML** (Music Macro Language) — a small source-companion sequencer, overloaded by
 its second argument on a single `String` track or a `List OF String` of tracks.
 It pre-renders every track to mono `s16le` PCM at 48 kHz, mixes them (summing with
@@ -80,7 +80,7 @@ A440. Like `render`, `play` and the sequencer live in the MFBASIC source compani
 
 ## `available` and `poll`
 
-`audio::available(stream)` [[src/builtins/audio.rs:AVAILABLE]] returns the frames
+`audio::available(stream)` [[src/codegen/builtins/audio/func_available.rs:available]] returns the frames
 that can move immediately without blocking: readable frames for an `AudioInput`,
 writable frames for an `AudioOutput`. Per the timeout convention, `audio::poll(stream)`
 (omitted timeout) **blocks** until that condition holds and then returns `TRUE`;
@@ -90,7 +90,7 @@ identical across the two backends.
 
 ## `xruns`: events, not frames
 
-`audio::xruns(stream)` [[src/builtins/audio.rs:XRUNS]] is a monotonic count of
+`audio::xruns(stream)` [[src/codegen/builtins/audio/func_xruns.rs:xruns]] is a monotonic count of
 xrun **events** since the stream opened — capture overruns for an `AudioInput`,
 playback underruns for an `AudioOutput` — incremented by exactly one per event.
 It counts events, not lost frames: `xruns() > 0` means audio was lost and the
@@ -101,7 +101,7 @@ would be truthful on macOS and fabricated on Linux.
 ## Direction is in the type; no duplex, no threads
 
 `AudioInput` and `AudioOutput` are separate move-only resource types
-[[src/builtins/audio.rs:AUDIO_INPUT_TYPE]]. `read` is defined only over
+[[src/codegen/builtins/audio/mod.rs:AUDIO_INPUT_TYPE]]. `read` is defined only over
 `AudioInput` and `write` only over `AudioOutput`, so a swapped stream is a
 **compile** error caught by overload resolution, never a runtime check. This
 follows the hardware: no operating system in scope has a duplex stream handle
@@ -112,7 +112,7 @@ Both types are **non-sendable**: neither can cross a thread boundary, so a
 program cannot run capture on one thread and playback on another. Single-threaded
 duplex is expressible — open one stream of each direction and drive both from one
 loop with `poll`, `available`, and timed `read`. That is why those three calls
-exist. `audio::devices()` [[src/builtins/audio.rs:DEVICES]] returns no channel
+exist. `audio::devices()` [[src/codegen/builtins/audio/func_devices.rs:devices]] returns no channel
 counts or supported rates: a caller discovers a working configuration by
 attempting to open the device and handling the error.
 

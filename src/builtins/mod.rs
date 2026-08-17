@@ -1,6 +1,5 @@
 pub(crate) mod app;
 pub(crate) mod astrings;
-pub(crate) mod audio;
 pub(crate) mod general;
 pub(crate) mod resource;
 pub(crate) mod strings;
@@ -162,7 +161,8 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
     // `csv.Thread`) because that predicate ORs every package together (bug-98).
     let belongs = match package {
         "app" => app::is_builtin_type(member),
-        "audio" => audio::is_builtin_type(member),
+        // `audio`'s records (`AudioDevice`/`AudioEnvelope`/`AudioNote`) and resource
+        // handles resolve via the migrated-registry check above, so no arm is needed.
         // `crypto`'s `Sealed`/`KeyPair` records resolve via the migrated-registry
         // check above (`registry::qualified_builtin_type`), so no arm is needed here.
         // `datetime`'s source-declared value types resolve via the migrated-registry
@@ -440,7 +440,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
             function.name,
         );
     }
-    audio::call_return_type_name(name)
+    None
 }
 
 /// The name of the builtin package that owns a fully qualified call, or `None`
@@ -489,8 +489,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
     // process — no longer own an `expected_arguments` seam: their bespoke phrasing
     // rides on the `RegistryFunction::expected_arguments` descriptor field and is
     // served by the generic `registry::expected_arguments` below.
-    if let Some(text) = audio::expected_arguments(name)
-        .or_else(|| general::expected_arguments(name))
+    if let Some(text) = general::expected_arguments(name)
         .or_else(|| strings::expected_arguments(name))
         .or_else(|| crate::codegen::registry::expected_arguments(name))
     {
@@ -528,8 +527,7 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
     }
 
     let expected = general::expected_arguments(callee)
-        .or_else(|| strings::expected_arguments(callee))
-        .or_else(|| audio::argument_types(callee))?;
+        .or_else(|| strings::expected_arguments(callee))?;
     // A description that is not a concrete positional signature is not a coercion
     // table: an optional-argument bracket (`strings.find`'s
     // `"String, String[, Integer]"`), an argument union (`" or "`), a variadic range
@@ -600,14 +598,11 @@ pub(crate) fn is_internal_only_call(name: &str) -> bool {
 }
 
 pub(crate) fn is_builtin_call(name: &str) -> bool {
-    // The `audio::` lowered-only internal names are not user-callable. They must be
-    // excluded before the `call_return_type_name` fallback below, which knows their
-    // types (IR lowering needs it for the rewritten target) and would otherwise
-    // re-admit `audio::readTimeout()` as a builtin and silently miscompile it
-    // (bug-213).
-    if audio::is_audio_internal_call(name) {
-        return false;
-    }
+    // The `audio::` lowered-only internal names (device opens, timed I/O, the
+    // per-direction closes) are `os_aliases`, not registry members, so `is_member`
+    // and the `call_return_type_name` tail both decline them — `audio::readTimeout()`
+    // in user source draws an unknown-function diagnostic, never a silent miscompile
+    // (bug-213), with no explicit guard needed.
     // Migrated (clean-room registry) packages first; else the old REGISTRY.
     // plan-72-BB: descriptor membership is every package's `is_<pkg>_call`
     // (`DefaultResolver::contains`). The remaining non-descriptor member surface stays
@@ -720,11 +715,11 @@ pub(crate) fn split_func_params_and_return(rest: &str) -> Option<(Vec<&str>, &st
 /// by selecting the overload first, then binding names within it; every other
 /// builtin uses the merged per-position table of [`call_param_names`].
 pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static [&'static str]]> {
-    audio::call_param_name_overloads(name)
-        // datetime's front-dropping constructors (instant/duration/fixedOffset) are
-        // served by the generic registry, which derives the per-overload table from
-        // each implementation's parameters.
-        .or_else(|| crate::codegen::registry::call_param_name_overloads(name))
+    // datetime's front-dropping constructors (instant/duration/fixedOffset) are served by
+    // the generic registry, which derives the per-overload table from each
+    // implementation's parameters. Every package that carried an overload-disagreeing
+    // param table has migrated, so the registry is the sole provider.
+    crate::codegen::registry::call_param_name_overloads(name)
 }
 
 /// Pick the overload a call selects, given how many arguments were passed
@@ -757,7 +752,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
     }
     let borrowed: &'static [&'static [&'static str]] = app::call_param_names(name)
         .or_else(|| astrings::call_param_names(name))
-        .or_else(|| audio::call_param_names(name))
         .or_else(|| general::call_param_names(name))
         .or_else(|| strings::call_param_names(name))
         .or_else(|| term::call_param_names(name))?;

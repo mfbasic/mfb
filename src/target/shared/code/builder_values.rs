@@ -1832,6 +1832,11 @@ impl CodeBuilder<'_> {
                 })
             })
             .or_else(|| builtins::call_return_type_name(target).map(str::to_string))
+            // A migrated package's code-form/scope-drop close op (`audio.closeInput`,
+            // `audio.closeOutput`, `tls.closeListener`) is an `os_alias`, not a
+            // registry member, so `call_return_type_name` declines it; its return type
+            // is the catalogued runtime spec's (derived by `registry::runtime_specs`).
+            .or_else(|| runtime::spec_for_call(target).map(|spec| spec.abi.returns.to_string()))
             .ok_or_else(|| format!("native runtime call '{target}' has no return type"))?;
         let runtime_target = match target {
             "thread.send" => {
@@ -1995,6 +2000,9 @@ impl CodeBuilder<'_> {
                     "process.receiveBytes"
                 }
             }
+            // audio's overload splits (named-device `open*`, timed `read`/`poll`,
+            // per-direction `close`) are done at IR level (`audio::runtime_overload_name`),
+            // so the NIR already carries the rewritten runtime-call name here.
             _ => target,
         };
         self.emit_runtime_helper_call(

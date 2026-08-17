@@ -2382,6 +2382,7 @@ mod open_error_cleanup_tests {
     //! libasound to execute, so the assertions pin the emitted cleanup instead:
     //! the two open-error exits must dispose of everything the open acquired.
     use super::*;
+    use crate::arch::ops::CodeOp;
     use crate::target::shared::code::mir;
     use crate::target::shared::code::test_support::{has_label, TestPlatform};
 

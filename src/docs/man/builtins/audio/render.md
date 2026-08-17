@@ -20,7 +20,7 @@ IMPORT audio
 
 `audio` is a built-in package, so no manifest dependency is required. The
 note/envelope records and `render` itself are supplied by a source companion that
-is injected only when a program imports `audio`. [[src/builtins/audio.rs:package_source_glue]]
+is injected only when a program imports `audio`. [[src/codegen/builtins/audio/mod.rs:register]]
 
 ## Description
 
@@ -32,7 +32,7 @@ rate and returns it as a `List OF Byte` — the same mono frame layout
 `AudioOutput`. The output is single-channel, so one frame is one sample of two
 bytes; the returned list is
 `note.noteFrames * 2` bytes long. A `note.noteFrames` of zero or less runs no
-iterations and returns an empty list. [[src/builtins/audio_render.mfb:__audio_render]]
+iterations and returns an empty list. [[src/codegen/builtins/audio/package.mfb:__audio_render]]
 
 For each frame `i` the renderer evaluates a sine oscillator
 `sin(2 * pi * note.frequencyHz * (i / 48000))` and shapes it with the note's
@@ -45,7 +45,7 @@ For each frame `i` the renderer evaluates a sine oscillator
   `releaseFrames`.
 
 `holdFrames` is informational; the sustain fills whatever the note length leaves
-between decay and release. [[src/builtins/audio_render.mfb:__audio_render]]
+between decay and release. [[src/codegen/builtins/audio/package.mfb:__audio_render]]
 
 Each sample is the oscillator value times the envelope times `note.gainOverall`,
 converted to an `Integer`, then clamped to the s16 range `[-32768, 32767]` and
@@ -53,7 +53,7 @@ encoded little-endian. The conversion happens **before** the clamp, so a
 non-finite or wildly out-of-range product — for example a non-finite
 `frequencyHz`/`gainOverall`, or a `gainOverall` large enough to push the product
 past the `Integer` range — is rejected by the conversion rather than clamped.
-[[src/builtins/audio_render.mfb:__audio_render]][[src/target/shared/code/builder_conversions.rs:emit_float_to_int_value]]
+[[src/codegen/builtins/audio/package.mfb:__audio_render]][[src/target/shared/code/builder_conversions.rs:emit_float_to_int_value]]
 
 `render` is deterministic and platform-independent: it produces byte-identical
 PCM on every target.
@@ -62,13 +62,13 @@ PCM on every target.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `note` | `AudioNote` | The note to synthesize: `frequencyHz` (Float, cycles per second), `noteFrames` (Integer total length in frames at 48 kHz), `envelope` (an `AudioEnvelope`), and `gainOverall` (Float, nominally 0..1). Construct it with `AudioNote[...]`. [[src/builtins/audio.rs:AUDIO]] |
+| `note` | `AudioNote` | The note to synthesize: `frequencyHz` (Float, cycles per second), `noteFrames` (Integer total length in frames at 48 kHz), `envelope` (an `AudioEnvelope`), and `gainOverall` (Float, nominally 0..1). Construct it with `AudioNote[...]`. [[src/codegen/builtins/audio/mod.rs:register]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | Single-channel mono `s16le` PCM at 48 kHz, exactly `note.noteFrames * 2` bytes; empty when `note.noteFrames <= 0`. [[src/builtins/audio.rs:AUDIO]][[src/builtins/audio_render.mfb:__audio_render]] |
+| `List OF Byte` | Single-channel mono `s16le` PCM at 48 kHz, exactly `note.noteFrames * 2` bytes; empty when `note.noteFrames <= 0`. [[src/codegen/builtins/audio/mod.rs:register]][[src/codegen/builtins/audio/package.mfb:__audio_render]] |
 
 ## Errors
 

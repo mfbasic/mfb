@@ -117,7 +117,6 @@ pub(crate) struct RuntimeHelperAbi {
 }
 
 mod app_specs;
-mod audio_specs;
 mod catalog;
 mod perf_specs;
 mod term_specs;
@@ -128,7 +127,6 @@ pub(crate) use catalog::{spec_for_call, spec_for_symbol, supported_helper_specs}
 pub(crate) use usage::{is_native_direct_call, required_helpers};
 
 use app_specs::*;
-use audio_specs::*;
 use perf_specs::*;
 use term_specs::*;
 use thread_specs::*;
@@ -136,7 +134,13 @@ use thread_specs::*;
 pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
     if builtins::app::is_app_call(name) {
         Some(RuntimeHelper::App)
-    } else if builtins::audio::is_audio_runtime_call(name) {
+    } else if name.starts_with("audio.") {
+        // Every `audio.*` runtime call routes to the Audio family: the descriptor
+        // members plus the IR-level overload-split names (`openInputDevice`/
+        // `openOutputDevice`/`readTimeout`/`pollTimeout`/`closeInput`/`closeOutput`) that
+        // `audio::runtime_overload_name` synthesizes at IR level, so they exist at NIR.
+        // (The source members `audio.render`/`audio.play` are internalized before
+        // reaching here.)
         Some(RuntimeHelper::Audio)
     } else if crate::codegen::builtins::crypto::is_native_crypto_call(name) {
         Some(RuntimeHelper::Crypto)

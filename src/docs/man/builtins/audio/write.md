@@ -20,7 +20,7 @@ IMPORT audio
 
 `audio` is a built-in package, so no manifest dependency is required. A program
 that does not `IMPORT audio` gains no audio symbol and no dynamic-library
-dependency. [[src/builtins/audio.rs:package_source_glue]]
+dependency. [[src/codegen/builtins/audio/mod.rs:register]]
 
 ## Description
 
@@ -29,16 +29,16 @@ for playback on an open `AudioOutput` and blocks until every byte has been hande
 to the operating system for playback. It returns `Nothing`. `write` is defined
 only over `AudioOutput`; passing an `AudioInput` is a compile-time
 overload-resolution error, never a runtime check.
-[[src/builtins/audio.rs:AUDIO]] The stream is borrowed, not consumed — the
+[[src/codegen/builtins/audio/mod.rs:register]] The stream is borrowed, not consumed — the
 handle stays open and must still be closed with `audio::close` or by lexical
-drop. [[src/builtins/audio.rs:consumes_argument]]
+drop. [[src/syntaxcheck/builtins.rs:audio_consumes_argument]]
 
 `bytes` carries interleaved `s16le` samples: one frame is `channels * 2` bytes.
 Its length must be nonzero and an exact whole number of frames (a multiple of the
 stream's bytes-per-frame); a zero-length list or a length that is not
 frame-aligned raises `ErrInvalidArgument` before any audio is queued. The data
 is read from the list's capacity-based data region, so an append-built list plays
-back correctly. [[src/target/shared/code/audio/macos.rs:lower_write]][[src/target/shared/code/audio/alsa.rs:lower_write]]
+back correctly. [[src/codegen/builtins/audio/native/macos.rs:lower_write]][[src/codegen/builtins/audio/native/alsa.rs:lower_write]]
 
 Playback is queued frame by frame, in order, until the whole list is enqueued;
 `write` does not resample or reinterpret the bytes. On macOS the queue only ever
@@ -48,43 +48,43 @@ completed by the next `write`, or padded with silence by `audio::close`. An
 one would never be handed back and the drain in `close` would wait forever.
 Successive writes therefore join without a gap, and a program hears at most one
 buffer of trailing silence at the end of the stream.
-[[src/target/shared/code/audio/macos.rs:lower_write]][[src/target/shared/code/audio/mod.rs:S_PENDING_BUF]]
+[[src/codegen/builtins/audio/native/macos.rs:lower_write]][[src/codegen/builtins/audio/native/mod.rs:S_PENDING_BUF]]
 On Linux, if `snd_pcm_writei`
 reports an underrun `write` bumps the stream's underrun counter (read with
 `audio::xruns`), calls `snd_pcm_recover`, and resumes rather than aborting; only a
 recovery that itself fails raises `ErrAudioDevice`. On macOS the underrun counter
 is incremented by the Core Audio callback when the queue runs dry, not by `write`.
-[[src/target/shared/code/audio/alsa.rs:lower_write]]
+[[src/codegen/builtins/audio/native/alsa.rs:lower_write]]
 
 Writing to a stream that has already been closed, or one whose device has failed,
 raises `ErrAudioDevice`. macOS drives Core Audio directly through the output
-`AudioQueue`. [[src/target/shared/code/audio/macos.rs:lower_write]] Linux drives
+`AudioQueue`. [[src/codegen/builtins/audio/native/macos.rs:lower_write]] Linux drives
 ALSA through `snd_pcm_writei` on the calling thread via a `libasound.so.2`
 resolved at runtime with `dlopen`; a binary that imports `audio` still starts on
 a host without alsa-lib, but a `write` there raises `ErrAudioUnavailable` when the
 library or a required symbol cannot be resolved.
-[[src/target/shared/code/audio/alsa.rs:emit_dlopen]]
+[[src/codegen/builtins/audio/native/alsa.rs:emit_dlopen]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `output` | `AudioOutput` | An open playback stream, from `audio::openOutput`. Borrowed, not consumed. Writing after close raises `ErrAudioDevice`. [[src/builtins/audio.rs:consumes_argument]] |
-| `bytes` | `List OF Byte` | Interleaved `s16le` PCM. Length must be nonzero and a whole multiple of `channels * 2` (one frame). [[src/target/shared/code/audio/macos.rs:lower_write]] |
+| `output` | `AudioOutput` | An open playback stream, from `audio::openOutput`. Borrowed, not consumed. Writing after close raises `ErrAudioDevice`. [[src/syntaxcheck/builtins.rs:audio_consumes_argument]] |
+| `bytes` | `List OF Byte` | Interleaved `s16le` PCM. Length must be nonzero and a whole multiple of `channels * 2` (one frame). [[src/codegen/builtins/audio/native/macos.rs:lower_write]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns once every byte has been queued for playback. [[src/builtins/audio.rs:AUDIO]] |
+| `Nothing` | Returns once every byte has been queued for playback. [[src/codegen/builtins/audio/mod.rs:register]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `bytes` is empty, or its length is not a whole multiple of the frame size (`channels * 2`). [[src/target/shared/code/audio/macos.rs:lower_write]][[src/target/shared/code/audio/alsa.rs:lower_write]] |
-| `77050018` | `ErrAudioDevice` | The stream is already closed, or the device failed while queuing playback. [[src/target/shared/code/audio/macos.rs:lower_write]][[src/target/shared/code/audio/alsa.rs:lower_write]] |
-| `77050017` | `ErrAudioUnavailable` | Linux only: `libasound.so.2` (or a required symbol) could not be resolved at runtime. [[src/target/shared/code/audio/alsa.rs:emit_dlopen]] |
+| `77050002` | `ErrInvalidArgument` | `bytes` is empty, or its length is not a whole multiple of the frame size (`channels * 2`). [[src/codegen/builtins/audio/native/macos.rs:lower_write]][[src/codegen/builtins/audio/native/alsa.rs:lower_write]] |
+| `77050018` | `ErrAudioDevice` | The stream is already closed, or the device failed while queuing playback. [[src/codegen/builtins/audio/native/macos.rs:lower_write]][[src/codegen/builtins/audio/native/alsa.rs:lower_write]] |
+| `77050017` | `ErrAudioUnavailable` | Linux only: `libasound.so.2` (or a required symbol) could not be resolved at runtime. [[src/codegen/builtins/audio/native/alsa.rs:emit_dlopen]] |
 
 ## Examples
 

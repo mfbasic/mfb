@@ -1133,7 +1133,7 @@ fn read_only_record_type(type_name: &str) -> bool {
     type_name == builtins::term::TERM_COLOR_TYPE
         || type_name == builtins::term::TERM_SIZE_TYPE
         || type_name == crate::codegen::builtins::net::ADDRESS_TYPE
-        || type_name == builtins::audio::AUDIO_DEVICE_TYPE
+        || type_name == crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE
         || type_name.starts_with("MapEntry OF ")
 }
 

@@ -37,9 +37,9 @@ const BUILTIN_TYPES: &[&str] = &[
     crate::codegen::builtins::net::DATAGRAM_TEXT_TYPE,
     crate::codegen::builtins::tls::TLS_SOCKET_TYPE_ID,
     crate::codegen::builtins::tls::TLS_LISTENER_TYPE_ID,
-    builtins::audio::AUDIO_INPUT_TYPE_ID,
-    builtins::audio::AUDIO_OUTPUT_TYPE_ID,
-    builtins::audio::AUDIO_DEVICE_TYPE,
+    crate::codegen::builtins::audio::AUDIO_INPUT_TYPE_ID,
+    crate::codegen::builtins::audio::AUDIO_OUTPUT_TYPE_ID,
+    crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE,
     crate::codegen::builtins::process::PROCESS_TYPE_ID,
 ];
 
@@ -131,7 +131,8 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     // `net::uses_package` to see the dependency (plan-03-http.md Phase 4).
     let augmented = crate::codegen::builtins::http::augmented_project(&augmented)?;
     let augmented = crate::codegen::builtins::net::augmented_project(&augmented)?;
-    let augmented = builtins::audio::augmented_project(&augmented)?;
+    // `audio` source (render/play synthesis + records) is injected by the generic
+    // clean-room `registry::augment_project` above.
     // `process` (its `Stream`/`Signal` enum companion) is injected by the generic
     // clean-room `registry::augment_project` above.
     // `crypto` source is injected by the generic clean-room `registry::augment_project`
