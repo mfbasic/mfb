@@ -342,11 +342,16 @@ impl TypeEnv {
         fn is_net_call(name: &str) -> bool {
             crate::codegen::registry::registry().owning_package(name) == Some("net")
         }
+        // `strings` migrated to the clean-room registry (plan-99 PART B) — membership
+        // via `owning_package`, replacing the deleted `builtins::strings::is_strings_call`.
+        fn is_strings_call(name: &str) -> bool {
+            crate::codegen::registry::registry().owning_package(name) == Some("strings")
+        }
         let checked: [IsCall; 9] = [
             is_math_call,
             is_bits_call,
             is_vector_call,
-            builtins::strings::is_strings_call,
+            is_strings_call,
             is_encoding_call,
             is_io_call,
             is_fs_call,

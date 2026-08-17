@@ -138,8 +138,10 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     // above; it runs before the `strings`/`encoding` late passes, so
     // `encoding::uses_package` still sees `crypto_package.mfb`'s `IMPORT encoding`
     // (mirrors `http` before `net`; plan-04-crypto.md Part C).
-    // `strings` before `encoding`: `strings_package.mfb` imports `encoding`.
-    let augmented = builtins::strings::augmented_project(&augmented)?;
+    // `strings`' scalar-seam companion (which `IMPORT encoding`s) is injected by the
+    // generic clean-room `registry::augment_project` above as a `WhenUsed` gated
+    // helper (plan-99 PART B) — before this `encoding` late pass, so
+    // `encoding::uses_package` still sees the seam's transitive `IMPORT encoding`.
     let augmented = crate::codegen::builtins::encoding::augmented_project(&augmented)?;
     Ok(augmented)
 }

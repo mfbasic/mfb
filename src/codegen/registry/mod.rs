@@ -293,9 +293,14 @@ pub(crate) enum HelperGate {
     /// which keeps the heavy Unicode general-category table out of a program that
     /// imports `strings` but calls no seam member (plan-41-D).
     WhenUsed(&'static [&'static str]),
-    /// Inject only when the named registry package is **also** imported by the
-    /// program — the `term`↔`astrings` `drawText(AttributedString)` bridge, which
-    /// needs both packages in scope.
+    /// Inject only when the named package is **also** imported by the program,
+    /// regardless of whether the OWNING package is imported — a cross-package bridge.
+    /// Two shapes need it: the `term`↔`astrings` `drawText(AttributedString)` bridge,
+    /// and the `strings` scalar seam an injected `astrings` companion calls (an
+    /// `astrings`-only program never imports `strings` in user source, yet its
+    /// companion `IMPORT strings` + `strings::toScalars`). `other` is matched by raw
+    /// import name, so it applies to a not-yet-migrated package (`astrings`/`term`)
+    /// that is absent from this registry.
     WhenImported(&'static str),
 }
 
@@ -1268,21 +1273,27 @@ impl Registry {
         let mut injected_helpers: std::collections::HashSet<&'static str> =
             std::collections::HashSet::new();
         for package in self.packages() {
-            if !package.is_imported_by(ast) {
-                continue;
-            }
+            let package_imported = package.is_imported_by(ast);
             for helper in package.helpers() {
                 let Some(body) = helper.body else {
                     continue; // an `import_name` ordering edge — no source to inject.
                 };
                 let gate_open = match helper.gate {
                     HelperGate::Always => false, // rendered inline in `get_mfb`.
-                    HelperGate::WhenUsed(names) => references_any(ast, names),
-                    HelperGate::WhenImported(other) => self
-                        .packages()
-                        .iter()
-                        .find(|p| p.import_name() == other)
-                        .is_some_and(|p| p.is_imported_by(ast)),
+                    // `WhenUsed` fires only when the OWNING package is imported and a
+                    // gated member is referenced (the `strings` scalar-seam gate).
+                    HelperGate::WhenUsed(names) => package_imported && references_any(ast, names),
+                    // `WhenImported` is a cross-package bridge keyed on `other` being
+                    // imported — the OWNING package need NOT be imported (an
+                    // `astrings`-only program does not import `strings`, yet the injected
+                    // `astrings` companion calls the `strings` scalar seam, so the seam
+                    // must ride in). `other` is matched by raw import name so it works for
+                    // a non-registry package too (`astrings`/`term`, not yet migrated).
+                    HelperGate::WhenImported(other) => ast.files.iter().any(|file| {
+                        file.imports
+                            .iter()
+                            .any(|import| import.package_name() == other)
+                    }),
                 };
                 if !gate_open || !injected_helpers.insert(helper.name) {
                     continue;
@@ -1405,6 +1416,7 @@ fn build() -> Registry {
     crate::codegen::builtins::json::register(&mut r);
     crate::codegen::builtins::math::register(&mut r);
     crate::codegen::builtins::regex::register(&mut r);
+    crate::codegen::builtins::strings::register(&mut r);
     crate::codegen::builtins::process::register(&mut r);
     crate::codegen::builtins::datetime::register(&mut r);
     crate::codegen::builtins::encoding::register(&mut r);

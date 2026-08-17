@@ -1,7 +1,6 @@
 pub(crate) mod astrings;
 pub(crate) mod general;
 pub(crate) mod resource;
-pub(crate) mod strings;
 pub(crate) mod term;
 pub(crate) mod testing;
 
@@ -399,6 +398,14 @@ pub(crate) fn resolve_call_return_type(
     if crate::codegen::registry::registry().owning_package(callee) == Some("vector") {
         return crate::codegen::builtins::vector::resolve_return_type(callee, arg_types);
     }
+    // `strings` is a registry member but carries the `AttributedString` Tier-A/Tier-B
+    // return typing (astrings' still-hardcoded type), which the generic coarse-nominal
+    // matcher below cannot express. Its co-located resolver reproduces the deleted
+    // `StringsResolver::resolve_return_type`, deferring to `registry::resolve_call` for
+    // every non-`AttributedString` call (plan-99 PART B).
+    if crate::codegen::registry::registry().owning_package(callee) == Some("strings") {
+        return crate::codegen::builtins::strings::resolve_return_type(callee, arg_types, strict);
+    }
     if crate::codegen::registry::registry().is_member(callee) {
         return crate::codegen::registry::resolve_call(callee, arg_types, strict);
     }
@@ -490,7 +497,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
     // rides on the `RegistryFunction::expected_arguments` descriptor field and is
     // served by the generic `registry::expected_arguments` below.
     if let Some(text) = general::expected_arguments(name)
-        .or_else(|| strings::expected_arguments(name))
         .or_else(|| crate::codegen::registry::expected_arguments(name))
     {
         return Some(text.to_string());
@@ -526,8 +532,7 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
         return Some(types);
     }
 
-    let expected =
-        general::expected_arguments(callee).or_else(|| strings::expected_arguments(callee))?;
+    let expected = general::expected_arguments(callee)?;
     // A description that is not a concrete positional signature is not a coercion
     // table: an optional-argument bracket (`strings.find`'s
     // `"String, String[, Integer]"`), an argument union (`" or "`), a variadic range
@@ -752,7 +757,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
     }
     let borrowed: &'static [&'static [&'static str]] = astrings::call_param_names(name)
         .or_else(|| general::call_param_names(name))
-        .or_else(|| strings::call_param_names(name))
         .or_else(|| term::call_param_names(name))?;
     Some(borrowed.iter().map(|aliases| aliases.to_vec()).collect())
 }
