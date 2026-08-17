@@ -32,6 +32,16 @@ pub(crate) enum ParameterType {
     ListOf(Box<ParameterType>),
     MapOf(Box<ParameterType>, Box<ParameterType>),
     SetOf(Box<ParameterType>),
+    /// A `RES`-marked collection element (`List OF RES fs.File`) — the mandatory
+    /// ownership-axis marker for a resource stored as a collection element (§15.6).
+    /// Matching is RES-*transparent*: [`unify`](crate::codegen::registry) and
+    /// `leaf_matches` unwrap it on the concrete side before matching, exactly
+    /// reproducing the historical strip-on-[`parse`](Self::parse). The marker exists
+    /// only so a type NAME round-trips byte-exact (`parse("List OF RES File").name()
+    /// == "List OF RES File"`) once the type checker carries `ParameterType` instead
+    /// of the raw string — a `Var` binding still drops it (bound to the unwrapped
+    /// inner), and only [`Arg`](Self::Arg) echoes it verbatim.
+    Res(Box<ParameterType>),
     /// A concrete nominal type — a record, union, or user type named by the program.
     /// Matched by name (unlike [`Var`], which is bound). A descriptor names one with a
     /// static literal (`Named("CsvReader")`); a concrete nominal argument is built at
@@ -96,6 +106,10 @@ impl ParameterType {
     pub(crate) fn set_of(elem: ParameterType) -> Self {
         ParameterType::SetOf(Box::new(elem))
     }
+    /// A `RES`-marked element (`RES fs.File`) wrapping `inner`.
+    pub(crate) fn res(inner: ParameterType) -> Self {
+        ParameterType::Res(Box::new(inner))
+    }
     pub(crate) fn func(params: Vec<ParameterType>, ret: ParameterType) -> Self {
         ParameterType::Func(params, Box::new(ret), false)
     }
@@ -130,7 +144,14 @@ impl ParameterType {
     /// `&'static` — a deliberate leak, but only at this boundary. A leading `RES `
     /// ownership marker is stripped (a collection element stores the bare type).
     pub(crate) fn parse(name: &str) -> ParameterType {
-        let name = name.strip_prefix("RES ").unwrap_or(name);
+        // A `RES ` ownership marker wraps a [`Res`](Self::Res) around the inner type
+        // (rather than being stripped), so a collection element like
+        // `List OF RES File` round-trips byte-exact through `parse`/`name`. Matching
+        // stays RES-transparent (unify/leaf_matches unwrap it), so overload selection
+        // is unchanged from the historical strip-on-parse.
+        if let Some(rest) = name.strip_prefix("RES ") {
+            return ParameterType::res(ParameterType::parse(rest));
+        }
         if name == "Unknown" {
             return ParameterType::Unknown;
         }
@@ -213,6 +234,7 @@ impl ParameterType {
                 Cow::Owned(format!("Map OF {} TO {}", elem_a.name(), elem_b.name()))
             }
             ParameterType::SetOf(elem) => Cow::Owned(format!("Set OF {}", elem.name())),
+            ParameterType::Res(inner) => Cow::Owned(format!("RES {}", inner.name())),
             ParameterType::Named(elem) => Cow::Borrowed(elem),
             ParameterType::Var(name) => Cow::Borrowed(name),
             ParameterType::Func(params, ret, isolated) => Cow::Owned(format!(
@@ -628,6 +650,53 @@ mod tests {
                 );
             }
             other => panic!("expected Func, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn res_collection_element_parses_into_variant() {
+        // A `RES`-marked collection element becomes a `Res` wrapping the inner type
+        // (historically the marker was stripped, losing it on a `name()` round-trip).
+        assert_eq!(
+            ParameterType::parse("RES fs.File"),
+            ParameterType::res(ParameterType::Named("fs.File"))
+        );
+        assert_eq!(
+            ParameterType::parse("List OF RES fs.File"),
+            ParameterType::list_of(ParameterType::res(ParameterType::Named("fs.File")))
+        );
+        assert_eq!(
+            ParameterType::parse("Map OF String TO RES fs.File"),
+            ParameterType::map_of(
+                ParameterType::String,
+                ParameterType::res(ParameterType::Named("fs.File")),
+            )
+        );
+        // The `STATE` clause stays inside the (opaque) nominal, the `RES` wraps it.
+        assert_eq!(
+            ParameterType::parse("List OF RES File STATE Cursor"),
+            ParameterType::list_of(ParameterType::res(ParameterType::Named(
+                "File STATE Cursor"
+            )))
+        );
+    }
+
+    #[test]
+    fn res_collection_round_trips_byte_exact() {
+        // The whole point of the `Res` variant: these spellings round-tripped LOSSILY
+        // before (the `RES ` marker was dropped), which is why `resolve_call` had to
+        // echo the raw argument string. Now `parse`→`name` is byte-exact.
+        for spelling in [
+            "RES fs.File",
+            "RES File STATE Cursor",
+            "List OF RES fs.File",
+            "List OF RES File STATE Cursor",
+            "Set OF RES fs.File",
+            "Map OF String TO RES fs.File",
+            "Map OF RES fs.File TO Integer",
+            "List OF List OF RES fs.File",
+        ] {
+            round_trip(spelling);
         }
     }
 }

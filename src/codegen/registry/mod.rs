@@ -1746,6 +1746,16 @@ pub(crate) fn call_return_type(qualified: &str) -> Option<&'static str> {
 /// [`Var`](ParameterType::Var), and [`Unknown`](ParameterType::Unknown) cases never
 /// reach here; [`unify`] handles them first.
 fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool) -> bool {
+    // The `RES ` collection-element ownership marker is transparent to matching:
+    // historically `parse` stripped it before the matcher ever saw it, so a
+    // `Res(inner)` on either side matches exactly as `inner` would. Unwrap
+    // symmetrically to reproduce that behavior byte-for-byte.
+    if let ParameterType::Res(inner) = concrete {
+        return leaf_matches(pattern, inner, strict);
+    }
+    if let ParameterType::Res(inner) = pattern {
+        return leaf_matches(inner, concrete, strict);
+    }
     if pattern == concrete {
         return true;
     }
@@ -1833,6 +1843,15 @@ fn unify(
     bindings: &mut BTreeMap<&'static str, ParameterType>,
     strict: bool,
 ) -> bool {
+    // `RES ` is transparent to unification (historically stripped by `parse` before
+    // the matcher): unwrap it on either side so a `Var` binds to the unwrapped inner
+    // (dropping the marker, exactly as before) and container recursion is unperturbed.
+    if let ParameterType::Res(inner) = concrete {
+        return unify(pattern, inner, bindings, strict);
+    }
+    if let ParameterType::Res(inner) = pattern {
+        return unify(inner, concrete, bindings, strict);
+    }
     if matches!(concrete, ParameterType::Unknown) {
         if let ParameterType::Var(name) = pattern {
             bindings.entry(name).or_insert(ParameterType::Unknown);
@@ -2013,6 +2032,9 @@ fn substitute(
             substitute(res, bindings)?,
             substitute(out, bindings)?,
         ),
+        // A `RES`-wrapped pattern substitutes its inner (descriptors don't build one
+        // today, but keep it structural rather than falling through to a bare clone).
+        ParameterType::Res(inner) => ParameterType::res(substitute(inner, bindings)?),
         other => other.clone(),
     })
 }
@@ -2030,6 +2052,7 @@ fn contains_var(ty: &ParameterType) -> bool {
         ParameterType::ThreadHandle { msg, res, out, .. } => {
             contains_var(msg) || contains_var(res) || contains_var(out)
         }
+        ParameterType::Res(inner) => contains_var(inner),
         _ => false,
     }
 }
