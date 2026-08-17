@@ -15,7 +15,7 @@ error(code, message)
 ## Imports
 
 `general` is always in scope. Its functions need no `IMPORT` statement and no
-manifest dependency. [[src/builtins/general.rs:is_general_call]]
+manifest dependency. [[src/codegen/builtins/general/mod.rs:is_general_call]]
 
 ## Description
 
@@ -24,7 +24,7 @@ can call without qualification: length queries, numeric and text conversions,
 static type inspection, value predicates, and `Error` construction. They operate
 on the primitive types (`Integer`, `Float`, `Fixed`, `Byte`, `Boolean`,
 `String`) and on the generic `List OF T` and `Map OF K TO V` containers.
-[[src/builtins/general.rs:GENERAL]]
+[[src/codegen/builtins/general/mod.rs:resolve_call]]
 
 Most `general` functions are overloaded on the static type of their argument, and
 the overload is resolved at compile time; an argument whose type a function does
@@ -32,7 +32,7 @@ not accept is rejected during type checking rather than at run time. `len`
 reports a size as an `Integer`: the Unicode scalar count of a `String`, the
 element count of a `List OF T`, or the entry count of a `Map OF K TO V`.
 `typeName` returns a display name for a value's static type and never reads the
-value itself. [[src/builtins/general.rs:GENERAL]]
+value itself. [[src/codegen/builtins/general/mod.rs:resolve_call]]
 
 The conversion family moves between the numeric and text types. `toInt`,
 `toFloat`, `toFixed`, `toByte`, `toMoney`, and `toScalar` produce the named
@@ -48,7 +48,7 @@ code point below 256. `toString` on `Float`, `Fixed`, and `Money` takes an
 optional precision (also spelled `decimals`) that defaults to 2, and `toInt`
 takes an optional second `base` argument (2 through 36) as a separate arity, not
 a default parameter. None of the conversions mutate their argument.
-[[src/builtins/general.rs:call_param_names]]
+[[src/codegen/builtins/general/mod.rs:call_param_names]]
 
 The predicates return a `Boolean` and inspect their argument without side
 effects: `isNumeric` tests whether a `String` would parse as a number, and the
@@ -60,7 +60,7 @@ function value, so any of them may be passed as a predicate anywhere an ordinary
 `FUNC` may be. A value-position reference resolves against the type expected at
 that position, because a bare name such as `isPositive` is defined over
 `Integer`, `Float` and `Fixed` and the reference alone does not choose. The predicates are also
-exposed through the `filters` package. [[src/builtins/general.rs:filter_predicate_type]]
+exposed through the `filters` package. [[src/codegen/builtins/general/mod.rs:filter_predicate_type]]
 
 `error` constructs a read-only `Error` value from an `Integer` code and a
 `String` message, capturing the call-site source location in an `ErrorLoc`. An
@@ -69,14 +69,14 @@ exposed through the `filters` package. [[src/builtins/general.rs:filter_predicat
 (`Integer`), and `char` (`Integer`). Both are read-only built-in records whose
 fields cannot be reassigned. Unlike the other `general` functions, `error` is a
 reserved language primitive and cannot be overridden by a user `FUNC`.
-[[src/builtins/general.rs:is_overridable]]
+[[src/codegen/builtins/general/mod.rs:is_overridable]]
 
 Every `general` function except `error` may be overridden by a user- or
 package-defined `FUNC` of the same name for its own value types; a package
 override yields the built-in's conventional result type, while a user override
 yields its own declared return type. `List` and `Map` helpers live in the
 `collections` package, and string slicing and search helpers live in the
-`strings` package. [[src/builtins/general.rs:override_result_type]]
+`strings` package. [[src/codegen/builtins/general/mod.rs:override_result_type]]
 
 ## Errors
 

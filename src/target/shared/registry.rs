@@ -1023,18 +1023,11 @@ impl BuiltinRegistry {
     }
 }
 
-/// The production registry. Each letter B..AA appends its migrated package's
-/// `&<PKG>` descriptor here; a package not yet listed is still served by its
-/// legacy per-package helper (the `mod.rs` adapters fall back on a registry
-/// miss). BB then deletes the legacy helpers the adapters fall back to.
-///
-/// Migrated so far: `app` (B), `crypto` (F),
-/// `fs` (K), `general` (L), `http` (M), `io` (N), `math` (P),
-/// `money` (Q), `net` (R), `os` (S), `strings` (V), `term` (W).
-/// (`audio` C, `bits` D, `collections` E, `csv` G, `datetime` H,
-/// `encoding` I, `errorCode` J, `json` O, `regex` T, `testing` (X), and `process`
-/// have since moved to the clean-room registry `crate::codegen::registry` and are no
-/// longer held here.) Only `general` remains — the last unqualified-global package.
+/// The production registry — now EMPTY. Every builtin package (`general` last,
+/// alongside the earlier `app`/`crypto`/…/`testing`) has migrated onto the clean-room
+/// registry `crate::codegen::registry`; nothing is held here anymore. The
+/// `BuiltinRegistry` machinery and its adapter fallbacks remain only until the final
+/// dead-code sweep, but the module list is empty.
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     // app migrated to the clean-room registry (crate::codegen::registry).
     // astrings migrated to the clean-room registry (crate::codegen::registry).
@@ -1047,7 +1040,8 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     // encoding migrated to the clean-room registry (crate::codegen::registry).
     // errorCode migrated to the clean-room registry (crate::codegen::registry).
     // io migrated to the clean-room registry (crate::codegen::registry).
-    &crate::builtins::general::GENERAL,
+    // general migrated to the clean-room registry (crate::codegen::builtins::general) —
+    // the last package; the production registry is now empty.
     // fs migrated to the clean-room registry (crate::codegen::registry).
     // http migrated to the clean-room registry (crate::codegen::registry).
     // resource migrated to the clean-room registry (crate::codegen::registry).
@@ -1742,12 +1736,10 @@ mod tests {
 
     #[test]
     fn production_registry_holds_migrated_packages() {
-        // Migrated packages are registered and resolvable by module name and by
-        // qualified function name. As of plan-72-Y/Z/AA (thread, tls, vector) the
-        // LAST three packages are migrated, so the registry is now COMPLETE — every
-        // builtin package is present (28 as of plan-90-A). (This test tracked a
-        // still-unmigrated example — `math` until plan-72-P, `regex` until -T,
-        // `tls` until -Z — but none remains, so it now asserts completeness.)
+        // Every builtin package has migrated onto the clean-room registry
+        // (`crate::codegen::registry`), so the legacy production `REGISTRY` is now EMPTY.
+        // This test asserts the teardown is complete: not one package name or qualified
+        // function resolves here anymore. (`general` was the last to move.)
         // `app` migrated to the clean-room registry (`crate::codegen::registry`) and
         // is no longer held here.
         assert!(REGISTRY.module("app").is_none());
@@ -1799,12 +1791,14 @@ mod tests {
         assert!(REGISTRY.module("term").is_none());
         assert!(REGISTRY.function("term.clear").is_none());
         // `testing` migrated to the clean-room registry (its unqualified-global
-        // `expect*` assertions moved), so it is no longer held here — only `general`
-        // remains.
+        // `expect*` assertions moved), so it is no longer held here.
         assert!(REGISTRY.module("testing").is_none());
-        // The 28 builtin packages minus the migrated ones — only `general` remains.
-        assert_eq!(REGISTRY.modules().len(), 1);
-        // The registry's names stay unique across every appended package.
+        // `general` migrated too (the last package), so the production registry is now
+        // EMPTY — every builtin lives on the clean-room registry.
+        assert!(REGISTRY.module("general").is_none());
+        assert!(REGISTRY.function("len").is_none());
+        assert_eq!(REGISTRY.modules().len(), 0);
+        // The (now trivially) unique-name invariants still hold on the empty list.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);
     }

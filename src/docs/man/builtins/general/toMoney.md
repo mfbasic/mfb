@@ -18,7 +18,7 @@ general
 
 ## Imports
 
-None. `general` functions are always available without an `IMPORT` statement. [[src/builtins/general.rs:is_general_call]]
+None. `general` functions are always available without an `IMPORT` statement. [[src/codegen/builtins/general/mod.rs:is_general_call]]
 
 ## Description
 
@@ -29,7 +29,7 @@ fixed-point financial type. A `Money` value is a signed 64-bit integer scaled by
 within that range is represented exactly. Because MFBASIC has no implicit numeric
 conversions, `toMoney` is the only way to cross into the `Money` dimension from
 another type. Its behavior and whether it can fail depend on the argument type,
-which selects the overload. [[src/target/shared/code/builder_conversions.rs:lower_to_money]] [[src/builtins/general.rs:GENERAL]]
+which selects the overload. [[src/target/shared/code/builder_conversions.rs:lower_to_money]] [[src/codegen/builtins/general/mod.rs:resolve_call]]
 
 The `String` overload parses decimal text to a 64-bit float, then scales by
 `100000` and rounds to the nearest `Money` raw value under the current rounding
@@ -114,7 +114,7 @@ The `Byte` overload raises no errors. [[src/target/shared/code/builder_conversio
 
 `toMoney` accepts only `String`, `Integer`, `Float`, `Fixed`, and `Byte` values;
 any other argument type or arity is a compile-time error. Convert unsupported values
-to one of these types explicitly first. [[src/builtins/general.rs:GENERAL]] [[src/builtins/general.rs:GENERAL]]
+to one of these types explicitly first. [[src/codegen/builtins/general/mod.rs:resolve_call]] [[src/codegen/builtins/general/mod.rs:resolve_call]]
 
 ## Examples
 

@@ -1496,6 +1496,7 @@ fn build() -> Registry {
     crate::codegen::builtins::money::register(&mut r);
     crate::codegen::builtins::os::register(&mut r);
     crate::codegen::builtins::fs::register(&mut r);
+    crate::codegen::builtins::general::register(&mut r);
     crate::codegen::builtins::io::register(&mut r);
     crate::codegen::builtins::crypto::register(&mut r);
     crate::codegen::builtins::tls::register(&mut r);

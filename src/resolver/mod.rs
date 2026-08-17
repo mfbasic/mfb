@@ -432,7 +432,7 @@ impl<'a> Resolver<'a> {
         // A reserved general built-in (`error`) is a language primitive and may not
         // be redeclared as a user `FUNC`/`SUB` (plan-01-overload.md §A.5). Every
         // other overridable built-in name (`toString`, `len`, …) is accepted.
-        if builtins::general::reserved_builtin_name(&function.name) {
+        if crate::codegen::builtins::general::reserved_builtin_name(&function.name) {
             self.report(
                 "SYMBOL_RESERVED_BUILTIN_NAME",
                 &format!(

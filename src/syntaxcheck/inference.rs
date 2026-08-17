@@ -39,7 +39,7 @@ impl<'a> SyntaxChecker<'a> {
             return None;
         }
         let param_name = self.type_name(&params[0]);
-        crate::builtins::general::filter_predicate_type(name, &param_name)?;
+        crate::codegen::builtins::general::filter_predicate_type(name, &param_name)?;
         Some(Type::Function {
             params: params.clone(),
             return_type: return_type.clone(),

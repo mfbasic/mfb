@@ -9,7 +9,7 @@ documentation, e.g. `mfb man <package>`).
 
 These **eighteen** names are the *only* callables a program may use with no
 `IMPORT` and no package qualifier. The resolver treats exactly this set as
-always-in-scope unqualified callables, whitelisting exactly the general built-in set: [[src/resolver/resolution.rs:resolve_callable]] [[src/builtins/general.rs:is_general_call]]
+always-in-scope unqualified callables, whitelisting exactly the general built-in set: [[src/resolver/resolution.rs:resolve_callable]] [[src/codegen/builtins/general/mod.rs:is_general_call]]
 
 | Name | Arity | Result | Accepted argument types |
 | --- | --- | --- | --- |
@@ -33,7 +33,7 @@ always-in-scope unqualified callables, whitelisting exactly the general built-in
 > function — it is not in this set. [[src/lexer.rs:TokenKind]]
 >
 > The `is*` predicates are lowered **inline** at a direct call site and **out of
-> line** where one is named as a function value, [[src/builtins/general.rs:builtin_function_id]] so they may be passed as a
+> line** where one is named as a function value, [[src/codegen/builtins/general/mod.rs:builtin_function_id]] so they may be passed as a
 > predicate anywhere an ordinary `FUNC` may be. The inlining is an optimization,
 > not a restriction on the surface. A value-position reference resolves against
 > the type **expected** at that position — a `FUNC(T) AS Boolean` annotation, or
@@ -57,7 +57,7 @@ error (plan-62-A).
 Each row requires the named `IMPORT`. (`find`/`mid`/`replace` and the
 collection accessors share resolver logic but are
 reached only through their `strings::`/`collections::` qualifiers — never as
-bare names.) [[src/builtins/general.rs]] The member lists below are **non-exhaustive orientation
+bare names.) [[src/codegen/builtins/general/mod.rs]] The member lists below are **non-exhaustive orientation
 snapshots**: each package's authoritative surface is its own call matcher
 (and the rendered `mfb man <package>` pages). Where a package's full set is
 large, only a representative subset is shown.
@@ -106,11 +106,11 @@ Fallible built-ins (`fs::openFile`, `toInt`, `collections::get`, …) can fail a
 
 The **general (unqualified) built-ins** — `toString`, `len`, `typeName`, the `to*` conversions (`toInt`, `toFloat`, `toFixed`, `toByte`), and the `is*` predicates (`isNumeric`, `isEven`, `isOdd`, `isPositive`, `isNegative`, `isZero`, `isEmpty`, `isNotEmpty`) — are **overridable**: a program or package may declare, e.g., `FUNC toString(value AS Point) AS String` or `FUNC len(value AS Grid) AS Integer`, and a plain `toString(p)` / `len(g)` call binds to that declaration when its argument types match. Resolution is **gap-fill**: the scalar/collection built-in stays authoritative for the types it already supports (a user overload can never shadow `toString(42)`), and an override is consulted only when the built-in rejects the argument types. The override is selected by argument type like any overload. `error` is **not** overridable — it is a reserved primitive that builds the read-only `Error` record (`FUNC error(…)` is a `SYMBOL_RESERVED_BUILTIN_NAME` error).
 
-Implementation: every general name except `error` is overridable; [[src/builtins/general.rs:is_overridable]] the gap-fill routing consults a user
+Implementation: every general name except `error` is overridable; [[src/codegen/builtins/general/mod.rs:is_overridable]] the gap-fill routing consults a user
 override **only** when the built-in's own resolution rejects the argument
 types, so a user overload can never shadow a type the built-in already handles. [[src/monomorph/lower.rs:resolve_general_builtin_override]]
 The reserved check covers exactly the set `{ error }`,
-enforced when the resolver inserts a function. [[src/builtins/general.rs:reserved_builtin_name]] [[src/resolver/mod.rs:insert_function]]
+enforced when the resolver inserts a function. [[src/codegen/builtins/general/mod.rs:reserved_builtin_name]] [[src/resolver/mod.rs:insert_function]]
 
 ## 18.4 Timeout convention
 

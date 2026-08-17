@@ -20,12 +20,12 @@ general
 
 ## Imports
 
-None. `general` functions are always available without an `IMPORT` statement. [[src/builtins/general.rs:is_general_call]]
+None. `general` functions are always available without an `IMPORT` statement. [[src/codegen/builtins/general/mod.rs:is_general_call]]
 
 ## Description
 
 `toInt` converts a supported value to a signed 64-bit `Integer`. Its behavior and
-whether it can fail depend on the argument type, which selects the overload. [[src/builtins/general.rs:GENERAL]]
+whether it can fail depend on the argument type, which selects the overload. [[src/codegen/builtins/general/mod.rs:resolve_call]]
 
 The one-argument `String` overload parses base-10 integer text. An optional single
 leading sign — `-` or `+` — is accepted, followed by one or more decimal digits;
@@ -122,7 +122,7 @@ The `Byte`, `Scalar`, `Fixed`, and `Money` overloads raise no errors. [[src/targ
 `toInt` accepts only `String`, `Byte`, `Scalar`, `Float`, `Fixed`, and `Money`
 values, plus the two-argument `(String, Integer)` radix form; any other argument
 type or arity is a compile-time error. Convert unsupported values to one of these
-types explicitly first. [[src/builtins/general.rs:GENERAL]] [[src/builtins/general.rs:GENERAL]]
+types explicitly first. [[src/codegen/builtins/general/mod.rs:resolve_call]] [[src/codegen/builtins/general/mod.rs:resolve_call]]
 
 ## Examples
 

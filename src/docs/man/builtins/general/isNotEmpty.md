@@ -16,7 +16,7 @@ general
 
 ## Imports
 
-None. `general` functions are always available without an `IMPORT` statement. [[src/builtins/general.rs:is_general_call]]
+None. `general` functions are always available without an `IMPORT` statement. [[src/codegen/builtins/general/mod.rs:is_general_call]]
 
 ## Description
 
@@ -41,7 +41,7 @@ checking rather than at run time. `isNotEmpty` is lowered inline at a direct
 call site, and out of line where it is named as a function value, so it may be
 passed as a predicate anywhere an ordinary `FUNC` may be. The value form resolves
 against the type expected at that position (bug-368). The same predicate is also exposed
-through the `filters` package. [[src/builtins/general.rs:GENERAL]]
+through the `filters` package. [[src/codegen/builtins/general/mod.rs:resolve_call]]
 
 ## Overloads
 
@@ -82,7 +82,7 @@ No errors.
 or an argument of any other type is rejected at compile time. The element type
 `T` and the map key and value types `K` and `V` are unconstrained. Like other
 `general` predicates it may be overridden by a user- or package-defined `FUNC` of
-the same name for its own value types. [[src/builtins/general.rs:GENERAL]]
+the same name for its own value types. [[src/codegen/builtins/general/mod.rs:resolve_call]]
 
 ## Examples
 

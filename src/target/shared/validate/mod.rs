@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use crate::builtins;
 use crate::ir::IrProject;
 use crate::target::{BackendCapabilities, BuildTarget};
 

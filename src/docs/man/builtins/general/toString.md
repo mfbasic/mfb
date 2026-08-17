@@ -22,7 +22,7 @@ general
 
 ## Imports
 
-None. `general` functions are always available without an `IMPORT` statement. [[src/builtins/general.rs:is_general_call]]
+None. `general` functions are always available without an `IMPORT` statement. [[src/codegen/builtins/general/mod.rs:is_general_call]]
 
 ## Description
 
@@ -39,7 +39,7 @@ encoding of its code point. [[src/target/shared/code/builder_strings.rs:lower_to
 
 `Float`, `Fixed`, and `Money` render as decimal text with `precision` digits after
 the decimal point, where `precision` is an optional `Byte` that defaults to `2` and
-may also be passed by the name `decimals`. [[src/builtins/general.rs:call_param_names]] `Fixed` is binary fixed-point, so its
+may also be passed by the name `decimals`. [[src/codegen/builtins/general/mod.rs:call_param_names]] `Fixed` is binary fixed-point, so its
 decimal output reflects the representable value, not necessarily the original
 decimal spelling used to create it. Rendering a `Float` is an observation boundary:
 when the argument is a fresh arithmetic expression that evaluates to a non-finite
@@ -57,7 +57,7 @@ nothing. [[src/target/shared/code/builder_collection_layout.rs:emit_materialize_
 result `String`. It is defined only for the overloads listed here; calling it on
 records, unions, enums, resources, threads, functions, lambdas, `Map` values, or
 `List` values other than `List OF Byte` is a compile-time type error, with no
-implicit conversion. [[src/builtins/general.rs:GENERAL]]
+implicit conversion. [[src/codegen/builtins/general/mod.rs:resolve_call]]
 
 `toString` and `typeName` are diagnostic and formatting conveniences, not security
 boundaries. Do not rely on them to redact secrets or decide whether a value is safe
@@ -136,7 +136,7 @@ of `Integer`, `Byte`, `Boolean`, `String`, `Scalar`, or `List OF Byte`; or a
 `Float`, `Fixed`, or `Money` with an optional trailing `Byte` precision. Any other
 argument type, or any other arity, is rejected at compile time; no implicit
 conversion is performed. Convert to a supported type explicitly, or provide a
-domain-specific formatter. [[src/builtins/general.rs:GENERAL]]
+domain-specific formatter. [[src/codegen/builtins/general/mod.rs:resolve_call]]
 
 ## Examples
 

@@ -1,9 +1,43 @@
+//! The built-in `general` package — the **unqualified global** builtins.
+//!
+//! These are the bare-name builtins available in every program without an `IMPORT`:
+//! `error`, `len`, `typeName`, the numeric conversions (`toString`/`toInt`/`toFloat`/
+//! `toFixed`/`toByte`/`toMoney`/`toScalar`), and the predicates (`isNumeric`/`isEven`/
+//! …/`isNotEmpty`). They are written as bare names (`len(xs)`), never
+//! `general::len`, and there is no writable `IMPORT general`.
+//!
+//! Like [`crate::codegen::builtins::testing`], the package is registered under the
+//! real name `"general"` only so it has a home in the registry: because the registry's
+//! qualified query surface (`resolve_func` / `owning_package` / `arity` /
+//! `declares_error`) all require a `.` (`split_once('.')`), a bare `toFloat` is inert
+//! to those, so the real package name costs nothing at call sites. The runtime layer
+//! already names this family `"general"` (`RuntimeHelper::General`, `_mfb_rt_general_*`),
+//! so the name is not arbitrary. The package carries the additive
+//! [`RegistryPackage::mark_unqualified_global`] flag so `mfb man2 --all` skips it.
+//!
+//! WHY the hand-authored [`resolve_call`] rather than the generic matcher: the
+//! argument-dependent returns need per-position accepted-type-SET matching the generic
+//! matcher cannot express (`len`/`isEmpty`/`isNotEmpty` accept String OR List/Map/Set;
+//! `toString` accepts nine scalars plus `List OF Byte`; `error` accepts exactly
+//! `[Integer, String]`). So each registered [`Implementation`] carries only illustrative
+//! parameter *types* and a [`Body::Intrinsic`] marker — resolution is owned by
+//! `resolve_call`, and codegen is the existing `RuntimeHelper::General` bare-name
+//! lowering (`builder_conversions`/`builder_values`/`module_analysis`).
+//!
+//! The registry entries exist PRIMARILY so `declares_error("general.toX", err)`
+//! answers for the conversion codegen contract (`raise_error`) and so `arity` matches
+//! legacy. `error` is an irregular reserved primitive: legacy `error` had param names
+//! but EMPTY overloads → `None` arity (its argument count is validated by `resolve_call`,
+//! not the generic arity gate). The clean-room registry forbids an implementation-less
+//! function, so `error` carries one illustrative implementation but [`arity`] special-
+//! cases it back to `None`, reproducing the legacy diagnostic exactly.
+
 use std::borrow::Cow;
 
-use crate::target::shared::registry::{
-    BuiltinFlags, BuiltinFunction, BuiltinModule, BuiltinOverload, BuiltinResolver,
-    DefaultResolver, DefaultValue, Implementation, Lowering, Parameter, ParameterType, ReturnType,
+use crate::codegen::registry::{
+    Body, DefaultValue, Implementation, Parameter, Registry, RegistryFunction, RegistryPackage,
 };
+use crate::types::ParameterType;
 
 const ERROR: &str = "error";
 const LEN: &str = "len";
@@ -43,183 +77,35 @@ pub(crate) const BUILTIN_FUNCTION_IS_ZERO_FIXED: u32 = BUILTIN_FUNCTION_ID_BASE 
 /// the one position that worked for the rest (bug-368).
 pub(crate) const BUILTIN_FUNCTION_IS_NUMERIC: u32 = BUILTIN_FUNCTION_ID_BASE + 14;
 
-// plan-72-L: `GENERAL` is the descriptor authority for the global (unqualified)
-// builtins. Every function has a fixed return regardless of which accepted
-// argument-type set matches, but the legacy `call_return_type_name` fast-path
-// oracle populates ONLY the six numeric narrowing conversions (`toInt`..`toScalar`)
-// and returns `None` for the rest — so those six carry `ReturnType::Fixed` and
-// every other function carries `ReturnType::Custom` (→ `None`), reproducing the
-// oracle exactly. `error` is an irregular reserved primitive: it is a member with
-// parameter names but a `None` arity (its argument count is validated by
-// `resolve_call`, not the generic arity gate), so its descriptor entry carries an
-// EMPTY overload list — membership holds and `arity` is `None`, matching legacy.
-// Its parameter names (`code`/`message`) therefore live only in the hand-authored
-// `call_param_names` static until plan-72-BB (see Corrections in plan-72-L).
-//
-// `call_param_names`, `resolve_call`, and `expected_arguments` stay hand-authored:
-// `call_param_names` returns a `&'static` borrowed shape the owned `DefaultResolver`
-// cannot produce (and covers `error`); `resolve_call` performs per-position
-// accepted-type-SET matching (`len` accepts String/List/Map/Set) the descriptor's
-// single `ParameterType::Named` cannot express — so the parameter *types* below are
-// illustrative, resolution is owned by `resolve_call`; `expected_arguments` uses a
-// bespoke `"… or …"` phrasing. Each is pinned to `GENERAL` by
-// `parity_matches_descriptor` where derivable.
-const fn ov(params: &'static [Parameter], ret: &'static str) -> BuiltinOverload {
-    BuiltinOverload {
-        params,
-        return_type: ReturnType::Fixed(ret),
-    }
-}
+// ---------------------------------------------------------------------------
+// Membership & classification (bare-name — the calls never carry a `.`).
+// ---------------------------------------------------------------------------
 
-// A fixed-return function whose return is not exposed through the context-free
-// `call_return_type_name` oracle (resolved via `resolve_call` instead).
-const fn ovc(params: &'static [Parameter]) -> BuiltinOverload {
-    BuiltinOverload {
-        params,
-        return_type: ReturnType::Custom,
-    }
-}
-
-/// plan-88: a general builtin that declares the `errorCode` names it can raise at
-/// runtime (the codegen contract validated by `raise_error`). Reuses `gfn`.
-const fn gfn_err(
-    name: &'static str,
-    slug: &'static str,
-    errors: &'static [&'static str],
-    overloads: &'static [BuiltinOverload],
-) -> BuiltinFunction {
-    let mut function = gfn(name, slug, overloads);
-    function.errors = errors;
-    function
-}
-
-const fn gfn(
-    name: &'static str,
-    slug: &'static str,
-    overloads: &'static [BuiltinOverload],
-) -> BuiltinFunction {
-    BuiltinFunction {
-        name,
-        doc_slug: slug,
-        doc_intro: "",
-        doc_desc: "",
-        errors: &[],
-        overloads,
-        doc_example: "",
-        implementation: Implementation::Same,
-        lowering: Lowering::Helper,
-        flags: BuiltinFlags {
-            internal_only: false,
-            return_type_overloaded: false,
-        },
-    }
-}
-
-// Illustrative per-position types (see the note above). `value` is the canonical
-// first-parameter name for every general call.
-const P_V_STR: &[Parameter] = &[Parameter::required("value", "String")];
-const P_V_INT: &[Parameter] = &[Parameter::required("value", "Integer")];
-const P_V_T: &[Parameter] = &[Parameter::required("value", "T")];
-const P_TO_STRING: &[Parameter] = &[
-    Parameter::required("value", "Scalar"),
-    Parameter {
-        name: "precision",
-        aliases: &["decimals"],
-        ty: ParameterType::Named("Byte"),
-        default: DefaultValue::Optional,
-    },
-];
-const P_TO_INT: &[Parameter] = &[
-    Parameter {
-        name: "value",
-        aliases: &["text"],
-        ty: ParameterType::Named("String"),
-        default: DefaultValue::None,
-    },
-    Parameter {
-        name: "base",
-        aliases: &[],
-        ty: ParameterType::Named("Integer"),
-        default: DefaultValue::Optional,
-    },
-];
-
-const GENERAL_FUNCTIONS: &[BuiltinFunction] = &[
-    // Reserved primitive: member with param-names but None arity → empty overloads.
-    gfn(ERROR, "error", &[]),
-    gfn(LEN, "len", &[ovc(P_V_STR)]),
-    gfn(TYPE_NAME, "typeName", &[ovc(P_V_T)]),
-    gfn(TO_STRING, "toString", &[ovc(P_TO_STRING)]),
-    gfn(TO_INT, "toInt", &[ov(P_TO_INT, "Integer")]),
-    gfn_err(
-        TO_FLOAT,
-        "toFloat",
-        &["ErrOverflow", "ErrInvalidFormat"],
-        &[ov(P_V_STR, "Float")],
-    ),
-    gfn_err(
-        TO_FIXED,
-        "toFixed",
-        &["ErrOverflow", "ErrInvalidFormat"],
-        &[ov(P_V_STR, "Fixed")],
-    ),
-    gfn_err(TO_BYTE, "toByte", &["ErrOverflow"], &[ov(P_V_INT, "Byte")]),
-    gfn_err(
-        TO_MONEY,
-        "toMoney",
-        &["ErrInvalidFormat"],
-        &[ov(P_V_STR, "Money")],
-    ),
-    gfn_err(
-        TO_SCALAR,
-        "toScalar",
-        &["ErrInvalidArgument"],
-        &[ov(P_V_INT, "Scalar")],
-    ),
-    gfn(IS_NUMERIC, "isNumeric", &[ovc(P_V_STR)]),
-    gfn(IS_EVEN, "isEven", &[ovc(P_V_INT)]),
-    gfn(IS_ODD, "isOdd", &[ovc(P_V_INT)]),
-    gfn(IS_POSITIVE, "isPositive", &[ovc(P_V_INT)]),
-    gfn(IS_NEGATIVE, "isNegative", &[ovc(P_V_INT)]),
-    gfn(IS_ZERO, "isZero", &[ovc(P_V_INT)]),
-    gfn(IS_EMPTY, "isEmpty", &[ovc(P_V_STR)]),
-    gfn(IS_NOT_EMPTY, "isNotEmpty", &[ovc(P_V_STR)]),
-];
-
-/// Return-type resolution for the general calls, delegating to the hand-authored
-/// `resolve_call` (the returns are argument-dependent — `len`, `error`, and the
-/// generic overloads compute from operand types). Exposed through the descriptor
-/// so plan-72-BB can drive `general::` return types from the registry.
-struct GeneralResolver;
-impl BuiltinResolver for GeneralResolver {
-    fn resolve_return_type(
-        &self,
-        _module: &BuiltinModule,
-        name: &str,
-        arg_types: &[String],
-    ) -> Option<String> {
-        resolve_call(name, arg_types).map(|resolved| resolved.return_type.into_owned())
-    }
-}
-static GENERAL_RESOLVER: GeneralResolver = GeneralResolver;
-
-pub(crate) static GENERAL: BuiltinModule = BuiltinModule {
-    name: "general",
-    doc_intro: "",
-    doc_desc: "",
-    functions: GENERAL_FUNCTIONS,
-    types: &[],
-    source: None,
-    resolver: Some(&GENERAL_RESOLVER),
-};
-
-#[derive(Clone)]
-pub(crate) struct ResolvedCall<'a> {
-    pub(crate) return_type: Cow<'a, str>,
-}
-
+/// Whether `name` is one of the eighteen unqualified global builtins. A bare
+/// `matches!` table over the member names (the calls stay unqualified end-to-end, so
+/// the registry's `.`-requiring query surface never sees them).
 pub(crate) fn is_general_call(name: &str) -> bool {
-    DefaultResolver::contains(&GENERAL, name)
+    matches!(
+        name,
+        ERROR
+            | LEN
+            | TYPE_NAME
+            | TO_STRING
+            | TO_INT
+            | TO_FLOAT
+            | TO_FIXED
+            | TO_BYTE
+            | TO_MONEY
+            | TO_SCALAR
+            | IS_NUMERIC
+            | IS_EVEN
+            | IS_ODD
+            | IS_POSITIVE
+            | IS_NEGATIVE
+            | IS_ZERO
+            | IS_EMPTY
+            | IS_NOT_EMPTY
+    )
 }
 
 /// Whether a general built-in may be **overridden** by a user- or package-defined
@@ -318,6 +204,86 @@ pub(crate) fn filter_predicate_type(name: &str, element_type: &str) -> Option<St
     (resolved.return_type == "Boolean").then(|| format!("FUNC({element_type}) AS Boolean"))
 }
 
+pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
+    match name {
+        LEN => Some("String, List OF T, Set OF T, or Map OF K TO V"),
+        TYPE_NAME => Some("T"),
+        TO_STRING => Some(
+            "Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, Scalar, or List OF Byte",
+        ),
+        TO_INT => Some("String[, Integer], Byte, Float, Fixed, Money, or Scalar"),
+        TO_FLOAT => Some("String, Integer, Fixed, or Money"),
+        TO_FIXED => Some("String, Integer, Float, or Money"),
+        TO_BYTE => Some("Integer, Money, or Scalar"),
+        TO_MONEY => Some("String, Integer, Float, Fixed, or Byte"),
+        TO_SCALAR => Some("Integer, String, or Byte"),
+        IS_NUMERIC => Some("String"),
+        IS_EVEN => Some("Integer"),
+        IS_ODD => Some("Integer"),
+        IS_POSITIVE | IS_NEGATIVE | IS_ZERO => Some("Integer, Float, or Fixed"),
+        IS_EMPTY | IS_NOT_EMPTY => Some("String, List OF T, Set OF T, or Map OF K TO V"),
+        _ => None,
+    }
+}
+
+/// Splits a `FUNC(<params>) AS <return>` type into its parameter types and its
+/// return type.
+///
+/// A parameter can itself be a function type — `FUNC(FUNC(Integer, Integer) AS
+/// Integer) AS Integer` is what `collections::transform` receives over a list of
+/// two-argument function values — so the parameter list is scanned with paren
+/// depth: the closing paren and the separating commas are the ones at depth 0.
+pub(crate) fn function_parts(type_name: &str) -> Option<(Vec<&str>, &str)> {
+    crate::builtins::split_func_params_and_return(type_name.strip_prefix("FUNC(")?)
+}
+
+// ---------------------------------------------------------------------------
+// Return-type resolution (argument-dependent — the bespoke resolver).
+// ---------------------------------------------------------------------------
+
+#[derive(Clone)]
+pub(crate) struct ResolvedCall<'a> {
+    pub(crate) return_type: Cow<'a, str>,
+}
+
+/// Return-type resolution for the general calls, the successor of
+/// `GeneralResolver::resolve_return_type` — delegates to the hand-authored
+/// [`resolve_call`] (the returns are argument-dependent). The `strict` mode of the
+/// generic registry oracle does not apply: general resolution has always been a single
+/// per-position accepted-type-set match.
+pub(crate) fn resolve_return_type(name: &str, arg_types: &[String]) -> Option<String> {
+    resolve_call(name, arg_types).map(|resolved| resolved.return_type.into_owned())
+}
+
+/// The static (argument-independent) nominal return of a general call — the six
+/// numeric narrowing conversions carry a fixed return type; every other general call
+/// resolved through `resolve_call` (`Custom`) yields `None`. Reproduces the legacy
+/// `call_return_type_name` fast-oracle (`DefaultResolver::return_type_name` over the
+/// `ReturnType::Fixed`/`Custom` split), consumed by `term_return_type`.
+pub(crate) fn nominal_return_type(name: &str) -> Option<&'static str> {
+    match name {
+        TO_INT => Some("Integer"),
+        TO_FLOAT => Some("Float"),
+        TO_FIXED => Some("Fixed"),
+        TO_BYTE => Some("Byte"),
+        TO_MONEY => Some("Money"),
+        TO_SCALAR => Some("Scalar"),
+        _ => None,
+    }
+}
+
+/// The `(min, max)` argument arity of a general call. The reserved primitive `error`
+/// has `None` arity (legacy `error` had EMPTY overloads — its argument count is
+/// validated by [`resolve_call`], not the generic arity gate), reproduced here as a
+/// special case; every other member delegates to the registry's `general.<name>`
+/// arity so the single source of truth is the registered `Implementation`.
+pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
+    if name == ERROR {
+        return None;
+    }
+    crate::codegen::registry::registry().arity(&format!("general.{name}"))
+}
+
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     let resolved = match name {
         ERROR => {
@@ -355,14 +321,12 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             }
         }
         TO_STRING => {
-            if arg_types.len() == 2
+            // 2-arg `(Float|Fixed|Money, Byte)` precision form, or 1-arg over the nine
+            // scalars plus `List OF Byte`. Both yield `String`.
+            let two_arg = arg_types.len() == 2
                 && matches!(arg_types[0].as_str(), "Float" | "Fixed" | "Money")
-                && arg_types[1] == "Byte"
-            {
-                ResolvedCall {
-                    return_type: Cow::Borrowed("String"),
-                }
-            } else if arg_types.len() == 1
+                && arg_types[1] == "Byte";
+            let one_arg = arg_types.len() == 1
                 && (matches!(
                     arg_types[0].as_str(),
                     "Integer"
@@ -374,8 +338,8 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
                         | "Byte"
                         | "Scalar"
                         | "AttributedString"
-                ) || arg_types[0] == "List OF Byte")
-            {
+                ) || arg_types[0] == "List OF Byte");
+            if two_arg || one_arg {
                 ResolvedCall {
                     return_type: Cow::Borrowed("String"),
                 }
@@ -493,42 +457,222 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
     Some(resolved)
 }
 
-pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
-    match name {
-        LEN => Some("String, List OF T, Set OF T, or Map OF K TO V"),
-        TYPE_NAME => Some("T"),
-        TO_STRING => Some(
-            "Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, Scalar, or List OF Byte",
-        ),
-        TO_INT => Some("String[, Integer], Byte, Float, Fixed, Money, or Scalar"),
-        TO_FLOAT => Some("String, Integer, Fixed, or Money"),
-        TO_FIXED => Some("String, Integer, Float, or Money"),
-        TO_BYTE => Some("Integer, Money, or Scalar"),
-        TO_MONEY => Some("String, Integer, Float, Fixed, or Byte"),
-        TO_SCALAR => Some("Integer, String, or Byte"),
-        IS_NUMERIC => Some("String"),
-        IS_EVEN => Some("Integer"),
-        IS_ODD => Some("Integer"),
-        IS_POSITIVE | IS_NEGATIVE | IS_ZERO => Some("Integer, Float, or Fixed"),
-        IS_EMPTY | IS_NOT_EMPTY => Some("String, List OF T, Set OF T, or Map OF K TO V"),
-        _ => None,
-    }
-}
-
-use super::exact;
+use crate::builtins::exact;
 
 fn exact_one_of(arg_types: &[String], expected: &[&str]) -> bool {
     arg_types.len() == 1 && expected.iter().any(|expected| arg_types[0] == *expected)
 }
-/// Splits a `FUNC(<params>) AS <return>` type into its parameter types and its
-/// return type.
-///
-/// A parameter can itself be a function type — `FUNC(FUNC(Integer, Integer) AS
-/// Integer) AS Integer` is what `collections::transform` receives over a list of
-/// two-argument function values — so the parameter list is scanned with paren
-/// depth: the closing paren and the separating commas are the ones at depth 0.
-pub(crate) fn function_parts(type_name: &str) -> Option<(Vec<&str>, &str)> {
-    super::split_func_params_and_return(type_name.strip_prefix("FUNC(")?)
+
+// ---------------------------------------------------------------------------
+// Registration (membership / arity / declared-errors home in the clean-room
+// registry). Each member carries illustrative parameter types and a
+// `Body::Intrinsic` marker — resolution is `resolve_call`, codegen is the existing
+// `RuntimeHelper::General` bare-name lowering.
+// ---------------------------------------------------------------------------
+
+/// A required parameter of illustrative type `ty`.
+fn req(name: &'static str, ty: ParameterType) -> Parameter {
+    Parameter {
+        name,
+        desc: "",
+        aliases: &[],
+        ty,
+        default: DefaultValue::None,
+    }
+}
+
+/// An optional parameter (widens arity but is never default-padded — the runtime
+/// lowering selects the overload by argument count).
+fn opt(name: &'static str, aliases: &'static [&'static str], ty: ParameterType) -> Parameter {
+    Parameter {
+        name,
+        desc: "",
+        aliases,
+        ty,
+        default: DefaultValue::Optional,
+    }
+}
+
+/// Build one general member: a single `Body::Intrinsic` implementation carrying its
+/// illustrative signature, return type, and declared runtime errors.
+fn member(
+    name: &'static str,
+    intro: &'static str,
+    return_type: ParameterType,
+    errors: Vec<&'static str>,
+    params: Vec<Parameter>,
+) -> RegistryFunction {
+    RegistryFunction {
+        name,
+        intro,
+        desc: "",
+        example: "",
+        expected_arguments: None,
+        internal_only: false,
+        implementations: vec![Implementation {
+            params,
+            return_type,
+            errors,
+            body: Body::Intrinsic,
+        }],
+    }
+}
+
+const INTRO: &str = "The always-available global builtins (no `IMPORT` required).";
+
+const DESC: &str =
+    "The `general` builtins are the unqualified global functions available in every \
+program without an `IMPORT`: `error`, `len`, `typeName`, the numeric conversions \
+(`toString`/`toInt`/`toFloat`/`toFixed`/`toByte`/`toMoney`/`toScalar`), and the \
+predicates (`isNumeric`/`isEven`/…/`isNotEmpty`). They are written as bare names and \
+have no `general::` spelling.";
+
+/// Register the `general` package on the clean-room registry. See the module docs for
+/// why it is a real-named-but-unqualified-global package and why `error` is irregular.
+pub(crate) fn register(r: &mut Registry) {
+    let mut pkg = RegistryPackage::new("general", INTRO, DESC);
+    pkg.mark_unqualified_global();
+
+    // Reserved primitive: legacy `error` had param names but EMPTY overloads → `None`
+    // arity. The registry forbids an implementation-less function, so it carries one
+    // illustrative implementation; `arity` special-cases `error` back to `None`.
+    pkg.add_function(member(
+        ERROR,
+        "Construct an `Error` value from a numeric code and a message.",
+        ParameterType::Named("Error"),
+        vec![],
+        vec![
+            req("code", ParameterType::Integer),
+            req("message", ParameterType::String),
+        ],
+    ));
+    pkg.add_function(member(
+        LEN,
+        "The number of elements in a String, List, Set, or Map.",
+        ParameterType::Integer,
+        vec![],
+        vec![req("value", ParameterType::String)],
+    ));
+    pkg.add_function(member(
+        TYPE_NAME,
+        "The name of a value's runtime type.",
+        ParameterType::String,
+        vec![],
+        vec![req("value", ParameterType::Var("T"))],
+    ));
+    pkg.add_function(member(
+        TO_STRING,
+        "Render a value as a String.",
+        ParameterType::String,
+        vec![],
+        vec![
+            req("value", ParameterType::Named("Scalar")),
+            opt("precision", &["decimals"], ParameterType::Byte),
+        ],
+    ));
+    pkg.add_function(member(
+        TO_INT,
+        "Convert a value to an Integer.",
+        ParameterType::Integer,
+        vec![],
+        vec![
+            req("value", ParameterType::String),
+            opt("base", &[], ParameterType::Integer),
+        ],
+    ));
+    pkg.add_function(member(
+        TO_FLOAT,
+        "Convert a value to a Float.",
+        ParameterType::Float,
+        vec!["ErrOverflow", "ErrInvalidFormat"],
+        vec![req("value", ParameterType::String)],
+    ));
+    pkg.add_function(member(
+        TO_FIXED,
+        "Convert a value to a Fixed.",
+        ParameterType::Fixed,
+        vec!["ErrOverflow", "ErrInvalidFormat"],
+        vec![req("value", ParameterType::String)],
+    ));
+    pkg.add_function(member(
+        TO_BYTE,
+        "Convert a value to a Byte.",
+        ParameterType::Byte,
+        vec!["ErrOverflow"],
+        vec![req("value", ParameterType::Integer)],
+    ));
+    pkg.add_function(member(
+        TO_MONEY,
+        "Convert a value to Money.",
+        ParameterType::Money,
+        vec!["ErrInvalidFormat"],
+        vec![req("value", ParameterType::String)],
+    ));
+    pkg.add_function(member(
+        TO_SCALAR,
+        "Convert a value to a Scalar (Unicode codepoint).",
+        ParameterType::Named("Scalar"),
+        vec!["ErrInvalidArgument"],
+        vec![req("value", ParameterType::Integer)],
+    ));
+    pkg.add_function(member(
+        IS_NUMERIC,
+        "Whether a String parses as a number.",
+        ParameterType::Boolean,
+        vec![],
+        vec![req("value", ParameterType::String)],
+    ));
+    pkg.add_function(member(
+        IS_EVEN,
+        "Whether an Integer is even.",
+        ParameterType::Boolean,
+        vec![],
+        vec![req("value", ParameterType::Integer)],
+    ));
+    pkg.add_function(member(
+        IS_ODD,
+        "Whether an Integer is odd.",
+        ParameterType::Boolean,
+        vec![],
+        vec![req("value", ParameterType::Integer)],
+    ));
+    pkg.add_function(member(
+        IS_POSITIVE,
+        "Whether a number is greater than zero.",
+        ParameterType::Boolean,
+        vec![],
+        vec![req("value", ParameterType::Integer)],
+    ));
+    pkg.add_function(member(
+        IS_NEGATIVE,
+        "Whether a number is less than zero.",
+        ParameterType::Boolean,
+        vec![],
+        vec![req("value", ParameterType::Integer)],
+    ));
+    pkg.add_function(member(
+        IS_ZERO,
+        "Whether a number equals zero.",
+        ParameterType::Boolean,
+        vec![],
+        vec![req("value", ParameterType::Integer)],
+    ));
+    pkg.add_function(member(
+        IS_EMPTY,
+        "Whether a String, List, Set, or Map has no elements.",
+        ParameterType::Boolean,
+        vec![],
+        vec![req("value", ParameterType::String)],
+    ));
+    pkg.add_function(member(
+        IS_NOT_EMPTY,
+        "Whether a String, List, Set, or Map has at least one element.",
+        ParameterType::Boolean,
+        vec![],
+        vec![req("value", ParameterType::String)],
+    ));
+
+    r.add_package(pkg);
 }
 
 #[cfg(test)]
@@ -553,6 +697,7 @@ mod tests {
         TO_FIXED,
         TO_BYTE,
         TO_MONEY,
+        TO_SCALAR,
         IS_NUMERIC,
         IS_EVEN,
         IS_ODD,
@@ -568,6 +713,7 @@ mod tests {
         for name in ALL_GENERAL {
             assert!(is_general_call(name), "{name}");
         }
+        assert_eq!(ALL_GENERAL.len(), 18);
         assert!(!is_general_call("nope"));
         assert!(!is_general_call("collections.get"));
     }
@@ -593,6 +739,8 @@ mod tests {
         assert_eq!(override_result_type(TO_FLOAT), Some("Float"));
         assert_eq!(override_result_type(TO_FIXED), Some("Fixed"));
         assert_eq!(override_result_type(TO_BYTE), Some("Byte"));
+        assert_eq!(override_result_type(TO_MONEY), Some("Money"));
+        assert_eq!(override_result_type(TO_SCALAR), Some("Scalar"));
         assert_eq!(override_result_type(IS_NUMERIC), Some("Boolean"));
         assert_eq!(override_result_type(IS_NOT_EMPTY), Some("Boolean"));
         assert_eq!(override_result_type(ERROR), None);
@@ -609,6 +757,8 @@ mod tests {
         assert_eq!(call_param_names(TO_FLOAT).unwrap().len(), 1);
         assert_eq!(call_param_names(TO_FIXED).unwrap().len(), 1);
         assert_eq!(call_param_names(TO_BYTE).unwrap().len(), 1);
+        assert_eq!(call_param_names(TO_MONEY), Some(&[&["value"][..]][..]));
+        assert_eq!(call_param_names(TO_SCALAR), Some(&[&["value"][..]][..]));
         assert_eq!(call_param_names(IS_NUMERIC).unwrap().len(), 1);
         assert_eq!(call_param_names(IS_EVEN).unwrap().len(), 1);
         assert_eq!(call_param_names(IS_ODD).unwrap().len(), 1);
@@ -641,6 +791,10 @@ mod tests {
             builtin_function_id(IS_NOT_EMPTY),
             Some(BUILTIN_FUNCTION_IS_NOT_EMPTY)
         );
+        assert_eq!(
+            builtin_function_id(IS_NUMERIC),
+            Some(BUILTIN_FUNCTION_IS_NUMERIC)
+        );
         assert_eq!(builtin_function_id(LEN), None);
         assert_eq!(builtin_function_id("nope"), None);
     }
@@ -671,12 +825,10 @@ mod tests {
             builtin_function_id_for_type(IS_ZERO, "FUNC(Fixed) AS Boolean"),
             Some(BUILTIN_FUNCTION_IS_ZERO_FIXED)
         );
-        // Integer element falls through to the plain id.
         assert_eq!(
             builtin_function_id_for_type(IS_POSITIVE, "FUNC(Integer) AS Boolean"),
             Some(BUILTIN_FUNCTION_IS_POSITIVE)
         );
-        // Non-predicate specialization name (isEven) -> plain id.
         assert_eq!(
             builtin_function_id_for_type(IS_EVEN, "FUNC(Integer) AS Boolean"),
             Some(BUILTIN_FUNCTION_IS_EVEN)
@@ -685,7 +837,6 @@ mod tests {
 
     #[test]
     fn builtin_function_id_for_type_non_predicate_shape() {
-        // Not a single-param Boolean predicate -> falls back to builtin_function_id.
         assert_eq!(
             builtin_function_id_for_type(IS_EVEN, "FUNC(Integer, Integer) AS Boolean"),
             Some(BUILTIN_FUNCTION_IS_EVEN)
@@ -694,7 +845,6 @@ mod tests {
             builtin_function_id_for_type(IS_EVEN, "FUNC(Integer) AS Integer"),
             Some(BUILTIN_FUNCTION_IS_EVEN)
         );
-        // Not a FUNC type at all -> None from function_parts.
         assert_eq!(builtin_function_id_for_type(IS_EVEN, "Integer"), None);
     }
 
@@ -708,9 +858,7 @@ mod tests {
             filter_predicate_type(IS_POSITIVE, "Float"),
             Some("FUNC(Float) AS Boolean".to_string())
         );
-        // Not a builtin_function_id name -> None.
         assert_eq!(filter_predicate_type(LEN, "String"), None);
-        // Element type the predicate does not resolve for -> None.
         assert_eq!(filter_predicate_type(IS_EVEN, "String"), None);
     }
 
@@ -752,7 +900,7 @@ mod tests {
         assert_eq!(rt(TO_STRING, &["Integer"]), Some("String".to_string()));
         assert_eq!(rt(TO_STRING, &["Boolean"]), Some("String".to_string()));
         assert_eq!(rt(TO_STRING, &["List OF Byte"]), Some("String".to_string()));
-        assert_eq!(rt(TO_STRING, &["Integer", "Byte"]), None); // Integer has no 2-arg form
+        assert_eq!(rt(TO_STRING, &["Integer", "Byte"]), None);
         assert_eq!(rt(TO_STRING, &["Float", "Integer"]), None);
         assert_eq!(rt(TO_STRING, &["List OF Integer"]), None);
     }
@@ -786,6 +934,21 @@ mod tests {
     }
 
     #[test]
+    fn resolve_to_scalar_and_money() {
+        assert_eq!(rt(TO_SCALAR, &["Integer"]), Some("Scalar".to_string()));
+        assert_eq!(rt(TO_SCALAR, &["String"]), Some("Scalar".to_string()));
+        assert_eq!(rt(TO_SCALAR, &["Byte"]), Some("Scalar".to_string()));
+        assert_eq!(rt(TO_SCALAR, &["Float"]), None);
+        assert_eq!(rt(TO_SCALAR, &["Integer", "Integer"]), None);
+        assert_eq!(rt(TO_MONEY, &["String"]), Some("Money".to_string()));
+        assert_eq!(rt(TO_MONEY, &["Integer"]), Some("Money".to_string()));
+        assert_eq!(rt(TO_MONEY, &["Float"]), Some("Money".to_string()));
+        assert_eq!(rt(TO_MONEY, &["Fixed"]), Some("Money".to_string()));
+        assert_eq!(rt(TO_MONEY, &["Byte"]), Some("Money".to_string()));
+        assert_eq!(rt(TO_MONEY, &["Boolean"]), None);
+    }
+
+    #[test]
     fn resolve_predicates() {
         assert_eq!(rt(IS_NUMERIC, &["String"]), Some("Boolean".to_string()));
         assert_eq!(rt(IS_NUMERIC, &["Integer"]), None);
@@ -814,6 +977,33 @@ mod tests {
     }
 
     #[test]
+    fn resolve_return_type_wrapper_delegates() {
+        assert_eq!(
+            resolve_return_type(TO_MONEY, &strings(&["Integer"])),
+            Some("Money".to_string())
+        );
+        assert_eq!(resolve_return_type("nope", &strings(&["Integer"])), None);
+    }
+
+    #[test]
+    fn nominal_return_type_matches_fast_oracle() {
+        // The six numeric narrowing conversions carry a fixed return type.
+        assert_eq!(nominal_return_type(TO_INT), Some("Integer"));
+        assert_eq!(nominal_return_type(TO_FLOAT), Some("Float"));
+        assert_eq!(nominal_return_type(TO_FIXED), Some("Fixed"));
+        assert_eq!(nominal_return_type(TO_BYTE), Some("Byte"));
+        assert_eq!(nominal_return_type(TO_MONEY), Some("Money"));
+        assert_eq!(nominal_return_type(TO_SCALAR), Some("Scalar"));
+        // Every other general call (Custom / reserved) has no static nominal.
+        assert_eq!(nominal_return_type(LEN), None);
+        assert_eq!(nominal_return_type(TYPE_NAME), None);
+        assert_eq!(nominal_return_type(TO_STRING), None);
+        assert_eq!(nominal_return_type(IS_EVEN), None);
+        assert_eq!(nominal_return_type(ERROR), None);
+        assert_eq!(nominal_return_type("nope"), None);
+    }
+
+    #[test]
     fn expected_arguments_all_arms() {
         assert!(expected_arguments(LEN).is_some());
         assert!(expected_arguments(TYPE_NAME).is_some());
@@ -822,6 +1012,14 @@ mod tests {
         assert!(expected_arguments(TO_FLOAT).is_some());
         assert!(expected_arguments(TO_FIXED).is_some());
         assert!(expected_arguments(TO_BYTE).is_some());
+        assert_eq!(
+            expected_arguments(TO_MONEY),
+            Some("String, Integer, Float, Fixed, or Byte")
+        );
+        assert_eq!(
+            expected_arguments(TO_SCALAR),
+            Some("Integer, String, or Byte")
+        );
         assert!(expected_arguments(IS_NUMERIC).is_some());
         assert!(expected_arguments(IS_EVEN).is_some());
         assert!(expected_arguments(IS_ODD).is_some());
@@ -851,7 +1049,7 @@ mod tests {
     }
 
     #[test]
-    fn helpers_list_map_function_parts() {
+    fn function_parts_splits_nested_function_parameters() {
         assert_eq!(
             function_parts("FUNC(Integer, String) AS Boolean"),
             Some((vec!["Integer", "String"], "Boolean"))
@@ -862,88 +1060,6 @@ mod tests {
         );
         assert_eq!(function_parts("Integer"), None);
         assert_eq!(function_parts("FUNC(Integer)"), None);
-    }
-
-    #[test]
-    fn descriptor_constructors_execute_at_runtime() {
-        // `ov` builds a Fixed-return overload; `ovc` a Custom-return one. Both are
-        // only invoked in const context by GENERAL_FUNCTIONS, so call them here.
-        let fixed = ov(P_V_INT, "Byte");
-        assert_eq!(fixed.params.len(), 1);
-        assert_eq!(fixed.params[0].name, "value");
-        assert_eq!(fixed.return_type, ReturnType::Fixed("Byte"));
-
-        let custom = ovc(P_V_STR);
-        assert_eq!(custom.params.len(), 1);
-        assert_eq!(custom.params[0].name, "value");
-        assert_eq!(custom.return_type, ReturnType::Custom);
-
-        // `gfn` assembles a general BuiltinFunction (Same/Helper, no flags).
-        // E0716: gfn wants a &'static overload slice, so bind a const first.
-        const OV: &[BuiltinOverload] = &[ov(P_V_INT, "Byte")];
-        let func = gfn("demoName", "demoSlug", OV);
-        assert_eq!(func.name, "demoName");
-        assert_eq!(func.doc_slug, "demoSlug");
-        assert_eq!(func.overloads.len(), 1);
-        assert_eq!(func.implementation, Implementation::Same);
-        assert_eq!(func.lowering, Lowering::Helper);
-        assert!(!func.flags.internal_only);
-        assert!(!func.flags.return_type_overloaded);
-    }
-
-    #[test]
-    fn override_result_type_money_scalar_arms() {
-        assert_eq!(override_result_type(TO_MONEY), Some("Money"));
-        assert_eq!(override_result_type(TO_SCALAR), Some("Scalar"));
-    }
-
-    #[test]
-    fn call_param_names_money_scalar_arms() {
-        assert_eq!(call_param_names(TO_MONEY), Some(&[&["value"][..]][..]));
-        assert_eq!(call_param_names(TO_SCALAR), Some(&[&["value"][..]][..]));
-    }
-
-    #[test]
-    fn builtin_function_id_is_numeric_arm() {
-        assert_eq!(
-            builtin_function_id(IS_NUMERIC),
-            Some(BUILTIN_FUNCTION_IS_NUMERIC)
-        );
-    }
-
-    #[test]
-    fn resolve_to_scalar_and_money() {
-        // toScalar accepts Integer/String/Byte -> Scalar, rejects others.
-        assert_eq!(rt(TO_SCALAR, &["Integer"]), Some("Scalar".to_string()));
-        assert_eq!(rt(TO_SCALAR, &["String"]), Some("Scalar".to_string()));
-        assert_eq!(rt(TO_SCALAR, &["Byte"]), Some("Scalar".to_string()));
-        assert_eq!(rt(TO_SCALAR, &["Float"]), None);
-        assert_eq!(rt(TO_SCALAR, &["Integer", "Integer"]), None);
-        // toMoney accepts String/Integer/Float/Fixed/Byte -> Money.
-        assert_eq!(rt(TO_MONEY, &["String"]), Some("Money".to_string()));
-        assert_eq!(rt(TO_MONEY, &["Integer"]), Some("Money".to_string()));
-        assert_eq!(rt(TO_MONEY, &["Float"]), Some("Money".to_string()));
-        assert_eq!(rt(TO_MONEY, &["Fixed"]), Some("Money".to_string()));
-        assert_eq!(rt(TO_MONEY, &["Byte"]), Some("Money".to_string()));
-        assert_eq!(rt(TO_MONEY, &["Boolean"]), None);
-    }
-
-    #[test]
-    fn expected_arguments_money_scalar_arms() {
-        assert_eq!(
-            expected_arguments(TO_MONEY),
-            Some("String, Integer, Float, Fixed, or Byte")
-        );
-        assert_eq!(
-            expected_arguments(TO_SCALAR),
-            Some("Integer, String, or Byte")
-        );
-    }
-
-    #[test]
-    fn function_parts_splits_nested_function_parameters() {
-        // A flat `split_once(") AS ")` cut at the *inner* `) AS `, yielding the
-        // garbage params ["FUNC(Integer", "Integer"] and return "Integer) AS X".
         assert_eq!(
             function_parts("FUNC(FUNC(Integer, Integer) AS Integer) AS Integer"),
             Some((vec!["FUNC(Integer, Integer) AS Integer"], "Integer"))
@@ -955,12 +1071,68 @@ mod tests {
                 "Boolean"
             ))
         );
-        // The return type may itself be a function type.
         assert_eq!(
             function_parts("FUNC(Integer) AS FUNC(Integer) AS Integer"),
             Some((vec!["Integer"], "FUNC(Integer) AS Integer"))
         );
-        // An unbalanced parameter list has no top-level close paren.
         assert_eq!(function_parts("FUNC(FUNC(Integer) AS Integer"), None);
+    }
+
+    /// The package registers exactly the 18 unqualified globals, all `Body::Intrinsic`,
+    /// and reproduces the legacy arities: `(1, 1)` for the single-argument members,
+    /// `(1, 2)` for the optional-tail `toString`/`toInt`, and `None` for the reserved
+    /// `error` (validated by `resolve_call`, not the arity gate).
+    #[test]
+    fn registers_the_eighteen_globals_with_legacy_arities() {
+        let mut r = Registry::new();
+        register(&mut r);
+        let pkg = r.resolve_package("general").expect("general registered");
+        assert!(pkg.is_unqualified_global());
+        assert_eq!(pkg.functions().len(), ALL_GENERAL.len());
+
+        for &name in ALL_GENERAL {
+            let func = pkg
+                .function(name)
+                .unwrap_or_else(|| panic!("`{name}` missing"));
+            let imp = func.implementations().first().expect("one implementation");
+            assert!(
+                matches!(imp.body, Body::Intrinsic),
+                "{name} is Body::Intrinsic"
+            );
+        }
+
+        // The package injects no source (all Intrinsic, no records/types), so the
+        // generic `augment_project` pass skips it.
+        assert!(pkg.get_mfb().is_empty());
+    }
+
+    /// The conversions carry the exact runtime errors the codegen contract
+    /// (`raise_error`) validates against, addressed by their `general.<name>` key.
+    #[test]
+    fn conversions_declare_their_runtime_errors() {
+        let mut r = Registry::new();
+        register(&mut r);
+        assert!(r.declares_error("general.toFloat", "ErrOverflow"));
+        assert!(r.declares_error("general.toFloat", "ErrInvalidFormat"));
+        assert!(r.declares_error("general.toFixed", "ErrOverflow"));
+        assert!(r.declares_error("general.toFixed", "ErrInvalidFormat"));
+        assert!(r.declares_error("general.toByte", "ErrOverflow"));
+        assert!(r.declares_error("general.toMoney", "ErrInvalidFormat"));
+        assert!(r.declares_error("general.toScalar", "ErrInvalidArgument"));
+        // A conversion does not declare an error it never raises.
+        assert!(!r.declares_error("general.toByte", "ErrInvalidFormat"));
+        assert!(!r.declares_error("general.len", "ErrOverflow"));
+    }
+
+    /// `error`'s registry arity is a proper `(2, 2)` implementation, but the boundary
+    /// helper reproduces the legacy `None` so `error(x)` reports an argument mismatch
+    /// (via `resolve_call`), not an arity mismatch.
+    #[test]
+    fn error_arity_is_none_others_delegate() {
+        assert_eq!(arity(ERROR), None);
+        assert_eq!(arity(LEN), Some((1, 1)));
+        assert_eq!(arity(TO_STRING), Some((1, 2)));
+        assert_eq!(arity(TO_INT), Some((1, 2)));
+        assert_eq!(arity(IS_NOT_EMPTY), Some((1, 1)));
     }
 }

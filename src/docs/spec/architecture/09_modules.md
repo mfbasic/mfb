@@ -21,7 +21,7 @@ A map of the compiler's source modules and their responsibilities.
 | Built-in dispatch[[src/builtins/mod.rs]] | Built-in package dispatch: the aggregate helpers iterate the descriptor registry (membership, arity, return type, expected arguments, argument types, default padding, builtin types), plus the parameter-name and source-injection tables. |
 | Built-in descriptors[[src/target/shared/registry.rs]] | The `BuiltinModule` descriptor registry — the compiler-owned source of truth for every builtin package's functions, overloads, parameters, return types, builtin types, source-injection rule, and resolver. Each `src/builtins/<pkg>.rs` exposes one `static <PKG>: BuiltinModule`; `DefaultResolver` derives every data-only answer from it and a `BuiltinResolver` supplies the argument-dependent ones. |
 | Filesystem built-ins[[src/codegen/builtins/fs/mod.rs]] | Filesystem built-in signatures and validation. |
-| General built-ins[[src/builtins/general.rs]] | General-purpose built-in signatures. |
+| General built-ins[[src/codegen/builtins/general/mod.rs]] | General-purpose built-in signatures. |
 | Collections built-ins[[src/codegen/builtins/collections/mod.rs]] | Collections (`List`/`Map`) built-in signatures. |
 | IO built-ins[[src/codegen/builtins/io/mod.rs]] | IO built-in signatures and validation. |
 | JSON built-ins[[src/codegen/builtins/json/mod.rs]] | JSON built-in type and call signatures. |

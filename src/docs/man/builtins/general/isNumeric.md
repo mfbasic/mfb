@@ -14,7 +14,7 @@ general
 
 ## Imports
 
-None. `general` functions are always available without an `IMPORT` statement. [[src/builtins/general.rs:is_general_call]]
+None. `general` functions are always available without an `IMPORT` statement. [[src/codegen/builtins/general/mod.rs:is_general_call]]
 
 ## Description
 

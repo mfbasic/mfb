@@ -1,5 +1,3 @@
-use crate::builtins;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RuntimeHelper {
     App,
@@ -147,7 +145,7 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::Datetime)
     } else if crate::codegen::registry::registry().owning_package(name) == Some("fs") {
         Some(RuntimeHelper::Fs)
-    } else if builtins::general::is_general_call(name) {
+    } else if crate::codegen::builtins::general::is_general_call(name) {
         Some(RuntimeHelper::General)
     } else if crate::codegen::registry::registry().owning_package(name) == Some("io") {
         Some(RuntimeHelper::Io)

@@ -74,7 +74,8 @@ impl<'a> Monomorphizer<'a> {
                 // A user `FUNC` whose name is an overridable general built-in is
                 // always force-mangled so its codegen symbol never equals the
                 // built-in dispatch name (plan-01-overload.md §C Phase 5.1).
-                let builtin_named = crate::builtins::general::is_overridable(&function.name);
+                let builtin_named =
+                    crate::codegen::builtins::general::is_overridable(&function.name);
                 // A return-type overload set: ≥2 declarations share this name *and*
                 // parameter types, differing only by return type (§F.1). Their
                 // concrete symbols must also encode the return type to stay distinct.
@@ -688,7 +689,7 @@ impl<'a> Monomorphizer<'a> {
     ) -> Option<String> {
         // Built-in-named overrides are routed by `resolve_general_builtin_override`,
         // which enforces the gap-fill rule (the built-in wins for its own types).
-        if crate::builtins::general::is_overridable(name) {
+        if crate::codegen::builtins::general::is_overridable(name) {
             return None;
         }
         let candidates = self.function_overloads.get(name)?;
@@ -747,7 +748,7 @@ impl<'a> Monomorphizer<'a> {
     /// dispatch. Fires for a sole built-in-named overload too, unlike the ordinary
     /// `resolve_overload`.
     fn resolve_general_builtin_override(&self, name: &str, arg_types: &[String]) -> Option<String> {
-        if !crate::builtins::general::is_overridable(name) {
+        if !crate::codegen::builtins::general::is_overridable(name) {
             return None;
         }
         // `name` is already gated to a general-overridable builtin above, so the

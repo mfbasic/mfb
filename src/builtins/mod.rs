@@ -1,6 +1,10 @@
-pub(crate) mod general;
 pub(crate) mod resource;
 pub(crate) mod testing;
+
+// `general` (the unqualified global builtins) migrated to the clean-room registry
+// (`crate::codegen::builtins::general`); this alias keeps the bare `general::` reads
+// in this module pointed at the new home.
+use crate::codegen::builtins::general;
 
 pub(crate) use resource::{ResourceInfo, ResourceKind, ResourceRegistry};
 
@@ -321,6 +325,12 @@ pub(crate) fn resolve_call_return_type(
     // `vector` is a registry member but dispatches by EXACT record type (`Float2` ≠
     // `Integer2`) with a per-type return type, which the generic coarse-nominal matcher
     // below cannot select. It keeps its own exact resolver over the same overload data.
+    // `general` (the unqualified global builtins) is bare-named, so it is disjoint from
+    // every qualified registry member and order-independent here. Its argument-dependent
+    // returns come from the co-located bespoke resolver, not the generic matcher.
+    if general::is_general_call(callee) {
+        return general::resolve_return_type(callee, arg_types);
+    }
     if crate::codegen::registry::registry().owning_package(callee) == Some("vector") {
         return crate::codegen::builtins::vector::resolve_return_type(callee, arg_types);
     }
@@ -355,6 +365,12 @@ pub(crate) fn resolve_call_return_type(
 /// functions, so IR lowering's queries for their rewritten targets fall back to
 /// those two packages' explicit internal-name maps.
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
+    // `general` (bare-named) is disjoint from every qualified member. Only the six
+    // numeric narrowing conversions carry a static nominal return; every other general
+    // call is `Custom` and yields `None`, reproducing the legacy fast-oracle exactly.
+    if general::is_general_call(name) {
+        return general::nominal_return_type(name);
+    }
     // `vector` members have an ARGUMENT-dependent return type (`length(Float3) AS
     // Float`, `length(Integer3) AS Integer`) with no static nominal — the pre-migration
     // `ReturnType::Custom` yielded `None` here. The generic `call_return_type` below
@@ -393,6 +409,14 @@ pub(crate) fn builtin_package_name(callee: &str) -> Option<&'static str> {
 /// The arity range `(min, max)` of a builtin call — plan-72-BB: the owning
 /// module's `DefaultResolver::arity`. `None` for a call no package owns.
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
+    // `general` (bare-named) never carries a `.`, so `registry().arity` (which requires a
+    // qualified name) would miss it. The boundary helper resolves the `general.<name>`
+    // key, reproducing the legacy arity — including `error`'s `None` (validated by
+    // `resolve_call`, not the arity gate) — so an over/under-argument general call still
+    // reports `TYPE_CALL_ARITY_MISMATCH` rather than an argument mismatch.
+    if general::is_general_call(name) {
+        return general::arity(name);
+    }
     if let Some(range) = crate::codegen::registry::registry().arity(name) {
         return Some(range);
     }
@@ -536,7 +560,12 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
     // registry constants, admitted through `is_package_constant`, not as calls.) The
     // `call_return_type_name` tail preserves the pre-existing admission of lowered-only
     // names whose return type is known (e.g. `tls.closeListener`).
-    crate::codegen::registry::registry().is_member(name)
+    // `general` (the unqualified global builtins) is bare-named, so `is_member` (which
+    // requires a `.`) misses it and `call_return_type_name` reports `None` for the
+    // `Custom`-return members (`len`/`typeName`/`isEmpty`/…). Recognize it explicitly —
+    // this is the membership the legacy `REGISTRY.function(<bare>)` used to carry.
+    general::is_general_call(name)
+        || crate::codegen::registry::registry().is_member(name)
         || crate::target::shared::registry::REGISTRY
             .function(name)
             .is_some()
