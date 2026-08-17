@@ -3783,12 +3783,6 @@ impl TypeIndex {
     }
 
     fn record_field_type(&self, type_name: &str, member: &str) -> Option<String> {
-        if let Some(type_) = builtins::builtin_type_fields(type_name)
-            .and_then(|fields| fields.iter().find(|(name, _)| *name == member))
-            .map(|(_, type_)| (*type_).to_string())
-        {
-            return Some(type_);
-        }
         self.records
             .get(type_name)
             .or_else(|| self.variant_fields.get(type_name))?

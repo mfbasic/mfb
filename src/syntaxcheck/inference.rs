@@ -875,12 +875,6 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
         let Some(info) = self.type_infos.get(&type_name).cloned() else {
-            if let Some(field_type) = builtins::builtin_type_fields(&type_name)
-                .and_then(|fields| fields.iter().find(|(name, _)| *name == member))
-                .map(|(_, type_name)| self.parse_type(type_name))
-            {
-                return field_type;
-            }
             return Type::Unknown;
         };
         if !matches!(info.kind, TypeDeclKind::Type) {
@@ -2209,8 +2203,8 @@ mod tests {
 
     #[test]
     fn net_address_member_fields_accepted() {
-        // `addr.host`/`addr.port` resolve via net::builtin_type_fields in the
-        // "type has no user info" member-access fallback.
+        // `addr.host`/`addr.port` resolve through the normal source-record member
+        // path now that `net`'s `Address` record is injected as a source `TYPE`.
         let src = "IMPORT net\nFUNC main AS Integer\n  RES sock = net::bindUdp(\"127.0.0.1\", 0)\n  LET addr = net::localAddress(sock)\n  LET h AS String = addr.host\n  LET p AS Integer = addr.port\n  RETURN 0\nEND FUNC\n";
         assert!(accepts(src));
     }
@@ -2433,7 +2427,7 @@ mod tests {
     #[test]
     fn builtin_type_unknown_member_infers_unknown() {
         // A member not present in net Address fields returns Unknown (the
-        // builtin_type_fields lookup miss).
+        // source-record field lookup miss).
         let src = "IMPORT net\nFUNC main AS Integer\n  RES sock = net::bindUdp(\"127.0.0.1\", 0)\n  LET addr = net::localAddress(sock)\n  LET x = addr.bogus\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }

@@ -300,37 +300,6 @@ impl TypeModel {
                 );
             }
         }
-        for type_name in ["Address", "Datagram", "DatagramText"] {
-            if let Some(fields) = builtins::builtin_type_fields(type_name) {
-                record_fields.insert(
-                    type_name.to_string(),
-                    fields
-                        .iter()
-                        .map(|(name, type_)| ((*name).to_string(), (*type_).to_string()))
-                        .collect(),
-                );
-            }
-        }
-        if let Some(fields) = builtins::builtin_type_fields("AudioDevice") {
-            record_fields.insert(
-                "AudioDevice".to_string(),
-                fields
-                    .iter()
-                    .map(|(name, type_)| ((*name).to_string(), (*type_).to_string()))
-                    .collect(),
-            );
-        }
-        for type_name in ["TermColor", "TermSize"] {
-            if let Some(fields) = builtins::builtin_type_fields(type_name) {
-                record_fields.insert(
-                    type_name.to_string(),
-                    fields
-                        .iter()
-                        .map(|(name, type_)| ((*name).to_string(), (*type_).to_string()))
-                        .collect(),
-                );
-            }
-        }
         // `Error` and `ErrorLoc` are read-only compiler/runtime records laid out
         // as ordinary 3-field records so construction, field access, copying, and
         // cleanup reuse the generic record machinery.
