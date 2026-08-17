@@ -16,7 +16,7 @@ general
 
 ## Imports
 
-None. `general` functions are always available without an `IMPORT` statement. [[src/builtins/general.rs:is_general_call]]
+None. `general` functions are always available without an `IMPORT` statement. [[src/codegen/builtins/general/mod.rs:is_general_call]]
 
 ## Description
 
@@ -40,7 +40,7 @@ out of line where it is named as a function value, so it may be passed as a
 predicate anywhere an ordinary `FUNC` may be. The value form resolves against
 the type expected at that position, since a bare name is ambiguous across the
 types it accepts (bug-368). The same predicate is also exposed through the `filters` package.
-[[src/builtins/general.rs:filter_predicate_type]]
+[[src/codegen/builtins/general/mod.rs:filter_predicate_type]]
 
 ## Overloads
 
@@ -79,7 +79,7 @@ No errors.
 returns `Boolean`. Calling it with any other type, or with a different number of
 arguments, is a compile-time error. Like other `general` predicates it may be
 overridden by a user- or package-defined `FUNC` of the same name for its own
-value types. [[src/builtins/general.rs:GENERAL]]
+value types. [[src/codegen/builtins/general/mod.rs:resolve_call]]
 
 ## Examples
 

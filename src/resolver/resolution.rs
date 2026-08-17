@@ -1218,7 +1218,7 @@ impl Resolver<'_> {
     ) {
         if callee.contains('.') {
             self.resolve_package_qualified_name(file, callee, line, imports);
-        } else if builtins::general::is_general_call(callee) {
+        } else if crate::codegen::builtins::general::is_general_call(callee) {
         } else if builtins::testing::is_testing_call(callee) {
             // Assertion builtins are compiler-lowered; their arguments are
             // resolved by the caller. Placement (TCASE-only) is enforced earlier
@@ -1253,7 +1253,7 @@ impl Resolver<'_> {
         } else if !locals.contains_key(name)
             && !self.top_level_visible_in_file(file, name)
             && !self.function_visible_in_file(file, name)
-            && !builtins::general::is_general_call(name)
+            && !crate::codegen::builtins::general::is_general_call(name)
         {
             self.report(
                 "SYMBOL_UNKNOWN_IDENTIFIER",

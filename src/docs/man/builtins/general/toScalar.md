@@ -16,14 +16,14 @@ general
 
 ## Imports
 
-None. `general` functions are always available without an `IMPORT` statement. [[src/builtins/general.rs:is_general_call]]
+None. `general` functions are always available without an `IMPORT` statement. [[src/codegen/builtins/general/mod.rs:is_general_call]]
 
 ## Description
 
 `toScalar` produces a `Scalar` — a single 32-bit Unicode scalar value — from a
 Unicode code point (`Integer`), a `String` holding exactly one scalar, or a `Byte`.
 Which overload is selected, and whether the conversion can fail, depends on the
-argument type. [[src/builtins/general.rs:GENERAL]] [[src/target/shared/code/builder_conversions.rs:lower_to_scalar]]
+argument type. [[src/codegen/builtins/general/mod.rs:resolve_call]] [[src/target/shared/code/builder_conversions.rs:lower_to_scalar]]
 
 The `Integer` overload interprets `value` as a Unicode code point. A valid code
 point is in the range `0` through `1114111` (`U+10FFFF`) and is not a surrogate —
@@ -85,7 +85,7 @@ Widens a `Byte` to the `Scalar` with the same code point. Never fails.
 
 `toScalar` accepts only `Integer`, `String`, and `Byte` values, each in the
 one-argument form; any other argument type or arity is a compile-time error.
-Convert unsupported values to one of these types explicitly first. [[src/builtins/general.rs:GENERAL]] [[src/builtins/general.rs:GENERAL]]
+Convert unsupported values to one of these types explicitly first. [[src/codegen/builtins/general/mod.rs:resolve_call]] [[src/codegen/builtins/general/mod.rs:resolve_call]]
 
 ## Examples
 

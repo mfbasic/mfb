@@ -17,13 +17,13 @@ general
 
 ## Imports
 
-None. `general` functions are always available without an `IMPORT` statement. [[src/builtins/general.rs:is_general_call]]
+None. `general` functions are always available without an `IMPORT` statement. [[src/codegen/builtins/general/mod.rs:is_general_call]]
 
 ## Description
 
 `toFloat` converts a supported value to a 64-bit IEEE 754 binary64 `Float`. Its
 behavior and whether it can fail depend on the argument type, which selects the
-overload. [[src/builtins/general.rs:GENERAL]]
+overload. [[src/codegen/builtins/general/mod.rs:resolve_call]]
 
 The `String` overload parses decimal `Float` text. An optional single leading sign —
 `-` or `+` — is accepted, followed by decimal digits, an optional `.` fractional
@@ -95,7 +95,7 @@ The `Integer`, `Fixed`, and `Money` overloads raise no errors. [[src/target/shar
 
 `toFloat` accepts exactly one argument that is a `String`, `Integer`, `Fixed`, or
 `Money` value; any other argument type or arity is a compile-time error. Convert
-unsupported values to one of these types explicitly first. [[src/builtins/general.rs:GENERAL]] [[src/builtins/general.rs:GENERAL]]
+unsupported values to one of these types explicitly first. [[src/codegen/builtins/general/mod.rs:resolve_call]] [[src/codegen/builtins/general/mod.rs:resolve_call]]
 
 ## Examples
 

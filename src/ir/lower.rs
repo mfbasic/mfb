@@ -2020,7 +2020,7 @@ fn expression_type(
             callee, arguments, ..
         } => {
             let canonical_callee = canonical_import_name(callee, context);
-            if builtins::general::is_general_call(&canonical_callee) {
+            if crate::codegen::builtins::general::is_general_call(&canonical_callee) {
                 let normalized =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
                 if crate::codegen::registry::callback_member_bare(callee) && normalized.len() == 2 {
@@ -2464,7 +2464,9 @@ fn lower_expression(
 fn filter_predicate_arg_type(predicate: &str, collection_type: &str) -> Option<String> {
     collection_type
         .strip_prefix("List OF ")
-        .and_then(|element| builtins::general::filter_predicate_type(predicate, element))
+        .and_then(|element| {
+            crate::codegen::builtins::general::filter_predicate_type(predicate, element)
+        })
 }
 
 /// The constructor a **migrated** package's record constant `name`
@@ -2514,7 +2516,7 @@ fn builtin_predicate_ref_type(name: &str, expected: &str) -> Option<String> {
     if params.len() != 1 || returns != "Boolean" {
         return None;
     }
-    builtins::general::filter_predicate_type(name, params[0])
+    crate::codegen::builtins::general::filter_predicate_type(name, params[0])
 }
 
 /// Split `FUNC(A) AS R` into its parameter list and return type. Deliberately
@@ -2842,16 +2844,19 @@ fn lower_expression_with_expected(
             // (plan-01-overload.md §B.2 / Phase 6), e.g. `toString(net::Url)` ->
             // `#net_urlToString`. User overrides need no routing here — the
             // monomorphizer already rewrote them to a concrete symbol (Phase 5).
-            let package_override = if builtins::general::is_overridable(&canonical_callee) {
-                arguments
-                    .first()
-                    .map(call_arg_value)
-                    .and_then(|argument| expression_type(argument, locals, context))
-                    .and_then(|type_| builtins::general_override_target(&canonical_callee, &type_))
-                    .map(crate::internal_name::internalize)
-            } else {
-                None
-            };
+            let package_override =
+                if crate::codegen::builtins::general::is_overridable(&canonical_callee) {
+                    arguments
+                        .first()
+                        .map(call_arg_value)
+                        .and_then(|argument| expression_type(argument, locals, context))
+                        .and_then(|type_| {
+                            builtins::general_override_target(&canonical_callee, &type_)
+                        })
+                        .map(crate::internal_name::internalize)
+                } else {
+                    None
+                };
             let resolved_target = package_override
                 .or_else(|| {
                     // `tls::close` spans two record shapes; a `TlsListener`

@@ -257,7 +257,7 @@ impl TypeEnv {
             }
             return;
         }
-        if builtins::general::is_general_call(target) {
+        if crate::codegen::builtins::general::is_general_call(target) {
             if let Some((min, max)) = builtins::arity(target) {
                 if self.builtin_arity_errored(target, arg_types.len(), min, max) {
                     return;
@@ -266,7 +266,7 @@ impl TypeEnv {
             if builtins::resolve_call_return_type(target, &arg_types, false).is_none() {
                 // A package-provided override may accept what the built-in
                 // rejects (plan-01-overload §A.3.2) — never reject those.
-                if builtins::general::is_overridable(target)
+                if crate::codegen::builtins::general::is_overridable(target)
                     && arg_types.len() == 1
                     && builtins::general_override_target(target, &arg_types[0]).is_some()
                 {

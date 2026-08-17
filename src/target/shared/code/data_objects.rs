@@ -1304,7 +1304,7 @@ pub(super) fn static_type_name_for_fold_with_types(
 }
 
 pub(super) fn builtin_function_symbol_for_type(name: &str, type_: &str) -> Option<String> {
-    builtins::general::builtin_function_id_for_type(name, type_)?;
+    crate::codegen::builtins::general::builtin_function_id_for_type(name, type_)?;
     Some(format!(
         "_mfb_builtin_{}_{}",
         nir::symbol_fragment(name),

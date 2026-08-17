@@ -274,7 +274,7 @@ impl<'a> SyntaxChecker<'a> {
         line: usize,
         expected: Option<&Type>,
     ) -> Type {
-        if builtins::general::is_general_call(callee) {
+        if crate::codegen::builtins::general::is_general_call(callee) {
             return self.check_general_builtin_call(
                 file,
                 display_callee,
@@ -726,12 +726,13 @@ impl<'a> SyntaxChecker<'a> {
             // *package*-provided override (the registry, §B.2) is resolved here —
             // e.g. `toString(net::Url)` routes to the package's internal renderer
             // and yields the built-in's conventional result type.
-            if builtins::general::is_overridable(callee)
+            if crate::codegen::builtins::general::is_overridable(callee)
                 && arg_type_names.len() == 1
                 && builtins::general_override_target(callee, &arg_type_names[0]).is_some()
             {
                 return self.parse_type(
-                    builtins::general::override_result_type(callee).unwrap_or("Unknown"),
+                    crate::codegen::builtins::general::override_result_type(callee)
+                        .unwrap_or("Unknown"),
                 );
             }
             let expected = builtins::expected_arguments(callee)
@@ -778,7 +779,7 @@ impl<'a> SyntaxChecker<'a> {
         // set rather than one name.
         if crate::codegen::registry::callback_member(callee) && arguments.len() == 2 {
             if let Expression::Identifier(predicate) = &arguments[1] {
-                if builtins::general::builtin_function_id(predicate).is_some() {
+                if crate::codegen::builtins::general::builtin_function_id(predicate).is_some() {
                     let collection_type =
                         self.infer_expression(file, &arguments[0], locals, line, ExprMode::Read);
                     let collection_type_name = self.type_name(&collection_type);
@@ -786,7 +787,9 @@ impl<'a> SyntaxChecker<'a> {
                         collection_type_name
                             .strip_prefix("List OF ")
                             .and_then(|element| {
-                                builtins::general::filter_predicate_type(predicate, element)
+                                crate::codegen::builtins::general::filter_predicate_type(
+                                    predicate, element,
+                                )
                             });
 
                     let Some(predicate_type) = predicate_type else {
@@ -1360,7 +1363,10 @@ mod builtins_tests {
         // are part of the same namespace and belong in the check.
         type IsCall = (&'static str, fn(&str) -> bool);
         let bespoke: &[IsCall] = &[
-            ("general", builtins::general::is_general_call),
+            (
+                "general",
+                crate::codegen::builtins::general::is_general_call,
+            ),
             (
                 "collections",
                 (|c: &str| {

@@ -48,7 +48,7 @@ lowering. [[src/codegen/registry/mod.rs:resolve_call]]
 The single-argument `general` predicates — `isEven`, `isOdd`, `isPositive`,
 `isNegative`, `isZero`, `isEmpty`, and `isNotEmpty` — are ordinary
 `FUNC(T) AS Boolean` callables and can be passed directly whenever their
-argument type matches the element type. [[src/builtins/general.rs:GENERAL]]
+argument type matches the element type. [[src/codegen/builtins/general/mod.rs:resolve_call]]
 
 An empty `value` calls `predicate` zero times and yields an empty list.
 

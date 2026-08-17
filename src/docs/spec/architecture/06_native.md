@@ -117,7 +117,7 @@ calls because they are code-generated inline rather than dispatched through
 external runtime helpers. The `RuntimeHelper::General` variant exists, but
 neither backend's `runtime_calls` contains any `general.*` call — `general.*`
 built-ins (like `math`/`strings`) are inline-codegen'd, not a gated runtime-call
-family.[[src/builtins/general.rs:is_general_call]] The complete, authoritative
+family.[[src/codegen/builtins/general/mod.rs:is_general_call]] The complete, authoritative
 capability set is the `runtime_calls` declaration in each backend; all four
 backends declare the same set.[[src/target/macos_aarch64/mod.rs:runtime_calls]]
 

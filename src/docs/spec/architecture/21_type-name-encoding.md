@@ -135,7 +135,7 @@ then splitting the ` STATE T` suffix with `base_resource_name` / `state_type_nam
 `Thread` intact). Element insertion (`append`/`insert`/`set`) compares the
 element and the item by their bare resource type, so an item passed with or
 without its STATE clause both resolve. [[src/builtins/resource.rs:base_resource_name]]
-[[src/builtins/general.rs:element_accepts_item]]
+[[src/codegen/builtins/general/mod.rs:element_accepts_item]]
 
 The thread resource plane is structurally distinct: it is an **infix** ` RES `
 clause between message and `" TO "`, not a leading prefix — see threads below.

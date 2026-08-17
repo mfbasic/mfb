@@ -14,9 +14,12 @@ impl CodeBuilder<'_> {
         error_name: &'static str,
     ) -> Result<(), String> {
         debug_assert!(
-            crate::target::shared::registry::REGISTRY
-                .function(function_id)
-                .is_some_and(|(_, function)| function.errors.contains(&error_name))
+            // General conversions (`toByte`/`toScalar`/`toFloat`/`toFixed`/`toMoney`)
+            // emit a BARE `function_id`; their declared errors live in the clean-room
+            // registry's unqualified-global `general` package under the `general.<name>`
+            // key. Qualified members declare theirs under their own key.
+            crate::codegen::registry::registry()
+                .declares_error(&format!("general.{function_id}"), error_name)
                 || crate::codegen::registry::registry().declares_error(function_id, error_name),
             "{function_id} raises {error_name} but does not declare it in its descriptor errors",
         );
