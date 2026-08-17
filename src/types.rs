@@ -17,8 +17,7 @@ use std::fmt;
 
 /// A [`crate::codegen::registry::Parameter`]'s type. An enum rather than a bare
 /// `&'static str` so future kinds (argument unions, generic placeholders) can be
-/// added without touching every parameter. Mirrors
-/// `target::shared::registry::ParameterType`.
+/// added without touching every parameter.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ParameterType {
     AttributeString,

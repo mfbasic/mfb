@@ -2,7 +2,7 @@
 //! the **clean-room registry** (`crate::codegen::registry`) descriptor: a package's
 //! `intro`/`desc`, each function's `intro`/`desc`/`example`, and every
 //! `Implementation`'s parameters / return type / errors — rather than from the
-//! static `src/docs/man/**` Markdown or the legacy `target::shared::registry`.
+//! static `src/docs/man/**` Markdown.
 //!
 //! man2 is registry-generic: it renders any package that has migrated onto the
 //! clean-room registry (today `csv`), reading the same fields off every descriptor.
