@@ -41,4 +41,10 @@ tests/syntax/http/http_async_wrongarg_invalid/src/main.mfb:8 error[2-203-0129 TY
      | ^
 tests/syntax/http/http_async_wrongarg_invalid/src/main.mfb:10 error[2-203-0129 TYPE_STATE_MISMATCH]: a resource's STATE type is fixed at its owning binding and every other declaration of it must agree
                Argument 1 for `#http_ready` is declared `STATE PendingState` but carries no STATE; a parameter cannot attach one — declare `STATE PendingState` on the owning binding.
+  10 |   LET b AS Boolean = http::ready("nope")
+  11 |   ' startRead expects a Url, not an Integer.
+  12 |   LET u AS net::Url = http::startRead(7)
+     | ^
+tests/syntax/http/http_async_wrongarg_invalid/src/main.mfb:12 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `u` has initializer type Stream, expected Url.
 [exit 1]

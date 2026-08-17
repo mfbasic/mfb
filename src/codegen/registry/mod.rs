@@ -1889,7 +1889,17 @@ pub(crate) fn rewrite_target(qualified: &str, arg_types: &[String]) -> Option<&'
             .map(|arg| ParameterType::parse(arg))
             .collect(),
     };
-    if let Some(selection) = function.dispatch(&call) {
+    // Prefer STRICT selection: a call whose arguments precisely name one overload's
+    // types picks that overload. This is required to disambiguate two overloads that
+    // differ only by a resource-nominal parameter — `http::handleRequest`'s
+    // `net::Listener` vs `tls::TlsListener` forms, which each rewrite to a distinct
+    // transport body. Lenient `dispatch` treats unequal resource nominals as
+    // interchangeable (kept coarse so a not-yet-resolved argument does not perturb
+    // overload/return inference on valid programs) and would resolve both to the first
+    // form. `resolve`'s `resource_base_eq` rejects the mismatched nominal, so the tls
+    // form selects `__http_handleRequestSSL`. Fall back to lenient dispatch (imprecise
+    // argument types) then to the sole/first implementation.
+    if let Some(selection) = function.resolve(&call).or_else(|| function.dispatch(&call)) {
         return selection.implementation.body.rewrite_target();
     }
     // The call shape did not select an overload (e.g. unknown argument types); fall

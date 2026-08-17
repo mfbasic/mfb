@@ -14,7 +14,12 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![
                 super::req("pattern", &[], ParameterType::String),
-                super::req("handler", &[], ParameterType::Named(super::HANDLER_TYPE)),
+                // The handler is the STRUCTURED function type `FUNC(Request) AS
+                // Response` (parsed, not a `Named` blob): the matcher compares it
+                // element-wise, so a wrong-shaped handler (`FUNC(Integer) AS Integer`)
+                // is rejected — a `Named("FUNC(…)")` blob would match coarsely and let
+                // it through.
+                super::req("handler", &[], ParameterType::parse(super::HANDLER_TYPE)),
             ],
             return_type: ParameterType::Named(super::ROUTE_TYPE),
             errors: vec![],
