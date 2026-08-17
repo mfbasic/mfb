@@ -114,9 +114,19 @@ Tier 5 — heavy native leaves (do last; most code, highest byte-identity risk):
 - [x] `thread` — DONE (two-overload model: `start` 4 overloads on the msg×res matrix; resource-only `accept`/`transfer`; the strict-Nothing guard rejects data-handles from accept automatically; `ParameterType::ThreadHandle` + #4 Unknown-refinement; d2d51fd08, merged 5149c67be). Descriptor+resolver on the registry, ThreadResolver deleted; runtime lowering kept SHARED as `Body::Intrinsic → RuntimeHelper::Thread` (like strings/collections — thread's direction-split/cleanup/stdin lowering is concurrency-runtime infra). 84/84 thread+io `.run` OUTPUT byte-identical, full acceptance 1263/1263. FOLLOW-UP (optional, byte-identity-risky, low value): fold the parent/worker direction split into overload rewrite-targets for full native_os_seam uniformity.
 - [x] `tls` — DONE (9 members, TlsSocket/TlsListener resources; poll list/scalar = 2 overloads; e50ec8abc, merged dcfa75d1a). Confirmed no-infra prediction. Carried a `leaf_matches` poll fix that I NARROWED to resource-leaf patterns (de1323783) to avoid perturbing every package's lenient overload dispatch.
 
+## Finish — byte-identity `.ncode` deferred-debt sweep (2026-08-16)
+
+After Phase 1 completed (count 0), the `artifact-gate all` sweep showed 32 accumulated deferred `.ncode`/`.ncodesum` diffs across 8 fixtures. NIR-level localization (base binary `13092026c` vs current, identical fixture source) proved them benign migration drift, NOT regressions:
+- **vector**: diff is EXCLUSIVELY `ErrorLoc` source-line numbers in `fail` ops (uniform −69 shift from the vector package body being relocated); error code/msg/file/column identical.
+- **net**: op-level diffs are ONLY resource type-name qualification (`"type":"Socket"`→`"net.Socket"`, plan-97) + injected `add_record` type decls (Address/Datagram/DatagramText); runtimeCall targets/args/helpers byte-identical.
+- **crypto-ec-valid**: executes; `.run` byte-identical in full acceptance → `.ncode` drift non-semantic.
+- **app-mode io/term**: current `.app.nir` is byte-identical to the committed golden (0 diffs) — sums were merely stale (term agent regen'd the `.nir`, not the cross-target sums).
+
+CLEARED 27/32: regen'd http/json/net/vector byte-identity `.ncodesum` (`799c8b406`) + crypto-ec + 3 app-mode sums (`fd273646b`). Remaining 5 = `thread` (MISSING, not DIFF): the committed `packages/thread_cover_worker.mfp` is a STALE precompiled dep — compiled pre-plan-97 with bare `File`, so native lowering fails (`native inlined field size not available for type 'File'`); pre-existing since plan-97, no source committed. IN PROGRESS: reconstructing the worker as a durable in-tree source-package (never re-goes-stale) + regen thread goldens. See [[committed-mfp-goes-stale-on-resource-requalification]].
+
 ## Phase 2 — delete the old branch
 
-Once no package resolves through `target/shared`, delete the plan-72 descriptor vocabulary (including its degenerate `Named(&'static str)` `ParameterType`) and the hand-written free-function fallbacks in `builtins/mod.rs`. The `registry::X(name).or(old(name))` dual-paths collapse to a single registry call. **Now the registry is the one source of truth.**
+Once no package resolves through `target/shared`, delete the plan-72 descriptor vocabulary (including its degenerate `Named(&'static str)` `ParameterType`) and the hand-written free-function fallbacks in `builtins/mod.rs`. The `registry::X(name).or(old(name))` dual-paths collapse to a single registry call. **Now the registry is the one source of truth.** NOTE: legacy `REGISTRY.modules().len()` is now 0 — Phase 2 is unblocked (nothing resolves builtin packages through the legacy descriptor list; verify the `BuiltinRegistry`/`BuiltinModule`/`DefaultResolver`/`Named` vocabulary has no remaining non-test consumers before deleting).
 
 ## Phase 3 — flip the compiler currency to `ParameterType`
 
