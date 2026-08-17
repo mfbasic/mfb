@@ -27,7 +27,7 @@ IMPORT vector
 ```
 
 `vector` is a built-in package, so `IMPORT vector` needs no manifest dependency.
-[[src/builtins/vector.rs:uses_package]]
+[[src/codegen/builtins/vector/mod.rs:uses_package]]
 
 ## Description
 
@@ -37,7 +37,7 @@ IMPORT vector
 midpoint. The path traced as `t` sweeps is a straight line, and the speed along
 it is constant — for interpolation that follows the arc between two directions
 instead, use `vector::slerp`.
-[[src/builtins/vector_package.mfb:__vector_lerp_float3]]
+[[src/codegen/builtins/vector/package.mfb:__vector_lerp_float3]]
 
 The defining difference from `vector::lerp_unclamped` is that `t` is **clamped to
 the closed interval 0 through 1** with `math::clamp` before it is used. A `t` of
@@ -45,7 +45,7 @@ the closed interval 0 through 1** with `math::clamp` before it is used. A `t` of
 behaves like `0.0` and returns `a`. The result is guaranteed to lie on the segment
 between the two endpoints and can never overshoot them, which makes `lerp` the
 safe choice when `t` comes from a source that may run past its expected range,
-such as an elapsed-time ratio. [[src/builtins/vector_package.mfb:__vector_lerp_float2]]
+such as an elapsed-time ratio. [[src/codegen/builtins/vector/package.mfb:__vector_lerp_float2]]
 
 `t` is a `Float` for **every** overload, including the `Fixed` and `Integer`
 ones — it is not the vector's element type. This differs from
@@ -55,12 +55,12 @@ and the interpolation then runs entirely in Q32.32. On the `Integer` overloads
 each component is widened to `Float`, interpolated there, and rounded back with
 `math::round`, half away from zero — so `lerp` on `Integer` vectors quantizes the
 result to the integer lattice, and successive small steps of `t` can produce the
-same output repeatedly. [[src/builtins/vector_package.mfb:__vector_lerp_integer2]]
+same output repeatedly. [[src/codegen/builtins/vector/package.mfb:__vector_lerp_integer2]]
 
 Interpolation is strictly component-wise, so `lerp` preserves neither length nor
 direction in general: the midpoint of two unit vectors pointing different ways is
 shorter than either, because it cuts across the chord rather than following the
-arc. [[src/builtins/vector_package.mfb:__vector_lerp_float4]]
+arc. [[src/codegen/builtins/vector/package.mfb:__vector_lerp_float4]]
 
 ## Overloads
 
@@ -82,15 +82,15 @@ each result back to `Integer` half away from zero.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | one of the nine vector types | The start vector, returned when `t` is `0` or less. [[src/builtins/vector.rs:call_param_names]] |
-| `b` | the same type as `a` | The end vector, returned when `t` is `1` or more. Must be the same vector type as `a`. [[src/builtins/vector.rs:call_param_names]] |
-| `t` | `Float` | The interpolation parameter, clamped to `0` through `1` before use. Always a `Float`, whatever the vector's element type. [[src/builtins/vector.rs:call_param_names]] |
+| `a` | one of the nine vector types | The start vector, returned when `t` is `0` or less. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
+| `b` | the same type as `a` | The end vector, returned when `t` is `1` or more. Must be the same vector type as `a`. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
+| `t` | `Float` | The interpolation parameter, clamped to `0` through `1` before use. Always a `Float`, whatever the vector's element type. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| the same type as `a` | A vector on the segment from `a` to `b`, at the clamped fraction `t` of the way from `a` to `b`. Exactly `a` for any `t` at or below `0` and exactly `b` for any `t` at or above `1`, up to the rounding of the element type. [[src/builtins/vector.rs:VECTOR]] |
+| the same type as `a` | A vector on the segment from `a` to `b`, at the clamped fraction `t` of the way from `a` to `b`. Exactly `a` for any `t` at or below `0` and exactly `b` for any `t` at or above `1`, up to the rounding of the element type. [[src/codegen/builtins/vector/mod.rs:VECTOR]] |
 
 ## Errors
 
@@ -105,7 +105,7 @@ each result back to `Integer` half away from zero.
 two arguments must be the *same* one of the nine types, and the third must be a
 `Float` for every overload — an `Integer` `t` is a compile-time error with no
 implicit numeric promotion. The return type is always the first argument's own
-type. [[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:VECTOR]]
+type. [[src/codegen/builtins/vector/mod.rs:VECTOR]] [[src/codegen/builtins/vector/mod.rs:VECTOR]]
 
 ## Examples
 

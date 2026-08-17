@@ -8,7 +8,7 @@ public-call → internal-implementation mapping are on the compiler
 side. This topic specifies the value model, the dispatch
 model, the per-function formulas, the Integer rounding rule, and the determinism
 guarantee — the *behaviour behind* the API, not the per-function signatures
-(those are `./mfb man vector`). [[src/builtins/vector_package.mfb]] [[src/builtins/vector.rs]]
+(those are `./mfb man vector`). [[src/codegen/builtins/vector/package.mfb]] [[src/codegen/builtins/vector/mod.rs]]
 
 ## The nine value records
 
@@ -25,7 +25,7 @@ scope-drop with no heap frees (all-scalar), and are trivially thread-sendable.
 They are **qualified** built-in types: a program spells them `vector::Float3`,
 normalized to the bare id `Float3` at parse time by `qualified_builtin_type`
 (the `net::Url` pattern). Construction is positional with bracket syntax:
-`vector::Float3[3.0, 0.0, 4.0]`. [[src/builtins/vector.rs:is_builtin_type]]
+`vector::Float3[3.0, 0.0, 4.0]`. [[src/codegen/builtins/vector/mod.rs:is_builtin_type]]
 
 ## Dispatch model
 
@@ -37,11 +37,11 @@ resolves the public return type from the argument types (`vector::resolve_call`)
 and IR lowering rewrites the public call onto the type-specific internal name
 from those same argument types (`vector::implementation_name`). A wrong arity,
 a non-vector argument, or two vectors of different types is rejected at compile
-time (`TYPE_CALL_ARITY_MISMATCH` / `TYPE_CALL_ARGUMENT_MISMATCH`). [[src/builtins/vector.rs:resolve_call]]
+time (`TYPE_CALL_ARITY_MISMATCH` / `TYPE_CALL_ARGUMENT_MISMATCH`). [[src/codegen/builtins/vector/mod.rs:resolve_call]]
 
 `toString(v)` over any of the nine types is routed by the universal-builtin
 override hook to a companion renderer (`__vector_toString_<type>`), producing
-`"(x, y, z)"` with each component rendered by its own scalar `toString`. [[src/builtins/vector.rs:tostring_override_target]]
+`"(x, y, z)"` with each component rendered by its own scalar `toString`. [[src/codegen/builtins/vector/mod.rs:tostring_override_target]]
 
 ## Determinism
 
@@ -69,7 +69,7 @@ land in `{-1, 0, 1}`) but mathematically defined and kept per the requested
 The deterministic rounding integer square root is `__vector_isqrtRound`: it takes
 the floor sqrt by Newton's method, then rounds up exactly when the remainder
 exceeds the floor (the exact half `(f + 0.5)² = f² + f + 0.25` is never an
-integer, so there is never a tie). [[src/builtins/vector_package.mfb:__vector_isqrtRound]]
+integer, so there is never a tie). [[src/codegen/builtins/vector/package.mfb:__vector_isqrtRound]]
 
 ## Function formulas
 
@@ -116,7 +116,7 @@ N-dimensional vector.
 `math::pi` idiom): `zero`, `one`, `up` (`+y`), `right` (`+x`) for all nine types,
 and `forward` (`+z`) for the 3D/4D types only (`forward` is undefined in 2D).
 Each inlines a record constructor at every use site, so reading a constant copies
-by value. [[src/builtins/vector.rs:constant_components]]
+by value. [[src/codegen/builtins/vector/mod.rs:constant_components]]
 
 ## See Also
 

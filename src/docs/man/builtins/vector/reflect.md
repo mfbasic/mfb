@@ -27,7 +27,7 @@ IMPORT vector
 ```
 
 `vector` is a built-in package, so `IMPORT vector` needs no manifest dependency.
-[[src/builtins/vector.rs:uses_package]]
+[[src/codegen/builtins/vector/mod.rs:uses_package]]
 
 ## Description
 
@@ -37,7 +37,7 @@ is formed once and then multiplies each component of `n` in declared field order
 with the product subtracted from the corresponding component of `v`. This is the
 classic bounce formula: the component of `v` along `n` is negated while the
 component within the plane is left untouched.
-[[src/builtins/vector_package.mfb:__vector_reflect_float3]]
+[[src/codegen/builtins/vector/package.mfb:__vector_reflect_float3]]
 
 **`n` is used exactly as given and is never normalized.** The formula is only a
 true reflection when `n` is a unit vector; if `n` has length `k`, the term
@@ -47,7 +47,7 @@ responsible for passing a unit normal — typically the output of
 `vector::normalize` — and this function will not do it for them. In exchange,
 `reflect` never rejects an input: unlike `vector::project` and `vector::reject`,
 it has no division and therefore no zero-vector guard, so a zero `n` is accepted
-and simply returns `v` unchanged. [[src/builtins/vector_package.mfb:__vector_reflect_float2]]
+and simply returns `v` unchanged. [[src/codegen/builtins/vector/package.mfb:__vector_reflect_float2]]
 
 Because the implementation is multiplication and subtraction only — no division,
 no square root, no trigonometry — it performs **no rounding** on any element type.
@@ -56,7 +56,7 @@ overloads are exact within the Q32.32 grid. This puts `reflect` in the small gro
 of exact members of this package alongside `dot`, `cross`, `scale`, and
 `perpendicular`, and means that reflecting an `Integer` vector about an `Integer`
 unit axis such as `(0, 1)` is exact.
-[[src/builtins/vector_package.mfb:__vector_reflect_integer4]]
+[[src/codegen/builtins/vector/package.mfb:__vector_reflect_integer4]]
 
 Reflection is its own inverse for a unit normal: applying `reflect` twice with the
 same `n` returns the original vector. It also preserves magnitude for a unit
@@ -83,14 +83,14 @@ of any kind.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `v` | one of the nine vector types | The incoming vector to be reflected. Also spelled `v` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
-| `n` | the same type as `v` | The plane normal. Used verbatim and **not** normalized, so pass a unit vector for a true, length-preserving reflection. A zero `n` is accepted and returns `v` unchanged. Also spelled `n` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
+| `v` | one of the nine vector types | The incoming vector to be reflected. Also spelled `v` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
+| `n` | the same type as `v` | The plane normal. Used verbatim and **not** normalized, so pass a unit vector for a true, length-preserving reflection. A zero `n` is accepted and returns `v` unchanged. Also spelled `n` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| the same type as `v` | The reflection of `v` about the hyperplane with normal `n`. Equal in magnitude to `v` when `n` is a unit vector; `v` itself when `n` is the zero vector or when `v` lies entirely in the plane. [[src/builtins/vector.rs:VECTOR]] |
+| the same type as `v` | The reflection of `v` about the hyperplane with normal `n`. Equal in magnitude to `v` when `n` is a unit vector; `v` itself when `n` is the zero vector or when `v` lies entirely in the plane. [[src/codegen/builtins/vector/mod.rs:VECTOR]] |
 
 ## Errors
 
@@ -105,7 +105,7 @@ of any kind.
 arguments must be the *same* one of the nine types: there is no mixed-element-type
 and no cross-dimension overload, and no implicit conversion is applied to a vector
 argument. The return type is always the first argument's own type.
-[[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:same_vector]]
+[[src/codegen/builtins/vector/mod.rs:VECTOR]] [[src/codegen/builtins/vector/mod.rs:same_vector]]
 
 ## Examples
 

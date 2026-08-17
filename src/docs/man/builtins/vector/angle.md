@@ -27,7 +27,7 @@ IMPORT vector
 ```
 
 `vector` is a built-in package, so `IMPORT vector` needs no manifest dependency.
-[[src/builtins/vector.rs:uses_package]]
+[[src/codegen/builtins/vector/mod.rs:uses_package]]
 
 ## Description
 
@@ -38,21 +38,21 @@ and `pi` for vectors pointing opposite ways. The angle is unsigned and symmetric
 `angle(a, b)` equals `angle(b, a)` — so it carries no orientation or handedness
 information and cannot distinguish a clockwise from a counterclockwise
 separation. Magnitude is irrelevant: scaling either input by a positive factor
-leaves the result unchanged. [[src/builtins/vector_package.mfb:__vector_angle_float3]]
+leaves the result unchanged. [[src/codegen/builtins/vector/package.mfb:__vector_angle_float3]]
 
 The cosine is clamped to the closed interval `-1` through `1` with `math::clamp`
 before `acos` is applied. This matters because the division can produce a value a
 fraction of an ulp outside that interval for nearly parallel or nearly
 antiparallel inputs; without the clamp `acos` would fail with a domain error. With
 it, the function is total for every pair of non-zero inputs and never raises a
-floating-point domain error. [[src/builtins/vector_package.mfb:__vector_angle_float2]]
+floating-point domain error. [[src/codegen/builtins/vector/package.mfb:__vector_angle_float2]]
 
 Both inputs must be non-zero. A zero-length vector has no direction, so the
 implementation checks each length before dividing and fails with
 `ErrInvalidArgument` and the message `vector::angle with a zero-length vector` if
 either is zero. The check is on the actual computed length, so the failure
 happens before any division by zero can occur.
-[[src/builtins/vector_package.mfb:__vector_angle_float4]]
+[[src/codegen/builtins/vector/package.mfb:__vector_angle_float4]]
 
 The `Integer` overloads are the coarsest. They compute the angle internally in
 `Fixed` (Q32.32) radians through a dedicated helper, then round that radian value
@@ -61,7 +61,7 @@ the function is `0` through `pi`, the only possible `Integer` results are `0`,
 `1`, `2`, and `3`. The `Integer` overload is therefore a very lossy quantization
 of the angle and is rarely the right tool; prefer the `Float` or `Fixed`
 overloads when the angle itself matters.
-[[src/builtins/vector_package.mfb:__vector_angleFixed_integer3]]
+[[src/codegen/builtins/vector/package.mfb:__vector_angleFixed_integer3]]
 
 ## Overloads
 
@@ -80,26 +80,26 @@ the result is bit-identical on every target. Returns radians as a `Fixed`.
 Computes the dot products exactly in `Integer`, converts to `Fixed` for the
 square roots and `acos`, then rounds the radian result to an `Integer` half away
 from zero. The result is one of `0`, `1`, `2`, `3`.
-[[src/builtins/vector_package.mfb:__vector_angle_integer2]]
+[[src/codegen/builtins/vector/package.mfb:__vector_angle_integer2]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | one of the nine vector types | The first vector. Must have non-zero length. Also spelled `v` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
-| `b` | the same type as `a` | The second vector, which must be the same vector type as `a`. Must have non-zero length. Also spelled `n` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
+| `a` | one of the nine vector types | The first vector. Must have non-zero length. Also spelled `v` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
+| `b` | the same type as `a` | The second vector, which must be the same vector type as `a`. Must have non-zero length. Also spelled `n` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| the element type of `a` (`Float`, `Fixed`, or `Integer`) | The unsigned angle in radians, in `0` through `pi`. `0` for parallel inputs, `pi` for antiparallel inputs, `pi / 2` for orthogonal inputs. The `Integer` overloads return the rounded radian value, so only `0`, `1`, `2`, `3` occur. [[src/builtins/vector.rs:VECTOR]] |
+| the element type of `a` (`Float`, `Fixed`, or `Integer`) | The unsigned angle in radians, in `0` through `pi`. `0` for parallel inputs, `pi` for antiparallel inputs, `pi / 2` for orthogonal inputs. The `Integer` overloads return the rounded radian value, so only `0`, `1`, `2`, `3` occur. [[src/codegen/builtins/vector/mod.rs:VECTOR]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | Either `a` or `b` has zero length, so the angle between them is undefined. [[src/builtins/vector_package.mfb:__vector_angle_float2]] |
+| `77050002` | `ErrInvalidArgument` | Either `a` or `b` has zero length, so the angle between them is undefined. [[src/codegen/builtins/vector/package.mfb:__vector_angle_float2]] |
 | `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, a squared component or a dot-product sum exceeds the checked range of the element type, or the `Integer` overload's conversion of a large squared sum into `Fixed` is out of range. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 | `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a squared component or dot-product sum reaches infinity and is caught where the length is bound. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatOverflow]] |
 
@@ -109,7 +109,7 @@ from zero. The result is one of `0`, `1`, `2`, `3`.
 arguments must be the *same* one of the nine types: there is no mixed-element-type
 and no cross-dimension overload, and no implicit conversion is applied to a vector
 argument. The return type is the element type of that vector type, not the vector
-type itself. [[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:same_vector]]
+type itself. [[src/codegen/builtins/vector/mod.rs:VECTOR]] [[src/codegen/builtins/vector/mod.rs:same_vector]]
 
 ## Examples
 

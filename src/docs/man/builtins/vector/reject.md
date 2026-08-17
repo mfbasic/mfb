@@ -27,7 +27,7 @@ IMPORT vector
 ```
 
 `vector` is a built-in package, so `IMPORT vector` needs no manifest dependency.
-[[src/builtins/vector.rs:uses_package]]
+[[src/codegen/builtins/vector/mod.rs:uses_package]]
 
 ## Description
 
@@ -35,7 +35,7 @@ IMPORT vector
 rejection, the complement of the vector projection. It is implemented directly as
 `a - vector::project(a, b)`: the implementation calls the matching `project`
 helper for the same type and then subtracts its components from `a`'s, in declared
-field order. [[src/builtins/vector_package.mfb:__vector_reject_float3]]
+field order. [[src/codegen/builtins/vector/package.mfb:__vector_reject_float3]]
 
 Because `reject` is defined by that subtraction, the decomposition identity
 `project(a, b) + reject(a, b) = a` holds **exactly**, on every element type,
@@ -45,7 +45,7 @@ parallel component, and consequently the `Integer` rejection is only approximate
 orthogonal to `b`. What is exact is the round trip — whatever error the rounding
 introduced into the projection is absorbed into the rejection, so the two always
 sum back to `a` with no residue.
-[[src/builtins/vector_package.mfb:__vector_reject_integer3]]
+[[src/codegen/builtins/vector/package.mfb:__vector_reject_integer3]]
 
 Delegating to `project` also means `reject` inherits its precondition. **`b` must
 not be the zero vector**: the underlying `project` computes `dot(b, b)` and fails
@@ -54,13 +54,13 @@ with `ErrInvalidArgument` and the message
 names `project`, not `reject`, because the failure is raised inside the delegated
 call. `a` is unconstrained — the zero vector rejects to the zero vector. Only the
 direction of `b` matters, not its magnitude.
-[[src/builtins/vector_package.mfb:__vector_project_float2]]
+[[src/codegen/builtins/vector/package.mfb:__vector_project_float2]]
 
 When `a` is already orthogonal to `b` the projection is the zero vector and
 `reject` returns `a` unchanged; when `a` is parallel to `b` the projection is all
 of `a` and `reject` returns the zero vector. The result is always orthogonal to
 `b` on the `Float` and `Fixed` overloads, to within the precision of the element
-type. [[src/builtins/vector_package.mfb:__vector_reject_float2]]
+type. [[src/codegen/builtins/vector/package.mfb:__vector_reject_float2]]
 
 ## Overloads
 
@@ -82,20 +82,20 @@ from zero — then subtracts in exact checked integer arithmetic.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | one of the nine vector types | The vector to decompose. Unconstrained; the zero vector rejects to the zero vector. Also spelled `v` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
-| `b` | the same type as `a` | The direction to remove from `a`. Must have a non-zero squared length. Only its direction affects the result, not its magnitude. Also spelled `n` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
+| `a` | one of the nine vector types | The vector to decompose. Unconstrained; the zero vector rejects to the zero vector. Also spelled `v` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
+| `b` | the same type as `a` | The direction to remove from `a`. Must have a non-zero squared length. Only its direction affects the result, not its magnitude. Also spelled `n` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| the same type as `a` | The part of `a` perpendicular to `b`. Equal to `a` when `a` is already orthogonal to `b`, and the zero vector when `a` is parallel to `b`. Always exactly `a` minus `vector::project(a, b)`. [[src/builtins/vector.rs:VECTOR]] |
+| the same type as `a` | The part of `a` perpendicular to `b`. Equal to `a` when `a` is already orthogonal to `b`, and the zero vector when `a` is parallel to `b`. Always exactly `a` minus `vector::project(a, b)`. [[src/codegen/builtins/vector/mod.rs:VECTOR]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `dot(b, b)` is zero, meaning `b` has no direction to remove. Raised by the delegated projection, so the message names `vector::project`. [[src/builtins/vector_package.mfb:__vector_project_float2]] |
+| `77050002` | `ErrInvalidArgument` | `dot(b, b)` is zero, meaning `b` has no direction to remove. Raised by the delegated projection, so the message names `vector::project`. [[src/codegen/builtins/vector/package.mfb:__vector_project_float2]] |
 | `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, a dot-product term, a scaled component, or the final subtraction exceeds the checked range of the element type. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 | `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a dot product, a scaled component, or a difference reaches infinity and is caught where it is bound. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatOverflow]] |
 
@@ -105,7 +105,7 @@ from zero — then subtracts in exact checked integer arithmetic.
 arguments must be the *same* one of the nine types: there is no mixed-element-type
 and no cross-dimension overload, and no implicit conversion is applied to a vector
 argument. The return type is always the first argument's own type.
-[[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:same_vector]]
+[[src/codegen/builtins/vector/mod.rs:VECTOR]] [[src/codegen/builtins/vector/mod.rs:same_vector]]
 
 ## Examples
 

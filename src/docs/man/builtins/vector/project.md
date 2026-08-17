@@ -27,7 +27,7 @@ IMPORT vector
 ```
 
 `vector` is a built-in package, so `IMPORT vector` needs no manifest dependency.
-[[src/builtins/vector.rs:uses_package]]
+[[src/codegen/builtins/vector/mod.rs:uses_package]]
 
 ## Description
 
@@ -37,7 +37,7 @@ each component of `b` in declared field order, so the result is always parallel 
 `b` — a scalar multiple of it — and never has any component orthogonal to `b`.
 Together with `vector::reject`, which returns the orthogonal remainder, it splits
 `a` into two pieces that sum back to `a`.
-[[src/builtins/vector_package.mfb:__vector_project_float3]]
+[[src/codegen/builtins/vector/package.mfb:__vector_project_float3]]
 
 The ratio's sign carries meaning: it is positive when `a` leans the same way as
 `b`, zero when `a` is orthogonal to `b` (in which case the projection is the zero
@@ -54,7 +54,7 @@ directly; the two coincide for exact arithmetic, but on the `Fixed` overloads a
 vector whose components are small enough that every square underflows to zero in
 Q32.32 will also be rejected. `a`, by contrast, is unconstrained — the zero vector
 is a perfectly ordinary `a` and projects to the zero vector.
-[[src/builtins/vector_package.mfb:__vector_project_float2]]
+[[src/codegen/builtins/vector/package.mfb:__vector_project_float2]]
 
 The `Float` and `Fixed` overloads form the ratio and the products in their own
 element type with correctly-rounded division. The `Integer` overloads are
@@ -64,7 +64,7 @@ rounded back with `math::round`, half away from zero. An `Integer` projection is
 therefore a lattice approximation, and the identity
 `project(a, b) + reject(a, b) = a` still holds exactly only because
 `vector::reject` is defined by subtracting the rounded projection from `a`.
-[[src/builtins/vector_package.mfb:__vector_project_integer3]]
+[[src/codegen/builtins/vector/package.mfb:__vector_project_integer3]]
 
 ## Overloads
 
@@ -86,20 +86,20 @@ rounded back to `Integer` half away from zero.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `a` | one of the nine vector types | The vector to decompose. Unconstrained; the zero vector projects to the zero vector. Also spelled `v` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
-| `b` | the same type as `a` | The direction to project onto. Must have a non-zero squared length. Only its direction affects the result, not its magnitude. Also spelled `n` as a named argument. [[src/builtins/vector.rs:call_param_names]] |
+| `a` | one of the nine vector types | The vector to decompose. Unconstrained; the zero vector projects to the zero vector. Also spelled `v` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
+| `b` | the same type as `a` | The direction to project onto. Must have a non-zero squared length. Only its direction affects the result, not its magnitude. Also spelled `n` as a named argument. [[src/codegen/builtins/vector/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| the same type as `a` | The part of `a` parallel to `b`: a scalar multiple of `b`, pointing the same way as `b` when `dot(a, b)` is positive and the opposite way when it is negative. The zero vector when `a` is orthogonal to `b`. [[src/builtins/vector.rs:VECTOR]] |
+| the same type as `a` | The part of `a` parallel to `b`: a scalar multiple of `b`, pointing the same way as `b` when `dot(a, b)` is positive and the opposite way when it is negative. The zero vector when `a` is orthogonal to `b`. [[src/codegen/builtins/vector/mod.rs:VECTOR]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `dot(b, b)` is zero, meaning `b` has no direction to project onto. [[src/builtins/vector_package.mfb:__vector_project_float2]] |
+| `77050002` | `ErrInvalidArgument` | `dot(b, b)` is zero, meaning `b` has no direction to project onto. [[src/codegen/builtins/vector/package.mfb:__vector_project_float2]] |
 | `77050010` | `ErrOverflow` | On the `Fixed` and `Integer` overloads, a dot-product term or a scaled component exceeds the checked range of the element type, or an `Integer` component rounds outside the `Integer` range. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] |
 | `77050015` | `ErrFloatOverflow` | On the `Float` overloads, a dot product or a scaled component reaches infinity and is caught where it is bound. [[src/codegen/builtins/errorcode/mod.rs:ErrFloatOverflow]] |
 
@@ -109,7 +109,7 @@ rounded back to `Integer` half away from zero.
 arguments must be the *same* one of the nine types: there is no mixed-element-type
 and no cross-dimension overload, and no implicit conversion is applied to a vector
 argument. The return type is always the first argument's own type.
-[[src/builtins/vector.rs:VECTOR]] [[src/builtins/vector.rs:same_vector]]
+[[src/codegen/builtins/vector/mod.rs:VECTOR]] [[src/codegen/builtins/vector/mod.rs:same_vector]]
 
 ## Examples
 
