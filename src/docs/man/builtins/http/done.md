@@ -31,7 +31,7 @@ connection (`state.closed`, the `Connection: close` terminator); or the bytes
 accumulated so far already form a complete response frame (Content-Length
 satisfied, or the final `chunked` chunk seen). The frame check is an early-out, so
 a well-framed reply completes before the peer's EOF is observed.
-[[src/builtins/http_package.mfb:__http_done]] [[src/builtins/http_package.mfb:__http_frameComplete]]
+[[src/codegen/builtins/http/package.mfb:__http_done]] [[src/codegen/builtins/http/package.mfb:__http_frameComplete]]
 
 `done` is a pure predicate over `stream.state`: it neither reads the socket nor
 mutates STATE. Call it at the top of the drive loop; once it is `TRUE`, call
@@ -47,7 +47,7 @@ mutates STATE. Call it at the top of the drive loop; once it is `TRUE`, call
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` iff the response is complete (error, peer EOF, or a fully-framed reply); `FALSE` while more pumping is required. [[src/builtins/http_package.mfb:__http_done]] |
+| `Boolean` | `TRUE` iff the response is complete (error, peer EOF, or a fully-framed reply); `FALSE` while more pumping is required. [[src/codegen/builtins/http/package.mfb:__http_done]] |
 
 ## Errors
 

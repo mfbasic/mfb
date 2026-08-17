@@ -21,7 +21,7 @@ IMPORT net
 ```
 
 `net` is a built-in package, so no manifest dependency is required.
-[[src/builtins/net.rs:is_net_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -29,13 +29,13 @@ IMPORT net
 resource and returns it as an `Address` record. It spans all three `net` handle
 types: a connected TCP `Socket`, a TCP `Listener`, and a bound UDP `UdpSocket`.
 The handle is borrowed, not consumed, and stays open.
-[[src/builtins/net.rs:NET]] [[src/builtins/net.rs:consumes_argument]]
+[[src/codegen/builtins/net/mod.rs:register]] [[src/syntaxcheck/builtins.rs:net_consumes_argument]]
 
 The call reads the endpoint with `getsockname` into a `sockaddr_storage`, then
 converts it into an `Address` whose `host` field is the textual form of the
 address and whose `port` field is the port. The `Address` record is freshly
 allocated on each call; the socket itself is untouched.
-[[src/target/shared/code/net/io.rs:lower_net_address_helper]]
+[[src/codegen/builtins/net/native/io.rs:lower_net_address_helper]]
 
 The most common use is discovering the concrete port behind an ephemeral bind.
 After `net::listenTcp(host, 0)` or `net::bindUdp(host, 0)` the host has chosen a
@@ -66,14 +66,14 @@ Reports the endpoint a UDP socket is bound to.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `sock` | `Socket` or `UdpSocket` | The connected TCP socket or bound UDP socket whose local endpoint is wanted. It must still be open; the handle is borrowed, not consumed. [[src/builtins/net.rs:call_param_names]] |
-| `listener` | `Listener` | Alternatively, the listener whose accepting endpoint is wanted. `sock` and `listener` are alternate named-argument spellings of the same position 0, so `net::localAddress(sock := s)` and `net::localAddress(listener := l)` both bind it. [[src/builtins/net.rs:call_param_names]] |
+| `sock` | `Socket` or `UdpSocket` | The connected TCP socket or bound UDP socket whose local endpoint is wanted. It must still be open; the handle is borrowed, not consumed. [[src/codegen/builtins/net/mod.rs:aliases]] |
+| `listener` | `Listener` | Alternatively, the listener whose accepting endpoint is wanted. `sock` and `listener` are alternate named-argument spellings of the same position 0, so `net::localAddress(sock := s)` and `net::localAddress(listener := l)` both bind it. [[src/codegen/builtins/net/mod.rs:aliases]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Address` | A record whose `host` field (`String`) holds the textual local address and whose `port` field (`Integer`) holds the local port. After binding or listening on port `0`, `port` is the concrete port the host chose. [[src/builtins/net.rs:NET]] |
+| `Address` | A record whose `host` field (`String`) holds the textual local address and whose `port` field (`Integer`) holds the local port. After binding or listening on port `0`, `port` is the concrete port the host chose. [[src/codegen/builtins/net/mod.rs:register]] |
 
 ## Errors
 

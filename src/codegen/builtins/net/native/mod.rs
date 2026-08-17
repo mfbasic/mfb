@@ -9,7 +9,7 @@
 //! field written directly is `sin_port` at offset 2, which is consistent across
 //! platforms for `AF_INET`.
 //!
-//! Visibility here is spelled `pub(in crate::target::shared::code)` in full,
+//! Visibility here is spelled `pub(crate)` in full,
 //! matching `io.rs` and `poll.rs`, rather than the shorter `pub(super)`. In this
 //! file the two happen to mean the same thing; in the child modules they do not
 //! (`pub(super)` there would mean `pub(in ...::net)`), so the long form is the
@@ -18,13 +18,13 @@
 mod io;
 mod poll;
 
-pub(in crate::target::shared::code) use io::*;
-pub(in crate::target::shared::code) use poll::*;
+pub(crate) use io::*;
+pub(crate) use poll::*;
 
 use std::collections::HashMap;
 
-use super::*;
 use crate::target::shared::abi;
+use crate::target::shared::code::*;
 
 /// The socket-call symbols the shared `net` lowering issues. Every hardcoded
 /// libc symbol literal routes through [`net_symbol`] so a platform whose socket
@@ -32,7 +32,7 @@ use crate::target::shared::abi;
 /// of at 35 call sites. Names mirror the POSIX symbol they map to on every
 /// non-Windows target (plan-47-I I1).
 #[derive(Clone, Copy)]
-pub(in crate::target::shared::code) enum NetSymbol {
+pub(crate) enum NetSymbol {
     Socket,
     Connect,
     Bind,
@@ -56,10 +56,7 @@ pub(in crate::target::shared::code) enum NetSymbol {
 /// four existing backends stay byte-identical (I1's proof). Winsock's three
 /// renames (`close`→`closesocket`, `poll`→`WSAPoll`, and the `fcntl` non-blocking
 /// toggle, which is rewritten to `ioctlsocket` at the call site) land in I2.
-pub(in crate::target::shared::code) fn net_symbol(
-    platform: &dyn CodegenPlatform,
-    intent: NetSymbol,
-) -> &'static str {
+pub(crate) fn net_symbol(platform: &dyn CodegenPlatform, intent: NetSymbol) -> &'static str {
     if platform.family() == PlatformFamily::Windows {
         match intent {
             // A SOCKET is not a file descriptor; close() on it is undefined.
@@ -96,7 +93,7 @@ pub(in crate::target::shared::code) fn net_symbol(
 /// `WSAPOLLFD` is `{ SOCKET fd; SHORT events; SHORT revents }` — an 8-byte fd, so
 /// events sit at +8 and readability is `POLLRDNORM` (0x0100), not POSIX `POLLIN`
 /// (plan-47-I). The POSIX arm is byte-identical to the pre-seam inline sequence.
-pub(in crate::target::shared::code) fn emit_pollfd_events(
+pub(crate) fn emit_pollfd_events(
     platform: &dyn CodegenPlatform,
     pollfd_offset: usize,
     instructions: &mut Vec<CodeInstruction>,
@@ -136,9 +133,9 @@ const POLLIN: &str = "1";
 /// connect failure (bug-115).
 const EINTR_ERRNO: &str = "4";
 
-/// Emit `bl _mfb_arena_alloc` with the size in `x0` and alignment in `x1`
-/// (preset by the caller), then branch to `fail` when allocation fails. On
-/// success the block pointer is left in `x1` (`RESULT_VALUE_REGISTER`).
+// `emit_alloc` (used below) is the shared arena allocator emitter reached via the
+// `crate::target::shared::code::*` glob; it emits `bl _mfb_arena_alloc` with the size
+// in `x0`/alignment in `x1` and leaves the block pointer in `x1` on success.
 
 /// Set the result registers to a named `errorCode` failure and branch to `done`.
 /// Sources `(code, message-symbol)` from `ERRORCODE_CONSTANTS` via
@@ -607,7 +604,7 @@ fn lower_net_endpoint_helper(
         // setsockopt takes FIVE int args; on Win64 the 5th (optlen) is a stack
         // argument above the shadow, not rdi (bug-384). POSIX passes it in a
         // register, byte-unchanged.
-        super::native_helpers::emit_external_int_call(
+        crate::target::shared::code::native_helpers::emit_external_int_call(
             platform,
             net_symbol(platform, NetSymbol::SetSockOpt),
             symbol,
@@ -809,7 +806,7 @@ fn lower_net_endpoint_helper(
         // argument above the shadow, not rdi (bug-384) — a garbage optlen makes
         // getsockopt fail and the non-blocking connect never resolves. POSIX
         // passes it in a register, byte-unchanged.
-        super::native_helpers::emit_external_int_call(
+        crate::target::shared::code::native_helpers::emit_external_int_call(
             platform,
             net_symbol(platform, NetSymbol::GetSockOpt),
             symbol,
@@ -1008,7 +1005,7 @@ fn lower_net_endpoint_helper(
     }
 }
 
-pub(in crate::target::shared::code) fn lower_net_connect_tcp_helper(
+pub(crate) fn lower_net_connect_tcp_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1016,7 +1013,7 @@ pub(in crate::target::shared::code) fn lower_net_connect_tcp_helper(
     lower_net_endpoint_helper(symbol, platform_imports, platform, false, false)
 }
 
-pub(in crate::target::shared::code) fn lower_net_connect_tcp_addr_helper(
+pub(crate) fn lower_net_connect_tcp_addr_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1024,10 +1021,67 @@ pub(in crate::target::shared::code) fn lower_net_connect_tcp_addr_helper(
     lower_net_endpoint_helper(symbol, platform_imports, platform, false, true)
 }
 
-pub(in crate::target::shared::code) fn lower_net_listen_tcp_helper(
+pub(crate) fn lower_net_listen_tcp_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
     lower_net_endpoint_helper(symbol, platform_imports, platform, true, false)
+}
+
+/// The family-generic runtime-helper dispatcher for every migrated `net.*` member,
+/// held in both `Body::native_os_seam` slots (the os/fs/tls twin idiom). The generic
+/// registry-driven dispatch (`codegen::os::dispatch_runtime_helper` →
+/// `registry::os_helper`) picks the posix/win slot by `platform.family()` and routes
+/// each member — plus its `connectTcpAddr`/`pollList` code-form aliases — here. A
+/// `net` socket/listener handle shares the `File` record layout, so `net.close` reuses
+/// the shared file-close helper (as the legacy `code/mod.rs` net arm did).
+pub(crate) fn lower_net_helper(
+    call: &str,
+    symbol: &str,
+    _ctx: &crate::codegen::registry::OsLowerCtx,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    match call {
+        "net.lookup" => lower_net_lookup_helper(symbol, platform_imports, platform),
+        "net.connectTcp" => lower_net_connect_tcp_helper(symbol, platform_imports, platform),
+        "net.connectTcpAddr" => {
+            lower_net_connect_tcp_addr_helper(symbol, platform_imports, platform)
+        }
+        "net.listenTcp" => lower_net_listen_tcp_helper(symbol, platform_imports, platform),
+        "net.accept" => lower_net_accept_helper(symbol, platform_imports, platform),
+        "net.poll" => lower_net_poll_helper(symbol, platform_imports, platform),
+        "net.pollList" => lower_net_poll_list_helper(symbol, platform_imports, platform),
+        "net.read" => lower_net_read_helper(symbol, platform_imports, platform, false),
+        "net.readText" => lower_net_read_helper(symbol, platform_imports, platform, true),
+        "net.write" => lower_net_write_helper(symbol, platform_imports, platform, false),
+        "net.writeText" => lower_net_write_helper(symbol, platform_imports, platform, true),
+        "net.close" => crate::codegen::builtins::fs::native::lower_fs_close_helper(
+            symbol,
+            platform_imports,
+            platform,
+            false,
+        ),
+        "net.localAddress" => lower_net_address_helper(symbol, platform_imports, platform, false),
+        "net.remoteAddress" => lower_net_address_helper(symbol, platform_imports, platform, true),
+        "net.setReadTimeout" => {
+            lower_net_set_timeout_helper(symbol, platform_imports, platform, false)
+        }
+        "net.setWriteTimeout" => {
+            lower_net_set_timeout_helper(symbol, platform_imports, platform, true)
+        }
+        "net.bindUdp" => lower_net_bind_udp_helper(symbol, platform_imports, platform),
+        "net.receiveFrom" => {
+            lower_net_receive_from_helper(symbol, platform_imports, platform, false)
+        }
+        "net.receiveTextFrom" => {
+            lower_net_receive_from_helper(symbol, platform_imports, platform, true)
+        }
+        "net.sendTo" => lower_net_send_to_helper(symbol, platform_imports, platform, false),
+        "net.sendTextTo" => lower_net_send_to_helper(symbol, platform_imports, platform, true),
+        other => Err(format!(
+            "native code plan does not emit runtime call '{other}'"
+        )),
+    }
 }

@@ -33,13 +33,13 @@ its own. The call is a pass-through to `tls::listen(host, port, certPath,
 keyPath, backlog)`, so the listener behaves in every respect like one opened by
 `tls` itself. Note the argument order differs: `serverSSL` leads with `port` to
 match `http::server`, while `tls::listen` leads with `host`.
-[[src/builtins/http_package.mfb:__http_serverSSL]]
+[[src/codegen/builtins/http/package.mfb:__http_serverSSL]]
 
 `host` defaults to `"0.0.0.0"` and `backlog` defaults to `128`; both defaults are
 injected at IR lowering, so the three- and four-argument forms are exactly the
 five-argument form with those literals supplied. The `128` default is supplied by
 `http` — calling `tls::listen` directly defaults `backlog` to `0` instead.
-[[src/builtins/http.rs:default_argument_padding]]
+[[src/codegen/registry/mod.rs:default_argument_padding]]
 
 The socket is created with `SO_REUSEADDR` set, bound, and placed in the listening
 state. On Linux, address resolution uses `AF_INET` passive hints, so **only IPv4
@@ -87,7 +87,7 @@ handshake, parses the request, matches its path against an ordered
 `List OF http::Route`, invokes the matched handler, writes the response, and
 closes the connection. The server is single-threaded and blocking: one request is
 served at a time, in the caller's loop.
-[[src/builtins/http_package.mfb:__http_handleRequestSSL]] [[src/builtins/http.rs:HTTP]]
+[[src/codegen/builtins/http/package.mfb:__http_handleRequestSSL]] [[src/codegen/builtins/http/mod.rs:register]]
 
 ## Overloads
 
@@ -102,7 +102,7 @@ Binds `port` on the given interface with a backlog of `128`.
 **`http::serverSSL(port AS Integer, certPath AS String, keyPath AS String, host AS String, backlog AS Integer) AS tls::TlsListener`**
 
 The full form: binds `port` on `host` with the given backlog hint.
-[[src/builtins/http.rs:HTTP]]
+[[src/codegen/builtins/http/mod.rs:register]]
 
 ## Parameters
 
@@ -118,7 +118,7 @@ The full form: binds `port` on `host` with the given backlog hint.
 
 | Type | Description |
 | --- | --- |
-| `tls::TlsListener` | A bound, listening TLS resource owning the loaded server TLS context, ready for `http::handleRequest` (or `tls::accept`). It must be bound with `RES` and is closed by lexical drop at scope exit unless closed earlier with `tls::close`. [[src/builtins/http.rs:HTTP]] |
+| `tls::TlsListener` | A bound, listening TLS resource owning the loaded server TLS context, ready for `http::handleRequest` (or `tls::accept`). It must be bound with `RES` and is closed by lexical drop at scope exit unless closed earlier with `tls::close`. [[src/codegen/builtins/http/mod.rs:register]] |
 
 ## Errors
 

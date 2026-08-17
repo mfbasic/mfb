@@ -22,7 +22,7 @@ IMPORT net
 ```
 
 `net` is a built-in package, so no manifest dependency is required.
-[[src/builtins/net.rs:is_net_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -32,7 +32,7 @@ IMPORT net
 name rather than a textual IP address it is resolved with the host resolver
 before connecting, and the first resolved result is used; the requested port is
 written into that address rather than being resolved as a service name.
-[[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]]
+[[src/codegen/builtins/net/native/mod.rs:lower_net_endpoint_helper]]
 
 Every connect takes the same non-blocking-connect plus readiness-poll path. The
 socket is switched to non-blocking mode, `connect` is issued, and the call then
@@ -41,7 +41,7 @@ is restored and the socket's `SO_ERROR` is checked before the handle is built, s
 a connection that failed asynchronously is reported as a failure rather than
 handed back as connected. A signal that interrupts the poll re-issues it instead
 of surfacing a spurious error.
-[[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]]
+[[src/codegen/builtins/net/native/mod.rs:lower_net_endpoint_helper]]
 
 `timeoutMs` selects that deadline, following the language timeout convention (see
 `mfb spec language builtin-functions` → "Timeout convention"). When it is
@@ -55,20 +55,20 @@ results are released first. Because `poll` takes a C `int`, a deadline above
 2147483647 milliseconds is clamped to that value. **A caller that must not wedge
 on a black-holed peer must pass a positive `timeoutMs`** — the former 120000 ms
 safety default is gone.
-[[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]]
-[[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]]
+[[src/codegen/builtins/net/native/mod.rs:lower_net_endpoint_helper]]
+[[src/codegen/builtins/net/native/mod.rs:lower_net_endpoint_helper]]
 
 The four overloads do not share a positional layout: `timeoutMs` is parameter 2
 of the host/port forms but parameter 1 of the `Address` forms. Named arguments
 therefore bind per-overload, against the parameter list of whichever overload the
-argument types select. [[src/builtins/net.rs:call_param_name_overloads]]
+argument types select. [[src/codegen/builtins/net/func_connect_tcp.rs:register]]
 
 The returned `Socket` is an owned, non-copyable resource handle, closed by
 lexical drop when its binding leaves scope or earlier with `net::close`. Read
 and write it with `net::read`, `net::readText`, `net::write`, and
 `net::writeText`, bound its blocking with `net::setReadTimeout` and
 `net::setWriteTimeout`, and inspect its endpoints with `net::localAddress` and
-`net::remoteAddress`. [[src/builtins/net.rs:resource_close_function]]
+`net::remoteAddress`. [[src/codegen/builtins/net/mod.rs:close_function]]
 
 ## Overloads
 
@@ -96,16 +96,16 @@ if the attempt exceeds `timeoutMs`. Here `timeoutMs` is parameter 1, not 2.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `host` | `String` | The peer's host name or textual IP address. Passed to the host resolver; a name with no address record raises an error. [[src/builtins/net.rs:call_param_name_overloads]] |
-| `port` | `Integer` | The TCP port to connect to on the peer. Written directly into the resolved address. [[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]] |
-| `address` | `Address` | A destination record supplying both the peer host and the peer port, typically from `net::lookup`. Replaces the separate `host` and `port` arguments. [[src/builtins/net.rs:NET]] |
-| `timeoutMs` | `Integer` | Optional. The maximum time the connection attempt may take, in milliseconds. Omit to block until the connection resolves; `0` is one immediate attempt (`ErrTimeout` unless it completes at once); a positive value bounds the attempt and raises `ErrTimeout` when it elapses (clamped to `2147483647`); a negative value raises `ErrInvalidArgument`. [[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]] |
+| `host` | `String` | The peer's host name or textual IP address. Passed to the host resolver; a name with no address record raises an error. [[src/codegen/builtins/net/func_connect_tcp.rs:register]] |
+| `port` | `Integer` | The TCP port to connect to on the peer. Written directly into the resolved address. [[src/codegen/builtins/net/native/mod.rs:lower_net_endpoint_helper]] |
+| `address` | `Address` | A destination record supplying both the peer host and the peer port, typically from `net::lookup`. Replaces the separate `host` and `port` arguments. [[src/codegen/builtins/net/mod.rs:register]] |
+| `timeoutMs` | `Integer` | Optional. The maximum time the connection attempt may take, in milliseconds. Omit to block until the connection resolves; `0` is one immediate attempt (`ErrTimeout` unless it completes at once); a positive value bounds the attempt and raises `ErrTimeout` when it elapses (clamped to `2147483647`); a negative value raises `ErrInvalidArgument`. [[src/codegen/builtins/net/native/mod.rs:lower_net_endpoint_helper]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Socket` | A connected socket ready for reading and writing. Closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/builtins/net.rs:NET]] |
+| `Socket` | A connected socket ready for reading and writing. Closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/codegen/builtins/net/mod.rs:register]] |
 
 ## Errors
 

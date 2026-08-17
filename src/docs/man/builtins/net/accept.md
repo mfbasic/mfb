@@ -20,7 +20,7 @@ IMPORT net
 ```
 
 `net` is a built-in package, so no manifest dependency is required.
-[[src/builtins/net.rs:is_net_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -29,7 +29,7 @@ returns a connected `Socket` for talking to that client. The listener must have
 been placed in the listening state by `net::listenTcp` and must still be open.
 Each call accepts a single connection, so a server loops over `accept` to serve
 clients as they arrive. The listener is *borrowed*, not consumed: it stays open
-and usable for further accepts. [[src/builtins/net.rs:consumes_argument]]
+and usable for further accepts. [[src/syntaxcheck/builtins.rs:net_consumes_argument]]
 
 The optional `timeoutMs` follows the language timeout convention (see
 `mfb spec language builtin-functions` → "Timeout convention"). When it is
@@ -40,7 +40,7 @@ the listener against that deadline (clamped to `2147483647`) and raises
 `ErrTimeout` if no client arrives first. A negative `timeoutMs` raises
 `ErrInvalidArgument`.
 [[src/target/shared/code/builder_values.rs:net_connect_is_address_form]]
-[[src/target/shared/code/net/io.rs:lower_net_accept_helper]]
+[[src/codegen/builtins/net/native/io.rs:lower_net_accept_helper]]
 
 On the bounded path the listener is temporarily switched into non-blocking mode
 for the duration of the call and its original file-status flags are restored
@@ -50,7 +50,7 @@ between the poll and the accept: the accept then reports `EAGAIN` and the call
 re-enters the poll rather than blocking for the *next* client and overrunning
 `timeoutMs`. A signal that interrupts either the poll or the accept re-issues the
 same call instead of surfacing a spurious failure.
-[[src/target/shared/code/net/io.rs:emit_listener_flags_restore]]
+[[src/codegen/builtins/net/native/io.rs:emit_listener_flags_restore]]
 
 The returned `Socket` is a fully independent resource: it stays usable after the
 listener is closed, and closing it does not affect the listener. Like every
@@ -58,7 +58,7 @@ listener is closed, and closing it does not affect the listener. Like every
 earlier with `net::close`. Read and write it with `net::read`, `net::readText`,
 `net::write`, and `net::writeText`, and inspect its endpoints with
 `net::localAddress` and `net::remoteAddress`.
-[[src/builtins/net.rs:resource_close_function]]
+[[src/codegen/builtins/net/mod.rs:close_function]]
 
 ## Overloads
 
@@ -77,14 +77,14 @@ connection is already pending); a negative value raises `ErrInvalidArgument`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `listener` | `Listener` | An open listener in the listening state, as returned by `net::listenTcp`. It is borrowed, not consumed, and remains available for further `accept` calls. [[src/builtins/net.rs:call_param_names]] |
-| `timeoutMs` | `Integer` | Optional. The maximum time to wait for a pending connection, in milliseconds. Omit to block indefinitely; `0` is one immediate attempt (`ErrTimeout` if none pending); a positive value that elapses raises `ErrTimeout` (clamped to `2147483647`); a negative value raises `ErrInvalidArgument`. [[src/target/shared/code/net/io.rs:lower_net_accept_helper]] |
+| `listener` | `Listener` | An open listener in the listening state, as returned by `net::listenTcp`. It is borrowed, not consumed, and remains available for further `accept` calls. [[src/codegen/builtins/net/mod.rs:aliases]] |
+| `timeoutMs` | `Integer` | Optional. The maximum time to wait for a pending connection, in milliseconds. Omit to block indefinitely; `0` is one immediate attempt (`ErrTimeout` if none pending); a positive value that elapses raises `ErrTimeout` (clamped to `2147483647`); a negative value raises `ErrInvalidArgument`. [[src/codegen/builtins/net/native/io.rs:lower_net_accept_helper]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Socket` | A connected socket for communicating with the accepted client. It is independent of the listener and is closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/builtins/net.rs:NET]] |
+| `Socket` | A connected socket for communicating with the accepted client. It is independent of the listener and is closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/codegen/builtins/net/mod.rs:register]] |
 
 ## Errors
 

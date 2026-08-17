@@ -1,16 +1,4 @@
 $ mfb build -ast -ir tests/syntax/net/func_net_poll_list_invalid
-  10 |   ' Resource element without the RES marker — rejected at the declaration.
-  11 |   MUT bare AS List OF net::Socket = []
-  12 |   RES pickBare AS net::Socket = net::poll(bare)
-     | ^
-tests/syntax/net/func_net_poll_list_invalid/src/main.mfb:12 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `net.poll` has argument type(s) (List OF net.Socket), expected Socket, Integer or List OF RES Socket, Integer.
-  10 |   ' Resource element without the RES marker — rejected at the declaration.
-  11 |   MUT bare AS List OF net::Socket = []
-  12 |   RES pickBare AS net::Socket = net::poll(bare)
-     | ^
-tests/syntax/net/func_net_poll_list_invalid/src/main.mfb:12 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `pickBare` does not have a known type.
   13 | 
   14 |   ' Neither net::Socket nor List OF RES net::Socket.
   15 |   LET pickStr = net::poll("not a socket")

@@ -19,7 +19,7 @@ IMPORT http
 ```
 
 `http` is a built-in package, so `IMPORT http` needs no manifest dependency.
-[[src/builtins/http.rs:augmented_project]]
+[[src/codegen/builtins/http/mod.rs:augmented_project]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT http
 `List OF Byte`, which is the type of the `body` field on both `http::Response`
 and `http::Request`. It is a direct wrapper over `strings::toBytes`, so the
 result is exactly the raw UTF-8 bytes backing the string — one list element per
-byte, not per character. [[src/builtins/http_package.mfb:__http_bytes]]
+byte, not per character. [[src/codegen/builtins/http/package.mfb:__http_bytes]]
 
 The encoding is unconditional and lossless in both directions: nothing is
 escaped, trimmed, length-limited, or inspected, and no header is set or implied.
@@ -39,7 +39,7 @@ This exists for the case where you are editing a body directly — typically wit
 `WITH` on an existing response — because the field is bytes and a `String`
 cannot be assigned to it. When you are *constructing* a response you do not need
 it: `http::ok`, `http::status`, and `http::json` all take a `String` body and
-encode it for you. [[src/builtins/http_package.mfb:__http_responseWith]]
+encode it for you. [[src/codegen/builtins/http/package.mfb:__http_responseWith]]
 
 `http::bytes` is a pure function. It reads no state, performs no I/O, and
 mutates nothing; the same input always produces the same output.
@@ -48,13 +48,13 @@ mutates nothing; the same input always produces the same output.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `text` | `String` | The text to encode. Any string is accepted, including the empty string. [[src/builtins/http.rs:call_param_names]] |
+| `text` | `String` | The text to encode. Any string is accepted, including the empty string. [[src/codegen/builtins/http/mod.rs:aliases]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The UTF-8 bytes of `text`, one element per byte. An empty `String` yields an empty list. [[src/builtins/http.rs:HTTP]] |
+| `List OF Byte` | The UTF-8 bytes of `text`, one element per byte. An empty `String` yields an empty list. [[src/codegen/builtins/http/mod.rs:register]] |
 
 ## Errors
 

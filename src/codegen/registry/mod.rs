@@ -1152,6 +1152,15 @@ impl Registry {
             if package.import_name() == "encoding" {
                 continue;
             }
+            // `net` (and `http`) are injected by their own dedicated late passes
+            // (`codegen::builtins::{net,http}::augmented_project`), for the same
+            // transitivity reason as `encoding`: `http`'s injected source `IMPORT
+            // net`s, and this single pass over the pre-injection AST cannot see that
+            // transitive import. Skipping them here also prevents a double injection
+            // when a program imports `net`/`http` directly.
+            if matches!(package.import_name(), "net" | "http") {
+                continue;
+            }
             if !package.is_imported_by(ast) {
                 continue;
             }
@@ -1282,6 +1291,8 @@ fn build() -> Registry {
     crate::codegen::builtins::io::register(&mut r);
     crate::codegen::builtins::crypto::register(&mut r);
     crate::codegen::builtins::tls::register(&mut r);
+    crate::codegen::builtins::net::register(&mut r);
+    crate::codegen::builtins::http::register(&mut r);
     crate::codegen::builtins::thread::register(&mut r);
     crate::codegen::builtins::vector::register(&mut r);
     r
@@ -1880,7 +1891,17 @@ pub(crate) fn rewrite_target(qualified: &str, arg_types: &[String]) -> Option<&'
             .map(|arg| ParameterType::parse(arg))
             .collect(),
     };
-    if let Some(selection) = function.dispatch(&call) {
+    // Prefer STRICT selection: a call whose arguments precisely name one overload's
+    // types picks that overload. This is required to disambiguate two overloads that
+    // differ only by a resource-nominal parameter — `http::handleRequest`'s
+    // `net::Listener` vs `tls::TlsListener` forms, which each rewrite to a distinct
+    // transport body. Lenient `dispatch` treats unequal resource nominals as
+    // interchangeable (kept coarse so a not-yet-resolved argument does not perturb
+    // overload/return inference on valid programs) and would resolve both to the first
+    // form. `resolve`'s `resource_base_eq` rejects the mismatched nominal, so the tls
+    // form selects `__http_handleRequestSSL`. Fall back to lenient dispatch (imprecise
+    // argument types) then to the sole/first implementation.
+    if let Some(selection) = function.resolve(&call).or_else(|| function.dispatch(&call)) {
         return selection.implementation.body.rewrite_target();
     }
     // The call shape did not select an overload (e.g. unknown argument types); fall

@@ -1048,14 +1048,14 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     // io migrated to the clean-room registry (crate::codegen::registry).
     &crate::builtins::general::GENERAL,
     // fs migrated to the clean-room registry (crate::codegen::registry).
-    &crate::builtins::http::HTTP,
+    // http migrated to the clean-room registry (crate::codegen::registry).
     &crate::builtins::resource::RESOURCE,
     &crate::builtins::strings::STRINGS,
     &crate::builtins::term::TERM,
     &crate::builtins::testing::TESTING,
     // math migrated to the clean-room registry (crate::codegen::registry).
     // money migrated to the clean-room registry (crate::codegen::registry).
-    &crate::builtins::net::NET,
+    // net migrated to the clean-room registry (crate::codegen::registry).
     // os migrated to the clean-room registry (crate::codegen::registry).
     // process migrated to the clean-room registry (crate::codegen::registry).
     // thread migrated to the clean-room registry (crate::codegen::registry).
@@ -1768,8 +1768,12 @@ mod tests {
         assert!(REGISTRY.module("thread").is_none());
         // `math` / `vector` migrated to the clean-room registry too.
         assert!(REGISTRY.module("math").is_none());
+        assert!(REGISTRY.module("vector").is_none());
+        // `net` / `http` migrated to the clean-room registry too.
+        assert!(REGISTRY.module("net").is_none());
+        assert!(REGISTRY.module("http").is_none());
         // The 28 builtin packages minus the migrated ones.
-        assert_eq!(REGISTRY.modules().len(), 10);
+        assert_eq!(REGISTRY.modules().len(), 8);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);

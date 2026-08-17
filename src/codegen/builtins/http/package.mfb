@@ -3,12 +3,6 @@
 ' `net`/`tls` packages; everything here is pure protocol string work plus two
 ' thin transport branches. Imports are file-scoped, so `IMPORT net`/`IMPORT tls`
 ' here do not leak into a program that writes `IMPORT http`.
-IMPORT net
-IMPORT tls
-IMPORT fs
-IMPORT strings
-IMPORT collections
-IMPORT errorCode
 
 ' The client response. A plain, copyable value record. `headers` is a standard
 ' map with field names lowercased (HTTP field names are case-insensitive), so a

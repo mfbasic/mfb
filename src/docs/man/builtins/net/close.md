@@ -21,7 +21,7 @@ IMPORT net
 ```
 
 `net` is a built-in package, so no manifest dependency is required.
-[[src/builtins/net.rs:is_net_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -29,12 +29,12 @@ IMPORT net
 marks the handle closed, so any later `net::` call that takes the same value
 raises an error rather than touching a stale descriptor. It spans all three
 `net` handle types: a connected TCP `Socket`, a TCP `Listener`, and a bound UDP
-`UdpSocket`. [[src/builtins/net.rs:NET]]
+`UdpSocket`. [[src/codegen/builtins/net/mod.rs:register]]
 
 `net::close` is the only `net` call that **consumes** its handle. Every other
 function borrows the resource and leaves it open; `close` moves the value into
 the call, after which it cannot be referenced again.
-[[src/builtins/net.rs:consumes_argument]]
+[[src/syntaxcheck/builtins.rs:net_consumes_argument]]
 
 Closing a `Socket` or `UdpSocket` tears down the connection or binding, so a peer
 reading from a closed connection observes the end of the stream. Closing a
@@ -48,7 +48,7 @@ handle must be torn down earlier — to free a listening port for reuse, to let 
 peer observe the end of the stream promptly, or to bound how many descriptors a
 long-running program holds open. Closing a resource and then letting it drop is
 safe: the drop sees the closed flag and does nothing.
-[[src/builtins/net.rs:resource_close_function]]
+[[src/codegen/builtins/net/mod.rs:close_function]]
 
 Unlike `tls::close`, `net::close` treats an already-closed handle as an error
 rather than a no-op. The handle record's closed word is checked first, and a
@@ -80,13 +80,13 @@ Closes a bound UDP socket, releasing its binding.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `resource` | `Socket`, `Listener`, or `UdpSocket` | The network resource to close. Consumed by the call and unusable afterwards. This parameter also accepts the alternate named-argument spellings `sock` and `listener`, so `net::close(resource := s)`, `net::close(sock := s)`, and `net::close(listener := l)` all bind position 0. [[src/builtins/net.rs:call_param_names]] |
+| `resource` | `Socket`, `Listener`, or `UdpSocket` | The network resource to close. Consumed by the call and unusable afterwards. This parameter also accepts the alternate named-argument spellings `sock` and `listener`, so `net::close(resource := s)`, `net::close(sock := s)`, and `net::close(listener := l)` all bind position 0. [[src/codegen/builtins/net/mod.rs:aliases]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `close` returns no value. After a successful return the OS handle has been released and the resource is marked closed; the value has been consumed and must not be used again. [[src/builtins/net.rs:NET]] |
+| `Nothing` | `close` returns no value. After a successful return the OS handle has been released and the resource is marked closed; the value has been consumed and must not be used again. [[src/codegen/builtins/net/mod.rs:register]] |
 
 ## Errors
 

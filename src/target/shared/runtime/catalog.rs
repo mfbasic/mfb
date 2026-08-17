@@ -95,27 +95,10 @@ static LEGACY_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     THREAD_IS_CANCELLED_SPEC,
     THREAD_OPEN_STD_IN_SPEC,
     THREAD_CLOSE_STD_IN_SPEC,
-    NET_LOOKUP_SPEC,
-    NET_CONNECT_TCP_SPEC,
-    NET_CONNECT_TCP_ADDR_SPEC,
-    NET_LISTEN_TCP_SPEC,
-    NET_ACCEPT_SPEC,
-    NET_POLL_SPEC,
-    NET_POLL_LIST_SPEC,
-    NET_READ_SPEC,
-    NET_READ_TEXT_SPEC,
-    NET_WRITE_SPEC,
-    NET_WRITE_TEXT_SPEC,
-    NET_CLOSE_SPEC,
-    NET_LOCAL_ADDRESS_SPEC,
-    NET_REMOTE_ADDRESS_SPEC,
-    NET_SET_READ_TIMEOUT_SPEC,
-    NET_SET_WRITE_TIMEOUT_SPEC,
-    NET_BIND_UDP_SPEC,
-    NET_RECEIVE_FROM_SPEC,
-    NET_RECEIVE_TEXT_FROM_SPEC,
-    NET_SEND_TO_SPEC,
-    NET_SEND_TEXT_TO_SPEC,
+    // `net` is migrated: its specs (including the `connectTcpAddr`/`pollList` code
+    // forms and the three resource close ops) are DERIVED from the registry
+    // (`registry::runtime_specs`) and merged in by `supported_helper_specs`, so no
+    // hand-written `NET_*_SPEC` rows live here.
     // `tls` is migrated: its specs (including the two resource close ops and the
     // `pollList`/`closeListener` code forms) are DERIVED from the registry
     // (`registry::runtime_specs`) and merged in by `supported_helper_specs`, so no

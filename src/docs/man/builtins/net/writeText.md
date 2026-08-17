@@ -19,7 +19,7 @@ IMPORT net
 ```
 
 `net` is a built-in package, so no manifest dependency is required.
-[[src/builtins/net.rs:is_net_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT net
 string's packed byte data is written directly from its buffer: a `String` already
 holds well-formed UTF-8, so the bytes go out exactly as held, with no
 re-encoding, decoding, or newline translation.
-[[src/target/shared/code/net/io.rs:lower_net_write_helper]]
+[[src/codegen/builtins/net/native/io.rs:lower_net_write_helper]]
 
 The call writes the *entire* string before returning. It loops, advancing a
 cursor past whatever each underlying host write accepted and re-issuing the write
@@ -35,7 +35,7 @@ for the remainder, so a short host write is resumed rather than mistaken for
 completion. When it returns successfully, every byte of `value` has been handed
 to the socket's send buffer — which is not a guarantee that the peer has received
 or read them. An empty string writes nothing and returns immediately. The socket
-is borrowed and stays open. [[src/target/shared/code/net/io.rs:lower_net_write_helper]]
+is borrowed and stays open. [[src/codegen/builtins/net/native/io.rs:lower_net_write_helper]]
 
 Otherwise the call blocks while the send buffer is full, waiting for space or for
 the socket's write timeout to elapse. Use `net::setWriteTimeout` to bound that
@@ -51,14 +51,14 @@ than UTF-8 text from a `String`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `sock` | `Socket` | A connected socket to send on, as returned by `net::connectTcp` or `net::accept`. It must still be open; the handle is borrowed, not consumed. [[src/builtins/net.rs:call_param_names]] |
-| `value` | `String` | The text to send, written as the string's UTF-8 bytes in order. An empty string sends nothing. [[src/builtins/net.rs:call_param_names]] |
+| `sock` | `Socket` | A connected socket to send on, as returned by `net::connectTcp` or `net::accept`. It must still be open; the handle is borrowed, not consumed. [[src/codegen/builtins/net/mod.rs:aliases]] |
+| `value` | `String` | The text to send, written as the string's UTF-8 bytes in order. An empty string sends nothing. [[src/codegen/builtins/net/mod.rs:aliases]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `writeText` returns no value. On a successful return every byte of `value` has been handed to the socket's send buffer. [[src/builtins/net.rs:NET]] |
+| `Nothing` | `writeText` returns no value. On a successful return every byte of `value` has been handed to the socket's send buffer. [[src/codegen/builtins/net/mod.rs:register]] |
 
 ## Errors
 

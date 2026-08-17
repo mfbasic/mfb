@@ -19,7 +19,7 @@ IMPORT http
 ```
 
 `http` is a built-in package, so `IMPORT http` needs no manifest dependency.
-[[src/builtins/http.rs:augmented_project]]
+[[src/codegen/builtins/http/mod.rs:augmented_project]]
 
 ## Description
 
@@ -28,7 +28,7 @@ IMPORT http
 `reason`, `httpVersion`, `body`, `ok` — is carried over unchanged. `resp` itself
 is not modified; `Response` is a plain copyable value record, so this is sugar
 over `WITH resp { headers := ... }` and calls chain naturally.
-[[src/builtins/http_package.mfb:__http_withHeader]]
+[[src/codegen/builtins/http/package.mfb:__http_withHeader]]
 
 The header map is an ordinary `Map OF String TO String`, and the name is used as
 the map key **exactly as given**, with no case normalization. Two consequences
@@ -39,39 +39,39 @@ follow, and both bite in practice:
   The response constructors store their content type lowercased as
   `content-type`, so overriding it means passing `"content-type"` — passing
   `"Content-Type"` sends two content-type headers.
-  [[src/builtins/http_package.mfb:__http_responseWith]]
+  [[src/codegen/builtins/http/package.mfb:__http_responseWith]]
 - Response header names go out on the wire spelled the way you wrote them. This
   is the opposite of the request side, where field names are lowercased during
   parsing, so a handler reads request headers in lowercase but writes response
-  headers in whatever case it chooses. [[src/builtins/http_package.mfb:Response]]
+  headers in whatever case it chooses. [[src/codegen/builtins/http/package.mfb:Response]]
 
 Two names cannot be set this way. `Content-Length` and `Connection` are framing
 headers the server always supplies itself; when the response is serialized, any
 entry whose name matches either of them case-insensitively is dropped, and the
 server's own correct values are appended. Setting them here is therefore silently
 ineffective rather than an error.
-[[src/builtins/http_package.mfb:__http_serializeHead]]
+[[src/codegen/builtins/http/package.mfb:__http_serializeHead]]
 
 `name` and `value` are stored verbatim — not validated, escaped, or scanned for
 control characters. Do not build a header value out of unvalidated request data
 without checking it yourself.
 
 The first parameter is also accepted under the name `response`.
-[[src/builtins/http.rs:call_param_names]]
+[[src/codegen/builtins/http/mod.rs:aliases]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `resp` | `Response` | The response to copy. Not modified. Also accepted under the name `response`. [[src/builtins/http.rs:call_param_names]] |
-| `name` | `String` | The header name, used as the map key exactly as written. Matching an existing entry replaces it; differing in case adds a second entry. [[src/builtins/http_package.mfb:__http_withHeader]] |
-| `value` | `String` | The header value, stored verbatim. Any string is accepted, including the empty string. [[src/builtins/http.rs:call_param_names]] |
+| `resp` | `Response` | The response to copy. Not modified. Also accepted under the name `response`. [[src/codegen/builtins/http/mod.rs:aliases]] |
+| `name` | `String` | The header name, used as the map key exactly as written. Matching an existing entry replaces it; differing in case adds a second entry. [[src/codegen/builtins/http/package.mfb:__http_withHeader]] |
+| `value` | `String` | The header value, stored verbatim. Any string is accepted, including the empty string. [[src/codegen/builtins/http/mod.rs:aliases]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Response` | A copy of `resp` whose `headers` map additionally maps `name` to `value`; all other fields are unchanged. [[src/builtins/http.rs:HTTP]] |
+| `Response` | A copy of `resp` whose `headers` map additionally maps `name` to `value`; all other fields are unchanged. [[src/codegen/builtins/http/mod.rs:register]] |
 
 ## Errors
 

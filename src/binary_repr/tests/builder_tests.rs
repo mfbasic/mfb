@@ -71,7 +71,8 @@ fn resolve_resource_close_name_maps_builtins_and_functions() {
     );
     assert_eq!(
         resolve_resource_close_name(&package, BUILTIN_NET_CLOSE_FUNCTION_ID).unwrap(),
-        builtins::resource_close_function(builtins::net::SOCKET_TYPE).map(str::to_string)
+        builtins::resource_close_function(crate::codegen::builtins::net::SOCKET_TYPE)
+            .map(str::to_string)
     );
     // A function-id index resolves to that function's name.
     let named = resolve_resource_close_name(&package, 0).unwrap();

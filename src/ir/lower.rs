@@ -110,10 +110,11 @@ pub fn lower_project_with_external_functions(
         .expect("built-in term package source must parse");
     // `vector` source (its nine `TYPE`s + `__vector_*` FUNC bodies) is injected by the
     // clean-room `registry::augment_project` above.
-    // `http` before `net`: `http_package.mfb` imports `net` (plan-03-http.md Phase 4).
-    let augmented = builtins::http::augmented_project(&augmented)
+    // `http` before `net`: `http_package.mfb` imports `net`, so net's late pass must
+    // run after http's to see the transitive `IMPORT net` (plan-03-http.md Phase 4).
+    let augmented = crate::codegen::builtins::http::augmented_project(&augmented)
         .expect("built-in http package source must parse");
-    let augmented = builtins::net::augmented_project(&augmented)
+    let augmented = crate::codegen::builtins::net::augmented_project(&augmented)
         .expect("built-in net package source must parse");
     let augmented = builtins::audio::augmented_project(&augmented)
         .expect("built-in audio package source must parse");
@@ -2099,15 +2100,9 @@ fn expression_type(
                     != Some("encoding");
             if builtins::strings::is_strings_call(&canonical_callee)
                 || builtins::astrings::is_astrings_call(&canonical_callee)
-                // `math`/`vector` migrated to the clean-room registry — covered by
-                // `migrated_arg_typed` (`registry::is_member`) below.
-                // `fs`/`io` migrated to the clean-room registry — covered by
-                // `migrated_arg_typed` (`registry::is_member`) below.
-                || builtins::net::is_net_call(&canonical_callee)
-                // `tls` migrated to the clean-room registry — covered by
-                // `migrated_arg_typed` (`registry::is_member`) below.
+                // `math`/`vector`/`fs`/`io`/`net`/`tls`/`http` migrated to the clean-room
+                // registry — covered by `migrated_arg_typed` (`registry::is_member`) below.
                 || builtins::audio::is_audio_call(&canonical_callee)
-                || builtins::http::is_http_call(&canonical_callee)
                 || migrated_arg_typed
                 || crate::codegen::registry::registry().owning_package(&canonical_callee)
                     == Some("datetime")
@@ -2919,24 +2914,6 @@ fn lower_expression_with_expected(
                         .map(crate::internal_name::internalize)
                 })
                 .or_else(|| {
-                    // `http::handleRequest` is overloaded by listener type
-                    // (net::Listener vs tls::Listener), selecting one of two
-                    // transport bodies from the first argument's type
-                    // (plan-05 §F.5.1). The other http calls map 1:1.
-                    if !builtins::http::is_http_call(&canonical_callee) {
-                        return None;
-                    }
-                    let arg_types: Vec<String> = arguments
-                        .iter()
-                        .map(call_arg_value)
-                        .map(|argument| {
-                            expression_type(argument, locals, context).unwrap_or_default()
-                        })
-                        .collect();
-                    builtins::http::implementation_name(&canonical_callee, &arg_types)
-                        .map(crate::internal_name::internalize)
-                })
-                .or_else(|| {
                     // `audio::render`/`audio::play` are source-companion members
                     // (`audio_render.mfb + audio_mml.mfb`); `play` selects its single- vs
                     // multi-track body from the second argument's type. The
@@ -3008,7 +2985,6 @@ fn lower_expression_with_expected(
                         })
                         .collect();
                     crate::codegen::registry::rewrite_target(&canonical_callee, &arg_types)
-                        .or_else(|| builtins::net::implementation_name(&canonical_callee))
                         .or_else(|| builtins::strings::implementation_name(&canonical_callee))
                         .map(crate::internal_name::internalize)
                 })

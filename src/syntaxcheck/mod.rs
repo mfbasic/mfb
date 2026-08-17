@@ -174,8 +174,8 @@ pub fn check_project_collect(
     let augmented = builtins::term::augmented_project(&augmented)?;
     // `vector` source is injected by the clean-room `registry::augment_project` above.
     // `http` before `net`: `http_package.mfb` imports `net` (plan-03-http.md Phase 4).
-    let augmented = builtins::http::augmented_project(&augmented)?;
-    let augmented = builtins::net::augmented_project(&augmented)?;
+    let augmented = crate::codegen::builtins::http::augmented_project(&augmented)?;
+    let augmented = crate::codegen::builtins::net::augmented_project(&augmented)?;
     let augmented = builtins::audio::augmented_project(&augmented)?;
     // `process` (its `Stream`/`Signal` enum companion) is injected by the generic
     // clean-room `registry::augment_project` above.

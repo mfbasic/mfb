@@ -22,7 +22,7 @@ IMPORT net
 ```
 
 `net` is a built-in package, so `IMPORT net` needs no manifest
-dependency. [[src/builtins/net.rs:augmented_project]]
+dependency. [[src/codegen/builtins/net/mod.rs:augmented_project]]
 
 ## Description
 
@@ -34,19 +34,19 @@ returned from a function, and sent across threads. All four are recognized once
 (`LET a AS Address = …`) or package-qualified (`LET a AS net::Address = …`). The
 conventional spelling is bare for `Address`, `Datagram`, and `DatagramText`, and
 qualified for `Url` (`LET u AS net::Url = net::toUrl(href)`), which is the form
-used throughout this manual. [[src/builtins/net.rs:NET]]
+used throughout this manual. [[src/codegen/builtins/net/mod.rs:register]]
 
 `Address` is the package's endpoint value: a host plus a port. It is produced by
 `net::lookup` (as a `List OF Address`), `net::localAddress`, and
 `net::remoteAddress`, and it is accepted as a destination by `net::connectTcp`,
-`net::sendTo`, and `net::sendTextTo`. [[src/builtins/net.rs:NET]]
+`net::sendTo`, and `net::sendTextTo`. [[src/codegen/builtins/net/mod.rs:register]]
 
 `Datagram` and `DatagramText` are the UDP receive results. They pair one received
 payload with the `Address` it came from, which is what makes a connectionless
 socket usable: `net::receiveFrom` returns the byte form and
 `net::receiveTextFrom` returns the text form, whose `value` has already been
 validated as UTF-8. UDP preserves message boundaries, so each record carries
-exactly one whole datagram. [[src/builtins/net.rs:NET]]
+exactly one whole datagram. [[src/codegen/builtins/net/mod.rs:register]]
 
 `Url` is the parsed form of an absolute `http`/`https` href, produced by
 `net::toUrl`. Every field is normalized on parse: the scheme is lowercased, `port`
@@ -54,17 +54,17 @@ is filled in with the scheme default (80 for `http`, 443 for `https`) when the
 href carries none, `path` is `"/"` when the href had no path, and absent userinfo,
 query, and fragment become empty strings rather than being unset. A universal
 `toString` on a `Url` renders it back to an href. To open a connection to a parsed
-`Url`, pass its parts: `net::connectTcp(u.host, u.port)`. [[src/builtins/net_package.mfb:__net_toUrl]]
+`Url`, pass its parts: `net::connectTcp(u.host, u.port)`. [[src/codegen/builtins/net/package.mfb:__net_toUrl]]
 
 The package's other three types — `Socket`, `Listener`, and `UdpSocket` — are
 opaque, owned, non-copyable resource handles with no readable fields, so they are
-not tabulated here; see `mfb man net`. [[src/builtins/net.rs:resource_close_function]]
+not tabulated here; see `mfb man net`. [[src/codegen/builtins/net/mod.rs:close_function]]
 
 ## Types
 
 ### net::Address
 
-A network endpoint: a host and a port. [[src/builtins/net.rs:ADDRESS_TYPE]]
+A network endpoint: a host and a port. [[src/codegen/builtins/net/mod.rs:ADDRESS_TYPE]]
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -73,7 +73,7 @@ A network endpoint: a host and a port. [[src/builtins/net.rs:ADDRESS_TYPE]]
 
 ### net::Datagram
 
-One received UDP datagram, as raw bytes, paired with its sender. Returned by `net::receiveFrom`. [[src/builtins/net.rs:DATAGRAM_TYPE]]
+One received UDP datagram, as raw bytes, paired with its sender. Returned by `net::receiveFrom`. [[src/codegen/builtins/net/mod.rs:DATAGRAM_TYPE]]
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -82,7 +82,7 @@ One received UDP datagram, as raw bytes, paired with its sender. Returned by `ne
 
 ### net::DatagramText
 
-One received UDP datagram, decoded as text, paired with its sender. Returned by `net::receiveTextFrom`. [[src/builtins/net.rs:DATAGRAM_TEXT_TYPE]]
+One received UDP datagram, decoded as text, paired with its sender. Returned by `net::receiveTextFrom`. [[src/codegen/builtins/net/mod.rs:DATAGRAM_TEXT_TYPE]]
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -91,7 +91,7 @@ One received UDP datagram, decoded as text, paired with its sender. Returned by 
 
 ### net::Url
 
-An absolute `http` or `https` URL, parsed into its components. Returned by `net::toUrl`. [[src/builtins/net_package.mfb:Url]]
+An absolute `http` or `https` URL, parsed into its components. Returned by `net::toUrl`. [[src/codegen/builtins/net/package.mfb:Url]]
 
 | Field | Type | Description |
 | --- | --- | --- |

@@ -19,7 +19,7 @@ IMPORT net
 ```
 
 `net` is a built-in package, so no manifest dependency is required.
-[[src/builtins/net.rs:is_net_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -27,7 +27,7 @@ IMPORT net
 `UdpSocket` to the peer named by `address`. Because a UDP socket is not tied to a
 single peer, each call names its own destination and the same socket can address
 many peers in turn. The socket is borrowed and stays open.
-[[src/target/shared/code/net/io.rs:lower_net_send_to_helper]]
+[[src/codegen/builtins/net/native/io.rs:lower_net_send_to_helper]]
 
 `address` supplies both the destination host and the destination port. The host
 is resolved with the host resolver on **every** call — it may be a numeric IP
@@ -36,7 +36,7 @@ resolved address rather than being resolved as a service name. The resolver's
 answer chain is released before the call returns, on both the success and the
 failure paths. Note the per-call resolution cost: in a tight send loop, resolve
 once with `net::lookup` and reuse the resulting `Address`.
-[[src/target/shared/code/net/io.rs:lower_net_send_to_helper]]
+[[src/codegen/builtins/net/native/io.rs:lower_net_send_to_helper]]
 
 The whole list is sent as the payload of a single datagram, read directly out of
 the list's inline data region in list order. UDP preserves message boundaries:
@@ -51,7 +51,7 @@ is full; use `net::setWriteTimeout` to bound that wait, after which
 with `ErrMessageTooLarge` rather than truncated. A signal that interrupts the
 send before any byte left re-issues the identical call — a datagram send is
 all-or-nothing, so a send that already completed is never retried.
-[[src/target/shared/code/net/io.rs:lower_net_send_to_helper]]
+[[src/codegen/builtins/net/native/io.rs:lower_net_send_to_helper]]
 
 Use `net::sendTextTo` instead when sending UTF-8 text from a `String` is more
 convenient than building a `List OF Byte`.
@@ -60,15 +60,15 @@ convenient than building a `List OF Byte`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `sock` | `UdpSocket` | A bound UDP socket to send from, as returned by `net::bindUdp`. It must still be open; the handle is borrowed, not consumed. [[src/builtins/net.rs:call_param_names]] |
-| `address` | `Address` | The destination. Its `host` field is resolved on each call and may be a numeric IP literal or a name; its `port` field selects the destination port. Obtain one from `net::lookup`, or use the `from` field of the `Datagram` returned by `net::receiveFrom` to reply to a sender. [[src/builtins/net.rs:NET]] |
-| `bytes` | `List OF Byte` | The payload, sent in list order as one datagram. An empty list sends a valid zero-length datagram. [[src/builtins/net.rs:argument_types]] |
+| `sock` | `UdpSocket` | A bound UDP socket to send from, as returned by `net::bindUdp`. It must still be open; the handle is borrowed, not consumed. [[src/codegen/builtins/net/mod.rs:aliases]] |
+| `address` | `Address` | The destination. Its `host` field is resolved on each call and may be a numeric IP literal or a name; its `port` field selects the destination port. Obtain one from `net::lookup`, or use the `from` field of the `Datagram` returned by `net::receiveFrom` to reply to a sender. [[src/codegen/builtins/net/mod.rs:register]] |
+| `bytes` | `List OF Byte` | The payload, sent in list order as one datagram. An empty list sends a valid zero-length datagram. [[src/codegen/registry/mod.rs:argument_types]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `sendTo` returns no value. A successful call has handed the datagram to the host for best-effort delivery; it does not guarantee receipt. [[src/builtins/net.rs:NET]] |
+| `Nothing` | `sendTo` returns no value. A successful call has handed the datagram to the host for best-effort delivery; it does not guarantee receipt. [[src/codegen/builtins/net/mod.rs:register]] |
 
 ## Errors
 

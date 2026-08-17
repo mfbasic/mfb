@@ -337,6 +337,11 @@ impl TypeEnv {
         fn is_vector_call(name: &str) -> bool {
             crate::codegen::registry::registry().owning_package(name) == Some("vector")
         }
+        // `net` migrated to the clean-room registry — membership via `owning_package`,
+        // replacing the deleted `builtins::net::is_net_call`.
+        fn is_net_call(name: &str) -> bool {
+            crate::codegen::registry::registry().owning_package(name) == Some("net")
+        }
         let checked: [IsCall; 9] = [
             is_math_call,
             is_bits_call,
@@ -345,7 +350,7 @@ impl TypeEnv {
             is_encoding_call,
             is_io_call,
             is_fs_call,
-            builtins::net::is_net_call,
+            is_net_call,
             is_os_call,
         ];
         if checked.iter().any(|is_call| is_call(target))

@@ -23,7 +23,7 @@ IMPORT http
 `http` and `fs` are built-in packages, so neither `IMPORT` needs a manifest
 dependency. `IMPORT fs` is what a caller needs to obtain the `File`;
 `http::respondFile` itself imports `fs` internally.
-[[src/builtins/http.rs:augmented_project]]
+[[src/codegen/builtins/http/mod.rs:augmented_project]]
 
 ## Description
 
@@ -31,11 +31,11 @@ dependency. `IMPORT fs` is what a caller needs to obtain the `File`;
 a new `http::Response` with `status` `200`, `reason` `"OK"`, `httpVersion`
 `"1.1"`, a `headers` map holding the single entry `content-type`, `body` set to
 the bytes read, and `ok` `TRUE`.
-[[src/builtins/http_package.mfb:__http_respondFile]]
+[[src/codegen/builtins/http/package.mfb:__http_respondFile]]
 
 Unlike every other `http::` call, `respondFile` **consumes** its `File`: the
 handle is moved into the call and is unusable afterward.
-[[src/builtins/http.rs:consumes_argument]] Ownership passing to the callee is
+[[src/syntaxcheck/builtins.rs:http_consumes_argument]] Ownership passing to the callee is
 what makes the handle safe — the `File` is closed by lexical drop when
 `respondFile` returns, and that also happens on the failure path, so a read error
 cannot leak the descriptor. The caller must not close or reuse the handle.
@@ -48,14 +48,14 @@ it is being read the single-threaded server is not handling other connections.
 The read starts at the file's *current* position, not at byte zero, because
 `fs::readAllBytes` reads from wherever the handle is positioned. A handle you have
 already read from serves only the remainder; open the file fresh to serve it
-whole. [[src/builtins/http_package.mfb:__http_respondFile]]
+whole. [[src/codegen/builtins/http/package.mfb:__http_respondFile]]
 
 `respondFile` is the low-level primitive. It does not look at any request, resolve
 any path, or guess a content type from a filename — it only knows about the open
 handle it is given. Most handlers should call `http::respondPath`, which resolves
 a request path under a root directory, enforces containment, infers the content
 type from the extension, and then calls this function.
-[[src/builtins/http_package.mfb:__http_respondPath]]
+[[src/codegen/builtins/http/package.mfb:__http_respondPath]]
 
 ## Overloads
 
@@ -64,27 +64,27 @@ type from the extension, and then calls this function.
 Serves `file` with the content type `application/octet-stream`. This is not a
 separate implementation: the missing argument is filled in as the empty string
 during lowering, and an empty `contentType` is what selects the default.
-[[src/builtins/http.rs:default_argument_padding]]
+[[src/codegen/registry/mod.rs:default_argument_padding]]
 
 **`http::respondFile(file AS fs::File, contentType AS String) AS Response`**
 
 Serves `file` with `contentType` as the `content-type` header value, stored
 lowercased under the key `content-type`. Passing `""` explicitly is identical to
 omitting the argument and yields `application/octet-stream`.
-[[src/builtins/http_package.mfb:__http_respondFile]]
+[[src/codegen/builtins/http/package.mfb:__http_respondFile]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `file` | `File` | An open `File` resource opened for reading, such as one from `fs::openFile`. Consumed by the call — the handle is moved, closed on return, and unusable afterward. Read starts at the handle's current position. [[src/builtins/http.rs:call_param_names]] [[src/builtins/http.rs:consumes_argument]] |
-| `contentType` | `String` | The media type to advertise, stored under the header key `content-type`. Optional; omitted or `""` means `application/octet-stream`. Stored verbatim, not validated. [[src/builtins/http_package.mfb:__http_respondFile]] |
+| `file` | `File` | An open `File` resource opened for reading, such as one from `fs::openFile`. Consumed by the call — the handle is moved, closed on return, and unusable afterward. Read starts at the handle's current position. [[src/codegen/builtins/http/mod.rs:aliases]] [[src/syntaxcheck/builtins.rs:http_consumes_argument]] |
+| `contentType` | `String` | The media type to advertise, stored under the header key `content-type`. Optional; omitted or `""` means `application/octet-stream`. Stored verbatim, not validated. [[src/codegen/builtins/http/package.mfb:__http_respondFile]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Response` | A response with `status` `200`, `reason` `"OK"`, `httpVersion` `"1.1"`, `headers` containing only `content-type`, `body` set to the bytes read from `file`, and `ok` `TRUE`. An empty file yields a valid `200` with a zero-length body. [[src/builtins/http.rs:HTTP]] [[src/builtins/http_package.mfb:__http_respondFile]] |
+| `Response` | A response with `status` `200`, `reason` `"OK"`, `httpVersion` `"1.1"`, `headers` containing only `content-type`, `body` set to the bytes read from `file`, and `ok` `TRUE`. An empty file yields a valid `200` with a zero-length body. [[src/codegen/builtins/http/mod.rs:register]] [[src/codegen/builtins/http/package.mfb:__http_respondFile]] |
 
 ## Errors
 

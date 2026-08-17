@@ -30,31 +30,31 @@ binding must name that type.
 the `net::Listener` **directly** — the `http` package adds no wrapper resource of
 its own. The call is a pass-through to `net::listenTcp(host, port, backlog)`, so
 the listener behaves in every respect like one opened by `net` itself.
-[[src/builtins/http_package.mfb:__http_server]]
+[[src/codegen/builtins/http/package.mfb:__http_server]]
 
 `host` defaults to `"0.0.0.0"` and `backlog` defaults to `128`; both defaults are
 injected at IR lowering, so the one- and two-argument forms are exactly the
 three-argument form with those literals supplied.
-[[src/builtins/http.rs:default_argument_padding]]
+[[src/codegen/registry/mod.rs:default_argument_padding]]
 
 The socket is created with `SO_REUSEADDR` set, bound, and placed in the listening
 state. Address resolution uses `AF_INET` hints, so **only IPv4 is bound** — an
 IPv6 host such as `"::"` does not resolve and fails rather than binding. An empty
 `host` (`""`) is passed to the resolver as a passive (NULL) node and binds every
 IPv4 interface, which is equivalent to the `"0.0.0.0"` default.
-[[src/target/shared/code/net/mod.rs:emit_hints]] [[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]]
+[[src/codegen/builtins/net/native/mod.rs:emit_hints]] [[src/codegen/builtins/net/native/mod.rs:lower_net_endpoint_helper]]
 
 Only the low 16 bits of `port` reach the socket: the value is written into the
 two `sin_port` bytes of the resolved address, so a `port` outside `0..65535` is
 truncated modulo 65536 rather than rejected. A `port` of `0` requests an ephemeral
 port from the host, which can be read back with `net::localAddress`.
-[[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]]
+[[src/codegen/builtins/net/native/mod.rs:lower_net_endpoint_helper]]
 
 `backlog` is the pending-connection queue hint passed to `listen()`. Because
 `listen()` takes a C `int`, a value above `2147483647` is clamped to that maximum
 before the call, so a large 64-bit backlog cannot be reinterpreted as negative.
 The value is advisory in any case; the host may clamp it further.
-[[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]]
+[[src/codegen/builtins/net/native/mod.rs:lower_net_endpoint_helper]]
 
 The returned listener is a resource: bind it with `RES`, and it is closed by
 lexical drop at scope exit (or earlier with `net::close`). Drive it with a
@@ -64,7 +64,7 @@ per call, parses the request, matches its path against an ordered
 closes the connection. The server is single-threaded and blocking: one request is
 served at a time, in the caller's loop. For HTTPS use `http::serverSSL`, which
 returns a `tls::TlsListener` that `handleRequest` also accepts.
-[[src/builtins/http_package.mfb:__http_handleRequest]] [[src/builtins/http.rs:HTTP]]
+[[src/codegen/builtins/http/package.mfb:__http_handleRequest]] [[src/codegen/builtins/http/mod.rs:register]]
 
 ## Overloads
 
@@ -79,7 +79,7 @@ Binds `port` on the given interface with a backlog of `128`.
 **`http::server(port AS Integer, host AS String, backlog AS Integer) AS net::Listener`**
 
 The full form: binds `port` on `host` with the given backlog hint.
-[[src/builtins/http.rs:HTTP]]
+[[src/codegen/builtins/http/mod.rs:register]]
 
 ## Parameters
 
@@ -93,7 +93,7 @@ The full form: binds `port` on `host` with the given backlog hint.
 
 | Type | Description |
 | --- | --- |
-| `net::Listener` | A listening socket resource ready for `http::handleRequest` (or `net::accept`). It must be bound with `RES` and is closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/builtins/http.rs:HTTP]] |
+| `net::Listener` | A listening socket resource ready for `http::handleRequest` (or `net::accept`). It must be bound with `RES` and is closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/codegen/builtins/http/mod.rs:register]] |
 
 ## Errors
 

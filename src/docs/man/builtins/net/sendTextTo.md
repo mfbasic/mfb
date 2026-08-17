@@ -19,7 +19,7 @@ IMPORT net
 ```
 
 `net` is a built-in package, so no manifest dependency is required.
-[[src/builtins/net.rs:is_net_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -29,7 +29,7 @@ bound `UdpSocket` to the peer named by `address`. It is the text counterpart of
 data is sent directly from its buffer. A `String` already holds well-formed
 UTF-8, so the bytes go out exactly as held, with no re-encoding, decoding, or
 newline translation. The socket is borrowed and stays open.
-[[src/target/shared/code/net/io.rs:lower_net_send_to_helper]]
+[[src/codegen/builtins/net/native/io.rs:lower_net_send_to_helper]]
 
 `address` supplies both the destination host and the destination port. The host
 is resolved with the host resolver on **every** call — it may be a numeric IP
@@ -37,7 +37,7 @@ literal or a name — and the `port` field is then written directly into the
 resolved address rather than being resolved as a service name. The resolver's
 answer chain is released before the call returns, on both the success and the
 failure paths. In a tight send loop, resolve once with `net::lookup` and reuse the
-resulting `Address`. [[src/target/shared/code/net/io.rs:lower_net_send_to_helper]]
+resulting `Address`. [[src/codegen/builtins/net/native/io.rs:lower_net_send_to_helper]]
 
 The whole string is sent as the payload of a single datagram in byte order. UDP
 preserves message boundaries: the payload arrives whole or not at all, and is
@@ -55,21 +55,21 @@ all-or-nothing, so a send that already completed is never retried.
 To reply to a sender, pass the `from` field of the `DatagramText` returned by
 `net::receiveTextFrom` (or of the `Datagram` from `net::receiveFrom`; both carry
 the same `Address`). The text payload of a `DatagramText` is its `value` field.
-[[src/builtins/net.rs:NET]]
+[[src/codegen/builtins/net/mod.rs:register]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `sock` | `UdpSocket` | A bound UDP socket to send from, as returned by `net::bindUdp`. It must still be open; the handle is borrowed, not consumed. [[src/builtins/net.rs:call_param_names]] |
-| `address` | `Address` | The destination. Its `host` field is resolved on each call and may be a numeric IP literal or a name; its `port` field selects the destination port. Obtain one from `net::lookup`, or from the `from` field of a received `Datagram` or `DatagramText`. [[src/builtins/net.rs:NET]] |
-| `value` | `String` | The text to send, transmitted as its UTF-8 bytes in order as one datagram. An empty string sends a valid zero-length datagram. [[src/builtins/net.rs:call_param_names]] |
+| `sock` | `UdpSocket` | A bound UDP socket to send from, as returned by `net::bindUdp`. It must still be open; the handle is borrowed, not consumed. [[src/codegen/builtins/net/mod.rs:aliases]] |
+| `address` | `Address` | The destination. Its `host` field is resolved on each call and may be a numeric IP literal or a name; its `port` field selects the destination port. Obtain one from `net::lookup`, or from the `from` field of a received `Datagram` or `DatagramText`. [[src/codegen/builtins/net/mod.rs:register]] |
+| `value` | `String` | The text to send, transmitted as its UTF-8 bytes in order as one datagram. An empty string sends a valid zero-length datagram. [[src/codegen/builtins/net/mod.rs:aliases]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `sendTextTo` returns no value. A successful call has handed the datagram to the host for best-effort delivery; it does not guarantee receipt. [[src/builtins/net.rs:NET]] |
+| `Nothing` | `sendTextTo` returns no value. A successful call has handed the datagram to the host for best-effort delivery; it does not guarantee receipt. [[src/codegen/builtins/net/mod.rs:register]] |
 
 ## Errors
 

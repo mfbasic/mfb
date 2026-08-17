@@ -33,7 +33,7 @@ immediately with a bound `http::Stream` — a resource union over the plaintext
 `PendingState`. It does **not** wait for the reply. The caller then drives the
 exchange without blocking its thread: test `http::ready`, call `http::pump` to
 read whatever bytes are available, repeat until `http::done`, and parse with
-`http::finish`. [[src/builtins/http_package.mfb:__http_startExchange]]
+`http::finish`. [[src/codegen/builtins/http/package.mfb:__http_startExchange]]
 
 The transport is chosen from `url.scheme` exactly as `http::read` does: `https`
 connects over the `tls` package (default port 443), anything else over plaintext
@@ -42,23 +42,23 @@ blocking client — `Connection: close` is always sent, `method` (default `GET`)
 uppercased, and the same control-byte rejection applies to every header name,
 value, and the URL-derived request target and `Host`. The whole request is
 written before `startRead` returns; `state.sentAll` is `TRUE`.
-[[src/builtins/http_package.mfb:__http_buildRequest]] [[src/builtins/http_package.mfb:__http_normalizeMethod]]
+[[src/codegen/builtins/http/package.mfb:__http_buildRequest]] [[src/codegen/builtins/http/package.mfb:__http_normalizeMethod]]
 
 The returned handle is a `RES http::Stream STATE PendingState`: an owned resource
 whose STATE accumulates the response across pumps. It stays bound and open — the
 socket is closed exactly once when the handle leaves scope — so a program reads
 `state` through the handle while driving it. `http::read`/`http::write` are thin
-blocking wrappers over this same core. [[src/builtins/http.rs:HTTP]]
+blocking wrappers over this same core. [[src/codegen/builtins/http/mod.rs:register]]
 
 `startRead` applies the 30-second connect deadline; the per-read deadline is a
 matter for the drive loop (`http::pump` never blocks; the blocking wrappers'
-internal readiness wait bounds a stalled peer). [[src/builtins/http_package.mfb:__HTTP_CONNECT_TIMEOUT_MS]]
+internal readiness wait bounds a stalled peer). [[src/codegen/builtins/http/package.mfb:__HTTP_CONNECT_TIMEOUT_MS]]
 
 ## Overloads
 
 **`http::startRead(url AS net::Url) AS RES http::Stream STATE PendingState`**
 
-Starts a `GET` with no caller headers. [[src/builtins/http.rs:HTTP]]
+Starts a `GET` with no caller headers. [[src/codegen/builtins/http/mod.rs:register]]
 
 **`http::startRead(url AS net::Url, headers AS Map OF String TO String) AS RES http::Stream STATE PendingState`**
 
@@ -68,7 +68,7 @@ Starts a `GET` with the supplied headers.
 
 Starts `method` (uppercased) with the supplied headers. The shorter overloads
 default `headers` to an empty map and `method` to `GET`.
-[[src/builtins/http.rs:default_argument_padding]]
+[[src/codegen/registry/mod.rs:default_argument_padding]]
 
 ## Parameters
 
@@ -82,7 +82,7 @@ default `headers` to an empty map and `method` to `GET`.
 
 | Type | Description |
 | --- | --- |
-| `RES http::Stream STATE PendingState` | The bound, open stream carrying a default `PendingState` (`sentAll = TRUE`, `closed = FALSE`, `raw = []`, `err = 0`). Drive it with `http::ready`/`http::pump`/`http::done` and parse with `http::finish`; it is closed once by its scope drop. [[src/builtins/http_package.mfb:PendingState]] |
+| `RES http::Stream STATE PendingState` | The bound, open stream carrying a default `PendingState` (`sentAll = TRUE`, `closed = FALSE`, `raw = []`, `err = 0`). Drive it with `http::ready`/`http::pump`/`http::done` and parse with `http::finish`; it is closed once by its scope drop. [[src/codegen/builtins/http/package.mfb:PendingState]] |
 
 ## Errors
 
@@ -93,7 +93,7 @@ default `headers` to an empty map and `method` to `GET`.
 Connect, DNS, write, and TLS failures propagate unchanged from the underlying
 `net`/`tls` calls (for example `ErrAddressNotFound`, `ErrNetworkFailed`, or
 `ErrTlsFailed`); read/framing/overflow failures surface later, from `http::pump`
-and `http::finish`. [[src/builtins/http_package.mfb:__http_startExchange]]
+and `http::finish`. [[src/codegen/builtins/http/package.mfb:__http_startExchange]]
 
 ## Examples
 

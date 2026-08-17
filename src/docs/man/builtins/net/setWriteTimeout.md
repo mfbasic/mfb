@@ -20,7 +20,7 @@ IMPORT net
 ```
 
 `net` is a built-in package, so no manifest dependency is required.
-[[src/builtins/net.rs:is_net_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -29,12 +29,12 @@ IMPORT net
 a connected TCP `Socket` or a bound UDP `UdpSocket` and takes effect on every
 subsequent send: `net::write` and `net::writeText` for a `Socket`, and
 `net::sendTo` and `net::sendTextTo` for a `UdpSocket`. The socket is borrowed and
-stays open. [[src/builtins/net.rs:NET]]
+stays open. [[src/codegen/builtins/net/mod.rs:register]]
 
 The millisecond value is converted into a whole-seconds and microseconds pair and
 installed as the socket's send-timeout option; the conversion is exact integer
 division, so the value is used as given.
-[[src/target/shared/code/net/poll.rs:lower_net_set_timeout_helper]]
+[[src/codegen/builtins/net/native/poll.rs:lower_net_set_timeout_helper]]
 
 When the timeout elapses before the send can make progress, the pending send
 fails with `ErrTimeout` rather than blocking further. It bounds a single
@@ -52,7 +52,7 @@ rather than waiting for buffer space. A positive value bounds the wait. A negati
 `timeoutMs` is rejected with `ErrInvalidArgument`. The socket's *initial* state is
 unbounded (a send blocks until buffer space frees); the setter can only bound, so
 unbounded cannot be re-established through it once a bound is set.
-[[src/target/shared/code/net/poll.rs:lower_net_set_timeout_helper]]
+[[src/codegen/builtins/net/native/poll.rs:lower_net_set_timeout_helper]]
 
 ## Overloads
 
@@ -68,14 +68,14 @@ Bounds `net::sendTo` and `net::sendTextTo` on a bound UDP socket.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `sock` | `Socket` or `UdpSocket` | The open connected TCP socket or bound UDP socket whose subsequent sends are to be bounded. The handle is borrowed, not consumed. [[src/builtins/net.rs:call_param_names]] |
-| `timeoutMs` | `Integer` | The maximum time a subsequent send may block waiting for buffer space, in milliseconds. `0` makes sends non-blocking (immediate `ErrTimeout` when no progress can be made); a positive value bounds the wait. Must not be negative. [[src/target/shared/code/net/poll.rs:lower_net_set_timeout_helper]] |
+| `sock` | `Socket` or `UdpSocket` | The open connected TCP socket or bound UDP socket whose subsequent sends are to be bounded. The handle is borrowed, not consumed. [[src/codegen/builtins/net/mod.rs:aliases]] |
+| `timeoutMs` | `Integer` | The maximum time a subsequent send may block waiting for buffer space, in milliseconds. `0` makes sends non-blocking (immediate `ErrTimeout` when no progress can be made); a positive value bounds the wait. Must not be negative. [[src/codegen/builtins/net/native/poll.rs:lower_net_set_timeout_helper]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `setWriteTimeout` returns no value. On a successful return the timeout has been installed on `sock` and applies to every subsequent send. [[src/builtins/net.rs:NET]] |
+| `Nothing` | `setWriteTimeout` returns no value. On a successful return the timeout has been installed on `sock` and applies to every subsequent send. [[src/codegen/builtins/net/mod.rs:register]] |
 
 ## Errors
 

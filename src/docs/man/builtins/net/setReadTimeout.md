@@ -20,7 +20,7 @@ IMPORT net
 ```
 
 `net` is a built-in package, so no manifest dependency is required.
-[[src/builtins/net.rs:is_net_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -29,13 +29,13 @@ IMPORT net
 bound UDP `UdpSocket` and takes effect on every subsequent receive: `net::read`
 and `net::readText` for a `Socket`, and `net::receiveFrom` and
 `net::receiveTextFrom` for a `UdpSocket`. The socket is borrowed and stays open.
-[[src/builtins/net.rs:NET]]
+[[src/codegen/builtins/net/mod.rs:register]]
 
 The millisecond value is converted into a whole-seconds and microseconds pair and
 installed as the socket's receive-timeout option. Because the conversion is exact
 integer division, a `timeoutMs` under one millisecond of resolution is not
 rounded up — the value is used as given.
-[[src/target/shared/code/net/poll.rs:lower_net_set_timeout_helper]]
+[[src/codegen/builtins/net/native/poll.rs:lower_net_set_timeout_helper]]
 
 When the timeout elapses before any data arrives, the pending receive fails with
 `ErrTimeout` rather than blocking further. The timeout governs only how long
@@ -50,7 +50,7 @@ rather than waiting. A positive value bounds the wait. A negative `timeoutMs` is
 rejected with `ErrInvalidArgument`. The socket's *initial* state is unbounded
 (a receive blocks until data), but the setter can only bound — it has no "restore
 unbounded" value, so unbounded cannot be re-established through it once a bound is
-set. [[src/target/shared/code/net/poll.rs:lower_net_set_timeout_helper]]
+set. [[src/codegen/builtins/net/native/poll.rs:lower_net_set_timeout_helper]]
 
 `net::setReadTimeout` bounds a blocking receive; `net::poll` instead asks whether
 a receive would block at all. They compose: poll for readiness, and keep a
@@ -70,14 +70,14 @@ Bounds `net::receiveFrom` and `net::receiveTextFrom` on a bound UDP socket.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `sock` | `Socket` or `UdpSocket` | The open connected TCP socket or bound UDP socket whose subsequent receives are to be bounded. The handle is borrowed, not consumed. [[src/builtins/net.rs:call_param_names]] |
-| `timeoutMs` | `Integer` | The maximum time a subsequent receive may block waiting for data, in milliseconds. `0` makes receives non-blocking (immediate `ErrTimeout` when no data is ready); a positive value bounds the wait. Must not be negative. [[src/target/shared/code/net/poll.rs:lower_net_set_timeout_helper]] |
+| `sock` | `Socket` or `UdpSocket` | The open connected TCP socket or bound UDP socket whose subsequent receives are to be bounded. The handle is borrowed, not consumed. [[src/codegen/builtins/net/mod.rs:aliases]] |
+| `timeoutMs` | `Integer` | The maximum time a subsequent receive may block waiting for data, in milliseconds. `0` makes receives non-blocking (immediate `ErrTimeout` when no data is ready); a positive value bounds the wait. Must not be negative. [[src/codegen/builtins/net/native/poll.rs:lower_net_set_timeout_helper]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `setReadTimeout` returns no value. On a successful return the timeout has been installed on `sock` and applies to every subsequent receive. [[src/builtins/net.rs:NET]] |
+| `Nothing` | `setReadTimeout` returns no value. On a successful return the timeout has been installed on `sock` and applies to every subsequent receive. [[src/codegen/builtins/net/mod.rs:register]] |
 
 ## Errors
 

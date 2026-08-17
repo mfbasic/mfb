@@ -690,7 +690,7 @@ impl plan::NativePlanPlatform for Platform {
                 })
                 .collect()
             }
-            call if crate::builtins::net::is_net_call(call) => {
+            call if crate::codegen::registry::registry().owning_package(call) == Some("net") => {
                 let mut imports = plan::net_libc_symbols(call)
                     .iter()
                     .map(|base| PlatformImport {

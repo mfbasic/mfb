@@ -153,22 +153,28 @@ static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::ne
         },
     );
     entries.insert(
-        super::net::SOCKET_TYPE_ID.to_string(),
+        // Keyed by the package-qualified type identity (`net.Socket`); the close op is
+        // looked up by the bare registry name (`Socket`) within the net package.
+        crate::codegen::builtins::net::SOCKET_TYPE_ID.to_string(),
         ResourceInfo {
-            close_function: super::net::resource_close_function(super::net::SOCKET_TYPE)
-                .expect("Socket has a built-in close op")
-                .to_string(),
+            close_function: crate::codegen::registry::resource_close_function(
+                crate::codegen::builtins::net::SOCKET_TYPE,
+            )
+            .expect("Socket has a built-in close op")
+            .to_string(),
             sendable: true,
             close_may_fail: true,
             kind: ResourceKind::Builtin,
         },
     );
     entries.insert(
-        super::net::LISTENER_TYPE_ID.to_string(),
+        crate::codegen::builtins::net::LISTENER_TYPE_ID.to_string(),
         ResourceInfo {
-            close_function: super::net::resource_close_function(super::net::LISTENER_TYPE)
-                .expect("Listener has a built-in close op")
-                .to_string(),
+            close_function: crate::codegen::registry::resource_close_function(
+                crate::codegen::builtins::net::LISTENER_TYPE,
+            )
+            .expect("Listener has a built-in close op")
+            .to_string(),
             // A listener accepts connections on the owning thread; it is not
             // moved across thread boundaries.
             sendable: false,
@@ -177,11 +183,13 @@ static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::ne
         },
     );
     entries.insert(
-        super::net::UDP_SOCKET_TYPE_ID.to_string(),
+        crate::codegen::builtins::net::UDP_SOCKET_TYPE_ID.to_string(),
         ResourceInfo {
-            close_function: super::net::resource_close_function(super::net::UDP_SOCKET_TYPE)
-                .expect("UdpSocket has a built-in close op")
-                .to_string(),
+            close_function: crate::codegen::registry::resource_close_function(
+                crate::codegen::builtins::net::UDP_SOCKET_TYPE,
+            )
+            .expect("UdpSocket has a built-in close op")
+            .to_string(),
             // A datagram socket may move across thread boundaries (spec §11).
             sendable: true,
             close_may_fail: true,

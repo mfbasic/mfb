@@ -20,7 +20,7 @@ IMPORT net
 ```
 
 `net` is a built-in package, so no manifest dependency is required.
-[[src/builtins/net.rs:is_net_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -29,7 +29,7 @@ the listening state, returning a `Listener` ready for `net::accept`. The host is
 resolved for a passive `SOCK_STREAM` endpoint, a socket is created from the first
 result, `SO_REUSEADDR` is set on it as a best-effort option, the requested port
 is patched into the resolved address, and the socket is bound and switched into
-the listening state. [[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]]
+the listening state. [[src/codegen/builtins/net/native/mod.rs:lower_net_endpoint_helper]]
 
 `host` names the local interface to bind. An empty `host` binds every interface:
 the resolver is called with a null node and the passive flag, and — because a
@@ -38,7 +38,7 @@ the requested `port` then overwrites. `"0.0.0.0"` and `"::"` are ordinary
 textual wildcard addresses that reach the same result through normal resolution.
 When `port` is `0` the host assigns an ephemeral port, which `net::localAddress`
 reads back — the usual way to run a server on an unpredictable free port.
-[[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]]
+[[src/codegen/builtins/net/native/mod.rs:lower_net_endpoint_helper]]
 
 `backlog` hints how many pending connections the host may queue before refusing
 new ones. It is not a host default when omitted: the compiler fills the missing
@@ -47,14 +47,14 @@ third argument with the literal `128`, so the two-argument form is exactly
 above 2147483647 is clamped to that value before the call. Beyond that the value
 is advisory — the host may cap it at its own limit.
 [[src/target/shared/code/builder_values.rs:net_connect_is_address_form]]
-[[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]]
+[[src/codegen/builtins/net/native/mod.rs:lower_net_endpoint_helper]]
 
 The returned `Listener` is an owned, non-copyable resource handle, closed by
 lexical drop when its binding leaves scope or earlier with `net::close`. Each
 `net::accept` on it returns an independent `Socket` that outlives the listener.
 If binding or listening fails, the partially created descriptor and the resolver
 results are released before the error is raised.
-[[src/builtins/net.rs:resource_close_function]]
+[[src/codegen/builtins/net/mod.rs:close_function]]
 
 ## Overloads
 
@@ -70,15 +70,15 @@ Binds `host` on `port` and listens with the given backlog hint.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `host` | `String` | The local interface to bind, as a textual IP address or a name passed to the host resolver. `"0.0.0.0"`, `"::"`, or an empty string bind every interface. [[src/builtins/net.rs:call_param_names]] |
-| `port` | `Integer` | The local TCP port to bind. `0` requests an ephemeral port assigned by the host, readable afterwards with `net::localAddress`. [[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]] |
+| `host` | `String` | The local interface to bind, as a textual IP address or a name passed to the host resolver. `"0.0.0.0"`, `"::"`, or an empty string bind every interface. [[src/codegen/builtins/net/mod.rs:aliases]] |
+| `port` | `Integer` | The local TCP port to bind. `0` requests an ephemeral port assigned by the host, readable afterwards with `net::localAddress`. [[src/codegen/builtins/net/native/mod.rs:lower_net_endpoint_helper]] |
 | `backlog` | `Integer` | Optional. A hint for how many pending connections the host may queue. Defaults to `128` when omitted, is clamped to `2147483647`, and may be further capped by the host. [[src/target/shared/code/builder_values.rs:net_connect_is_address_form]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Listener` | A socket in the listening state, ready for `net::accept`. Closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/builtins/net.rs:NET]] |
+| `Listener` | A socket in the listening state, ready for `net::accept`. Closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/codegen/builtins/net/mod.rs:register]] |
 
 ## Errors
 

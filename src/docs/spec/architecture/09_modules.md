@@ -30,9 +30,9 @@ A map of the compiler's source modules and their responsibilities.
 | Thread built-ins[[src/codegen/builtins/thread/mod.rs]] | Thread built-in type and call signatures. |
 | Date/time built-ins[[src/codegen/builtins/datetime/mod.rs]] | Date/time built-in signatures. |
 | Terminal built-ins[[src/builtins/term.rs]] | Terminal (`TermColor`/`TermSize`) built-in signatures. |
-| Network built-ins[[src/builtins/net.rs]] | Network (`Socket`/`Listener`/UDP) built-in signatures. |
+| Network built-ins[[src/codegen/builtins/net/mod.rs]] | Network (`Socket`/`Listener`/UDP) built-in signatures. |
 | TLS built-ins[[src/codegen/builtins/tls/mod.rs]] | TLS (`TlsSocket`) built-in signatures. |
-| HTTP built-ins[[src/builtins/http.rs]] | HTTP built-in signatures. |
+| HTTP built-ins[[src/codegen/builtins/http/mod.rs]] | HTTP built-in signatures. |
 | CSV built-ins[[src/codegen/builtins/csv/mod.rs]] | CSV built-in signatures. |
 | Regex built-ins[[src/codegen/builtins/regex/mod.rs]] | Regex built-in signatures. |
 | `errorCode` package[[src/codegen/builtins/errorcode/mod.rs]] | `errorCode` integer-constant package. |

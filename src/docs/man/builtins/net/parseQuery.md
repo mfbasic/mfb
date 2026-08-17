@@ -21,7 +21,7 @@ IMPORT net
 `net` is a built-in package, so no manifest dependency is required. `parseQuery`
 is one of the three `net` calls implemented in MFBASIC source rather than as a
 native runtime helper; it lowers to the internal `__net_parseQuery`.
-[[src/builtins/net.rs:implementation_name]]
+[[src/codegen/registry/mod.rs:rewrite_target]]
 
 ## Description
 
@@ -29,7 +29,7 @@ native runtime helper; it lowers to the internal `__net_parseQuery`.
 `Map OF String TO String`. The leading `?` must already have been stripped by the
 caller — `net::toUrl` does exactly that, storing the raw query without it, so
 `net::parseQuery(net::toUrl(href).query)` is the intended pairing. An empty input
-returns an empty map. [[src/builtins/net_package.mfb:__net_parseQuery]]
+returns an empty map. [[src/codegen/builtins/net/package.mfb:__net_parseQuery]]
 
 The input is split on `&`, and each pair is split at its first `=`. The part
 before the `=` is the key and the part after is the value; a bare key with no `=`
@@ -37,13 +37,13 @@ at all maps to the empty string, which is how a valueless flag such as `?debug`
 appears. An empty pair — produced by `&&`, or by a leading or trailing `&` — is
 skipped rather than yielding an empty key. Repeated keys collapse last-wins: the
 final occurrence in the string is the one in the map.
-[[src/builtins/net_package.mfb:__net_parseQuery]]
+[[src/codegen/builtins/net/package.mfb:__net_parseQuery]]
 
 Keys and values are both query-decoded: `%XX` escapes become the bytes they name
 and a literal `+` becomes a space, which is `application/x-www-form-urlencoded`
 semantics. Note that the `+` rule applies to keys as well as values, and that it
 is exactly the rule `net::percentDecode` does *not* apply, since a `+` in a path
-segment is a literal `+`. [[src/builtins/net_package.mfb:__net_decodeQueryComponent]]
+segment is a literal `+`. [[src/codegen/builtins/net/package.mfb:__net_decodeQueryComponent]]
 
 Decoding here is **tolerant**, which is the deliberate difference from
 `net::percentDecode`. A component whose escapes are malformed — a truncated `%`,
@@ -52,19 +52,19 @@ raw undecoded text instead of failing, so `"k=%2"` yields the value `"%2"`. One
 bad component therefore never sinks an otherwise valid query, which is what lets
 the built-in `http` server route framing errors to a 400 response without letting
 soft query-decode failures do the same.
-[[src/builtins/net_package.mfb:__net_decodeQueryComponent]]
+[[src/codegen/builtins/net/package.mfb:__net_decodeQueryComponent]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `s` | `String` | The query string, without its leading `?`. Also accepted under the alternate named-argument spellings `query` and `value`, so `net::parseQuery(s := q)`, `net::parseQuery(query := q)`, and `net::parseQuery(value := q)` all bind position 0. [[src/builtins/net.rs:call_param_names]] |
+| `s` | `String` | The query string, without its leading `?`. Also accepted under the alternate named-argument spellings `query` and `value`, so `net::parseQuery(s := q)`, `net::parseQuery(query := q)`, and `net::parseQuery(value := q)` all bind position 0. [[src/codegen/builtins/net/mod.rs:aliases]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Map OF String TO String` | One entry per non-empty pair, with keys and values query-decoded and repeated keys resolved last-wins. A bare key maps to the empty string. An empty input yields an empty map. [[src/builtins/net.rs:NET]] |
+| `Map OF String TO String` | One entry per non-empty pair, with keys and values query-decoded and repeated keys resolved last-wins. A bare key maps to the empty string. An empty input yields an empty map. [[src/codegen/builtins/net/mod.rs:register]] |
 
 ## Errors
 

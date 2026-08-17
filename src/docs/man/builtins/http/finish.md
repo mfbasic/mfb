@@ -31,14 +31,14 @@ transport failure was captured during the drive (`state.err <> 0`), `finish`
 `FAIL`s with that error; otherwise it parses the accumulated bytes with the same
 parser the blocking `http::read` uses — status line, header block (field names
 lowercased, duplicates last-wins), and body (de-chunked when the reply was
-`chunked`). [[src/builtins/http_package.mfb:__http_finish]] [[src/builtins/http_package.mfb:__http_parseResponse]]
+`chunked`). [[src/codegen/builtins/http/package.mfb:__http_finish]] [[src/codegen/builtins/http/package.mfb:__http_parseResponse]]
 
 `finish` does not close the stream: the handle stays bound and its socket is
 closed exactly once when it leaves scope. The returned `Response` is a plain,
 copyable value record — `status`, `reason`, `httpVersion`, `headers`, `body`, and
 `ok` (`TRUE` only for a 2xx status) — identical to what a blocking `http::read`
 over the same URL would return. Redirects are not followed; a 3xx reply is
-returned as-is with `ok` `FALSE`. [[src/builtins/http_package.mfb:Response]]
+returned as-is with `ok` `FALSE`. [[src/codegen/builtins/http/package.mfb:Response]]
 
 ## Parameters
 
@@ -50,18 +50,18 @@ returned as-is with `ok` `FALSE`. [[src/builtins/http_package.mfb:Response]]
 
 | Type | Description |
 | --- | --- |
-| `Response` | The parsed reply: `status`, `reason`, `httpVersion`, `headers` (lowercased field names), `body` (raw bytes, de-chunked when `chunked`), and `ok`. [[src/builtins/http_package.mfb:__http_parseResponse]] |
+| `Response` | The parsed reply: `status`, `reason`, `httpVersion`, `headers` (lowercased field names), `body` (raw bytes, de-chunked when `chunked`), and `ok`. [[src/codegen/builtins/http/package.mfb:__http_parseResponse]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | The accumulated response's status line, header block, or `chunked` framing is malformed. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidFormat]] [[src/builtins/http_package.mfb:__http_parseStatusLine]] |
-| `77050010` | `ErrOverflow` | A captured overflow: the accumulated response exceeded the internal 64 MiB size cap during pumping. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] [[src/builtins/http_package.mfb:__HTTP_MAX_RESPONSE]] |
+| `77050003` | `ErrInvalidFormat` | The accumulated response's status line, header block, or `chunked` framing is malformed. [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidFormat]] [[src/codegen/builtins/http/package.mfb:__http_parseStatusLine]] |
+| `77050010` | `ErrOverflow` | A captured overflow: the accumulated response exceeded the internal 64 MiB size cap during pumping. [[src/codegen/builtins/errorcode/mod.rs:ErrOverflow]] [[src/codegen/builtins/http/package.mfb:__HTTP_MAX_RESPONSE]] |
 
 Any transport failure captured during the drive (for example `ErrTimeout`,
 `ErrNetworkFailed`, or `ErrTlsFailed`) is re-raised by `finish` with the captured
-code. [[src/builtins/http_package.mfb:__http_finish]]
+code. [[src/codegen/builtins/http/package.mfb:__http_finish]]
 
 ## Examples
 

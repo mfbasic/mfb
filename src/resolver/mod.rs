@@ -29,12 +29,12 @@ const BUILTIN_TYPES: &[&str] = &[
     crate::codegen::builtins::fs::FILE_TYPE_ID,
     builtins::term::TERM_COLOR_TYPE,
     builtins::term::TERM_SIZE_TYPE,
-    builtins::net::SOCKET_TYPE_ID,
-    builtins::net::LISTENER_TYPE_ID,
-    builtins::net::ADDRESS_TYPE,
-    builtins::net::UDP_SOCKET_TYPE_ID,
-    builtins::net::DATAGRAM_TYPE,
-    builtins::net::DATAGRAM_TEXT_TYPE,
+    crate::codegen::builtins::net::SOCKET_TYPE_ID,
+    crate::codegen::builtins::net::LISTENER_TYPE_ID,
+    crate::codegen::builtins::net::ADDRESS_TYPE,
+    crate::codegen::builtins::net::UDP_SOCKET_TYPE_ID,
+    crate::codegen::builtins::net::DATAGRAM_TYPE,
+    crate::codegen::builtins::net::DATAGRAM_TEXT_TYPE,
     crate::codegen::builtins::tls::TLS_SOCKET_TYPE_ID,
     crate::codegen::builtins::tls::TLS_LISTENER_TYPE_ID,
     builtins::audio::AUDIO_INPUT_TYPE_ID,
@@ -129,8 +129,8 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     // `http` is injected before `net`: `http_package.mfb` imports `net`, so the
     // net source companion must be added only after http's source is present for
     // `net::uses_package` to see the dependency (plan-03-http.md Phase 4).
-    let augmented = builtins::http::augmented_project(&augmented)?;
-    let augmented = builtins::net::augmented_project(&augmented)?;
+    let augmented = crate::codegen::builtins::http::augmented_project(&augmented)?;
+    let augmented = crate::codegen::builtins::net::augmented_project(&augmented)?;
     let augmented = builtins::audio::augmented_project(&augmented)?;
     // `process` (its `Stream`/`Signal` enum companion) is injected by the generic
     // clean-room `registry::augment_project` above.

@@ -655,11 +655,11 @@ impl ResourceTable {
     }
 
     pub(super) fn add_standard_socket(&mut self, types: &mut TypeTable, strings: &mut StringPool) {
-        let type_id = types.type_id(strings, builtins::net::SOCKET_TYPE);
+        let type_id = types.type_id(strings, crate::codegen::builtins::net::SOCKET_TYPE);
         self.entries.push(ResourceEntry {
             type_id,
             close_function_id: BUILTIN_NET_CLOSE_FUNCTION_ID,
-            flags: standard_resource_flags(builtins::net::SOCKET_TYPE),
+            flags: standard_resource_flags(crate::codegen::builtins::net::SOCKET_TYPE),
         });
     }
 
@@ -668,11 +668,11 @@ impl ResourceTable {
         types: &mut TypeTable,
         strings: &mut StringPool,
     ) {
-        let type_id = types.type_id(strings, builtins::net::LISTENER_TYPE);
+        let type_id = types.type_id(strings, crate::codegen::builtins::net::LISTENER_TYPE);
         self.entries.push(ResourceEntry {
             type_id,
             close_function_id: BUILTIN_NET_CLOSE_FUNCTION_ID,
-            flags: standard_resource_flags(builtins::net::LISTENER_TYPE),
+            flags: standard_resource_flags(crate::codegen::builtins::net::LISTENER_TYPE),
         });
     }
 
