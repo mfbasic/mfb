@@ -21,7 +21,7 @@ IMPORT audio
 
 `audio` is a built-in package, so no manifest dependency is required. A program
 that does not `IMPORT audio` gains no audio symbol and no dynamic-library
-dependency. [[src/builtins/audio.rs:package_source_glue]]
+dependency. [[src/codegen/builtins/audio/mod.rs:register]]
 
 ## Description
 
@@ -29,29 +29,29 @@ dependency. [[src/builtins/audio.rs:package_source_glue]]
 an open stream since it was opened: capture overruns for an `AudioInput`,
 playback underruns for an `AudioOutput`. The stream is borrowed, not consumed —
 the handle stays open and must still be closed with `audio::close` or by lexical
-drop. [[src/builtins/audio.rs:consumes_argument]]
+drop. [[src/syntaxcheck/builtins.rs:audio_consumes_argument]]
 
 The value is a monotonic counter maintained in the stream's shared state
 (`S_XRUNS`); each xrun event increments it by exactly one. It counts events, not
 lost frames: `audio::xruns(stream) > 0` means audio was lost, but the number of
 frames destroyed is not reported by the platform, so an event count is the only
 value that is exact everywhere. A stream that has never dropped audio reports
-`0`. [[src/target/shared/code/audio/mod.rs:S_XRUNS]]
+`0`. [[src/codegen/builtins/audio/native/mod.rs:S_XRUNS]]
 
 `xruns` cannot fail on the stream itself. Reading the counter takes no library
 call — unlike `audio::available` and `audio::poll`, the xrun query does not open
 `libasound.so.2`, so it never raises `ErrAudioUnavailable` even on a Linux host
-without ALSA. [[src/target/shared/code/audio/alsa.rs:lower_query]] A stream that
+without ALSA. [[src/codegen/builtins/audio/native/alsa.rs:lower_query]] A stream that
 has already been closed (or a defaulted handle) reports `0` rather than raising
 an error, so `xruns` is always safe to call.
-[[src/target/shared/code/audio/macos.rs:lower_query]]
+[[src/codegen/builtins/audio/native/macos.rs:lower_query]]
 
 On macOS the counter is bumped under the stream mutex by the Core Audio callback
 threads — the input callback on a capture overrun and the output callback when a
 started playback stream runs its buffers empty — and is read back here under the
 same mutex; on Linux it is bumped when `snd_pcm_recover` recovers a stream after
 an overrun or underrun.
-[[src/target/shared/code/audio/macos.rs:lower_audio_input_callback]][[src/target/shared/code/audio/macos.rs:lower_audio_output_callback]][[src/target/shared/code/audio/macos.rs:lower_query]][[src/target/shared/code/audio/alsa.rs:lower_query]]
+[[src/codegen/builtins/audio/native/macos.rs:lower_audio_input_callback]][[src/codegen/builtins/audio/native/macos.rs:lower_audio_output_callback]][[src/codegen/builtins/audio/native/macos.rs:lower_query]][[src/codegen/builtins/audio/native/alsa.rs:lower_query]]
 
 ## Overloads
 
@@ -69,19 +69,19 @@ underrun per idle buffer. Both overloads return an `Integer` and share one
 internal body and one runtime symbol (`_mfb_rt_audio_audio_xruns`); the direction
 is read from the handle at runtime. Each stream still has its own counter, in its
 own state block.
-[[src/builtins/audio.rs:AUDIO]][[src/target/shared/runtime/audio_specs.rs:AUDIO_XRUNS_SPEC]][[src/target/shared/code/audio/macos.rs:lower_audio_output_callback]]
+[[src/codegen/builtins/audio/mod.rs:register]][[src/codegen/builtins/audio/func_xruns.rs:xruns]][[src/codegen/builtins/audio/native/macos.rs:lower_audio_output_callback]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `stream` | `AudioInput` or `AudioOutput` | An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Borrowed, not consumed. A closed handle reports `0`. [[src/builtins/audio.rs:AUDIO]][[src/builtins/audio.rs:consumes_argument]] |
+| `stream` | `AudioInput` or `AudioOutput` | An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Borrowed, not consumed. A closed handle reports `0`. [[src/codegen/builtins/audio/mod.rs:register]][[src/syntaxcheck/builtins.rs:audio_consumes_argument]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The cumulative xrun event count since the stream was opened; `0` when no audio has been lost, and `0` for a closed or defaulted handle. [[src/builtins/audio.rs:AUDIO]] |
+| `Integer` | The cumulative xrun event count since the stream was opened; `0` when no audio has been lost, and `0` for a closed or defaulted handle. [[src/codegen/builtins/audio/mod.rs:register]] |
 
 ## Errors
 

@@ -21,7 +21,7 @@ IMPORT audio
 
 `audio` is a built-in package, so no manifest dependency is required. `play` and
 the MML sequencer it drives are supplied by a source companion that is injected
-only when a program imports `audio`. [[src/builtins/audio.rs:package_source_glue]]
+only when a program imports `audio`. [[src/codegen/builtins/audio/mod.rs:register]]
 
 ## Description
 
@@ -31,27 +31,27 @@ little-endian (`s16le`) PCM at a fixed 48 kHz sample rate, mixes the tracks by
 summing (with clamping to the `s16` range), and writes the result to `output` via
 `audio::write`. Because the sequencer renders at 48 kHz mono, `output` must be an
 `AudioOutput` opened with `sampleRate = 48000` and `channels = 1`.
-[[src/builtins/audio_mml.mfb:__audio_mmlSynth]][[src/builtins/audio_mml.mfb:__audio_playSamples]]
+[[src/codegen/builtins/audio/package.mfb:__audio_mmlSynth]][[src/codegen/builtins/audio/package.mfb:__audio_playSamples]]
 
 `play` parses and synthesizes the entire program before writing, so malformed MML
 raises an error and nothing is written. When the rendered PCM is non-empty, the
 single `audio::write` call blocks until the audio is queued to the device; an
 all-rest or empty program writes nothing. The `output` stream is **borrowed** — it
 is not consumed, so the caller keeps ownership and must close it.
-[[src/builtins/audio.rs:consumes_argument]][[src/builtins/audio_mml.mfb:__audio_playSamples]]
+[[src/syntaxcheck/builtins.rs:audio_consumes_argument]][[src/codegen/builtins/audio/package.mfb:__audio_playSamples]]
 
 A track is a string of space-separated tokens (`play` splits on the space
 character, so every token must be separated by a space — `C E G`, never `CEG`).
 Empty tokens from repeated spaces are ignored. Each track is fully isolated: the
 tempo, default length, octave, volume, and instrument set in one track never carry
-into another. [[src/builtins/audio_mml.mfb:__audio_mmlTokens]][[src/builtins/audio_mml.mfb:__audio_mmlParse]]
+into another. [[src/codegen/builtins/audio/package.mfb:__audio_mmlTokens]][[src/codegen/builtins/audio/package.mfb:__audio_mmlParse]]
 
 Tokens (all case-sensitive; note letters are upper case, instrument names lower
-case): [[src/builtins/audio_mml.mfb:__audio_mmlParse]]
+case): [[src/codegen/builtins/audio/package.mfb:__audio_mmlParse]]
 
 - `A` `B` `C` `D` `E` `F` `G` — a note. Append `+` or `-` for a sharp or flat, then
   optional length digits (as in `L`, in range 1..64), then optional trailing dots.
-  `C`, `C+`, `D-`, `D16`, and `C+8.` are all notes. [[src/builtins/audio_mml.mfb:__audio_mmlNote]]
+  `C`, `C+`, `D-`, `D16`, and `C+8.` are all notes. [[src/codegen/builtins/audio/package.mfb:__audio_mmlNote]]
 - `R` — a rest for the current default length; trailing dots extend it (`R.`).
 - `P1` .. `P64` — a pause (rest) of the given length.
 - `O0` .. `O6` — set the octave; `O4` is the octave of A440.
@@ -60,51 +60,51 @@ case): [[src/builtins/audio_mml.mfb:__audio_mmlParse]]
 - `T32` .. `T255` — set the tempo in beats per minute.
 - `V0` .. `V10` — set the volume (0 silent, 10 full).
 - `I <name>` — set the instrument to `square`, `triangle`, `sine`, `saw`, or
-  `noise`; the name is a separate space-separated token. [[src/builtins/audio_mml.mfb:__audio_mmlWaveCode]]
+  `noise`; the name is a separate space-separated token. [[src/codegen/builtins/audio/package.mfb:__audio_mmlWaveCode]]
 - `( .. )` — legato: the enclosed notes are tied, with no attack/release at the
   interior joins. May not be nested inside legato or staccato.
 - `[ .. ]` — staccato: the enclosed notes are shortened. May not be nested inside
   legato or staccato.
 - `{ .. }<count>` — repeat the enclosed tokens `count` times (`count >= 1`); the
-  count is attached to the closing brace (`}2`). May nest. [[src/builtins/audio_mml.mfb:__audio_mmlExpand]]
+  count is attached to the closing brace (`}2`). May nest. [[src/codegen/builtins/audio/package.mfb:__audio_mmlExpand]]
 
 `play` is deterministic: the same tracks produce byte-identical audio on every
 target (the `noise` instrument uses a fixed-seed LCG).
-[[src/builtins/audio_mml.mfb:__audio_mmlLcg]]
+[[src/codegen/builtins/audio/package.mfb:__audio_mmlLcg]]
 
 ## Overloads
 
 **`audio::play(output AS audio::AudioOutput, mml AS String) AS Nothing`**
 
-Plays a single MML track. [[src/builtins/audio_mml.mfb:__audio_play]]
+Plays a single MML track. [[src/codegen/builtins/audio/package.mfb:__audio_play]]
 
 **`audio::play(output AS audio::AudioOutput, tracks AS List OF String) AS Nothing`**
 
 Plays several MML tracks together on the same stream, mixing them frame-by-frame;
 shorter tracks are padded with silence. The overload is selected on the second
-argument's type. [[src/builtins/audio.rs:source_implementation_name]][[src/builtins/audio_mml.mfb:__audio_playTracks]]
+argument's type. [[src/codegen/builtins/audio/func_play.rs:playTracks]][[src/codegen/builtins/audio/package.mfb:__audio_playTracks]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `output` | `AudioOutput` | An open playback stream opened at 48 kHz mono (`audio::openOutput(48000, 1, ...)`). Borrowed — `play` writes to it and leaves it open. [[src/builtins/audio.rs:AUDIO]] |
-| `mml` | `String` | A single MML track (single-track overload). [[src/builtins/audio_mml.mfb:__audio_play]] |
-| `tracks` | `List OF String` | Several MML tracks played together (multi-track overload). [[src/builtins/audio_mml.mfb:__audio_playTracks]] |
+| `output` | `AudioOutput` | An open playback stream opened at 48 kHz mono (`audio::openOutput(48000, 1, ...)`). Borrowed — `play` writes to it and leaves it open. [[src/codegen/builtins/audio/mod.rs:register]] |
+| `mml` | `String` | A single MML track (single-track overload). [[src/codegen/builtins/audio/package.mfb:__audio_play]] |
+| `tracks` | `List OF String` | Several MML tracks played together (multi-track overload). [[src/codegen/builtins/audio/package.mfb:__audio_playTracks]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `play` writes audio for its side effect and returns no value. [[src/builtins/audio.rs:AUDIO]] |
+| `Nothing` | `play` writes audio for its side effect and returns no value. [[src/codegen/builtins/audio/mod.rs:register]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | The MML is malformed: an unrecognized token, an out-of-range value (`tempo`, `octave`, length, `volume`, `pause`, note length), an unknown instrument, `I` with no instrument name, unbalanced or illegally nested `( )` / `[ ]`, an unbalanced `{ }`, or a repeat count below 1. [[src/builtins/audio_mml.mfb:__audio_mmlParse]][[src/builtins/audio_mml.mfb:__audio_mmlReqInt]][[src/builtins/audio_mml.mfb:__audio_mmlExpand]][[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
-| `77050018` | `ErrAudioDevice` | The rendered audio failed to write because `output` is already closed or the device failed while queuing playback. [[src/builtins/audio_mml.mfb:__audio_playSamples]][[src/target/shared/code/audio/macos.rs:lower_write]][[src/target/shared/code/audio/alsa.rs:lower_write]][[src/codegen/builtins/errorcode/mod.rs:ErrAudioDevice]] |
-| `77050017` | `ErrAudioUnavailable` | Linux only: writing the rendered audio when `libasound.so.2` (or a required symbol such as `snd_pcm_writei`) cannot be resolved at runtime. macOS never raises this, and an all-rest or empty program writes nothing and so cannot raise it. [[src/target/shared/code/audio/alsa.rs:emit_dlopen]][[src/target/shared/code/audio/alsa.rs:lower_write]][[src/codegen/builtins/errorcode/mod.rs:ErrAudioUnavailable]] |
+| `77050002` | `ErrInvalidArgument` | The MML is malformed: an unrecognized token, an out-of-range value (`tempo`, `octave`, length, `volume`, `pause`, note length), an unknown instrument, `I` with no instrument name, unbalanced or illegally nested `( )` / `[ ]`, an unbalanced `{ }`, or a repeat count below 1. [[src/codegen/builtins/audio/package.mfb:__audio_mmlParse]][[src/codegen/builtins/audio/package.mfb:__audio_mmlReqInt]][[src/codegen/builtins/audio/package.mfb:__audio_mmlExpand]][[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
+| `77050018` | `ErrAudioDevice` | The rendered audio failed to write because `output` is already closed or the device failed while queuing playback. [[src/codegen/builtins/audio/package.mfb:__audio_playSamples]][[src/codegen/builtins/audio/native/macos.rs:lower_write]][[src/codegen/builtins/audio/native/alsa.rs:lower_write]][[src/codegen/builtins/errorcode/mod.rs:ErrAudioDevice]] |
+| `77050017` | `ErrAudioUnavailable` | Linux only: writing the rendered audio when `libasound.so.2` (or a required symbol such as `snd_pcm_writei`) cannot be resolved at runtime. macOS never raises this, and an all-rest or empty program writes nothing and so cannot raise it. [[src/codegen/builtins/audio/native/alsa.rs:emit_dlopen]][[src/codegen/builtins/audio/native/alsa.rs:lower_write]][[src/codegen/builtins/errorcode/mod.rs:ErrAudioUnavailable]] |
 
 ## Examples
 

@@ -23,7 +23,7 @@ IMPORT audio
 
 `audio` is a built-in package, so no manifest dependency is required. A program
 that does not `IMPORT audio` gains no audio symbol and no dynamic-library
-dependency. [[src/builtins/audio.rs:package_source_glue]]
+dependency. [[src/codegen/builtins/audio/mod.rs:register]]
 
 ## Description
 
@@ -32,9 +32,9 @@ returning a `Boolean`. For an `AudioInput`, ready means at least one whole frame
 can be read; for an `AudioOutput`, ready means at least one buffer is free to
 write. `poll` is defined over both directions, and the untimed form is exactly
 `audio::available(stream) > 0`: both read the same mutex-guarded fill/free
-counters. [[src/target/shared/code/audio/macos.rs:lower_query]][[src/target/shared/code/audio/alsa.rs:lower_query]]
+counters. [[src/codegen/builtins/audio/native/macos.rs:lower_query]][[src/codegen/builtins/audio/native/alsa.rs:lower_query]]
 The stream is borrowed, not consumed — the handle stays open and must still be
-closed with `audio::close` or by lexical drop. [[src/builtins/audio.rs:consumes_argument]]
+closed with `audio::close` or by lexical drop. [[src/syntaxcheck/builtins.rs:audio_consumes_argument]]
 
 `audio::poll` follows the language timeout convention (see
 `mfb spec language builtin-functions` → "Timeout convention"). The one-argument
@@ -43,54 +43,54 @@ The two-argument form waits up to `timeoutMs` milliseconds, returning `TRUE` the
 moment the stream is ready and `FALSE` at the deadline; a `timeoutMs` of `0` is a
 non-blocking test (the old one-argument behavior — callers wanting an immediate
 check pass `, 0`). A **negative** `timeoutMs` raises `ErrInvalidArgument`; a
-positive value is clamped to `2147483647`. [[src/target/shared/code/audio/macos.rs:lower_query]][[src/target/shared/code/audio/alsa.rs:lower_query]]
+positive value is clamped to `2147483647`. [[src/codegen/builtins/audio/native/macos.rs:lower_query]][[src/codegen/builtins/audio/native/alsa.rs:lower_query]]
 
 Polling never fails on the stream itself. A stream that has already been closed
 (or a defaulted handle) polls as `FALSE` rather than raising an error, so `poll`
 is always safe to call. The one exception is a negative `timeoutMs` on the timed
-form, which raises `ErrInvalidArgument`. [[src/target/shared/code/audio/macos.rs:lower_query]][[src/target/shared/code/audio/alsa.rs:lower_query]]
+form, which raises `ErrInvalidArgument`. [[src/codegen/builtins/audio/native/macos.rs:lower_query]][[src/codegen/builtins/audio/native/alsa.rs:lower_query]]
 
 On macOS the counters are maintained by the Core Audio callback thread and read
 under the stream mutex; the timed form waits on the stream condition variable
-until data arrives or the deadline passes. [[src/target/shared/code/audio/macos.rs:lower_query]]
+until data arrives or the deadline passes. [[src/codegen/builtins/audio/native/macos.rs:lower_query]]
 On Linux readiness comes from `snd_pcm_avail_update` (untimed) or `snd_pcm_wait`
 (timed) in a `libasound.so.2` resolved at runtime with `dlopen`; a binary that
 imports `audio` still starts on a host without alsa-lib, but a `poll` there
 raises `ErrAudioUnavailable` when the library or a required symbol cannot be
-resolved. [[src/target/shared/code/audio/alsa.rs:emit_dlopen]][[src/target/shared/code/audio/alsa.rs:lower_query]]
+resolved. [[src/codegen/builtins/audio/native/alsa.rs:emit_dlopen]][[src/codegen/builtins/audio/native/alsa.rs:lower_query]]
 
 ## Overloads
 
 **`audio::poll(stream)`**
 
 Block until the stream is ready, then return `TRUE` (omit = unbounded wait).
-[[src/target/shared/code/audio/macos.rs:lower_query]]
+[[src/codegen/builtins/audio/native/macos.rs:lower_query]]
 
 **`audio::poll(stream, timeoutMs)`**
 
 Wait up to `timeoutMs` milliseconds for the stream to become ready, returning as
 soon as it is. A `timeoutMs` of `0` polls without blocking (an immediate check); a
 negative value raises `ErrInvalidArgument`. This form lowers to a distinct
-internal body. [[src/builtins/audio.rs:implementation_name]]
+internal body. [[src/codegen/builtins/audio/mod.rs:runtime_overload_name]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `stream` | `AudioInput` or `AudioOutput` | An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Borrowed, not consumed. A closed handle polls as `FALSE`. [[src/builtins/audio.rs:AUDIO]][[src/builtins/audio.rs:consumes_argument]] |
-| `timeoutMs` | `Integer` | Maximum wait in milliseconds (timed overload only). `0` is a non-blocking test; a negative value raises `ErrInvalidArgument`; a positive value is clamped to `2147483647`. [[src/target/shared/code/audio/macos.rs:lower_query]] |
+| `stream` | `AudioInput` or `AudioOutput` | An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Borrowed, not consumed. A closed handle polls as `FALSE`. [[src/codegen/builtins/audio/mod.rs:register]][[src/syntaxcheck/builtins.rs:audio_consumes_argument]] |
+| `timeoutMs` | `Integer` | Maximum wait in milliseconds (timed overload only). `0` is a non-blocking test; a negative value raises `ErrInvalidArgument`; a positive value is clamped to `2147483647`. [[src/codegen/builtins/audio/native/macos.rs:lower_query]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when the stream is ready (at least one frame readable, or one buffer writable), `FALSE` otherwise — including on a closed handle or, for the timed form, at the deadline. [[src/builtins/audio.rs:AUDIO]] |
+| `Boolean` | `TRUE` when the stream is ready (at least one frame readable, or one buffer writable), `FALSE` otherwise — including on a closed handle or, for the timed form, at the deadline. [[src/codegen/builtins/audio/mod.rs:register]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050017` | `ErrAudioUnavailable` | Linux only: `libasound.so.2` (or a required symbol such as `snd_pcm_avail_update` / `snd_pcm_wait`) could not be resolved at runtime. macOS never raises this. [[src/target/shared/code/audio/alsa.rs:emit_dlopen]][[src/target/shared/code/audio/alsa.rs:lower_query]][[src/codegen/builtins/errorcode/mod.rs:ErrAudioUnavailable]] |
+| `77050017` | `ErrAudioUnavailable` | Linux only: `libasound.so.2` (or a required symbol such as `snd_pcm_avail_update` / `snd_pcm_wait`) could not be resolved at runtime. macOS never raises this. [[src/codegen/builtins/audio/native/alsa.rs:emit_dlopen]][[src/codegen/builtins/audio/native/alsa.rs:lower_query]][[src/codegen/builtins/errorcode/mod.rs:ErrAudioUnavailable]] |
 
 ## Examples
 

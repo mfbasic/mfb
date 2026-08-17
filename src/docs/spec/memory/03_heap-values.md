@@ -235,7 +235,7 @@ The four TLS backends share the header but split into their own table below.
 | 72 | read-buf fill | — | — | — | — | — |
 | 80 | read-buf at-eof | — | — | — | — | — |
 
-[[src/target/shared/code/audio/mod.rs:H_SAMPLE_RATE]]
+[[src/codegen/builtins/audio/native/mod.rs:H_SAMPLE_RATE]]
 
 The `TlsSocket` backend is platform-selected (OpenSSL on Linux, Network.framework
 on macOS, SSPI/SChannel on Windows); `TLSListener` is the OpenSSL server listener.
