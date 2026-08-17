@@ -854,8 +854,8 @@ impl TypeEnv {
     /// an include cannot be resolved (so the field set is incomplete and the
     /// member-existence check must be skipped).
     pub(super) fn record_fields(&self, type_name: &str) -> Option<HashSet<String>> {
-        // Built-in record types (io/net/term handles) carry their fields in the
-        // builtin tables rather than the project type table.
+        // The read-only compiler/runtime records `Error`/`ErrorLoc` carry their
+        // fields in a local table rather than the project type table.
         if let Some(fields) = builtin_type_fields(type_name) {
             return Some(fields.iter().map(|(name, _)| (*name).to_string()).collect());
         }
@@ -1208,30 +1208,24 @@ fn field_type_map(fields: &[IrField]) -> HashMap<String, String> {
         .collect()
 }
 
-/// Builtin record types (io/net/term) expose their fields through the builtins
-/// tables. Consolidated here so the checker consults one accessor.
+/// The read-only compiler/runtime records `Error`/`ErrorLoc` expose their fields
+/// through this local table rather than the project type table. Syntaxcheck types
+/// their members inline in `infer_member`; listed here so member-access inference
+/// resolves `err.source.line` chains and the read-only WITH check sees ErrorLoc.
 fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
-    // The runtime error records (syntaxcheck types their members inline in
-    // `infer_member`); listed here so member-access inference resolves
-    // `err.source.line` chains and the read-only WITH check sees ErrorLoc.
     match name {
-        "Error" => {
-            return Some(&[
-                ("code", "Integer"),
-                ("message", "String"),
-                ("source", "ErrorLoc"),
-            ]);
-        }
-        "ErrorLoc" => {
-            return Some(&[
-                ("filename", "String"),
-                ("line", "Integer"),
-                ("char", "Integer"),
-            ]);
-        }
-        _ => {}
+        "Error" => Some(&[
+            ("code", "Integer"),
+            ("message", "String"),
+            ("source", "ErrorLoc"),
+        ]),
+        "ErrorLoc" => Some(&[
+            ("filename", "String"),
+            ("line", "Integer"),
+            ("char", "Integer"),
+        ]),
+        _ => None,
     }
-    builtins::builtin_type_fields(name)
 }
 
 /// Record every `Closure { name, captures }` site's captured-slot count so the

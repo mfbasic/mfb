@@ -278,20 +278,6 @@ mod tests {
                 }
             }
         }
-
-        use crate::target::shared::registry::REGISTRY;
-        for module in REGISTRY.modules() {
-            for function in module.functions {
-                for name in function.errors {
-                    assert!(
-                        registry::runtime_error(name).is_some(),
-                        "{}::{} declares error `{name}`, not an errorCode constant",
-                        module.name,
-                        function.name,
-                    );
-                }
-            }
-        }
     }
 
     /// The bare-name error-emission free fns agree with the folded value and each

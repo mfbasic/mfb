@@ -56,32 +56,9 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
 /// spelling — are recognized by the clean-room registry's `is_builtin_type`
 /// (source-declared-type + parametric-head extension).
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    // Migrated (clean-room registry) types first; else the old REGISTRY.
     // `datetime`'s value records/enums (authored in `package.mfb`) are recognized
     // through the generic registry via their `add_source_types` declaration.
     crate::codegen::registry::registry().is_builtin_type(name)
-        || crate::target::shared::registry::REGISTRY
-            .modules()
-            .iter()
-            .any(|module| module.types.iter().any(|ty| ty.name == name))
-}
-
-/// The record `(field, type)` list of a builtin type, or `None` when the type is
-/// opaque/enum or unknown (plan-72-BB: the owning module's descriptor `types`
-/// entry — only `io`, `net`, `term`, and `audio` contribute record types today).
-/// A type with no fields (opaque handle / source-companion record) reports `None`,
-/// matching the legacy per-package `builtin_type_fields`.
-pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
-    crate::target::shared::registry::REGISTRY
-        .modules()
-        .iter()
-        .find_map(|module| {
-            module
-                .types
-                .iter()
-                .find(|ty| ty.name == name)
-                .and_then(|ty| (!ty.fields.is_empty()).then_some(ty.fields))
-        })
 }
 
 /// The internal helper a built-in package provides as an **override** of an
@@ -345,16 +322,7 @@ pub(crate) fn resolve_call_return_type(
     if crate::codegen::registry::registry().is_member(callee) {
         return crate::codegen::registry::resolve_call(callee, arg_types, strict);
     }
-    let (module, function) = crate::target::shared::registry::REGISTRY.function(callee)?;
-    match module.resolver {
-        Some(resolver) => resolver.resolve_return_type(module, function.name, arg_types),
-        None => crate::target::shared::registry::DefaultResolver::resolve_call(
-            module,
-            function.name,
-            arg_types,
-        )
-        .map(str::to_string),
-    }
+    None
 }
 
 /// The static (argument-independent) nominal return type of a builtin call —
@@ -383,12 +351,6 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     if let Some(return_type) = crate::codegen::registry::call_return_type(name) {
         return Some(return_type);
     }
-    if let Some((module, function)) = crate::target::shared::registry::REGISTRY.function(name) {
-        return crate::target::shared::registry::DefaultResolver::return_type_name(
-            module,
-            function.name,
-        );
-    }
     None
 }
 
@@ -397,13 +359,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
 /// to select a table package's argument-inference mode without a per-package
 /// `is_<pkg>_call` chain.
 pub(crate) fn builtin_package_name(callee: &str) -> Option<&'static str> {
-    crate::codegen::registry::registry()
-        .owning_package(callee)
-        .or_else(|| {
-            crate::target::shared::registry::REGISTRY
-                .function(callee)
-                .map(|(module, _)| module.name)
-        })
+    crate::codegen::registry::registry().owning_package(callee)
 }
 
 /// The arity range `(min, max)` of a builtin call — plan-72-BB: the owning
@@ -417,11 +373,7 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     if general::is_general_call(name) {
         return general::arity(name);
     }
-    if let Some(range) = crate::codegen::registry::registry().arity(name) {
-        return Some(range);
-    }
-    let (module, function) = crate::target::shared::registry::REGISTRY.function(name)?;
-    crate::target::shared::registry::DefaultResolver::arity(module, function.name)
+    crate::codegen::registry::registry().arity(name)
 }
 
 /// The human-readable expected-argument rendering for a builtin call's
@@ -447,8 +399,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
     {
         return Some(text.to_string());
     }
-    let (module, function) = crate::target::shared::registry::REGISTRY.function(name)?;
-    crate::target::shared::registry::DefaultResolver::expected_arguments(module, function.name)
+    None
 }
 
 /// The concrete per-position argument-type signature IR lowering uses for literal
@@ -566,9 +517,6 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
     // this is the membership the legacy `REGISTRY.function(<bare>)` used to carry.
     general::is_general_call(name)
         || crate::codegen::registry::registry().is_member(name)
-        || crate::target::shared::registry::REGISTRY
-            .function(name)
-            .is_some()
         // Migrated packages' injected source-generic members (`collections.sort`, …):
         // `is_member` covers their registered native members, this their source
         // generics, together reproducing the old `collections::is_collections_call`.
@@ -709,66 +657,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
     // parameter names are served by the generic `registry::call_param_names` above.
     let borrowed: &'static [&'static [&'static str]] = general::call_param_names(name)?;
     Some(borrowed.iter().map(|aliases| aliases.to_vec()).collect())
-}
-
-// plan-72 registry adapters. Each queries a descriptor `registry` for a call's
-// metadata and falls back to the legacy per-package helper when the call's
-// package has not migrated yet. In letter A the production
-// `crate::target::shared::registry::REGISTRY` is empty, so these always take the fallback path and
-// production behavior is byte-identical to calling the legacy helper directly;
-// letters B..AA populate the registry (moving each package onto the descriptor
-// branch) and BB removes the `legacy` fallbacks once every package has migrated.
-// They are unused in production until the first package migrates, hence the
-// `not(test)` dead-code allow; the tests below exercise both branches.
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn registry_is_call(
-    registry: &crate::target::shared::registry::BuiltinRegistry,
-    callee: &str,
-    legacy: impl Fn(&str) -> bool,
-) -> bool {
-    registry.function(callee).is_some() || legacy(callee)
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn registry_arity(
-    registry: &crate::target::shared::registry::BuiltinRegistry,
-    callee: &str,
-    legacy: impl Fn(&str) -> Option<(usize, usize)>,
-) -> Option<(usize, usize)> {
-    if let Some((module, function)) = registry.function(callee) {
-        return crate::target::shared::registry::DefaultResolver::arity(module, function.name);
-    }
-    legacy(callee)
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn registry_return_type_name(
-    registry: &crate::target::shared::registry::BuiltinRegistry,
-    callee: &str,
-    legacy: impl Fn(&str) -> Option<&'static str>,
-) -> Option<&'static str> {
-    if let Some((module, function)) = registry.function(callee) {
-        return crate::target::shared::registry::DefaultResolver::return_type_name(
-            module,
-            function.name,
-        );
-    }
-    legacy(callee)
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn registry_expected_arguments(
-    registry: &crate::target::shared::registry::BuiltinRegistry,
-    callee: &str,
-    legacy: impl Fn(&str) -> Option<String>,
-) -> Option<String> {
-    if let Some((module, function)) = registry.function(callee) {
-        return crate::target::shared::registry::DefaultResolver::expected_arguments(
-            module,
-            function.name,
-        );
-    }
-    legacy(callee)
 }
 
 #[cfg(test)]
@@ -1261,54 +1149,5 @@ mod tests {
         // thread
         assert!(call_param_names("thread.start").is_some());
         assert!(call_param_names("nope").is_none());
-    }
-
-    // ---- plan-72-A2: registry adapters -------------------------------------
-
-    #[test]
-    fn adapters_fall_back_on_registry_miss() {
-        // Every real builtin package is now migrated (plan-72-A..AA), so the
-        // production registry owns every real call name and no real package
-        // exercises the legacy fallback anymore. The mod.rs adapters still fall
-        // back to their legacy closure on a registry MISS — the mechanism BB will
-        // delete once aggregate dispatch is registry-only. Prove that mechanism
-        // with a synthetic name no module owns: the registry misses and the
-        // adapter returns exactly the closure's answer. (This test tracked a
-        // still-unmigrated real example — `math` until plan-72-P, `regex` until -T,
-        // `tls` until -Z — but none remains.)
-        assert!(registry_is_call(
-            &crate::target::shared::registry::REGISTRY,
-            "nonesuch.thing",
-            |name| { name == "nonesuch.thing" }
-        ));
-        assert!(!registry_is_call(
-            &crate::target::shared::registry::REGISTRY,
-            "nonesuch.other",
-            |_| false
-        ));
-        assert_eq!(
-            registry_arity(
-                &crate::target::shared::registry::REGISTRY,
-                "nonesuch.thing",
-                |_| Some((1, 2))
-            ),
-            Some((1, 2))
-        );
-        assert_eq!(
-            registry_return_type_name(
-                &crate::target::shared::registry::REGISTRY,
-                "nonesuch.thing",
-                |_| Some("Nothing")
-            ),
-            Some("Nothing")
-        );
-        assert_eq!(
-            registry_expected_arguments(
-                &crate::target::shared::registry::REGISTRY,
-                "nonesuch.thing",
-                |_| Some("X".to_string())
-            ),
-            Some("X".to_string())
-        );
     }
 }

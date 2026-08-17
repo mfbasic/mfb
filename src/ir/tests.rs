@@ -3714,8 +3714,9 @@ mod lower_tests {
 
     #[test]
     fn member_access_builtin_type_field_infers() {
-        // `record_field_type` builtin path: a field of a built-in package type
-        // (`term::TermSize.columns`) resolves through `term::builtin_type_fields`.
+        // `record_field_type` path: a field of a built-in package type
+        // (`term::TermSize.columns`) resolves through the normal source-record
+        // table now that `term`'s records are injected as source `TYPE` decls.
         let ir = lower_src(
             "IMPORT term\n\
              FUNC main() AS Integer\n\

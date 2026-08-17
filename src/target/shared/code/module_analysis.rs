@@ -242,13 +242,6 @@ pub(super) fn module_field_types(module: &NirModule) -> FieldTypes {
             _ => {}
         }
     }
-    for type_name in ["Address", "Datagram", "DatagramText"] {
-        if let Some(builtin_fields) = builtins::builtin_type_fields(type_name) {
-            for (name, type_) in builtin_fields {
-                fields.insert((type_name.to_string(), name.to_string()), type_.to_string());
-            }
-        }
-    }
     fields
 }
 
