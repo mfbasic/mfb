@@ -1030,10 +1030,11 @@ impl BuiltinRegistry {
 ///
 /// Migrated so far: `app` (B), `crypto` (F),
 /// `fs` (K), `general` (L), `http` (M), `io` (N), `math` (P),
-/// `money` (Q), `net` (R), `os` (S), `strings` (V), `term` (W),
-/// `testing` (X). (`audio` C, `bits` D, `collections` E, `csv` G, `datetime` H,
-/// `encoding` I, `errorCode` J, `json` O, `regex` T, and `process` have since moved
-/// to the clean-room registry `crate::codegen::registry` and are no longer held here.)
+/// `money` (Q), `net` (R), `os` (S), `strings` (V), `term` (W).
+/// (`audio` C, `bits` D, `collections` E, `csv` G, `datetime` H,
+/// `encoding` I, `errorCode` J, `json` O, `regex` T, `testing` (X), and `process`
+/// have since moved to the clean-room registry `crate::codegen::registry` and are no
+/// longer held here.) Only `general` remains — the last unqualified-global package.
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     // app migrated to the clean-room registry (crate::codegen::registry).
     // astrings migrated to the clean-room registry (crate::codegen::registry).
@@ -1052,7 +1053,7 @@ pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     // resource migrated to the clean-room registry (crate::codegen::registry).
     // strings migrated to the clean-room registry (crate::codegen::registry).
     // term migrated to the clean-room registry (crate::codegen::registry).
-    &crate::builtins::testing::TESTING,
+    // testing migrated to the clean-room registry (crate::codegen::registry).
     // math migrated to the clean-room registry (crate::codegen::registry).
     // money migrated to the clean-room registry (crate::codegen::registry).
     // net migrated to the clean-room registry (crate::codegen::registry).
@@ -1797,8 +1798,12 @@ mod tests {
         // moved too), so its FUNCTIONS are no longer held here.
         assert!(REGISTRY.module("term").is_none());
         assert!(REGISTRY.function("term.clear").is_none());
-        // The 28 builtin packages minus the migrated ones.
-        assert_eq!(REGISTRY.modules().len(), 2);
+        // `testing` migrated to the clean-room registry (its unqualified-global
+        // `expect*` assertions moved), so it is no longer held here — only `general`
+        // remains.
+        assert!(REGISTRY.module("testing").is_none());
+        // The 28 builtin packages minus the migrated ones — only `general` remains.
+        assert_eq!(REGISTRY.modules().len(), 1);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);

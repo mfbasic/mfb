@@ -86,8 +86,15 @@ fn man2_rule() -> String {
 /// all of its function pages, in registration order, as one document.
 fn render_all_markdown() -> String {
     let mut md = String::new();
-    for (index, package) in registry().packages().iter().enumerate() {
-        if index > 0 {
+    // `unqualified_global` packages (`testing`, and later `general`) are bare-name
+    // builtins with no writable `IMPORT <pkg>` spelling, so rendering a `# testing` /
+    // `testing::expect` page would advertise a spelling users cannot write — skip them.
+    for package in registry()
+        .packages()
+        .iter()
+        .filter(|package| !package.is_unqualified_global())
+    {
+        if !md.is_empty() {
             md.push_str(&man2_rule());
         }
         md.push_str(&render_package_all_markdown(package));
