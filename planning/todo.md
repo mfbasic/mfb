@@ -122,7 +122,9 @@ After Phase 1 completed (count 0), the `artifact-gate all` sweep showed 32 accum
 - **crypto-ec-valid**: executes; `.run` byte-identical in full acceptance → `.ncode` drift non-semantic.
 - **app-mode io/term**: current `.app.nir` is byte-identical to the committed golden (0 diffs) — sums were merely stale (term agent regen'd the `.nir`, not the cross-target sums).
 
-CLEARED 27/32: regen'd http/json/net/vector byte-identity `.ncodesum` (`799c8b406`) + crypto-ec + 3 app-mode sums (`fd273646b`). Remaining 5 = `thread` (MISSING, not DIFF): the committed `packages/thread_cover_worker.mfp` is a STALE precompiled dep — compiled pre-plan-97 with bare `File`, so native lowering fails (`native inlined field size not available for type 'File'`); pre-existing since plan-97, no source committed. IN PROGRESS: reconstructing the worker as a durable in-tree source-package (never re-goes-stale) + regen thread goldens. See [[committed-mfp-goes-stale-on-resource-requalification]].
+CLEARED 32/32: regen'd http/json/net/vector byte-identity `.ncodesum` (`799c8b406`) + crypto-ec + 3 app-mode sums (`fd273646b`) + thread (`cb62e2eb3`, merged). thread was MISSING (not DIFF): the committed `packages/thread_cover_worker.mfp` was a STALE precompiled dep — compiled pre-plan-97 with bare `File`, so native lowering failed (`native inlined field size not available for type 'File'`); pre-existing since plan-97, no source in git history. FIXED by recovering the worker as committed in-tree source at `tools/thread-package-sources/thread_cover_worker/` (regen via `scripts/sync-package-mfp.sh` — source-package deps aren't supported; binary-merge needs a precompiled `.mfp`, but it's now regenerable/deterministic and covers all worker-side overloads: isCancelled/receive×2/send×2/sleep/accept×2/transfer×2). See [[committed-mfp-goes-stale-on-resource-requalification]].
+
+**FINISH COMPLETE — `artifact-gate all` 0 diffs (1714 goldens), `cargo test --bin mfb` 3674/0, full acceptance 1263/0. The clean-room registry is the sole builtin authority; the byte-identity baseline is fully restored.**
 
 ## Phase 2 — delete the old branch
 
