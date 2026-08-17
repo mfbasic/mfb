@@ -10,7 +10,7 @@
   "types": [
   {
     "kind": "enum",
-    "line": 24,
+    "line": 1,
     "visibility": "export",
     "name": "Mode",
     "members": [
