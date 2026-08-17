@@ -828,6 +828,15 @@ pub(crate) struct RegistryPackage {
     /// types — the registry home of the `builtins::general_override_target` rows.
     /// Queried by [`general_override_target`].
     overrides: Vec<RegistryOverride>,
+    /// Whether this package's members are **unqualified global** builtins — bare
+    /// names (`expectEqual`, never `testing::expectEqual`) that carry no writable
+    /// `IMPORT <pkg>` spelling. The package is registered under a real name only so it
+    /// has a home in the registry; the member calls stay bare end-to-end. Set for the
+    /// `testing` (and, later, `general`) migrations. Its one behavioral effect is
+    /// documentation: `mfb man2 --all` skips such a package, because rendering a
+    /// `# testing` / `testing::expect` page would advertise a spelling users cannot
+    /// write. Defaults `false`; set via [`mark_unqualified_global`](Self::mark_unqualified_global).
+    unqualified_global: bool,
 }
 
 impl RegistryPackage {
@@ -852,12 +861,27 @@ impl RegistryPackage {
             source_generic_fast_paths: Vec::new(),
             constants: Vec::new(),
             overrides: Vec::new(),
+            unqualified_global: false,
         }
     }
 
     /// The package's import name, e.g. `"encoding"`.
     pub(crate) fn import_name(&self) -> &'static str {
         self.import_name
+    }
+    /// Whether this package is an **unqualified global** builtin package (see the
+    /// [`unqualified_global`](Self::unqualified_global) field). `mfb man2 --all` skips
+    /// packages for which this is true.
+    pub(crate) fn is_unqualified_global(&self) -> bool {
+        self.unqualified_global
+    }
+    /// Mark this package as an **unqualified global** builtin package — its members are
+    /// bare names with no writable `IMPORT <pkg>` spelling, so `mfb man2 --all` skips
+    /// its documentation page (see the field docs). Used by the `testing`/`general`
+    /// migrations.
+    pub(crate) fn mark_unqualified_global(&mut self) -> &mut Self {
+        self.unqualified_global = true;
+        self
     }
     /// One-line documentation intro.
     pub(crate) fn intro(&self) -> &'static str {
@@ -1463,6 +1487,7 @@ fn build() -> Registry {
     crate::codegen::builtins::regex::register(&mut r);
     crate::codegen::builtins::strings::register(&mut r);
     crate::codegen::builtins::term::register(&mut r);
+    crate::codegen::builtins::testing::register(&mut r);
     crate::codegen::builtins::process::register(&mut r);
     crate::codegen::builtins::datetime::register(&mut r);
     crate::codegen::builtins::encoding::register(&mut r);
