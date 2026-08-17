@@ -157,7 +157,7 @@ X - fully moved to codegen
 [@] bits
 [ ] collections
 [X] crypto
-[X] csv
+[@] csv
 [ ] datetime
 [X] encoding
 [X] errorcode

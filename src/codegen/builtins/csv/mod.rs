@@ -9,6 +9,16 @@ mod func_parse_stream;
 mod func_read_row;
 mod func_stringify;
 
+mod helper_decode_range;
+mod helper_encode_field;
+mod helper_field_value;
+mod helper_first_code;
+mod helper_is_doubled_quote;
+mod helper_needs_quote;
+mod helper_quote_field;
+mod helper_separator_length;
+mod helper_stringify_row;
+
 /// RFC-4180 dialect defaults, injected as raw String literals when an optional
 /// dialect argument is omitted (the `expr` of a `Fill` is the literal value).
 pub(super) const DEFAULT_DELIMITER: &str = ",";
@@ -120,11 +130,20 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
 
-    // The shared private `__csv_*` helpers the member bodies call.
-    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
-        "csv_package",
-        include_str!("package.mfb"),
-    ));
+    // The shared private `__csv_*` helpers the member bodies call. Each lives in
+    // its own `helper_*.rs` and registers via `add_helper`; they render (in this
+    // order) in the helper section of the assembled source, before the member
+    // bodies. Order is preserved from the old single `package.mfb` blob so the
+    // compiled `.ncode` stays byte-identical.
+    helper_field_value::register(&mut pkg);
+    helper_decode_range::register(&mut pkg);
+    helper_is_doubled_quote::register(&mut pkg);
+    helper_first_code::register(&mut pkg);
+    helper_separator_length::register(&mut pkg);
+    helper_stringify_row::register(&mut pkg);
+    helper_encode_field::register(&mut pkg);
+    helper_needs_quote::register(&mut pkg);
+    helper_quote_field::register(&mut pkg);
 
     func_parse::register(&mut pkg);
     func_stringify::register(&mut pkg);
