@@ -108,9 +108,8 @@ pub fn lower_project_with_external_functions(
     // above.
     let augmented = builtins::term::augmented_project(&augmented)
         .expect("built-in term package source must parse");
-    // `vector` imports only intrinsic `math` (plan-06-vector.md §5).
-    let augmented = builtins::vector::augmented_project(&augmented)
-        .expect("built-in vector package source must parse");
+    // `vector` source (its nine `TYPE`s + `__vector_*` FUNC bodies) is injected by the
+    // clean-room `registry::augment_project` above.
     // `http` before `net`: `http_package.mfb` imports `net` (plan-03-http.md Phase 4).
     let augmented = builtins::http::augmented_project(&augmented)
         .expect("built-in http package source must parse");
@@ -2100,9 +2099,8 @@ fn expression_type(
                     != Some("encoding");
             if builtins::strings::is_strings_call(&canonical_callee)
                 || builtins::astrings::is_astrings_call(&canonical_callee)
-                // `math` migrated to the clean-room registry — covered by
+                // `math`/`vector` migrated to the clean-room registry — covered by
                 // `migrated_arg_typed` (`registry::is_member`) below.
-                || builtins::vector::is_vector_call(&canonical_callee)
                 // `fs`/`io` migrated to the clean-room registry — covered by
                 // `migrated_arg_typed` (`registry::is_member`) below.
                 || builtins::net::is_net_call(&canonical_callee)
@@ -2472,9 +2470,8 @@ fn filter_predicate_arg_type(predicate: &str, collection_type: &str) -> Option<S
 /// (`"vector.zeroFloat3"`) inlines to, reconstructed from its
 /// [`RegistryConstant`](crate::codegen::registry) — the flat per-field literals paired
 /// with the element types read from the package's record fields, in order. `None` for a
-/// scalar constant or an un-migrated package (the registry is empty until a
-/// record-constant-bearing package migrates), so the caller falls back to
-/// [`vector_record_constant`].
+/// scalar constant or a package that declares no record constant of that name (the
+/// migrated `vector` package is the sole record-constant provider today).
 fn registry_record_constant(name: &str) -> Option<IrValue> {
     use crate::codegen::registry;
     let components = registry::constant_components(name)?;
@@ -2498,24 +2495,6 @@ fn registry_record_constant(name: &str) -> Option<IrValue> {
             .map(|(index, value)| IrValue::Const {
                 type_: field_types.get(index).cloned().unwrap_or_default(),
                 value: value.to_string(),
-            })
-            .collect(),
-    })
-}
-
-/// The constructor the `vector` hand table's [`constant_components`] emits for a record
-/// constant `name` — the pre-migration path, tried after [`registry_record_constant`].
-///
-/// [`constant_components`]: crate::builtins::vector::constant_components
-fn vector_record_constant(name: &str) -> Option<IrValue> {
-    let (type_, components) = builtins::vector::constant_components(name)?;
-    Some(IrValue::Constructor {
-        type_,
-        args: components
-            .into_iter()
-            .map(|(component_type, component_value)| IrValue::Const {
-                type_: component_type,
-                value: component_value,
             })
             .collect(),
     })
@@ -2619,13 +2598,11 @@ fn lower_expression_with_expected(
         Expression::Identifier(value) => {
             let canonical_value = canonical_import_name(value, context);
             // A record constant (`vector::upFloat3`) inlines a record constructor at
-            // every use site, copying by value (plan-06-vector.md §4.19). Prefer a
-            // migrated package's registry entry, falling back to the vector hand table
-            // (the registry is empty until vector migrates). Handled before the
-            // scalar-fold path below, which expects a single literal value.
-            if let Some(constructor) = registry_record_constant(&canonical_value)
-                .or_else(|| vector_record_constant(&canonical_value))
-            {
+            // every use site, copying by value (plan-06-vector.md §4.19). The migrated
+            // `vector` package's registry entry supplies the per-field literals + the
+            // record's element types. Handled before the scalar-fold path below, which
+            // expects a single literal value.
+            if let Some(constructor) = registry_record_constant(&canonical_value) {
                 return constructor;
             }
             if builtins::is_package_constant(&canonical_value) {
@@ -2920,10 +2897,15 @@ fn lower_expression_with_expected(
                         .map(|name| crate::internal_name::internalize(&name))
                 })
                 .or_else(|| {
-                    // `vector::` resolves a type-specific internal name from the
-                    // call's argument record types (plan-06-vector.md §5), e.g.
-                    // `vector.length(Float3)` -> `#vector_length_float3`.
-                    if !builtins::vector::is_vector_call(&canonical_callee) {
+                    // `vector::` selects its type-specific internal FUNC from the call's
+                    // argument record types (`vector.length(Float3)` ->
+                    // `#vector_length_float3`). Each `vector.<op>` overload carries a
+                    // `Body::Rewrite("__vector_<op>_<type>")` on the registry, but the
+                    // generic coarse-nominal matcher cannot distinguish the nine record
+                    // types, so `vector` keeps an EXACT selector over that overload data.
+                    if crate::codegen::registry::registry().owning_package(&canonical_callee)
+                        != Some("vector")
+                    {
                         return None;
                     }
                     let arg_types: Vec<String> = arguments
@@ -2933,8 +2915,8 @@ fn lower_expression_with_expected(
                             expression_type(argument, locals, context).unwrap_or_default()
                         })
                         .collect();
-                    builtins::vector::implementation_name(&canonical_callee, &arg_types)
-                        .map(|name| crate::internal_name::internalize(&name))
+                    crate::codegen::builtins::vector::rewrite_target(&canonical_callee, &arg_types)
+                        .map(crate::internal_name::internalize)
                 })
                 .or_else(|| {
                     // `http::handleRequest` is overloaded by listener type
