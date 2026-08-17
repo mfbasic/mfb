@@ -1781,10 +1781,10 @@ fn leaf_matches(pattern: &ParameterType, concrete: &ParameterType, strict: bool)
 /// parameter triggers the strict exact-base match in [`leaf_matches`]; value nominals
 /// (unions, records) stay coarse.
 fn is_resource_type_name(name: &str) -> bool {
+    // A single bare-name scan of the registry: a qualified builtin id (`fs.File`) and
+    // its bare base (`File`) both reduce to the same tail, so one scan answers both
+    // the package-qualified and bare-base cases the two former branches split out.
     let base = crate::builtins::resource::base_resource_name(name);
-    if crate::builtins::resource::is_builtin_resource_type(base) {
-        return true;
-    }
     let bare = base.rsplit('.').next().unwrap_or(base);
     registry()
         .packages()
