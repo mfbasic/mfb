@@ -90,3 +90,9 @@ Change the type checker / `ir` / `syntaxcheck` to carry `ParameterType` (and `Se
 ## Phase 4 — Bucket 2 falls out
 
 The 6 leak-adapters (`resolve_call`, `rewrite_target`, `call_return_type`, `expected_arguments`, `call_param_names`, `default_argument_padding`) now have no callers doing string marshalling — they evaporate. This isn't a separate effort; it's the *consequence* of Phase 3. (Decide separately whether `resolve_call`/`native_lower` — the two the author left un-`#[deprecated]` — stay as intended permanent `CallShape`/`Selection` seams or get inlined.)
+
+---
+
+> resource can not be stored as a collection element
+
+I need to review all documentation and remove this claim as it is false.
