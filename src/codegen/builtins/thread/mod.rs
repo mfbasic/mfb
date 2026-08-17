@@ -118,6 +118,7 @@ fn function(
         desc: "",
         example: "",
         expected_arguments,
+        internal_only: false,
         implementations,
     }
 }

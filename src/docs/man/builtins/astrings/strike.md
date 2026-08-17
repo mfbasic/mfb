@@ -22,7 +22,7 @@ IMPORT astrings
 
 `strike` returns an `Attribute` wrapping the `AttrFlag` with `kind` `AttrTypeFlag.Strike`. Pass it to
 `astrings::addAttribute` to mark a scalar range struck through. A flag attribute carries no value — a
-scalar is struck when any covering span carries the strike flag. [[src/builtins/astrings_package.mfb]]
+scalar is struck when any covering span carries the strike flag. [[src/codegen/builtins/astrings/package.mfb]]
 
 ## Parameters
 

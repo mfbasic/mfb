@@ -24,6 +24,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: "",
         example: "",
         expected_arguments: Some("Socket or UdpSocket, Integer"),
+        internal_only: false,
         implementations: vec![overload(super::socket()), overload(super::udp())],
     });
 }

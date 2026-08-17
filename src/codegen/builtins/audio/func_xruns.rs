@@ -57,6 +57,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: DESC,
         example: EX,
         expected_arguments: Some("AudioInput or AudioOutput"),
+        internal_only: false,
         implementations: vec![
             overload(AUDIO_INPUT_TYPE_ID),
             overload(AUDIO_OUTPUT_TYPE_ID),

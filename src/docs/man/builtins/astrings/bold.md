@@ -22,7 +22,7 @@ IMPORT astrings
 
 `bold` returns an `Attribute` wrapping the `AttrFlag` with `kind` `AttrTypeFlag.Bold`. Pass it to
 `astrings::addAttribute` to mark a scalar range bold. A flag attribute carries no value — a scalar is
-bold when any covering span carries the bold flag. [[src/builtins/astrings_package.mfb]]
+bold when any covering span carries the bold flag. [[src/codegen/builtins/astrings/package.mfb]]
 
 ## Parameters
 

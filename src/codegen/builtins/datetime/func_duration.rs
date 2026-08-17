@@ -89,6 +89,7 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
         desc: DESC,
         example: EX,
         expected_arguments: Some("1 to 5 Integer"),
+        internal_only: false,
         implementations: vec![
             super::Implementation {
                 params: vec![super::Parameter {

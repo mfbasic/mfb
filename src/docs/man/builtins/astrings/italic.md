@@ -22,7 +22,7 @@ IMPORT astrings
 
 `italic` returns an `Attribute` wrapping the `AttrFlag` with `kind` `AttrTypeFlag.Italic`. Pass it to
 `astrings::addAttribute` to mark a scalar range italic. A flag attribute carries no value — a scalar
-is italic when any covering span carries the italic flag. [[src/builtins/astrings_package.mfb]]
+is italic when any covering span carries the italic flag. [[src/codegen/builtins/astrings/package.mfb]]
 
 ## Parameters
 

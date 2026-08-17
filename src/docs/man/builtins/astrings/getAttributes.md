@@ -24,7 +24,7 @@ IMPORT astrings
 covering span, the covering span with the **highest start** wins (ties break to the later insertion).
 The result carries at most one `Attribute` per member — flags are present when any covering span
 carries them; font/font-size take the winning span's value. Attributes are never merged on write, so
-this read-time resolution is where overlaps are decided. [[src/builtins/astrings_package.mfb]]
+this read-time resolution is where overlaps are decided. [[src/codegen/builtins/astrings/package.mfb]]
 
 ## Parameters
 

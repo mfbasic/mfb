@@ -13,6 +13,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: "",
         example: "",
         expected_arguments: Some("File[, String]"),
+        internal_only: false,
         implementations: vec![Implementation {
             params: vec![
                 super::req("file", &[], ParameterType::Named(super::FILE_TYPE)),

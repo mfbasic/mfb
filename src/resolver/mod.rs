@@ -112,10 +112,10 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     // BOTH packages; it imports term/astrings/strings, so it precedes all three so
     // their `uses_package` sees the dependency (mirrors `http` before `net`).
     let augmented = builtins::term::bridge_augmented_project(&augmented)?;
-    // `astrings_package.mfb` imports only `collections` (native members) and
-    // `astrings` itself (the internal overlay bridge), so it has no companion
-    // ordering dependency.
-    let augmented = builtins::astrings::augmented_project(&augmented)?;
+    // `astrings`' source companion (`package.mfb`) is injected by the generic
+    // clean-room `registry::augment_project` above (plan-99 PART C), as an `Always`
+    // helper on the migrated `astrings` package — emitted whenever a program
+    // `IMPORT astrings`.
     // app + datetime + money source is injected by the clean-room
     // `registry::augment_project` above.
     // `term_package.mfb` declares only the `LineStyle`/`FillStyle` enums and imports

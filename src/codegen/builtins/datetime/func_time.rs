@@ -110,6 +110,7 @@ pub(super) fn register(pkg: &mut super::RegistryPackage) {
         desc: DESC,
         example: EX,
         expected_arguments: Some("Integer, Integer[, Integer[, Integer]]"),
+        internal_only: false,
         implementations: vec![Implementation {
             params: vec![
                 int_param("hour", DefaultValue::None),

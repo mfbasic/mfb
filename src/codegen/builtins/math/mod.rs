@@ -227,6 +227,7 @@ pub(super) fn preserving_unary(
         desc,
         example,
         expected_arguments: Some(expected),
+        internal_only: false,
         implementations: impls,
     });
 }
@@ -272,6 +273,7 @@ pub(super) fn rounding(
         desc,
         example,
         expected_arguments: Some(expected),
+        internal_only: false,
         implementations: impls,
     });
 }
@@ -320,6 +322,7 @@ pub(super) fn preserving_binary(
         desc,
         example,
         expected_arguments: Some(expected),
+        internal_only: false,
         implementations: impls,
     });
 }

@@ -26,7 +26,7 @@ dependency. The `AttributedString` type itself is always in scope.
 `fromString` builds an `AttributedString` whose visible text is a deep copy of
 `text` and whose attribute overlay is empty. The result is value-semantic: it
 copies deeply, drops with its owning scope, and shares no storage with `text`.
-[[src/builtins/astrings.rs:ASTRINGS]] [[src/target/shared/code/builder_astrings.rs:lower_astrings_from_string]]
+[[src/codegen/builtins/astrings/mod.rs:register]] [[src/target/shared/code/builder_astrings.rs:lower_astrings_from_string]]
 
 Recover the visible text with `toString(a)`; `io::print`/`io::write` emit it. The
 constructed value has no attributes until `astrings::addAttribute` (and the other
@@ -36,13 +36,13 @@ mutation members) records some.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `text` | `String` | The visible text. Copied into the new value. [[src/builtins/astrings.rs:call_param_names]] |
+| `text` | `String` | The visible text. Copied into the new value. [[src/codegen/builtins/astrings/func_from_string.rs:text]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `AttributedString` | A new attributed string with visible text equal to `text` and an empty attribute overlay. [[src/builtins/astrings.rs:ASTRINGS]] |
+| `AttributedString` | A new attributed string with visible text equal to `text` and an empty attribute overlay. [[src/codegen/builtins/astrings/mod.rs:register]] |
 
 ## Errors
 

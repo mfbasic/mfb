@@ -1036,7 +1036,7 @@ impl BuiltinRegistry {
 /// to the clean-room registry `crate::codegen::registry` and are no longer held here.)
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
     // app migrated to the clean-room registry (crate::codegen::registry).
-    &crate::builtins::astrings::ASTRINGS,
+    // astrings migrated to the clean-room registry (crate::codegen::registry).
     // bits migrated to the clean-room registry (crate::codegen::registry).
     // collections migrated to the clean-room registry (crate::codegen::registry).
     // csv migrated to the clean-room registry (crate::codegen::registry).
@@ -1744,9 +1744,11 @@ mod tests {
         // is no longer held here.
         assert!(REGISTRY.module("vector").is_none());
         assert!(REGISTRY.function("vector.length").is_none());
-        // plan-89-A: the `astrings` package (opaque AttributedString + fromString).
-        assert!(REGISTRY.module("astrings").is_some());
-        assert!(REGISTRY.function("astrings.fromString").is_some());
+        // `astrings` migrated to the clean-room registry (plan-99 PART C); the opaque
+        // `AttributedString` TYPE stays hardcoded/always-in-scope, but its FUNCTIONS
+        // are no longer held here.
+        assert!(REGISTRY.module("astrings").is_none());
+        assert!(REGISTRY.function("astrings.fromString").is_none());
         // bits / csv / json / regex / process / datetime / encoding / collections /
         // money / os have migrated onto the clean-room registry (`crate::codegen::registry`)
         // and are no longer held here.
@@ -1780,7 +1782,7 @@ mod tests {
         assert!(REGISTRY.module("strings").is_none());
         assert!(REGISTRY.function("strings.upper").is_none());
         // The 28 builtin packages minus the migrated ones.
-        assert_eq!(REGISTRY.modules().len(), 5);
+        assert_eq!(REGISTRY.modules().len(), 4);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);

@@ -26,7 +26,7 @@ drops with its owning scope, and defaults to empty text with no attributes. It i
 **opaque** — it exposes no user-visible fields (`a.text` does not compile), cannot
 be built with a record literal (`AttributedString[...]`), and cannot be
 `WITH`-updated. It is copyable and defaultable but **not** comparable, so it is
-never a `Map` key or `Set` element. [[src/builtins/astrings.rs:ASTRINGS]]
+never a `Map` key or `Set` element. [[src/codegen/builtins/astrings/mod.rs:register]]
 
 Reach the visible text with `toString(a)`; `io::print`/`io::write` emit it. The
 text is never reached by an implicit coercion — only through `toString` or an
@@ -34,7 +34,7 @@ explicit overload. [[src/target/shared/code/builder_strings.rs:lower_to_string]]
 
 `astrings::fromString(text)` constructs an `AttributedString` whose visible text
 is `text` and whose attribute overlay is empty.
-[[src/builtins/astrings.rs:is_astrings_call]]
+[[src/codegen/builtins/astrings/mod.rs:register]]
 
 ## Errors
 

@@ -74,6 +74,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         // Overloaded on the element type; the per-position render only shows the
         // first overload (`List OF Byte`). The union names both accepted forms.
         expected_arguments: Some("List OF Byte or List OF Integer"),
+        internal_only: false,
         implementations: vec![
             Implementation {
                 params: vec![value(ParameterType::list_of(ParameterType::Byte))],

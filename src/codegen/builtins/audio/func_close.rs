@@ -48,6 +48,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: DESC,
         example: EX,
         expected_arguments: Some("AudioInput or AudioOutput"),
+        internal_only: false,
         implementations: vec![
             Implementation {
                 params: vec![param(

@@ -166,8 +166,9 @@ pub fn check_project_collect(
     // BOTH packages; it imports term/astrings/strings, so it precedes all three so
     // their `uses_package` sees the dependency (mirrors `http` before `net`).
     let augmented = builtins::term::bridge_augmented_project(&augmented)?;
-    // `astrings` imports only `collections` (native members) + `astrings` itself.
-    let augmented = builtins::astrings::augmented_project(&augmented)?;
+    // `astrings`' source companion (`package.mfb`) is injected by the generic
+    // clean-room `registry::augment_project` above (plan-99 PART C), as an `Always`
+    // helper on the migrated `astrings` package.
     // app + datetime + money source is injected by the clean-room
     // `registry::augment_project` above.
     let augmented = builtins::term::augmented_project(&augmented)?;

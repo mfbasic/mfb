@@ -11,6 +11,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: "",
         example: "",
         expected_arguments: Some("String"),
+        internal_only: false,
         implementations: vec![Implementation {
             params: vec![super::req("s", &["query", "value"], ParameterType::String)],
             return_type: ParameterType::map_of(ParameterType::String, ParameterType::String),

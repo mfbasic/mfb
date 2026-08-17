@@ -93,6 +93,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: DESC_FILTER,
         example: EX,
         expected_arguments: Some("List OF T, FUNC(T) AS Boolean"),
+        internal_only: false,
         implementations: vec![Implementation {
             params: vec![
                 Parameter {

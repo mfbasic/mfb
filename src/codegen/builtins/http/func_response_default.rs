@@ -12,6 +12,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: "",
         example: "",
         expected_arguments: Some("no arguments"),
+        internal_only: false,
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::Named(super::RESPONSE_TYPE),

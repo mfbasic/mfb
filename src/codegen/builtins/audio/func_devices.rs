@@ -36,6 +36,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: DESC,
         example: EX,
         expected_arguments: None,
+        internal_only: false,
         implementations: vec![Implementation {
             params: vec![],
             return_type: ParameterType::list_of(ParameterType::Named(AUDIO_DEVICE_TYPE)),

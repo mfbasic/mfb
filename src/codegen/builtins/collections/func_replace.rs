@@ -88,6 +88,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: DESC_REPLACE,
         example: EX_REPLACE,
         expected_arguments: Some("List OF T, T, T"),
+        internal_only: false,
         implementations: vec![Implementation {
             params: vec![
                 Parameter {

@@ -60,6 +60,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: DESC,
         example: EX,
         expected_arguments: Some("numeric value, numeric low, numeric high of the same type"),
+        internal_only: false,
         implementations: impls,
     });
 }

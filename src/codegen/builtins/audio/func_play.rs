@@ -71,6 +71,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         // `String` overload is the catch-all — reproducing the pre-migration
         // `source_implementation_name` selection (`play(out, [tracks])` →
         // `__audio_playTracks`, `play(out, "mml")` → `__audio_play`).
+        internal_only: false,
         implementations: vec![
             Implementation {
                 params: vec![

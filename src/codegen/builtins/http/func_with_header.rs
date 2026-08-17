@@ -11,6 +11,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: "",
         example: "",
         expected_arguments: Some("Response, String, String"),
+        internal_only: false,
         implementations: vec![Implementation {
             params: vec![
                 super::req(

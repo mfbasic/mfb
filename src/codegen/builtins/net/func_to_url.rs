@@ -12,6 +12,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: "",
         example: "",
         expected_arguments: Some("String"),
+        internal_only: false,
         implementations: vec![Implementation {
             params: vec![super::req("href", &["value", "url"], ParameterType::String)],
             return_type: ParameterType::Named(super::URL_TYPE),

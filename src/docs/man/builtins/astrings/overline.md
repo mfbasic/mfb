@@ -23,7 +23,7 @@ IMPORT astrings
 `overline` returns an `Attribute` wrapping the `AttrFlag` with `kind` `AttrTypeFlag.Overline`. Pass it
 to `astrings::addAttribute` to mark a scalar range overlined. A flag attribute carries no value — a
 scalar is overlined when any covering span carries the overline flag.
-[[src/builtins/astrings_package.mfb]]
+[[src/codegen/builtins/astrings/package.mfb]]
 
 ## Parameters
 

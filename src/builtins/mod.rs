@@ -1,4 +1,3 @@
-pub(crate) mod astrings;
 pub(crate) mod general;
 pub(crate) mod resource;
 pub(crate) mod term;
@@ -599,7 +598,11 @@ pub(crate) fn is_nonescaping_callback_arg(callee: &str, index: usize) -> bool {
 /// `AstFile::internal`, so the glue still resolves (bug-337-D9).
 pub(crate) fn is_internal_only_call(name: &str) -> bool {
     crate::codegen::builtins::crypto::is_crypto_internal_call(name)
-        || astrings::is_astrings_internal_call(name)
+        // `astrings`' overlay-bridge natives (`readSpans`/`writeSpans`/`scalarLen`)
+        // migrated to the clean-room registry with `internal_only: true` (plan-99
+        // PART C), honored generically here — replacing the deleted per-package
+        // `astrings::is_astrings_internal_call`.
+        || crate::codegen::registry::registry().is_internal_only_member(name)
 }
 
 pub(crate) fn is_builtin_call(name: &str) -> bool {
@@ -755,9 +758,10 @@ pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
     if let Some(names) = crate::codegen::registry::call_param_names(name) {
         return Some(names);
     }
-    let borrowed: &'static [&'static [&'static str]] = astrings::call_param_names(name)
-        .or_else(|| general::call_param_names(name))
-        .or_else(|| term::call_param_names(name))?;
+    // `astrings` migrated to the clean-room registry (plan-99 PART C); its per-position
+    // parameter names are served by the generic `registry::call_param_names` above.
+    let borrowed: &'static [&'static [&'static str]] =
+        general::call_param_names(name).or_else(|| term::call_param_names(name))?;
     Some(borrowed.iter().map(|aliases| aliases.to_vec()).collect())
 }
 

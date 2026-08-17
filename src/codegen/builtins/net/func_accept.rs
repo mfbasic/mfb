@@ -11,6 +11,7 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
         desc: "",
         example: "",
         expected_arguments: Some("Listener, Integer"),
+        internal_only: false,
         implementations: vec![Implementation {
             params: vec![
                 super::req("listener", &[], super::listener()),

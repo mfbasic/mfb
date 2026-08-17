@@ -23,7 +23,7 @@ IMPORT astrings
 `underline` returns an `Attribute` wrapping the `AttrFlag` with `kind` `AttrTypeFlag.Underline`. Pass
 it to `astrings::addAttribute` to mark a scalar range underlined. A flag attribute carries no value —
 a scalar is underlined when any covering span carries the underline flag.
-[[src/builtins/astrings_package.mfb]]
+[[src/codegen/builtins/astrings/package.mfb]]
 
 ## Parameters
 

@@ -100,8 +100,9 @@ pub fn lower_project_with_external_functions(
     // their `uses_package` sees the dependency (mirrors `http` before `net`).
     let augmented = builtins::term::bridge_augmented_project(&augmented)
         .expect("built-in term/astrings bridge source must parse");
-    let augmented = builtins::astrings::augmented_project(&augmented)
-        .expect("built-in astrings package source must parse");
+    // `astrings`' source companion (`package.mfb`) is injected by the clean-room
+    // `registry::augment_project` above (plan-99 PART C), as an `Always` helper on
+    // the migrated `astrings` package — emitted whenever a program `IMPORT astrings`.
     // app + datetime + money source is injected by the clean-room
     // `registry::augment_project` above.
     let augmented = builtins::term::augmented_project(&augmented)
@@ -2097,11 +2098,11 @@ fn expression_type(
                 .is_member(&canonical_callee)
                 && crate::codegen::registry::registry().owning_package(&canonical_callee)
                     != Some("encoding");
-            if builtins::astrings::is_astrings_call(&canonical_callee)
-                // `strings`/`math`/`vector`/`fs`/`io`/`net`/`tls`/`http`/`audio`
-                // migrated to the clean-room registry — covered by
-                // `migrated_arg_typed` (`registry::is_member`) below.
-                || migrated_arg_typed
+            if
+            // `astrings`/`strings`/`math`/`vector`/`fs`/`io`/`net`/`tls`/`http`/
+            // `audio` migrated to the clean-room registry — covered by
+            // `migrated_arg_typed` (`registry::is_member`) below.
+            migrated_arg_typed
                 || crate::codegen::registry::registry().owning_package(&canonical_callee)
                     == Some("datetime")
                 // `crypto` migrated to the clean-room registry — covered by
@@ -2888,13 +2889,6 @@ fn lower_expression_with_expected(
                         &arg_types,
                     )
                     .map(str::to_string)
-                })
-                .or_else(|| {
-                    // `astrings::` Attribute-model + Tier-C members rewrite to their
-                    // `__astrings_*` source-companion bodies; `clearAttributes`
-                    // selects the whole vs ranged body by arity (plan-89-B).
-                    builtins::astrings::implementation_name(&canonical_callee, args.len())
-                        .map(|name| crate::internal_name::internalize(&name))
                 })
                 .or_else(|| {
                     // `vector::` selects its type-specific internal FUNC from the call's

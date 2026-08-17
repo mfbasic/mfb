@@ -5,7 +5,7 @@ impl CodeBuilder<'_> {
     /// when `target` is not a native `astrings` member (so the caller falls
     /// through to the generic call path — the `Attribute`-model and Tier-C members
     /// are `.mfb` source-companion bodies, not native).
-    pub(super) fn lower_astrings_package_call(
+    pub(crate) fn lower_astrings_package_call(
         &mut self,
         target: &str,
         args: &[NirValue],
