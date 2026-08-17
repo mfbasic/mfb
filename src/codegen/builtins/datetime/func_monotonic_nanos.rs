@@ -2,8 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). datetime members are
 //! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`. This file owns the
-//! descriptor + docs migrated from `src/docs/man/builtins/datetime/monotonicNanos.md`.
+//! source bodies live in the shared `package.mfb`.
 
 const INTRO: &str = r#"The raw monotonic-clock reading as a whole nanosecond count."#;
 const DESC: &str = r#"`datetime::monotonicNanos` reads the host's monotonic clock and returns the

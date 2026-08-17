@@ -1,8 +1,7 @@
 //! `audio::available` — frames a stream can move immediately (native OS-seam).
 //!
 //! Two overloads (`AudioInput` / `AudioOutput`) sharing one runtime symbol
-//! (`audio.available`, branching on the handle kind at runtime). Docs migrated from
-//! `src/docs/man/builtins/audio/available.md`.
+//! (`audio.available`, branching on the handle kind at runtime).
 
 use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;

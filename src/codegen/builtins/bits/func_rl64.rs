@@ -1,7 +1,4 @@
 //! `bits::rl64` — rotate all 64 bits of an integer left.
-//!
-//! Descriptor + docs migrated from `src/docs/man/builtins/bits/rl64.md`; lowering
-//! from the former `src/target/shared/code/builder_bits.rs::lower_bits_rotate`.
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,

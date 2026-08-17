@@ -3,8 +3,7 @@
 //! A source member: a content-independent-time byte-list equality check for comparing
 //! secrets (MACs, password hashes, tokens). Total — never raises. Its
 //! `Body::Rewrite("__crypto_constantTimeEqual")` repoints the citation at the
-//! `package.mfb` helper. Docs migrated from
-//! `src/docs/man/builtins/crypto/constantTimeEqual.md`.
+//! `package.mfb` helper.
 
 use super::{
     bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,

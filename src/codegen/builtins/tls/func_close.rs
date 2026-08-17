@@ -7,8 +7,7 @@
 //! `TlsListener` operand (and a listener scope-drop) to the internal
 //! `tls.closeListener` body, which the listener overload declares as its code-form
 //! `os_alias` so the generic OS dispatch routes it to this member's lowering.
-//! `close` consumes the handle it is given. Docs migrated from
-//! `src/docs/man/builtins/tls/close.md`.
+//! `close` consumes the handle it is given.
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,

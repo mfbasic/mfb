@@ -2,8 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). datetime members are
 //! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`. This file owns the
-//! descriptor + docs migrated from `src/docs/man/builtins/datetime/monotonic.md`.
+//! source bodies live in the shared `package.mfb`.
 
 const INTRO: &str = r#"A monotonically non-decreasing clock reading for measuring elapsed time."#;
 const DESC: &str = r#"`datetime::monotonic` reads the host's monotonic clock and returns the elapsed

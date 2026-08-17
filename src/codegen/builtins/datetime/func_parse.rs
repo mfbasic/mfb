@@ -2,8 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). datetime members are
 //! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`. This file owns the
-//! descriptor + docs migrated from `src/docs/man/builtins/datetime/parse.md`.
+//! source bodies live in the shared `package.mfb`.
 
 const INTRO: &str = r#"Parse text into a `DateTime` using the format pattern mini-language."#;
 const DESC: &str = r#"`datetime::parse` reads `value` against `pattern` and returns the `DateTime` it

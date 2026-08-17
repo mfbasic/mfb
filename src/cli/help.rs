@@ -199,19 +199,6 @@ Options:
 Arguments:
   [path]              Source file or project folder to document";
 
-pub(crate) const MAN_HELP: &str = "\
-Usage: mfb man [package] [function] [options]
-
-Display the built-in manual for packages and specific functions.
-
-Options:
-  --all               Print the whole manual, or one package in full
-
-Examples:
-  mfb man standard print
-  mfb man io --all
-  mfb man --all";
-
 pub(crate) const SPEC_HELP: &str = "\
 Usage: mfb spec [topic] [subtopic] [options]
 

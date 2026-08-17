@@ -3,7 +3,7 @@
 //! A source-glue member: an unbiased, CSPRNG-backed integer in an inclusive range,
 //! drawing fresh entropy through `crypto::randomBytes` per call. Its
 //! `Body::Rewrite("__crypto_randomInt")` repoints the citation at the `package.mfb`
-//! helper. Docs migrated from `src/docs/man/builtins/crypto/randomInt.md`.
+//! helper.
 
 use super::{Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction};
 

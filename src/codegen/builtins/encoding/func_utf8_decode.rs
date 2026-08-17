@@ -1,8 +1,7 @@
 //! `encoding::utf8Decode` — descriptor entry, docs, and source body.
 //!
 //! Per-member file (mirrors collections/func_*.rs). The descriptor carries
-//! a Custom (resolver-selected) overload; its authored intro/description/examples migrated from
-//! `src/docs/man/builtins/encoding/utf8Decode.md`. Body byte-significant
+//! a Custom (resolver-selected) overload. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use crate::codegen::registry::{

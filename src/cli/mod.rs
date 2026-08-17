@@ -5,7 +5,6 @@ pub mod fmt;
 pub mod help;
 pub mod init;
 pub mod man;
-pub mod man2;
 pub mod pkg;
 pub mod repo;
 pub mod resolve;

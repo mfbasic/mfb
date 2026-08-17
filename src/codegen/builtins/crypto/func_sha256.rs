@@ -3,8 +3,7 @@
 //! Per-member file (planning/migrate.md). A two-overload SOURCE member: the
 //! `List OF Byte` and `String` forms are distinct `Implementation`s whose parameter
 //! type makes `select` pick the `_bytes`/`_text` body in `package.mfb` (the legacy
-//! `_bytes`/`_text` `implementation_name` the clean-room `select()` subsumes). Docs
-//! migrated from `src/docs/man/builtins/crypto/sha256.md`.
+//! `_bytes`/`_text` `implementation_name` the clean-room `select()` subsumes).
 
 use super::{
     bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,

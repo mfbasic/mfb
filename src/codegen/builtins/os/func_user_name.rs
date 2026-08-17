@@ -1,7 +1,6 @@
 //! `os::userName` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). Docs migrated from
-//! `src/docs/man/builtins/os/userName.md`.
+//! Per-member file (planning/migrate.md).
 
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;

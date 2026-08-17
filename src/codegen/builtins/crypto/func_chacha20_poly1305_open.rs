@@ -4,7 +4,6 @@
 //! Fails closed on any tag mismatch via `crypto::constantTimeEqual`. Its
 //! `Body::Rewrite("__crypto_chacha20Poly1305Open")` repoints the citation at the
 //! `package.mfb` helper; the optional `aad` parameter fills to the empty byte list.
-//! Docs migrated from `src/docs/man/builtins/crypto/chacha20Poly1305Open.md`.
 
 use super::{bytes, Body, DefaultValue, Implementation, Parameter, RegistryFunction};
 

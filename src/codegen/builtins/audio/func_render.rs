@@ -2,8 +2,7 @@
 //!
 //! A pure-MFBASIC tone synthesizer (no device call): rewrites to the
 //! `__audio_render` body in the source companion (`package.mfb`) through the
-//! generic `registry::rewrite_target`. Docs migrated from
-//! `src/docs/man/builtins/audio/render.md`.
+//! generic `registry::rewrite_target`.
 
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;

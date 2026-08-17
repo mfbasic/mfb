@@ -2,7 +2,7 @@
 //!
 //! Native syscall member: its `Body::native` posix/win slots both hold the shared
 //! family-generic OS-seam dispatcher `native::lower_fs_helper`. Returns a `File`
-//! resource. Docs migrated from `src/docs/man/builtins/fs/open.md`.
+//! resource.
 
 use super::native::lower_fs_helper;
 use super::{Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage};

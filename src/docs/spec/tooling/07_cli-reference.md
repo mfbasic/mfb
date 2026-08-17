@@ -2,7 +2,7 @@
 
 The complete `mfb` command-line surface: every command, its flags, exit codes,
 and the structured output of `pkg info`, plus the terminal-rendering rules shared
-by the embedded `spec` and `man` help. This topic owns the reimplementable CLI
+by the `spec` and `man` help. This topic owns the reimplementable CLI
 detail; the language/architecture specs only mention these commands in passing.
 
 The first argument is the command; `mfb help`, `mfb --help`, `mfb -h`, or no
@@ -618,20 +618,26 @@ Index and subtopic listings are emitted as a two-column GFM table
 column reflows to the terminal width instead of running off it; literal `|` in a
 cell is escaped (`escape_spec_cell`).[[src/cli/spec.rs:print_spec_listing]]
 
-`show_man` mirrors `spec` and **is** width-aware — it wraps to
-`detect_terminal_width()` exactly as `spec` does; what it lacks is the `--width`
-*flag* to override that. `--all` renders the whole manual with no positionals, or
-a whole package with one; combining `--all` with a function name is the one
-rejected form. Otherwise: zero args print the package
-index, one arg a package's function/topic listing, two args a single function
-page; an unknown package/function or more than two args exits `2`.[[src/cli/man.rs:show_man]]
-The `man` listing heading is `TOPICS`/`topic` for the `types` package,
-`COMPARISONS`/`language` for the `tour` package, and `FUNCTIONS`/`function`
-otherwise.[[src/cli/man.rs:man_entry_heading]] Within a
-package listing, value-reference entries (a synopsis qualified `package::name`
-with an `AS <Type>` clause and no argument list, e.g. `math::pi`) are split into
-a separate `CONSTANTS` section printed ahead of the `FUNCTIONS`/`TOPICS`
-list.[[src/cli/man.rs:is_constant]]
+`show_man` renders from the **clean-room registry** descriptors rather than an
+embedded Markdown tree (the legacy `src/docs/man/**` tree was retired to
+`planning/old_man`): a package's `intro`/`desc`, each function's `intro`/`desc`/
+`example`, and every implementation's parameters, return type, and declared
+errors.[[src/cli/man.rs:show_man]] Output goes through the same shared Markdown
+renderer as `spec` and is width- and color-aware — `print_markdown` builds a
+`Style { width: detect_terminal_width(), color: <stdout is a TTY> }`; unlike
+`spec` there is no `--width` flag to override the detected width.[[src/cli/man.rs:print_markdown]]
+`--all` renders the whole registry manual with no positionals (every importable
+package overview followed by all of its function pages, separated by a full-width
+`─` rule), or one package in full with a single positional; combining `--all` with
+a function name is the one rejected form. Otherwise one positional prints a package
+overview (its member listing plus the union of every declared error) and two a
+single function page. The reserved page `mfb man <package> types` renders the
+package's consolidated *types* page — exported records (with field tables), unions
+and enums (with their variants), and resources — but only for a package that
+actually declares a public record or union; otherwise `types` falls through to the
+normal function lookup.[[src/cli/man.rs:has_public_types]] An unknown package or
+function, an unknown `--flag`, `--all` combined with a function, zero positionals
+without `--all`, or more than two positionals exits `2`.
 
 ## See Also
 

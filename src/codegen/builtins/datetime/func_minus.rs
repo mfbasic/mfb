@@ -2,8 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). datetime members are
 //! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`. This file owns the
-//! descriptor + docs migrated from `src/docs/man/builtins/datetime/minus.md`.
+//! source bodies live in the shared `package.mfb`.
 
 const INTRO: &str =
     r#"Subtract one `Duration` span from another and return the resulting `Duration`."#;

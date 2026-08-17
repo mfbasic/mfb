@@ -3,8 +3,7 @@
 //! Two overloads selected on the second argument's type: a single `String` track
 //! rewrites to `__audio_play`, a `List OF String` of tracks to `__audio_playTracks`
 //! (both source-companion bodies, reached through the generic
-//! `registry::rewrite_target`). Docs migrated from
-//! `src/docs/man/builtins/audio/play.md`.
+//! `registry::rewrite_target`).
 
 use crate::codegen::registry::{
     Body, Implementation, Parameter, RegistryFunction, RegistryPackage,

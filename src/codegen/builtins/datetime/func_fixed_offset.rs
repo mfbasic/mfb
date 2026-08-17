@@ -2,8 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). datetime members are
 //! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`. This file owns the
-//! descriptor + docs migrated from `src/docs/man/builtins/datetime/fixedOffset.md`.
+//! source bodies live in the shared `package.mfb`.
 
 const INTRO: &str = r#"Build a `Zone` with a constant UTC offset."#;
 const DESC: &str = r#"`datetime::fixedOffset` builds a `Zone` whose offset from UTC is a constant

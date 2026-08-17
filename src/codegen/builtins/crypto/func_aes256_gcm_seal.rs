@@ -3,7 +3,6 @@
 //! An AEAD source member: the ciphertext-and-tag sealing half of AES-256-GCM. Its
 //! `Body::Rewrite("__crypto_aes256GcmSeal")` repoints the citation at the
 //! `package.mfb` helper. The optional `aad` parameter fills to the empty byte list.
-//! Docs migrated from `src/docs/man/builtins/crypto/aes256GcmSeal.md`.
 
 use super::{
     bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,

@@ -2,7 +2,6 @@
 //!
 //! A purely-syntactic `path*` string member: no syscall. It lowers at the call
 //! site through the `Body::native` `common` slot (`native::lower_fs_path_base_name_nl`).
-//! Docs migrated from `src/docs/man/builtins/fs/pathBaseName.md`.
 
 use super::native::lower_fs_path_base_name_nl;
 use super::{Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage};

@@ -4,8 +4,7 @@
 //! per-platform OS-seam entry fns (`*_posix`/`*_win`) delegate to the arch-neutral
 //! emission in `../native/{unix,windows}`, and the generic runtime-call dispatch
 //! (`crate::codegen::os`) picks by `platform.family()`. This file carries the
-//! descriptor, those entry fns, and the
-//! docs migrated from `src/docs/man/builtins/process/isRunning.md`.
+//! descriptor and those entry fns.
 
 use std::collections::HashMap;
 

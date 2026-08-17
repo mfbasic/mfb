@@ -2,8 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). datetime members are
 //! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`. This file owns the
-//! descriptor + docs migrated from `src/docs/man/builtins/datetime/addMonths.md`.
+//! source bodies live in the shared `package.mfb`.
 
 const INTRO: &str = r#"Shift a civil `DateTime` by a whole number of calendar months, clamping the day-of-month to the target month's length."#;
 const DESC: &str = r#"`datetime::addMonths` advances `dt` by a whole number of calendar months and

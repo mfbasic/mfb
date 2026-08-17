@@ -4,7 +4,7 @@
 //! emission. `lower_process_close_helper_posix` (libc `close`, macOS/Linux) and
 //! `lower_process_close_helper_win` (`CloseHandle`) emit the `_mfb_rt_process_close`
 //! helper body; the runtime-call dispatch (`crate::codegen::os`) picks by
-//! `platform.family()`. Docs migrated from `src/docs/man/builtins/process/close.md`.
+//! `platform.family()`.
 
 use std::collections::HashMap;
 

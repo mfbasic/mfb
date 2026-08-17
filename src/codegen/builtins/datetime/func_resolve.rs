@@ -2,8 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). datetime members are
 //! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`. This file owns the
-//! descriptor + docs migrated from `src/docs/man/builtins/datetime/resolve.md`.
+//! source bodies live in the shared `package.mfb`.
 
 const INTRO: &str = r#"Collapse a civil `DateTime` back to the absolute `Instant` it names."#;
 const DESC: &str = r#"`datetime::resolve` is the inverse of `datetime::inZone`: where `inZone` projects

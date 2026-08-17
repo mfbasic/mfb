@@ -1,8 +1,7 @@
 //! `audio::xruns` — cumulative overrun/underrun count for a stream (native OS-seam).
 //!
 //! Two overloads (`AudioInput` / `AudioOutput`) sharing one runtime symbol
-//! (`audio.xruns`, branching on the handle kind at runtime). Docs migrated from
-//! `src/docs/man/builtins/audio/xruns.md`.
+//! (`audio.xruns`, branching on the handle kind at runtime).
 
 use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;

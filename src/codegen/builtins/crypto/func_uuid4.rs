@@ -3,7 +3,7 @@
 //! A source-glue member: a random RFC 4122 version-4 UUID as a canonical lowercase
 //! string, drawing 16 CSPRNG bytes through `crypto::randomBytes`. Takes no arguments.
 //! Its `Body::Rewrite("__crypto_uuid4")` repoints the citation at the `package.mfb`
-//! helper. Docs migrated from `src/docs/man/builtins/crypto/uuid4.md`.
+//! helper.
 
 use super::{Body, Implementation, ParameterType, RegistryFunction};
 

@@ -2,8 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). datetime members are
 //! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`. This file owns the
-//! descriptor + docs migrated from `src/docs/man/builtins/datetime/toUtc.md`.
+//! source bodies live in the shared `package.mfb`.
 
 const INTRO: &str = r#"Project an absolute `Instant` into UTC to produce a civil `DateTime`."#;
 const DESC: &str = r#"`datetime::toUtc` projects the absolute instant `at` into the UTC zone, yielding

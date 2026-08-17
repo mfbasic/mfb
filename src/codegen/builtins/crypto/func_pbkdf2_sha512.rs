@@ -2,8 +2,7 @@
 //!
 //! A two-overload SOURCE member: the `List OF Byte` and `String` password forms
 //! are distinct `Implementation`s whose parameter type makes `select` pick the
-//! `_bytes`/`_text` `Body::Rewrite` body in `package.mfb`. Docs migrated from
-//! `src/docs/man/builtins/crypto/pbkdf2Sha512.md`.
+//! `_bytes`/`_text` `Body::Rewrite` body in `package.mfb`.
 
 use super::{
     bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,

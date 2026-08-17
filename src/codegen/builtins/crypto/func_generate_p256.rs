@@ -1,8 +1,7 @@
 //! `crypto::generateP256` — descriptor entry + authored docs.
 //!
 //! Per-member file (planning/migrate.md). A single-overload SOURCE member that
-//! takes no arguments and returns a `crypto::KeyPair`. Docs migrated from
-//! `src/docs/man/builtins/crypto/generateP256.md`.
+//! takes no arguments and returns a `crypto::KeyPair`.
 
 use super::{Body, Implementation, ParameterType, RegistryFunction};
 

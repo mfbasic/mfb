@@ -4,7 +4,7 @@
 //! `timeoutMs` (arity 1..=2). Both directions share one runtime symbol
 //! (`audio.poll`, branching on the handle kind at runtime); the timed form is
 //! selected at codegen (`builder_values` → `audio.pollTimeout`), declared here as
-//! the code-form alias. Docs migrated from `src/docs/man/builtins/audio/poll.md`.
+//! the code-form alias.
 
 use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;

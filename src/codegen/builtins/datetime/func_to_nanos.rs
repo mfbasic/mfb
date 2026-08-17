@@ -2,8 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). datetime members are
 //! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`. This file owns the
-//! descriptor + docs migrated from `src/docs/man/builtins/datetime/toNanos.md`.
+//! source bodies live in the shared `package.mfb`.
 
 const INTRO: &str = r#"Return the whole nanoseconds between the Unix epoch and an `Instant`."#;
 const DESC: &str = r#"`datetime::toNanos` collapses the absolute point `at` into a single `Integer`

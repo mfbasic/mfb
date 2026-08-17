@@ -3,8 +3,7 @@
 //! Per-member file (planning/migrate.md). `io` is a native OS-seam package: the
 //! member registers a `Body::native_os_seam` whose per-family slots both hold the
 //! shared [`super::lower_io_helper`] dispatcher (which branches on
-//! `platform.family()` and the runtime-call name internally). Docs migrated from
-//! `src/docs/man/builtins/io/input.md`.
+//! `platform.family()` and the runtime-call name internally).
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,

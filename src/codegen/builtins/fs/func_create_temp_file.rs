@@ -2,8 +2,7 @@
 //!
 //! Native syscall member: its `Body::native` posix/win slots both hold the shared
 //! family-generic OS-seam dispatcher `native::lower_fs_helper`. Returns a `File`
-//! resource for a freshly created temp file; `directory` is optional. Docs
-//! migrated from `src/docs/man/builtins/fs/createTempFile.md`.
+//! resource for a freshly created temp file; `directory` is optional.
 
 use super::native::lower_fs_helper;
 use super::{Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage};

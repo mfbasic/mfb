@@ -2,8 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). datetime members are
 //! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`. This file owns the
-//! descriptor + docs migrated from `src/docs/man/builtins/datetime/compare.md`.
+//! source bodies live in the shared `package.mfb`.
 
 const INTRO: &str = r#"Order two instants on the UTC timeline as a three-way sign."#;
 const DESC: &str = r#"`datetime::compare` returns the sign of `a - b` as a three-way ordering: `-1`

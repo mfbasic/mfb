@@ -1,7 +1,4 @@
 //! `bits::bnot` — bitwise NOT (one's complement) of a 64-bit integer.
-//!
-//! Descriptor + docs migrated from `src/docs/man/builtins/bits/bnot.md`; lowering
-//! from the former `src/target/shared/code/builder_bits.rs::lower_bits_not`.
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,

@@ -1,7 +1,6 @@
 //! `os::setEnv` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). Docs migrated from
-//! `src/docs/man/builtins/os/setEnv.md`.
+//! Per-member file (planning/migrate.md).
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,

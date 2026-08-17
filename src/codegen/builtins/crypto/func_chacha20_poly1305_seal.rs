@@ -3,8 +3,7 @@
 //! An AEAD source member: the ciphertext-and-tag sealing half of ChaCha20-Poly1305
 //! (RFC 8439). Its `Body::Rewrite("__crypto_chacha20Poly1305Seal")` repoints the
 //! citation at the `package.mfb` helper; the optional `aad` parameter fills to the
-//! empty byte list. Docs migrated from
-//! `src/docs/man/builtins/crypto/chacha20Poly1305Seal.md`.
+//! empty byte list.
 
 use super::{
     bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,

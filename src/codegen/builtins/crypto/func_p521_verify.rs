@@ -2,7 +2,7 @@
 //!
 //! A NATIVE member: ECDSA verification on the NIST P-521 curve. Its `Body::native`
 //! OS-seam slots point at [`super::native::lower_crypto_ec`], the shared elliptic-curve
-//! lowering. Docs migrated from `src/docs/man/builtins/crypto/p521Verify.md`.
+//! lowering.
 
 use super::{
     bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,

@@ -1,8 +1,4 @@
 //! `money::getRounding` — read the `Money`-arithmetic rounding mode in effect.
-//!
-//! Descriptor + docs migrated from `src/docs/man/builtins/money/getRounding.md`;
-//! lowering from the former
-//! `src/target/shared/code/builder_money.rs::lower_money_get_rounding`.
 
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::target::shared::abi;

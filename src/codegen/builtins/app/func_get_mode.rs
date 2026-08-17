@@ -1,7 +1,6 @@
 //! `app::getMode` — read the presentation mode currently in effect.
 //!
-//! Descriptor + docs migrated from `src/docs/man/builtins/app/getMode.md`; the
-//! native lowering (the per-arena presentation-mode load) lives in
+//! The native lowering (the per-arena presentation-mode load) lives in
 //! [`super::native::lower_app_helper`].
 
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};

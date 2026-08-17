@@ -2,8 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). datetime members are
 //! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`. This file owns the
-//! descriptor + docs migrated from `src/docs/man/builtins/datetime/utc.md`.
+//! source bodies live in the shared `package.mfb`.
 
 const INTRO: &str = r#"The `Zone` representing Coordinated Universal Time."#;
 const DESC: &str = r#"`datetime::utc` returns the `Zone` that represents Coordinated Universal Time: a

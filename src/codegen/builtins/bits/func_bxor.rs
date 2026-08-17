@@ -1,7 +1,4 @@
 //! `bits::bxor` — bitwise exclusive-OR of two 64-bit integers.
-//!
-//! Descriptor + docs migrated from `src/docs/man/builtins/bits/bxor.md`; lowering
-//! from the former `src/target/shared/code/builder_bits.rs::lower_bits_binary`.
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,

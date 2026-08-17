@@ -1,6 +1,4 @@
 //! `audio::devices` — enumerate the host's audio devices (native OS-seam).
-//!
-//! Docs migrated from `src/docs/man/builtins/audio/devices.md`.
 
 use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;

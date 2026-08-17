@@ -3,8 +3,7 @@
 //! Per-member file (planning/migrate.md). `os` is a native OS-seam package: the
 //! member registers a `Body::native` whose per-family slots both hold the shared
 //! [`super::lower_os_helper`] dispatcher (which branches on `platform.family()`
-//! and the runtime-call name internally). Docs migrated from
-//! `src/docs/man/builtins/os/getEnv.md`.
+//! and the runtime-call name internally).
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,

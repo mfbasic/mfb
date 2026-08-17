@@ -3,8 +3,7 @@
 //! One signature with an optional trailing `timeoutMs` (arity 2..=3); the timed
 //! form is selected at codegen (`builder_values` → `audio.readTimeout`), declared
 //! here as the code-form alias. `read` is input-only — its `AudioInput` parameter
-//! rejects an `AudioOutput` under strict base-resource matching. Docs migrated from
-//! `src/docs/man/builtins/audio/read.md`.
+//! rejects an `AudioOutput` under strict base-resource matching.
 
 use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;

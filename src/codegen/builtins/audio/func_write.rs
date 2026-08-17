@@ -1,8 +1,7 @@
 //! `audio::write` — queue raw `s16le` PCM to an output stream (native OS-seam).
 //!
 //! Output-only: its `AudioOutput` parameter rejects an `AudioInput` under strict
-//! base-resource matching. Docs migrated from
-//! `src/docs/man/builtins/audio/write.md`.
+//! base-resource matching.
 
 use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;

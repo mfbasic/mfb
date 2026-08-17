@@ -2,8 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). datetime members are
 //! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`. This file owns the
-//! descriptor + docs migrated from `src/docs/man/builtins/datetime/negate.md`.
+//! source bodies live in the shared `package.mfb`.
 
 const INTRO: &str =
     r#"Return a `Duration` with the opposite sign — the additive inverse of a span."#;

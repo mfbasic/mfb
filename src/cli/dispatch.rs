@@ -11,12 +11,11 @@ use crate::cli::build::{build_project, parse_build_options, parse_test_options};
 use crate::cli::doc::run_doc_command;
 use crate::cli::fmt::run_fmt_command;
 use crate::cli::help::{
-    AUDIT_HELP, BUILD_HELP, DOC_HELP, FMT_HELP, INIT_HELP, INIT_PKG_HELP, MAN_HELP, PKG_HELP,
-    REPO_HELP, SPEC_HELP, TEST_HELP, USAGE,
+    AUDIT_HELP, BUILD_HELP, DOC_HELP, FMT_HELP, INIT_HELP, INIT_PKG_HELP, PKG_HELP, REPO_HELP,
+    SPEC_HELP, TEST_HELP, USAGE,
 };
 use crate::cli::init::{init_package_project, init_project};
 use crate::cli::man::show_man;
-use crate::cli::man2::show_man2;
 use crate::cli::pkg::run_pkg_command;
 use crate::cli::repo::run_repo_command;
 use crate::cli::spec::show_spec;
@@ -197,30 +196,18 @@ pub(crate) fn run() {
             process::exit(audit::run(&options));
         }
         Some("man") => {
+            // Registry-driven man page: renders any package/function from its
+            // descriptor metadata (intro/desc/example, params, return, errors).
             let man_args = args.collect::<Vec<_>>();
             if man_args.iter().any(|arg| is_help_flag(arg)) {
-                println!("{MAN_HELP}");
-                return;
-            }
-            if let Err(err) = show_man(&man_args) {
-                eprintln!("error: {err}");
-                process::exit(2);
-            }
-        }
-        Some("man2") => {
-            // Experimental registry-driven man page. Renders any registered
-            // package/function from its descriptor metadata; richest for packages
-            // whose docs have migrated into the registry (collections, encoding).
-            let man2_args = args.collect::<Vec<_>>();
-            if man2_args.iter().any(|arg| is_help_flag(arg)) {
-                println!("Usage: mfb man2 <package> [function]");
+                println!("Usage: mfb man <package> [function]");
                 println!();
                 println!(
                     "Render a builtin package or function's man page from the descriptor registry."
                 );
                 return;
             }
-            if let Err(err) = show_man2(&man2_args) {
+            if let Err(err) = show_man(&man_args) {
                 eprintln!("error: {err}");
                 process::exit(2);
             }

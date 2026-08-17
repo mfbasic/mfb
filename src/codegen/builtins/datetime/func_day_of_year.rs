@@ -2,8 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). datetime members are
 //! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`. This file owns the
-//! descriptor + docs migrated from `src/docs/man/builtins/datetime/dayOfYear.md`.
+//! source bodies live in the shared `package.mfb`.
 
 const INTRO: &str = r#"The ordinal day within the year of a `DateTime`'s civil date."#;
 const DESC: &str = r#"`datetime::dayOfYear` returns the ordinal position of `dt`'s civil date within

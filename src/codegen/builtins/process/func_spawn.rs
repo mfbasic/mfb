@@ -4,8 +4,7 @@
 //! (`*_posix`/`*_win`) delegate to the arch-neutral emission in
 //! `../native/{unix,windows}`, and the runtime-call dispatch
 //! (`super::dispatch_os_helper`) picks by `platform.family()`. This file carries the
-//! registry entry, those emitters, and the docs migrated from
-//! `src/docs/man/builtins/process/spawn.md`.
+//! registry entry, those emitters, and the docs.
 
 use std::collections::HashMap;
 

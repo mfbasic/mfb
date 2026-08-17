@@ -1,5 +1,4 @@
-//! `tls::writeText` — descriptor entry (native OS-seam). Docs migrated from
-//! `src/docs/man/builtins/tls/writeText.md`.
+//! `tls::writeText` — descriptor entry (native OS-seam).
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,

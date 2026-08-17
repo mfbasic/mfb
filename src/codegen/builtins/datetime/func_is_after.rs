@@ -2,8 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). datetime members are
 //! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`. This file owns the
-//! descriptor + docs migrated from `src/docs/man/builtins/datetime/isAfter.md`.
+//! source bodies live in the shared `package.mfb`.
 
 const INTRO: &str = r#"Test whether one instant strictly follows another on the UTC timeline."#;
 const DESC: &str = r#"`datetime::isAfter` is a convenience predicate over instants that returns

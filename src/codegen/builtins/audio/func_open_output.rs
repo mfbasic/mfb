@@ -1,8 +1,7 @@
 //! `audio::openOutput` — open a playback stream (native OS-seam).
 //!
 //! Two overloads (default-device / named-device), the named form declaring the
-//! code-form alias `openOutputDevice`. Docs migrated from
-//! `src/docs/man/builtins/audio/openOutput.md`.
+//! code-form alias `openOutputDevice`.
 
 use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;

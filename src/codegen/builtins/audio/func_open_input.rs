@@ -3,7 +3,7 @@
 //! Two overloads: the default-device form (`sampleRate, channels, bufferFrames`)
 //! and the named-device form (a leading `AudioDevice`), which declares the
 //! code-form alias `openInputDevice` (`builder_values` rewrites the device-first
-//! NIR call to it). Docs migrated from `src/docs/man/builtins/audio/openInput.md`.
+//! NIR call to it).
 
 use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;

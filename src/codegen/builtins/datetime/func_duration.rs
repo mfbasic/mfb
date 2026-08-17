@@ -2,8 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). datetime members are
 //! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`. This file owns the
-//! descriptor + docs migrated from `src/docs/man/builtins/datetime/duration.md`.
+//! source bodies live in the shared `package.mfb`.
 
 const INTRO: &str =
     r#"Build a `Duration` span from seconds, nanoseconds, or larger time components."#;

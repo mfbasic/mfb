@@ -5,7 +5,7 @@
 //! emission in `../native/{unix,windows}`, and the generic runtime-call dispatch
 //! (`crate::codegen::os`) picks by `platform.family()`. This file carries the
 //! descriptor, those entry fns, and the
-//! docs migrated from `src/docs/man/builtins/process/signal.md`.
+//! docs.
 
 use std::collections::HashMap;
 

@@ -2,8 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). datetime members are
 //! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`. This file owns the
-//! descriptor + docs migrated from `src/docs/man/builtins/datetime/toIso.md`.
+//! source bodies live in the shared `package.mfb`.
 
 const INTRO: &str = r#"Render a `DateTime` as an RFC 3339 / ISO 8601 timestamp."#;
 const DESC: &str = r#"`datetime::toIso` renders `dt` as an RFC 3339 (ISO 8601 profile) timestamp with

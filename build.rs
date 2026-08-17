@@ -10,24 +10,14 @@ fn main() {
 
     emit_build_metadata(&manifest_dir);
 
-    // Man pages and spec pages share one discovery model: walk a tree, and any
-    // directory holding an index file (`package.{txt,md}` / `spec.md`) is a
-    // package named after the directory. Adding a topic is "drop a file"; adding
-    // a package is "create a directory" — no edits here. Display order (and, for
-    // man, the usage synopsis) lives in the runtime module, the only editorial
-    // bits the filesystem can't express.
-    //
-    // Man pages may be plain text (`.txt`) or Markdown (`.md`); spec pages are
-    // always Markdown. A Markdown page renders to the terminal through
-    // `src/docs/render.rs` (the runtime picks the renderer by sniffing a leading
-    // ATX heading). All pages embed via `include_str!` (zero runtime I/O).
-    generate_doc_table(
-        &manifest_dir.join("src/docs/man"),
-        &["package.txt", "package.md"],
-        &["txt", "md"],
-        "MAN_PACKAGES",
-        &out_dir.join("man_generated.rs"),
-    );
+    // Spec pages use a tree-discovery model: walk `src/docs/spec`, and any
+    // directory holding a `spec.md` index is a package named after the directory.
+    // Adding a topic is "drop a file"; adding a package is "create a directory" —
+    // no edits here. Display order lives in the runtime module. Each Markdown page
+    // renders to the terminal through `src/docs/render.rs` and embeds via
+    // `include_str!` (zero runtime I/O). (The legacy `mfb man` markdown tree was
+    // retired to `planning/old_man`; `mfb man2` renders from the descriptor
+    // registry with no build-time table.)
     generate_doc_table(
         &manifest_dir.join("src/docs/spec"),
         &["spec.md"],

@@ -2,8 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). datetime members are
 //! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`. This file owns the
-//! descriptor + docs migrated from `src/docs/man/builtins/datetime/startOfDay.md`.
+//! source bodies live in the shared `package.mfb`.
 
 const INTRO: &str = r#"Return the civil `DateTime` naming midnight at the start of a `DateTime`'s day, in its own zone."#;
 const DESC: &str = r#"`datetime::startOfDay` returns the `DateTime` naming `00:00:00` (midnight) at the

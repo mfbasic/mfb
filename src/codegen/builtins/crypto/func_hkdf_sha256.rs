@@ -2,8 +2,7 @@
 //!
 //! A single-overload SOURCE member: the HKDF (RFC 5869) key-derivation function
 //! over HMAC-SHA-256, a portable software core whose `Body::Rewrite` repoints at
-//! `__crypto_hkdfSha256` in `package.mfb`. Docs migrated from
-//! `src/docs/man/builtins/crypto/hkdfSha256.md`.
+//! `__crypto_hkdfSha256` in `package.mfb`.
 
 use super::{
     bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,

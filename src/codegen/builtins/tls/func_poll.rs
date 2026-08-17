@@ -8,8 +8,7 @@
 //! overload declares the code-form alias `pollList`: `builder_values` rewrites a
 //! `tls.poll(List …)` NIR call to `tls.pollList`, and the generic OS dispatch
 //! routes that alias to this member's lowering (which branches on the call name to
-//! the portable list driver). Docs migrated from
-//! `src/docs/man/builtins/tls/poll.md`.
+//! the portable list driver).
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,

@@ -4,8 +4,7 @@
 //! site through the `Body::native` `common` slot (`native::lower_fs_path_join_nl`,
 //! delegating to the relocated `impl CodeBuilder` path emitters), which itself
 //! calls the standalone `lower_fs_path_join_helper` runtime helper so
-//! imported-package binary_repr joins identically. Docs migrated from
-//! `src/docs/man/builtins/fs/pathJoin.md`.
+//! imported-package binary_repr joins identically.
 
 use super::native::lower_fs_path_join_nl;
 use super::{Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage};

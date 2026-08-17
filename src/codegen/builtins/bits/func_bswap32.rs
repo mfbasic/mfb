@@ -1,7 +1,4 @@
 //! `bits::bswap32` — reverse the byte order of the low 32 bits of an integer.
-//!
-//! Descriptor + docs migrated from `src/docs/man/builtins/bits/bswap32.md`; lowering
-//! from the former `src/target/shared/code/builder_bits.rs::lower_bits_bswap`.
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,

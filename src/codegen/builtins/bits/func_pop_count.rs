@@ -1,7 +1,4 @@
 //! `bits::popCount` — count the set bits of a 64-bit integer (population count).
-//!
-//! Descriptor + docs migrated from `src/docs/man/builtins/bits/popCount.md`; lowering
-//! from the former `src/target/shared/code/builder_bits.rs::lower_bits_popcount`.
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,

@@ -2,7 +2,6 @@
 //!
 //! Per-member file (planning/migrate.md). A single-overload SOURCE member that
 //! signs a message with an Ed25519 private key and returns a `List OF Byte`.
-//! Docs migrated from `src/docs/man/builtins/crypto/ed25519Sign.md`.
 
 use super::{bytes, Body, DefaultValue, Implementation, Parameter, RegistryFunction};
 

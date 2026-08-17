@@ -4,7 +4,6 @@
 //! [`super::native::lower_crypto_random_bytes`] (emission relocated from the former
 //! `src/target/shared/code/crypto.rs`), dispatched generically through
 //! `registry::os_helper` and its runtime spec DERIVED by `registry::runtime_specs`.
-//! Docs migrated from `src/docs/man/builtins/crypto/randomBytes.md`.
 
 use super::{
     bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,

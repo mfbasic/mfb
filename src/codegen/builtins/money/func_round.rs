@@ -1,8 +1,4 @@
 //! `money::round` — settle a `Money` to a given number of decimal places.
-//!
-//! Descriptor + docs migrated from `src/docs/man/builtins/money/round.md`; lowering
-//! from the former
-//! `src/target/shared/code/builder_money.rs::lower_money_round`.
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,

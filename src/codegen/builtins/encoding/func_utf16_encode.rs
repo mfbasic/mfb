@@ -1,8 +1,7 @@
 //! `encoding::utf16Encode` — descriptor entry, docs, and source body.
 //!
 //! Per-member file (mirrors collections/func_*.rs). The descriptor carries
-//! an MFBASIC source body; its authored intro/description/examples migrated from
-//! `src/docs/man/builtins/encoding/utf16Encode.md`. Body byte-significant
+//! an MFBASIC source body. Body byte-significant
 //! (2-space indent → `.ncode` columns); do not reformat.
 
 use crate::codegen::registry::{

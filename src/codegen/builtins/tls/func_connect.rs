@@ -3,8 +3,7 @@
 //! Per-member file (planning/migrate.md). The member's lowering is the shared
 //! family-generic [`super::native::lower_tls_helper`] in both `Body::native_os_seam`
 //! slots (the `os`/`fs` twin idiom); the generic runtime-call dispatch picks
-//! posix/win by `platform.family()`. Docs migrated from
-//! `src/docs/man/builtins/tls/connect.md`.
+//! posix/win by `platform.family()`.
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,

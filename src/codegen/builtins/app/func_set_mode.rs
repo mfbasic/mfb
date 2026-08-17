@@ -1,7 +1,6 @@
 //! `app::setMode` — change the presentation mode of an `--app` program.
 //!
-//! Descriptor + docs migrated from `src/docs/man/builtins/app/setMode.md`; the
-//! native lowering (store the discriminant, then the per-backend surface-reconcile
+//! The native lowering (store the discriminant, then the per-backend surface-reconcile
 //! seam) lives in [`super::native::lower_app_helper`].
 
 use crate::codegen::registry::{

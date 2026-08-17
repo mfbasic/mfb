@@ -2,8 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). datetime members are
 //! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`. This file owns the
-//! descriptor + docs migrated from `src/docs/man/builtins/datetime/isLeapYear.md`.
+//! source bodies live in the shared `package.mfb`.
 
 const INTRO: &str = r#"Whether a proleptic-Gregorian calendar year is a leap year."#;
 const DESC: &str = r#"`datetime::isLeapYear` applies the proleptic-Gregorian leap rule to `year` and

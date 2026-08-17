@@ -1,8 +1,7 @@
 //! `crypto::ed25519Verify` — descriptor entry + authored docs.
 //!
 //! Per-member file (planning/migrate.md). A single-overload SOURCE member that
-//! checks an Ed25519 signature over a message and returns a `Boolean`. Docs
-//! migrated from `src/docs/man/builtins/crypto/ed25519Verify.md`.
+//! checks an Ed25519 signature over a message and returns a `Boolean`.
 
 use super::{
     bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,

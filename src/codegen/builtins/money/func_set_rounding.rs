@@ -1,8 +1,4 @@
 //! `money::setRounding` — install the `Money`-arithmetic rounding mode.
-//!
-//! Descriptor + docs migrated from `src/docs/man/builtins/money/setRounding.md`;
-//! lowering from the former
-//! `src/target/shared/code/builder_money.rs::lower_money_set_rounding`.
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
