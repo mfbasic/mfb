@@ -160,7 +160,7 @@ X - fully moved to codegen
 [@] csv
 [ ] datetime
 [X] encoding
-[X] errorcode
+[@] errorcode
 [ ] fs
 [X] http
 [ ] io
