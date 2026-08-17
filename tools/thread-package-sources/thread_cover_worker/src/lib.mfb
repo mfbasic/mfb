@@ -1,0 +1,43 @@
+IMPORT thread
+IMPORT fs
+
+' bug-389 byte-identity codegen-coverage fixture (compile-only, never executed).
+' The consumer's src/main.mfb drives every PARENT-side (Thread handle) thread
+' overload; this exported ISOLATED worker mirrors that coverage for every
+' WORKER-side (ThreadWorker handle) overload. Its worker handle carries a data
+' plane (String), a resource plane (qualified fs::File), and an Integer return, so
+' one entry point exercises send/receive AND transfer/accept on the worker side.
+'
+' Consumed by the parent as
+'   thread::start(thread_cover_worker::coverWorker, "seed"[, limits])
+' for a handle typed `Thread OF String RES fs::File TO Integer`.
+EXPORT ISOLATED FUNC coverWorker(w AS ThreadWorker OF String RES fs::File TO Integer, seed AS String) AS Integer
+  MUT total AS Integer = len(seed)
+
+  ' isCancelled — worker-only cooperative-cancellation query.
+  IF thread::isCancelled(w) THEN
+    total = total + 1
+  END IF
+
+  ' receive worker overloads (2) — blocking and immediate (timeoutMs = 0).
+  LET m1 AS String = thread::receive(w)
+  LET m2 AS String = thread::receive(w, 0)
+  total = total + len(m1) + len(m2)
+
+  ' send worker overloads (2) — blocking and timed (timeoutMs = 0).
+  thread::send(w, "alpha")
+  thread::send(w, "beta", 0)
+
+  ' sleep worker overload — a plain wall-clock delay on the worker handle.
+  thread::sleep(w, 0)
+
+  ' accept worker overloads (2) — each yields an owned File on the resource plane.
+  RES af1 AS fs::File = thread::accept(w)
+  RES af2 AS fs::File = thread::accept(w, 0)
+
+  ' transfer worker overloads (2) — each consumes an owned File back to the parent.
+  thread::transfer(w, af1)
+  thread::transfer(w, af2, 0)
+
+  RETURN total
+END FUNC

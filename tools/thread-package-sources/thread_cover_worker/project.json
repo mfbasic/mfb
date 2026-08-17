@@ -1,0 +1,12 @@
+{
+  "name": "thread_cover_worker",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "bug-389 byte-identity worker package: exported ISOLATED worker exercising every worker-side (ThreadWorker handle) thread overload. Compile-only.",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "ident": "tests:thread-cover-worker",
+  "identKey": "ed25519-public:test-thread-cover-worker-ident",
+  "identFingerprint": "sha256:test-thread-cover-worker-ident",
+  "signingFingerprint": "sha256:test-thread-cover-worker-signing"
+}
