@@ -75,7 +75,10 @@ pub(crate) fn register(r: &mut Registry) {
 
     // `package.mfb` carries its own `IMPORT datetime/strings/collections`, the
     // `TYPE`/`ENUM` declarations, the private helpers, and the arity bodies.
-    pkg.add_helper_functions(vec![include_str!("package.mfb")]);
+    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
+        "datetime_package",
+        include_str!("package.mfb"),
+    ));
 
     // The public value RECORDS are authored (with their `DOC` blocks and byte-exact
     // field formatting) in `package.mfb`; recording their names as source-declared

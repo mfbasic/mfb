@@ -177,7 +177,10 @@ pub(crate) fn register(r: &mut Registry) {
     });
 
     // The shared private `__json_*` helpers the member bodies call.
-    pkg.add_helper_functions(vec![include_str!("package.mfb")]);
+    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
+        "json_package",
+        include_str!("package.mfb"),
+    ));
 
     func_get::register(&mut pkg);
     func_get_or::register(&mut pkg);

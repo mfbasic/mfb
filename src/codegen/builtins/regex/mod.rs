@@ -709,11 +709,18 @@ pub(crate) fn register(r: &mut Registry) {
     // helpers plus the two generated Unicode tables shared from `src/codegen/unicode/`
     // (the general-category table `__regex_genCat` and the Script-property table
     // `__regex_scriptOf` / `__regex_scriptCanonName`).
-    pkg.add_helper_functions(vec![
+    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
+        "regex_package",
         include_str!("package.mfb"),
+    ));
+    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
+        "regex_unicode_gencat",
         include_str!("../../unicode/unicode_gencat.mfb"),
+    ));
+    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
+        "regex_unicode_script_of",
         include_str!("../../unicode/unicode_script_of.mfb"),
-    ]);
+    ));
 
     func_find::register(&mut pkg);
     func_find_all::register(&mut pkg);

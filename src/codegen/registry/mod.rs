@@ -277,6 +277,71 @@ impl Body {
     }
 }
 
+/// When a [`RegistryHelper`] source chunk is injected into a program (plan-99). The
+/// gated-injection facility that replaced the flat, always-on `helper_functions`:
+/// most helpers are [`Always`](HelperGate::Always) (unconditional on import — the
+/// pre-plan-99 behavior), but two shapes need a usage/cross-package gate the generic
+/// on-import [`Registry::augment_project`] could not express — the `strings`
+/// scalar-seam Unicode table and the `term`↔`astrings` bridge.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum HelperGate {
+    /// Inject whenever the owning package's source is injected (i.e. the package is
+    /// imported). Byte-identical to the pre-plan-99 unconditional `add_helper_functions`.
+    Always,
+    /// Inject only when the program references at least one of these **local**
+    /// function names — the `strings` scalar-seam gate (`toScalars`/`isLetter`/…),
+    /// which keeps the heavy Unicode general-category table out of a program that
+    /// imports `strings` but calls no seam member (plan-41-D).
+    WhenUsed(&'static [&'static str]),
+    /// Inject only when the named registry package is **also** imported by the
+    /// program — the `term`↔`astrings` `drawText(AttributedString)` bridge, which
+    /// needs both packages in scope.
+    WhenImported(&'static str),
+}
+
+/// A source chunk (or ordering edge) the owning package contributes to an injected
+/// program, gated by a [`HelperGate`] (plan-99). Deduplicated by [`name`](Self::name)
+/// across all packages/gates, so a chunk reached through several packages is injected
+/// exactly once. Exactly one of [`body`](Self::body) / [`import_name`](Self::import_name)
+/// is `Some`:
+///
+/// - `body` — the injectable MFBASIC source chunk (`FUNC`/`TYPE`/`ENUM` text). An
+///   [`Always`](HelperGate::Always) body renders **inline** in the owning package's
+///   [`get_mfb`](RegistryPackage::get_mfb) (position preserved from the old
+///   `helper_functions`); a gated body is injected as its own synthetic file.
+/// - `import_name` — an ordering-dependency edge (no source): the named package's
+///   source must be injected **before** this package's (the http-before-net /
+///   crypto-before-encoding topological order that the hand-sequenced
+///   `augment_project` chains used to encode).
+#[derive(Clone, Debug)]
+pub(crate) struct RegistryHelper {
+    /// The dedup key — a helper with this `name` is injected at most once, no matter
+    /// how many packages/gates reach it.
+    pub(crate) name: &'static str,
+    /// When to inject (see [`HelperGate`]).
+    pub(crate) gate: HelperGate,
+    /// The injectable source chunk, or `None` when this is an `import_name` ordering
+    /// edge. XOR with [`import_name`](Self::import_name).
+    pub(crate) body: Option<&'static str>,
+    /// An ordering-dependency edge: the named package must be injected first. `None`
+    /// for a source-bearing helper. XOR with [`body`](Self::body).
+    pub(crate) import_name: Option<&'static str>,
+}
+
+impl RegistryHelper {
+    /// An [`Always`](HelperGate::Always) source chunk — the plan-99 replacement for a
+    /// flat `add_helper_functions` entry (`__pkg_*` helper bodies). Renders inline in
+    /// [`get_mfb`](RegistryPackage::get_mfb).
+    pub(crate) fn always(name: &'static str, body: &'static str) -> Self {
+        RegistryHelper {
+            name,
+            gate: HelperGate::Always,
+            body: Some(body),
+            import_name: None,
+        }
+    }
+}
+
 /// One version/overload of a function: its signature, how it lowers, how it is
 /// realized, and the errors it can raise. A [`RegistryFunction`] holds `>= 1`.
 #[derive(Clone, Debug)]
@@ -701,9 +766,12 @@ pub(crate) struct RegistryPackage {
     /// Opaque resource handle types. Semantic-only (not injectable source), so they are
     /// not rendered by [`get_mfb`](Self::get_mfb).
     resources: Vec<RegistryResource>,
-    /// Shared `__pkg_*` helper functions the members call, as source chunks. Not
-    /// callable members; rendered between the unions and the member bodies.
-    helper_functions: Vec<&'static str>,
+    /// Shared source chunks (or ordering edges) the package contributes to an injected
+    /// program, each gated by a [`HelperGate`] (plan-99). An [`Always`](HelperGate::Always)
+    /// body renders inline in [`get_mfb`](Self::get_mfb) between the unions and the member
+    /// bodies (the old `helper_functions` position); gated bodies are injected as their
+    /// own synthetic files by [`Registry::augment_project`].
+    helpers: Vec<RegistryHelper>,
     functions: Vec<RegistryFunction>,
     /// Public member names implemented purely as injected MFBASIC **source
     /// generics** — instantiated by the monomorphizer from the package's
@@ -755,7 +823,7 @@ impl RegistryPackage {
             unions: Vec::new(),
             enums: Vec::new(),
             resources: Vec::new(),
-            helper_functions: Vec::new(),
+            helpers: Vec::new(),
             functions: Vec::new(),
             source_generics: Vec::new(),
             source_types: Vec::new(),
@@ -811,9 +879,21 @@ impl RegistryPackage {
         &self.resources
     }
 
-    /// The package's shared helper-function source chunks, in the order added.
-    pub(crate) fn helper_functions(&self) -> &[&'static str] {
-        &self.helper_functions
+    /// The package's gated helper chunks/edges, in the order added.
+    pub(crate) fn helpers(&self) -> &[RegistryHelper] {
+        &self.helpers
+    }
+
+    /// The bodies of this package's [`Always`](HelperGate::Always) helpers, in add
+    /// order — the chunks that render inline in [`get_mfb`](Self::get_mfb) (the old
+    /// `helper_functions`). Gated helpers (`WhenUsed`/`WhenImported`) are injected as
+    /// separate files by [`Registry::augment_project`] and are excluded here.
+    fn always_helper_bodies(&self) -> Vec<&'static str> {
+        self.helpers
+            .iter()
+            .filter(|h| matches!(h.gate, HelperGate::Always))
+            .filter_map(|h| h.body)
+            .collect()
     }
 
     /// The package's source-generic member names (see [`source_generics`](Self::source_generics)).
@@ -872,6 +952,7 @@ impl RegistryPackage {
     /// separated by a blank line and the result ends with a newline, so the output is
     /// directly parseable.
     pub(crate) fn get_mfb(&self) -> String {
+        let helper_bodies = self.always_helper_bodies();
         let bodies: Vec<&str> = self
             .functions
             .iter()
@@ -885,7 +966,7 @@ impl RegistryPackage {
             && self.unions.is_empty()
             && self.enums.is_empty()
             && bodies.is_empty()
-            && self.helper_functions.is_empty()
+            && helper_bodies.is_empty()
         {
             return String::new();
         }
@@ -894,7 +975,7 @@ impl RegistryPackage {
             1 + self.records.len()
                 + self.unions.len()
                 + self.enums.len()
-                + self.helper_functions.len()
+                + helper_bodies.len()
                 + bodies.len(),
         );
         if !self.imports.is_empty() {
@@ -910,7 +991,7 @@ impl RegistryPackage {
         pieces.extend(self.unions.iter().map(RegistryUnion::render));
         pieces.extend(self.enums.iter().map(RegistryEnum::render));
         pieces.extend(
-            self.helper_functions
+            helper_bodies
                 .iter()
                 .map(|helper| helper.trim_end().to_string()),
         );
@@ -930,11 +1011,13 @@ impl RegistryPackage {
         self
     }
 
-    /// Add shared helper-function source chunks (the `__pkg_*` helpers the members
-    /// call). Additive — later calls append. They render into
-    /// [`get_mfb`](Self::get_mfb) between the unions and the member bodies.
-    pub(crate) fn add_helper_functions(&mut self, helpers: Vec<&'static str>) -> &mut Self {
-        self.helper_functions.extend(helpers);
+    /// Add a gated helper chunk/edge (plan-99). Additive — later calls append. An
+    /// [`Always`](HelperGate::Always) body renders into [`get_mfb`](Self::get_mfb)
+    /// between the unions and the member bodies (the old `add_helper_functions`
+    /// position); a gated body (`WhenUsed`/`WhenImported`) and any `import_name`
+    /// ordering edge are consumed by [`Registry::augment_project`].
+    pub(crate) fn add_helper(&mut self, helper: RegistryHelper) -> &mut Self {
+        self.helpers.push(helper);
         self
     }
 
@@ -1173,6 +1256,46 @@ impl Registry {
             let file =
                 crate::ast::parse_source_internal(std::path::Path::new(&label), &doc, &source)?;
             synthetic_files.push(file);
+        }
+
+        // plan-99: gated helper chunks — the `strings` scalar-seam Unicode table
+        // (`WhenUsed`) and the `term`↔`astrings` bridge (`WhenImported`) — inject as
+        // their own synthetic files, deduped by helper `name` so a chunk reached
+        // through several packages is injected once. `Always` bodies are *not* here
+        // (they already rendered inline in each package's `get_mfb` above);
+        // `import_name` edges carry no body (ordering-only). Evaluated in package
+        // registration order, then helper add order.
+        let mut injected_helpers: std::collections::HashSet<&'static str> =
+            std::collections::HashSet::new();
+        for package in self.packages() {
+            if !package.is_imported_by(ast) {
+                continue;
+            }
+            for helper in package.helpers() {
+                let Some(body) = helper.body else {
+                    continue; // an `import_name` ordering edge — no source to inject.
+                };
+                let gate_open = match helper.gate {
+                    HelperGate::Always => false, // rendered inline in `get_mfb`.
+                    HelperGate::WhenUsed(names) => references_any(ast, names),
+                    HelperGate::WhenImported(other) => self
+                        .packages()
+                        .iter()
+                        .find(|p| p.import_name() == other)
+                        .is_some_and(|p| p.is_imported_by(ast)),
+                };
+                if !gate_open || !injected_helpers.insert(helper.name) {
+                    continue;
+                }
+                let label = format!("<builtin-{}>", helper.name);
+                let doc = format!("builtins/{}.mfb", helper.name);
+                let file = crate::ast::parse_source_internal(
+                    std::path::Path::new(&label),
+                    &doc,
+                    &format!("{}\n", body.trim_end()),
+                )?;
+                synthetic_files.push(file);
+            }
         }
 
         if synthetic_files.is_empty() {
@@ -2290,6 +2413,148 @@ pub(crate) fn default_argument_padding(
         .collect()
 }
 
+/// Whether `ast` references at least one of `names` as a **call callee** — the
+/// generic evaluator for a [`HelperGate::WhenUsed`] gate (plan-99). Ported verbatim
+/// from the legacy `strings::uses_package` scalar-seam walk: a callee may be
+/// source-qualified (`strings::toScalars`), aliased (`s::toScalars`), or already
+/// canonicalized to the dotted form (`strings.toScalars`), so it is reduced to its
+/// final segment across both separators before matching. Over-matching (a user's own
+/// `toScalars`) only injects the helper unnecessarily, never wrongly.
+fn references_any(ast: &crate::ast::AstProject, names: &[&'static str]) -> bool {
+    ast.files
+        .iter()
+        .any(|file| file.items.iter().any(|item| item_references(item, names)))
+}
+
+fn callee_matches(callee: &str, names: &[&'static str]) -> bool {
+    let short = callee
+        .rsplit("::")
+        .next()
+        .unwrap_or(callee)
+        .rsplit('.')
+        .next()
+        .unwrap_or(callee);
+    names.contains(&short)
+}
+
+fn item_references(item: &crate::ast::Item, names: &[&'static str]) -> bool {
+    use crate::ast::Item;
+    match item {
+        Item::Function(f) => f.body.iter().any(|s| stmt_references(s, names)),
+        Item::Binding(b) => b.value.as_ref().is_some_and(|v| expr_references(v, names)),
+        Item::Testing(block) => block.groups.iter().any(|g| group_references(g, names)),
+        _ => false,
+    }
+}
+
+fn group_references(group: &crate::ast::TestGroup, names: &[&'static str]) -> bool {
+    use crate::ast::TestGroupMember;
+    group.members.iter().any(|member| match member {
+        TestGroupMember::Case(case) => case.body.iter().any(|s| stmt_references(s, names)),
+        TestGroupMember::Group(nested) => group_references(nested, names),
+    })
+}
+
+fn stmt_references(stmt: &crate::ast::Statement, names: &[&'static str]) -> bool {
+    use crate::ast::Statement;
+    let body = |stmts: &[Statement]| stmts.iter().any(|s| stmt_references(s, names));
+    match stmt {
+        Statement::Let { value, .. }
+        | Statement::Return { value, .. }
+        | Statement::Recover { value, .. }
+        | Statement::Exit { code: value, .. } => {
+            value.as_ref().is_some_and(|v| expr_references(v, names))
+        }
+        Statement::Fail { error, .. } => expr_references(error, names),
+        Statement::Assign { value, .. } | Statement::StateAssign { value, .. } => {
+            expr_references(value, names)
+        }
+        Statement::Expression { expression, .. } => expr_references(expression, names),
+        Statement::If {
+            condition,
+            then_body,
+            else_body,
+            ..
+        } => expr_references(condition, names) || body(then_body) || body(else_body),
+        Statement::Match {
+            expression, cases, ..
+        } => {
+            expr_references(expression, names)
+                || cases
+                    .iter()
+                    .any(|case| case.body.iter().any(|s| stmt_references(s, names)))
+        }
+        Statement::For {
+            start,
+            end,
+            step,
+            body: b,
+            ..
+        } => {
+            expr_references(start, names)
+                || expr_references(end, names)
+                || step.as_ref().is_some_and(|v| expr_references(v, names))
+                || body(b)
+        }
+        Statement::ForEach {
+            iterable, body: b, ..
+        } => expr_references(iterable, names) || body(b),
+        Statement::While {
+            condition, body: b, ..
+        }
+        | Statement::DoUntil {
+            condition, body: b, ..
+        } => expr_references(condition, names) || body(b),
+        Statement::Continue { .. } | Statement::Propagate { .. } => false,
+    }
+}
+
+fn expr_references(expr: &crate::ast::Expression, names: &[&'static str]) -> bool {
+    use crate::ast::{CallArg, ConstructorArg, Expression};
+    let arg = |a: &CallArg| match a {
+        CallArg::Positional(v) | CallArg::Named { value: v, .. } => expr_references(v, names),
+    };
+    match expr {
+        Expression::Call {
+            callee, arguments, ..
+        } => callee_matches(callee, names) || arguments.iter().any(arg),
+        Expression::Binary { left, right, .. } => {
+            expr_references(left, names) || expr_references(right, names)
+        }
+        Expression::Unary { operand, .. } => expr_references(operand, names),
+        Expression::Lambda { body, .. } => expr_references(body, names),
+        Expression::Constructor { arguments, .. } => arguments.iter().any(|a| match a {
+            ConstructorArg::Positional(v) | ConstructorArg::Named { value: v, .. } => {
+                expr_references(v, names)
+            }
+        }),
+        Expression::WithUpdate { target, updates } => {
+            expr_references(target, names)
+                || updates.iter().any(|u| expr_references(&u.value, names))
+        }
+        Expression::ListLiteral(values) => values.iter().any(|v| expr_references(v, names)),
+        Expression::SetLiteral { elements, .. } => {
+            elements.iter().any(|v| expr_references(v, names))
+        }
+        Expression::MapLiteral { entries, .. } => entries
+            .iter()
+            .any(|(k, v)| expr_references(k, names) || expr_references(v, names)),
+        Expression::MemberAccess { target, .. } => expr_references(target, names),
+        Expression::Trapped {
+            expression,
+            handler,
+            ..
+        } => {
+            expr_references(expression, names) || handler.iter().any(|s| stmt_references(s, names))
+        }
+        Expression::String(_)
+        | Expression::Number(_)
+        | Expression::Scalar(_)
+        | Expression::Boolean(_)
+        | Expression::Identifier(_) => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3052,7 +3317,10 @@ mod tests {
     fn get_mfb_renders_helper_functions_before_member_bodies() {
         let mut r = Registry::new();
         let mut pkg = RegistryPackage::new("demo", "intro", "desc");
-        pkg.add_helper_functions(vec!["FUNC __demo_helper() AS Nothing\nEND FUNC"]);
+        pkg.add_helper(RegistryHelper::always(
+            "demo",
+            "FUNC __demo_helper() AS Nothing\nEND FUNC",
+        ));
         pkg.add_function(func(
             "a",
             vec![mfb_impl(
@@ -3094,7 +3362,10 @@ mod tests {
         let mut r = Registry::new();
         let mut pkg = RegistryPackage::new("bare", "i", "d");
         pkg.add_imports(vec!["strings"]);
-        pkg.add_helper_functions(vec!["FUNC __helper() AS Nothing\nEND FUNC"]);
+        pkg.add_helper(RegistryHelper::always(
+            "demo",
+            "FUNC __helper() AS Nothing\nEND FUNC",
+        ));
         r.add_package(pkg);
         assert_eq!(
             r.resolve_package("bare").unwrap().get_mfb(),
@@ -3228,7 +3499,10 @@ mod tests {
             true,
             vec![enum_variant("StdOut"), enum_variant("StdErr")],
         ));
-        pkg.add_helper_functions(vec!["FUNC __process_helper() AS Nothing\nEND FUNC"]);
+        pkg.add_helper(RegistryHelper::always(
+            "process",
+            "FUNC __process_helper() AS Nothing\nEND FUNC",
+        ));
         r.add_package(pkg);
 
         assert_eq!(
@@ -3260,7 +3534,10 @@ mod tests {
             true,
             vec![variant("JsonNum"), variant("JsonBool")],
         ));
-        pkg.add_helper_functions(vec!["FUNC __json_helper() AS Nothing\nEND FUNC"]);
+        pkg.add_helper(RegistryHelper::always(
+            "json",
+            "FUNC __json_helper() AS Nothing\nEND FUNC",
+        ));
         pkg.add_function(func(
             "render",
             vec![mfb_impl(
@@ -3287,7 +3564,10 @@ mod tests {
         let mut r = Registry::new();
         let mut pkg = RegistryPackage::new("demo", "pkg intro", "pkg desc");
         pkg.add_imports(vec!["strings"]);
-        pkg.add_helper_functions(vec!["FUNC __demo_helper()\nEND FUNC"]);
+        pkg.add_helper(RegistryHelper::always(
+            "demo",
+            "FUNC __demo_helper()\nEND FUNC",
+        ));
         pkg.add_record(rec("Rec", true, vec![prop("f", ParameterType::Integer)]));
         pkg.add_union(uni("Uni", false, vec![variant("V")]));
         pkg.add_function(RegistryFunction {
@@ -3333,7 +3613,10 @@ mod tests {
         let pkg = r.resolve_package("demo").unwrap();
         assert_eq!(pkg.intro(), "pkg intro");
         assert_eq!(pkg.desc(), "pkg desc");
-        assert_eq!(pkg.helper_functions(), &["FUNC __demo_helper()\nEND FUNC"]);
+        assert_eq!(
+            pkg.always_helper_bodies(),
+            vec!["FUNC __demo_helper()\nEND FUNC"]
+        );
 
         let rec = &pkg.records()[0];
         assert_eq!(rec.name, "Rec");

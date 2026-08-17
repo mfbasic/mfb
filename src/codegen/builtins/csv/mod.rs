@@ -121,7 +121,10 @@ pub(crate) fn register(r: &mut Registry) {
     });
 
     // The shared private `__csv_*` helpers the member bodies call.
-    pkg.add_helper_functions(vec![include_str!("package.mfb")]);
+    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
+        "csv_package",
+        include_str!("package.mfb"),
+    ));
 
     func_parse::register(&mut pkg);
     func_stringify::register(&mut pkg);
