@@ -19,7 +19,7 @@ strings
 IMPORT strings
 ```
 
-`strings` is a built-in package, so no manifest dependency is required. [[src/builtins/strings.rs:is_strings_call]]
+`strings` is a built-in package, so no manifest dependency is required. [[src/codegen/registry/mod.rs:is_member]]
 
 ## Description
 
@@ -52,20 +52,20 @@ than a set of scalars, use `strings::stripPrefix` or `strings::stripSuffix`.
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's
 and whose attribute spans are remapped by the same edit.
-[[src/builtins/strings.rs:is_tier_b_transform]]
+[[src/codegen/builtins/strings/mod.rs:is_tier_b_transform]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The string to trim. May be empty. Returned as an equal copy when it has no leading or trailing member of `chars`. [[src/builtins/strings.rs:call_param_names]] |
-| `chars` | `String` | The set of Unicode scalars to remove from both ends. Interpreted as a set; order and repetition do not matter. May be empty, in which case `value` is returned unchanged. [[src/builtins/strings.rs:call_param_names]] |
+| `value` | `String` | The string to trim. May be empty. Returned as an equal copy when it has no leading or trailing member of `chars`. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `chars` | `String` | The set of Unicode scalars to remove from both ends. Interpreted as a set; order and repetition do not matter. May be empty, in which case `value` is returned unchanged. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` equal to `value` with all leading and trailing members of `chars` removed. Returns `""` when `value` is empty or consists entirely of set members. [[src/builtins/strings.rs:STRINGS]] |
+| `String` | A new `String` equal to `value` with all leading and trailing members of `chars` removed. Returns `""` when `value` is empty or consists entirely of set members. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

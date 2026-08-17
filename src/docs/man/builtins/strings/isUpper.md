@@ -21,13 +21,13 @@ IMPORT strings
 `strings` is a built-in package, so no manifest dependency is required. `isUpper`
 is one of seven `strings` members implemented in MFBASIC source rather than in
 native codegen; the companion is injected automatically when a program imports
-`strings` and references the scalar seam. [[src/builtins/strings.rs:implementation_name]] [[src/builtins/strings.rs:uses_package]]
+`strings` and references the scalar seam. [[src/codegen/registry/mod.rs:rewrite_target]] [[src/codegen/registry/mod.rs:references_any]]
 
 ## Description
 
 `strings::isUpper` returns `TRUE` when `scalar` has the Unicode general category
 `Lu` (uppercase letter) and `FALSE` otherwise.
-[[src/builtins/strings_package.mfb:__strings_isUpper]]
+[[src/codegen/builtins/strings/seam.mfb:__strings_isUpper]]
 
 The test is exactly `Lu`, no wider. Titlecase letters (category `Lt`, such as the
 digraph `ǅ`) are **not** reported as uppercase, and neither are uncased letters,
@@ -48,13 +48,13 @@ rather than test it, use `strings::upper`; for caseless comparison, use
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `scalar` | `Scalar` | The Unicode scalar to classify. Any `Scalar` is accepted. [[src/builtins/strings.rs:call_param_names]] |
+| `scalar` | `Scalar` | The Unicode scalar to classify. Any `Scalar` is accepted. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `scalar` has general category `Lu`; `FALSE` otherwise, including for titlecase and uncased scalars. [[src/builtins/strings.rs:STRINGS]] |
+| `Boolean` | `TRUE` when `scalar` has general category `Lu`; `FALSE` otherwise, including for titlecase and uncased scalars. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

@@ -19,7 +19,7 @@ strings
 IMPORT strings
 ```
 
-`strings` is a built-in package, so no manifest dependency is required. [[src/builtins/strings.rs:is_strings_call]]
+`strings` is a built-in package, so no manifest dependency is required. [[src/codegen/registry/mod.rs:is_member]]
 
 ## Description
 
@@ -47,20 +47,20 @@ cluster.
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
-errors). [[src/builtins/strings.rs:is_tier_a_query]]
+errors). [[src/codegen/builtins/strings/mod.rs:is_tier_a_query]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The string to index. Any `String` is accepted, though every index is out of range for the empty string. [[src/builtins/strings.rs:call_param_names]] |
-| `index` | `Integer` | The zero-based grapheme index to retrieve. Must satisfy `0 <= index < strings::graphemesCount(value)`. [[src/builtins/strings.rs:call_param_names]] |
+| `value` | `String` | The string to index. Any `String` is accepted, though every index is out of range for the empty string. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `index` | `Integer` | The zero-based grapheme index to retrieve. Must satisfy `0 <= index < strings::graphemesCount(value)`. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` holding exactly the one extended grapheme cluster at `index`, which may span several scalars and several bytes. [[src/builtins/strings.rs:STRINGS]] |
+| `String` | A new `String` holding exactly the one extended grapheme cluster at `index`, which may span several scalars and several bytes. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

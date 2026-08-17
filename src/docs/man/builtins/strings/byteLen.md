@@ -19,7 +19,7 @@ strings
 IMPORT strings
 ```
 
-`strings` is a built-in package, so no manifest dependency is required. [[src/builtins/strings.rs:is_strings_call]]
+`strings` is a built-in package, so no manifest dependency is required. [[src/codegen/registry/mod.rs:is_member]]
 
 ## Description
 
@@ -45,19 +45,19 @@ bytes use `strings::toBytes`.
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
-errors). [[src/builtins/strings.rs:is_tier_a_query]]
+errors). [[src/codegen/builtins/strings/mod.rs:is_tier_a_query]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The string to measure. Any `String` is accepted, including the empty string. [[src/builtins/strings.rs:call_param_names]] |
+| `value` | `String` | The string to measure. Any `String` is accepted, including the empty string. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The number of bytes in the UTF-8 encoding of `value`; `0` for the empty string. Always greater than or equal to `len(value)`, and equal to it exactly when `value` is pure ASCII. [[src/builtins/strings.rs:STRINGS]] |
+| `Integer` | The number of bytes in the UTF-8 encoding of `value`; `0` for the empty string. Always greater than or equal to `len(value)`, and equal to it exactly when `value` is pure ASCII. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

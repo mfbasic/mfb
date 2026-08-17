@@ -21,13 +21,13 @@ IMPORT strings
 `strings` is a built-in package, so no manifest dependency is required.
 `isWhitespace` is one of seven `strings` members implemented in MFBASIC source
 rather than in native codegen; the companion is injected automatically when a
-program imports `strings` and references the scalar seam. [[src/builtins/strings.rs:implementation_name]] [[src/builtins/strings.rs:uses_package]]
+program imports `strings` and references the scalar seam. [[src/codegen/registry/mod.rs:rewrite_target]] [[src/codegen/registry/mod.rs:references_any]]
 
 ## Description
 
 `strings::isWhitespace` returns `TRUE` when `scalar` is a Unicode whitespace
 scalar and `FALSE` otherwise. The set is defined as the union of three rules:
-[[src/builtins/strings_package.mfb:__strings_isWhitespace]]
+[[src/codegen/builtins/strings/seam.mfb:__strings_isWhitespace]]
 
 - any scalar whose Unicode general category is `Zs` (space separator), `Zl`
   (line separator), or `Zp` (paragraph separator) — this covers `U+0020`,
@@ -53,13 +53,13 @@ string, walk it with `strings::toScalars` and fold the results yourself.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `scalar` | `Scalar` | The Unicode scalar to classify. Any `Scalar` is accepted. [[src/builtins/strings.rs:call_param_names]] |
+| `scalar` | `Scalar` | The Unicode scalar to classify. Any `Scalar` is accepted. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `scalar` is a separator (`Zs`, `Zl`, `Zp`), is in `U+0009`–`U+000D`, or is `U+0085`; `FALSE` otherwise. [[src/builtins/strings.rs:STRINGS]] |
+| `Boolean` | `TRUE` when `scalar` is a separator (`Zs`, `Zl`, `Zp`), is in `U+0009`–`U+000D`, or is `U+0085`; `FALSE` otherwise. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

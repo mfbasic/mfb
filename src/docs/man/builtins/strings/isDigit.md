@@ -21,13 +21,13 @@ IMPORT strings
 `strings` is a built-in package, so no manifest dependency is required. `isDigit`
 is one of seven `strings` members implemented in MFBASIC source rather than in
 native codegen; the companion is injected automatically when a program imports
-`strings` and references the scalar seam. [[src/builtins/strings.rs:implementation_name]] [[src/builtins/strings.rs:uses_package]]
+`strings` and references the scalar seam. [[src/codegen/registry/mod.rs:rewrite_target]] [[src/codegen/registry/mod.rs:references_any]]
 
 ## Description
 
 `strings::isDigit` returns `TRUE` when `scalar` has the Unicode general category
 `Nd` (decimal number) and `FALSE` otherwise.
-[[src/builtins/strings_package.mfb:__strings_isDigit]]
+[[src/codegen/builtins/strings/seam.mfb:__strings_isDigit]]
 
 The test is exactly `Nd`, no wider. It therefore accepts ASCII `0`–`9` and the
 decimal digits of other scripts, such as the Arabic-Indic and Devanagari digits,
@@ -49,13 +49,13 @@ parser — use `toInt` or `toFloat` to convert text to a number.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `scalar` | `Scalar` | The Unicode scalar to classify. Any `Scalar` is accepted. [[src/builtins/strings.rs:call_param_names]] |
+| `scalar` | `Scalar` | The Unicode scalar to classify. Any `Scalar` is accepted. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `scalar` has general category `Nd`; `FALSE` otherwise. [[src/builtins/strings.rs:STRINGS]] |
+| `Boolean` | `TRUE` when `scalar` has general category `Nd`; `FALSE` otherwise. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

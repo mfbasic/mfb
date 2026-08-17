@@ -19,7 +19,7 @@ strings
 IMPORT strings
 ```
 
-`strings` is a built-in package, so no manifest dependency is required. [[src/builtins/strings.rs:is_strings_call]]
+`strings` is a built-in package, so no manifest dependency is required. [[src/codegen/registry/mod.rs:is_member]]
 
 ## Description
 
@@ -52,21 +52,21 @@ is also defined for lists; see `mfb man collections mid`.
 
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is the same slice as the `String` overload's and
-whose attribute spans are remapped by the same edit. [[src/builtins/strings.rs:is_tier_b_transform]]
+whose attribute spans are remapped by the same edit. [[src/codegen/builtins/strings/mod.rs:is_tier_b_transform]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The string to slice. May be empty. [[src/builtins/strings.rs:call_param_names]] |
-| `start` | `Integer` | The zero-based scalar index of the first scalar to include. Must be in `0` through the scalar length of `value` inclusive. [[src/builtins/strings.rs:call_param_names]] |
-| `count` | `Integer` | The number of Unicode scalar values to take. Must be `0` or greater, and `start + count` must not exceed the scalar length of `value`. [[src/builtins/strings.rs:call_param_names]] |
+| `value` | `String` | The string to slice. May be empty. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `start` | `Integer` | The zero-based scalar index of the first scalar to include. Must be in `0` through the scalar length of `value` inclusive. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `count` | `Integer` | The number of Unicode scalar values to take. Must be `0` or greater, and `start + count` must not exceed the scalar length of `value`. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` holding `count` scalars of `value` starting at `start`. `""` when `count` is `0`. [[src/builtins/strings.rs:STRINGS]] |
+| `String` | A new `String` holding `count` scalars of `value` starting at `start`. `""` when `count` is `0`. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

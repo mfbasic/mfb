@@ -19,7 +19,7 @@ strings
 IMPORT strings
 ```
 
-`strings` is a built-in package, so no manifest dependency is required. [[src/builtins/strings.rs:is_strings_call]]
+`strings` is a built-in package, so no manifest dependency is required. [[src/codegen/registry/mod.rs:is_member]]
 
 ## Description
 
@@ -47,20 +47,20 @@ past the buffer. [[src/target/shared/code/builder_error_emission.rs:emit_checked
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's
 and whose attribute spans are remapped by the same edit.
-[[src/builtins/strings.rs:is_tier_b_transform]]
+[[src/codegen/builtins/strings/mod.rs:is_tier_b_transform]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The string to repeat. Any `String`, including the empty one. [[src/builtins/strings.rs:call_param_names]] |
-| `times` | `Integer` | The number of copies to concatenate. Must be `0` or greater. `0` yields `""` and `1` yields a copy of `value`. [[src/builtins/strings.rs:call_param_names]] |
+| `value` | `String` | The string to repeat. Any `String`, including the empty one. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `times` | `Integer` | The number of copies to concatenate. Must be `0` or greater. `0` yields `""` and `1` yields a copy of `value`. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` holding `times` consecutive copies of `value`. `""` when `times` is `0` or when `value` is empty. [[src/builtins/strings.rs:STRINGS]] |
+| `String` | A new `String` holding `times` consecutive copies of `value`. `""` when `times` is `0` or when `value` is empty. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

@@ -19,7 +19,7 @@ strings
 IMPORT strings
 ```
 
-`strings` is a built-in package, so no manifest dependency is required. [[src/builtins/strings.rs:is_strings_call]]
+`strings` is a built-in package, so no manifest dependency is required. [[src/codegen/registry/mod.rs:is_member]]
 
 ## Description
 
@@ -48,19 +48,19 @@ operands. `value` is not mutated; the result is a new owned `String`.
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed as above, but **attributes are
 dropped** — the mapping changes the scalar count within a span, so the overlay
-cannot be remapped. [[src/builtins/strings.rs:is_tier_b_transform]]
+cannot be remapped. [[src/codegen/builtins/strings/mod.rs:is_tier_b_transform]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The string to lowercase. Any `String` is accepted, including the empty string. [[src/builtins/strings.rs:call_param_names]] |
+| `value` | `String` | The string to lowercase. Any `String` is accepted, including the empty string. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` holding the lowercase mapping of `value`. The empty string yields `""`; a string with no cased scalars yields an equal string. May be longer than `value`. [[src/builtins/strings.rs:STRINGS]] |
+| `String` | A new `String` holding the lowercase mapping of `value`. The empty string yields `""`; a string with no cased scalars yields an equal string. May be longer than `value`. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

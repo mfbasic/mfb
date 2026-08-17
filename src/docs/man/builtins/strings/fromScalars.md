@@ -21,18 +21,18 @@ IMPORT strings
 `strings` is a built-in package, so no manifest dependency is required.
 `fromScalars` is one of seven `strings` members implemented in MFBASIC source
 rather than in native codegen; the companion is injected automatically when a
-program imports `strings` and references the scalar seam. [[src/builtins/strings.rs:implementation_name]] [[src/builtins/strings.rs:uses_package]]
+program imports `strings` and references the scalar seam. [[src/codegen/registry/mod.rs:rewrite_target]] [[src/codegen/registry/mod.rs:references_any]]
 
 ## Description
 
 `strings::fromScalars` encodes a `List OF Scalar` into a `String` by
 concatenating the UTF-8 encoding of each element, in order.
-[[src/builtins/strings_package.mfb:__strings_fromScalars]]
+[[src/codegen/builtins/strings/seam.mfb:__strings_fromScalars]]
 
 It is the inverse of `strings::toScalars`: `fromScalars(toScalars(s))` equals `s`
 for every `String s`. Encoding always succeeds because a `Scalar` is by
 construction a valid, non-surrogate Unicode code point, so there is no
-ill-formed input to reject. [[src/builtins/strings_package.mfb:__strings_toScalars]]
+ill-formed input to reject. [[src/codegen/builtins/strings/seam.mfb:__strings_toScalars]]
 
 Each element contributes one to four bytes depending on its code point, so the
 byte length of the result is generally larger than the element count, while
@@ -45,13 +45,13 @@ The input list is not modified; the returned `String` is a fresh owned value.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `scalars` | `List OF Scalar` | The scalars to encode, in order. Any `List OF Scalar` is accepted, including the empty list. [[src/builtins/strings.rs:call_param_names]] |
+| `scalars` | `List OF Scalar` | The scalars to encode, in order. Any `List OF Scalar` is accepted, including the empty list. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The UTF-8 string formed by concatenating each scalar's encoding. The empty list yields `""`. [[src/builtins/strings.rs:STRINGS]] |
+| `String` | The UTF-8 string formed by concatenating each scalar's encoding. The empty list yields `""`. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

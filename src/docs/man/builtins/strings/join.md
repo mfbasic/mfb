@@ -18,7 +18,7 @@ strings
 IMPORT strings
 ```
 
-`strings` is a built-in package, so no manifest dependency is required. [[src/builtins/strings.rs:is_strings_call]]
+`strings` is a built-in package, so no manifest dependency is required. [[src/codegen/registry/mod.rs:is_member]]
 
 ## Description
 
@@ -45,20 +45,20 @@ result of `split(value, delimiter)` with the same delimiter reproduces `value`.
 
 Neither argument is mutated; the result is a new owned `String`. `parts` is also
 accepted under the name `values`, and `delimiter` under the name `separator`.
-[[src/builtins/strings.rs:call_param_names]]
+[[src/codegen/registry/mod.rs:call_param_names]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `parts` | `List OF String` | The strings to concatenate, in order. Any list is accepted, including the empty list and lists containing empty strings. Also accepted under the name `values`. [[src/builtins/strings.rs:call_param_names]] |
-| `delimiter` | `String` | The separator placed between successive elements. Any `String`, including the empty one. Also accepted under the name `separator`. [[src/builtins/strings.rs:call_param_names]] |
+| `parts` | `List OF String` | The strings to concatenate, in order. Any list is accepted, including the empty list and lists containing empty strings. Also accepted under the name `values`. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `delimiter` | `String` | The separator placed between successive elements. Any `String`, including the empty one. Also accepted under the name `separator`. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` holding the elements of `parts` in order, separated by `delimiter`. The empty list yields `""`; a single-element list yields that element unchanged. [[src/builtins/strings.rs:STRINGS]] |
+| `String` | A new `String` holding the elements of `parts` in order, separated by `delimiter`. The empty list yields `""`; a single-element list yields that element unchanged. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

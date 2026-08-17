@@ -19,7 +19,7 @@ strings
 IMPORT strings
 ```
 
-`strings` is a built-in package, so no manifest dependency is required. [[src/builtins/strings.rs:is_strings_call]]
+`strings` is a built-in package, so no manifest dependency is required. [[src/codegen/registry/mod.rs:is_member]]
 
 ## Description
 
@@ -47,20 +47,20 @@ A `needle` longer than `value` yields `0`, as does an empty `value`. The empty
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
-errors). [[src/builtins/strings.rs:is_tier_a_query]]
+errors). [[src/codegen/builtins/strings/mod.rs:is_tier_a_query]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The string to scan. May be empty, in which case the result is `0`. [[src/builtins/strings.rs:call_param_names]] |
-| `needle` | `String` | The substring to count. Must be non-empty. [[src/builtins/strings.rs:call_param_names]] |
+| `value` | `String` | The string to scan. May be empty, in which case the result is `0`. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `needle` | `String` | The substring to count. Must be non-empty. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The number of non-overlapping occurrences of `needle` in `value`, counted left to right. `0` when `needle` does not occur, when it is longer than `value`, or when `value` is empty. [[src/builtins/strings.rs:STRINGS]] |
+| `Integer` | The number of non-overlapping occurrences of `needle` in `value`, counted left to right. `0` when `needle` does not occur, when it is longer than `value`, or when `value` is empty. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

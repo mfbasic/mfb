@@ -19,7 +19,7 @@ strings
 IMPORT strings
 ```
 
-`strings` is a built-in package, so no manifest dependency is required. [[src/builtins/strings.rs:is_strings_call]]
+`strings` is a built-in package, so no manifest dependency is required. [[src/codegen/registry/mod.rs:is_member]]
 
 ## Description
 
@@ -50,20 +50,20 @@ a *set* of leading scalars rather than a fixed substring, use
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's
 and whose attribute spans are remapped by the same edit.
-[[src/builtins/strings.rs:is_tier_b_transform]]
+[[src/codegen/builtins/strings/mod.rs:is_tier_b_transform]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The string to strip from. May be empty. Returned as an equal copy when it does not begin with `prefix`. [[src/builtins/strings.rs:call_param_names]] |
-| `prefix` | `String` | The leading substring to remove. May be empty, in which case `value` is returned unchanged. [[src/builtins/strings.rs:call_param_names]] |
+| `value` | `String` | The string to strip from. May be empty. Returned as an equal copy when it does not begin with `prefix`. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `prefix` | `String` | The leading substring to remove. May be empty, in which case `value` is returned unchanged. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | `value` with one leading copy of `prefix` removed when it begins with `prefix`; otherwise a string equal to `value`. [[src/builtins/strings.rs:STRINGS]] |
+| `String` | `value` with one leading copy of `prefix` removed when it begins with `prefix`; otherwise a string equal to `value`. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 
