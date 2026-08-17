@@ -552,8 +552,13 @@ impl<'a> SyntaxChecker<'a> {
     }
 
     pub(super) fn term_return_type(&mut self, callee: &str) -> Type {
-        match builtins::resolve_call_return_type(callee, &[], true) {
-            Some(return_type) => self.parse_type(&return_type),
+        // `term`'s return type is a function of the NAME alone (the legacy
+        // `TermResolver` ignored argument types), so resolve it by name rather than
+        // arg-typed `resolve_call_return_type` — which, called with the empty arg list
+        // here, would fail the arity match for any parameterful member (e.g.
+        // `term::setForeground`) and mis-report `Unknown`.
+        match builtins::call_return_type_name(callee) {
+            Some(return_type) => self.parse_type(return_type),
             None => Type::Unknown,
         }
     }

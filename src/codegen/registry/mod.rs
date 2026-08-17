@@ -295,13 +295,22 @@ pub(crate) enum HelperGate {
     WhenUsed(&'static [&'static str]),
     /// Inject only when the named package is **also** imported by the program,
     /// regardless of whether the OWNING package is imported — a cross-package bridge.
-    /// Two shapes need it: the `term`↔`astrings` `drawText(AttributedString)` bridge,
-    /// and the `strings` scalar seam an injected `astrings` companion calls (an
+    /// The `strings` scalar seam an injected `astrings` companion calls needs it (an
     /// `astrings`-only program never imports `strings` in user source, yet its
     /// companion `IMPORT strings` + `strings::toScalars`). `other` is matched by raw
-    /// import name, so it applies to a not-yet-migrated package (`astrings`/`term`)
-    /// that is absent from this registry.
+    /// import name, so it applies to a not-yet-migrated package that is absent from
+    /// this registry.
     WhenImported(&'static str),
+    /// Inject only when **both** named packages are imported by the program — a
+    /// cross-package bridge whose body references the surface of both. The
+    /// `term`↔`astrings` `drawText(AttributedString)` bridge needs it: its body
+    /// references `term::`/`TermColor` (so `term` must be imported) AND
+    /// `AttributedString`/`astrings::` (so `astrings` must be imported). A plain
+    /// [`WhenImported`](HelperGate::WhenImported) on either alone would over-inject the
+    /// bridge into a program importing only one of the two, dragging in the other
+    /// package's surface as dead code (the legacy `term::bridge_uses_package`
+    /// required BOTH). Both names are matched by raw import name.
+    WhenBothImported(&'static str, &'static str),
 }
 
 /// A source chunk (or ordering edge) the owning package contributes to an injected
@@ -1302,6 +1311,23 @@ impl Registry {
                             .iter()
                             .any(|import| import.package_name() == other)
                     }),
+                    // `WhenBothImported` is a cross-package bridge whose body references
+                    // BOTH packages' surface, so it must inject only when both are
+                    // imported (the `term`↔`astrings` `drawText(AttributedString)`
+                    // bridge — legacy `term::bridge_uses_package`). Over-injecting on
+                    // either alone would drag the other package's surface in as dead
+                    // code, shifting the injected `.ir`/`build.log` of a program that
+                    // imports only one.
+                    HelperGate::WhenBothImported(a, b) => {
+                        let imports = |name: &str| {
+                            ast.files.iter().any(|file| {
+                                file.imports
+                                    .iter()
+                                    .any(|import| import.package_name() == name)
+                            })
+                        };
+                        imports(a) && imports(b)
+                    }
                 };
                 if !gate_open || !injected_helpers.insert(helper.name) {
                     continue;

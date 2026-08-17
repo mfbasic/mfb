@@ -2092,10 +2092,19 @@ fn expression_type(
             // return type is reported even for an argument-invalid call, which is
             // the byte-identical pre-migration behavior — see the encoding
             // `func_*_invalid` acceptance goldens).
+            //
+            // `term` migrated to the clean-room registry too, but its return type is a
+            // function of the NAME alone (the legacy `TermResolver` ignored argument
+            // types), so it is likewise excluded and keeps resolving via the name-based
+            // `call_return_type_name` fallthrough. Routing it through the arg-typed path
+            // would mis-resolve a Byte-parameter setter called with Integer literals
+            // (`term::setForeground(255, 128, 0)` — the un-coerced `Integer` argument
+            // fails to match the `Byte` parameter), regressing `Nothing` to `Unknown`.
+            let owner = crate::codegen::registry::registry().owning_package(&canonical_callee);
             let migrated_arg_typed = crate::codegen::registry::registry()
                 .is_member(&canonical_callee)
-                && crate::codegen::registry::registry().owning_package(&canonical_callee)
-                    != Some("encoding");
+                && owner != Some("encoding")
+                && owner != Some("term");
             if
             // `astrings`/`strings`/`math`/`vector`/`fs`/`io`/`net`/`tls`/`http`/
             // `audio` migrated to the clean-room registry — covered by

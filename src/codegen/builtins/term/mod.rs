@@ -193,12 +193,14 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_helper(RegistryHelper::always("term", COMPANION_SOURCE));
 
     // The `term`↔`astrings` `drawText(AttributedString)` bridge — a cross-package gated
-    // helper injected only when `astrings` is imported (its body references
-    // `AttributedString`). The `strings` scalar seam the bridge calls rides in through
-    // `strings`' own `WhenImported("astrings")` gate.
+    // helper injected only when BOTH `term` and `astrings` are imported (its body
+    // references `term::`/`TermColor` AND `AttributedString`/`astrings::`, so gating on
+    // either alone would over-inject it as dead code, matching the legacy
+    // `term::bridge_uses_package`). The `strings` scalar seam the bridge calls rides in
+    // through `strings`' own `WhenImported("astrings")` gate.
     pkg.add_helper(RegistryHelper {
         name: "term_astrings_bridge",
-        gate: HelperGate::WhenImported("astrings"),
+        gate: HelperGate::WhenBothImported("term", "astrings"),
         body: Some(BRIDGE_SOURCE),
         import_name: None,
     });
