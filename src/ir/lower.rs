@@ -122,10 +122,10 @@ pub fn lower_project_with_external_functions(
     // `crypto` source is injected by the clean-room `registry::augment_project` above
     // (before the `strings`/`encoding` late passes, so `encoding::uses_package` still
     // sees `crypto_package.mfb`'s `IMPORT encoding`).
-    // `strings` before `encoding`: `strings_package.mfb` imports `encoding`
-    // (plan-41-D scalar seam).
-    let augmented = builtins::strings::augmented_project(&augmented)
-        .expect("built-in strings package source must parse");
+    // `strings`' scalar-seam companion (which `IMPORT encoding`s, plan-41-D) is
+    // injected by the clean-room `registry::augment_project` above (plan-99 PART B),
+    // as a `WhenUsed` gated helper — before this `encoding` late pass, so
+    // `encoding::uses_package` still sees the seam's transitive `IMPORT encoding`.
     let augmented = crate::codegen::builtins::encoding::augmented_project(&augmented)
         .expect("built-in encoding package source must parse");
     lower_augmented_project(
@@ -2097,11 +2097,10 @@ fn expression_type(
                 .is_member(&canonical_callee)
                 && crate::codegen::registry::registry().owning_package(&canonical_callee)
                     != Some("encoding");
-            if builtins::strings::is_strings_call(&canonical_callee)
-                || builtins::astrings::is_astrings_call(&canonical_callee)
-                // `math`/`vector`/`fs`/`io`/`net`/`tls`/`http`/`audio` migrated to the
-                // clean-room registry — covered by `migrated_arg_typed`
-                // (`registry::is_member`) below.
+            if builtins::astrings::is_astrings_call(&canonical_callee)
+                // `strings`/`math`/`vector`/`fs`/`io`/`net`/`tls`/`http`/`audio`
+                // migrated to the clean-room registry — covered by
+                // `migrated_arg_typed` (`registry::is_member`) below.
                 || migrated_arg_typed
                 || crate::codegen::registry::registry().owning_package(&canonical_callee)
                     == Some("datetime")
@@ -2753,7 +2752,7 @@ fn lower_expression_with_expected(
             // split — so both lowerings receive a `String` and the result equals
             // `strings::q(toString(a))`. (Tier-B transforms are plan-89-D and return
             // `AttributedString` instead.)
-            if builtins::strings::is_tier_a_query(&canonical_callee)
+            if crate::codegen::builtins::strings::is_tier_a_query(&canonical_callee)
                 && !args.is_empty()
                 && normalized_builtin
                     .first()
@@ -2943,7 +2942,7 @@ fn lower_expression_with_expected(
                     // is an `AttributedString` routes to its `__astrings_*`
                     // attribute-preserving source-companion body (the native String
                     // transform stays for a String argument).
-                    if !builtins::strings::is_tier_b_transform(&canonical_callee) {
+                    if !crate::codegen::builtins::strings::is_tier_b_transform(&canonical_callee) {
                         return None;
                     }
                     let first_arg_type = arguments
@@ -2953,7 +2952,7 @@ fn lower_expression_with_expected(
                     if first_arg_type.as_deref() != Some("AttributedString") {
                         return None;
                     }
-                    builtins::strings::tier_b_transform_impl(&canonical_callee)
+                    crate::codegen::builtins::strings::tier_b_transform_impl(&canonical_callee)
                         .map(crate::internal_name::internalize)
                 })
                 .or_else(|| {
@@ -2971,8 +2970,12 @@ fn lower_expression_with_expected(
                             expression_type(argument, locals, context).unwrap_or_default()
                         })
                         .collect();
+                    // `strings`' seven scalar-seam members (`toScalars`/`isLetter`/…)
+                    // migrated to `Body::Rewrite("__strings_*")`, so the generic
+                    // `registry::rewrite_target` now hands back their internal target
+                    // (plan-99 PART B), replacing the old
+                    // `builtins::strings::implementation_name` fallback.
                     crate::codegen::registry::rewrite_target(&canonical_callee, &arg_types)
-                        .or_else(|| builtins::strings::implementation_name(&canonical_callee))
                         .map(crate::internal_name::internalize)
                 })
                 .unwrap_or_else(|| canonical_callee.clone());

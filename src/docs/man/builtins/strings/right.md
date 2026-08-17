@@ -19,7 +19,7 @@ strings
 IMPORT strings
 ```
 
-`strings` is a built-in package, so no manifest dependency is required. [[src/builtins/strings.rs:is_strings_call]]
+`strings` is a built-in package, so no manifest dependency is required. [[src/codegen/registry/mod.rs:is_member]]
 
 ## Description
 
@@ -48,20 +48,20 @@ This clamping is the difference from `strings::mid`, which raises
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's
 and whose attribute spans are remapped by the same edit.
-[[src/builtins/strings.rs:is_tier_b_transform]]
+[[src/codegen/builtins/strings/mod.rs:is_tier_b_transform]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The string whose trailing scalars are returned. May be empty. [[src/builtins/strings.rs:call_param_names]] |
-| `count` | `Integer` | The number of trailing Unicode scalar values to take. Must be `0` or greater; values at or above the scalar length of `value` yield the whole string. [[src/builtins/strings.rs:call_param_names]] |
+| `value` | `String` | The string whose trailing scalars are returned. May be empty. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `count` | `Integer` | The number of trailing Unicode scalar values to take. Must be `0` or greater; values at or above the scalar length of `value` yield the whole string. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` holding the last `count` scalars of `value`, in original order. `""` when `count` is `0`; the whole of `value` when `count` is at least its scalar length. [[src/builtins/strings.rs:STRINGS]] |
+| `String` | A new `String` holding the last `count` scalars of `value`, in original order. `""` when `count` is `0`; the whole of `value` when `count` is at least its scalar length. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

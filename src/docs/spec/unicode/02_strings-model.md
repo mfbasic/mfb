@@ -36,7 +36,7 @@ width (the base scalar's width; combining marks add nothing), so a grapheme is 1
 or 2 columns regardless of its scalar count — `"café"` (NFD) is 4, `"日本語"` is 6,
 `"👨‍👩‍👧‍👦"` is 2. The `term::` backends lay one grapheme per cell at this width; a
 wide grapheme reserves a trailing cell and wraps at the right edge.
-[[src/builtins/strings.rs:DISPLAY_WIDTH]]
+[[src/codegen/builtins/strings/func_display_width.rs:displayWidth]]
 [[src/unicode/runtime_tables.rs:charwidth]]
 
 ## Scalar / byte mapping

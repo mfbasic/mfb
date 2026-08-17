@@ -181,9 +181,10 @@ pub fn check_project_collect(
     // clean-room `registry::augment_project` above.
     // `crypto` source is injected by the generic clean-room `registry::augment_project`
     // above, before the `strings`/`encoding` late passes (plan-04-crypto.md Part C).
-    // `strings` before `encoding`: `strings_package.mfb` imports `encoding`
-    // (plan-41-D).
-    let augmented = builtins::strings::augmented_project(&augmented)?;
+    // `strings`' scalar-seam companion (which `IMPORT encoding`s, plan-41-D) is
+    // injected by the generic clean-room `registry::augment_project` above as a
+    // `WhenUsed` gated helper (plan-99 PART B) — before this `encoding` late pass, so
+    // `encoding::uses_package` still sees the seam's transitive `IMPORT encoding`.
     let augmented = crate::codegen::builtins::encoding::augmented_project(&augmented)?;
     let mut checker = SyntaxChecker::new(project_dir, &augmented);
     checker.check();

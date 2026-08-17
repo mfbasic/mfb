@@ -21,7 +21,7 @@ strings
 IMPORT strings
 ```
 
-`strings` is a built-in package, so no manifest dependency is required. [[src/builtins/strings.rs:is_strings_call]]
+`strings` is a built-in package, so no manifest dependency is required. [[src/codegen/registry/mod.rs:is_member]]
 
 ## Description
 
@@ -42,7 +42,7 @@ through the scalar length of `value` *inclusive*; the upper bound equals the
 length so a search may begin at the very end of the string, where only an empty
 needle can match. A negative `start`, or one past the scalar length, raises
 `ErrIndexOutOfRange`. An empty `needle` matches immediately and returns `start`.
-[[src/builtins/strings.rs:STRINGS]]
+[[src/codegen/builtins/strings/mod.rs:register]]
 
 `find` always returns a valid index on success and never reports absence with a
 sentinel such as `-1`. When `needle` does not occur at or after `start` it raises
@@ -54,33 +54,33 @@ lists; see `mfb man collections find` for the `List` form.
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
-errors). [[src/builtins/strings.rs:is_tier_a_query]]
+errors). [[src/codegen/builtins/strings/mod.rs:is_tier_a_query]]
 
 ## Overloads
 
 **`strings::find(value AS String, needle AS String) AS Integer`**
 
 Searches the whole of `value` from the beginning; equivalent to passing a `start`
-of `0`. [[src/builtins/strings.rs:STRINGS]]
+of `0`. [[src/codegen/builtins/strings/mod.rs:register]]
 
 **`strings::find(value AS String, needle AS String, start AS Integer) AS Integer`**
 
 Begins the search at scalar index `start`, ignoring any earlier occurrence. Used
-to walk successive matches. [[src/builtins/strings.rs:STRINGS]]
+to walk successive matches. [[src/codegen/builtins/strings/mod.rs:register]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The string to search. May be empty. [[src/builtins/strings.rs:call_param_names]] |
-| `needle` | `String` | The substring to locate. An empty `needle` matches at `start`. [[src/builtins/strings.rs:call_param_names]] |
-| `start` | `Integer` | Optional. The zero-based scalar index at which to begin searching. Defaults to `0`. Must be in `0` through the scalar length of `value` inclusive. [[src/builtins/strings.rs:call_param_names]] |
+| `value` | `String` | The string to search. May be empty. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `needle` | `String` | The substring to locate. An empty `needle` matches at `start`. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `start` | `Integer` | Optional. The zero-based scalar index at which to begin searching. Defaults to `0`. Must be in `0` through the scalar length of `value` inclusive. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The zero-based Unicode scalar index at which the first occurrence of `needle` at or after `start` begins. Returns `start` when `needle` is empty. [[src/builtins/strings.rs:STRINGS]] |
+| `Integer` | The zero-based Unicode scalar index at which the first occurrence of `needle` at or after `start` begins. Returns `start` when `needle` is empty. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

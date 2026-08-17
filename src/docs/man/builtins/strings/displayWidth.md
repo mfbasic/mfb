@@ -19,7 +19,7 @@ strings
 IMPORT strings
 ```
 
-`strings` is a built-in package, so no manifest dependency is required. [[src/builtins/strings.rs:is_strings_call]]
+`strings` is a built-in package, so no manifest dependency is required. [[src/codegen/registry/mod.rs:is_member]]
 
 ## Description
 
@@ -56,19 +56,19 @@ the call never fails.
 
 `value` may also be an `astrings::AttributedString`: the query runs on its visible
 text and returns exactly what the `String` overload returns (same value, type, and
-errors). [[src/builtins/strings.rs:is_tier_a_query]]
+errors). [[src/codegen/builtins/strings/mod.rs:is_tier_a_query]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The string whose display width is measured. Any `String` is accepted, including the empty string. [[src/builtins/strings.rs:call_param_names]] |
+| `value` | `String` | The string whose display width is measured. Any `String` is accepted, including the empty string. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The total number of terminal columns `value` occupies, a non-negative `Integer`. `0` for the empty string. [[src/builtins/strings.rs:STRINGS]] |
+| `Integer` | The total number of terminal columns `value` occupies, a non-negative `Integer`. `0` for the empty string. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

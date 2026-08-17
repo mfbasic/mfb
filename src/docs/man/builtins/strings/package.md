@@ -25,7 +25,7 @@ and reshaping (`left`, `right`, `mid`, `stripPrefix`, `stripSuffix`, `split`,
 `join`, `replace`, `repeat`, `padLeft`, `padRight`), length and byte queries
 (`byteLen`, `toBytes`), and the Unicode-scalar seam (`toScalars`, `fromScalars`,
 and the `Scalar` classifiers `isLetter`, `isDigit`, `isWhitespace`, `isUpper`,
-`isLower`). [[src/builtins/strings.rs:is_strings_call]]
+`isLower`). [[src/codegen/registry/mod.rs:is_member]]
 
 These helpers do not mutate their arguments. Functions that transform text return
 a new `String`; `graphemes` and `split` return a `List OF String`, `toBytes`
@@ -34,7 +34,7 @@ original value is left unchanged. The scalar seam bridges `String` and the
 `Scalar` primitive: `toScalars` walks a string one Unicode scalar at a time and
 `fromScalars` rebuilds one, an exact round trip; the five `isX(Scalar)`
 predicates classify a single scalar by its Unicode general category.
-[[src/builtins/strings.rs:STRINGS]]
+[[src/codegen/builtins/strings/mod.rs:register]]
 
 Index- and count-based functions (`find`, `mid`, `left`, `right`) measure
 positions in zero-based Unicode scalar values, not bytes or graphemes. The

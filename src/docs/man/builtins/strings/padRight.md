@@ -21,7 +21,7 @@ strings
 IMPORT strings
 ```
 
-`strings` is a built-in package, so no manifest dependency is required. [[src/builtins/strings.rs:is_strings_call]]
+`strings` is a built-in package, so no manifest dependency is required. [[src/codegen/registry/mod.rs:is_member]]
 
 ## Description
 
@@ -51,33 +51,33 @@ Neither argument is mutated.
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's
 and whose attribute spans are remapped by the same edit.
-[[src/builtins/strings.rs:is_tier_b_transform]]
+[[src/codegen/builtins/strings/mod.rs:is_tier_b_transform]]
 
 ## Overloads
 
 **`strings::padRight(value AS String, width AS Integer) AS String`**
 
 Pads with a single space (`" "`), materialized internally so the two forms share
-one code path. [[src/builtins/strings.rs:STRINGS]]
+one code path. [[src/codegen/builtins/strings/mod.rs:register]]
 
 **`strings::padRight(value AS String, width AS Integer, padChar AS String) AS String`**
 
 Pads with the supplied `padChar`, which must be exactly one Unicode scalar value.
-[[src/builtins/strings.rs:STRINGS]]
+[[src/codegen/builtins/strings/mod.rs:register]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The string to pad. Returned as an equal copy when its scalar length is already at least `width`. [[src/builtins/strings.rs:call_param_names]] |
-| `width` | `Integer` | The target total length of the result in Unicode scalar values. Must be `0` or greater; `0` never pads. [[src/builtins/strings.rs:call_param_names]] |
-| `padChar` | `String` | Optional. The fill character appended to reach `width`; defaults to a single space. Must be exactly one Unicode scalar value. [[src/builtins/strings.rs:call_param_names]] |
+| `value` | `String` | The string to pad. Returned as an equal copy when its scalar length is already at least `width`. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `width` | `Integer` | The target total length of the result in Unicode scalar values. Must be `0` or greater; `0` never pads. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `padChar` | `String` | Optional. The fill character appended to reach `width`; defaults to a single space. Must be exactly one Unicode scalar value. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` equal to `value` followed by enough copies of `padChar` to span `width` scalars, or equal to `value` when it is already that long. [[src/builtins/strings.rs:STRINGS]] |
+| `String` | A new `String` equal to `value` followed by enough copies of `padChar` to span `width` scalars, or equal to `value` when it is already that long. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

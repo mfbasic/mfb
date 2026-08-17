@@ -1,7 +1,7 @@
 use super::*;
 
 impl CodeBuilder<'_> {
-    pub(super) fn lower_strings_package_call(
+    pub(crate) fn lower_strings_package_call(
         &mut self,
         target: &str,
         args: &[NirValue],

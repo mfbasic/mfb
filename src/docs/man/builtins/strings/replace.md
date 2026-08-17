@@ -19,7 +19,7 @@ strings
 IMPORT strings
 ```
 
-`strings` is a built-in package, so no manifest dependency is required. [[src/builtins/strings.rs:is_strings_call]]
+`strings` is a built-in package, so no manifest dependency is required. [[src/codegen/registry/mod.rs:is_member]]
 
 ## Description
 
@@ -50,26 +50,26 @@ aliased, so the caller owns the returned value unconditionally.
 
 `old` is also accepted under the name `needle`, and `new` under the name
 `replacement`. The bare `replace` name is also defined for lists; see
-`mfb man collections replace`. [[src/builtins/strings.rs:call_param_names]]
+`mfb man collections replace`. [[src/codegen/registry/mod.rs:call_param_names]]
 
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's
 and whose attribute spans are remapped by the same edit.
-[[src/builtins/strings.rs:is_tier_b_transform]]
+[[src/codegen/builtins/strings/mod.rs:is_tier_b_transform]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The string to copy from, replacing matches as they are found. [[src/builtins/strings.rs:call_param_names]] |
-| `old` | `String` | The substring to search for. Also accepted under the name `needle`. An empty `old`, or one longer than `value`, never matches. [[src/builtins/strings.rs:call_param_names]] |
-| `new` | `String` | The text written in place of each match. Also accepted under the name `replacement`. May be empty, which deletes each match. [[src/builtins/strings.rs:call_param_names]] |
+| `value` | `String` | The string to copy from, replacing matches as they are found. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `old` | `String` | The substring to search for. Also accepted under the name `needle`. An empty `old`, or one longer than `value`, never matches. [[src/codegen/registry/mod.rs:call_param_names]] |
+| `new` | `String` | The text written in place of each match. Also accepted under the name `replacement`. May be empty, which deletes each match. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` with every non-overlapping occurrence of `old` replaced by `new`. Equal to `value` when there are no matches. [[src/builtins/strings.rs:STRINGS]] |
+| `String` | A new `String` with every non-overlapping occurrence of `old` replaced by `new`. Equal to `value` when there are no matches. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

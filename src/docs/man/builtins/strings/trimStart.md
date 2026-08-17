@@ -19,7 +19,7 @@ strings
 IMPORT strings
 ```
 
-`strings` is a built-in package, so no manifest dependency is required. [[src/builtins/strings.rs:is_strings_call]]
+`strings` is a built-in package, so no manifest dependency is required. [[src/codegen/registry/mod.rs:is_member]]
 
 ## Description
 
@@ -44,19 +44,19 @@ newly allocated `String`, even when nothing was trimmed.
 `value` may also be an `astrings::AttributedString`: it returns an
 `AttributedString` whose text is transformed exactly as the `String` overload's
 and whose attribute spans are remapped by the same edit.
-[[src/builtins/strings.rs:is_tier_b_transform]]
+[[src/codegen/builtins/strings/mod.rs:is_tier_b_transform]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `String` | The string to trim at the front. Any `String` is accepted, including the empty string. [[src/builtins/strings.rs:call_param_names]] |
+| `value` | `String` | The string to trim at the front. Any `String` is accepted, including the empty string. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | A new `String` equal to `value` with leading Unicode whitespace removed. The empty string, and any all-whitespace string, yield `""`. [[src/builtins/strings.rs:STRINGS]] |
+| `String` | A new `String` equal to `value` with leading Unicode whitespace removed. The empty string, and any all-whitespace string, yield `""`. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

@@ -21,13 +21,13 @@ IMPORT strings
 `strings` is a built-in package, so no manifest dependency is required. `isLower`
 is one of seven `strings` members implemented in MFBASIC source rather than in
 native codegen; the companion is injected automatically when a program imports
-`strings` and references the scalar seam. [[src/builtins/strings.rs:implementation_name]] [[src/builtins/strings.rs:uses_package]]
+`strings` and references the scalar seam. [[src/codegen/registry/mod.rs:rewrite_target]] [[src/codegen/registry/mod.rs:references_any]]
 
 ## Description
 
 `strings::isLower` returns `TRUE` when `scalar` has the Unicode general category
 `Ll` (lowercase letter) and `FALSE` otherwise.
-[[src/builtins/strings_package.mfb:__strings_isLower]]
+[[src/codegen/builtins/strings/seam.mfb:__strings_isLower]]
 
 The test is exactly `Ll`, no wider. Modifier letters (category `Lm`) and other
 letters (`Lo`, which covers uncased scripts such as Han and Arabic) are **not**
@@ -48,13 +48,13 @@ rather than test it, use `strings::lower`; for caseless comparison, use
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `scalar` | `Scalar` | The Unicode scalar to classify. Any `Scalar` is accepted. [[src/builtins/strings.rs:call_param_names]] |
+| `scalar` | `Scalar` | The Unicode scalar to classify. Any `Scalar` is accepted. [[src/codegen/registry/mod.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `scalar` has general category `Ll`; `FALSE` otherwise, including for uncased letters such as `中`. [[src/builtins/strings.rs:STRINGS]] |
+| `Boolean` | `TRUE` when `scalar` has general category `Ll`; `FALSE` otherwise, including for uncased letters such as `中`. [[src/codegen/builtins/strings/mod.rs:register]] |
 
 ## Errors
 

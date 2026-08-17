@@ -708,9 +708,11 @@ impl CodeBuilder<'_> {
                 if let Some(result) = self.lower_fs_path_call(target, args)? {
                     return Ok(result);
                 }
-                if let Some(result) = self.lower_strings_package_call(target, args)? {
-                    return Ok(result);
-                }
+                // `strings::` native members migrated to the clean-room registry
+                // (`Body::Native` `common`), reached below through `try_native_lower`
+                // (plan-99 PART B). Their shared codegen carrier
+                // (`lower_strings_package_call`) is unchanged; only the dispatch seam
+                // moved off this per-package call.
                 if let Some(result) = self.lower_astrings_package_call(target, args)? {
                     return Ok(result);
                 }
@@ -980,8 +982,11 @@ impl CodeBuilder<'_> {
                 if let Some(result) = self.lower_fs_path_call(target, args)? {
                     return Ok(result);
                 }
-                if let Some(result) = self.lower_strings_package_call(target, args)? {
-                    return Ok(result);
+                // `strings::` native members migrated to the clean-room registry
+                // (`Body::Native` `common`), reached through `try_native_lower`
+                // (plan-99 PART B) — the same dual-path seam as `collections::`.
+                if let Some(result) = self.try_native_lower(target, args) {
+                    return result;
                 }
                 if let Some(result) = self.lower_astrings_package_call(target, args)? {
                     return Ok(result);
