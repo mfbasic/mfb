@@ -86,7 +86,7 @@ fn emit_listener_flags_restore(
     Ok(())
 }
 
-pub(in crate::target::shared::code) fn lower_net_accept_helper(
+pub(crate) fn lower_net_accept_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -400,7 +400,7 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
 // net.localAddress / net.remoteAddress
 // ---------------------------------------------------------------------------
 
-pub(in crate::target::shared::code) fn lower_net_address_helper(
+pub(crate) fn lower_net_address_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -516,7 +516,7 @@ pub(in crate::target::shared::code) fn lower_net_address_helper(
 // net.read / net.readText
 // ---------------------------------------------------------------------------
 
-pub(in crate::target::shared::code) fn lower_net_read_helper(
+pub(crate) fn lower_net_read_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -804,7 +804,7 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
 // net.write / net.writeText
 // ---------------------------------------------------------------------------
 
-pub(in crate::target::shared::code) fn lower_net_write_helper(
+pub(crate) fn lower_net_write_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -995,7 +995,7 @@ pub(in crate::target::shared::code) fn lower_net_write_helper(
 // net.lookup
 // ---------------------------------------------------------------------------
 
-pub(in crate::target::shared::code) fn lower_net_lookup_helper(
+pub(crate) fn lower_net_lookup_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1255,7 +1255,7 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
 /// `SOCK_DGRAM` socket, and `bind` it. An empty host binds all interfaces
 /// (NULL host + `AI_PASSIVE`). Returns a `UdpSocket` handle sharing the `File`
 /// record layout.
-pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
+pub(crate) fn lower_net_bind_udp_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1474,7 +1474,7 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
 /// `maxBytes + 1` so a datagram larger than `maxBytes` is detected (the returned
 /// length exceeds `maxBytes`) and rejected with `ErrMessageTooLarge` rather than
 /// silently truncated (§10.3).
-pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
+pub(crate) fn lower_net_receive_from_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1548,7 +1548,7 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
     // helper spills them through the outgoing-args sentinel that finalize_frame
     // reserves; POSIX passes all six in registers, byte-unchanged.
     let win64_six_args = platform.family() == PlatformFamily::Windows;
-    super::super::native_helpers::emit_external_int_call(
+    crate::target::shared::code::native_helpers::emit_external_int_call(
         platform,
         net_symbol(platform, NetSymbol::RecvFrom),
         symbol,
@@ -1808,7 +1808,7 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
 /// `sendTo(sock, address, bytes)` / `sendTextTo(sock, address, value)`: resolve
 /// the destination `Address` with `getaddrinfo` and send a single datagram with
 /// `sendto`. An oversized datagram (`EMSGSIZE`) maps to `ErrMessageTooLarge`.
-pub(in crate::target::shared::code) fn lower_net_send_to_helper(
+pub(crate) fn lower_net_send_to_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1929,7 +1929,7 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
     // stack arguments above the shadow, not rdi/rsi (bug-384). The shared helper
     // spills them through the outgoing-args sentinel; POSIX unchanged.
     let win64_sendto = platform.family() == PlatformFamily::Windows;
-    super::super::native_helpers::emit_external_int_call(
+    crate::target::shared::code::native_helpers::emit_external_int_call(
         platform,
         net_symbol(platform, NetSymbol::SendTo),
         symbol,
@@ -2062,6 +2062,7 @@ mod lookup_release_tests {
     // addrinfo chain leaks on a failed lookup. Counts the emitted freeaddrinfo
     // calls (success exit + error exit).
     use super::*;
+    use crate::arch::ops::CodeOp;
     use crate::target::shared::code::mir;
     use crate::target::shared::code::test_support::TestPlatform;
 

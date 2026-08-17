@@ -19,7 +19,7 @@ IMPORT net
 ```
 
 `net` is a built-in package, so no manifest dependency is required.
-[[src/builtins/net.rs:is_net_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -29,7 +29,7 @@ returns it as a `DatagramText` record with two fields: `from`, the sender's
 name — the text payload is `value`, not `text`, and its byte-oriented counterpart
 in `Datagram` is `bytes`. Because UDP is connectionless, one bound socket can
 receive from many peers, and each call reports who sent the datagram it returned.
-[[src/builtins/net.rs:NET]]
+[[src/codegen/builtins/net/mod.rs:register]]
 
 A datagram is delivered whole or not at all. `maxBytes` bounds the payload the
 call will accept and must be positive. The receive buffer is deliberately
@@ -38,14 +38,14 @@ and rejected with `ErrMessageTooLarge` rather than silently truncated. The
 returned string holds the entire payload and is frequently shorter than
 `maxBytes` bytes; a zero-length datagram is a valid UDP message and yields an
 empty string rather than an error.
-[[src/target/shared/code/net/io.rs:lower_net_receive_from_helper]]
+[[src/codegen/builtins/net/native/io.rs:lower_net_receive_from_helper]]
 
 The payload bytes are validated as UTF-8 before the string is returned, and
 invalid bytes raise `ErrEncoding`. Unlike `net::readText` on a TCP stream this is
 not a framing hazard: a datagram is received whole, so a multi-byte UTF-8
 sequence is never split across two calls. Use `net::receiveFrom` when the payload
 is raw binary and a `List OF Byte` is the right shape.
-[[src/target/shared/code/net/io.rs:lower_net_receive_from_helper]]
+[[src/codegen/builtins/net/native/io.rs:lower_net_receive_from_helper]]
 
 The call blocks until a datagram arrives or the socket's read timeout elapses;
 use `net::setReadTimeout` to bound the wait, after which `ErrTimeout` is
@@ -58,14 +58,14 @@ to `from` with `net::sendTextTo`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `sock` | `UdpSocket` | A bound UDP socket to receive on, as returned by `net::bindUdp`. It must still be open; the handle is borrowed, not consumed. [[src/builtins/net.rs:call_param_names]] |
-| `maxBytes` | `Integer` | The largest payload the call will accept, in bytes. Must be positive. A datagram exceeding it is rejected with `ErrMessageTooLarge`, never truncated. [[src/target/shared/code/net/io.rs:lower_net_receive_from_helper]] |
+| `sock` | `UdpSocket` | A bound UDP socket to receive on, as returned by `net::bindUdp`. It must still be open; the handle is borrowed, not consumed. [[src/codegen/builtins/net/mod.rs:aliases]] |
+| `maxBytes` | `Integer` | The largest payload the call will accept, in bytes. Must be positive. A datagram exceeding it is rejected with `ErrMessageTooLarge`, never truncated. [[src/codegen/builtins/net/native/io.rs:lower_net_receive_from_helper]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `DatagramText` | A record whose `from` field is the sender's `Address` and whose `value` field is the whole payload decoded as a UTF-8 `String`, built from between `0` and `maxBytes` bytes inclusive. [[src/builtins/net.rs:NET]] |
+| `DatagramText` | A record whose `from` field is the sender's `Address` and whose `value` field is the whole payload decoded as a UTF-8 `String`, built from between `0` and `maxBytes` bytes inclusive. [[src/codegen/builtins/net/mod.rs:register]] |
 
 ## Errors
 

@@ -14,7 +14,7 @@ use super::*;
 // net.poll
 // ---------------------------------------------------------------------------
 
-pub(in crate::target::shared::code) fn lower_net_poll_helper(
+pub(crate) fn lower_net_poll_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -159,7 +159,7 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
 /// `arena_free`d on every exit path that allocated it (no leak across the loop).
 ///
 /// `socks` (the collection pointer) arrives in `x0`; `timeoutMs` in `x1`.
-pub(in crate::target::shared::code) fn lower_net_poll_list_helper(
+pub(crate) fn lower_net_poll_list_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -416,7 +416,7 @@ pub(in crate::target::shared::code) fn lower_net_poll_list_helper(
 // net.setReadTimeout / net.setWriteTimeout
 // ---------------------------------------------------------------------------
 
-pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
+pub(crate) fn lower_net_set_timeout_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -506,7 +506,7 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
     // above the shadow, not rdi (bug-384) — a garbage optlen makes
     // SO_RCVTIMEO/SNDTIMEO setsockopt fail. The shared helper spills it through
     // the outgoing-args sentinel; POSIX passes it in a register, byte-unchanged.
-    super::super::native_helpers::emit_external_int_call(
+    crate::target::shared::code::native_helpers::emit_external_int_call(
         platform,
         net_symbol(platform, NetSymbol::SetSockOpt),
         symbol,

@@ -23,7 +23,7 @@ IMPORT net
 ```
 
 `net` is a built-in package, so no manifest dependency is required.
-[[src/builtins/net.rs:is_net_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -33,7 +33,7 @@ including the case where the peer has closed and that read would report end of
 stream — and `FALSE` when nothing became readable before the deadline. The
 socket is borrowed and inspected only: no data is consumed, so a `TRUE` result
 leaves the bytes in place for the next read.
-[[src/target/shared/code/net/poll.rs:lower_net_poll_helper]]
+[[src/codegen/builtins/net/native/poll.rs:lower_net_poll_helper]]
 
 `timeoutMs` bounds the wait, in milliseconds, following the language timeout
 convention (see `mfb spec language builtin-functions` → "Timeout convention").
@@ -44,7 +44,7 @@ immediately with the socket's current readiness (the old omitted behavior — pa
 rejected with `ErrInvalidArgument`. Because the host `poll` takes a C `int`, a
 value above 2147483647 is clamped to that, which is roughly 24 days.
 [[src/target/shared/code/builder_values.rs:net_poll_is_list_form]]
-[[src/target/shared/code/net/poll.rs:lower_net_poll_helper]]
+[[src/codegen/builtins/net/native/poll.rs:lower_net_poll_helper]]
 
 Given a `List OF RES net::Socket`, `net::poll` becomes a **readiness multiplex**: it
 blocks until at least one socket in the list is readable, then returns the first
@@ -57,12 +57,12 @@ yields a resource and has no not-ready value to return, expiry raises `ErrTimeou
 rather than returning a sentinel (it is a producing call). The elements must be
 marked `RES` (`List OF RES net::Socket`); a bare `List OF Socket` is a compile error,
 as resource elements always require the `RES` marker.
-[[src/target/shared/code/net/poll.rs:lower_net_poll_list_helper]]
+[[src/codegen/builtins/net/native/poll.rs:lower_net_poll_list_helper]]
 
 A signal that interrupts the underlying wait re-issues it rather than surfacing a
 failure. `net::poll` complements `net::setReadTimeout`: `poll` asks whether a read
 would block right now, while `setReadTimeout` bounds how long a read that does
-block may wait. [[src/target/shared/code/net/poll.rs:lower_net_poll_helper]]
+block may wait. [[src/codegen/builtins/net/native/poll.rs:lower_net_poll_helper]]
 
 ## Overloads
 
@@ -91,16 +91,16 @@ single immediate scan. Expiry with none ready raises `ErrTimeout`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `sock` | `Socket` | An open connected socket, as returned by `net::connectTcp` or `net::accept`. It is borrowed and inspected for readiness only; no data is read and the handle is not consumed. [[src/builtins/net.rs:call_param_name_overloads]] |
-| `socks` | `List OF RES net::Socket` | A non-empty list of open connected sockets. Each is borrowed and inspected for readiness; the list keeps ownership. An empty list raises `ErrInvalidArgument`. [[src/builtins/net.rs:call_param_name_overloads]] |
-| `timeoutMs` | `Integer` | Optional. Omit to block until a socket is readable; `0` is an immediate non-blocking check/scan; a positive value waits up to that many milliseconds, clamped to `2147483647`. Must not be negative. [[src/target/shared/code/net/poll.rs:lower_net_poll_helper]] |
+| `sock` | `Socket` | An open connected socket, as returned by `net::connectTcp` or `net::accept`. It is borrowed and inspected for readiness only; no data is read and the handle is not consumed. [[src/codegen/builtins/net/func_connect_tcp.rs:register]] |
+| `socks` | `List OF RES net::Socket` | A non-empty list of open connected sockets. Each is borrowed and inspected for readiness; the list keeps ownership. An empty list raises `ErrInvalidArgument`. [[src/codegen/builtins/net/func_connect_tcp.rs:register]] |
+| `timeoutMs` | `Integer` | Optional. Omit to block until a socket is readable; `0` is an immediate non-blocking check/scan; a positive value waits up to that many milliseconds, clamped to `2147483647`. Must not be negative. [[src/codegen/builtins/net/native/poll.rs:lower_net_poll_helper]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | (scalar overload) `TRUE` when the socket is readable — a following `net::read` or `net::readText` will not block, including when that read would report end of stream. `FALSE` when nothing became readable before the deadline. [[src/builtins/net.rs:NET]] |
-| `Socket` | (list overload) A **borrowed** pointer to the first ready socket (lowest list index). The list retains ownership and closes it; do not close the returned handle. [[src/target/shared/code/net/poll.rs:lower_net_poll_list_helper]] |
+| `Boolean` | (scalar overload) `TRUE` when the socket is readable — a following `net::read` or `net::readText` will not block, including when that read would report end of stream. `FALSE` when nothing became readable before the deadline. [[src/codegen/builtins/net/mod.rs:register]] |
+| `Socket` | (list overload) A **borrowed** pointer to the first ready socket (lowest list index). The list retains ownership and closes it; do not close the returned handle. [[src/codegen/builtins/net/native/poll.rs:lower_net_poll_list_helper]] |
 
 ## Errors
 

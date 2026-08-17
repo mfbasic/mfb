@@ -14,6 +14,7 @@ pub(crate) mod io;
 pub(crate) mod json;
 pub(crate) mod math;
 pub(crate) mod money;
+pub(crate) mod net;
 pub(crate) mod os;
 pub(crate) mod process;
 pub(crate) mod regex;

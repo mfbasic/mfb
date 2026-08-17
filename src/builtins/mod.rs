@@ -3,7 +3,6 @@ pub(crate) mod astrings;
 pub(crate) mod audio;
 pub(crate) mod general;
 pub(crate) mod http;
-pub(crate) mod net;
 pub(crate) mod resource;
 pub(crate) mod strings;
 pub(crate) mod term;
@@ -132,12 +131,12 @@ pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str,
 /// types (plan-01-overload.md §B.2). A general call `f(x)` whose sole argument
 /// has such a type routes to this `__pkg_name` helper instead of the scalar
 /// builtin; the name is internalized at lowering so it never collides with the
-/// builtin dispatch symbol. Keyed by `(builtin, arg_type)`; the only row today is
-/// the `toString(net::Url)` renderer (plan-03-http.md §A.3).
+/// builtin dispatch symbol. Keyed by `(builtin, arg_type)`. The `toString(net::Url)`
+/// renderer now rides on the migrated `net` package's `add_override`
+/// (`registry::general_override_target`); the remaining hand row is `vector`'s.
 pub(crate) fn general_override_target(builtin: &str, arg_type: &str) -> Option<&'static str> {
     crate::codegen::registry::general_override_target(builtin, arg_type).or_else(|| {
         match (builtin, arg_type) {
-            ("toString", t) if t == net::URL_TYPE => Some("__net_urlToString"),
             // The nine `vector::` value records render `"(x, y, z)"` via a companion
             // renderer (plan-06-vector.md §4.18).
             ("toString", t) if vector::is_builtin_type(t) => vector::tostring_override_target(t),
@@ -180,7 +179,8 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         "http" => http::is_builtin_type(member),
         // `money`'s `Rounding` enum resolves via the migrated-registry check above
         // (`registry::qualified_builtin_type`), so it needs no arm here.
-        "net" => net::is_builtin_type(member),
+        // `net`'s `Url`/`Address`/`Datagram`/`DatagramText` value types resolve via
+        // the migrated-registry check above, so no arm is needed here.
         // `process` (the `Process` resource) is resolved by the migrated-registry
         // check above (`registry::qualified_builtin_type`), so it needs no arm here.
         "term" => term::is_builtin_type(member),
@@ -478,8 +478,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
     // process — no longer own an `expected_arguments` seam: their bespoke phrasing
     // rides on the `RegistryFunction::expected_arguments` descriptor field and is
     // served by the generic `registry::expected_arguments` below.
-    if let Some(text) = net::expected_arguments(name)
-        .or_else(|| audio::expected_arguments(name))
+    if let Some(text) = audio::expected_arguments(name)
         .or_else(|| http::expected_arguments(name))
         .or_else(|| vector::expected_arguments(name))
         .or_else(|| general::expected_arguments(name))
@@ -521,7 +520,6 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
 
     let expected = general::expected_arguments(callee)
         .or_else(|| strings::expected_arguments(callee))
-        .or_else(|| net::argument_types(callee))
         .or_else(|| audio::argument_types(callee))
         .or_else(|| http::expected_arguments(callee))?;
     // A description that is not a concrete positional signature is not a coercion
@@ -722,7 +720,6 @@ pub(crate) fn split_func_params_and_return(rest: &str) -> Option<(Vec<&str>, &st
 /// builtin uses the merged per-position table of [`call_param_names`].
 pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static [&'static str]]> {
     audio::call_param_name_overloads(name)
-        .or_else(|| net::call_param_name_overloads(name))
         // datetime's front-dropping constructors (instant/duration/fixedOffset) are
         // served by the generic registry, which derives the per-overload table from
         // each implementation's parameters.
@@ -762,7 +759,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
         .or_else(|| audio::call_param_names(name))
         .or_else(|| general::call_param_names(name))
         .or_else(|| strings::call_param_names(name))
-        .or_else(|| net::call_param_names(name))
         .or_else(|| http::call_param_names(name))
         .or_else(|| term::call_param_names(name))
         .or_else(|| vector::call_param_names(name))?;
@@ -887,7 +883,7 @@ mod tests {
         // package) must not.
         assert_eq!(
             qualified_builtin_type("net.Url"),
-            Some(net::URL_TYPE.to_string())
+            Some(crate::codegen::builtins::net::URL_TYPE.to_string())
         );
         // `Url` is a net type, not an io/csv type — these must be rejected.
         assert_eq!(qualified_builtin_type("io.Url"), None);
@@ -1188,18 +1184,24 @@ mod tests {
     #[test]
     fn general_override_target_cases() {
         assert_eq!(
-            general_override_target("toString", net::URL_TYPE),
+            general_override_target("toString", crate::codegen::builtins::net::URL_TYPE),
             Some("__net_urlToString")
         );
         assert_eq!(general_override_target("toString", "Integer"), None);
-        assert_eq!(general_override_target("len", net::URL_TYPE), None);
+        assert_eq!(
+            general_override_target("len", crate::codegen::builtins::net::URL_TYPE),
+            None
+        );
     }
 
     #[test]
     fn qualified_builtin_type_cases() {
         // net.Url -> bare Url type id.
         let url = qualified_builtin_type("net.Url");
-        assert_eq!(url.as_deref(), Some(net::URL_TYPE));
+        assert_eq!(
+            url.as_deref(),
+            Some(crate::codegen::builtins::net::URL_TYPE)
+        );
         // Not a builtin package.
         assert_eq!(qualified_builtin_type("mymod.Thing"), None);
         // Builtin package, non-type member.

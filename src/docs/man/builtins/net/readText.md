@@ -19,7 +19,7 @@ IMPORT net
 ```
 
 `net` is a built-in package, so no manifest dependency is required.
-[[src/builtins/net.rs:is_net_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -28,7 +28,7 @@ IMPORT net
 any data is available rather than waiting to fill the requested size, so the
 result is frequently shorter than `maxBytes` bytes, and on success it is built
 from at least one byte. The socket is borrowed and stays open.
-[[src/target/shared/code/net/io.rs:lower_net_read_helper]]
+[[src/codegen/builtins/net/native/io.rs:lower_net_read_helper]]
 
 The received bytes are copied into a freshly allocated string and then validated
 as UTF-8 before the string is returned; bytes that are not well-formed UTF-8
@@ -38,7 +38,7 @@ a multi-byte UTF-8 sequence across two calls, and the call holding the partial
 sequence fails validation. When the peer sends raw binary data, or when bytes
 must be reassembled across several receives before decoding, use `net::read` and
 convert once the message is complete.
-[[src/target/shared/code/net/io.rs:lower_net_read_helper]]
+[[src/codegen/builtins/net/native/io.rs:lower_net_read_helper]]
 
 The call blocks until at least one byte arrives, the peer closes its side, or the
 socket's read timeout elapses. `maxBytes` bounds the bytes read in this call and
@@ -58,14 +58,14 @@ receiving and does not close the socket.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `sock` | `Socket` | A connected socket to receive from, as returned by `net::connectTcp` or `net::accept`. It must still be open; the handle is borrowed, not consumed. [[src/builtins/net.rs:call_param_names]] |
-| `maxBytes` | `Integer` | The maximum number of bytes to receive in this call. Must be positive. It caps the bytes received before decoding but does not guarantee that many arrive. [[src/target/shared/code/net/io.rs:lower_net_read_helper]] |
+| `sock` | `Socket` | A connected socket to receive from, as returned by `net::connectTcp` or `net::accept`. It must still be open; the handle is borrowed, not consumed. [[src/codegen/builtins/net/mod.rs:aliases]] |
+| `maxBytes` | `Integer` | The maximum number of bytes to receive in this call. Must be positive. It caps the bytes received before decoding but does not guarantee that many arrive. [[src/codegen/builtins/net/native/io.rs:lower_net_read_helper]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `String` | The bytes received in this read, decoded as UTF-8, in arrival order — built from between `1` and `maxBytes` bytes inclusive. End of stream is reported as `ErrConnectionClosed`, never as an empty string. [[src/builtins/net.rs:NET]] |
+| `String` | The bytes received in this read, decoded as UTF-8, in arrival order — built from between `1` and `maxBytes` bytes inclusive. End of stream is reported as `ErrConnectionClosed`, never as an empty string. [[src/codegen/builtins/net/mod.rs:register]] |
 
 ## Errors
 

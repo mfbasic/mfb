@@ -19,7 +19,7 @@ IMPORT net
 ```
 
 `net` is a built-in package, so no manifest dependency is required.
-[[src/builtins/net.rs:is_net_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -28,7 +28,7 @@ endpoint and returns a `UdpSocket` resource ready to send and receive datagrams.
 The call resolves `host` with the host resolver requesting a `SOCK_DGRAM`
 endpoint, creates a socket from the first resolved result, patches the requested
 `port` into the resolved address, and binds it.
-[[src/target/shared/code/net/io.rs:lower_net_bind_udp_helper]]
+[[src/codegen/builtins/net/native/io.rs:lower_net_bind_udp_helper]]
 
 `host` names the local interface to bind, given as a textual IP address or a name
 handed to the resolver. An empty `host` binds every interface: the resolver is
@@ -37,7 +37,7 @@ a non-null service — with the service string `"0"`, whose port is then overwri
 by the requested `port`. `"0.0.0.0"` and `"::"` are ordinary textual wildcard
 addresses that reach the same result through normal resolution. When `port` is
 `0` the host assigns an ephemeral port, which `net::localAddress` reads back.
-[[src/target/shared/code/net/io.rs:lower_net_bind_udp_helper]]
+[[src/codegen/builtins/net/native/io.rs:lower_net_bind_udp_helper]]
 
 Unlike TCP there is no listen or accept step: a UDP socket is not tied to a
 single peer. Send datagrams with `net::sendTo` or `net::sendTextTo`, each naming
@@ -51,20 +51,20 @@ by lexical drop when its binding leaves scope, or earlier with `net::close`; it
 cannot be stored in a collection or a record. If the socket cannot be created or
 bound, the partially created descriptor and the resolver results are released
 before the error is raised, so a failed `bindUdp` leaks neither.
-[[src/builtins/net.rs:resource_close_function]]
+[[src/codegen/builtins/net/mod.rs:close_function]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `host` | `String` | The local interface to bind, as a textual IP address or a name passed to the host resolver. `"0.0.0.0"`, `"::"`, or an empty string bind every interface. [[src/builtins/net.rs:call_param_names]] |
-| `port` | `Integer` | The local UDP port to bind. `0` requests an ephemeral port assigned by the host, readable afterwards with `net::localAddress`. [[src/target/shared/code/net/io.rs:lower_net_bind_udp_helper]] |
+| `host` | `String` | The local interface to bind, as a textual IP address or a name passed to the host resolver. `"0.0.0.0"`, `"::"`, or an empty string bind every interface. [[src/codegen/builtins/net/mod.rs:aliases]] |
+| `port` | `Integer` | The local UDP port to bind. `0` requests an ephemeral port assigned by the host, readable afterwards with `net::localAddress`. [[src/codegen/builtins/net/native/io.rs:lower_net_bind_udp_helper]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `UdpSocket` | A bound datagram socket, ready for `net::sendTo`, `net::sendTextTo`, `net::receiveFrom`, and `net::receiveTextFrom`. Closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/builtins/net.rs:NET]] |
+| `UdpSocket` | A bound datagram socket, ready for `net::sendTo`, `net::sendTextTo`, `net::receiveFrom`, and `net::receiveTextFrom`. Closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/codegen/builtins/net/mod.rs:register]] |
 
 ## Errors
 

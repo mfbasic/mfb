@@ -19,7 +19,7 @@ IMPORT net
 ```
 
 `net` is a built-in package, so no manifest dependency is required.
-[[src/builtins/net.rs:is_net_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -29,13 +29,13 @@ whatever each underlying host write accepted and re-issuing the write for the
 remainder, so a short host write is resumed rather than mistaken for completion.
 When the call returns successfully, every byte has been handed to the socket's
 send buffer — which is not a guarantee that the peer has received or read them.
-[[src/target/shared/code/net/io.rs:lower_net_write_helper]]
+[[src/codegen/builtins/net/native/io.rs:lower_net_write_helper]]
 
 The bytes are read directly out of the list's inline data region and sent in list
 order, with no copy, re-encoding, or newline translation. An empty list writes
 nothing and returns immediately, because the loop's remaining-byte count starts
 at zero. The socket is borrowed and stays open.
-[[src/target/shared/code/net/io.rs:lower_net_write_helper]]
+[[src/codegen/builtins/net/native/io.rs:lower_net_write_helper]]
 
 Otherwise the call blocks while the send buffer is full, waiting for space or for
 the socket's write timeout to elapse. Use `net::setWriteTimeout` to bound that
@@ -43,7 +43,7 @@ wait; when it elapses the call raises `ErrTimeout`, and because the write
 loop may already have handed over part of the payload, a timeout can leave the
 stream partially written and unresumable. A signal that interrupts a blocking
 write re-issues it from the unchanged cursor rather than reporting a closed
-connection. [[src/target/shared/code/net/io.rs:lower_net_write_helper]]
+connection. [[src/codegen/builtins/net/native/io.rs:lower_net_write_helper]]
 
 Use `net::writeText` instead when sending UTF-8 text from a `String` is more
 convenient than building a `List OF Byte`.
@@ -52,14 +52,14 @@ convenient than building a `List OF Byte`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `sock` | `Socket` | A connected socket to send on, as returned by `net::connectTcp` or `net::accept`. It must still be open; the handle is borrowed, not consumed. [[src/builtins/net.rs:call_param_names]] |
-| `bytes` | `List OF Byte` | The payload, sent in list order. An empty list writes nothing and returns immediately. [[src/builtins/net.rs:argument_types]] |
+| `sock` | `Socket` | A connected socket to send on, as returned by `net::connectTcp` or `net::accept`. It must still be open; the handle is borrowed, not consumed. [[src/codegen/builtins/net/mod.rs:aliases]] |
+| `bytes` | `List OF Byte` | The payload, sent in list order. An empty list writes nothing and returns immediately. [[src/codegen/registry/mod.rs:argument_types]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `write` returns no value. On a successful return every byte of `bytes` has been handed to the socket's send buffer. [[src/builtins/net.rs:NET]] |
+| `Nothing` | `write` returns no value. On a successful return every byte of `bytes` has been handed to the socket's send buffer. [[src/codegen/builtins/net/mod.rs:register]] |
 
 ## Errors
 

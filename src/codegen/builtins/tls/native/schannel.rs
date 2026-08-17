@@ -19,10 +19,10 @@ use super::{
     TLS_LISTENER_OFFSET_CLOSED, TLS_OFFSET_CLOSED, TLS_OFFSET_FD, TLS_OFFSET_STATE,
     TLS_RECORD_SIZE, TLS_SCHANNEL_OFFSET_BLOCK,
 };
+use crate::codegen::builtins::net::native::emit_string_result_build;
 use crate::target::shared::abi;
 use crate::target::shared::code::emit_alloc;
 use crate::target::shared::code::native_helpers::{emit_build_byte_list, emit_fail};
-use crate::target::shared::code::net::emit_string_result_build;
 use crate::target::shared::code::*;
 
 const SECUR32: &str = "secur32.dll";

@@ -59,7 +59,7 @@ There is no redirect-based amplification (3xx responses are returned as-is, not
 followed), but a caller that forwards untrusted URLs must apply its own host
 allow/deny policy before calling `http::read`/`http::write`. No default-deny is
 imposed because it would break legitimate localhost clients.
-[[src/builtins/net_package.mfb:__net_toUrl]]
+[[src/codegen/builtins/net/package.mfb:__net_toUrl]]
 
 The client always supplies `Host`, `User-Agent` (`mfb-http/1`), `Accept`
 (`*/*`), and `Connection: close`, plus `Content-Length` for `http::write`. A

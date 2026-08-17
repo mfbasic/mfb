@@ -5,8 +5,6 @@
 ' `Url` value record and its `toUrl`/`toString` helpers — in the established
 ' source-package idiom (`json`/`csv`/`regex`). See src/docs/spec/stdlib/06_url.md
 ' (and src/docs/spec/stdlib/05_http.md).
-IMPORT strings
-IMPORT collections
 
 DOC
   TYPE Url

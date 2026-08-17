@@ -114,7 +114,7 @@ pub fn lower_project_with_external_functions(
     // `http` before `net`: `http_package.mfb` imports `net` (plan-03-http.md Phase 4).
     let augmented = builtins::http::augmented_project(&augmented)
         .expect("built-in http package source must parse");
-    let augmented = builtins::net::augmented_project(&augmented)
+    let augmented = crate::codegen::builtins::net::augmented_project(&augmented)
         .expect("built-in net package source must parse");
     let augmented = builtins::audio::augmented_project(&augmented)
         .expect("built-in audio package source must parse");
@@ -2103,11 +2103,8 @@ fn expression_type(
                 // `math` migrated to the clean-room registry — covered by
                 // `migrated_arg_typed` (`registry::is_member`) below.
                 || builtins::vector::is_vector_call(&canonical_callee)
-                // `fs`/`io` migrated to the clean-room registry — covered by
-                // `migrated_arg_typed` (`registry::is_member`) below.
-                || builtins::net::is_net_call(&canonical_callee)
-                // `tls` migrated to the clean-room registry — covered by
-                // `migrated_arg_typed` (`registry::is_member`) below.
+                // `fs`/`io`/`net`/`tls` migrated to the clean-room registry — covered
+                // by `migrated_arg_typed` (`registry::is_member`) below.
                 || builtins::audio::is_audio_call(&canonical_callee)
                 || builtins::http::is_http_call(&canonical_callee)
                 || migrated_arg_typed
@@ -3026,7 +3023,6 @@ fn lower_expression_with_expected(
                         })
                         .collect();
                     crate::codegen::registry::rewrite_target(&canonical_callee, &arg_types)
-                        .or_else(|| builtins::net::implementation_name(&canonical_callee))
                         .or_else(|| builtins::strings::implementation_name(&canonical_callee))
                         .map(crate::internal_name::internalize)
                 })

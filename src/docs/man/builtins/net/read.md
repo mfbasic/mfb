@@ -19,7 +19,7 @@ IMPORT net
 ```
 
 `net` is a built-in package, so no manifest dependency is required.
-[[src/builtins/net.rs:is_net_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -28,7 +28,7 @@ IMPORT net
 as any data is available rather than waiting to fill the requested size, so the
 returned list is frequently shorter than `maxBytes`. On success it always holds
 at least one byte. The socket is borrowed and stays open.
-[[src/target/shared/code/net/io.rs:lower_net_read_helper]]
+[[src/codegen/builtins/net/native/io.rs:lower_net_read_helper]]
 
 The call blocks until at least one byte arrives, the peer closes its side, or the
 socket's read timeout elapses. `maxBytes` bounds a single read and the length of
@@ -37,7 +37,7 @@ be positive. Internally the temporary receive buffer is capped at 1 MiB even whe
 `maxBytes` is larger, so a very large `maxBytes` does not pre-commit that much
 memory for a read that delivers far fewer bytes. Because a single host receive
 never returns more than the socket's receive buffer, this cap is invisible to the
-one-receive semantics above. [[src/target/shared/code/net/io.rs:lower_net_read_helper]]
+one-receive semantics above. [[src/codegen/builtins/net/native/io.rs:lower_net_read_helper]]
 
 Unlike a plain stream read that signals end of stream with a zero-length result,
 `net::read` raises an error when the peer has closed: there is no empty-list
@@ -47,7 +47,7 @@ message, call `read` in a loop, appending each result, and stop when
 blocking and `net::setReadTimeout` to bound how long a read may wait; a timeout
 that elapses raises `ErrTimeout`, which is distinguished from a closed
 connection by the host reporting `EAGAIN`.
-[[src/target/shared/code/net/io.rs:lower_net_read_helper]]
+[[src/codegen/builtins/net/native/io.rs:lower_net_read_helper]]
 
 A signal that interrupts the blocking receive re-issues the identical read rather
 than misreporting it as a closed connection. The bytes are copied into a freshly
@@ -59,14 +59,14 @@ more convenient than raw bytes.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `sock` | `Socket` | A connected socket to receive from, as returned by `net::connectTcp` or `net::accept`. It must still be open; the handle is borrowed, not consumed. [[src/builtins/net.rs:call_param_names]] |
-| `maxBytes` | `Integer` | The maximum number of bytes to read in this call. Must be positive. It caps the length of the returned list but does not guarantee that many bytes arrive. [[src/target/shared/code/net/io.rs:lower_net_read_helper]] |
+| `sock` | `Socket` | A connected socket to receive from, as returned by `net::connectTcp` or `net::accept`. It must still be open; the handle is borrowed, not consumed. [[src/codegen/builtins/net/mod.rs:aliases]] |
+| `maxBytes` | `Integer` | The maximum number of bytes to read in this call. Must be positive. It caps the length of the returned list but does not guarantee that many bytes arrive. [[src/codegen/builtins/net/native/io.rs:lower_net_read_helper]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The bytes received in this read, in arrival order, with length between `1` and `maxBytes` inclusive. End of stream is reported as `ErrConnectionClosed`, never as an empty list. [[src/builtins/net.rs:NET]] |
+| `List OF Byte` | The bytes received in this read, in arrival order, with length between `1` and `maxBytes` inclusive. End of stream is reported as `ErrConnectionClosed`, never as an empty list. [[src/codegen/builtins/net/mod.rs:register]] |
 
 ## Errors
 

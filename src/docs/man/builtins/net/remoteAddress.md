@@ -19,7 +19,7 @@ IMPORT net
 ```
 
 `net` is a built-in package, so no manifest dependency is required.
-[[src/builtins/net.rs:is_net_call]]
+[[src/codegen/registry/mod.rs:owning_package]]
 
 ## Description
 
@@ -28,13 +28,13 @@ IMPORT net
 counterpart of `net::localAddress`, and unlike that function it accepts only a
 `Socket`: a `Listener` and a `UdpSocket` have no single peer, so passing either
 is a compile-time type error rather than a runtime one.
-[[src/builtins/net.rs:NET]] [[src/builtins/net.rs:NET]]
+[[src/codegen/builtins/net/mod.rs:register]] [[src/codegen/builtins/net/mod.rs:register]]
 
 The call reads the endpoint with `getpeername` into a `sockaddr_storage` and
 converts it into a freshly allocated `Address` whose `host` field is the textual
 form of the address and whose `port` field is the peer port. The socket is
 borrowed, stays open, and is otherwise untouched.
-[[src/target/shared/code/net/io.rs:lower_net_address_helper]]
+[[src/codegen/builtins/net/native/io.rs:lower_net_address_helper]]
 
 The reported host is the concrete address the host stack is actually connected
 to, which is not necessarily the string passed to `net::connectTcp`: a name is
@@ -46,13 +46,13 @@ identifies the client that connected.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `sock` | `Socket` | A connected TCP socket, as returned by `net::connectTcp` or `net::accept`, whose peer endpoint is wanted. It must still be open; the handle is borrowed, not consumed. [[src/builtins/net.rs:call_param_names]] |
+| `sock` | `Socket` | A connected TCP socket, as returned by `net::connectTcp` or `net::accept`, whose peer endpoint is wanted. It must still be open; the handle is borrowed, not consumed. [[src/codegen/builtins/net/mod.rs:aliases]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Address` | A record whose `host` field (`String`) holds the textual peer address the host resolved and whose `port` field (`Integer`) holds the peer port. [[src/builtins/net.rs:NET]] |
+| `Address` | A record whose `host` field (`String`) holds the textual peer address the host resolved and whose `port` field (`Integer`) holds the peer port. [[src/codegen/builtins/net/mod.rs:register]] |
 
 ## Errors
 

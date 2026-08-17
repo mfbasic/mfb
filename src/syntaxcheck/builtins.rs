@@ -104,6 +104,13 @@ fn fs_consumes_argument(name: &str, index: usize) -> bool {
     index == 0 && name == crate::codegen::builtins::fs::CLOSE
 }
 
+/// The argument-consumption predicate for `net::`, replacing the deleted
+/// `builtins::net::consumes_argument`. `net::close` consumes the socket/listener/UDP
+/// handle it closes (argument 0); every other `net` call only borrows.
+fn net_consumes_argument(name: &str, index: usize) -> bool {
+    index == 0 && name == "net.close"
+}
+
 /// The argument-consumption predicate for `tls::`, replacing the deleted
 /// `builtins::tls::consumes_argument`. `tls::close` consumes the handle it closes —
 /// either the socket-shaped `tls.close` or the listener-shaped internal
@@ -153,7 +160,7 @@ const BUILTIN_ARG_MODES: &[BuiltinArgMode] = &[
     BuiltinArgMode {
         name: "net",
         args: ArgMode::Consuming {
-            consumes: builtins::net::consumes_argument,
+            consumes: net_consumes_argument,
             default: ExprMode::Use,
         },
     },

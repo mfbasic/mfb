@@ -37,13 +37,13 @@ field (`Integer`), returned by `net::lookup` and the address queries and accepte
 as a destination by `net::connectTcp` and the UDP send functions. `Datagram`
 (fields `from AS Address` and `bytes AS List OF Byte`) and `DatagramText` (fields
 `from AS Address` and `value AS String`) are the records `net::receiveFrom` and
-`net::receiveTextFrom` return, pairing each payload with its sender. [[src/builtins/net.rs:NET]]
+`net::receiveTextFrom` return, pairing each payload with its sender. [[src/codegen/builtins/net/mod.rs:register]]
 
 `net::toUrl` parses an absolute `http`/`https` href into a `Url`, an ordinary
 copyable value record with fields `scheme`, `username`, `password`, `host`,
 `path`, `query`, and `fragment` (`String`) plus `port` (`Integer`); a universal
 `toString` on a `Url` renders it back to an href. To connect to a parsed `Url`,
-pass its parts: `net::connectTcp(u.host, u.port)`. [[src/builtins/net_package.mfb:__net_toUrl]]
+pass its parts: `net::connectTcp(u.host, u.port)`. [[src/codegen/builtins/net/package.mfb:__net_toUrl]]
 
 Hosts are UTF-8 `String` values naming either a textual IP address or a name
 passed to the host resolver; `"0.0.0.0"`, `"::"`, or an empty string bind every
@@ -68,8 +68,8 @@ each datagram whole or rejecting an oversized one rather than truncating it.
 | `77030004` | `ErrResourceClosed` | raised by any function taking a `Socket`, `Listener`, or `UdpSocket` when the resource has already been closed, and by the address queries and timeout setters when the host OS reports the handle is otherwise no longer usable [[src/codegen/builtins/errorcode/mod.rs:ErrResourceClosed]] |
 | `77030006` | `ErrCloseFailed` | raised by `close` when the host OS reports a failure while releasing the handle [[src/codegen/builtins/errorcode/mod.rs:ErrCloseFailed]] |
 | `77050002` | `ErrInvalidArgument` | raised by `read`, `readText`, `receiveFrom`, and `receiveTextFrom` when `maxBytes` is not positive, and by `poll`, `setReadTimeout`, and `setWriteTimeout` when a timeout is negative [[src/codegen/builtins/errorcode/mod.rs:ErrInvalidArgument]] |
-| `77050003` | `ErrInvalidFormat` | raised by `toUrl` when the href is malformed — missing scheme separator, empty or unterminated host, or a non-digit or out-of-range port [[src/builtins/net_package.mfb:__net_parsePort]] |
-| `77050007` | `ErrUnsupported` | raised by `toUrl` when the URL scheme is neither `http` nor `https` [[src/builtins/net_package.mfb:__net_toUrl]] |
+| `77050003` | `ErrInvalidFormat` | raised by `toUrl` when the href is malformed — missing scheme separator, empty or unterminated host, or a non-digit or out-of-range port [[src/codegen/builtins/net/package.mfb:__net_parsePort]] |
+| `77050007` | `ErrUnsupported` | raised by `toUrl` when the URL scheme is neither `http` nor `https` [[src/codegen/builtins/net/package.mfb:__net_toUrl]] |
 | `77050008` | `ErrTimeout` | the single timeout error for every net wait (plan-73-C): `connectTcp`/`accept` when the connection/client does not arrive before the deadline (including a `0` immediate attempt), and `read`/`readText`/`write`/`writeText`/`sendTo`/`sendTextTo`/`receiveFrom`/`receiveTextFrom` when the socket's read/write timeout elapses (this replaced the retired `ErrReadTimeout`/`ErrWriteTimeout`) [[src/codegen/builtins/errorcode/mod.rs:ErrTimeout]] |
 | `77070001` | `ErrAddressInvalid` | raised by `lookup`, `listenTcp`, and `bindUdp` when a host or port cannot be resolved into a local endpoint, and by the address queries and UDP receive functions when an address reported by the OS cannot be represented as an `Address` [[src/codegen/builtins/errorcode/mod.rs:ErrAddressInvalid]] |
 | `77070002` | `ErrAddressNotFound` | raised by `lookup`, `connectTcp`, `sendTo`, and `sendTextTo` when a host cannot be resolved, including when it is malformed or has no address record [[src/codegen/builtins/errorcode/mod.rs:ErrAddressNotFound]] |

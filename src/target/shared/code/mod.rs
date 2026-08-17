@@ -132,7 +132,8 @@ pub(crate) mod link_locator;
 pub(crate) mod link_thunk;
 mod list_mutate;
 mod map_mutate;
-pub(crate) mod net;
+// net migrated to the clean-room registry: its native emission lives in
+// `crate::codegen::builtins::net::native`.
 mod perf;
 mod private;
 mod simd_kernel_coeffs;
@@ -2145,90 +2146,27 @@ fn lower_runtime_helper(
                     platform_imports,
                     platform,
                 )?,
-                call if call.starts_with("net.") => match call {
-                    "net.lookup" => {
-                        net::lower_net_lookup_helper(symbol, platform_imports, platform)?
-                    }
-                    "net.connectTcp" => {
-                        net::lower_net_connect_tcp_helper(symbol, platform_imports, platform)?
-                    }
-                    "net.connectTcpAddr" => {
-                        net::lower_net_connect_tcp_addr_helper(symbol, platform_imports, platform)?
-                    }
-                    "net.listenTcp" => {
-                        net::lower_net_listen_tcp_helper(symbol, platform_imports, platform)?
-                    }
-                    "net.accept" => {
-                        net::lower_net_accept_helper(symbol, platform_imports, platform)?
-                    }
-                    "net.poll" => net::lower_net_poll_helper(symbol, platform_imports, platform)?,
-                    "net.pollList" => {
-                        net::lower_net_poll_list_helper(symbol, platform_imports, platform)?
-                    }
-                    "net.read" => {
-                        net::lower_net_read_helper(symbol, platform_imports, platform, false)?
-                    }
-                    "net.readText" => {
-                        net::lower_net_read_helper(symbol, platform_imports, platform, true)?
-                    }
-                    "net.write" => {
-                        net::lower_net_write_helper(symbol, platform_imports, platform, false)?
-                    }
-                    "net.writeText" => {
-                        net::lower_net_write_helper(symbol, platform_imports, platform, true)?
-                    }
-                    // A socket/listener handle shares the `File` record layout, so the
-                    // standard (vreg-allocated) file close helper closes net handles too.
-                    "net.close" => crate::codegen::builtins::fs::native::lower_fs_close_helper(
+                // Every `net.*` member carries `Body::native_os_seam` on the clean-room
+                // registry: the per-platform emission lives in
+                // `codegen::builtins::net::native` (the twin-idiom `lower_net_helper`),
+                // and the generic registry-driven dispatch routes each member plus its
+                // `connectTcpAddr`/`pollList` code-form aliases by `platform.family()`.
+                call if call.starts_with("net.") => {
+                    match crate::codegen::os::dispatch_runtime_helper(
+                        call,
                         symbol,
+                        &os_ctx,
                         platform_imports,
                         platform,
-                        false,
-                    )?,
-                    "net.localAddress" => {
-                        net::lower_net_address_helper(symbol, platform_imports, platform, false)?
+                    ) {
+                        Some(result) => result?,
+                        None => {
+                            return Err(format!(
+                                "native code plan does not emit runtime call '{call}'"
+                            ));
+                        }
                     }
-                    "net.remoteAddress" => {
-                        net::lower_net_address_helper(symbol, platform_imports, platform, true)?
-                    }
-                    "net.setReadTimeout" => net::lower_net_set_timeout_helper(
-                        symbol,
-                        platform_imports,
-                        platform,
-                        false,
-                    )?,
-                    "net.setWriteTimeout" => {
-                        net::lower_net_set_timeout_helper(symbol, platform_imports, platform, true)?
-                    }
-                    "net.bindUdp" => {
-                        net::lower_net_bind_udp_helper(symbol, platform_imports, platform)?
-                    }
-                    "net.receiveFrom" => net::lower_net_receive_from_helper(
-                        symbol,
-                        platform_imports,
-                        platform,
-                        false,
-                    )?,
-                    "net.receiveTextFrom" => net::lower_net_receive_from_helper(
-                        symbol,
-                        platform_imports,
-                        platform,
-                        true,
-                    )?,
-                    "net.sendTo" => {
-                        net::lower_net_send_to_helper(symbol, platform_imports, platform, false)?
-                    }
-                    "net.sendTextTo" => {
-                        net::lower_net_send_to_helper(symbol, platform_imports, platform, true)?
-                    }
-                    // Defensive: unreachable (see the io.*/fs.* arm); required only for
-                    // `&str` match exhaustiveness.
-                    other => {
-                        return Err(format!(
-                            "native code plan does not emit runtime call '{other}'"
-                        ));
-                    }
-                },
+                }
                 call if call.starts_with("audio.") => {
                     audio::lower_audio_helper(call, symbol, platform_imports, platform)?
                 }

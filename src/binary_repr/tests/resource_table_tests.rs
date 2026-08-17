@@ -3,8 +3,8 @@ use super::*;
 #[test]
 fn standard_flags_set_sendable_bit_for_movable_resources() {
     let file = standard_resource_flags(crate::codegen::builtins::fs::FILE_TYPE_ID);
-    let socket = standard_resource_flags(builtins::net::SOCKET_TYPE_ID);
-    let listener = standard_resource_flags(builtins::net::LISTENER_TYPE_ID);
+    let socket = standard_resource_flags(crate::codegen::builtins::net::SOCKET_TYPE_ID);
+    let listener = standard_resource_flags(crate::codegen::builtins::net::LISTENER_TYPE_ID);
     assert!(file & RESOURCE_FLAG_SENDABLE != 0, "File must be sendable");
     assert!(
         socket & RESOURCE_FLAG_SENDABLE != 0,
@@ -34,7 +34,7 @@ fn resource_table_round_trips_flags() {
             ResourceEntry {
                 type_id: 11,
                 close_function_id: BUILTIN_NET_CLOSE_FUNCTION_ID,
-                flags: standard_resource_flags(builtins::net::LISTENER_TYPE),
+                flags: standard_resource_flags(crate::codegen::builtins::net::LISTENER_TYPE),
             },
         ],
     };

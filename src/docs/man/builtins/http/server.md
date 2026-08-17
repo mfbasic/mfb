@@ -42,19 +42,19 @@ state. Address resolution uses `AF_INET` hints, so **only IPv4 is bound** — an
 IPv6 host such as `"::"` does not resolve and fails rather than binding. An empty
 `host` (`""`) is passed to the resolver as a passive (NULL) node and binds every
 IPv4 interface, which is equivalent to the `"0.0.0.0"` default.
-[[src/target/shared/code/net/mod.rs:emit_hints]] [[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]]
+[[src/codegen/builtins/net/native/mod.rs:emit_hints]] [[src/codegen/builtins/net/native/mod.rs:lower_net_endpoint_helper]]
 
 Only the low 16 bits of `port` reach the socket: the value is written into the
 two `sin_port` bytes of the resolved address, so a `port` outside `0..65535` is
 truncated modulo 65536 rather than rejected. A `port` of `0` requests an ephemeral
 port from the host, which can be read back with `net::localAddress`.
-[[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]]
+[[src/codegen/builtins/net/native/mod.rs:lower_net_endpoint_helper]]
 
 `backlog` is the pending-connection queue hint passed to `listen()`. Because
 `listen()` takes a C `int`, a value above `2147483647` is clamped to that maximum
 before the call, so a large 64-bit backlog cannot be reinterpreted as negative.
 The value is advisory in any case; the host may clamp it further.
-[[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]]
+[[src/codegen/builtins/net/native/mod.rs:lower_net_endpoint_helper]]
 
 The returned listener is a resource: bind it with `RES`, and it is closed by
 lexical drop at scope exit (or earlier with `net::close`). Drive it with a

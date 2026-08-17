@@ -30,7 +30,7 @@ pure readiness probe with a zero timeout — it never blocks and never consumes
 bytes — layered on the scalar `net::poll`/`tls::poll` of the active transport
 variant. Use it to gate `http::pump` so a cooperative drive loop only reads when
 progress is possible and otherwise does the caller's own work.
-[[src/builtins/http_package.mfb:__http_ready]] [[src/builtins/net.rs:POLL]]
+[[src/builtins/http_package.mfb:__http_ready]] [[src/codegen/builtins/net/func_poll.rs:register]]
 
 `ready` does not itself advance the exchange or change `stream`'s STATE; it only
 reports readiness. A closed peer reads as ready (the terminating zero-byte read is

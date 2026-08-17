@@ -1152,6 +1152,15 @@ impl Registry {
             if package.import_name() == "encoding" {
                 continue;
             }
+            // `net` (and `http`) are injected by their own dedicated late passes
+            // (`codegen::builtins::{net,http}::augmented_project`), for the same
+            // transitivity reason as `encoding`: `http`'s injected source `IMPORT
+            // net`s, and this single pass over the pre-injection AST cannot see that
+            // transitive import. Skipping them here also prevents a double injection
+            // when a program imports `net`/`http` directly.
+            if matches!(package.import_name(), "net" | "http") {
+                continue;
+            }
             if !package.is_imported_by(ast) {
                 continue;
             }
@@ -1282,6 +1291,7 @@ fn build() -> Registry {
     crate::codegen::builtins::io::register(&mut r);
     crate::codegen::builtins::crypto::register(&mut r);
     crate::codegen::builtins::tls::register(&mut r);
+    crate::codegen::builtins::net::register(&mut r);
     crate::codegen::builtins::thread::register(&mut r);
     r
 }

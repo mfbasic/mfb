@@ -119,7 +119,6 @@ pub(crate) struct RuntimeHelperAbi {
 mod app_specs;
 mod audio_specs;
 mod catalog;
-mod net_specs;
 mod perf_specs;
 mod term_specs;
 mod thread_specs;
@@ -130,7 +129,6 @@ pub(crate) use usage::{is_native_direct_call, required_helpers};
 
 use app_specs::*;
 use audio_specs::*;
-use net_specs::*;
 use perf_specs::*;
 use term_specs::*;
 use thread_specs::*;
@@ -159,7 +157,10 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(RuntimeHelper::Term)
     } else if crate::codegen::builtins::thread::is_thread_runtime_call(name) {
         Some(RuntimeHelper::Thread)
-    } else if builtins::net::is_net_call(name) {
+    } else if crate::codegen::registry::registry().owning_package(name) == Some("net") {
+        // The `net.connectTcpAddr`/`net.pollList` code forms are `os_aliases`, not
+        // descriptor members, so `owning_package` yields `None` for them — they are
+        // code-layer-only (`CODE_LAYER_ONLY_CALLS`) and must not classify here.
         Some(RuntimeHelper::Net)
     } else if crate::codegen::registry::registry().owning_package(name) == Some("os") {
         Some(RuntimeHelper::Os)

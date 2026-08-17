@@ -40,9 +40,10 @@ pub(super) fn resolve_resource_close_name(
             crate::codegen::builtins::fs::FILE_TYPE_ID,
         )
         .map(str::to_string)),
-        BUILTIN_NET_CLOSE_FUNCTION_ID => {
-            Ok(builtins::resource_close_function(builtins::net::SOCKET_TYPE).map(str::to_string))
-        }
+        BUILTIN_NET_CLOSE_FUNCTION_ID => Ok(builtins::resource_close_function(
+            crate::codegen::builtins::net::SOCKET_TYPE,
+        )
+        .map(str::to_string)),
         id => match package.project.functions.get(id as usize) {
             Some(function) => Ok(Some(
                 string_at(&package.project.strings.values, function.name)?.to_string(),
