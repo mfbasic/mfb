@@ -44,7 +44,7 @@ data-only thread, or on a plane whose element is not a resource type, is rejecte
 at compile time. Only resource types marked thread-sendable may cross; `File`,
 `Socket`, and `UdpSocket` are sendable, while `Listener`, `TlsSocket`,
 `TlsListener`, `AudioInput`, and `AudioOutput` are not.
-[[src/syntaxcheck/resources.rs:require_thread_sendable_type]] [[src/builtins/resource.rs:BUILTIN_RESOURCES]]
+[[src/syntaxcheck/resources.rs:require_thread_sendable_type]] [[src/builtins/resource.rs:is_builtin_sendable_resource_type]]
 
 **`transfer` moves the resource.** The `res` argument is evaluated in transfer
 mode, so the sender's binding is consumed and ownership passes to the receiving

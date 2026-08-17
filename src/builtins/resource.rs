@@ -12,31 +12,8 @@
 //! there is one source of truth.
 
 use std::collections::HashMap;
-use std::sync::LazyLock;
 
-use crate::target::shared::registry::BuiltinModule;
-
-// plan-72-U: `resource` is the resource registry — it maps a resolved resource
-// type name (`File`, `Socket`, a `pkg.Handle`) to its close op and thread-transfer
-// bit. A resource value is a POINTER to one live registered thing, never an owned
-// or borrowed Rust value ([[res-is-a-pointer-not-a-borrow]]); this table only
-// records how to close that pointer and whether it may cross a thread boundary.
-// The package exposes no builtin callables, no builtin types, and no source
-// companion (census: `helpers 0`, `srcglue/btypes/custom 0`), so its descriptor
-// carries empty function/type lists and no resolver. It exists only to keep the
-// `BuiltinRegistry` exhaustive so plan-72-BB can collapse the aggregate dispatch
-// arms for every package unconditionally. The `ResourceRegistry`/`is_builtin_*`
-// surface below stays the metadata authority for resource close ops — the
-// descriptor vocabulary models builtin calls and types, not the resource table.
-pub(crate) static RESOURCE: BuiltinModule = BuiltinModule {
-    name: "resource",
-    doc_intro: "",
-    doc_desc: "",
-    functions: &[],
-    types: &[],
-    source: None,
-    resolver: None,
-};
+use crate::codegen::registry::{registry, ResolvedType};
 
 /// Where a resource registration came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,11 +65,26 @@ pub(crate) struct ResourceRegistry {
 }
 
 impl ResourceRegistry {
-    /// A registry seeded with the standard built-in resources.
+    /// A registry seeded with the standard built-in resources, read from the
+    /// clean-room registry (`crate::codegen::registry`) — the single source of
+    /// truth for every built-in resource's close op, sendability, and provenance.
     pub(crate) fn with_builtins() -> Self {
-        Self {
-            entries: builtin_resources().clone(),
+        let mut entries = HashMap::new();
+        for pkg in registry().packages() {
+            for r in pkg.resources() {
+                entries.insert(
+                    // The package-qualified type identity (`fs.File`, `net.Socket`).
+                    format!("{}.{}", pkg.import_name(), r.name),
+                    ResourceInfo {
+                        close_function: r.close_function.to_string(),
+                        sendable: r.sendable,
+                        close_may_fail: r.close_may_fail,
+                        kind: r.kind,
+                    },
+                );
+            }
         }
+        Self { entries }
     }
 
     /// Register (or override) a resource type.
@@ -135,154 +127,6 @@ impl ResourceRegistry {
     }
 }
 
-/// The standard built-in resources, the single source of truth for both the
-/// dynamic [`ResourceRegistry`] and the free `is_builtin_*` helpers.
-static BUILTIN_RESOURCES: LazyLock<HashMap<String, ResourceInfo>> = LazyLock::new(|| {
-    let mut entries = HashMap::new();
-    entries.insert(
-        crate::codegen::builtins::fs::FILE_TYPE_ID.to_string(),
-        ResourceInfo {
-            close_function: crate::codegen::registry::resource_close_function(
-                crate::codegen::builtins::fs::FILE_TYPE,
-            )
-            .expect("File has a built-in close op")
-            .to_string(),
-            sendable: true,
-            close_may_fail: true,
-            kind: ResourceKind::Builtin,
-        },
-    );
-    entries.insert(
-        // Keyed by the package-qualified type identity (`net.Socket`); the close op is
-        // looked up by the bare registry name (`Socket`) within the net package.
-        crate::codegen::builtins::net::SOCKET_TYPE_ID.to_string(),
-        ResourceInfo {
-            close_function: crate::codegen::registry::resource_close_function(
-                crate::codegen::builtins::net::SOCKET_TYPE,
-            )
-            .expect("Socket has a built-in close op")
-            .to_string(),
-            sendable: true,
-            close_may_fail: true,
-            kind: ResourceKind::Builtin,
-        },
-    );
-    entries.insert(
-        crate::codegen::builtins::net::LISTENER_TYPE_ID.to_string(),
-        ResourceInfo {
-            close_function: crate::codegen::registry::resource_close_function(
-                crate::codegen::builtins::net::LISTENER_TYPE,
-            )
-            .expect("Listener has a built-in close op")
-            .to_string(),
-            // A listener accepts connections on the owning thread; it is not
-            // moved across thread boundaries.
-            sendable: false,
-            close_may_fail: true,
-            kind: ResourceKind::Builtin,
-        },
-    );
-    entries.insert(
-        crate::codegen::builtins::net::UDP_SOCKET_TYPE_ID.to_string(),
-        ResourceInfo {
-            close_function: crate::codegen::registry::resource_close_function(
-                crate::codegen::builtins::net::UDP_SOCKET_TYPE,
-            )
-            .expect("UdpSocket has a built-in close op")
-            .to_string(),
-            // A datagram socket may move across thread boundaries (spec §11).
-            sendable: true,
-            close_may_fail: true,
-            kind: ResourceKind::Builtin,
-        },
-    );
-    entries.insert(
-        crate::codegen::builtins::audio::AUDIO_INPUT_TYPE_ID.to_string(),
-        ResourceInfo {
-            close_function: crate::codegen::registry::resource_close_function(
-                crate::codegen::builtins::audio::AUDIO_INPUT_TYPE,
-            )
-            .expect("AudioInput has a built-in close op")
-            .to_string(),
-            // A capture stream is driven from its owning thread (blocking read /
-            // OS callback ring); not thread-sendable in v1 (plan-33-A §4).
-            sendable: false,
-            close_may_fail: true,
-            kind: ResourceKind::Builtin,
-        },
-    );
-    entries.insert(
-        crate::codegen::builtins::audio::AUDIO_OUTPUT_TYPE_ID.to_string(),
-        ResourceInfo {
-            close_function: crate::codegen::registry::resource_close_function(
-                crate::codegen::builtins::audio::AUDIO_OUTPUT_TYPE,
-            )
-            .expect("AudioOutput has a built-in close op")
-            .to_string(),
-            // A playback stream blocks on write from its owning thread; not
-            // thread-sendable in v1 (plan-33-A §4).
-            sendable: false,
-            close_may_fail: true,
-            kind: ResourceKind::Builtin,
-        },
-    );
-    entries.insert(
-        // Keyed by the package-qualified type identity (`tls.TlsSocket`); the close op
-        // is looked up by the bare registry name (`TlsSocket`) within the tls package.
-        crate::codegen::builtins::tls::TLS_SOCKET_TYPE_ID.to_string(),
-        ResourceInfo {
-            close_function: crate::codegen::registry::resource_close_function(
-                crate::codegen::builtins::tls::TLS_SOCKET_TYPE,
-            )
-            .expect("TlsSocket has a built-in close op")
-            .to_string(),
-            // A TLS session is not thread-sendable in v1 (plan-03-net.md §4.4).
-            sendable: false,
-            close_may_fail: true,
-            kind: ResourceKind::Builtin,
-        },
-    );
-    entries.insert(
-        crate::codegen::builtins::tls::TLS_LISTENER_TYPE_ID.to_string(),
-        ResourceInfo {
-            close_function: crate::codegen::registry::resource_close_function(
-                crate::codegen::builtins::tls::TLS_LISTENER_TYPE,
-            )
-            .expect("TlsListener has a built-in close op")
-            .to_string(),
-            // The listener owns the server TLS context and accepts on its own
-            // thread; not thread-sendable in v1 (plan-06-tls-server.md §1).
-            sendable: false,
-            close_may_fail: true,
-            kind: ResourceKind::Builtin,
-        },
-    );
-    entries.insert(
-        // Keyed by the package-qualified type identity (`process.Process`) — the string
-        // the type system flows for a Process handle (plan-97). The close op is still
-        // looked up by the bare registry name (`Process`) within the process package.
-        crate::codegen::builtins::process::PROCESS_TYPE_ID.to_string(),
-        ResourceInfo {
-            close_function: crate::codegen::registry::resource_close_function(
-                crate::codegen::builtins::process::PROCESS_TYPE,
-            )
-            .expect("Process has a built-in close op")
-            .to_string(),
-            // A Process owns child pipe fds and drives waitpid from its owning
-            // thread; not thread-sendable in v1 (plan-90-A; C revisits).
-            sendable: false,
-            // The scope-drop op (`__drop`) force-kills and reaps; it does not fail.
-            close_may_fail: false,
-            kind: ResourceKind::Builtin,
-        },
-    );
-    entries
-});
-
-fn builtin_resources() -> &'static HashMap<String, ResourceInfo> {
-    &BUILTIN_RESOURCES
-}
-
 /// Split a resource type string at its **own** top-level `STATE` clause, if any.
 /// A bare stateful resource is spelled `<ResourceName> STATE <StateType>`, where
 /// `<ResourceName>` is a single type token (a bare name or a `pkg.Name`, never
@@ -318,7 +162,10 @@ pub(crate) fn state_type_name(type_name: &str) -> Option<&str> {
 /// Whether `type_name` is a built-in resource type. Used by stages that only
 /// ever see built-in resources (codegen, binary-representation writer).
 pub(crate) fn is_builtin_resource_type(type_name: &str) -> bool {
-    BUILTIN_RESOURCES.contains_key(base_resource_name(type_name))
+    matches!(
+        registry().resolve_type(base_resource_name(type_name)),
+        Some(ResolvedType::Resource(_))
+    )
 }
 
 /// Whether `type_name` names — or is the **bare base** of — a built-in resource
@@ -336,23 +183,26 @@ pub(crate) fn is_builtin_backed_resource(type_name: &str) -> bool {
         .rsplit('.')
         .next()
         .unwrap_or(type_name);
-    BUILTIN_RESOURCES
-        .keys()
-        .any(|key| key.rsplit('.').next() == Some(bare))
+    registry()
+        .packages()
+        .iter()
+        .any(|p| p.resources().iter().any(|r| r.name == bare))
 }
 
 /// The built-in close op for `type_name`, if it is a built-in resource.
 pub(crate) fn builtin_resource_close_function(type_name: &str) -> Option<&'static str> {
-    BUILTIN_RESOURCES
-        .get(base_resource_name(type_name))
-        .map(|info| info.close_function.as_str())
+    match registry().resolve_type(base_resource_name(type_name)) {
+        Some(ResolvedType::Resource(r)) => Some(r.close_function),
+        _ => None,
+    }
 }
 
 /// Whether `type_name` is a built-in resource that may cross a thread boundary.
 pub(crate) fn is_builtin_sendable_resource_type(type_name: &str) -> bool {
-    BUILTIN_RESOURCES
-        .get(base_resource_name(type_name))
-        .is_some_and(|info| info.sendable)
+    match registry().resolve_type(base_resource_name(type_name)) {
+        Some(ResolvedType::Resource(r)) => r.sendable,
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -409,7 +259,8 @@ mod tests {
         // closeable so scope-drop can no-op a closed-default record. Guard against
         // a new built-in added without a registered close op (which would also
         // need a closed-flag review at the canonical offset 8).
-        for (name, info) in builtin_resources() {
+        let registry = ResourceRegistry::with_builtins();
+        for (name, info) in &registry.entries {
             assert_eq!(info.kind, ResourceKind::Builtin, "{name} must be Builtin");
             assert!(
                 !info.close_function.is_empty(),
@@ -417,7 +268,6 @@ mod tests {
             );
         }
         // The full set of built-ins the closed-default must cover.
-        let registry = ResourceRegistry::with_builtins();
         for name in [
             // All built-in resources carry their package-qualified identity (plan-97).
             "fs.File",
@@ -448,34 +298,5 @@ mod tests {
         );
         assert!(is_builtin_sendable_resource_type("net.Socket"));
         assert!(!is_builtin_sendable_resource_type("net.Listener"));
-    }
-
-    // plan-72-U migration gate: `resource` owns no builtin callables or types, so
-    // the descriptor is deliberately empty — the point of this letter is only that
-    // the registry enumerates `resource` alongside every other package. Prove the
-    // module is registered, carries the empty shape, and rejects every name lookup
-    // cleanly. Kept until plan-72-BB.
-    #[test]
-    fn descriptor_is_registered_and_empty() {
-        use crate::target::shared::registry::{DefaultResolver, REGISTRY};
-
-        let module = REGISTRY.module("resource").expect("resource is registered");
-        assert_eq!(module.name, "resource");
-        assert!(module.functions.is_empty());
-        assert!(module.types.is_empty());
-        assert!(module.source.is_none());
-        assert!(module.resolver.is_none());
-
-        // No callable is owned: membership and every derivation is empty/None. The
-        // resource *type* names (`File`, `Socket`) live in the `ResourceRegistry`,
-        // not the descriptor, so a lookup of one here is correctly a miss.
-        assert!(!DefaultResolver::contains(&RESOURCE, "fs.File"));
-        assert!(!DefaultResolver::contains(&RESOURCE, "resource.close"));
-        assert!(REGISTRY.function("resource.anything").is_none());
-        assert_eq!(DefaultResolver::arity(&RESOURCE, "resource.anything"), None);
-
-        // The registry stays well-formed with `resource` appended.
-        assert_eq!(REGISTRY.duplicate_module_name(), None);
-        assert_eq!(REGISTRY.duplicate_function_name(), None);
     }
 }
