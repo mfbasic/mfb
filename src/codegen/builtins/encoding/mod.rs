@@ -17,13 +17,14 @@
 //! `encoding.utf8Decode` name in place and the monomorphizer resolves + mangles the
 //! selected overload to its private `#encoding_utf8Encode`/`#encoding_utf8Decode`
 //! implementation (see `monomorph::lower`). Those four `__encoding_utf8Encode` /
-//! `__encoding_utf8Decode` bodies live directly in `package.mfb`, which is
-//! registered as a shared [`add_helper_functions`](crate::codegen::registry::RegistryPackage::add_helper_functions)
-//! chunk (like csv's `package.mfb`).
+//! `__encoding_utf8Decode` bodies live in `helper_utf8_encode.rs` /
+//! `helper_utf8_decode.rs`, each registered as a shared
+//! [`add_helper`](crate::codegen::registry::RegistryPackage::add_helper) chunk —
+//! one `helper_*.rs` file per helper, like csv/json/regex.
 //!
 //! Injection is on the identical generic path as csv/json/regex: the package
 //! registers its `IMPORT`s ([`add_imports`](crate::codegen::registry::RegistryPackage::add_imports)),
-//! its shared helpers ([`add_helper_functions`](crate::codegen::registry::RegistryPackage::add_helper_functions)),
+//! its shared helpers ([`add_helper`](crate::codegen::registry::RegistryPackage::add_helper)),
 //! and each member's [`Body::Mfb`](crate::codegen::registry::Body) body, so
 //! [`RegistryPackage::get_mfb`](crate::codegen::registry::RegistryPackage::get_mfb)
 //! assembles the injected source in the generic
@@ -79,6 +80,36 @@ mod func_utf8_encode;
 mod func_varint_decode;
 mod func_varint_encode;
 
+mod helper_base32_value;
+mod helper_base64_symbols;
+mod helper_base64_value;
+mod helper_base_decode_bits;
+mod helper_base_encode;
+mod helper_byte_char;
+mod helper_codepoints;
+mod helper_from_codepoint;
+mod helper_hex_digit;
+mod helper_hex_value;
+mod helper_html_entity;
+mod helper_is_alpha_num;
+mod helper_is_unreserved;
+mod helper_label_has_non_ascii;
+mod helper_leb128_emit;
+mod helper_low_bits;
+mod helper_parse_decimal;
+mod helper_parse_hex;
+mod helper_percent_byte;
+mod helper_percent_decode_bytes;
+mod helper_puny_adapt;
+mod helper_puny_decode_label;
+mod helper_puny_digit;
+mod helper_puny_encode_label;
+mod helper_puny_threshold;
+mod helper_puny_value;
+mod helper_utf8_decode;
+mod helper_utf8_encode;
+mod helper_utf8_valid;
+
 const INTRO: &str = r#"Byte<->text and Unicode codecs: UTF-8/16/32, hex, base32/64, percent, HTML, form-url, punycode, and LEB128/varint."#;
 
 const DESC: &str = r#"The `encoding` package converts between text and its various byte and code-unit
@@ -116,10 +147,40 @@ pub(crate) fn register(r: &mut Registry) {
     // bodies — mirroring `package.mfb`'s original leading `IMPORT`s and `__encoding_*`
     // helper block (which also declares the four overloaded utf8 bodies).
     pkg.add_imports(vec!["bits", "strings", "collections"]);
-    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
-        "encoding_package",
-        include_str!("package.mfb"),
-    ));
+
+    // The shared private `__encoding_*` helpers the member bodies call (including the
+    // four overloaded `__encoding_utf8Encode`/`utf8Decode` bodies). Each lives in its
+    // own `helper_*.rs` and registers via `add_helper`; order preserved from the old
+    // `package.mfb` blob so the compiled `.ncode` stays byte-identical.
+    helper_byte_char::register(&mut pkg);
+    helper_low_bits::register(&mut pkg);
+    helper_from_codepoint::register(&mut pkg);
+    helper_utf8_valid::register(&mut pkg);
+    helper_codepoints::register(&mut pkg);
+    helper_utf8_encode::register(&mut pkg);
+    helper_utf8_decode::register(&mut pkg);
+    helper_hex_digit::register(&mut pkg);
+    helper_hex_value::register(&mut pkg);
+    helper_base_encode::register(&mut pkg);
+    helper_base_decode_bits::register(&mut pkg);
+    helper_base64_value::register(&mut pkg);
+    helper_base32_value::register(&mut pkg);
+    helper_base64_symbols::register(&mut pkg);
+    helper_is_unreserved::register(&mut pkg);
+    helper_is_alpha_num::register(&mut pkg);
+    helper_percent_byte::register(&mut pkg);
+    helper_percent_decode_bytes::register(&mut pkg);
+    helper_html_entity::register(&mut pkg);
+    helper_parse_decimal::register(&mut pkg);
+    helper_parse_hex::register(&mut pkg);
+    helper_leb128_emit::register(&mut pkg);
+    helper_puny_adapt::register(&mut pkg);
+    helper_puny_digit::register(&mut pkg);
+    helper_puny_value::register(&mut pkg);
+    helper_puny_threshold::register(&mut pkg);
+    helper_puny_encode_label::register(&mut pkg);
+    helper_puny_decode_label::register(&mut pkg);
+    helper_label_has_non_ascii::register(&mut pkg);
 
     // The two overloaded names first, then the non-overloaded codecs, mirroring the
     // pre-migration descriptor order.

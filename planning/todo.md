@@ -159,7 +159,7 @@ X - fully moved to codegen
 [X] crypto
 [@] csv
 [ ] datetime
-[X] encoding
+[@] encoding
 [@] errorcode
 [ ] fs
 [X] http
