@@ -164,7 +164,7 @@ X - fully moved to codegen
 [ ] fs
 [X] http
 [ ] io
-[X] json
+[@] json
 [ ] math
 [ ] money
 [ ] net
