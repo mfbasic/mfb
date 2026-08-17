@@ -5,7 +5,7 @@ An `--app` program's **presentation mode** is what its window surface currently
 older tangle of a `uses_term` flag and `term::on` / `term::off` toggling. A
 running program reads its mode with `app::getMode` and changes it with
 `app::setMode`; the mode is one of the members of the `app::Mode` enum.
-[[src/builtins/app_package.mfb:Mode]]
+[[src/codegen/builtins/app/mod.rs:Mode]]
 
 This topic specifies the *model* — the mode set, the per-arena state, the static
 initial-mode rule, and the surface-reconcile seam. The per-function API
@@ -25,7 +25,7 @@ companion so they resolve like any user enum (no reserved wire type id):
 The discriminants are the stored slot values, matching the enum's declaration
 order, so a loaded mode word *is* the enum value with no remap. The enum is
 referenced bare, like every other built-in type: `Mode.None`, not
-`app::Mode.None`. [[src/builtins/app.rs:is_builtin_type]]
+`app::Mode.None`. [[src/codegen/registry/mod.rs:is_builtin_type]]
 
 The set is designed to grow: a future graphical mode is a new `Mode` variant
 entered through `app::setMode`, with no change to this model.
@@ -50,7 +50,7 @@ touches `app::` keeps its exact entry frame. [[src/target/shared/code/error_cons
 `app::getMode` and `app::setMode` are lowered inline to runtime helpers that load
 and store this word — `getMode` is a single load (as cheap as reading a local),
 `setMode` a store followed by the surface-reconcile seam below.
-[[src/target/shared/code/app.rs:lower_app_helper]]
+[[src/codegen/builtins/app/native.rs:lower_app_helper]]
 
 Because the slot lives in the per-arena state region, it is per-execution-context,
 consistent with the per-thread RNG and Money rounding mode.

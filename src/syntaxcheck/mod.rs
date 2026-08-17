@@ -168,9 +168,8 @@ pub fn check_project_collect(
     let augmented = builtins::term::bridge_augmented_project(&augmented)?;
     // `astrings` imports only `collections` (native members) + `astrings` itself.
     let augmented = builtins::astrings::augmented_project(&augmented)?;
-    let augmented = builtins::app::augmented_project(&augmented)?;
-    // datetime + money source is injected by the clean-room `registry::augment_project`
-    // above.
+    // app + datetime + money source is injected by the clean-room
+    // `registry::augment_project` above.
     let augmented = builtins::term::augmented_project(&augmented)?;
     // `vector` source is injected by the clean-room `registry::augment_project` above.
     // `http` before `net`: `http_package.mfb` imports `net` (plan-03-http.md Phase 4).

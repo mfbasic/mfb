@@ -116,9 +116,8 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     // `astrings` itself (the internal overlay bridge), so it has no companion
     // ordering dependency.
     let augmented = builtins::astrings::augmented_project(&augmented)?;
-    let augmented = builtins::app::augmented_project(&augmented)?;
-    // datetime + money source is injected by the clean-room `registry::augment_project`
-    // above.
+    // app + datetime + money source is injected by the clean-room
+    // `registry::augment_project` above.
     // `term_package.mfb` declares only the `LineStyle`/`FillStyle` enums and imports
     // nothing, so it has no source ordering dependency (the attribute bridge is a
     // separate gated source, injected above).

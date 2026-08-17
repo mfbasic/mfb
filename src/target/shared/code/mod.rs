@@ -2038,19 +2038,29 @@ fn lower_runtime_helper(
             }
         } else {
             match spec.call {
-                "app.getMode" | "app.setMode" => {
-                    // plan-62-B: state read/write off the per-arena presentation-mode
-                    // slot; setMode additionally calls the (no-op in B) per-backend
-                    // surface-reconcile seam. App builds only — the slot is reserved
-                    // only when `is_app()`, so its absence here is an internal error.
-                    let presentation_mode_offset =
-                        arena_layout.presentation_mode_offset.ok_or_else(|| {
-                            format!(
-                                "native code plan emits '{symbol}' without reserving the \
-                             presentation-mode slot"
-                            )
-                        })?;
-                    app::lower_app_helper(spec.call, symbol, presentation_mode_offset, platform)?
+                // plan-62-B: the two `app.*` presentation-mode helpers (state
+                // read/write off the per-arena presentation-mode slot; `setMode`
+                // additionally calls the per-backend surface-reconcile seam) carry a
+                // `Body::native` OS-seam lowering in `codegen::builtins::app::native`.
+                // The generic registry-driven dispatch threads the arena
+                // `presentation_mode_offset` through `os_ctx`; the migrated helper
+                // errors if it is absent (app builds reserve the slot only when
+                // `is_app()`). The cross-package `ErrWrongMode` gate below stays here.
+                call if call.starts_with("app.") => {
+                    match crate::codegen::os::dispatch_runtime_helper(
+                        call,
+                        symbol,
+                        &os_ctx,
+                        platform_imports,
+                        platform,
+                    ) {
+                        Some(result) => result?,
+                        None => {
+                            return Err(format!(
+                                "native code plan does not emit runtime call '{call}'"
+                            ));
+                        }
+                    }
                 }
                 // Every `crypto.*` runtime helper (the `randomBytes` CSPRNG and the
                 // NIST-EC public-key ops) carries a `Body::native` OS-seam lowering in

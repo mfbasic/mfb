@@ -102,10 +102,8 @@ pub fn lower_project_with_external_functions(
         .expect("built-in term/astrings bridge source must parse");
     let augmented = builtins::astrings::augmented_project(&augmented)
         .expect("built-in astrings package source must parse");
-    let augmented = builtins::app::augmented_project(&augmented)
-        .expect("built-in app package source must parse");
-    // datetime + money source is injected by the clean-room `registry::augment_project`
-    // above.
+    // app + datetime + money source is injected by the clean-room
+    // `registry::augment_project` above.
     let augmented = builtins::term::augmented_project(&augmented)
         .expect("built-in term package source must parse");
     // `vector` source (its nine `TYPE`s + `__vector_*` FUNC bodies) is injected by the

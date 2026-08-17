@@ -2,6 +2,7 @@
 //! (plan-95). Each package owns its `BuiltinFunction` descriptors and, per
 //! migrated function, the target-generic lowering carried by `Implementation`.
 
+pub(crate) mod app;
 pub(crate) mod audio;
 pub(crate) mod bits;
 pub(crate) mod collections;
