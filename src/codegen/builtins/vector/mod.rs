@@ -459,6 +459,7 @@ fn add_records(pkg: &mut RegistryPackage) {
         pkg.add_record(RegistryRecord {
             name: ty,
             export: true,
+            description: "",
             props,
         });
     }

@@ -545,6 +545,14 @@ pub(crate) struct RegistryRecord {
     pub(crate) name: &'static str,
     /// Whether the record is `EXPORT`ed (visible to importers) or package-internal.
     pub(crate) export: bool,
+    /// Record-level documentation. When non-empty, [`render`](Self::render) emits a
+    /// `DOC … END DOC` block (the record `DESC` plus each prop's
+    /// [`description`](RecordProp::description) as a `PROP` line) before the `TYPE`,
+    /// so a documented source record (e.g. crypto's `Sealed`/`KeyPair`) round-trips
+    /// through `add_record` instead of living verbatim in a companion `.mfb`. Empty
+    /// (the default for undocumented records) renders a bare `TYPE`, byte-identical
+    /// to before this field existed.
+    pub(crate) description: &'static str,
     /// The record's fields, in declaration order (`>= 1`).
     pub(crate) props: Vec<RecordProp>,
 }
@@ -553,6 +561,23 @@ impl RegistryRecord {
     /// Render the `[EXPORT] TYPE … END TYPE` declaration (no trailing newline).
     fn render(&self) -> String {
         let mut out = String::new();
+        // A documented record round-trips its `DOC` block; an undocumented one
+        // (empty `description`) renders the bare `TYPE` exactly as before.
+        if !self.description.is_empty() {
+            out.push_str("DOC\n  TYPE ");
+            out.push_str(self.name);
+            out.push_str("\n  DESC ");
+            out.push_str(self.description);
+            for prop in &self.props {
+                out.push_str("\n  PROP ");
+                out.push_str(prop.name);
+                if !prop.description.is_empty() {
+                    out.push(' ');
+                    out.push_str(prop.description);
+                }
+            }
+            out.push_str("\nEND DOC\n");
+        }
         if self.export {
             out.push_str("EXPORT ");
         }
@@ -2692,6 +2717,7 @@ mod tests {
         RegistryRecord {
             name,
             export,
+            description: "",
             props,
         }
     }

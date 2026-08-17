@@ -137,6 +137,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Flags",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "ci",
@@ -169,6 +170,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Range",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "lo",
@@ -186,6 +188,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Single",
         export: false,
+        description: "",
         props: vec![RecordProp {
             name: "ch",
             ty: ParameterType::String,
@@ -196,6 +199,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Short",
         export: false,
+        description: "",
         props: vec![RecordProp {
             name: "kind",
             ty: ParameterType::Integer,
@@ -206,6 +210,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Prop",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "name",
@@ -246,6 +251,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Lit",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "ch",
@@ -263,6 +269,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Any",
         export: false,
+        description: "",
         props: vec![RecordProp {
             name: "dotall",
             ty: ParameterType::Boolean,
@@ -273,6 +280,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Class",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "neg",
@@ -300,6 +308,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Anchor",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "kind",
@@ -317,6 +326,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Concat",
         export: false,
+        description: "",
         props: vec![RecordProp {
             name: "parts",
             ty: ParameterType::list_of(ParameterType::Named("__regex_Node")),
@@ -327,6 +337,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Alt",
         export: false,
+        description: "",
         props: vec![RecordProp {
             name: "opts",
             ty: ParameterType::list_of(ParameterType::Named("__regex_Node")),
@@ -337,6 +348,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Repeat",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "child",
@@ -364,6 +376,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Group",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "child",
@@ -420,6 +433,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_ContDone",
         export: false,
+        description: "",
         props: vec![RecordProp {
             name: "dummy",
             ty: ParameterType::Boolean,
@@ -430,6 +444,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_ContSeq",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "parts",
@@ -452,6 +467,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_ContCap",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "slot",
@@ -469,6 +485,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_ContRep",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "rep",
@@ -519,6 +536,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Result",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "ok",
@@ -541,6 +559,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Ctx",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "text",
@@ -563,6 +582,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Program",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "root",
@@ -585,6 +605,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Parse",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "node",
@@ -612,6 +633,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Paren",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "isDir",
@@ -649,6 +671,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Count",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "lo",
@@ -671,6 +694,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_LitScalar",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "ch",
@@ -688,6 +712,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_PropParse",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "name",
@@ -710,6 +735,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Endpoint",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "kind",
@@ -737,6 +763,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_FlagSpec",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "flags",
@@ -764,6 +791,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__regex_Name",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "name",

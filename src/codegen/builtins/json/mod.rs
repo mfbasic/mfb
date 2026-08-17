@@ -90,6 +90,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "JsonNull",
         export: true,
+        description: "",
         props: vec![RecordProp {
             name: "value",
             ty: ParameterType::Nothing,
@@ -100,6 +101,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "JsonBool",
         export: true,
+        description: "",
         props: vec![RecordProp {
             name: "value",
             ty: ParameterType::Boolean,
@@ -110,6 +112,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "JsonNum",
         export: true,
+        description: "",
         props: vec![RecordProp {
             name: "value",
             ty: ParameterType::Float,
@@ -120,6 +123,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "JsonStr",
         export: true,
+        description: "",
         props: vec![RecordProp {
             name: "value",
             ty: ParameterType::String,
@@ -130,6 +134,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "JsonArr",
         export: true,
+        description: "",
         props: vec![RecordProp {
             name: "items",
             ty: ParameterType::list_of(ParameterType::Named("Json")),
@@ -140,6 +145,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "JsonObj",
         export: true,
+        description: "",
         props: vec![RecordProp {
             name: "fields",
             ty: ParameterType::map_of(ParameterType::String, ParameterType::Named("Json")),
@@ -150,6 +156,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__json_Node",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "value",
@@ -167,6 +174,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "__json_StringNode",
         export: false,
+        description: "",
         props: vec![
             RecordProp {
                 name: "value",

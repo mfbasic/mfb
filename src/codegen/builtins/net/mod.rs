@@ -167,6 +167,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: ADDRESS_TYPE,
         export: true,
+        description: "",
         props: vec![
             RecordProp {
                 name: "host",
@@ -183,6 +184,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: DATAGRAM_TYPE,
         export: true,
+        description: "",
         props: vec![
             RecordProp {
                 name: "from",
@@ -199,6 +201,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: DATAGRAM_TEXT_TYPE,
         export: true,
+        description: "",
         props: vec![
             RecordProp {
                 name: "from",

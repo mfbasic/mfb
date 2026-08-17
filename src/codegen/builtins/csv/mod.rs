@@ -79,6 +79,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "CsvReader",
         export: true,
+        description: "",
         props: vec![
             RecordProp {
                 name: "chars",
@@ -111,6 +112,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "CsvRow",
         export: true,
+        description: "",
         props: vec![
             RecordProp {
                 name: "fields",

@@ -122,6 +122,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: TERM_COLOR_TYPE,
         export: true,
+        description: "",
         props: vec![
             RecordProp {
                 name: "r",
@@ -143,6 +144,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: TERM_SIZE_TYPE,
         export: true,
+        description: "",
         props: vec![
             RecordProp {
                 name: "columns",

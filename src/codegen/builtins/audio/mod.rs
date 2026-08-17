@@ -199,6 +199,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: AUDIO_DEVICE_TYPE,
         export: true,
+        description: "",
         props: vec![
             RecordProp {
                 name: "id",
@@ -235,6 +236,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: AUDIO_ENVELOPE_TYPE,
         export: true,
+        description: "",
         props: vec![
             RecordProp {
                 name: "attackFrames",
@@ -266,6 +268,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: AUDIO_NOTE_TYPE,
         export: true,
+        description: "",
         props: vec![
             RecordProp {
                 name: "frequencyHz",
