@@ -156,7 +156,7 @@ X - fully moved to codegen
 [X] audio
 [@] bits
 [ ] collections
-[@] crypto
+[X] crypto
 [@] csv
 [ ] datetime
 [@] encoding
