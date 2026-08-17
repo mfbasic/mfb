@@ -3,9 +3,10 @@
 //!
 //! `crypto` is HETEROGENEOUS. Its symmetric, hashing, AEAD, KDF, Ed25519, and
 //! secure-random glue are portable **software cores** written in MFBASIC over the
-//! `bits` package; those live in `package.mfb` (the byte-exact concatenation of the
-//! former five `crypto_*.mfb` topic files) and every public source member rewrites
-//! onto its `__crypto_*` body via [`Body::Rewrite`]. The hash/HMAC/PBKDF2 members
+//! `bits` package; those `__crypto_*` bodies live in per-helper `helper_*.rs` files
+//! (each a `RegistryHelper` registered via `add_helper`, split from the former
+//! `package.mfb` blob) and every public source member rewrites onto its
+//! `__crypto_*` body via [`Body::Rewrite`]. The hash/HMAC/PBKDF2 members
 //! carry a `List OF Byte` **and** a `String` overload, modeled as two
 //! `Implementation`s whose distinct parameter types make `select` pick the
 //! `_bytes`/`_text` body — no resolver, no `implementation_name` hook (the legacy
@@ -18,11 +19,12 @@
 //! specs DERIVED by `registry::runtime_specs`.
 //!
 //! Source injection is the registry's ([`crate::codegen::registry::augment_project`]);
-//! the `Sealed`/`KeyPair` record types are authored (with their `DOC` blocks) in
-//! `package.mfb` and recognized generically via `add_source_types`.
+//! the `Sealed`/`KeyPair` record types are registered via `add_record`, carrying
+//! their `DOC` descriptions on the `RegistryRecord`/`RecordProp` `description` fields.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, Registry, RegistryFunction, RegistryPackage,
+    Body, DefaultValue, Implementation, Parameter, RecordProp, Registry, RegistryFunction,
+    RegistryPackage, RegistryRecord,
 };
 use crate::types::ParameterType;
 
@@ -102,23 +104,188 @@ pub(crate) fn is_crypto_internal_call(name: &str) -> bool {
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("crypto", MODULE_INTRO, MODULE_DESC);
 
-    // `package.mfb` carries its own `IMPORT crypto/bits/strings/collections/encoding`,
-    // the `Sealed`/`KeyPair` `EXPORT TYPE` declarations (with `DOC` blocks), the module
-    // round-constant/IV globals, the private `__crypto_*` helpers, and every public
-    // member's `__crypto_*` body. Injected verbatim (byte-exact concatenation of the
-    // former five `crypto_*.mfb` files), so the reassembled source is identical to the
-    // legacy `package_source_glue!` `concat!` and public members rewrite onto it via
-    // `Body::Rewrite`.
-    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
-        "crypto_package",
-        include_str!("package.mfb"),
-    ));
+    // Injected `IMPORT`s, rendered by `get_mfb` before the records/helpers —
+    // mirroring `package.mfb`'s original leading `IMPORT` lines.
+    pkg.add_imports(vec!["crypto", "bits", "strings", "collections", "encoding"]);
 
-    // The public value RECORDS `Sealed`/`KeyPair` are authored (with their `DOC` blocks
-    // and byte-exact fields) in `package.mfb`; recording their names as source-declared
-    // types lets the generic `registry::is_builtin_type` / `qualified_builtin_type`
-    // recognize them without double-declaring.
-    pkg.add_source_types(&["Sealed", "KeyPair"]);
+    // The public value RECORDS `Sealed`/`KeyPair` (with their `DOC` blocks and
+    // byte-exact fields), formerly authored in `package.mfb`. Emitted as real
+    // `add_record` records so the generic `registry::is_builtin_type` /
+    // `qualified_builtin_type` recognizes them.
+    pkg.add_record(RegistryRecord {
+        name: "Sealed",
+        export: true,
+        description: "The result of an AEAD seal operation: the encrypted `ciphertext` bytes paired with the authentication `tag` that binds them.",
+        props: vec![
+            RecordProp { name: "ciphertext", ty: ParameterType::list_of(ParameterType::Byte), description: "The encrypted message bytes." },
+            RecordProp { name: "tag", ty: ParameterType::list_of(ParameterType::Byte), description: "The authentication tag produced by the AEAD cipher, verified on open." },
+        ],
+    });
+    pkg.add_record(RegistryRecord {
+        name: "KeyPair",
+        export: true,
+        description: "A public-key key pair, holding the secret `privateKey` used to sign or derive and the matching `publicKey` shared with counterparties.",
+        props: vec![
+            RecordProp { name: "privateKey", ty: ParameterType::list_of(ParameterType::Byte), description: "The secret key bytes; keep confidential." },
+            RecordProp { name: "publicKey", ty: ParameterType::list_of(ParameterType::Byte), description: "The public key bytes; safe to share." },
+        ],
+    });
+
+    // The shared private `__crypto_*` helpers (module globals + every `__crypto_*`
+    // body). Each lives in its own `helper_*.rs` and registers via `add_helper`;
+    // order preserved from the old `package.mfb` blob so the compiled `.ncode`
+    // stays byte-identical.
+    helper_k256::register(&mut pkg);
+    helper_iv256::register(&mut pkg);
+    helper_iv224::register(&mut pkg);
+    helper_k512::register(&mut pkg);
+    helper_iv512::register(&mut pkg);
+    helper_iv384::register(&mut pkg);
+    helper_aes_sbox::register(&mut pkg);
+    helper_m32::register(&mut pkg);
+    helper_add32::register(&mut pkg);
+    helper_rotr32::register(&mut pkg);
+    helper_shr32::register(&mut pkg);
+    helper_not32::register(&mut pkg);
+    helper_be_word::register(&mut pkg);
+    helper_append_be_word::register(&mut pkg);
+    helper_copy_bytes::register(&mut pkg);
+    helper_sha256_ktable::register(&mut pkg);
+    helper_be_words::register(&mut pkg);
+    helper_sha256_iv::register(&mut pkg);
+    helper_sha224_iv::register(&mut pkg);
+    helper_ch32::register(&mut pkg);
+    helper_maj32::register(&mut pkg);
+    helper_bsig0::register(&mut pkg);
+    helper_bsig1::register(&mut pkg);
+    helper_ssig0::register(&mut pkg);
+    helper_ssig1::register(&mut pkg);
+    helper_pad512::register(&mut pkg);
+    helper_sha256_schedule::register(&mut pkg);
+    helper_sha2_32::register(&mut pkg);
+    helper_truncate::register(&mut pkg);
+    helper_sha256_bytes::register(&mut pkg);
+    helper_sha256_text::register(&mut pkg);
+    helper_sha224_bytes::register(&mut pkg);
+    helper_sha224_text::register(&mut pkg);
+    helper_add64::register(&mut pkg);
+    helper_be_word64::register(&mut pkg);
+    helper_be_words64::register(&mut pkg);
+    helper_append_be_word64::register(&mut pkg);
+    helper_ch64::register(&mut pkg);
+    helper_maj64::register(&mut pkg);
+    helper_bsig0_64::register(&mut pkg);
+    helper_bsig1_64::register(&mut pkg);
+    helper_ssig0_64::register(&mut pkg);
+    helper_ssig1_64::register(&mut pkg);
+    helper_sha512_ktable::register(&mut pkg);
+    helper_sha512_iv::register(&mut pkg);
+    helper_sha384_iv::register(&mut pkg);
+    helper_pad1024::register(&mut pkg);
+    helper_sha512_schedule::register(&mut pkg);
+    helper_sha2_64::register(&mut pkg);
+    helper_sha512_bytes::register(&mut pkg);
+    helper_sha512_text::register(&mut pkg);
+    helper_sha384_bytes::register(&mut pkg);
+    helper_sha384_text::register(&mut pkg);
+    helper_xor_pad::register(&mut pkg);
+    helper_zero_pad::register(&mut pkg);
+    helper_concat::register(&mut pkg);
+    helper_hmac_sha256_bytes::register(&mut pkg);
+    helper_hmac_sha256_text::register(&mut pkg);
+    helper_hmac_sha512_bytes::register(&mut pkg);
+    helper_hmac_sha512_text::register(&mut pkg);
+    helper_hkdf_sha256::register(&mut pkg);
+    helper_hkdf_expand::register(&mut pkg);
+    helper_hkdf_sha512::register(&mut pkg);
+    helper_be32::register(&mut pkg);
+    helper_xor_bytes::register(&mut pkg);
+    helper_pbkdf2_block::register(&mut pkg);
+    helper_pbkdf2_sha256_bytes::register(&mut pkg);
+    helper_pbkdf2_sha256_text::register(&mut pkg);
+    helper_pbkdf2_sha512_bytes::register(&mut pkg);
+    helper_pbkdf2_sha512_text::register(&mut pkg);
+    helper_le_word::register(&mut pkg);
+    helper_append_le_word::register(&mut pkg);
+    helper_chacha_qr::register(&mut pkg);
+    helper_chacha_state::register(&mut pkg);
+    helper_chacha_block::register(&mut pkg);
+    helper_chacha20::register(&mut pkg);
+    helper_poly_r::register(&mut pkg);
+    helper_poly1305::register(&mut pkg);
+    helper_poly_finish::register(&mut pkg);
+    helper_pad16::register(&mut pkg);
+    helper_le64::register(&mut pkg);
+    helper_aead_mac_data::register(&mut pkg);
+    helper_chacha20_poly1305_seal::register(&mut pkg);
+    helper_chacha20_poly1305_open::register(&mut pkg);
+    helper_aes_sbox_table::register(&mut pkg);
+    helper_aes_sub::register(&mut pkg);
+    helper_xtime::register(&mut pkg);
+    helper_gmul8::register(&mut pkg);
+    helper_aes_expand_key::register(&mut pkg);
+    helper_aes_add_round_key::register(&mut pkg);
+    helper_aes_sub_bytes::register(&mut pkg);
+    helper_aes_shift_rows::register(&mut pkg);
+    helper_aes_mix_columns::register(&mut pkg);
+    helper_aes_encrypt_block::register(&mut pkg);
+    helper_ghash_mul::register(&mut pkg);
+    helper_ghash::register(&mut pkg);
+    helper_gcm_j0::register(&mut pkg);
+    helper_gcm_inc32::register(&mut pkg);
+    helper_gcm_gctr::register(&mut pkg);
+    helper_gcm_ghash_data::register(&mut pkg);
+    helper_be64::register(&mut pkg);
+    helper_gcm_tag::register(&mut pkg);
+    helper_aes256_gcm_seal::register(&mut pkg);
+    helper_aes256_gcm_open::register(&mut pkg);
+    helper_constant_time_equal::register(&mut pkg);
+    helper_rand62::register(&mut pkg);
+    helper_rand63::register(&mut pkg);
+    helper_random_int::register(&mut pkg);
+    helper_uuid4::register(&mut pkg);
+    helper_gf0::register(&mut pkg);
+    helper_gf1::register(&mut pkg);
+    helper_gf_d::register(&mut pkg);
+    helper_gf_d2::register(&mut pkg);
+    helper_gf_x::register(&mut pkg);
+    helper_gf_y::register(&mut pkg);
+    helper_gf_i::register(&mut pkg);
+    helper_ed_l::register(&mut pkg);
+    helper_ed_a::register(&mut pkg);
+    helper_ed_z::register(&mut pkg);
+    helper_car25519::register(&mut pkg);
+    helper_ed_m::register(&mut pkg);
+    helper_ed_s::register(&mut pkg);
+    helper_inv25519::register(&mut pkg);
+    helper_pow2523::register(&mut pkg);
+    helper_pack25519::register(&mut pkg);
+    helper_unpack25519::register(&mut pkg);
+    helper_par25519::register(&mut pkg);
+    helper_neq25519::register(&mut pkg);
+    helper_concat_int::register(&mut pkg);
+    helper_gf_at::register(&mut pkg);
+    helper_point4::register(&mut pkg);
+    helper_first64::register(&mut pkg);
+    helper_last64::register(&mut pkg);
+    helper_ed_add::register(&mut pkg);
+    helper_cswap128::register(&mut pkg);
+    helper_scalarmult::register(&mut pkg);
+    helper_scalarbase::register(&mut pkg);
+    helper_pack_point::register(&mut pkg);
+    helper_unpackneg::register(&mut pkg);
+    helper_mod_l::register(&mut pkg);
+    helper_reduce::register(&mut pkg);
+    helper_slice::register(&mut pkg);
+    helper_clamp_scalar::register(&mut pkg);
+    helper_ed25519_public::register(&mut pkg);
+    helper_generate_ed25519::register(&mut pkg);
+    helper_generate_p256::register(&mut pkg);
+    helper_generate_p384::register(&mut pkg);
+    helper_generate_p521::register(&mut pkg);
+    helper_ed25519_sign::register(&mut pkg);
+    helper_scalar_below_l::register(&mut pkg);
+    helper_ed25519_verify::register(&mut pkg);
 
     // Hashes (source, `_bytes`/`_text` overloads).
     func_sha256::register(&mut pkg);
@@ -199,6 +366,158 @@ mod func_sha256;
 mod func_sha384;
 mod func_sha512;
 mod func_uuid4;
+
+mod helper_add32;
+mod helper_add64;
+mod helper_aead_mac_data;
+mod helper_aes256_gcm_open;
+mod helper_aes256_gcm_seal;
+mod helper_aes_add_round_key;
+mod helper_aes_encrypt_block;
+mod helper_aes_expand_key;
+mod helper_aes_mix_columns;
+mod helper_aes_sbox;
+mod helper_aes_sbox_table;
+mod helper_aes_shift_rows;
+mod helper_aes_sub;
+mod helper_aes_sub_bytes;
+mod helper_append_be_word;
+mod helper_append_be_word64;
+mod helper_append_le_word;
+mod helper_be32;
+mod helper_be64;
+mod helper_be_word;
+mod helper_be_word64;
+mod helper_be_words;
+mod helper_be_words64;
+mod helper_bsig0;
+mod helper_bsig0_64;
+mod helper_bsig1;
+mod helper_bsig1_64;
+mod helper_car25519;
+mod helper_ch32;
+mod helper_ch64;
+mod helper_chacha20;
+mod helper_chacha20_poly1305_open;
+mod helper_chacha20_poly1305_seal;
+mod helper_chacha_block;
+mod helper_chacha_qr;
+mod helper_chacha_state;
+mod helper_clamp_scalar;
+mod helper_concat;
+mod helper_concat_int;
+mod helper_constant_time_equal;
+mod helper_copy_bytes;
+mod helper_cswap128;
+mod helper_ed25519_public;
+mod helper_ed25519_sign;
+mod helper_ed25519_verify;
+mod helper_ed_a;
+mod helper_ed_add;
+mod helper_ed_l;
+mod helper_ed_m;
+mod helper_ed_s;
+mod helper_ed_z;
+mod helper_first64;
+mod helper_gcm_gctr;
+mod helper_gcm_ghash_data;
+mod helper_gcm_inc32;
+mod helper_gcm_j0;
+mod helper_gcm_tag;
+mod helper_generate_ed25519;
+mod helper_generate_p256;
+mod helper_generate_p384;
+mod helper_generate_p521;
+mod helper_gf0;
+mod helper_gf1;
+mod helper_gf_at;
+mod helper_gf_d;
+mod helper_gf_d2;
+mod helper_gf_i;
+mod helper_gf_x;
+mod helper_gf_y;
+mod helper_ghash;
+mod helper_ghash_mul;
+mod helper_gmul8;
+mod helper_hkdf_expand;
+mod helper_hkdf_sha256;
+mod helper_hkdf_sha512;
+mod helper_hmac_sha256_bytes;
+mod helper_hmac_sha256_text;
+mod helper_hmac_sha512_bytes;
+mod helper_hmac_sha512_text;
+mod helper_inv25519;
+mod helper_iv224;
+mod helper_iv256;
+mod helper_iv384;
+mod helper_iv512;
+mod helper_k256;
+mod helper_k512;
+mod helper_last64;
+mod helper_le64;
+mod helper_le_word;
+mod helper_m32;
+mod helper_maj32;
+mod helper_maj64;
+mod helper_mod_l;
+mod helper_neq25519;
+mod helper_not32;
+mod helper_pack25519;
+mod helper_pack_point;
+mod helper_pad1024;
+mod helper_pad16;
+mod helper_pad512;
+mod helper_par25519;
+mod helper_pbkdf2_block;
+mod helper_pbkdf2_sha256_bytes;
+mod helper_pbkdf2_sha256_text;
+mod helper_pbkdf2_sha512_bytes;
+mod helper_pbkdf2_sha512_text;
+mod helper_point4;
+mod helper_poly1305;
+mod helper_poly_finish;
+mod helper_poly_r;
+mod helper_pow2523;
+mod helper_rand62;
+mod helper_rand63;
+mod helper_random_int;
+mod helper_reduce;
+mod helper_rotr32;
+mod helper_scalar_below_l;
+mod helper_scalarbase;
+mod helper_scalarmult;
+mod helper_sha224_bytes;
+mod helper_sha224_iv;
+mod helper_sha224_text;
+mod helper_sha256_bytes;
+mod helper_sha256_iv;
+mod helper_sha256_ktable;
+mod helper_sha256_schedule;
+mod helper_sha256_text;
+mod helper_sha2_32;
+mod helper_sha2_64;
+mod helper_sha384_bytes;
+mod helper_sha384_iv;
+mod helper_sha384_text;
+mod helper_sha512_bytes;
+mod helper_sha512_iv;
+mod helper_sha512_ktable;
+mod helper_sha512_schedule;
+mod helper_sha512_text;
+mod helper_shr32;
+mod helper_slice;
+mod helper_ssig0;
+mod helper_ssig0_64;
+mod helper_ssig1;
+mod helper_ssig1_64;
+mod helper_truncate;
+mod helper_unpack25519;
+mod helper_unpackneg;
+mod helper_uuid4;
+mod helper_xor_bytes;
+mod helper_xor_pad;
+mod helper_xtime;
+mod helper_zero_pad;
 
 /// `List OF Byte` — the pervasive `crypto` argument/return type.
 fn bytes() -> ParameterType {
