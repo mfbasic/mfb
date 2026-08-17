@@ -2,7 +2,6 @@ pub(crate) mod app;
 pub(crate) mod astrings;
 pub(crate) mod audio;
 pub(crate) mod general;
-pub(crate) mod http;
 pub(crate) mod resource;
 pub(crate) mod strings;
 pub(crate) mod term;
@@ -176,7 +175,8 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
         // check above (`registry::qualified_builtin_type`), so no arm is needed here.
         // `fs`'s `File` resource likewise resolves via the migrated-registry check
         // above, so it needs no arm here.
-        "http" => http::is_builtin_type(member),
+        // `http`'s `Response`/`Request`/`RequestPart`/`Route`/`Stream`/`PendingState`
+        // value types resolve via the migrated-registry check above, so no arm here.
         // `money`'s `Rounding` enum resolves via the migrated-registry check above
         // (`registry::qualified_builtin_type`), so it needs no arm here.
         // `net`'s `Url`/`Address`/`Datagram`/`DatagramText` value types resolve via
@@ -479,7 +479,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
     // rides on the `RegistryFunction::expected_arguments` descriptor field and is
     // served by the generic `registry::expected_arguments` below.
     if let Some(text) = audio::expected_arguments(name)
-        .or_else(|| http::expected_arguments(name))
         .or_else(|| vector::expected_arguments(name))
         .or_else(|| general::expected_arguments(name))
         .or_else(|| strings::expected_arguments(name))
@@ -520,8 +519,7 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
 
     let expected = general::expected_arguments(callee)
         .or_else(|| strings::expected_arguments(callee))
-        .or_else(|| audio::argument_types(callee))
-        .or_else(|| http::expected_arguments(callee))?;
+        .or_else(|| audio::argument_types(callee))?;
     // A description that is not a concrete positional signature is not a coercion
     // table: an optional-argument bracket (`strings.find`'s
     // `"String, String[, Integer]"`), an argument union (`" or "`), a variadic range
@@ -542,20 +540,14 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
 }
 
 /// The `(type, value)` constants to append after the `provided` real arguments so
-/// a fixed-ABI runtime helper always receives every parameter — plan-72-BB: the
-/// owning package's `default_argument_padding` (only `tls`/`regex`/`crypto`/`http`
-/// default-pad; each owns its callee uniquely, so the first non-empty result is the
-/// owner's). `datetime`'s `time` padding moved onto the clean-room registry (its
-/// trailing params are `Fill`), consulted first by the caller.
+/// a fixed-ABI runtime helper always receives every parameter. Every default-padding
+/// package (`tls`/`regex`/`crypto`/`http`/`datetime`) has now migrated onto the
+/// clean-room registry, whose `Fill` trailing params drive `registry::default_argument_padding`
+/// — consulted first by the caller — so no legacy package owns any padding here.
 pub(crate) fn default_argument_padding(
-    callee: &str,
-    provided: usize,
+    _callee: &str,
+    _provided: usize,
 ) -> &'static [(&'static str, &'static str)] {
-    for pad in [http::default_argument_padding(callee, provided)] {
-        if !pad.is_empty() {
-            return pad;
-        }
-    }
     &[]
 }
 
@@ -759,7 +751,6 @@ pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
         .or_else(|| audio::call_param_names(name))
         .or_else(|| general::call_param_names(name))
         .or_else(|| strings::call_param_names(name))
-        .or_else(|| http::call_param_names(name))
         .or_else(|| term::call_param_names(name))
         .or_else(|| vector::call_param_names(name))?;
     Some(borrowed.iter().map(|aliases| aliases.to_vec()).collect())

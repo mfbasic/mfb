@@ -10,6 +10,7 @@ pub(crate) mod datetime;
 pub(crate) mod encoding;
 pub(crate) mod errorcode;
 pub(crate) mod fs;
+pub(crate) mod http;
 pub(crate) mod io;
 pub(crate) mod json;
 pub(crate) mod math;

@@ -31,13 +31,13 @@ it returns immediately having done nothing. A read that returns zero bytes marks
 the stream `state.closed = TRUE` (the peer closed, the `Connection: close`
 terminator); a transport failure is captured in `state.err` rather than raised,
 so the drive loop stays simple and the error surfaces from `http::finish`.
-[[src/builtins/http_package.mfb:__http_pump]] [[src/builtins/http_package.mfb:__http_readNet]]
+[[src/codegen/builtins/http/package.mfb:__http_pump]] [[src/codegen/builtins/http/package.mfb:__http_readNet]]
 
 Each call reads at most one 64 KiB chunk, so a large reply is accumulated across
 several `pump` calls — the point of the cooperative API. If the accumulated
 `state.raw` exceeds the internal 64 MiB response cap, `state.err` is set to the
 overflow code and the exchange ends. `pump` is a `SUB`: it advances the stream's
-STATE in place and returns nothing. [[src/builtins/http_package.mfb:__HTTP_MAX_RESPONSE]] [[src/builtins/http_package.mfb:__http_readTls]]
+STATE in place and returns nothing. [[src/codegen/builtins/http/package.mfb:__HTTP_MAX_RESPONSE]] [[src/codegen/builtins/http/package.mfb:__http_readTls]]
 
 ## Parameters
 
@@ -54,7 +54,7 @@ STATE in place and returns nothing. [[src/builtins/http_package.mfb:__HTTP_MAX_R
 
 `pump` raises nothing: a transport failure is recorded in `stream.state.err` (and
 reported later by `http::finish`), and a peer close is recorded in
-`stream.state.closed`. [[src/builtins/http_package.mfb:__http_pump]]
+`stream.state.closed`. [[src/codegen/builtins/http/package.mfb:__http_pump]]
 
 ## Examples
 

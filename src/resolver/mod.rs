@@ -129,7 +129,7 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     // `http` is injected before `net`: `http_package.mfb` imports `net`, so the
     // net source companion must be added only after http's source is present for
     // `net::uses_package` to see the dependency (plan-03-http.md Phase 4).
-    let augmented = builtins::http::augmented_project(&augmented)?;
+    let augmented = crate::codegen::builtins::http::augmented_project(&augmented)?;
     let augmented = crate::codegen::builtins::net::augmented_project(&augmented)?;
     let augmented = builtins::audio::augmented_project(&augmented)?;
     // `process` (its `Stream`/`Signal` enum companion) is injected by the generic

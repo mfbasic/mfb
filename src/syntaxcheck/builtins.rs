@@ -111,6 +111,14 @@ fn net_consumes_argument(name: &str, index: usize) -> bool {
     index == 0 && name == "net.close"
 }
 
+/// The argument-consumption predicate for `http::`, replacing the deleted
+/// `builtins::http::consumes_argument`. `http::respondFile` takes ownership of the
+/// `RES fs::File` it serves (argument 0), closing it by lexical drop; every other
+/// `http` call only borrows.
+fn http_consumes_argument(name: &str, index: usize) -> bool {
+    index == 0 && name == "http.respondFile"
+}
+
 /// The argument-consumption predicate for `tls::`, replacing the deleted
 /// `builtins::tls::consumes_argument`. `tls::close` consumes the handle it closes —
 /// either the socket-shaped `tls.close` or the listener-shaped internal
@@ -217,7 +225,7 @@ const BUILTIN_ARG_MODES: &[BuiltinArgMode] = &[
     BuiltinArgMode {
         name: "http",
         args: ArgMode::Consuming {
-            consumes: builtins::http::consumes_argument,
+            consumes: http_consumes_argument,
             default: ExprMode::Read,
         },
     },

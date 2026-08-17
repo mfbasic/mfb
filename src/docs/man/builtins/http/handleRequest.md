@@ -33,7 +33,7 @@ against `routes`, invokes the matched handler, writes the resulting
 user-owned `DO`/`LOOP`. The listener itself is **borrowed** — it stays open across
 calls and is closed only by its own lexical drop (or `net::close` / `tls::close`).
 The accepted socket is owned by the call and closed by lexical drop on return.
-[[src/builtins/http_package.mfb:__http_handleRequest]]
+[[src/codegen/builtins/http/package.mfb:__http_handleRequest]]
 
 The server is single-threaded and blocking: the accept call blocks until a client
 arrives, and one request is served at a time in the caller's loop. No timeout is
@@ -46,12 +46,12 @@ the body implied by `Content-Length` has arrived, or, for
 `Transfer-Encoding: chunked`, the `0\r\n\r\n` terminator has arrived. A read that
 fails is treated as end of stream. If the peer closes before sending anything
 (zero bytes read), the call returns without writing a response.
-[[src/builtins/http_package.mfb:__http_frameComplete]]
+[[src/codegen/builtins/http/package.mfb:__http_frameComplete]]
 
 **Size cap.** The accumulated request may not exceed **67108864** bytes (64 MiB).
 Once the buffer passes that size, reading stops and the connection is answered
 with a `413 Payload Too Large`.
-[[src/builtins/http_package.mfb:__HTTP_MAX_REQUEST]]
+[[src/codegen/builtins/http/package.mfb:__HTTP_MAX_REQUEST]]
 
 **Parsing.** The request line yields an uppercased `method` and a request target.
 The target is split at the first `?`: the part before it is percent-decoded into
@@ -61,14 +61,14 @@ Header field names are lowercased and duplicates collapse last-wins. A chunked
 body is de-chunked, and a `multipart/form-data` body is split into
 `Request.parts` keyed by each part's `name`. `Request.body` holds the raw body
 bytes.
-[[src/builtins/http_package.mfb:__http_parseRequest]]
+[[src/codegen/builtins/http/package.mfb:__http_parseRequest]]
 
 **Matching.** Routes are tested in list order and the **first** match wins. Path
 matching is segment-based on the decoded path with a single trailing `/` ignored;
 `:name` binds one required segment, `:name?` binds an optional trailing segment,
 and `*` binds all remaining segments joined by `/`. Bound captures are placed in
 `Request.params` (the wildcard under the key `"*"`) before the handler runs.
-[[src/builtins/http_package.mfb:__http_matchPath]]
+[[src/codegen/builtins/http/package.mfb:__http_matchPath]]
 
 **Crash-proofing.** The accept loop never dies on a bad client. A handler that
 fails for any reason is answered with a built-in `500 Internal Server Error`; a
@@ -76,7 +76,7 @@ path matching no route is answered with `404 Not Found`; an unparsable request
 line or header block is answered with `400 Bad Request`; an over-cap request is
 answered with `413 Payload Too Large`. A write that fails mid-response drops the
 connection and returns normally.
-[[src/builtins/http_package.mfb:__http_buildResponse]] [[src/builtins/http_package.mfb:__http_invokeHandler]]
+[[src/codegen/builtins/http/package.mfb:__http_buildResponse]] [[src/codegen/builtins/http/package.mfb:__http_invokeHandler]]
 
 **Emission.** The status line is `HTTP/1.1 <status> <reason>`; an empty
 `Response.reason` is filled in from a built-in table keyed by status code, falling
@@ -85,7 +85,7 @@ back to `OK` below 300, `Redirect` below 400, `Client Error` below 500, and
 are dropped so framing stays correct, and the server always emits its own
 `Content-Length` (the byte length of `Response.body`) plus `Connection: close`.
 The body is written only when it is non-empty.
-[[src/builtins/http_package.mfb:__http_serializeHead]] [[src/builtins/http_package.mfb:__http_reasonPhrase]]
+[[src/codegen/builtins/http/package.mfb:__http_serializeHead]] [[src/codegen/builtins/http/package.mfb:__http_reasonPhrase]]
 
 ## Overloads
 
@@ -101,7 +101,7 @@ parse/match/dispatch/emit core runs over the encrypted socket. Selected when the
 first argument is a `tls::TlsListener`, as returned by `http::serverSSL`. The
 overload is resolved from the first argument's type at IR lowering; route lists
 and handlers are interchangeable between the two.
-[[src/builtins/http.rs:implementation_name]]
+[[src/codegen/registry/mod.rs:rewrite_target]]
 
 ## Parameters
 
@@ -114,7 +114,7 @@ and handlers are interchangeable between the two.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `handleRequest` is a `SUB` and yields no value; its effect is the served connection. [[src/builtins/http.rs:HTTP]] |
+| `Nothing` | `handleRequest` is a `SUB` and yields no value; its effect is the served connection. [[src/codegen/builtins/http/mod.rs:register]] |
 
 ## Errors
 

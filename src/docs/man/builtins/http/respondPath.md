@@ -19,7 +19,7 @@ IMPORT http
 ```
 
 `http` is a built-in package, so `IMPORT http` needs no manifest dependency.
-[[src/builtins/http.rs:augmented_project]]
+[[src/codegen/builtins/http/mod.rs:augmented_project]]
 
 ## Description
 
@@ -27,12 +27,12 @@ IMPORT http
 relative path from `req`, resolves it under `root`, checks that the result really
 is inside `root`, infers a content type from the file extension, and serves the
 file with `http::respondFile`. It is the whole of the built-in static-file
-handler. [[src/builtins/http_package.mfb:__http_respondPath]]
+handler. [[src/codegen/builtins/http/package.mfb:__http_respondPath]]
 
 The relative path is taken from `req.params["*"]` when the matched route captured
 a wildcard remainder, and from `req.path` otherwise. One leading `/` is stripped,
 and a path that is then empty becomes `index.html`. The result is joined to `root`
-with `fs::pathJoin`. [[src/builtins/http_package.mfb:__http_respondPath]]
+with `fs::pathJoin`. [[src/codegen/builtins/http/package.mfb:__http_respondPath]]
 
 The steps then run **in this order**, and the order is observable:
 
@@ -40,19 +40,19 @@ The steps then run **in this order**, and the order is observable:
    file, a `404` is returned. Directories are not regular files, so a request for
    a directory yields `404`; there is no directory listing and no implicit
    `index.html` inside a subdirectory.
-   [[src/builtins/http_package.mfb:__http_respondPath]]
+   [[src/codegen/builtins/http/package.mfb:__http_respondPath]]
 2. Otherwise `fs::isWithin(root, candidate)` decides containment. If it reports
    the candidate is not inside `root`, a `403` is returned and the file is never
    opened. An error raised by `isWithin` itself is trapped and treated as *not
    contained*, so it also yields `403`.
-   [[src/builtins/http_package.mfb:__http_respondPath]]
+   [[src/codegen/builtins/http/package.mfb:__http_respondPath]]
 
 Because existence is tested first, an escaping path that does not exist is
 answered `404`, not `403`; only an escaping path that *does* exist reaches the
 containment check. Both responses are built with `http::status`, so each carries
 a plain-text body (`"Not Found"` / `"Forbidden"`), `content-type`
 `text/plain; charset=utf-8`, and `ok` `FALSE`.
-[[src/builtins/http_package.mfb:__http_status]]
+[[src/codegen/builtins/http/package.mfb:__http_status]]
 
 The containment check is where the traversal defense lives, and it is worth being
 precise about what it does and does not guarantee. `fs::isWithin` canonicalizes
@@ -69,7 +69,7 @@ than the atomic `fs::openWithin`. That leaves the time-of-check/time-of-use race
 inherent to any check-then-open: a component of the path can be replaced with a
 symlink after `isWithin` returns and before the open happens. Under a threat model
 where an attacker can create symlinks inside `root`, this is not an airtight
-confinement boundary. [[src/builtins/http_package.mfb:__http_respondPath]]
+confinement boundary. [[src/codegen/builtins/http/package.mfb:__http_respondPath]]
 
 The content type is inferred from the lowercased text after the final `.`, and
 only when that dot comes after the final `/`, so an extensionless name or a dot
@@ -78,7 +78,7 @@ recognized extensions are `html`/`htm`, `css`, `js`/`mjs`, `json`, `txt`/`text`,
 `xml`, `csv`, `png`, `jpg`/`jpeg`, `gif`, `svg`, `ico`, `webp`, `woff`, `woff2`,
 `ttf`, `pdf`, and `wasm`. Anything else, including no extension at all, is served
 as `application/octet-stream`.
-[[src/builtins/http_package.mfb:__http_extContentType]]
+[[src/codegen/builtins/http/package.mfb:__http_extContentType]]
 
 The whole file is buffered into the response body, exactly as in
 `http::respondFile`; there is no streaming and no range support. Serving a large
@@ -88,14 +88,14 @@ file occupies the single-threaded server for the duration of the read.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `req` | `Request` | The request to serve. Only `params["*"]` and `path` are read. Also accepted under the name `request`. [[src/builtins/http.rs:call_param_names]] |
-| `root` | `String` | The directory that files are served from and confined to. Interpreted by `fs::pathJoin` and `fs::isWithin`; may be absolute or relative to the working directory, and must exist for the containment check to succeed. [[src/builtins/http_package.mfb:__http_respondPath]] |
+| `req` | `Request` | The request to serve. Only `params["*"]` and `path` are read. Also accepted under the name `request`. [[src/codegen/builtins/http/mod.rs:aliases]] |
+| `root` | `String` | The directory that files are served from and confined to. Interpreted by `fs::pathJoin` and `fs::isWithin`; may be absolute or relative to the working directory, and must exist for the containment check to succeed. [[src/codegen/builtins/http/package.mfb:__http_respondPath]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Response` | A `200` response carrying the file's bytes and an inferred `content-type` on success; a `404` plain-text response when no regular file exists at the resolved path; a `403` plain-text response when the resolved path is not contained in `root`. [[src/builtins/http.rs:HTTP]] [[src/builtins/http_package.mfb:__http_respondPath]] |
+| `Response` | A `200` response carrying the file's bytes and an inferred `content-type` on success; a `404` plain-text response when no regular file exists at the resolved path; a `403` plain-text response when the resolved path is not contained in `root`. [[src/codegen/builtins/http/mod.rs:register]] [[src/codegen/builtins/http/package.mfb:__http_respondPath]] |
 
 ## Errors
 

@@ -27,7 +27,7 @@ IMPORT http
 types are declared by the package source; either spelling resolves once `http` is
 imported, but the conventional one is package-qualified (`http::Response`), which
 is the form used throughout this manual. A program that also builds URLs for the
-client adds `IMPORT net` for `net::Url`. [[src/builtins/http.rs:augmented_project]]
+client adds `IMPORT net` for `net::Url`. [[src/codegen/builtins/http/mod.rs:augmented_project]]
 
 ## Description
 
@@ -37,7 +37,7 @@ client, a resource union and its STATE record. The four record types — `Respon
 socket or any other resource handle, so a `Response` or a `Request` can be
 assigned, copied, stored in a collection, returned from a function, and sent
 across threads even though the exchange that produced it has already closed its
-connection. [[src/builtins/http_package.mfb:Response]]
+connection. [[src/codegen/builtins/http/package.mfb:Response]]
 
 `Stream` is different: it is a **resource** union over the two transports
 (`net::Socket` and `net::TlsSocket`) that `http::startRead` returns, and it carries
@@ -45,7 +45,7 @@ a `PendingState` as plan-74 union STATE. A `Stream` owns a live connection, so
 unlike the value records it is bound with `RES`, driven in place, and closed
 exactly once by its scope drop — it is neither copyable nor thread-transferable.
 `PendingState` is the mutable state the drive loop accumulates into.
-[[src/builtins/http_package.mfb:Stream]]
+[[src/codegen/builtins/http/package.mfb:Stream]]
 
 `Response` is shared by both halves of the package. On the client it is what
 `http::read` and `http::write` return; on the server it is what a route handler
@@ -53,33 +53,33 @@ returns and what `http::handleRequest` writes to the wire. Handlers rarely build
 one field by field — `http::ok`, `http::status`, `http::json`, `http::bytes`,
 `http::withHeader`, and `http::responseDefault` (plus `WITH` edits) construct and
 amend it. The framing headers `Content-Length` and `Connection` are supplied by
-the package on emit, so a handler does not set them. [[src/builtins/http_package.mfb:__http_buildResponse]]
+the package on emit, so a handler does not set them. [[src/codegen/builtins/http/package.mfb:__http_buildResponse]]
 
 `Request` is the server-side view of one parsed inbound request, passed to the
 matched handler. Its four map fields — `headers`, `query`, `params`, and `parts` —
 are ordinary `Map` values read with the `collections` accessors, for example
 `collections::getOr(req.query, "page", "1")` or
 `collections::hasKey(req.params, "id")`. There is no dedicated header or
-parameter function. [[src/builtins/http_package.mfb:__http_matchPath]]
+parameter function. [[src/codegen/builtins/http/package.mfb:__http_matchPath]]
 
 `RequestPart` appears only inside `Request.parts`, which is populated when the
 request body is `multipart/form-data`. Each part is keyed by its
 Content-Disposition `name`, and a part is distinguished as an uploaded file
 rather than a plain form field by having a non-empty
-`filename`. [[src/builtins/http_package.mfb:RequestPart]]
+`filename`. [[src/codegen/builtins/http/package.mfb:RequestPart]]
 
 `Route` binds one path pattern to one handler function. A program builds a
 validated `Route` with `http::route(pattern, handler)` — which rejects a malformed
 pattern up front — collects them into an ordered `List OF http::Route`, and passes
 that list to `http::handleRequest`, which matches in list order, first match wins.
 Building a `Route` by hand with a record literal skips that
-validation. [[src/builtins/http_package.mfb:__http_handleRequest]]
+validation. [[src/codegen/builtins/http/package.mfb:__http_handleRequest]]
 
 ## Types
 
 ### http::Response
 
-One HTTP response: status line, headers, and body. Returned by the client calls and by every route handler. [[src/builtins/http_package.mfb:Response]]
+One HTTP response: status line, headers, and body. Returned by the client calls and by every route handler. [[src/codegen/builtins/http/package.mfb:Response]]
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -92,7 +92,7 @@ One HTTP response: status line, headers, and body. Returned by the client calls 
 
 ### http::Request
 
-One parsed inbound HTTP request, handed to the matched route handler. [[src/builtins/http_package.mfb:Request]]
+One parsed inbound HTTP request, handed to the matched route handler. [[src/codegen/builtins/http/package.mfb:Request]]
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -107,7 +107,7 @@ One parsed inbound HTTP request, handed to the matched route handler. [[src/buil
 
 ### http::RequestPart
 
-One part of a `multipart/form-data` request body, as found in `Request.parts`. [[src/builtins/http_package.mfb:RequestPart]]
+One part of a `multipart/form-data` request body, as found in `Request.parts`. [[src/codegen/builtins/http/package.mfb:RequestPart]]
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -117,7 +117,7 @@ One part of a `multipart/form-data` request body, as found in `Request.parts`. [
 
 ### http::Route
 
-One entry in a server's routing table: a path pattern and the handler to invoke on a match. Built with `http::route`. [[src/builtins/http_package.mfb:Route]]
+One entry in a server's routing table: a path pattern and the handler to invoke on a match. Built with `http::route`. [[src/codegen/builtins/http/package.mfb:Route]]
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -130,7 +130,7 @@ The non-blocking client's transport handle: a **resource union** over the two
 transports, returned by `http::startRead` carrying a `PendingState`. Bind it with
 `RES … STATE PendingState`, drive it with `http::ready`/`http::pump`/`http::done`,
 and finish with `http::finish`; its socket is closed once by scope drop.
-[[src/builtins/http_package.mfb:Stream]]
+[[src/codegen/builtins/http/package.mfb:Stream]]
 
 | Variant | Type | Description |
 | --- | --- | --- |
@@ -141,7 +141,7 @@ and finish with `http::finish`; its socket is closed once by scope drop.
 
 The mutable state a `Stream` carries as plan-74 union STATE while the drive loop
 runs. `http::pump` accumulates into it; `http::done` and `http::finish` read it.
-[[src/builtins/http_package.mfb:PendingState]]
+[[src/codegen/builtins/http/package.mfb:PendingState]]
 
 | Field | Type | Description |
 | --- | --- | --- |

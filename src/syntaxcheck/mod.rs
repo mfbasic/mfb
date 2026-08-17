@@ -175,7 +175,7 @@ pub fn check_project_collect(
     // `vector` imports only intrinsic `math` (plan-06-vector.md §5).
     let augmented = builtins::vector::augmented_project(&augmented)?;
     // `http` before `net`: `http_package.mfb` imports `net` (plan-03-http.md Phase 4).
-    let augmented = builtins::http::augmented_project(&augmented)?;
+    let augmented = crate::codegen::builtins::http::augmented_project(&augmented)?;
     let augmented = crate::codegen::builtins::net::augmented_project(&augmented)?;
     let augmented = builtins::audio::augmented_project(&augmented)?;
     // `process` (its `Stream`/`Signal` enum companion) is injected by the generic

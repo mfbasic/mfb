@@ -30,12 +30,12 @@ binding must name that type.
 the `net::Listener` **directly** — the `http` package adds no wrapper resource of
 its own. The call is a pass-through to `net::listenTcp(host, port, backlog)`, so
 the listener behaves in every respect like one opened by `net` itself.
-[[src/builtins/http_package.mfb:__http_server]]
+[[src/codegen/builtins/http/package.mfb:__http_server]]
 
 `host` defaults to `"0.0.0.0"` and `backlog` defaults to `128`; both defaults are
 injected at IR lowering, so the one- and two-argument forms are exactly the
 three-argument form with those literals supplied.
-[[src/builtins/http.rs:default_argument_padding]]
+[[src/codegen/registry/mod.rs:default_argument_padding]]
 
 The socket is created with `SO_REUSEADDR` set, bound, and placed in the listening
 state. Address resolution uses `AF_INET` hints, so **only IPv4 is bound** — an
@@ -64,7 +64,7 @@ per call, parses the request, matches its path against an ordered
 closes the connection. The server is single-threaded and blocking: one request is
 served at a time, in the caller's loop. For HTTPS use `http::serverSSL`, which
 returns a `tls::TlsListener` that `handleRequest` also accepts.
-[[src/builtins/http_package.mfb:__http_handleRequest]] [[src/builtins/http.rs:HTTP]]
+[[src/codegen/builtins/http/package.mfb:__http_handleRequest]] [[src/codegen/builtins/http/mod.rs:register]]
 
 ## Overloads
 
@@ -79,7 +79,7 @@ Binds `port` on the given interface with a backlog of `128`.
 **`http::server(port AS Integer, host AS String, backlog AS Integer) AS net::Listener`**
 
 The full form: binds `port` on `host` with the given backlog hint.
-[[src/builtins/http.rs:HTTP]]
+[[src/codegen/builtins/http/mod.rs:register]]
 
 ## Parameters
 
@@ -93,7 +93,7 @@ The full form: binds `port` on `host` with the given backlog hint.
 
 | Type | Description |
 | --- | --- |
-| `net::Listener` | A listening socket resource ready for `http::handleRequest` (or `net::accept`). It must be bound with `RES` and is closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/builtins/http.rs:HTTP]] |
+| `net::Listener` | A listening socket resource ready for `http::handleRequest` (or `net::accept`). It must be bound with `RES` and is closed by lexical drop at scope exit unless closed earlier with `net::close`. [[src/codegen/builtins/http/mod.rs:register]] |
 
 ## Errors
 
