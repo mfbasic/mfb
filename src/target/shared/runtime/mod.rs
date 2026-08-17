@@ -116,7 +116,6 @@ pub(crate) struct RuntimeHelperAbi {
     pub(crate) returns: &'static str,
 }
 
-mod app_specs;
 mod catalog;
 mod perf_specs;
 mod term_specs;
@@ -126,13 +125,12 @@ mod usage;
 pub(crate) use catalog::{spec_for_call, spec_for_symbol, supported_helper_specs};
 pub(crate) use usage::{is_native_direct_call, required_helpers};
 
-use app_specs::*;
 use perf_specs::*;
 use term_specs::*;
 use thread_specs::*;
 
 pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
-    if builtins::app::is_app_call(name) {
+    if crate::codegen::registry::registry().owning_package(name) == Some("app") {
         Some(RuntimeHelper::App)
     } else if name.starts_with("audio.") {
         // Every `audio.*` runtime call routes to the Audio family: the descriptor

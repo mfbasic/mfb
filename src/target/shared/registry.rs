@@ -1035,7 +1035,7 @@ impl BuiltinRegistry {
 /// `encoding` I, `errorCode` J, `json` O, `regex` T, and `process` have since moved
 /// to the clean-room registry `crate::codegen::registry` and are no longer held here.)
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[
-    &crate::builtins::app::APP,
+    // app migrated to the clean-room registry (crate::codegen::registry).
     &crate::builtins::astrings::ASTRINGS,
     // bits migrated to the clean-room registry (crate::codegen::registry).
     // collections migrated to the clean-room registry (crate::codegen::registry).
@@ -1413,11 +1413,11 @@ mod tests {
 
         functions: &[ADD, EMIT, PICK, NOW],
         types: TEST_TYPES,
-        // A real source loader (borrowed from `app`) so the source rule and
+        // A real source loader (borrowed from `term`) so the source rule and
         // loader fields are exercised end to end without a bespoke stub.
         source: Some(BuiltinSource {
             rule: InjectionRule::WhenImported,
-            loader: crate::builtins::app::source_file,
+            loader: crate::builtins::term::source_file,
         }),
         resolver: None,
     };
@@ -1736,8 +1736,10 @@ mod tests {
         // builtin package is present (28 as of plan-90-A). (This test tracked a
         // still-unmigrated example — `math` until plan-72-P, `regex` until -T,
         // `tls` until -Z — but none remains, so it now asserts completeness.)
-        assert!(REGISTRY.module("app").is_some());
-        assert!(REGISTRY.function("app.setMode").is_some());
+        // `app` migrated to the clean-room registry (`crate::codegen::registry`) and
+        // is no longer held here.
+        assert!(REGISTRY.module("app").is_none());
+        assert!(REGISTRY.function("app.setMode").is_none());
         // `vector` migrated to the clean-room registry (`crate::codegen::registry`) and
         // is no longer held here.
         assert!(REGISTRY.module("vector").is_none());
@@ -1775,7 +1777,7 @@ mod tests {
         assert!(REGISTRY.module("audio").is_none());
         assert!(REGISTRY.function("audio.devices").is_none());
         // The 28 builtin packages minus the migrated ones.
-        assert_eq!(REGISTRY.modules().len(), 7);
+        assert_eq!(REGISTRY.modules().len(), 6);
         // The registry's names stay unique across every appended package.
         assert_eq!(REGISTRY.duplicate_module_name(), None);
         assert_eq!(REGISTRY.duplicate_function_name(), None);
@@ -1977,7 +1979,7 @@ mod tests {
         types: S_TYPES,
         source: Some(BuiltinSource {
             rule: InjectionRule::WhenUsed,
-            loader: crate::builtins::app::source_file,
+            loader: crate::builtins::term::source_file,
         }),
         resolver: Some(&S_RESOLVER),
     };

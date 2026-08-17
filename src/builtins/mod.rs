@@ -1,4 +1,3 @@
-pub(crate) mod app;
 pub(crate) mod astrings;
 pub(crate) mod general;
 pub(crate) mod resource;
@@ -160,7 +159,8 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
     // `is_builtin_type(member)` check would accept any cross pairing (`io.Url`,
     // `csv.Thread`) because that predicate ORs every package together (bug-98).
     let belongs = match package {
-        "app" => app::is_builtin_type(member),
+        // `app`'s `Mode` enum resolves via the migrated-registry check above
+        // (`registry::qualified_builtin_type`), so it needs no arm here.
         // `audio`'s records (`AudioDevice`/`AudioEnvelope`/`AudioNote`) and resource
         // handles resolve via the migrated-registry check above, so no arm is needed.
         // `crypto`'s `Sealed`/`KeyPair` records resolve via the migrated-registry
@@ -513,7 +513,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<String> {
 /// non-signature shapes (variadic `"1 to 5 Integer"`, zero-arg `"()"`, the
 /// optional-tail brackets, `utf8Decode`'s `"or"`-union) decline via the guard.
 pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
-    let machine_table = term::param_types(callee).or_else(|| app::argument_types(callee));
+    let machine_table = term::param_types(callee);
     if let Some(types) = machine_table {
         return Some(types.iter().map(|type_| (*type_).to_string()).collect());
     }
@@ -526,8 +526,8 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
         return Some(types);
     }
 
-    let expected = general::expected_arguments(callee)
-        .or_else(|| strings::expected_arguments(callee))?;
+    let expected =
+        general::expected_arguments(callee).or_else(|| strings::expected_arguments(callee))?;
     // A description that is not a concrete positional signature is not a coercion
     // table: an optional-argument bracket (`strings.find`'s
     // `"String, String[, Integer]"`), an argument union (`" or "`), a variadic range
@@ -750,8 +750,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
     if let Some(names) = crate::codegen::registry::call_param_names(name) {
         return Some(names);
     }
-    let borrowed: &'static [&'static [&'static str]] = app::call_param_names(name)
-        .or_else(|| astrings::call_param_names(name))
+    let borrowed: &'static [&'static [&'static str]] = astrings::call_param_names(name)
         .or_else(|| general::call_param_names(name))
         .or_else(|| strings::call_param_names(name))
         .or_else(|| term::call_param_names(name))?;
