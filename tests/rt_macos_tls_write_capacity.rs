@@ -5,7 +5,7 @@
 //!
 //! This is the same CAPACITY-vs-COUNT class as commit e7b48c0f (fixed in the
 //! net/openssl path); the macOS `SecureTransport` write path was missed. The
-//! OpenSSL sibling (`src/target/shared/code/tls/openssl.rs`) is the correct
+//! OpenSSL sibling (`src/codegen/builtins/tls/native/openssl.rs`) is the correct
 //! reference and loads `COLLECTION_OFFSET_CAPACITY` for the payload-base
 //! multiply.
 //!

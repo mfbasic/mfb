@@ -6,7 +6,7 @@
 //! ```
 //!
 //! The error-message data-object gate
-//! (`src/target/shared/code/data_objects.rs`) keyed the `ErrTlsFailed` string
+//! (`src/codegen/memory/data/data_objects.rs`) keyed the `ErrTlsFailed` string
 //! set on the client-side calls only (`tls.connect`/`read`/`write`/`close`).
 //! The server-side helpers raise the same errors, and a listen+accept program
 //! that lets scope-drop close its resources issues no NIR `tls.close` call at

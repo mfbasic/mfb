@@ -165,7 +165,7 @@ END FUNC
 }
 
 /// Regression test for bug-67: `op_requires_empty_string_constant`
-/// (`src/target/shared/code/module_analysis.rs`) skipped the `FOR` and
+/// (`src/codegen/engine/analysis/module_analysis.rs`) skipped the `FOR` and
 /// `DO ... LOOP UNTIL` loop bodies, so an uninitialized `MUT String` declared
 /// *only* inside those loops did not force emission of the shared
 /// `_mfb_str_empty` data object — while the codegen for the default bind still

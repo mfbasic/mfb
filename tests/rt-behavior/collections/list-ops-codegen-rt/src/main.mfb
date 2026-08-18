@@ -2,7 +2,7 @@
 '
 ' This fixture carries a `.ncode` golden, which is the point: `artifact-gate`
 ' checks ~1200 goldens, but they are overwhelmingly `.ast` and `.ir` — layers
-' ABOVE `src/target/shared/code/`. Only a handful of fixtures carry generated
+' ABOVE `src/codegen/`. Only a handful of fixtures carry generated
 ' code at all, and none of them exercised the list operations. So a refactor of
 ' the collection builders could report "0 diffs" across the whole gate while
 ' silently changing every list program (that false negative really happened, on

@@ -160,7 +160,7 @@ fn assert_close_marked_before_branch(ncode: &Value, target: &str) {
     // `FILE_OFFSET_CLOSED == 16` — the unified resource-record header (plan-80)
     // places the CLOSED flag word at offset 16 (tag@0/handle@8/closed@16/STATE@24);
     // offset 8 is now the fd handle. Keep this in sync with `FILE_OFFSET_CLOSED` in
-    // src/target/shared/code/error_constants.rs. ncode stores the offset as a string.
+    // src/codegen/error/constants/error_constants.rs. ncode stores the offset as a string.
     const FILE_OFFSET_CLOSED: &str = "16";
     let func = helper(ncode, target, "_mfb_rt_fs_fs_close");
     let ins = ops(func);
