@@ -1,7 +1,6 @@
 //! `codegen::engine` module wiring.
 
 pub(crate) mod analysis;
-pub(crate) mod arch;
 pub(crate) mod builder;
 pub(crate) mod control;
 pub(crate) mod convert;

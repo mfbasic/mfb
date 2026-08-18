@@ -188,12 +188,24 @@ pub(crate) fn answer_is_yes(answer: &str) -> bool {
 /// destructive changes, and a script that pipes input deserves to be told its
 /// answer was never read rather than having the operation quietly skipped.
 pub(crate) fn confirm(question: &str, assume_yes: bool) -> Result<bool, String> {
-    use std::io::{IsTerminal, Write};
+    use std::io::IsTerminal;
+    confirm_inner(question, assume_yes, std::io::stdin().is_terminal())
+}
+
+/// The confirmation decision with terminal-ness injected, so the non-interactive
+/// refusal can be tested without depending on the ambient stdin. Only the
+/// `is_terminal == true` branch reads stdin — and it is reachable solely when a
+/// real terminal is present. Threading `is_terminal` in (rather than reading
+/// `stdin().is_terminal()` here) is what lets a test that itself runs from a
+/// terminal drive the non-terminal path deterministically instead of falling
+/// through to the blocking `read_line` and hanging.
+fn confirm_inner(question: &str, assume_yes: bool, is_terminal: bool) -> Result<bool, String> {
+    use std::io::Write;
 
     if assume_yes {
         return Ok(true);
     }
-    if !std::io::stdin().is_terminal() {
+    if !is_terminal {
         return Err(
             "refusing to prompt for confirmation in a non-interactive session; pass --yes to proceed"
                 .to_string(),
@@ -299,11 +311,24 @@ pub(crate) mod tests {
     /// A script whose piped answer would never be read deserves to be told so.
     #[test]
     fn confirm_refuses_to_prompt_without_a_terminal() {
-        // The test harness runs with stdin redirected, so this is the non-TTY path.
-        let err = confirm("proceed?", false).expect_err("must refuse, not guess");
+        // Drive the non-terminal path explicitly (`is_terminal = false`) rather
+        // than relying on the ambient stdin being redirected: through the public
+        // `confirm`, a run launched from a real terminal would reach the blocking
+        // `read_line` and hang forever. `confirm_inner` never reads stdin here.
+        let err = confirm_inner("proceed?", false, false).expect_err("must refuse, not guess");
         assert!(err.contains("non-interactive"), "{err}");
         // ...and it names the escape hatch, or the user is stuck.
         assert!(err.contains("--yes"), "{err}");
+    }
+
+    /// The prompt-and-read path is guarded behind `is_terminal`, so requesting
+    /// confirmation with no terminal never blocks on input — the exact hang this
+    /// guard exists to prevent. (`is_terminal = true` is deliberately not unit
+    /// tested: it would read the real stdin.)
+    #[test]
+    fn confirm_inner_without_terminal_never_reads_stdin() {
+        assert!(confirm_inner("proceed?", false, false).is_err());
+        assert_eq!(confirm_inner("proceed?", true, false), Ok(true));
     }
 
     #[test]
