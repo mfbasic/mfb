@@ -48,6 +48,7 @@ pub(crate) fn lower_app_helper(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
 
     match call {
         "app.getMode" => emit_get_mode(presentation_mode_offset, &mut instructions),
@@ -57,6 +58,7 @@ pub(crate) fn lower_app_helper(
             platform,
             &mut instructions,
             &mut relocations,
+            &mut vregs,
         )?,
         other => return Err(format!("unknown app runtime helper '{other}'")),
     }
@@ -93,10 +95,12 @@ fn emit_set_mode(
     platform: &dyn CodegenPlatform,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
 ) -> Result<(), String> {
-    instructions.push(abi::move_register("%v9", abi::c_arg(0)));
+    let mode = vregs.next();
+    instructions.push(abi::move_register(&mode, abi::c_arg(0)));
     instructions.push(abi::store_u64(
-        "%v9",
+        &mode,
         ARENA_STATE_REGISTER,
         presentation_mode_offset,
     ));
