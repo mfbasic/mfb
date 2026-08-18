@@ -598,7 +598,7 @@ fn emit_dlopen_at(
     );
     ctx.instructions
         .push(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "dlopen",
         symbol,
         platform_imports,

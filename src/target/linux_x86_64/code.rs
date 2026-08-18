@@ -5,7 +5,7 @@
 //! policy** force. The arena map/unmap, `write`, `getrandom`, and process exit
 //! run via raw Linux x86-64 syscalls (no libc), so an integer-only executable is
 //! fully static; the rest of the console runtime surface routes through libc via
-//! the shared `emit_libc_call` seam.
+//! the shared `emit_external_call` seam.
 //!
 //! CodeInstructions are built with the neutral `abi::*` builders and the neutral
 //! role tokens (`%sysarg*`/`%sysnr`, plan-34-D); `remap_x86_abi` realizes them to

@@ -93,7 +93,7 @@ pub(crate) fn lower_tls_connect_macos(
         &mut rel,
     );
     ins.push(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
-    platform.emit_libc_call("dlopen", symbol, platform_imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("dlopen", symbol, platform_imports, &mut ins, &mut rel)?;
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE),
         abi::compare_immediate(abi::return_register(), "0"),

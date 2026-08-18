@@ -289,7 +289,7 @@ pub(crate) fn lower_program_entry(
                 &mut instructions,
                 &mut relocations,
             );
-            platform.emit_libc_call(
+            platform.emit_external_call(
                 "signal",
                 entry_symbol,
                 platform_imports,
@@ -830,7 +830,7 @@ pub(crate) fn emit_default_arena_start_time<
         abi::move_immediate(abi::c_arg(0), "Integer", "0"), // CLOCK_REALTIME
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), 0),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "clock_gettime",
         entry_symbol,
         platform_imports,

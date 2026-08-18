@@ -365,13 +365,13 @@ stack `termios` struct, so the generator must know that struct's per-OS shape:
 within the platform `stat` struct, used by file-/directory-existence checks: 4 on
 macOS, 16 on Linux.
 
-**libc call decoration.** `emit_libc_call` emits a `bl` to a libc function named
+**libc call decoration.** `emit_external_call` emits a `bl` to a libc function named
 by its platform-independent base (e.g. `socket`, `getaddrinfo`): macOS prepends a
 leading `_` and routes through libSystem (`emit_libsystem_call`), Linux uses the
 name verbatim through libc (`emit_linux_c_call`). The `net` helpers marshal
-socket calls onto this seam.[[src/target/macos_aarch64/code.rs:emit_libc_call]]
+socket calls onto this seam.[[src/target/macos_aarch64/code.rs:emit_external_call]]
 
-**`emit_*` strategies.** Beyond `emit_libc_call`, the trait exposes one method
+**`emit_*` strategies.** Beyond `emit_external_call`, the trait exposes one method
 per platform-divergent operation — program exit, write/poll/terminal IO, path
 existence/stat, current/temp directory, fs path operations, errno, file
 open/read/close/sync/seek, rename, `mkstemps`, directory open/read/close,

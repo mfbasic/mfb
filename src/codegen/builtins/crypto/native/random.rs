@@ -111,7 +111,7 @@ pub(crate) fn lower_crypto_random_bytes_helper(
             abi::move_immediate(abi::return_register(), "Integer", "0"), // hAlg = NULL
             abi::move_immediate(abi::c_arg(3), "Integer", "2"), // BCRYPT_USE_SYSTEM_PREFERRED_RNG
         ]);
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "BCryptGenRandom",
             symbol,
             platform_imports,
@@ -119,7 +119,7 @@ pub(crate) fn lower_crypto_random_bytes_helper(
             &mut relocations,
         )?;
     } else {
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "getentropy",
             symbol,
             platform_imports,

@@ -197,7 +197,7 @@ fn emit_dlopen(ctx: &mut EmitCtx, unavailable: &str) -> Result<(), String> {
     );
     ctx.instructions
         .push(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "dlopen",
         symbol,
         platform_imports,
@@ -230,7 +230,7 @@ fn emit_dlsym(ctx: &mut EmitCtx, name: &str, unavailable: &str) -> Result<(), St
         ctx.instructions,
         ctx.relocations,
     );
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "dlsym",
         symbol,
         platform_imports,
@@ -475,7 +475,7 @@ fn lower_open(
         abi::bitwise_not(abi::c_arg(4), abi::ZERO),
         abi::move_immediate(abi::c_arg(5), "Integer", "0"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "mmap",
         symbol,
         platform_imports,
@@ -741,7 +741,7 @@ fn emit_open_cleanup(vregs: &mut Vregs, ctx: &mut EmitCtx, tag: &str) -> Result<
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::c_arg(1), abi::return_register(), S_MAP_SIZE),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "munmap",
         symbol,
         platform_imports,
@@ -1439,7 +1439,7 @@ fn lower_read(
             abi::move_immediate(abi::return_register(), "Integer", "1"),
             abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), CLK_OFF),
         ]);
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "clock_gettime",
             symbol,
             platform_imports,
@@ -1499,7 +1499,7 @@ fn lower_read(
             abi::move_immediate(abi::return_register(), "Integer", "1"),
             abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), CLK_OFF),
         ]);
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "clock_gettime",
             symbol,
             platform_imports,
@@ -2071,7 +2071,7 @@ fn lower_close(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::c_arg(1), abi::return_register(), S_MAP_SIZE),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "munmap",
         symbol,
         platform_imports,
@@ -2330,7 +2330,7 @@ fn lower_devices(
         abi::stack_pointer(),
         RC_OFF,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "free",
         symbol,
         platform_imports,
@@ -2391,7 +2391,7 @@ fn lower_devices(
         abi::stack_pointer(),
         RC_OFF,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "free",
         symbol,
         platform_imports,
@@ -2508,7 +2508,7 @@ mod open_error_cleanup_tests {
     /// Whether the window between labels `start` and `end` calls `name`.
     ///
     /// `emit_alsa_call` materialises the symbol's data address with an `adrp`
-    /// carrying `_mfb_audio_alsa_sym_<name>`, and `emit_libc_call` emits a `bl
+    /// carrying `_mfb_audio_alsa_sym_<name>`, and `emit_external_call` emits a `bl
     /// _<name>`, so both are visible positionally. A whole-function scan cannot
     /// substitute: the success path already closes and frees, so only a windowed
     /// check proves the *error exits* clean up.

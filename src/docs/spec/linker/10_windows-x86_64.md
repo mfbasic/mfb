@@ -164,7 +164,7 @@ own dependencies resolve from the exe-relative `build/vendor/` directory. A
 search). The scratch buffer and the `\vendor\` string are emitted only for a build
 that vendors at least one library; a non-vendoring build is byte-identical to one
 predating the feature. See `./mfb spec language native-libraries` for the
-cross-platform vendor-search table. [[src/target/win_x86_64/code.rs:emit_link_dlopen]]
+cross-platform vendor-search table. [[src/target/win_x86_64/code.rs:emit_lib_open]]
 
 ## Determinism
 

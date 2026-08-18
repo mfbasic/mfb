@@ -177,10 +177,10 @@ fn sspi_call(
                 0x20 + i * 8,
             ));
         }
-        platform.emit_libc_call(symbol, from, imports, ins, rel)?;
+        platform.emit_external_call(symbol, from, imports, ins, rel)?;
         ins.push(abi::add_stack(frame));
     } else {
-        platform.emit_libc_call(symbol, from, imports, ins, rel)?;
+        platform.emit_external_call(symbol, from, imports, ins, rel)?;
     }
     ins.push(abi::sign_extend_word(
         abi::return_register(),
@@ -232,7 +232,7 @@ fn sspi_call_ext(
             }
         }
     }
-    platform.emit_libc_call(symbol, from, imports, ins, rel)?;
+    platform.emit_external_call(symbol, from, imports, ins, rel)?;
     ins.push(abi::sign_extend_word(
         abi::return_register(),
         abi::return_register(),

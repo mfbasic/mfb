@@ -172,7 +172,7 @@ pub(crate) fn lower_process_poll_helper_posix(
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::move_register(abi::c_arg(2), &ms),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "poll",
         symbol,
         platform_imports,
@@ -266,7 +266,7 @@ pub(crate) fn lower_process_poll_helper_win(
         abi::store_u64(abi::mfb_arg(1), sp, FD),
         // deadline = GetTickCount64() + ms
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "GetTickCount64",
         symbol,
         platform_imports,
@@ -288,7 +288,7 @@ pub(crate) fn lower_process_poll_helper_win(
         abi::move_immediate(abi::mfb_arg(2), "Integer", "0"),
         abi::move_immediate(abi::mfb_arg(3), "Integer", "0"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "PeekNamedPipe",
         symbol,
         platform_imports,
@@ -304,7 +304,7 @@ pub(crate) fn lower_process_poll_helper_win(
         abi::branch_ne(&ready),
     ]);
     // Not ready yet: past the deadline? (now >= deadline → timeout).
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "GetTickCount64",
         symbol,
         platform_imports,
@@ -317,7 +317,7 @@ pub(crate) fn lower_process_poll_helper_win(
         abi::branch_ge(&not_ready),
         abi::move_immediate(abi::mfb_arg(0), "Integer", "1"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "Sleep",
         symbol,
         platform_imports,

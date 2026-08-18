@@ -231,7 +231,7 @@ pub(crate) fn emit_dlopen_libssl(
     );
     ctx.instructions
         .push(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "dlopen",
         symbol,
         platform_imports,
@@ -252,7 +252,7 @@ pub(crate) fn emit_dlopen_libssl(
     );
     ctx.instructions
         .push(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "dlopen",
         symbol,
         platform_imports,
@@ -292,7 +292,7 @@ pub(crate) fn emit_dlsym(
         ctx.instructions,
         ctx.relocations,
     );
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "dlsym",
         symbol,
         platform_imports,
@@ -343,7 +343,7 @@ pub(crate) fn emit_set_sock_timeouts(
         // argument above the shadow, not a register (bug-384) — a garbage optlen makes
         // SO_*TIMEO silently fail to install and the later recv blocks forever. Route
         // through emit_external_int_call, which spills the overflow arg on Win64 and
-        // is byte-identical on POSIX (all 5 fit in registers → plain emit_libc_call).
+        // is byte-identical on POSIX (all 5 fit in registers → plain emit_external_call).
         crate::codegen::os::ffi::emit_external_int_call(
             platform,
             "setsockopt",

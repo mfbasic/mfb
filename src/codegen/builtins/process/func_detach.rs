@@ -113,7 +113,7 @@ pub(crate) fn lower_process_detach_helper_posix(
             abi::branch_lt(&skip),
             abi::move_register(abi::c_arg(0), &fd),
         ]);
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "close",
             symbol,
             platform_imports,
@@ -127,7 +127,7 @@ pub(crate) fn lower_process_detach_helper_posix(
         abi::move_immediate(abi::c_arg(0), "Integer", sigchld),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "signal",
         symbol,
         platform_imports,
@@ -188,7 +188,7 @@ pub(crate) fn lower_process_detach_helper_win(
             abi::compare_immediate(abi::mfb_arg(0), "0"),
             abi::branch_lt(&skip), // -1 sentinel (already closed) — skip
         ]);
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "CloseHandle",
             symbol,
             platform_imports,

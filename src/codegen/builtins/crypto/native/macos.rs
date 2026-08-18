@@ -113,7 +113,7 @@ fn dlopen_one(
 ) -> Result<(), String> {
     emit_data_address(symbol, abi::return_register(), path_symbol, ins, rel);
     ins.push(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
-    platform.emit_libc_call("dlopen", symbol, imports, ins, rel)?;
+    platform.emit_external_call("dlopen", symbol, imports, ins, rel)?;
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), handle_off),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -142,7 +142,7 @@ fn dlsym_into(
         handle_off,
     ));
     emit_data_address(symbol, abi::c_arg(1), &sym(name), ins, rel);
-    platform.emit_libc_call("dlsym", symbol, imports, ins, rel)?;
+    platform.emit_external_call("dlsym", symbol, imports, ins, rel)?;
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(fail),

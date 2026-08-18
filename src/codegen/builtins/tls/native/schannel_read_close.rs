@@ -81,7 +81,7 @@ pub(crate) fn lower_tls_read(
         abi::subtract_registers(abi::c_arg(2), abi::c_arg(2), &v11),
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
-    platform.emit_libc_call("recv", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("recv", symbol, imports, &mut ins, &mut rel)?;
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -330,7 +330,7 @@ pub(crate) fn lower_tls_read(
         abi::subtract_registers(abi::c_arg(2), abi::c_arg(2), &v11),
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
-    platform.emit_libc_call("recv", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("recv", symbol, imports, &mut ins, &mut rel)?;
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -477,7 +477,7 @@ pub(crate) fn lower_tls_close(
     sspi_call(symbol, "FreeCredentialsHandle", SECUR32, 1, imports, platform, &mut ins, &mut rel)?;
     ins.push(abi::label(&skip_free));
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD));
-    platform.emit_libc_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
     // Mark closed.
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), REC),
@@ -561,7 +561,7 @@ pub(crate) fn lower_tls_poll(
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::load_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT),
     ]);
-    platform.emit_libc_call("WSAPoll", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("WSAPoll", symbol, imports, &mut ins, &mut rel)?;
     ins.extend([
         // WSAPoll returns a C int; sign-extend before the signed compares.
         abi::sign_extend_word(abi::return_register(), abi::return_register()),

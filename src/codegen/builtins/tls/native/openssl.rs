@@ -143,7 +143,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), HINTS_OFFSET),
         abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), RES_OFFSET),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "getaddrinfo",
         symbol,
         platform_imports,
@@ -159,7 +159,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::load_u32(abi::c_arg(1), &v9, 8),
         abi::load_u32(abi::c_arg(2), &v9, 12),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "socket",
         symbol,
         platform_imports,
@@ -195,7 +195,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::move_immediate(abi::c_arg(1), "Integer", "3"),
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
-    platform.emit_variadic_call(
+    platform.emit_variadic_external_call(
         "fcntl",
         symbol,
         platform_imports,
@@ -223,7 +223,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::load_u64(abi::c_arg(1), &v9, addr_off),
         abi::load_u32(abi::c_arg(2), &v9, 16),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "connect",
         symbol,
         platform_imports,
@@ -257,7 +257,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::load_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT_OFFSET),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "poll",
         symbol,
         platform_imports,
@@ -280,7 +280,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), SOERR_OFFSET),
         abi::add_immediate(abi::c_arg(4), abi::stack_pointer(), SOLEN_OFFSET),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "getsockopt",
         symbol,
         platform_imports,
@@ -301,7 +301,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::move_immediate(abi::c_arg(1), "Integer", "4"),
         abi::load_u64(abi::c_arg(2), abi::stack_pointer(), FLAGS_OFFSET),
     ]);
-    platform.emit_variadic_call(
+    platform.emit_variadic_external_call(
         "fcntl",
         symbol,
         platform_imports,
@@ -317,7 +317,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::load_u64(abi::c_arg(1), &v9, addr_off),
         abi::load_u32(abi::c_arg(2), &v9, 16),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "connect",
         symbol,
         platform_imports,
@@ -333,7 +333,7 @@ pub(crate) fn lower_tls_connect_openssl(
         // freeaddrinfo(res)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), RES_OFFSET),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "freeaddrinfo",
         symbol,
         platform_imports,
@@ -781,7 +781,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::stack_pointer(),
         FD_OFFSET,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "close",
         symbol,
         platform_imports,
@@ -824,7 +824,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::branch_lt(&lf_skip_fd),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "close",
         symbol,
         platform_imports,
@@ -846,7 +846,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::stack_pointer(),
         FD_OFFSET,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "close",
         symbol,
         platform_imports,
@@ -859,7 +859,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::stack_pointer(),
         RES_OFFSET,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "freeaddrinfo",
         symbol,
         platform_imports,
@@ -881,7 +881,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::stack_pointer(),
         FD_OFFSET,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "close",
         symbol,
         platform_imports,
@@ -893,7 +893,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::stack_pointer(),
         RES_OFFSET,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "freeaddrinfo",
         symbol,
         platform_imports,
@@ -985,7 +985,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::branch_lt(&af_skip_fd),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "close",
         symbol,
         platform_imports,
@@ -1110,7 +1110,7 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), HINTS_OFFSET),
         abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), RES_OFFSET),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "getaddrinfo",
         symbol,
         platform_imports,
@@ -1126,7 +1126,7 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::load_u32(abi::c_arg(1), &v9, 8),
         abi::load_u32(abi::c_arg(2), &v9, 12),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "socket",
         symbol,
         platform_imports,
@@ -1155,7 +1155,7 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), ONE_OFFSET),
         abi::move_immediate(abi::c_arg(4), "Integer", "4"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "setsockopt",
         symbol,
         platform_imports,
@@ -1169,7 +1169,7 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::load_u64(abi::c_arg(1), &v9, addr_off),
         abi::load_u32(abi::c_arg(2), &v9, 16),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "bind",
         symbol,
         platform_imports,
@@ -1185,7 +1185,7 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), BACKLOG_OFFSET),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "listen",
         symbol,
         platform_imports,
@@ -1200,7 +1200,7 @@ pub(crate) fn lower_tls_listen_openssl(
         // freeaddrinfo(res)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), RES_OFFSET),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "freeaddrinfo",
         symbol,
         platform_imports,
@@ -1434,7 +1434,7 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::stack_pointer(),
         FD_OFFSET,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "close",
         symbol,
         platform_imports,
@@ -1455,7 +1455,7 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::stack_pointer(),
         FD_OFFSET,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "close",
         symbol,
         platform_imports,
@@ -1468,7 +1468,7 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::stack_pointer(),
         RES_OFFSET,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "freeaddrinfo",
         symbol,
         platform_imports,
@@ -1518,7 +1518,7 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::stack_pointer(),
         FD_OFFSET,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "close",
         symbol,
         platform_imports,
@@ -1626,7 +1626,7 @@ pub(crate) fn lower_tls_accept_openssl(
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::load_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT_OFFSET),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "poll",
         symbol,
         platform_imports,
@@ -1645,7 +1645,7 @@ pub(crate) fn lower_tls_accept_openssl(
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "accept",
         symbol,
         platform_imports,
@@ -1869,7 +1869,7 @@ pub(crate) fn lower_tls_accept_openssl(
         abi::stack_pointer(),
         CONNFD_OFFSET,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "close",
         symbol,
         platform_imports,
@@ -1957,7 +1957,7 @@ pub(crate) fn lower_tls_accept_openssl(
         abi::branch_link_register(&v9),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CONNFD_OFFSET),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "close",
         symbol,
         platform_imports,
@@ -2348,7 +2348,7 @@ pub(crate) fn lower_tls_poll_openssl(
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::load_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT_OFFSET),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "poll",
         symbol,
         platform_imports,
@@ -2691,7 +2691,7 @@ pub(crate) fn lower_tls_close_openssl(
         abi::stack_pointer(),
         FD_OFFSET,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "close",
         symbol,
         platform_imports,
@@ -2804,7 +2804,7 @@ pub(crate) fn lower_tls_close_listener_openssl(
         abi::stack_pointer(),
         FD_OFFSET,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "close",
         symbol,
         platform_imports,

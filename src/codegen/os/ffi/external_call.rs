@@ -22,7 +22,7 @@ use std::collections::HashMap;
 /// count is that it is correct on every target by construction: SysV passes 6
 /// integer args in registers and AAPCS64/riscv64 pass 8, so for any call within
 /// those limits the spill loop is empty and the emitted bytes are byte-identical
-/// to a bare `emit_libc_call`. Only Win64 (4 register args) actually spills, and
+/// to a bare `emit_external_call`. Only Win64 (4 register args) actually spills, and
 /// only for a call that passes more than four — exactly the sites bug-384
 /// describes. Args 0..4 stay in `rcx/rdx/r8/r9` on Win64 regardless.
 pub(crate) fn emit_external_int_call(
@@ -44,5 +44,5 @@ pub(crate) fn emit_external_int_call(
             n - register_args,
         ));
     }
-    platform.emit_libc_call(symbol, from, platform_imports, instructions, relocations)
+    platform.emit_external_call(symbol, from, platform_imports, instructions, relocations)
 }

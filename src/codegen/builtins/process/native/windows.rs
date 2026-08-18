@@ -57,7 +57,7 @@ pub(crate) fn emit_write_all(
         abi::add_immediate(abi::mfb_arg(3), sp, written_slot),
         abi::store_u64(abi::ZERO, sp, 0x20),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "WriteFile",
         symbol,
         platform_imports,
@@ -230,7 +230,7 @@ pub(crate) fn lower_process_drop_helper(
         abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), RESOURCE_OFFSET_HANDLE),
         abi::move_immediate(abi::mfb_arg(1), "Integer", "1"),
     ];
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "TerminateProcess",
         symbol,
         platform_imports,
@@ -243,7 +243,7 @@ pub(crate) fn lower_process_drop_helper(
         abi::load_u64(abi::mfb_arg(0), sp, FILE),
         abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), RESOURCE_OFFSET_HANDLE),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "CloseHandle",
         symbol,
         platform_imports,

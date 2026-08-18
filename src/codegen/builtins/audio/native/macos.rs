@@ -108,7 +108,7 @@ fn emit_pthread1(
         abi::add_immediate(abi::return_register(), abi::return_register(), field),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         op,
         symbol,
         platform_imports,
@@ -230,7 +230,7 @@ fn lower_open_output(
         abi::bitwise_not(abi::c_arg(4), abi::ZERO), // fd = -1
         abi::move_immediate(abi::c_arg(5), "Integer", "0"), // offset
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "mmap",
         symbol,
         platform_imports,
@@ -321,7 +321,7 @@ fn lower_open_output(
         abi::load_u64(abi::c_arg(6), abi::stack_pointer(), STATE_OFF),
         abi::add_immediate(abi::c_arg(6), abi::c_arg(6), S_OSOBJECT),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "AudioQueueNewOutput",
         symbol,
         platform_imports,
@@ -363,7 +363,7 @@ fn lower_open_output(
         abi::move_register(abi::c_arg(1), &v11),
         abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), BUFPTR_OFF),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "AudioQueueAllocateBuffer",
         symbol,
         platform_imports,
@@ -400,7 +400,7 @@ fn lower_open_output(
         abi::load_u64(abi::return_register(), &v10, S_OSOBJECT),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "AudioQueueStart",
         symbol,
         platform_imports,
@@ -509,7 +509,7 @@ fn emit_select_device(ctx: &mut EmitCtx, dev_fail: &str, vregs: &mut Vregs) -> R
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), UID_CSTR_OFF),
         abi::move_immediate(abi::c_arg(2), "Integer", ENC_UTF8),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "CFStringCreateWithCString",
         symbol,
         platform_imports,
@@ -527,7 +527,7 @@ fn emit_select_device(ctx: &mut EmitCtx, dev_fail: &str, vregs: &mut Vregs) -> R
         abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), UID_CFREF_OFF),
         abi::move_immediate(abi::c_arg(3), "Integer", "8"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "AudioQueueSetProperty",
         symbol,
         platform_imports,
@@ -540,7 +540,7 @@ fn emit_select_device(ctx: &mut EmitCtx, dev_fail: &str, vregs: &mut Vregs) -> R
         // CFRelease(cfref)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), UID_CFREF_OFF),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "CFRelease",
         symbol,
         platform_imports,
@@ -580,7 +580,7 @@ fn emit_open_cleanup(ctx: &mut EmitCtx, vregs: &mut Vregs) -> Result<(), String>
         abi::move_register(abi::return_register(), &v9),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "AudioQueueDispose",
         symbol,
         platform_imports,
@@ -592,7 +592,7 @@ fn emit_open_cleanup(ctx: &mut EmitCtx, vregs: &mut Vregs) -> Result<(), String>
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::c_arg(1), abi::return_register(), S_MAP_SIZE),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "munmap",
         symbol,
         platform_imports,
@@ -646,7 +646,7 @@ fn call_get_property(
         abi::add_immediate(abi::c_arg(4), abi::stack_pointer(), SIZE_OFF),
         abi::add_immediate(abi::c_arg(5), abi::stack_pointer(), out_off),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "AudioObjectGetPropertyData",
         symbol,
         platform_imports,
@@ -713,7 +713,7 @@ fn emit_cfstring_field(
         abi::move_immediate(abi::c_arg(2), "Integer", CSTRBUF_CAP),
         abi::move_immediate(abi::c_arg(3), "Integer", ENC_UTF8),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "CFStringGetCString",
         symbol,
         platform_imports,
@@ -727,7 +727,7 @@ fn emit_cfstring_field(
         // CFRelease(cfref)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CFREF_OFF),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "CFRelease",
         symbol,
         platform_imports,
@@ -957,7 +957,7 @@ fn lower_write(
         abi::add_immediate(abi::return_register(), &v10, S_COND),
         abi::add_immediate(abi::c_arg(1), &v10, S_MUTEX),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "pthread_cond_wait",
         symbol,
         platform_imports,
@@ -1044,7 +1044,7 @@ fn lower_write(
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "AudioQueueEnqueueBuffer",
         symbol,
         platform_imports,
@@ -1166,7 +1166,7 @@ fn lower_close_output(
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "AudioQueueEnqueueBuffer",
         symbol,
         platform_imports,
@@ -1221,7 +1221,7 @@ fn lower_close_output(
         abi::add_immediate(abi::return_register(), &v10, S_COND),
         abi::add_immediate(abi::c_arg(1), &v10, S_MUTEX),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "pthread_cond_wait",
         symbol,
         platform_imports,
@@ -1252,7 +1252,7 @@ fn lower_close_output(
         abi::load_u64(abi::return_register(), &v10, S_OSOBJECT),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "AudioQueueStop",
         symbol,
         platform_imports,
@@ -1264,7 +1264,7 @@ fn lower_close_output(
         abi::load_u64(abi::return_register(), &v10, S_OSOBJECT),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "AudioQueueDispose",
         symbol,
         platform_imports,
@@ -1302,7 +1302,7 @@ fn lower_close_output(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::c_arg(1), abi::return_register(), S_MAP_SIZE),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "munmap",
         symbol,
         platform_imports,
@@ -1419,7 +1419,7 @@ fn lower_query(
             abi::add_immediate(abi::return_register(), &v10, S_COND),
             abi::add_immediate(abi::c_arg(1), &v10, S_MUTEX),
         ]);
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "pthread_cond_wait",
             symbol,
             platform_imports,
@@ -1469,7 +1469,7 @@ fn lower_query(
             abi::move_immediate(abi::return_register(), "Integer", "6"),
             abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), CLK_OFF),
         ]);
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "clock_gettime",
             symbol,
             platform_imports,
@@ -1505,7 +1505,7 @@ fn lower_query(
             abi::move_immediate(abi::return_register(), "Integer", "6"),
             abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), CLK_OFF),
         ]);
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "clock_gettime",
             symbol,
             platform_imports,
@@ -1535,7 +1535,7 @@ fn lower_query(
             abi::add_immediate(abi::c_arg(1), &v10, S_MUTEX),
             abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), TS_OFF),
         ]);
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "pthread_cond_timedwait_relative_np",
             symbol,
             platform_imports,
@@ -1749,7 +1749,7 @@ pub(crate) fn lower_audio_output_callback(
         abi::label(&no_underrun),
         abi::add_immediate(abi::return_register(), &v10, S_COND),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "pthread_cond_signal",
         symbol,
         platform_imports,
@@ -1872,7 +1872,7 @@ fn lower_open_input(
             abi::add_immediate(abi::c_arg(4), abi::stack_pointer(), PRECHK_SIZE),
             abi::add_immediate(abi::c_arg(5), abi::stack_pointer(), PRECHK_ID),
         ]);
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "AudioObjectGetPropertyData",
             symbol,
             platform_imports,
@@ -1941,7 +1941,7 @@ fn lower_open_input(
         abi::bitwise_not(abi::c_arg(4), abi::ZERO),
         abi::move_immediate(abi::c_arg(5), "Integer", "0"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "mmap",
         symbol,
         platform_imports,
@@ -2028,7 +2028,7 @@ fn lower_open_input(
         abi::load_u64(abi::c_arg(6), abi::stack_pointer(), STATE_OFF),
         abi::add_immediate(abi::c_arg(6), abi::c_arg(6), S_OSOBJECT),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "AudioQueueNewInput",
         symbol,
         platform_imports,
@@ -2069,7 +2069,7 @@ fn lower_open_input(
         abi::move_register(abi::c_arg(1), &v11),
         abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), BUFPTR_OFF),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "AudioQueueAllocateBuffer",
         symbol,
         platform_imports,
@@ -2087,7 +2087,7 @@ fn lower_open_input(
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "AudioQueueEnqueueBuffer",
         symbol,
         platform_imports,
@@ -2109,7 +2109,7 @@ fn lower_open_input(
         abi::load_u64(abi::return_register(), &v10, S_OSOBJECT),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "AudioQueueStart",
         symbol,
         platform_imports,
@@ -2296,7 +2296,7 @@ fn lower_read(
             abi::move_immediate(abi::return_register(), "Integer", "6"),
             abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), CLK_OFF),
         ]);
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "clock_gettime",
             symbol,
             platform_imports,
@@ -2334,7 +2334,7 @@ fn lower_read(
             abi::move_immediate(abi::return_register(), "Integer", "6"),
             abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), CLK_OFF),
         ]);
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "clock_gettime",
             symbol,
             platform_imports,
@@ -2362,7 +2362,7 @@ fn lower_read(
             abi::add_immediate(abi::c_arg(1), &v10, S_MUTEX),
             abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), TS_OFF),
         ]);
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "pthread_cond_timedwait_relative_np",
             symbol,
             platform_imports,
@@ -2376,7 +2376,7 @@ fn lower_read(
             abi::add_immediate(abi::return_register(), &v10, S_COND),
             abi::add_immediate(abi::c_arg(1), &v10, S_MUTEX),
         ]);
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "pthread_cond_wait",
             symbol,
             platform_imports,
@@ -2587,7 +2587,7 @@ fn lower_close_input(
         abi::load_u64(abi::return_register(), &v10, S_OSOBJECT),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "AudioQueueStop",
         symbol,
         platform_imports,
@@ -2599,7 +2599,7 @@ fn lower_close_input(
         abi::load_u64(abi::return_register(), &v10, S_OSOBJECT),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "AudioQueueDispose",
         symbol,
         platform_imports,
@@ -2637,7 +2637,7 @@ fn lower_close_input(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::c_arg(1), abi::return_register(), S_MAP_SIZE),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "munmap",
         symbol,
         platform_imports,
@@ -2784,7 +2784,7 @@ pub(crate) fn lower_audio_input_callback(
         // signal
         abi::add_immediate(abi::return_register(), &v10, S_COND),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "pthread_cond_signal",
         symbol,
         platform_imports,
@@ -2810,7 +2810,7 @@ pub(crate) fn lower_audio_input_callback(
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "AudioQueueEnqueueBuffer",
         symbol,
         platform_imports,

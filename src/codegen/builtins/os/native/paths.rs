@@ -35,7 +35,7 @@ pub(crate) fn emit_executable_path_into(
                 abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 0),
                 abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), EXE_PATH_BUF),
             ]);
-            platform.emit_libc_call(
+            platform.emit_external_call(
                 "_NSGetExecutablePath",
                 symbol,
                 platform_imports,
@@ -67,7 +67,7 @@ pub(crate) fn emit_executable_path_into(
                 abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), 16),
                 abi::move_immediate(abi::c_arg(2), "Integer", &EXE_PATH_BUF.to_string()),
             ]);
-            platform.emit_libc_call(
+            platform.emit_external_call(
                 "readlink",
                 symbol,
                 platform_imports,

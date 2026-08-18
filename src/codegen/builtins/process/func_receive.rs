@@ -179,7 +179,7 @@ pub(crate) fn lower_process_receive_helper_posix(
         abi::add_registers(abi::c_arg(1), &reg9, &reg10),
         abi::move_immediate(abi::c_arg(2), "Integer", "1"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "read",
         symbol,
         platform_imports,
@@ -355,7 +355,7 @@ pub(crate) fn lower_process_receive_helper_win(
         abi::add_immediate(abi::mfb_arg(3), sp, NREAD),
         abi::store_u64(abi::ZERO, sp, 0x20),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "ReadFile",
         symbol,
         platform_imports,

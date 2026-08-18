@@ -59,7 +59,7 @@ pub(crate) fn emit_env_lock(ctx: &mut EmitCtx) -> Result<(), String> {
         ctx.relocations,
     );
     let (lock_fn, _) = env_lock_fns(platform.family());
-    platform.emit_libc_call(
+    platform.emit_external_call(
         lock_fn,
         symbol,
         platform_imports,
@@ -96,7 +96,7 @@ pub(crate) fn emit_env_unlock_return(ctx: &mut EmitCtx, vregs: &mut Vregs) -> Re
         ctx.relocations,
     );
     let (_, unlock_fn) = env_lock_fns(platform.family());
-    platform.emit_libc_call(
+    platform.emit_external_call(
         unlock_fn,
         symbol,
         platform_imports,
@@ -167,7 +167,7 @@ pub(crate) fn lower_get_env(
             &mut relocations,
         )?;
     } else {
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "getenv",
             symbol,
             platform_imports,
@@ -305,7 +305,7 @@ pub(crate) fn lower_has_env(
             &mut relocations,
         )?;
     } else {
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "getenv",
             symbol,
             platform_imports,
@@ -411,7 +411,7 @@ pub(crate) fn lower_set_env(
             &mut relocations,
         )?;
     } else {
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "setenv",
             symbol,
             platform_imports,
@@ -514,7 +514,7 @@ pub(crate) fn lower_unset_env(
             &mut relocations,
         )?;
     } else {
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "unsetenv",
             symbol,
             platform_imports,

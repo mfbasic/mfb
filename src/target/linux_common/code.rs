@@ -841,7 +841,7 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         Ok(())
     }
 
-    fn emit_libc_call(
+    fn emit_external_call(
         &self,
         base: &str,
         from: &str,
@@ -859,7 +859,7 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         )
     }
 
-    fn emit_variadic_call(
+    fn emit_variadic_external_call(
         &self,
         base: &str,
         from: &str,
@@ -890,7 +890,7 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        self.emit_variadic_call("open", from, platform_imports, instructions, relocations)
+        self.emit_variadic_external_call("open", from, platform_imports, instructions, relocations)
     }
 
     fn emit_read_file(
@@ -1279,7 +1279,7 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
             abi::move_immediate("%v9", "Integer", "2048"),
             abi::or_registers(abi::mfb_arg(2), abi::mfb_arg(2), "%v9"),
         ]);
-        self.emit_variadic_call("fcntl", from, platform_imports, instructions, relocations)
+        self.emit_variadic_external_call("fcntl", from, platform_imports, instructions, relocations)
     }
 
     fn so_error(&self) -> &'static str {

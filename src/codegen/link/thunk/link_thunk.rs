@@ -116,7 +116,7 @@ pub(crate) fn emit_data_address(
     ]);
 }
 
-/// POSIX `handle = dlopen(filename, RTLD_NOW)` — the default `emit_link_dlopen`.
+/// POSIX `handle = dlopen(filename, RTLD_NOW)` — the default `emit_lib_open`.
 /// `filename_symbol` names the read-only C string holding the `dlopen` filename;
 /// the resolved handle lands in `return_register()` (0 on failure). The
 /// vendored-vs-system distinction is not represented here: on ELF/Mach-O the
@@ -139,10 +139,10 @@ pub(crate) fn emit_posix_dlopen<P: CodegenPlatform + ?Sized>(
         relocations,
     );
     instructions.push(abi::move_immediate(abi::c_arg(1), "Integer", "2")); // RTLD_NOW
-    platform.emit_libc_call("dlopen", from, platform_imports, instructions, relocations)
+    platform.emit_external_call("dlopen", from, platform_imports, instructions, relocations)
 }
 
-/// POSIX `slot = dlsym(handle, symbolName)` — the default `emit_link_dlsym`. The
+/// POSIX `slot = dlsym(handle, symbolName)` — the default `emit_lib_get_sym`. The
 /// library handle is read from `handle_reg`; the resolved address lands in
 /// `return_register()` (0 if absent).
 pub(crate) fn emit_posix_dlsym<P: CodegenPlatform + ?Sized>(
@@ -162,7 +162,7 @@ pub(crate) fn emit_posix_dlsym<P: CodegenPlatform + ?Sized>(
         instructions,
         relocations,
     );
-    platform.emit_libc_call("dlsym", from, platform_imports, instructions, relocations)
+    platform.emit_external_call("dlsym", from, platform_imports, instructions, relocations)
 }
 
 /// bug-431: the Windows `_mfb_linker_init` builds each vendored DLL's absolute
@@ -439,7 +439,7 @@ fn lower_link_initializer(
         // `LoadLibraryExA` resolving the vendored DLL from the exe-relative
         // `vendor/` directory (bug-431). Either way the module handle lands in
         // `return_register()`, so the failure check and store below are shared.
-        platform.emit_link_dlopen(
+        platform.emit_lib_open(
             &lib_symbol(lib_idx),
             library_vendored[lib_idx],
             symbol,
@@ -458,7 +458,7 @@ fn lower_link_initializer(
             }
             // slot = dlsym(handle, symbolName) on POSIX; `GetProcAddress` on
             // Windows. The resolved address lands in `return_register()`.
-            platform.emit_link_dlsym(
+            platform.emit_lib_get_sym(
                 &handle,
                 &sym_symbol(fn_idx),
                 symbol,
@@ -478,7 +478,7 @@ fn lower_link_initializer(
             // A FREE deallocator lives in the same library; resolve it into its
             // own slot (reserved past the per-function slots).
             if let Some(k) = free_index_of[fn_idx] {
-                platform.emit_link_dlsym(
+                platform.emit_lib_get_sym(
                     &handle,
                     &free_sym_symbol(k),
                     symbol,

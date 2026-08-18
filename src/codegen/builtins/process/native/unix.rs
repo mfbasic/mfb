@@ -1,6 +1,6 @@
 //! Unix native backend for the `process` package: fork + exec + three pipes +
 //! waitpid/kill, emitted as self-contained runtime helpers. Every libc call goes
-//! through `platform.emit_libc_call` so the four Unix targets (macOS-aarch64,
+//! through `platform.emit_external_call` so the four Unix targets (macOS-aarch64,
 //! Linux x86_64/aarch64/riscv64) share one body. Values live in numeric virtual
 //! registers (`Vregs`; the shared allocator spills them across each `bl`); only
 //! genuine memory a syscall fills — the `pipe(int[2])` arrays, the `waitpid`
@@ -87,7 +87,7 @@ pub(crate) fn lower_process_drop_helper(
         abi::move_immediate(abi::c_arg(1), "Integer", SIGKILL),
     ];
     let mut relocations = Vec::new();
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "kill",
         symbol,
         platform_imports,
@@ -99,7 +99,7 @@ pub(crate) fn lower_process_drop_helper(
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), STATUS_SLOT),
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "waitpid",
         symbol,
         platform_imports,
@@ -116,7 +116,7 @@ pub(crate) fn lower_process_drop_helper(
             abi::branch_lt(&skip),
             abi::move_register(abi::c_arg(0), &fd),
         ]);
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "close",
             symbol,
             platform_imports,
@@ -288,7 +288,7 @@ pub(crate) fn emit_child_apply_env(
         relocations,
     );
     instructions.push(abi::move_register(abi::c_arg(0), &namebuf));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "unsetenv",
         symbol,
         platform_imports,
@@ -386,7 +386,7 @@ pub(crate) fn emit_child_apply_env(
         abi::move_register(abi::c_arg(1), &valc),
         abi::move_immediate(abi::c_arg(2), "Integer", "1"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "setenv",
         symbol,
         platform_imports,
@@ -439,7 +439,7 @@ pub(crate) fn emit_spawn_tail(
     // Create the three stdio pipes and the self-pipe.
     for off in [STDIN_P, STDOUT_P, STDERR_P, ERR_P] {
         instructions.push(abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), off));
-        platform.emit_libc_call("pipe", symbol, platform_imports, instructions, relocations)?;
+        platform.emit_external_call("pipe", symbol, platform_imports, instructions, relocations)?;
         instructions.extend([
             abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
             abi::compare_immediate(abi::c_return(0), "0"),
@@ -453,9 +453,15 @@ pub(crate) fn emit_spawn_tail(
         abi::move_immediate(abi::c_arg(1), "Integer", F_SETFD),
         abi::move_immediate(abi::c_arg(2), "Integer", FD_CLOEXEC),
     ]);
-    platform.emit_variadic_call("fcntl", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_variadic_external_call(
+        "fcntl",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     // fork()
-    platform.emit_libc_call("fork", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_external_call("fork", symbol, platform_imports, instructions, relocations)?;
     instructions.extend([
         abi::sign_extend_word(&pid, abi::c_return(0)),
         abi::compare_immediate(&pid, "0"),
@@ -465,21 +471,27 @@ pub(crate) fn emit_spawn_tail(
     // ---- parent ----
     for slot in [STDIN_P, STDOUT_P + 4, STDERR_P + 4, ERR_P + 4] {
         instructions.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), slot));
-        platform.emit_libc_call("close", symbol, platform_imports, instructions, relocations)?;
+        platform.emit_external_call(
+            "close",
+            symbol,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
     }
     instructions.extend([
         abi::load_u32(abi::c_arg(0), abi::stack_pointer(), ERR_P),
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), ERRBUF),
         abi::move_immediate(abi::c_arg(2), "Integer", "4"),
     ]);
-    platform.emit_libc_call("read", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_external_call("read", symbol, platform_imports, instructions, relocations)?;
     instructions.extend([
         abi::sign_extend_word(abi::c_return(0), abi::c_return(0)),
         abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_gt(&spawn_fail),
         abi::load_u32(abi::c_arg(0), abi::stack_pointer(), ERR_P),
     ]);
-    platform.emit_libc_call("close", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_external_call("close", symbol, platform_imports, instructions, relocations)?;
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", RESOURCE_RECORD_SIZE),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
@@ -519,7 +531,7 @@ pub(crate) fn emit_spawn_tail(
             abi::load_u32(abi::c_arg(0), abi::stack_pointer(), slot),
             abi::move_immediate(abi::c_arg(1), "Integer", target),
         ]);
-        platform.emit_libc_call("dup2", symbol, platform_imports, instructions, relocations)?;
+        platform.emit_external_call("dup2", symbol, platform_imports, instructions, relocations)?;
     }
     for slot in [
         STDIN_P,
@@ -531,7 +543,13 @@ pub(crate) fn emit_spawn_tail(
         ERR_P,
     ] {
         instructions.push(abi::load_u32(abi::c_arg(0), abi::stack_pointer(), slot));
-        platform.emit_libc_call("close", symbol, platform_imports, instructions, relocations)?;
+        platform.emit_external_call(
+            "close",
+            symbol,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
     }
     // Child-side working directory + environment, applied before execvp (safe in
     // the single-threaded fork child). A chdir/env failure is best-effort: the
@@ -546,7 +564,13 @@ pub(crate) fn emit_spawn_tail(
             abi::branch_eq(&skip_chdir),
             abi::move_register(abi::c_arg(0), cwd),
         ]);
-        platform.emit_libc_call("chdir", symbol, platform_imports, instructions, relocations)?;
+        platform.emit_external_call(
+            "chdir",
+            symbol,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
         instructions.push(abi::label(&skip_chdir));
     }
     if let Some((map, envreplace)) = env {
@@ -566,7 +590,7 @@ pub(crate) fn emit_spawn_tail(
         abi::load_u64(abi::c_arg(0), argv, 0),
         abi::move_register(abi::c_arg(1), argv),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "execvp",
         symbol,
         platform_imports,
@@ -586,9 +610,9 @@ pub(crate) fn emit_spawn_tail(
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), ERRBUF),
         abi::move_immediate(abi::c_arg(2), "Integer", "4"),
     ]);
-    platform.emit_libc_call("write", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_external_call("write", symbol, platform_imports, instructions, relocations)?;
     instructions.push(abi::move_immediate(abi::c_arg(0), "Integer", "127"));
-    platform.emit_libc_call("_exit", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_external_call("_exit", symbol, platform_imports, instructions, relocations)?;
     // ---- exec-failure reap (no zombie) ----
     instructions.push(abi::label(&spawn_fail));
     instructions.extend([
@@ -596,7 +620,7 @@ pub(crate) fn emit_spawn_tail(
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "waitpid",
         symbol,
         platform_imports,
@@ -711,7 +735,7 @@ pub(crate) fn lower_process_send_helper(
         abi::move_register(abi::c_arg(1), &srcp),
         abi::move_register(abi::c_arg(2), &rem),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "write",
         symbol,
         platform_imports,
@@ -766,7 +790,7 @@ pub(crate) fn lower_process_send_helper(
             abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), NL_SLOT),
             abi::move_immediate(abi::c_arg(2), "Integer", "1"),
         ]);
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "write",
             symbol,
             platform_imports,
@@ -850,7 +874,7 @@ pub(crate) fn emit_poll_wait(
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::move_register(abi::c_arg(2), timeout),
     ]);
-    platform.emit_libc_call("poll", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_external_call("poll", symbol, platform_imports, instructions, relocations)?;
     instructions.extend([
         abi::sign_extend_word(scratch, abi::c_return(0)),
         abi::compare_immediate(scratch, "0"),

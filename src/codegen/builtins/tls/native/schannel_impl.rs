@@ -57,7 +57,7 @@ fn socket_connect(
         abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), hints_off),
         abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), res_off),
     ]);
-    platform.emit_libc_call("getaddrinfo", symbol, imports, ins, rel)?;
+    platform.emit_external_call("getaddrinfo", symbol, imports, ins, rel)?;
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(fail),
@@ -67,7 +67,7 @@ fn socket_connect(
         abi::load_u32(abi::c_arg(1), &v9, 8),
         abi::load_u32(abi::c_arg(2), &v9, 12),
     ]);
-    platform.emit_libc_call("socket", symbol, imports, ins, rel)?;
+    platform.emit_external_call("socket", symbol, imports, ins, rel)?;
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -92,7 +92,7 @@ fn socket_connect(
         abi::load_u64(abi::c_arg(1), &v9, addr_off),
         abi::load_u32(abi::c_arg(2), &v9, 16),
     ]);
-    platform.emit_libc_call("connect", symbol, imports, ins, rel)?;
+    platform.emit_external_call("connect", symbol, imports, ins, rel)?;
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -122,7 +122,7 @@ fn socket_connect(
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::load_u64(abi::c_arg(2), abi::stack_pointer(), CSOLEN),
     ]);
-    platform.emit_libc_call("WSAPoll", symbol, imports, ins, rel)?;
+    platform.emit_external_call("WSAPoll", symbol, imports, ins, rel)?;
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -138,7 +138,7 @@ fn socket_connect(
         abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), CSOERR),
         abi::add_immediate(abi::c_arg(4), abi::stack_pointer(), CSOLEN),
     ]);
-    platform.emit_libc_call("getsockopt", symbol, imports, ins, rel)?;
+    platform.emit_external_call("getsockopt", symbol, imports, ins, rel)?;
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -152,7 +152,7 @@ fn socket_connect(
     platform.emit_restore_blocking(fd_off, CFLAGS, symbol, imports, ins, rel)?;
     // freeaddrinfo(res)
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), res_off));
-    platform.emit_libc_call("freeaddrinfo", symbol, imports, ins, rel)?;
+    platform.emit_external_call("freeaddrinfo", symbol, imports, ins, rel)?;
     Ok(())
 }
 
@@ -187,7 +187,7 @@ fn send_all(
         abi::move_register(abi::c_arg(2), &v6),
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
-    platform.emit_libc_call("send", symbol, imports, ins, rel)?;
+    platform.emit_external_call("send", symbol, imports, ins, rel)?;
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -469,7 +469,7 @@ pub(crate) fn lower_tls_connect(
         abi::subtract_registers(abi::c_arg(2), abi::c_arg(2), &v11),
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
-    platform.emit_libc_call("recv", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("recv", symbol, imports, &mut ins, &mut rel)?;
     let hs_got = format!("{symbol}_hs_got");
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
@@ -665,9 +665,9 @@ pub(crate) fn lower_tls_connect(
     // results, then report a timeout.
     ins.push(abi::label(&connect_timeout));
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD));
-    platform.emit_libc_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), RES));
-    platform.emit_libc_call("freeaddrinfo", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("freeaddrinfo", symbol, imports, &mut ins, &mut rel)?;
     emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
     // A negative (non-sentinel) `timeoutMs` → ErrInvalidArgument (rejected up front,
     // before getaddrinfo/socket, so nothing to clean up).

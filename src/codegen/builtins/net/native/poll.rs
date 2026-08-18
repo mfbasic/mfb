@@ -80,7 +80,7 @@ pub(crate) fn lower_net_poll_helper(
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::move_register(abi::c_arg(2), &v12),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         net_symbol(platform, NetSymbol::Poll),
         symbol,
         platform_imports,
@@ -312,7 +312,7 @@ pub(crate) fn lower_net_poll_list_helper(
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), COUNT_OFF),
         abi::load_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT_OFF),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         net_symbol(platform, NetSymbol::Poll),
         symbol,
         platform_imports,

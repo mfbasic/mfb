@@ -60,10 +60,10 @@ fn win_call(
         for i in 0..stack {
             ins.push(abi::store_u64(abi::c_arg(4 + i), abi::stack_pointer(), 0x20 + i * 8));
         }
-        platform.emit_libc_call(symbol, from, imports, ins, rel)?;
+        platform.emit_external_call(symbol, from, imports, ins, rel)?;
         ins.push(abi::add_stack(frame));
     } else {
-        platform.emit_libc_call(symbol, from, imports, ins, rel)?;
+        platform.emit_external_call(symbol, from, imports, ins, rel)?;
     }
     if sext {
         ins.push(abi::sign_extend_word(abi::return_register(), abi::return_register()));
@@ -328,7 +328,7 @@ pub(crate) fn lower_tls_listen(
         abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), HINTS),
         abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), RES),
     ]);
-    platform.emit_libc_call("getaddrinfo", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("getaddrinfo", symbol, imports, &mut ins, &mut rel)?;
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&resolve_fail),
@@ -338,7 +338,7 @@ pub(crate) fn lower_tls_listen(
         abi::load_u32(abi::c_arg(1), &v9, 8),
         abi::load_u32(abi::c_arg(2), &v9, 12),
     ]);
-    platform.emit_libc_call("socket", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("socket", symbol, imports, &mut ins, &mut rel)?;
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -368,7 +368,7 @@ pub(crate) fn lower_tls_listen(
         abi::load_u64(abi::c_arg(1), &v9, addr_off),
         abi::load_u32(abi::c_arg(2), &v9, 16),
     ]);
-    platform.emit_libc_call("bind", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("bind", symbol, imports, &mut ins, &mut rel)?;
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -377,7 +377,7 @@ pub(crate) fn lower_tls_listen(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD),
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), BACKLOG),
     ]);
-    platform.emit_libc_call("listen", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("listen", symbol, imports, &mut ins, &mut rel)?;
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -385,7 +385,7 @@ pub(crate) fn lower_tls_listen(
         // freeaddrinfo(res)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), RES),
     ]);
-    platform.emit_libc_call("freeaddrinfo", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("freeaddrinfo", symbol, imports, &mut ins, &mut rel)?;
 
     // --- Build the Schannel server credential from the PEM cert + key ---
     // Allocate the persistent WORK block (zeroed) that the listener record points at.
@@ -593,16 +593,16 @@ pub(crate) fn lower_tls_listen(
     // Credential-build failure with the listen fd open: close it, report ErrTlsFailed.
     ins.push(abi::label(&tls_fail_fd));
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD));
-    platform.emit_libc_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     // bind/listen failure: close the fd, ErrNetworkFailed.
     ins.push(abi::label(&op_fail));
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD));
-    platform.emit_libc_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
     // socket() failure: release the resolver results, ErrNetworkFailed.
     ins.push(abi::label(&socket_fail));
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), RES));
-    platform.emit_libc_call("freeaddrinfo", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("freeaddrinfo", symbol, imports, &mut ins, &mut rel)?;
     emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&resolve_fail));
     emit_fail(symbol, "ErrAddressInvalid", &mut ins, &mut rel, &done);
@@ -702,7 +702,7 @@ pub(crate) fn lower_tls_accept(
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::load_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT),
     ]);
-    platform.emit_libc_call("WSAPoll", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("WSAPoll", symbol, imports, &mut ins, &mut rel)?;
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -714,7 +714,7 @@ pub(crate) fn lower_tls_accept(
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
-    platform.emit_libc_call("accept", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("accept", symbol, imports, &mut ins, &mut rel)?;
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -785,7 +785,7 @@ pub(crate) fn lower_tls_accept(
         abi::subtract_registers(abi::c_arg(2), abi::c_arg(2), &v11),
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
-    platform.emit_libc_call("recv", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("recv", symbol, imports, &mut ins, &mut rel)?;
     let hs_got = format!("{symbol}_hs_got");
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
@@ -985,7 +985,7 @@ pub(crate) fn lower_tls_accept(
     // Error paths.
     ins.push(abi::label(&tls_fail));
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), CONNFD));
-    platform.emit_libc_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
     // plan-73-D: a handshake recv that hit the SO_RCVTIMEO (WSAETIMEDOUT) is a
     // timeout → ErrTimeout; every other tls_fail is a TLS failure.
     let tls_fail_timeout = format!("{symbol}_tls_fail_timeout");
@@ -1082,7 +1082,7 @@ pub(crate) fn lower_tls_close_listener(
     win_call(symbol, "CryptAcquireContextW", 5, false, imports, platform, &mut ins, &mut rel)?;
     // closesocket(fd)
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD));
-    platform.emit_libc_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
+    platform.emit_external_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
     // Mark the record closed.
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), REC),

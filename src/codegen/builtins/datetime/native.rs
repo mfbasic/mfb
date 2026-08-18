@@ -131,7 +131,7 @@ pub(crate) fn lower_datetime_helper(
                     abi::stack_pointer(),
                     TIMESPEC_OFFSET,
                 ));
-                platform.emit_libc_call(
+                platform.emit_external_call(
                     "clock_gettime",
                     symbol,
                     platform_imports,
@@ -158,7 +158,7 @@ pub(crate) fn lower_datetime_helper(
                     abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), TIME_T_OFFSET),
                     abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), TM_OFFSET),
                 ]);
-                platform.emit_libc_call(
+                platform.emit_external_call(
                     "localtime_r",
                     symbol,
                     platform_imports,
@@ -219,7 +219,7 @@ pub(crate) fn lower_datetime_helper(
 /// The Windows kernel32 body for the three `datetime::` intrinsics (plan-66-A).
 /// Emits into `instructions`/`relocations`; the caller supplies the shared OK tail
 /// and the `localOffset` range-fail tail (`range_fail`). Every OS call rides
-/// `platform.emit_libc_call`, whose import library comes from the plan's
+/// `platform.emit_external_call`, whose import library comes from the plan's
 /// `runtime_imports` map (kernel32.dll for all of these).
 #[allow(clippy::too_many_arguments)]
 fn lower_datetime_windows(
@@ -236,7 +236,7 @@ fn lower_datetime_windows(
                     instructions: &mut Vec<CodeInstruction>,
                     relocations: &mut Vec<CodeRelocation>|
      -> Result<(), String> {
-        platform.emit_libc_call(func, symbol, platform_imports, instructions, relocations)
+        platform.emit_external_call(func, symbol, platform_imports, instructions, relocations)
     };
 
     match call {

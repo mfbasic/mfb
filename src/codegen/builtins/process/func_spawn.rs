@@ -485,7 +485,7 @@ pub(crate) fn lower_process_spawn_helper_win(
         // fs `emit_build_argv_utf8` pattern — no abstract vregs, hence no spills that
         // would be shifted out from under the depth-1 accesses. State lives in the
         // slots below `PI`; `mfb_arg(0..3)` are transient scratch reloaded from the
-        // slots after every helper call (`emit_alloc`/`emit_libc_call` clobber them).
+        // slots after every helper call (`emit_alloc`/`emit_external_call` clobber them).
         //   [0x00..0x20)  shadow space for callees
         //   [0x20..0x50)  CreateProcessA stack args 5..10
         //   [SI..SI+104)  STARTUPINFOA (dwFlags@60, hStdInput@80/hStdOutput@88/hStdError@96)
@@ -654,7 +654,7 @@ pub(crate) fn lower_process_spawn_helper_win(
                 abi::add_immediate(abi::mfb_arg(2), sp, SA),
                 abi::move_immediate(abi::mfb_arg(3), "Integer", "0"),
             ]);
-            platform.emit_libc_call(
+            platform.emit_external_call(
                 "CreatePipe",
                 symbol,
                 platform_imports,
@@ -675,7 +675,7 @@ pub(crate) fn lower_process_spawn_helper_win(
                 abi::move_immediate(abi::mfb_arg(1), "Integer", HANDLE_FLAG_INHERIT),
                 abi::move_immediate(abi::mfb_arg(2), "Integer", "0"),
             ]);
-            platform.emit_libc_call(
+            platform.emit_external_call(
                 "SetHandleInformation",
                 symbol,
                 platform_imports,
@@ -719,7 +719,7 @@ pub(crate) fn lower_process_spawn_helper_win(
             abi::move_immediate(abi::mfb_arg(2), "Integer", "0"), // lpProcessAttributes NULL
             abi::move_immediate(abi::mfb_arg(3), "Integer", "0"), // lpThreadAttributes NULL
         ]);
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "CreateProcessA",
             symbol,
             platform_imports,
@@ -734,7 +734,7 @@ pub(crate) fn lower_process_spawn_helper_win(
         // Close the child-end handles the parent no longer needs + the thread handle.
         for close_slot in [PI + 8, IN_R, OUT_W, ERR_W] {
             instructions.push(abi::load_u64(abi::mfb_arg(0), sp, close_slot));
-            platform.emit_libc_call(
+            platform.emit_external_call(
                 "CloseHandle",
                 symbol,
                 platform_imports,

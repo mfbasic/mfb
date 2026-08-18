@@ -109,7 +109,7 @@ pub(crate) fn lower_process_close_helper_posix(
         abi::move_register(abi::c_arg(0), &fd),
     ];
     let mut relocations = Vec::new();
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "close",
         symbol,
         platform_imports,
@@ -162,7 +162,7 @@ pub(crate) fn lower_process_close_helper_win(
         abi::compare_immediate(abi::mfb_arg(0), "0"),
         abi::branch_lt(&already), // -1 sentinel: already closed
     ];
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "CloseHandle",
         symbol,
         platform_imports,

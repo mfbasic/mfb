@@ -156,7 +156,7 @@ pub(crate) fn lower_process_receivebytes_helper_posix(
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), BUF_OFFSET),
         abi::move_immediate(abi::c_arg(2), "Integer", CHUNK),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "read",
         symbol,
         platform_imports,
@@ -341,7 +341,7 @@ pub(crate) fn lower_process_receivebytes_helper_win(
         abi::add_immediate(abi::mfb_arg(3), sp, NREAD),
         abi::store_u64(abi::ZERO, sp, 0x20),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "ReadFile",
         symbol,
         platform_imports,

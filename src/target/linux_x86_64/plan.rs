@@ -1,7 +1,7 @@
 //! x86-64 native-plan platform (plan-00-H). The x86 backend uses raw Linux
 //! syscalls for the primitives (write/exit/mmap/getrandom) and libc for
 //! everything with no practical syscall form (pthread, dlopen, the
-//! fs/net/term surface), emitted via `emit_libc_call`. The plan is
+//! fs/net/term surface), emitted via `emit_external_call`. The plan is
 //! flavor-parameterized: each import binds to `libc.so.6` (glibc) or
 //! `libc.musl-x86_64.so.1` (musl), and the console build emits one executable
 //! per flavor, exactly like AArch64. A build importing nothing stays a static

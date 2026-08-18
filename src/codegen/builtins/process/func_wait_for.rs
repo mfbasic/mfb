@@ -121,7 +121,7 @@ pub(crate) fn lower_process_waitfor_helper_posix(
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ];
     let mut relocations = Vec::new();
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "waitpid",
         symbol,
         platform_imports,
@@ -200,7 +200,7 @@ pub(crate) fn lower_process_waitfor_helper_win(
         abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), RESOURCE_OFFSET_HANDLE),
         abi::move_immediate(abi::mfb_arg(1), "Integer", "4294967295"),
     ];
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "WaitForSingleObject",
         symbol,
         platform_imports,
@@ -213,7 +213,7 @@ pub(crate) fn lower_process_waitfor_helper_win(
         abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), RESOURCE_OFFSET_HANDLE),
         abi::add_immediate(abi::mfb_arg(1), sp, EXIT),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "GetExitCodeProcess",
         symbol,
         platform_imports,

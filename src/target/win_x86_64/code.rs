@@ -9,7 +9,7 @@
 //! CodeInstructions are built with the neutral `abi::*` builders and role tokens;
 //! `remap_x86_abi(_, Win64)` realizes them to the Win64 homes (rcx/rdx/r8/r9).
 //!
-//! Scope is the machine floor only (entry/exit/arena + the `emit_libc_call` IAT
+//! Scope is the machine floor only (entry/exit/arena + the `emit_external_call` IAT
 //! seam). Every other surface — fs, terminal, threads, sockets, TLS — is a
 //! deliberate stub: the backend advertises a minimal `runtime_calls`, so a
 //! program using an unimplemented surface is rejected at the capability gate, and
@@ -795,7 +795,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         Ok(())
     }
 
-    fn emit_libc_call(
+    fn emit_external_call(
         &self,
         base: &str,
         from: &str,
@@ -820,7 +820,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         )
     }
 
-    fn emit_variadic_call(
+    fn emit_variadic_external_call(
         &self,
         base: &str,
         from: &str,
@@ -830,10 +830,10 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
     ) -> Result<(), String> {
         // Win64 has no separate variadic marker (unlike SysV's `al`); a plain
         // call suffices.
-        self.emit_libc_call(base, from, platform_imports, instructions, relocations)
+        self.emit_external_call(base, from, platform_imports, instructions, relocations)
     }
 
-    fn emit_link_dlopen(
+    fn emit_lib_open(
         &self,
         filename_symbol: &str,
         vendored: bool,
@@ -955,7 +955,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         Ok(())
     }
 
-    fn emit_link_dlsym(
+    fn emit_lib_get_sym(
         &self,
         handle_reg: &str,
         symbol_symbol: &str,

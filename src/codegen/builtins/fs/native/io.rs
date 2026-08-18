@@ -448,7 +448,7 @@ pub(crate) fn lower_fs_open_helper(
             abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), 0), // &how
             abi::move_immediate(abi::c_arg(4), "Integer", "24"),
         ]);
-        platform.emit_variadic_call(
+        platform.emit_variadic_external_call(
             "syscall",
             symbol,
             platform_imports,
@@ -949,7 +949,7 @@ pub(crate) fn lower_fs_open_within_helper(
             abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), 0),
             abi::move_immediate(abi::c_arg(4), "Integer", "24"),
         ]);
-        platform.emit_variadic_call(
+        platform.emit_variadic_external_call(
             "syscall",
             symbol,
             platform_imports,

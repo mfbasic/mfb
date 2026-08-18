@@ -110,7 +110,7 @@ fn emit_libc(ctx: &mut EmitCtx, name: &str) -> Result<(), String> {
         _ if platform.family() == PlatformFamily::Windows => {
             crate::codegen::runtime::thread::emit_thread_external_call(ctx, name)
         }
-        _ => platform.emit_libc_call(
+        _ => platform.emit_external_call(
             name,
             symbol,
             platform_imports,

@@ -365,7 +365,7 @@ pub(super) fn emit_main_bootstrap(initial_mode: PresentationMode) -> CodeFunctio
         // write() returns -1/EAGAIN instead of blocking the UI thread forever when
         // the worker stops draining stdin and the 64 KiB pipe fills (bug-114). The
         // third `fcntl` argument is variadic, so on Apple AArch64 it is passed on
-        // the stack (mirrors emit_variadic_call).
+        // the stack (mirrors emit_variadic_external_call).
         asm.push(abi::load_u32("x0", abi::stack_pointer(), OFF_PIPE + 4)); // fds[1] (write)
         asm.push(abi::move_immediate("x1", "Integer", "4")); // F_SETFL
         asm.push(abi::move_immediate("x2", "Integer", "4")); // O_NONBLOCK (0x0004 on Darwin)

@@ -392,12 +392,12 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
     ) -> Result<(), String> {
         // `ioctl` is variadic, so the trailing `winsize` pointer (in `x2`) must be
         // spilled to the physical stack top across the call (Apple AArch64 ABI).
-        // Route through `emit_variadic_call` so the spill is bracketed by
+        // Route through `emit_variadic_external_call` so the spill is bracketed by
         // `sub_sp`/`add_sp`: a bare `str x2, [sp]` is treated as a depth-0 frame
         // access and gets shifted up by the callee-saved area during frame
         // finalization, which leaves the saved link register at `sp+0` and makes
         // `ioctl` read it as the buffer pointer (EFAULT → false ERR_UNSUPPORTED).
-        self.emit_variadic_call("ioctl", from, platform_imports, instructions, relocations)
+        self.emit_variadic_external_call("ioctl", from, platform_imports, instructions, relocations)
     }
 
     fn emit_path_exists(
@@ -510,7 +510,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         // `_NSGetEnviron()` returns `char***`; one deref yields the live `char**`.
         // The C source name already starts with an underscore, so the asm symbol
         // is `__NSGetEnviron` (the libSystem `_`-prefix over `_NSGetEnviron`).
-        self.emit_libc_call(
+        self.emit_external_call(
             "_NSGetEnviron",
             from,
             platform_imports,
@@ -584,7 +584,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         Ok(())
     }
 
-    fn emit_libc_call(
+    fn emit_external_call(
         &self,
         base: &str,
         from: &str,
@@ -601,7 +601,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         )
     }
 
-    fn emit_variadic_call(
+    fn emit_variadic_external_call(
         &self,
         base: &str,
         from: &str,
@@ -637,8 +637,8 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         // `errno`. A raw Darwin syscall reports failure via the carry flag and
         // returns the positive errno in `x0`, which the fd checks would otherwise
         // mistake for a valid descriptor. `open(path, flags, mode)`'s `mode` is a
-        // variadic argument, so route through `emit_variadic_call`.
-        self.emit_variadic_call("open", from, platform_imports, instructions, relocations)
+        // variadic argument, so route through `emit_variadic_external_call`.
+        self.emit_variadic_external_call("open", from, platform_imports, instructions, relocations)
     }
 
     fn emit_read_file(
@@ -923,7 +923,7 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
             abi::move_immediate("%v9", "Integer", "4"),
             abi::or_registers(abi::mfb_arg(2), abi::mfb_arg(2), "%v9"),
         ]);
-        self.emit_variadic_call("fcntl", from, platform_imports, instructions, relocations)
+        self.emit_variadic_external_call("fcntl", from, platform_imports, instructions, relocations)
     }
 
     fn so_error(&self) -> &'static str {

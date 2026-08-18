@@ -75,7 +75,7 @@ fn emit_listener_flags_restore(
             abi::move_immediate(abi::c_arg(1), "Integer", "4"), // F_SETFL
             abi::load_u64(abi::c_arg(2), abi::stack_pointer(), flags_offset),
         ]);
-        platform.emit_variadic_call(
+        platform.emit_variadic_external_call(
             net_symbol(platform, NetSymbol::Fcntl),
             symbol,
             platform_imports,
@@ -175,7 +175,7 @@ pub(crate) fn lower_net_accept_helper(
             abi::move_immediate(abi::c_arg(1), "Integer", "3"), // F_GETFL
             abi::move_immediate(abi::c_arg(2), "Integer", "0"),
         ]);
-        platform.emit_variadic_call(
+        platform.emit_variadic_external_call(
             net_symbol(platform, NetSymbol::Fcntl),
             symbol,
             platform_imports,
@@ -212,7 +212,7 @@ pub(crate) fn lower_net_accept_helper(
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::load_u64(abi::c_arg(2), abi::stack_pointer(), TIMEOUT_OFFSET),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         net_symbol(platform, NetSymbol::Poll),
         symbol,
         platform_imports,
@@ -247,7 +247,7 @@ pub(crate) fn lower_net_accept_helper(
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         net_symbol(platform, NetSymbol::Accept),
         symbol,
         platform_imports,
@@ -452,7 +452,7 @@ pub(crate) fn lower_net_address_helper(
         abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), LEN_OFFSET),
     ]);
     let call = if remote { "getpeername" } else { "getsockname" };
-    platform.emit_libc_call(
+    platform.emit_external_call(
         call,
         symbol,
         platform_imports,
@@ -620,7 +620,7 @@ pub(crate) fn lower_net_read_helper(
         // arg layout, so only the flags word is added. The C `int` return is
         // sign-extended before the 0 (peer-closed) / <0 (error) compares below.
         instructions.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-        platform.emit_libc_call(
+        platform.emit_external_call(
             net_symbol(platform, NetSymbol::Recv),
             symbol,
             platform_imports,
@@ -905,7 +905,7 @@ pub(crate) fn lower_net_write_helper(
         // Winsock socket; send is the socket write primitive. The C `int` return is
         // sign-extended before the <= 0 (error) compare below.
         instructions.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
-        platform.emit_libc_call(
+        platform.emit_external_call(
             net_symbol(platform, NetSymbol::Send),
             symbol,
             platform_imports,
@@ -1098,7 +1098,7 @@ pub(crate) fn lower_net_lookup_helper(
         abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), HINTS_OFFSET),
         abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), RES_OFFSET),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         net_symbol(platform, NetSymbol::GetAddrInfo),
         symbol,
         platform_imports,
@@ -1235,7 +1235,7 @@ pub(crate) fn lower_net_lookup_helper(
         // freeaddrinfo(res)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), RES_OFFSET),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         net_symbol(platform, NetSymbol::FreeAddrInfo),
         symbol,
         platform_imports,
@@ -1265,7 +1265,7 @@ pub(crate) fn lower_net_lookup_helper(
         abi::stack_pointer(),
         RES_OFFSET,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         net_symbol(platform, NetSymbol::FreeAddrInfo),
         symbol,
         platform_imports,
@@ -1387,7 +1387,7 @@ pub(crate) fn lower_net_bind_udp_helper(
         abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), HINTS_OFFSET),
         abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), RES_OFFSET),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         net_symbol(platform, NetSymbol::GetAddrInfo),
         symbol,
         platform_imports,
@@ -1403,7 +1403,7 @@ pub(crate) fn lower_net_bind_udp_helper(
         abi::load_u32(abi::c_arg(1), &v9, 8),
         abi::load_u32(abi::c_arg(2), &v9, 12),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         net_symbol(platform, NetSymbol::Socket),
         symbol,
         platform_imports,
@@ -1430,7 +1430,7 @@ pub(crate) fn lower_net_bind_udp_helper(
         abi::load_u64(abi::c_arg(1), &v9, platform.addrinfo_addr_offset()),
         abi::load_u32(abi::c_arg(2), &v9, 16),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         net_symbol(platform, NetSymbol::Bind),
         symbol,
         platform_imports,
@@ -1446,7 +1446,7 @@ pub(crate) fn lower_net_bind_udp_helper(
         // freeaddrinfo(res)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), RES_OFFSET),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         net_symbol(platform, NetSymbol::FreeAddrInfo),
         symbol,
         platform_imports,
@@ -1473,7 +1473,7 @@ pub(crate) fn lower_net_bind_udp_helper(
         abi::stack_pointer(),
         FD_OFFSET,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         net_symbol(platform, NetSymbol::Close),
         symbol,
         platform_imports,
@@ -1486,7 +1486,7 @@ pub(crate) fn lower_net_bind_udp_helper(
         abi::stack_pointer(),
         RES_OFFSET,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         net_symbol(platform, NetSymbol::FreeAddrInfo),
         symbol,
         platform_imports,
@@ -1978,7 +1978,7 @@ pub(crate) fn lower_net_send_to_helper(
         abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), HINTS_OFFSET),
         abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), RES_OFFSET),
     ]);
-    platform.emit_libc_call(
+    platform.emit_external_call(
         net_symbol(platform, NetSymbol::GetAddrInfo),
         symbol,
         platform_imports,
@@ -2059,7 +2059,7 @@ pub(crate) fn lower_net_send_to_helper(
         abi::stack_pointer(),
         RES_OFFSET,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         net_symbol(platform, NetSymbol::FreeAddrInfo),
         symbol,
         platform_imports,

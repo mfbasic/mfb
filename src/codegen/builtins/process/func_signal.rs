@@ -133,7 +133,7 @@ pub(crate) fn lower_process_signal_helper_posix(
         abi::move_register(abi::c_arg(1), &num),
     ];
     let mut relocations = Vec::new();
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "kill",
         symbol,
         platform_imports,
@@ -203,7 +203,7 @@ pub(crate) fn lower_process_signal_helper_win(
         abi::load_u64(abi::mfb_arg(0), sp, FILE),
         abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), RESOURCE_OFFSET_HANDLE),
     ];
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "TerminateProcess",
         symbol,
         platform_imports,

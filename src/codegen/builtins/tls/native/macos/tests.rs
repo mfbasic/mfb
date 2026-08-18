@@ -99,7 +99,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     _instructions: &mut Vec<CodeInstruction>,
     _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_errno") }
-    fn emit_libc_call(
+    fn emit_external_call(
     &self,
     _base: &str,
     _from: &str,
@@ -221,14 +221,14 @@ impl CodegenPlatform for TlsReadTestPlatform {
     fn socket_in_progress_code(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::socket_in_progress_code") }
     fn emit_set_nonblocking(&self, _fd: usize, _fl: usize, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_set_nonblocking") }
     fn so_error(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_error") }
-    fn emit_variadic_call(
+    fn emit_variadic_external_call(
     &self,
     _base: &str,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
     _instructions: &mut Vec<CodeInstruction>,
     _relocations: &mut Vec<CodeRelocation>,
-) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_variadic_call") }
+) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_variadic_external_call") }
     fn emit_program_entry(
     &self,
     _spec: &ProgramEntrySpec<'_>,

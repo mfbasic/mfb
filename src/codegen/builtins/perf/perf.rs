@@ -495,7 +495,7 @@ fn emit_read_monotonic_nanos(
         abi::stack_pointer(),
         PERF_TIMESPEC_OFFSET,
     ));
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "clock_gettime",
         symbol,
         platform_imports,

@@ -299,7 +299,7 @@ pub(crate) trait CodegenPlatform {
     /// `@loader_path/vendor`) already steers the loader to the vendored file.
     /// Windows has no rpath and overrides this to build the exe-relative
     /// `vendor/` path and call `LoadLibraryExA`.
-    fn emit_link_dlopen(
+    fn emit_lib_open(
         &self,
         filename_symbol: &str,
         vendored: bool,
@@ -322,7 +322,7 @@ pub(crate) trait CodegenPlatform {
     /// `symbol_symbol` in the library whose handle is in `handle_reg`, leaving the
     /// address in `return_register()` (0 if absent). Defaulted to POSIX
     /// `dlsym(handle, name)`; Windows overrides it with `GetProcAddress`.
-    fn emit_link_dlsym(
+    fn emit_lib_get_sym(
         &self,
         handle_reg: &str,
         symbol_symbol: &str,
@@ -515,7 +515,7 @@ pub(crate) trait CodegenPlatform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        self.emit_libc_call("malloc", from, platform_imports, instructions, relocations)
+        self.emit_external_call("malloc", from, platform_imports, instructions, relocations)
     }
     /// Free the heap block whose pointer is in `ARG[0]` — the `free` contract.
     /// Defaults to a libc `free` call; Windows overrides with GetProcessHeap +
@@ -527,7 +527,7 @@ pub(crate) trait CodegenPlatform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        self.emit_libc_call("free", from, platform_imports, instructions, relocations)
+        self.emit_external_call("free", from, platform_imports, instructions, relocations)
     }
     /// Windows-only string-query primitive (plan-66-B). Runs the `*W` OS query named
     /// by `which` (`"hostName"` = GetComputerNameExW, `"userName"` = GetUserNameW,
@@ -579,7 +579,7 @@ pub(crate) trait CodegenPlatform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        self.emit_libc_call(
+        self.emit_external_call(
             call.posix_symbol(),
             from,
             platform_imports,
@@ -699,7 +699,7 @@ pub(crate) trait CodegenPlatform {
     /// (libSystem); Linux uses the name verbatim (libc). Arguments must already
     /// be in `x0..`, the result is returned in `x0`. Used by the `net` runtime
     /// helpers, which marshal socket calls onto libc.
-    fn emit_libc_call(
+    fn emit_external_call(
         &self,
         base: &str,
         from: &str,
@@ -927,7 +927,7 @@ pub(crate) trait CodegenPlatform {
     /// On the Darwin AArch64 ABI variadic arguments are passed on the stack, so
     /// the value in `x2` is spilled to the stack top across the call; on Linux it
     /// is passed in `x2` like a normal argument. Result is returned in `x0`.
-    fn emit_variadic_call(
+    fn emit_variadic_external_call(
         &self,
         base: &str,
         from: &str,

@@ -52,7 +52,7 @@ impl CodegenPlatform for TestPlatform {
         instructions.push(abi::move_immediate(dst, "Integer", "0"));
         Ok(())
     }
-    fn emit_libc_call(&self, base: &str, _from: &str, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
+    fn emit_external_call(&self, base: &str, _from: &str, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
         // A plain `bl` to the named libc function is enough for the helper to
         // lower and register-allocate; the tests inspect the release blocks.
         instructions.push(abi::branch_link(&format!("_{base}")));
@@ -89,7 +89,7 @@ impl CodegenPlatform for TestPlatform {
         Ok(())
     }
     fn so_error(&self) -> &'static str { "4" }
-    fn emit_variadic_call(&self, base: &str, _from: &str, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
+    fn emit_variadic_external_call(&self, base: &str, _from: &str, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
         instructions.push(abi::branch_link(&format!("_{base}")));
         Ok(())
     }

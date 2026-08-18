@@ -65,7 +65,7 @@ pub(crate) fn lower_pid(
         PlatformFamily::Windows => "GetCurrentProcessId",
         _ => "getpid",
     };
-    platform.emit_libc_call(
+    platform.emit_external_call(
         getpid_fn,
         symbol,
         platform_imports,
@@ -104,7 +104,7 @@ pub(crate) fn lower_cpu_count(
             abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 0), // &SYSTEM_INFO
         ];
         let mut relocations = Vec::new();
-        platform.emit_libc_call(
+        platform.emit_external_call(
             "GetSystemInfo",
             symbol,
             platform_imports,
@@ -141,7 +141,7 @@ pub(crate) fn lower_cpu_count(
         abi::move_immediate(abi::c_arg(0), "Integer", sc_nprocessors_onln),
     ];
     let mut relocations = Vec::new();
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "sysconf",
         symbol,
         platform_imports,
@@ -243,7 +243,7 @@ pub(crate) fn lower_host_name(
         abi::move_immediate(abi::c_arg(1), "Integer", &BUF.to_string()),
     ];
     let mut relocations = Vec::new();
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "gethostname",
         symbol,
         platform_imports,
@@ -315,14 +315,14 @@ pub(crate) fn lower_user_name(
         instructions: &mut instructions,
         relocations: &mut relocations,
     })?;
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "getuid",
         symbol,
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
-    platform.emit_libc_call(
+    platform.emit_external_call(
         "getpwuid",
         symbol,
         platform_imports,
