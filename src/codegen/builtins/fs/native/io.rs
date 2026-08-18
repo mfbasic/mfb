@@ -1,6 +1,5 @@
 // --- codegen tier imports (migration) ---
 use super::*;
-use crate::codegen::engine::builder::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
 /// `_mfb_rt_fs_file_drain` (plan-14-B): flush one `File`'s per-handle output buffer

@@ -8,7 +8,6 @@
 //! registers).
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::emit_arena_free;
 use crate::codegen::engine::builder::*;
 use crate::codegen::error::emission::*;

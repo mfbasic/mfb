@@ -6,4 +6,3 @@ pub(crate) mod util;
 pub(crate) mod validate;
 
 pub(crate) mod unicode_props;
-pub(crate) use unicode_props::*;

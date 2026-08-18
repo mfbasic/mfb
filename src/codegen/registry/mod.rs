@@ -339,6 +339,9 @@ pub(crate) struct RegistryHelper {
     pub(crate) body: Option<&'static str>,
     /// An ordering-dependency edge: the named package must be injected first. `None`
     /// for a source-bearing helper. XOR with [`body`](Self::body).
+    // Kept for symmetry with `body` (the descriptor's two variants); no current
+    // helper declares an ordering edge, so nothing reads it yet.
+    #[allow(dead_code)]
     pub(crate) import_name: Option<&'static str>,
 }
 
@@ -968,6 +971,8 @@ impl RegistryPackage {
     }
 
     /// The package's source-generic member names (see [`source_generics`](Self::source_generics)).
+    // Descriptor accessor kept for symmetry with `source_types`; no consumer yet.
+    #[allow(dead_code)]
     pub(crate) fn source_generics(&self) -> &[&'static str] {
         &self.source_generics
     }

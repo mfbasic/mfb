@@ -3,7 +3,6 @@ use super::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::mir;
 use crate::codegen::engine::regalloc;
-use crate::codegen::engine::types::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::target::shared::regmodel::RegClass;

@@ -11,7 +11,6 @@
 
 // --- codegen tier imports (migration) ---
 use crate::binary_repr::{NativeLibraryLocator, NativeLibraryTable};
-use crate::codegen::engine::types::*;
 use crate::manifest::libraries::{LibType, Libc};
 
 /// Why a logical library could not be resolved for a target.

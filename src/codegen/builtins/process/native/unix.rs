@@ -9,7 +9,6 @@
 
 // --- codegen tier imports (migration) ---
 use super::*;
-use crate::codegen::engine::builder::*;
 use crate::codegen::error::emission::emit_fail;
 use crate::target::shared::abi;
 use std::collections::HashMap;

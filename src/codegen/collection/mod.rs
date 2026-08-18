@@ -19,7 +19,6 @@
 pub(crate) mod assign;
 pub(crate) mod buffer;
 pub(crate) mod collection_loop;
-pub(crate) use collection_loop::*;
 pub(crate) mod compare;
 pub(crate) mod layout;
 pub(crate) mod list;

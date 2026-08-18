@@ -26,8 +26,6 @@ use crate::target::shared::runtime;
 // here. Keep it a glob on purpose.
 use crate::codegen::builtins::math::*;
 use crate::codegen::collection::sort::*;
-#[cfg(test)]
-use crate::codegen::engine::function::lower_program_entry;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -65,9 +63,6 @@ use crate::codegen::collection::layout::{recursive_transfer_types, thread_copy_s
 // (`codegen::builtins::term::native`) can fence its app-mode helpers.
 pub(crate) mod builder_emit_helpers;
 
-#[cfg(test)]
-// Re-exported flat for the relocated `fs` `native/paths_builder.rs` path emitters.
-use crate::codegen::builtins::vector::{vector_call_is_inlined, vector_field_count};
 use crate::codegen::engine::function::*;
 use crate::codegen::engine::mir::MirPlan;
 

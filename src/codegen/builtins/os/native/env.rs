@@ -1,6 +1,5 @@
 // --- codegen tier imports (migration) ---
 use super::*;
-use crate::codegen::engine::builder::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirModule;
 use std::collections::HashMap;

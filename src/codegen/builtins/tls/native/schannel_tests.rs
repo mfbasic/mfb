@@ -9,56 +9,8 @@
 // regress. Runtime proof of the Schannel path is Windows-only (box 2230).
 // --- codegen tier imports (migration) ---
 use super::*;
-use crate::codegen::app::hook as app;
-use crate::codegen::app::hook::*;
-use crate::codegen::cleanup::owned::*;
-use crate::codegen::cleanup::thread::*;
-use crate::codegen::collection::assign::*;
-use crate::codegen::collection::buffer::*;
-use crate::codegen::collection::compare::*;
-use crate::codegen::collection::layout::*;
-use crate::codegen::collection::list::*;
-use crate::codegen::collection::map::*;
-use crate::codegen::collection::search::*;
-use crate::codegen::collection::sort::*;
-use crate::codegen::compiler::opt::*;
-use crate::codegen::engine::analysis::*;
-use crate::codegen::engine::arch::*;
-use crate::codegen::engine::builder::*;
-use crate::codegen::engine::control::*;
-use crate::codegen::engine::convert::*;
-use crate::codegen::engine::function::*;
 use crate::codegen::engine::mir;
-use crate::codegen::engine::operand::*;
-use crate::codegen::engine::operators::*;
 use crate::codegen::engine::tests::TestPlatform;
-use crate::codegen::engine::types::*;
-use crate::codegen::engine::util::*;
-use crate::codegen::engine::validation;
-use crate::codegen::engine::validation::*;
-use crate::codegen::engine::value::*;
-use crate::codegen::error::constants::*;
-use crate::codegen::error::emission::*;
-use crate::codegen::error::result::*;
-use crate::codegen::io::stdin::*;
-use crate::codegen::io::stdout::*;
-use crate::codegen::io::terminal::*;
-use crate::codegen::memory::arena::*;
-use crate::codegen::memory::data::*;
-use crate::codegen::memory::marshal::*;
-use crate::codegen::memory::value::*;
-use crate::codegen::os::ffi::*;
-use crate::codegen::os::process::*;
-use crate::codegen::os::syscall::*;
-use crate::codegen::resource::cleanup::*;
-use crate::codegen::runtime::thread::*;
-use crate::codegen::string::format::*;
-use crate::codegen::string::repr::*;
-use crate::codegen::string::util::*;
-use crate::codegen::string::validate::*;
-use crate::codegen::term::core as term;
-use crate::codegen::term::core::*;
-use crate::codegen::term::grid::*;
 use std::collections::HashMap;
 /// The Schannel read helper emits an `ErrInvalidArgument` failure exit, produced
 /// only by `emit_fail(ERR_INVALID_ARGUMENT_*)` — which relocates the error

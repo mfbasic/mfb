@@ -17,5 +17,4 @@ pub(crate) mod arena;
 pub(crate) mod data;
 pub(crate) mod marshal;
 pub(crate) mod owned;
-pub(crate) use owned::*;
 pub(crate) mod value;

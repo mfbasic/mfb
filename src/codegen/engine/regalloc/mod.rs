@@ -25,7 +25,6 @@ mod analysis;
 use analysis::ClassModel;
 pub(crate) mod builder_registers;
 mod linear_scan;
-pub(crate) use builder_registers::*;
 
 /// The sentinel prefix an integer virtual register carries in an instruction
 /// field. It cannot collide with any physical register name, immediate, symbol,
