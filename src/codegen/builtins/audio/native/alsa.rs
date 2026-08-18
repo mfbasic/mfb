@@ -279,10 +279,15 @@ pub(crate) fn lower_audio_alsa(
 /// sign-extended, or its 64-bit pointer is truncated to its low 32 bits and the
 /// subsequent cstr copy dereferences garbage (SIGSEGV on x86-64, where the image
 /// base is above 4 GiB).
-fn emit_call_fnptr(instructions: &mut Vec<CodeInstruction>, returns_pointer: bool) {
+fn emit_call_fnptr(
+    instructions: &mut Vec<CodeInstruction>,
+    returns_pointer: bool,
+    vregs: &mut Vregs,
+) {
+    let v8 = vregs.next();
     instructions.extend([
-        abi::load_u64("%v8", abi::stack_pointer(), FNPTR_OFF),
-        abi::branch_link_register("%v8"),
+        abi::load_u64(&v8, abi::stack_pointer(), FNPTR_OFF),
+        abi::branch_link_register(&v8),
     ]);
     if !returns_pointer {
         instructions.push(abi::sign_extend_word(
@@ -302,6 +307,7 @@ const TIMEOUT_CLAMP_MS: &str = "2147483647";
 /// dlsym `name` into `FNPTR_OFF`, stage the args via `stage`, call it, and leave
 /// the (sign-extended) result in the return register.
 fn emit_alsa_call(
+    vregs: &mut Vregs,
     ctx: &mut EmitCtx,
     name: &str,
     unavailable: &str,
@@ -329,43 +335,54 @@ fn emit_alsa_call(
         unavailable,
     )?;
     stage(ctx.instructions, ctx.relocations);
-    emit_call_fnptr(ctx.instructions, returns_pointer);
+    emit_call_fnptr(ctx.instructions, returns_pointer, vregs);
     Ok(())
 }
 
 /// Copy an MFBASIC `String` (pointer at `str_off`'s record field) into the
 /// NUL-terminated name buffer at `NAME_BUF_OFF`, storing its address at
 /// `NAME_OFF`.
-fn emit_device_cstring(device_off: usize, instructions: &mut Vec<CodeInstruction>, symbol: &str) {
+fn emit_device_cstring(
+    device_off: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    symbol: &str,
+    vregs: &mut Vregs,
+) {
     let copy = format!("{symbol}_dev_copy");
     let done = format!("{symbol}_dev_copy_done");
     let clamp_ok = format!("{symbol}_dev_clamp_ok");
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+    let v14 = vregs.next();
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), device_off),
-        abi::load_u64("%v9", "%v9", DEVICE_FIELD_ID), // id String ptr
-        abi::load_u64("%v10", "%v9", 0),              // len
-        abi::add_immediate("%v11", "%v9", 8),         // src bytes
+        abi::load_u64(&v9, abi::stack_pointer(), device_off),
+        abi::load_u64(&v9, &v9, DEVICE_FIELD_ID), // id String ptr
+        abi::load_u64(&v10, &v9, 0),              // len
+        abi::add_immediate(&v11, &v9, 8),         // src bytes
         // Clamp the copy count to NAME_BUF's 128 bytes minus the NUL terminator;
         // an oversized device id would otherwise overrun the fixed buffer.
-        abi::move_immediate("%v9", "Integer", "127"),
-        abi::compare_registers("%v10", "%v9"),
+        abi::move_immediate(&v9, "Integer", "127"),
+        abi::compare_registers(&v10, &v9),
         abi::branch_le(&clamp_ok),
-        abi::move_register("%v10", "%v9"),
+        abi::move_register(&v10, &v9),
         abi::label(&clamp_ok),
-        abi::add_immediate("%v12", abi::stack_pointer(), NAME_BUF_OFF),
-        abi::store_u64("%v12", abi::stack_pointer(), NAME_OFF),
-        abi::move_immediate("%v13", "Integer", "0"),
+        abi::add_immediate(&v12, abi::stack_pointer(), NAME_BUF_OFF),
+        abi::store_u64(&v12, abi::stack_pointer(), NAME_OFF),
+        abi::move_immediate(&v13, "Integer", "0"),
         abi::label(&copy),
-        abi::compare_registers("%v13", "%v10"),
+        abi::compare_registers(&v13, &v10),
         abi::branch_ge(&done),
-        abi::load_u8("%v14", "%v11", 0),
-        abi::store_u8("%v14", "%v12", 0),
-        abi::add_immediate("%v11", "%v11", 1),
-        abi::add_immediate("%v12", "%v12", 1),
-        abi::add_immediate("%v13", "%v13", 1),
+        abi::load_u8(&v14, &v11, 0),
+        abi::store_u8(&v14, &v12, 0),
+        abi::add_immediate(&v11, &v11, 1),
+        abi::add_immediate(&v12, &v12, 1),
+        abi::add_immediate(&v13, &v13, 1),
         abi::branch(&copy),
         abi::label(&done),
-        abi::store_u8(abi::ZERO, "%v12", 0),
+        abi::store_u8(abi::ZERO, &v12, 0),
     ]);
 }
 
@@ -384,6 +401,10 @@ fn lower_open(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v15 = vregs.next();
     if device {
         instructions.extend([
             abi::store_u64(abi::return_register(), abi::stack_pointer(), DEVID_OFF),
@@ -405,13 +426,21 @@ fn lower_open(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), STATE_OFF),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), PARAMS_OFF),
     ]);
-    emit_validate_open(symbol, SR_OFF, CH_OFF, BF_OFF, &invalid, &mut instructions);
+    emit_validate_open(
+        symbol,
+        SR_OFF,
+        CH_OFF,
+        BF_OFF,
+        &invalid,
+        &mut instructions,
+        &mut vregs,
+    );
     // bytesPerFrame, AudioHandle, mmap state.
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), CH_OFF),
-        abi::move_immediate("%v10", "Integer", "2"),
-        abi::multiply_registers("%v9", "%v9", "%v10"),
-        abi::store_u64("%v9", abi::stack_pointer(), BPF_OFF),
+        abi::load_u64(&v9, abi::stack_pointer(), CH_OFF),
+        abi::move_immediate(&v10, "Integer", "2"),
+        abi::multiply_registers(&v9, &v9, &v10),
+        abi::store_u64(&v9, abi::stack_pointer(), BPF_OFF),
         abi::move_immediate(
             abi::return_register(),
             "Integer",
@@ -421,27 +450,23 @@ fn lower_open(
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::move_register("%v15", abi::mfb_return(1)),
-        abi::store_u64("%v15", abi::stack_pointer(), HANDLE_OFF),
+        abi::move_register(&v15, abi::mfb_return(1)),
+        abi::store_u64(&v15, abi::stack_pointer(), HANDLE_OFF),
         // Canonical plan-80 header: tag@0, kind (handle)@8, closed@16, STATE@24.
-        abi::move_immediate("%v9", "Integer", RESOURCE_TAG_AUDIO),
-        abi::store_u64("%v9", "%v15", RESOURCE_OFFSET_TAG),
-        abi::store_u64(abi::ZERO, "%v15", RESOURCE_OFFSET_STATE),
-        abi::move_immediate(
-            "%v9",
-            "Integer",
-            if input { KIND_INPUT } else { KIND_OUTPUT },
-        ),
-        abi::store_u64("%v9", "%v15", H_KIND),
-        abi::store_u64(abi::ZERO, "%v15", H_CLOSED),
-        abi::load_u64("%v9", abi::stack_pointer(), SR_OFF),
-        abi::store_u64("%v9", "%v15", H_SAMPLE_RATE),
-        abi::load_u64("%v9", abi::stack_pointer(), CH_OFF),
-        abi::store_u64("%v9", "%v15", H_CHANNELS),
-        abi::load_u64("%v9", abi::stack_pointer(), BPF_OFF),
-        abi::store_u64("%v9", "%v15", H_BYTES_PER_FRAME),
-        abi::load_u64("%v9", abi::stack_pointer(), BF_OFF),
-        abi::store_u64("%v9", "%v15", H_BUFFER_FRAMES),
+        abi::move_immediate(&v9, "Integer", RESOURCE_TAG_AUDIO),
+        abi::store_u64(&v9, &v15, RESOURCE_OFFSET_TAG),
+        abi::store_u64(abi::ZERO, &v15, RESOURCE_OFFSET_STATE),
+        abi::move_immediate(&v9, "Integer", if input { KIND_INPUT } else { KIND_OUTPUT }),
+        abi::store_u64(&v9, &v15, H_KIND),
+        abi::store_u64(abi::ZERO, &v15, H_CLOSED),
+        abi::load_u64(&v9, abi::stack_pointer(), SR_OFF),
+        abi::store_u64(&v9, &v15, H_SAMPLE_RATE),
+        abi::load_u64(&v9, abi::stack_pointer(), CH_OFF),
+        abi::store_u64(&v9, &v15, H_CHANNELS),
+        abi::load_u64(&v9, abi::stack_pointer(), BPF_OFF),
+        abi::store_u64(&v9, &v15, H_BYTES_PER_FRAME),
+        abi::load_u64(&v9, abi::stack_pointer(), BF_OFF),
+        abi::store_u64(&v9, &v15, H_BUFFER_FRAMES),
         // mmap one state page (ring unused on Linux; §3.2).
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::move_immediate(abi::c_arg(1), "Integer", &STATE_PAGE.to_string()),
@@ -458,18 +483,18 @@ fn lower_open(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::add_immediate("%v9", abi::return_register(), 1),
-        abi::compare_immediate("%v9", "0"),
+        abi::add_immediate(&v9, abi::return_register(), 1),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_eq(&dev_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
-        abi::load_u64("%v15", abi::stack_pointer(), HANDLE_OFF),
-        abi::store_u64(abi::return_register(), "%v15", H_STATE),
-        abi::load_u64("%v15", abi::stack_pointer(), STATE_OFF),
-        abi::store_u64(abi::ZERO, "%v15", S_XRUNS),
-        abi::store_u64(abi::ZERO, "%v15", S_CLOSED),
-        abi::store_u64(abi::ZERO, "%v15", S_OSOBJECT),
-        abi::move_immediate("%v9", "Integer", &STATE_PAGE.to_string()),
-        abi::store_u64("%v9", "%v15", S_MAP_SIZE),
+        abi::load_u64(&v15, abi::stack_pointer(), HANDLE_OFF),
+        abi::store_u64(abi::return_register(), &v15, H_STATE),
+        abi::load_u64(&v15, abi::stack_pointer(), STATE_OFF),
+        abi::store_u64(abi::ZERO, &v15, S_XRUNS),
+        abi::store_u64(abi::ZERO, &v15, S_CLOSED),
+        abi::store_u64(abi::ZERO, &v15, S_OSOBJECT),
+        abi::move_immediate(&v9, "Integer", &STATE_PAGE.to_string()),
+        abi::store_u64(&v9, &v15, S_MAP_SIZE),
     ]);
     emit_dlopen(
         &mut EmitCtx {
@@ -483,19 +508,20 @@ fn lower_open(
     )?;
     // Device name: the id string, or "default".
     if device {
-        emit_device_cstring(DEVID_OFF, &mut instructions, symbol);
+        emit_device_cstring(DEVID_OFF, &mut instructions, symbol, &mut vregs);
     } else {
         emit_data_address(
             symbol,
-            "%v9",
+            &v9,
             "_mfb_audio_alsa_default",
             &mut instructions,
             &mut relocations,
         );
-        instructions.push(abi::store_u64("%v9", abi::stack_pointer(), NAME_OFF));
+        instructions.push(abi::store_u64(&v9, abi::stack_pointer(), NAME_OFF));
     }
     // snd_pcm_open(&state->osobject, name, stream, 0)
     emit_alsa_call(
+        &mut vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -508,8 +534,8 @@ fn lower_open(
         false,
         |ins, _relocs| {
             ins.extend([
-                abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-                abi::add_immediate(abi::return_register(), "%v9", S_OSOBJECT),
+                abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+                abi::add_immediate(abi::return_register(), &v9, S_OSOBJECT),
                 abi::load_u64(abi::c_arg(1), abi::stack_pointer(), NAME_OFF),
                 abi::move_immediate(
                     abi::c_arg(2),
@@ -529,6 +555,7 @@ fn lower_open(
         abi::branch_lt(&dev_fail),
     ]);
     emit_configure_hw_params(
+        &mut vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -541,6 +568,7 @@ fn lower_open(
     )?;
     // snd_pcm_prepare(pcm)
     emit_alsa_call(
+        &mut vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -553,17 +581,17 @@ fn lower_open(
         false,
         |ins, _relocs| {
             ins.extend([
-                abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-                abi::load_u64(abi::return_register(), "%v9", S_OSOBJECT),
+                abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+                abi::load_u64(abi::return_register(), &v9, S_OSOBJECT),
             ]);
         },
     )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&dev_fail),
-        abi::load_u64("%v15", abi::stack_pointer(), STATE_OFF),
-        abi::move_immediate("%v9", "Integer", "1"),
-        abi::store_u64("%v9", "%v15", S_STARTED),
+        abi::load_u64(&v15, abi::stack_pointer(), STATE_OFF),
+        abi::move_immediate(&v9, "Integer", "1"),
+        abi::store_u64(&v9, &v15, S_STARTED),
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), HANDLE_OFF),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -585,6 +613,7 @@ fn lower_open(
     // since bug-180 but never freed the hw-params object.
     instructions.push(abi::label(&unavailable));
     emit_open_cleanup(
+        &mut vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -603,6 +632,7 @@ fn lower_open(
     );
     instructions.push(abi::label(&dev_fail));
     emit_open_cleanup(
+        &mut vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -642,7 +672,7 @@ fn lower_open(
 /// `tag` disambiguates the labels so both error exits can inline it. A `dlsym`
 /// miss inside the cleanup skips only that disposal and continues to the next —
 /// it must never branch back to an error exit, which would loop.
-fn emit_open_cleanup(ctx: &mut EmitCtx, tag: &str) -> Result<(), String> {
+fn emit_open_cleanup(vregs: &mut Vregs, ctx: &mut EmitCtx, tag: &str) -> Result<(), String> {
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
@@ -650,12 +680,15 @@ fn emit_open_cleanup(ctx: &mut EmitCtx, tag: &str) -> Result<(), String> {
     let params_done = format!("{symbol}_{tag}_params_done");
     let cleanup_munmap = format!("{symbol}_{tag}_munmap");
     let cleanup_done = format!("{symbol}_{tag}_cleanup_done");
+    let v10 = vregs.next();
+    let v9 = vregs.next();
     ctx.instructions.extend([
-        abi::load_u64("%v10", abi::stack_pointer(), PARAMS_OFF),
-        abi::compare_immediate("%v10", "0"),
+        abi::load_u64(&v10, abi::stack_pointer(), PARAMS_OFF),
+        abi::compare_immediate(&v10, "0"),
         abi::branch_eq(&params_done),
     ]);
     emit_alsa_call(
+        &mut *vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -677,14 +710,15 @@ fn emit_open_cleanup(ctx: &mut EmitCtx, tag: &str) -> Result<(), String> {
     ctx.instructions.extend([
         abi::store_u64(abi::ZERO, abi::stack_pointer(), PARAMS_OFF),
         abi::label(&params_done),
-        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
-        abi::compare_immediate("%v10", "0"),
+        abi::load_u64(&v10, abi::stack_pointer(), STATE_OFF),
+        abi::compare_immediate(&v10, "0"),
         abi::branch_eq(&cleanup_done),
-        abi::load_u64("%v9", "%v10", S_OSOBJECT),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, &v10, S_OSOBJECT),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_eq(&cleanup_munmap),
     ]);
     emit_alsa_call(
+        &mut *vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -697,8 +731,8 @@ fn emit_open_cleanup(ctx: &mut EmitCtx, tag: &str) -> Result<(), String> {
         false,
         |ins, _relocs| {
             ins.extend([
-                abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
-                abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
+                abi::load_u64(&v10, abi::stack_pointer(), STATE_OFF),
+                abi::load_u64(abi::return_register(), &v10, S_OSOBJECT),
             ]);
         },
     )?;
@@ -725,6 +759,7 @@ fn emit_open_cleanup(ctx: &mut EmitCtx, tag: &str) -> Result<(), String> {
 /// requested channels/rate, buffer = bufferFrames*4. Verify the committed rate
 /// and channels match the request, else `ErrAudioDevice` (no silent resampling).
 fn emit_configure_hw_params(
+    vregs: &mut Vregs,
     ctx: &mut EmitCtx,
     unavailable: &str,
     dev_fail: &str,
@@ -733,10 +768,12 @@ fn emit_configure_hw_params(
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
 
+    let v9 = vregs.next();
+    let v10 = vregs.next();
     let pcm = |ins: &mut Vec<CodeInstruction>| {
         ins.extend([
-            abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-            abi::load_u64(abi::return_register(), "%v9", S_OSOBJECT),
+            abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+            abi::load_u64(abi::return_register(), &v9, S_OSOBJECT),
         ]);
     };
     let params = |ins: &mut Vec<CodeInstruction>| {
@@ -754,6 +791,7 @@ fn emit_configure_hw_params(
     };
     // snd_pcm_hw_params_malloc(&params)
     emit_alsa_call(
+        &mut *vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -775,6 +813,7 @@ fn emit_configure_hw_params(
     check(ctx.instructions, dev_fail);
     // any
     emit_alsa_call(
+        &mut *vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -793,6 +832,7 @@ fn emit_configure_hw_params(
     check(ctx.instructions, dev_fail);
     // set_access(INTERLEAVED)
     emit_alsa_call(
+        &mut *vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -816,6 +856,7 @@ fn emit_configure_hw_params(
     check(ctx.instructions, dev_fail);
     // set_format(S16_LE)
     emit_alsa_call(
+        &mut *vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -835,6 +876,7 @@ fn emit_configure_hw_params(
     check(ctx.instructions, dev_fail);
     // set_channels(channels)
     emit_alsa_call(
+        &mut *vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -854,11 +896,12 @@ fn emit_configure_hw_params(
     check(ctx.instructions, dev_fail);
     // set_rate_near(&rate, &dir)
     ctx.instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), SR_OFF),
-        abi::store_u32("%v9", abi::stack_pointer(), RATE_OFF),
+        abi::load_u64(&v9, abi::stack_pointer(), SR_OFF),
+        abi::store_u32(&v9, abi::stack_pointer(), RATE_OFF),
         abi::store_u32(abi::ZERO, abi::stack_pointer(), DIR_OFF),
     ]);
     emit_alsa_call(
+        &mut *vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -887,11 +930,12 @@ fn emit_configure_hw_params(
     check(ctx.instructions, dev_fail);
     // set_period_size_near(&period, &dir) — period = bufferFrames
     ctx.instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), BF_OFF),
-        abi::store_u64("%v9", abi::stack_pointer(), PERIOD_OFF),
+        abi::load_u64(&v9, abi::stack_pointer(), BF_OFF),
+        abi::store_u64(&v9, abi::stack_pointer(), PERIOD_OFF),
         abi::store_u32(abi::ZERO, abi::stack_pointer(), DIR_OFF),
     ]);
     emit_alsa_call(
+        &mut *vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -920,12 +964,13 @@ fn emit_configure_hw_params(
     check(ctx.instructions, dev_fail);
     // set_buffer_size_near(&buffer) — buffer = bufferFrames * 4 (mirror macOS depth)
     ctx.instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), BF_OFF),
-        abi::move_immediate("%v10", "Integer", "4"),
-        abi::multiply_registers("%v9", "%v9", "%v10"),
-        abi::store_u64("%v9", abi::stack_pointer(), BUFSZ_OFF),
+        abi::load_u64(&v9, abi::stack_pointer(), BF_OFF),
+        abi::move_immediate(&v10, "Integer", "4"),
+        abi::multiply_registers(&v9, &v9, &v10),
+        abi::store_u64(&v9, abi::stack_pointer(), BUFSZ_OFF),
     ]);
     emit_alsa_call(
+        &mut *vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -949,6 +994,7 @@ fn emit_configure_hw_params(
     check(ctx.instructions, dev_fail);
     // commit
     emit_alsa_call(
+        &mut *vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -972,6 +1018,7 @@ fn emit_configure_hw_params(
     // ARG[1] with `&rate`/`&chans` left ARG[0] holding the leftover dlsym fn-ptr, so
     // the getter read garbage and open failed the rate/channel verification (bug-207).
     emit_alsa_call(
+        &mut *vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -1001,6 +1048,7 @@ fn emit_configure_hw_params(
         },
     )?;
     emit_alsa_call(
+        &mut *vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -1025,17 +1073,18 @@ fn emit_configure_hw_params(
         },
     )?;
     ctx.instructions.extend([
-        abi::load_u32("%v9", abi::stack_pointer(), RATE_OFF),
-        abi::load_u64("%v10", abi::stack_pointer(), SR_OFF),
-        abi::compare_registers("%v9", "%v10"),
+        abi::load_u32(&v9, abi::stack_pointer(), RATE_OFF),
+        abi::load_u64(&v10, abi::stack_pointer(), SR_OFF),
+        abi::compare_registers(&v9, &v10),
         abi::branch_ne(dev_fail),
-        abi::load_u32("%v9", abi::stack_pointer(), CHANS_OFF),
-        abi::load_u64("%v10", abi::stack_pointer(), CH_OFF),
-        abi::compare_registers("%v9", "%v10"),
+        abi::load_u32(&v9, abi::stack_pointer(), CHANS_OFF),
+        abi::load_u64(&v10, abi::stack_pointer(), CH_OFF),
+        abi::compare_registers(&v9, &v10),
         abi::branch_ne(dev_fail),
     ]);
     // free the hw_params object.
     emit_alsa_call(
+        &mut *vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -1080,24 +1129,32 @@ fn lower_write(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v13 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v14 = vregs.next();
+    let v8 = vregs.next();
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), SRC_OFF), // byteList
-        abi::load_u64("%v9", abi::return_register(), H_CLOSED),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::return_register(), H_CLOSED),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_ne(&dev_fail),
-        abi::load_u64("%v10", abi::return_register(), H_STATE),
-        abi::store_u64("%v10", abi::stack_pointer(), STATE_OFF),
-        abi::load_u64("%v10", abi::return_register(), H_BYTES_PER_FRAME),
-        abi::store_u64("%v10", abi::stack_pointer(), BPF_OFF),
+        abi::load_u64(&v10, abi::return_register(), H_STATE),
+        abi::store_u64(&v10, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(&v10, abi::return_register(), H_BYTES_PER_FRAME),
+        abi::store_u64(&v10, abi::stack_pointer(), BPF_OFF),
         // total bytes, frame-alignment check
-        abi::load_u64("%v13", abi::c_arg(1), COLLECTION_OFFSET_COUNT),
-        abi::compare_immediate("%v13", "0"),
+        abi::load_u64(&v13, abi::c_arg(1), COLLECTION_OFFSET_COUNT),
+        abi::compare_immediate(&v13, "0"),
         abi::branch_eq(&invalid),
-        abi::load_u64("%v10", abi::stack_pointer(), BPF_OFF),
-        abi::subtract_immediate("%v11", "%v10", 1),
-        abi::and_registers("%v12", "%v13", "%v11"),
-        abi::compare_immediate("%v12", "0"),
+        abi::load_u64(&v10, abi::stack_pointer(), BPF_OFF),
+        abi::subtract_immediate(&v11, &v10, 1),
+        abi::and_registers(&v12, &v13, &v11),
+        abi::compare_immediate(&v12, "0"),
         abi::branch_ne(&invalid),
         // src = byteList + HEADER + CAPACITY*ENTRY (the data region starts past
         // the CAPACITY-sized entry array; an append-built list has spare
@@ -1105,16 +1162,16 @@ fn lower_write(
     ]);
     push_collection_data_base_from_capacity(
         &mut instructions,
-        "%v14",
+        &v14,
         abi::c_arg(1),
-        "%v12",
-        "%v14",
-        "%v14",
+        &v12,
+        &v14,
+        &v14,
     );
     instructions.extend([
-        abi::store_u64("%v14", abi::stack_pointer(), SRC_OFF),
-        abi::unsigned_divide_registers("%v13", "%v13", "%v10"),
-        abi::store_u64("%v13", abi::stack_pointer(), TOTAL_OFF), // total frames
+        abi::store_u64(&v14, abi::stack_pointer(), SRC_OFF),
+        abi::unsigned_divide_registers(&v13, &v13, &v10),
+        abi::store_u64(&v13, abi::stack_pointer(), TOTAL_OFF), // total frames
         abi::store_u64(abi::ZERO, abi::stack_pointer(), OFFSET_OFF),
     ]);
     emit_dlopen(
@@ -1139,8 +1196,8 @@ fn lower_write(
         "snd_pcm_writei",
         &unavailable,
     )?;
-    instructions.push(abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFF));
-    instructions.push(abi::store_u64("%v9", abi::stack_pointer(), FN2_OFF));
+    instructions.push(abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFF));
+    instructions.push(abi::store_u64(&v9, abi::stack_pointer(), FN2_OFF));
     emit_dlsym(
         &mut EmitCtx {
             symbol,
@@ -1155,47 +1212,47 @@ fn lower_write(
     // (recover fn-ptr stays in FNPTR_OFF)
     instructions.extend([
         abi::label(&loop_top),
-        abi::load_u64("%v9", abi::stack_pointer(), OFFSET_OFF),
-        abi::load_u64("%v10", abi::stack_pointer(), TOTAL_OFF),
-        abi::compare_registers("%v9", "%v10"),
+        abi::load_u64(&v9, abi::stack_pointer(), OFFSET_OFF),
+        abi::load_u64(&v10, abi::stack_pointer(), TOTAL_OFF),
+        abi::compare_registers(&v9, &v10),
         abi::branch_ge(&loop_done),
         // snd_pcm_writei(pcm, src + offset*bpf, total-offset)
-        abi::load_u64("%v11", abi::stack_pointer(), STATE_OFF),
-        abi::load_u64(abi::return_register(), "%v11", S_OSOBJECT),
-        abi::load_u64("%v12", abi::stack_pointer(), SRC_OFF),
-        abi::load_u64("%v13", abi::stack_pointer(), BPF_OFF),
-        abi::multiply_registers("%v14", "%v9", "%v13"),
-        abi::add_registers(abi::c_arg(1), "%v12", "%v14"),
-        abi::subtract_registers(abi::c_arg(2), "%v10", "%v9"),
-        abi::load_u64("%v8", abi::stack_pointer(), FN2_OFF),
-        abi::branch_link_register("%v8"),
+        abi::load_u64(&v11, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(abi::return_register(), &v11, S_OSOBJECT),
+        abi::load_u64(&v12, abi::stack_pointer(), SRC_OFF),
+        abi::load_u64(&v13, abi::stack_pointer(), BPF_OFF),
+        abi::multiply_registers(&v14, &v9, &v13),
+        abi::add_registers(abi::c_arg(1), &v12, &v14),
+        abi::subtract_registers(abi::c_arg(2), &v10, &v9),
+        abi::load_u64(&v8, abi::stack_pointer(), FN2_OFF),
+        abi::branch_link_register(&v8),
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFF),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge(&ok_frames),
         // negative: -EINTR retries, else recover.
-        abi::move_immediate("%v10", "Integer", EINTR),
-        abi::subtract_registers("%v10", abi::ZERO, "%v10"),
-        abi::compare_registers(abi::return_register(), "%v10"),
+        abi::move_immediate(&v10, "Integer", EINTR),
+        abi::subtract_registers(&v10, abi::ZERO, &v10),
+        abi::compare_registers(abi::return_register(), &v10),
         abi::branch_eq(&loop_top),
         abi::branch(&recover),
         abi::label(&ok_frames),
-        abi::load_u64("%v9", abi::stack_pointer(), OFFSET_OFF),
-        abi::load_u64("%v10", abi::stack_pointer(), N_OFF),
-        abi::add_registers("%v9", "%v9", "%v10"),
-        abi::store_u64("%v9", abi::stack_pointer(), OFFSET_OFF),
+        abi::load_u64(&v9, abi::stack_pointer(), OFFSET_OFF),
+        abi::load_u64(&v10, abi::stack_pointer(), N_OFF),
+        abi::add_registers(&v9, &v9, &v10),
+        abi::store_u64(&v9, abi::stack_pointer(), OFFSET_OFF),
         abi::branch(&loop_top),
         abi::label(&recover),
         // xruns++ ; snd_pcm_recover(pcm, err, 1)
-        abi::load_u64("%v11", abi::stack_pointer(), STATE_OFF),
-        abi::load_u64("%v12", "%v11", S_XRUNS),
-        abi::add_immediate("%v12", "%v12", 1),
-        abi::store_u64("%v12", "%v11", S_XRUNS),
-        abi::load_u64(abi::return_register(), "%v11", S_OSOBJECT),
+        abi::load_u64(&v11, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(&v12, &v11, S_XRUNS),
+        abi::add_immediate(&v12, &v12, 1),
+        abi::store_u64(&v12, &v11, S_XRUNS),
+        abi::load_u64(abi::return_register(), &v11, S_OSOBJECT),
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), N_OFF), // err
         abi::move_immediate(abi::c_arg(2), "Integer", "1"),
-        abi::load_u64("%v8", abi::stack_pointer(), FNPTR_OFF),
-        abi::branch_link_register("%v8"),
+        abi::load_u64(&v8, abi::stack_pointer(), FNPTR_OFF),
+        abi::branch_link_register(&v8),
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&dev_fail),
@@ -1261,6 +1318,17 @@ fn lower_read(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+    let v8 = vregs.next();
+    let v14 = vregs.next();
+    let v16 = vregs.next();
+    let v17 = vregs.next();
+    let v18 = vregs.next();
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), FRAMES_OFF),
@@ -1274,21 +1342,21 @@ fn lower_read(
         ));
     }
     instructions.extend([
-        abi::load_u64("%v9", abi::return_register(), H_CLOSED),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::return_register(), H_CLOSED),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_ne(&dev_fail),
-        abi::load_u64("%v10", abi::return_register(), H_STATE),
-        abi::store_u64("%v10", abi::stack_pointer(), STATE_OFF),
-        abi::load_u64("%v10", abi::return_register(), H_BYTES_PER_FRAME),
-        abi::store_u64("%v10", abi::stack_pointer(), BPF_OFF),
-        abi::load_u64("%v9", abi::stack_pointer(), FRAMES_OFF),
-        abi::compare_immediate("%v9", "1"),
+        abi::load_u64(&v10, abi::return_register(), H_STATE),
+        abi::store_u64(&v10, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(&v10, abi::return_register(), H_BYTES_PER_FRAME),
+        abi::store_u64(&v10, abi::stack_pointer(), BPF_OFF),
+        abi::load_u64(&v9, abi::stack_pointer(), FRAMES_OFF),
+        abi::compare_immediate(&v9, "1"),
         abi::branch_lt(&invalid),
-        abi::move_immediate("%v11", "Integer", READ_FRAMES_MAX),
-        abi::compare_registers("%v9", "%v11"),
+        abi::move_immediate(&v11, "Integer", READ_FRAMES_MAX),
+        abi::compare_registers(&v9, &v11),
         abi::branch_gt(&invalid),
-        abi::multiply_registers("%v12", "%v9", "%v10"),
-        abi::store_u64("%v12", abi::stack_pointer(), NEED_OFF),
+        abi::multiply_registers(&v12, &v9, &v10),
+        abi::store_u64(&v12, abi::stack_pointer(), NEED_OFF),
     ]);
     if timeout {
         // plan-73-B: reject a negative `timeoutMs` (ErrInvalidArgument); clamp a
@@ -1296,15 +1364,15 @@ fn lower_read(
         // back for the deadline math below. Mirrors net::poll's clamp.
         let timeout_clamped = format!("{symbol}_timeout_clamped");
         instructions.extend([
-            abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT_OFF),
-            abi::compare_immediate("%v9", "0"),
+            abi::load_u64(&v9, abi::stack_pointer(), TIMEOUT_OFF),
+            abi::compare_immediate(&v9, "0"),
             abi::branch_lt(&invalid),
-            abi::move_immediate("%v11", "Integer", TIMEOUT_CLAMP_MS),
-            abi::compare_registers("%v9", "%v11"),
+            abi::move_immediate(&v11, "Integer", TIMEOUT_CLAMP_MS),
+            abi::compare_registers(&v9, &v11),
             abi::branch_le(&timeout_clamped),
-            abi::move_register("%v9", "%v11"),
+            abi::move_register(&v9, &v11),
             abi::label(&timeout_clamped),
-            abi::store_u64("%v9", abi::stack_pointer(), TIMEOUT_OFF),
+            abi::store_u64(&v9, abi::stack_pointer(), TIMEOUT_OFF),
         ]);
     }
     emit_alloc_byte_list(
@@ -1318,13 +1386,13 @@ fn lower_read(
     );
     // payload base = list + HEADER + need*ENTRY
     instructions.extend([
-        abi::load_u64("%v11", abi::stack_pointer(), LIST_OFF),
-        abi::load_u64("%v9", abi::stack_pointer(), NEED_OFF),
-        abi::move_immediate("%v13", "Integer", &byte_list_entry_stride().to_string()),
-        abi::multiply_registers("%v13", "%v9", "%v13"),
-        abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
-        abi::add_registers("%v11", "%v11", "%v13"),
-        abi::store_u64("%v11", abi::stack_pointer(), SRC_OFF), // payload base
+        abi::load_u64(&v11, abi::stack_pointer(), LIST_OFF),
+        abi::load_u64(&v9, abi::stack_pointer(), NEED_OFF),
+        abi::move_immediate(&v13, "Integer", &byte_list_entry_stride().to_string()),
+        abi::multiply_registers(&v13, &v9, &v13),
+        abi::add_immediate(&v13, &v13, COLLECTION_HEADER_SIZE),
+        abi::add_registers(&v11, &v11, &v13),
+        abi::store_u64(&v11, abi::stack_pointer(), SRC_OFF), // payload base
         abi::store_u64(abi::ZERO, abi::stack_pointer(), FRAMES_GOT_OFF), // frames read
     ]);
     emit_dlopen(
@@ -1351,8 +1419,8 @@ fn lower_read(
             "snd_pcm_wait",
             &unavailable,
         )?;
-        instructions.push(abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFF));
-        instructions.push(abi::store_u64("%v9", abi::stack_pointer(), WAIT_FN_OFF));
+        instructions.push(abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFF));
+        instructions.push(abi::store_u64(&v9, abi::stack_pointer(), WAIT_FN_OFF));
         emit_dlsym(
             &mut EmitCtx {
                 symbol,
@@ -1364,8 +1432,8 @@ fn lower_read(
             "snd_pcm_avail_update",
             &unavailable,
         )?;
-        instructions.push(abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFF));
-        instructions.push(abi::store_u64("%v9", abi::stack_pointer(), AVAIL_FN_OFF));
+        instructions.push(abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFF));
+        instructions.push(abi::store_u64(&v9, abi::stack_pointer(), AVAIL_FN_OFF));
         // deadline = now + timeoutMs*1e6 (Linux CLOCK_MONOTONIC = 1).
         instructions.extend([
             abi::move_immediate(abi::return_register(), "Integer", "1"),
@@ -1379,16 +1447,16 @@ fn lower_read(
             &mut relocations,
         )?;
         instructions.extend([
-            abi::load_u64("%v9", abi::stack_pointer(), CLK_OFF),
-            abi::move_immediate("%v10", "Integer", "1000000000"),
-            abi::multiply_registers("%v9", "%v9", "%v10"),
-            abi::load_u64("%v11", abi::stack_pointer(), CLK_OFF + 8),
-            abi::add_registers("%v9", "%v9", "%v11"),
-            abi::load_u64("%v12", abi::stack_pointer(), TIMEOUT_OFF),
-            abi::move_immediate("%v13", "Integer", "1000000"),
-            abi::multiply_registers("%v12", "%v12", "%v13"),
-            abi::add_registers("%v9", "%v9", "%v12"),
-            abi::store_u64("%v9", abi::stack_pointer(), DEADLINE_OFF),
+            abi::load_u64(&v9, abi::stack_pointer(), CLK_OFF),
+            abi::move_immediate(&v10, "Integer", "1000000000"),
+            abi::multiply_registers(&v9, &v9, &v10),
+            abi::load_u64(&v11, abi::stack_pointer(), CLK_OFF + 8),
+            abi::add_registers(&v9, &v9, &v11),
+            abi::load_u64(&v12, abi::stack_pointer(), TIMEOUT_OFF),
+            abi::move_immediate(&v13, "Integer", "1000000"),
+            abi::multiply_registers(&v12, &v12, &v13),
+            abi::add_registers(&v9, &v9, &v12),
+            abi::store_u64(&v9, abi::stack_pointer(), DEADLINE_OFF),
         ]);
     }
     emit_dlsym(
@@ -1402,8 +1470,8 @@ fn lower_read(
         "snd_pcm_readi",
         &unavailable,
     )?;
-    instructions.push(abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFF));
-    instructions.push(abi::store_u64("%v9", abi::stack_pointer(), FN2_OFF));
+    instructions.push(abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFF));
+    instructions.push(abi::store_u64(&v9, abi::stack_pointer(), FN2_OFF));
     emit_dlsym(
         &mut EmitCtx {
             symbol,
@@ -1417,9 +1485,9 @@ fn lower_read(
     )?;
     instructions.extend([
         abi::label(&loop_top),
-        abi::load_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
-        abi::load_u64("%v10", abi::stack_pointer(), FRAMES_OFF),
-        abi::compare_registers("%v9", "%v10"),
+        abi::load_u64(&v9, abi::stack_pointer(), FRAMES_GOT_OFF),
+        abi::load_u64(&v10, abi::stack_pointer(), FRAMES_OFF),
+        abi::compare_registers(&v9, &v10),
         abi::branch_ge(&loop_done),
     ]);
     if timeout {
@@ -1439,97 +1507,97 @@ fn lower_read(
             &mut relocations,
         )?;
         instructions.extend([
-            abi::load_u64("%v9", abi::stack_pointer(), CLK_OFF),
-            abi::move_immediate("%v10", "Integer", "1000000000"),
-            abi::multiply_registers("%v9", "%v9", "%v10"),
-            abi::load_u64("%v11", abi::stack_pointer(), CLK_OFF + 8),
-            abi::add_registers("%v9", "%v9", "%v11"), // now
-            abi::load_u64("%v12", abi::stack_pointer(), DEADLINE_OFF),
-            abi::compare_registers("%v9", "%v12"),
+            abi::load_u64(&v9, abi::stack_pointer(), CLK_OFF),
+            abi::move_immediate(&v10, "Integer", "1000000000"),
+            abi::multiply_registers(&v9, &v9, &v10),
+            abi::load_u64(&v11, abi::stack_pointer(), CLK_OFF + 8),
+            abi::add_registers(&v9, &v9, &v11), // now
+            abi::load_u64(&v12, abi::stack_pointer(), DEADLINE_OFF),
+            abi::compare_registers(&v9, &v12),
             abi::branch_ge(&expired_drain), // expired -> drain buffered, then partial
             // remaining_ms = (deadline - now) / 1e6; sub-ms remaining -> drain.
-            abi::subtract_registers("%v12", "%v12", "%v9"),
-            abi::move_immediate("%v13", "Integer", "1000000"),
-            abi::unsigned_divide_registers("%v13", "%v12", "%v13"),
-            abi::compare_immediate("%v13", "0"),
+            abi::subtract_registers(&v12, &v12, &v9),
+            abi::move_immediate(&v13, "Integer", "1000000"),
+            abi::unsigned_divide_registers(&v13, &v12, &v13),
+            abi::compare_immediate(&v13, "0"),
             abi::branch_eq(&expired_drain),
             // snd_pcm_wait(pcm, remaining_ms): 1 ready, 0 timeout, <0 error.
-            abi::load_u64("%v11", abi::stack_pointer(), STATE_OFF),
-            abi::load_u64(abi::return_register(), "%v11", S_OSOBJECT),
-            abi::move_register(abi::c_arg(1), "%v13"),
-            abi::load_u64("%v8", abi::stack_pointer(), WAIT_FN_OFF),
-            abi::branch_link_register("%v8"),
+            abi::load_u64(&v11, abi::stack_pointer(), STATE_OFF),
+            abi::load_u64(abi::return_register(), &v11, S_OSOBJECT),
+            abi::move_register(abi::c_arg(1), &v13),
+            abi::load_u64(&v8, abi::stack_pointer(), WAIT_FN_OFF),
+            abi::branch_link_register(&v8),
             abi::sign_extend_word(abi::return_register(), abi::return_register()),
             abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFF),
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_eq(&loop_done), // timeout -> partial
             abi::branch_lt(&recover),   // error (e.g. xrun) -> recover (N_OFF = err)
             // avail = snd_pcm_avail_update(pcm)
-            abi::load_u64("%v11", abi::stack_pointer(), STATE_OFF),
-            abi::load_u64(abi::return_register(), "%v11", S_OSOBJECT),
-            abi::load_u64("%v8", abi::stack_pointer(), AVAIL_FN_OFF),
-            abi::branch_link_register("%v8"),
+            abi::load_u64(&v11, abi::stack_pointer(), STATE_OFF),
+            abi::load_u64(abi::return_register(), &v11, S_OSOBJECT),
+            abi::load_u64(&v8, abi::stack_pointer(), AVAIL_FN_OFF),
+            abi::branch_link_register(&v8),
             abi::sign_extend_word(abi::return_register(), abi::return_register()),
             abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFF),
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_lt(&recover), // avail error -> recover
             // want = min(frames - got, avail); a zero avail re-arms the wait.
-            abi::move_register("%v14", abi::return_register()), // avail frames
-            abi::load_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
-            abi::load_u64("%v10", abi::stack_pointer(), FRAMES_OFF),
-            abi::subtract_registers("%v10", "%v10", "%v9"), // remaining frames
-            abi::compare_registers("%v14", "%v10"),
+            abi::move_register(&v14, abi::return_register()), // avail frames
+            abi::load_u64(&v9, abi::stack_pointer(), FRAMES_GOT_OFF),
+            abi::load_u64(&v10, abi::stack_pointer(), FRAMES_OFF),
+            abi::subtract_registers(&v10, &v10, &v9), // remaining frames
+            abi::compare_registers(&v14, &v10),
             abi::branch_ge(&want_cap),
-            abi::move_register("%v10", "%v14"), // want = avail
+            abi::move_register(&v10, &v14), // want = avail
             abi::label(&want_cap),
-            abi::compare_immediate("%v10", "0"),
+            abi::compare_immediate(&v10, "0"),
             abi::branch_eq(&loop_top),
-            abi::store_u64("%v10", abi::stack_pointer(), WANT_OFF),
-            abi::load_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF), // reload for readi math
+            abi::store_u64(&v10, abi::stack_pointer(), WANT_OFF),
+            abi::load_u64(&v9, abi::stack_pointer(), FRAMES_GOT_OFF), // reload for readi math
         ]);
     }
     instructions.extend([
         // snd_pcm_readi(pcm, payload + got*bpf, <count>)
-        abi::load_u64("%v11", abi::stack_pointer(), STATE_OFF),
-        abi::load_u64(abi::return_register(), "%v11", S_OSOBJECT),
-        abi::load_u64("%v12", abi::stack_pointer(), SRC_OFF),
-        abi::load_u64("%v13", abi::stack_pointer(), BPF_OFF),
-        abi::multiply_registers("%v14", "%v9", "%v13"),
-        abi::add_registers(abi::c_arg(1), "%v12", "%v14"),
+        abi::load_u64(&v11, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(abi::return_register(), &v11, S_OSOBJECT),
+        abi::load_u64(&v12, abi::stack_pointer(), SRC_OFF),
+        abi::load_u64(&v13, abi::stack_pointer(), BPF_OFF),
+        abi::multiply_registers(&v14, &v9, &v13),
+        abi::add_registers(abi::c_arg(1), &v12, &v14),
     ]);
     if timeout {
         instructions.push(abi::load_u64(abi::c_arg(2), abi::stack_pointer(), WANT_OFF));
     } else {
-        instructions.push(abi::subtract_registers(abi::c_arg(2), "%v10", "%v9"));
+        instructions.push(abi::subtract_registers(abi::c_arg(2), &v10, &v9));
     }
     instructions.extend([
-        abi::load_u64("%v8", abi::stack_pointer(), FN2_OFF),
-        abi::branch_link_register("%v8"),
+        abi::load_u64(&v8, abi::stack_pointer(), FN2_OFF),
+        abi::branch_link_register(&v8),
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFF),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge(&ok_frames),
-        abi::move_immediate("%v10", "Integer", EINTR),
-        abi::subtract_registers("%v10", abi::ZERO, "%v10"),
-        abi::compare_registers(abi::return_register(), "%v10"),
+        abi::move_immediate(&v10, "Integer", EINTR),
+        abi::subtract_registers(&v10, abi::ZERO, &v10),
+        abi::compare_registers(abi::return_register(), &v10),
         abi::branch_eq(&loop_top),
         abi::branch(&recover),
         abi::label(&ok_frames),
-        abi::load_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
-        abi::load_u64("%v10", abi::stack_pointer(), N_OFF),
-        abi::add_registers("%v9", "%v9", "%v10"),
-        abi::store_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
+        abi::load_u64(&v9, abi::stack_pointer(), FRAMES_GOT_OFF),
+        abi::load_u64(&v10, abi::stack_pointer(), N_OFF),
+        abi::add_registers(&v9, &v9, &v10),
+        abi::store_u64(&v9, abi::stack_pointer(), FRAMES_GOT_OFF),
         abi::branch(&loop_top),
         abi::label(&recover),
-        abi::load_u64("%v11", abi::stack_pointer(), STATE_OFF),
-        abi::load_u64("%v12", "%v11", S_XRUNS),
-        abi::add_immediate("%v12", "%v12", 1),
-        abi::store_u64("%v12", "%v11", S_XRUNS),
-        abi::load_u64(abi::return_register(), "%v11", S_OSOBJECT),
+        abi::load_u64(&v11, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(&v12, &v11, S_XRUNS),
+        abi::add_immediate(&v12, &v12, 1),
+        abi::store_u64(&v12, &v11, S_XRUNS),
+        abi::load_u64(abi::return_register(), &v11, S_OSOBJECT),
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), N_OFF),
         abi::move_immediate(abi::c_arg(2), "Integer", "1"),
-        abi::load_u64("%v8", abi::stack_pointer(), FNPTR_OFF),
-        abi::branch_link_register("%v8"),
+        abi::load_u64(&v8, abi::stack_pointer(), FNPTR_OFF),
+        abi::branch_link_register(&v8),
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&dev_fail),
@@ -1546,43 +1614,43 @@ fn lower_read(
         instructions.extend([
             abi::label(&expired_drain),
             // avail = snd_pcm_avail_update(pcm); <= 0 (nothing ready / error) -> partial.
-            abi::load_u64("%v11", abi::stack_pointer(), STATE_OFF),
-            abi::load_u64(abi::return_register(), "%v11", S_OSOBJECT),
-            abi::load_u64("%v8", abi::stack_pointer(), AVAIL_FN_OFF),
-            abi::branch_link_register("%v8"),
+            abi::load_u64(&v11, abi::stack_pointer(), STATE_OFF),
+            abi::load_u64(abi::return_register(), &v11, S_OSOBJECT),
+            abi::load_u64(&v8, abi::stack_pointer(), AVAIL_FN_OFF),
+            abi::branch_link_register(&v8),
             abi::sign_extend_word(abi::return_register(), abi::return_register()),
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_le(&loop_done),
             // want = min(avail, frames - got); a zero want -> partial.
-            abi::move_register("%v14", abi::return_register()),
-            abi::load_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
-            abi::load_u64("%v10", abi::stack_pointer(), FRAMES_OFF),
-            abi::subtract_registers("%v10", "%v10", "%v9"),
-            abi::compare_registers("%v14", "%v10"),
+            abi::move_register(&v14, abi::return_register()),
+            abi::load_u64(&v9, abi::stack_pointer(), FRAMES_GOT_OFF),
+            abi::load_u64(&v10, abi::stack_pointer(), FRAMES_OFF),
+            abi::subtract_registers(&v10, &v10, &v9),
+            abi::compare_registers(&v14, &v10),
             abi::branch_ge(&drain_cap),
-            abi::move_register("%v10", "%v14"),
+            abi::move_register(&v10, &v14),
             abi::label(&drain_cap),
-            abi::compare_immediate("%v10", "0"),
+            abi::compare_immediate(&v10, "0"),
             abi::branch_eq(&loop_done),
-            abi::store_u64("%v10", abi::stack_pointer(), WANT_OFF),
+            abi::store_u64(&v10, abi::stack_pointer(), WANT_OFF),
             // snd_pcm_readi(pcm, payload + got*bpf, want) — one shot.
-            abi::load_u64("%v11", abi::stack_pointer(), STATE_OFF),
-            abi::load_u64(abi::return_register(), "%v11", S_OSOBJECT),
-            abi::load_u64("%v12", abi::stack_pointer(), SRC_OFF),
-            abi::load_u64("%v13", abi::stack_pointer(), BPF_OFF),
-            abi::load_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
-            abi::multiply_registers("%v14", "%v9", "%v13"),
-            abi::add_registers(abi::c_arg(1), "%v12", "%v14"),
+            abi::load_u64(&v11, abi::stack_pointer(), STATE_OFF),
+            abi::load_u64(abi::return_register(), &v11, S_OSOBJECT),
+            abi::load_u64(&v12, abi::stack_pointer(), SRC_OFF),
+            abi::load_u64(&v13, abi::stack_pointer(), BPF_OFF),
+            abi::load_u64(&v9, abi::stack_pointer(), FRAMES_GOT_OFF),
+            abi::multiply_registers(&v14, &v9, &v13),
+            abi::add_registers(abi::c_arg(1), &v12, &v14),
             abi::load_u64(abi::c_arg(2), abi::stack_pointer(), WANT_OFF),
-            abi::load_u64("%v8", abi::stack_pointer(), FN2_OFF),
-            abi::branch_link_register("%v8"),
+            abi::load_u64(&v8, abi::stack_pointer(), FN2_OFF),
+            abi::branch_link_register(&v8),
             abi::sign_extend_word(abi::return_register(), abi::return_register()),
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_lt(&loop_done), // readi error at expiry -> return partial
             // got += n
-            abi::load_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
-            abi::add_registers("%v9", "%v9", abi::return_register()),
-            abi::store_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
+            abi::load_u64(&v9, abi::stack_pointer(), FRAMES_GOT_OFF),
+            abi::add_registers(&v9, &v9, abi::return_register()),
+            abi::store_u64(&v9, abi::stack_pointer(), FRAMES_GOT_OFF),
             abi::branch(&loop_done),
         ]);
     }
@@ -1594,13 +1662,13 @@ fn lower_read(
         let fin_loop = format!("{symbol}_fin");
         let fin_done = format!("{symbol}_fin_done");
         instructions.extend([
-            abi::load_u64("%v9", abi::stack_pointer(), FRAMES_GOT_OFF),
-            abi::load_u64("%v10", abi::stack_pointer(), FRAMES_OFF),
-            abi::compare_registers("%v9", "%v10"),
+            abi::load_u64(&v9, abi::stack_pointer(), FRAMES_GOT_OFF),
+            abi::load_u64(&v10, abi::stack_pointer(), FRAMES_OFF),
+            abi::compare_registers(&v9, &v10),
             abi::branch_ge(&ret_full),
-            abi::load_u64("%v13", abi::stack_pointer(), BPF_OFF),
-            abi::multiply_registers("%v9", "%v9", "%v13"), // gotBytes = got * bpf
-            abi::store_u64("%v9", abi::stack_pointer(), GOTBYTES_OFF),
+            abi::load_u64(&v13, abi::stack_pointer(), BPF_OFF),
+            abi::multiply_registers(&v9, &v9, &v13), // gotBytes = got * bpf
+            abi::store_u64(&v9, abi::stack_pointer(), GOTBYTES_OFF),
         ]);
         emit_alloc_byte_list(
             symbol,
@@ -1613,32 +1681,32 @@ fn lower_read(
         );
         instructions.extend([
             // copy gotBytes from the oversized payload into the final payload.
-            abi::load_u64("%v9", abi::stack_pointer(), GOTBYTES_OFF),
-            abi::load_u64("%v11", abi::stack_pointer(), FINAL_LIST_OFF),
-            abi::move_immediate("%v13", "Integer", &byte_list_entry_stride().to_string()),
-            abi::multiply_registers("%v13", "%v9", "%v13"),
-            abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
-            abi::add_registers("%v11", "%v11", "%v13"), // final payload
-            abi::load_u64("%v12", abi::stack_pointer(), SRC_OFF), // source payload
-            abi::move_immediate("%v16", "Integer", "0"),
+            abi::load_u64(&v9, abi::stack_pointer(), GOTBYTES_OFF),
+            abi::load_u64(&v11, abi::stack_pointer(), FINAL_LIST_OFF),
+            abi::move_immediate(&v13, "Integer", &byte_list_entry_stride().to_string()),
+            abi::multiply_registers(&v13, &v9, &v13),
+            abi::add_immediate(&v13, &v13, COLLECTION_HEADER_SIZE),
+            abi::add_registers(&v11, &v11, &v13), // final payload
+            abi::load_u64(&v12, abi::stack_pointer(), SRC_OFF), // source payload
+            abi::move_immediate(&v16, "Integer", "0"),
             abi::label(&fin_loop),
-            abi::compare_registers("%v16", "%v9"),
+            abi::compare_registers(&v16, &v9),
             abi::branch_ge(&fin_done),
-            abi::add_registers("%v17", "%v12", "%v16"),
-            abi::load_u8("%v18", "%v17", 0),
-            abi::add_registers("%v17", "%v11", "%v16"),
-            abi::store_u8("%v18", "%v17", 0),
-            abi::add_immediate("%v16", "%v16", 1),
+            abi::add_registers(&v17, &v12, &v16),
+            abi::load_u8(&v18, &v17, 0),
+            abi::add_registers(&v17, &v11, &v16),
+            abi::store_u8(&v18, &v17, 0),
+            abi::add_immediate(&v16, &v16, 1),
             abi::branch(&fin_loop),
             abi::label(&fin_done),
             // Return the oversized pre-alloc to the arena (size matches
             // emit_alloc_byte_list: need*ENTRY + HEADER + need).
-            abi::load_u64("%v9", abi::stack_pointer(), NEED_OFF),
-            abi::move_immediate("%v10", "Integer", &byte_list_entry_stride().to_string()),
-            abi::multiply_registers("%v11", "%v9", "%v10"),
-            abi::add_immediate("%v11", "%v11", COLLECTION_HEADER_SIZE),
-            abi::add_registers("%v11", "%v11", "%v9"),
-            abi::move_register(abi::c_arg(1), "%v11"),
+            abi::load_u64(&v9, abi::stack_pointer(), NEED_OFF),
+            abi::move_immediate(&v10, "Integer", &byte_list_entry_stride().to_string()),
+            abi::multiply_registers(&v11, &v9, &v10),
+            abi::add_immediate(&v11, &v11, COLLECTION_HEADER_SIZE),
+            abi::add_registers(&v11, &v11, &v9),
+            abi::move_register(abi::c_arg(1), &v11),
             abi::load_u64(abi::return_register(), abi::stack_pointer(), LIST_OFF),
         ]);
         emit_arena_free(symbol, &mut instructions, &mut relocations);
@@ -1707,6 +1775,11 @@ fn lower_query(
     let done = format!("{symbol}_done");
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v12 = vregs.next();
+    let v11 = vregs.next();
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF),
         // Spill the incoming `timeoutMs` (ARG[1]) before any dlopen/libc call
@@ -1715,17 +1788,17 @@ fn lower_query(
         // stack (bug-167 finding A). `FRAMES_OFF` is otherwise unused in this
         // function, so the store is harmless for the other queries.
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), FRAMES_OFF),
-        abi::load_u64("%v9", abi::return_register(), H_CLOSED),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::return_register(), H_CLOSED),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_ne(&closed),
-        abi::load_u64("%v10", abi::return_register(), H_STATE),
-        abi::store_u64("%v10", abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(&v10, abi::return_register(), H_STATE),
+        abi::store_u64(&v10, abi::stack_pointer(), STATE_OFF),
     ]);
     match kind {
         Query::Xruns => {
             instructions.extend([
-                abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
-                abi::load_u64(RESULT_VALUE_REGISTER, "%v10", S_XRUNS),
+                abi::load_u64(&v10, abi::stack_pointer(), STATE_OFF),
+                abi::load_u64(RESULT_VALUE_REGISTER, &v10, S_XRUNS),
                 // No `branch(&clamp)` here: the label is the very next
                 // instruction, so the branch only ever fell through to its own
                 // target (bug-326-A22). The other two arms reach `clamp` from a
@@ -1745,6 +1818,7 @@ fn lower_query(
                 &unavailable,
             )?;
             emit_alsa_call(
+                &mut vregs,
                 &mut EmitCtx {
                     symbol,
                     platform_imports,
@@ -1757,19 +1831,19 @@ fn lower_query(
                 false,
                 |ins, _relocs| {
                     ins.extend([
-                        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
-                        abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
+                        abi::load_u64(&v10, abi::stack_pointer(), STATE_OFF),
+                        abi::load_u64(abi::return_register(), &v10, S_OSOBJECT),
                     ]);
                 },
             )?;
             // clamp negative to 0
             instructions.extend([
-                abi::move_register("%v12", abi::return_register()),
-                abi::compare_immediate("%v12", "0"),
+                abi::move_register(&v12, abi::return_register()),
+                abi::compare_immediate(&v12, "0"),
                 abi::branch_ge(&clamp),
-                abi::move_immediate("%v12", "Integer", "0"),
+                abi::move_immediate(&v12, "Integer", "0"),
                 abi::label(&clamp),
-                abi::move_register(RESULT_VALUE_REGISTER, "%v12"),
+                abi::move_register(RESULT_VALUE_REGISTER, &v12),
             ]);
         }
         Query::Poll => {
@@ -1789,6 +1863,7 @@ fn lower_query(
                 &unavailable,
             )?;
             emit_alsa_call(
+                &mut vregs,
                 &mut EmitCtx {
                     symbol,
                     platform_imports,
@@ -1801,8 +1876,8 @@ fn lower_query(
                 false,
                 |ins, _relocs| {
                     ins.extend([
-                        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
-                        abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
+                        abi::load_u64(&v10, abi::stack_pointer(), STATE_OFF),
+                        abi::load_u64(abi::return_register(), &v10, S_OSOBJECT),
                         abi::bitwise_not(abi::c_arg(1), abi::ZERO), // -1 = infinite
                     ]);
                 },
@@ -1825,15 +1900,15 @@ fn lower_query(
             // wait call reloads it.
             let timeout_clamped = format!("{symbol}_pt_clamped");
             instructions.extend([
-                abi::load_u64("%v9", abi::stack_pointer(), FRAMES_OFF),
-                abi::compare_immediate("%v9", "0"),
+                abi::load_u64(&v9, abi::stack_pointer(), FRAMES_OFF),
+                abi::compare_immediate(&v9, "0"),
                 abi::branch_lt(&invalid),
-                abi::move_immediate("%v11", "Integer", TIMEOUT_CLAMP_MS),
-                abi::compare_registers("%v9", "%v11"),
+                abi::move_immediate(&v11, "Integer", TIMEOUT_CLAMP_MS),
+                abi::compare_registers(&v9, &v11),
                 abi::branch_le(&timeout_clamped),
-                abi::move_register("%v9", "%v11"),
+                abi::move_register(&v9, &v11),
                 abi::label(&timeout_clamped),
-                abi::store_u64("%v9", abi::stack_pointer(), FRAMES_OFF),
+                abi::store_u64(&v9, abi::stack_pointer(), FRAMES_OFF),
             ]);
             emit_dlopen(
                 &mut EmitCtx {
@@ -1846,6 +1921,7 @@ fn lower_query(
                 &unavailable,
             )?;
             emit_alsa_call(
+                &mut vregs,
                 &mut EmitCtx {
                     symbol,
                     platform_imports,
@@ -1858,8 +1934,8 @@ fn lower_query(
                 false,
                 |ins, _relocs| {
                     ins.extend([
-                        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
-                        abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
+                        abi::load_u64(&v10, abi::stack_pointer(), STATE_OFF),
+                        abi::load_u64(abi::return_register(), &v10, S_OSOBJECT),
                         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), FRAMES_OFF),
                     ]);
                 },
@@ -1923,13 +1999,16 @@ fn lower_close(
     let done = format!("{symbol}_done");
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF),
-        abi::load_u64("%v9", abi::return_register(), H_CLOSED),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::return_register(), H_CLOSED),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_ne(&already),
-        abi::load_u64("%v10", abi::return_register(), H_STATE),
-        abi::store_u64("%v10", abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(&v10, abi::return_register(), H_STATE),
+        abi::store_u64(&v10, abi::stack_pointer(), STATE_OFF),
     ]);
     emit_dlopen(
         &mut EmitCtx {
@@ -1944,6 +2023,7 @@ fn lower_close(
     // snd_pcm_drain (playback) / snd_pcm_drop (capture); failure is reported but
     // must not skip close.
     emit_alsa_call(
+        &mut vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -1960,12 +2040,13 @@ fn lower_close(
         false,
         |ins, _relocs| {
             ins.extend([
-                abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
-                abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
+                abi::load_u64(&v10, abi::stack_pointer(), STATE_OFF),
+                abi::load_u64(abi::return_register(), &v10, S_OSOBJECT),
             ]);
         },
     )?;
     emit_alsa_call(
+        &mut vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -1978,15 +2059,15 @@ fn lower_close(
         false,
         |ins, _relocs| {
             ins.extend([
-                abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
-                abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
+                abi::load_u64(&v10, abi::stack_pointer(), STATE_OFF),
+                abi::load_u64(abi::return_register(), &v10, S_OSOBJECT),
             ]);
         },
     )?;
     instructions.extend([
-        abi::load_u64("%v10", abi::stack_pointer(), HANDLE_OFF),
-        abi::move_immediate("%v9", "Integer", "1"),
-        abi::store_u64("%v9", "%v10", H_CLOSED),
+        abi::load_u64(&v10, abi::stack_pointer(), HANDLE_OFF),
+        abi::move_immediate(&v9, "Integer", "1"),
+        abi::store_u64(&v9, &v10, H_CLOSED),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::c_arg(1), abi::return_register(), S_MAP_SIZE),
     ]);
@@ -2027,51 +2108,60 @@ fn emit_string_from_cstr(
     alloc_fail: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
+    cstr: &str,
+    vregs: &mut Vregs,
 ) {
     let len_loop = format!("{symbol}_{tag}_len");
     let len_done = format!("{symbol}_{tag}_len_done");
     let copy_loop = format!("{symbol}_{tag}_copy");
     let copy_done = format!("{symbol}_{tag}_copy_done");
+    let v9 = cstr;
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v15 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+    let v14 = vregs.next();
     // %v9 = cstr ptr; save it, strlen (stop at NUL or '\n').
     instructions.extend([
-        abi::store_u64("%v9", abi::stack_pointer(), RC_OFF), // reuse RC_OFF as cstr save
-        abi::move_immediate("%v10", "Integer", "0"),
-        abi::compare_immediate("%v9", "0"),
+        abi::store_u64(&v9, abi::stack_pointer(), RC_OFF), // reuse RC_OFF as cstr save
+        abi::move_immediate(&v10, "Integer", "0"),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_eq(&len_done),
         abi::label(&len_loop),
-        abi::load_u8("%v11", "%v9", 0),
-        abi::compare_immediate("%v11", "0"),
+        abi::load_u8(&v11, &v9, 0),
+        abi::compare_immediate(&v11, "0"),
         abi::branch_eq(&len_done),
-        abi::compare_immediate("%v11", "10"), // '\n'
+        abi::compare_immediate(&v11, "10"), // '\n'
         abi::branch_eq(&len_done),
-        abi::add_immediate("%v9", "%v9", 1),
-        abi::add_immediate("%v10", "%v10", 1),
+        abi::add_immediate(&v9, &v9, 1),
+        abi::add_immediate(&v10, &v10, 1),
         abi::branch(&len_loop),
         abi::label(&len_done),
-        abi::store_u64("%v10", abi::stack_pointer(), N_OFF), // len
-        abi::add_immediate(abi::return_register(), "%v10", 9),
+        abi::store_u64(&v10, abi::stack_pointer(), N_OFF), // len
+        abi::add_immediate(abi::return_register(), &v10, 9),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
-        abi::move_register("%v15", abi::mfb_return(1)),
-        abi::load_u64("%v10", abi::stack_pointer(), N_OFF),
-        abi::store_u64("%v10", "%v15", 0),
-        abi::store_u64("%v15", abi::stack_pointer(), out_off),
-        abi::load_u64("%v11", abi::stack_pointer(), RC_OFF), // cstr
-        abi::add_immediate("%v12", "%v15", 8),
-        abi::move_immediate("%v13", "Integer", "0"),
+        abi::move_register(&v15, abi::mfb_return(1)),
+        abi::load_u64(&v10, abi::stack_pointer(), N_OFF),
+        abi::store_u64(&v10, &v15, 0),
+        abi::store_u64(&v15, abi::stack_pointer(), out_off),
+        abi::load_u64(&v11, abi::stack_pointer(), RC_OFF), // cstr
+        abi::add_immediate(&v12, &v15, 8),
+        abi::move_immediate(&v13, "Integer", "0"),
         abi::label(&copy_loop),
-        abi::compare_registers("%v13", "%v10"),
+        abi::compare_registers(&v13, &v10),
         abi::branch_ge(&copy_done),
-        abi::load_u8("%v14", "%v11", 0),
-        abi::store_u8("%v14", "%v12", 0),
-        abi::add_immediate("%v11", "%v11", 1),
-        abi::add_immediate("%v12", "%v12", 1),
-        abi::add_immediate("%v13", "%v13", 1),
+        abi::load_u8(&v14, &v11, 0),
+        abi::store_u8(&v14, &v12, 0),
+        abi::add_immediate(&v11, &v11, 1),
+        abi::add_immediate(&v12, &v12, 1),
+        abi::add_immediate(&v13, &v13, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8(abi::ZERO, "%v12", 0),
+        abi::store_u8(abi::ZERO, &v12, 0),
     ]);
 }
 
@@ -2090,6 +2180,14 @@ fn lower_devices(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+    let v14 = vregs.next();
+    let v15 = vregs.next();
     emit_dlopen(
         &mut EmitCtx {
             symbol,
@@ -2102,6 +2200,7 @@ fn lower_devices(
     )?;
     // snd_device_name_hint(-1, "pcm", &hints)
     emit_alsa_call(
+        &mut vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -2126,68 +2225,69 @@ fn lower_devices(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&unavailable),
         // count NULL-terminated hints
-        abi::load_u64("%v9", abi::stack_pointer(), HINTS_OFF),
+        abi::load_u64(&v9, abi::stack_pointer(), HINTS_OFF),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), COUNT_OFF),
         abi::label(&count_loop),
-        abi::load_u64("%v10", "%v9", 0),
-        abi::compare_immediate("%v10", "0"),
+        abi::load_u64(&v10, &v9, 0),
+        abi::compare_immediate(&v10, "0"),
         abi::branch_eq(&count_done),
-        abi::load_u64("%v11", abi::stack_pointer(), COUNT_OFF),
-        abi::add_immediate("%v11", "%v11", 1),
-        abi::store_u64("%v11", abi::stack_pointer(), COUNT_OFF),
-        abi::add_immediate("%v9", "%v9", 8),
+        abi::load_u64(&v11, abi::stack_pointer(), COUNT_OFF),
+        abi::add_immediate(&v11, &v11, 1),
+        abi::store_u64(&v11, abi::stack_pointer(), COUNT_OFF),
+        abi::add_immediate(&v9, &v9, 8),
         abi::branch(&count_loop),
         abi::label(&count_done),
     ]);
     // Allocate List OF AudioDevice (48-byte records inline).
     instructions.extend([
-        abi::load_u64("%v10", abi::stack_pointer(), COUNT_OFF),
-        abi::move_immediate("%v11", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers("%v12", "%v10", "%v11"),
-        abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
-        abi::move_immediate("%v13", "Integer", &DEVICE_RECORD_SIZE.to_string()),
-        abi::multiply_registers("%v14", "%v10", "%v13"),
-        abi::add_registers(abi::return_register(), "%v12", "%v14"),
+        abi::load_u64(&v10, abi::stack_pointer(), COUNT_OFF),
+        abi::move_immediate(&v11, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers(&v12, &v10, &v11),
+        abi::add_immediate(&v12, &v12, COLLECTION_HEADER_SIZE),
+        abi::move_immediate(&v13, "Integer", &DEVICE_RECORD_SIZE.to_string()),
+        abi::multiply_registers(&v14, &v10, &v13),
+        abi::add_registers(abi::return_register(), &v12, &v14),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::move_register("%v15", abi::mfb_return(1)),
-        abi::store_u64("%v15", abi::stack_pointer(), LIST_OFF),
-        abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
-        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),
-        abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
-        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KEY_TYPE),
-        abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_OBJECT.to_string()),
-        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_VALUE_TYPE),
-        abi::move_immediate("%v9", "Byte", "1"),
-        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_FLAGS_VERSION),
-        abi::load_u64("%v10", abi::stack_pointer(), COUNT_OFF),
-        abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_COUNT),
-        abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate("%v13", "Integer", &DEVICE_RECORD_SIZE.to_string()),
-        abi::multiply_registers("%v14", "%v10", "%v13"),
-        abi::store_u64("%v14", "%v15", COLLECTION_OFFSET_DATA_LENGTH),
-        abi::store_u64("%v14", "%v15", COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::move_register(&v15, abi::mfb_return(1)),
+        abi::store_u64(&v15, abi::stack_pointer(), LIST_OFF),
+        abi::move_immediate(&v9, "Byte", &COLLECTION_KIND_LIST.to_string()),
+        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KIND),
+        abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_NONE.to_string()),
+        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KEY_TYPE),
+        abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_OBJECT.to_string()),
+        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_VALUE_TYPE),
+        abi::move_immediate(&v9, "Byte", "1"),
+        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_FLAGS_VERSION),
+        abi::load_u64(&v10, abi::stack_pointer(), COUNT_OFF),
+        abi::store_u64(&v10, &v15, COLLECTION_OFFSET_COUNT),
+        abi::store_u64(&v10, &v15, COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate(&v13, "Integer", &DEVICE_RECORD_SIZE.to_string()),
+        abi::multiply_registers(&v14, &v10, &v13),
+        abi::store_u64(&v14, &v15, COLLECTION_OFFSET_DATA_LENGTH),
+        abi::store_u64(&v14, &v15, COLLECTION_OFFSET_DATA_CAPACITY),
         // data region base = list + HEADER + count*ENTRY
-        abi::add_immediate("%v11", "%v15", COLLECTION_HEADER_SIZE),
-        abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers("%v13", "%v10", "%v12"),
-        abi::add_registers("%v14", "%v11", "%v13"),
-        abi::store_u64("%v14", abi::stack_pointer(), SRC_OFF), // data region base
-        abi::store_u64("%v11", abi::stack_pointer(), TOTAL_OFF), // entry cursor base
-        abi::load_u64("%v9", abi::stack_pointer(), HINTS_OFF),
-        abi::store_u64("%v9", abi::stack_pointer(), HINT_PTR_OFF),
+        abi::add_immediate(&v11, &v15, COLLECTION_HEADER_SIZE),
+        abi::move_immediate(&v12, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers(&v13, &v10, &v12),
+        abi::add_registers(&v14, &v11, &v13),
+        abi::store_u64(&v14, abi::stack_pointer(), SRC_OFF), // data region base
+        abi::store_u64(&v11, abi::stack_pointer(), TOTAL_OFF), // entry cursor base
+        abi::load_u64(&v9, abi::stack_pointer(), HINTS_OFF),
+        abi::store_u64(&v9, abi::stack_pointer(), HINT_PTR_OFF),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), OFFSET_OFF), // index
         abi::label(&fill_loop),
-        abi::load_u64("%v9", abi::stack_pointer(), HINT_PTR_OFF),
-        abi::load_u64("%v10", "%v9", 0), // hint
-        abi::compare_immediate("%v10", "0"),
+        abi::load_u64(&v9, abi::stack_pointer(), HINT_PTR_OFF),
+        abi::load_u64(&v10, &v9, 0), // hint
+        abi::compare_immediate(&v10, "0"),
         abi::branch_eq(&fill_done),
-        abi::store_u64("%v10", abi::stack_pointer(), N_OFF), // current hint
+        abi::store_u64(&v10, abi::stack_pointer(), N_OFF), // current hint
     ]);
     // id = get_hint(hint, "NAME")
     emit_alsa_call(
+        &mut vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -2213,7 +2313,7 @@ fn lower_devices(
             );
         },
     )?;
-    instructions.push(abi::move_register("%v9", abi::return_register()));
+    instructions.push(abi::move_register(&v9, abi::return_register()));
     emit_string_from_cstr(
         symbol,
         "id",
@@ -2221,6 +2321,8 @@ fn lower_devices(
         &alloc_fail,
         &mut instructions,
         &mut relocations,
+        v9.as_str(),
+        &mut vregs,
     );
     // free the id cstring
     instructions.push(abi::load_u64(
@@ -2237,6 +2339,7 @@ fn lower_devices(
     )?;
     // name = get_hint(hint, "DESC")
     emit_alsa_call(
+        &mut vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,
@@ -2272,7 +2375,7 @@ fn lower_devices(
             );
         },
     )?;
-    instructions.push(abi::move_register("%v9", abi::return_register()));
+    instructions.push(abi::move_register(&v9, abi::return_register()));
     emit_string_from_cstr(
         symbol,
         "name",
@@ -2280,6 +2383,8 @@ fn lower_devices(
         &alloc_fail,
         &mut instructions,
         &mut relocations,
+        v9.as_str(),
+        &mut vregs,
     );
     instructions.push(abi::load_u64(
         abi::return_register(),
@@ -2296,46 +2401,47 @@ fn lower_devices(
     // Build the record: id, name, canInput=1, canOutput=1, defaults=0 (a precise
     // IOID split is a refinement; ALSA hints usually permit both directions).
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), OFFSET_OFF),
-        abi::move_immediate("%v10", "Integer", &DEVICE_RECORD_SIZE.to_string()),
-        abi::multiply_registers("%v11", "%v9", "%v10"),
-        abi::load_u64("%v12", abi::stack_pointer(), SRC_OFF),
-        abi::add_registers("%v12", "%v12", "%v11"), // record ptr
-        abi::load_u64("%v13", abi::stack_pointer(), DEVID_OFF),
-        abi::store_u64("%v13", "%v12", DEVICE_FIELD_ID),
-        abi::load_u64("%v13", abi::stack_pointer(), NAME_OFF),
-        abi::store_u64("%v13", "%v12", DEVICE_FIELD_NAME),
-        abi::move_immediate("%v13", "Integer", "1"),
-        abi::store_u64("%v13", "%v12", DEVICE_FIELD_CAN_INPUT),
-        abi::store_u64("%v13", "%v12", DEVICE_FIELD_CAN_OUTPUT),
-        abi::store_u64(abi::ZERO, "%v12", DEVICE_FIELD_IS_DEFAULT_INPUT),
-        abi::store_u64(abi::ZERO, "%v12", DEVICE_FIELD_IS_DEFAULT_OUTPUT),
+        abi::load_u64(&v9, abi::stack_pointer(), OFFSET_OFF),
+        abi::move_immediate(&v10, "Integer", &DEVICE_RECORD_SIZE.to_string()),
+        abi::multiply_registers(&v11, &v9, &v10),
+        abi::load_u64(&v12, abi::stack_pointer(), SRC_OFF),
+        abi::add_registers(&v12, &v12, &v11), // record ptr
+        abi::load_u64(&v13, abi::stack_pointer(), DEVID_OFF),
+        abi::store_u64(&v13, &v12, DEVICE_FIELD_ID),
+        abi::load_u64(&v13, abi::stack_pointer(), NAME_OFF),
+        abi::store_u64(&v13, &v12, DEVICE_FIELD_NAME),
+        abi::move_immediate(&v13, "Integer", "1"),
+        abi::store_u64(&v13, &v12, DEVICE_FIELD_CAN_INPUT),
+        abi::store_u64(&v13, &v12, DEVICE_FIELD_CAN_OUTPUT),
+        abi::store_u64(abi::ZERO, &v12, DEVICE_FIELD_IS_DEFAULT_INPUT),
+        abi::store_u64(abi::ZERO, &v12, DEVICE_FIELD_IS_DEFAULT_OUTPUT),
         // entry descriptor
-        abi::load_u64("%v9", abi::stack_pointer(), OFFSET_OFF),
-        abi::move_immediate("%v10", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers("%v11", "%v9", "%v10"),
-        abi::load_u64("%v12", abi::stack_pointer(), TOTAL_OFF),
-        abi::add_registers("%v12", "%v12", "%v11"),
-        abi::move_immediate("%v13", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-        abi::store_u8("%v13", "%v12", COLLECTION_ENTRY_OFFSET_FLAGS),
-        abi::store_u64(abi::ZERO, "%v12", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::store_u64(abi::ZERO, "%v12", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::move_immediate("%v10", "Integer", &DEVICE_RECORD_SIZE.to_string()),
-        abi::multiply_registers("%v11", "%v9", "%v10"),
-        abi::store_u64("%v11", "%v12", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-        abi::move_immediate("%v13", "Integer", &DEVICE_RECORD_SIZE.to_string()),
-        abi::store_u64("%v13", "%v12", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::load_u64(&v9, abi::stack_pointer(), OFFSET_OFF),
+        abi::move_immediate(&v10, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers(&v11, &v9, &v10),
+        abi::load_u64(&v12, abi::stack_pointer(), TOTAL_OFF),
+        abi::add_registers(&v12, &v12, &v11),
+        abi::move_immediate(&v13, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+        abi::store_u8(&v13, &v12, COLLECTION_ENTRY_OFFSET_FLAGS),
+        abi::store_u64(abi::ZERO, &v12, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::store_u64(abi::ZERO, &v12, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::move_immediate(&v10, "Integer", &DEVICE_RECORD_SIZE.to_string()),
+        abi::multiply_registers(&v11, &v9, &v10),
+        abi::store_u64(&v11, &v12, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::move_immediate(&v13, "Integer", &DEVICE_RECORD_SIZE.to_string()),
+        abi::store_u64(&v13, &v12, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
         // advance
-        abi::add_immediate("%v9", "%v9", 1),
-        abi::store_u64("%v9", abi::stack_pointer(), OFFSET_OFF),
-        abi::load_u64("%v9", abi::stack_pointer(), HINT_PTR_OFF),
-        abi::add_immediate("%v9", "%v9", 8),
-        abi::store_u64("%v9", abi::stack_pointer(), HINT_PTR_OFF),
+        abi::add_immediate(&v9, &v9, 1),
+        abi::store_u64(&v9, abi::stack_pointer(), OFFSET_OFF),
+        abi::load_u64(&v9, abi::stack_pointer(), HINT_PTR_OFF),
+        abi::add_immediate(&v9, &v9, 8),
+        abi::store_u64(&v9, abi::stack_pointer(), HINT_PTR_OFF),
         abi::branch(&fill_loop),
         abi::label(&fill_done),
     ]);
     // snd_device_name_free_hint(hints)
     emit_alsa_call(
+        &mut vregs,
         &mut EmitCtx {
             symbol,
             platform_imports,

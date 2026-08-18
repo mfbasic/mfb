@@ -38,31 +38,34 @@ pub(crate) fn emit_validate_open(
     bf_off: usize,
     invalid: &str,
     instructions: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
 ) {
     let ch_ok = format!("{symbol}_ch_ok");
+    let v9 = vregs.next();
+    let v10 = vregs.next();
     instructions.extend([
         // sampleRate in 8000..=192000
-        abi::load_u64("%v9", abi::stack_pointer(), sr_off),
-        abi::move_immediate("%v10", "Integer", SR_MIN),
-        abi::compare_registers("%v9", "%v10"),
+        abi::load_u64(&v9, abi::stack_pointer(), sr_off),
+        abi::move_immediate(&v10, "Integer", SR_MIN),
+        abi::compare_registers(&v9, &v10),
         abi::branch_lt(invalid),
-        abi::move_immediate("%v10", "Integer", SR_MAX),
-        abi::compare_registers("%v9", "%v10"),
+        abi::move_immediate(&v10, "Integer", SR_MAX),
+        abi::compare_registers(&v9, &v10),
         abi::branch_gt(invalid),
         // channels 1 or 2
-        abi::load_u64("%v9", abi::stack_pointer(), ch_off),
-        abi::compare_immediate("%v9", "1"),
+        abi::load_u64(&v9, abi::stack_pointer(), ch_off),
+        abi::compare_immediate(&v9, "1"),
         abi::branch_eq(&ch_ok),
-        abi::compare_immediate("%v9", "2"),
+        abi::compare_immediate(&v9, "2"),
         abi::branch_ne(invalid),
         abi::label(&ch_ok),
         // bufferFrames in 64..=8192
-        abi::load_u64("%v9", abi::stack_pointer(), bf_off),
-        abi::move_immediate("%v10", "Integer", BUF_MIN),
-        abi::compare_registers("%v9", "%v10"),
+        abi::load_u64(&v9, abi::stack_pointer(), bf_off),
+        abi::move_immediate(&v10, "Integer", BUF_MIN),
+        abi::compare_registers(&v9, &v10),
         abi::branch_lt(invalid),
-        abi::move_immediate("%v10", "Integer", BUF_MAX),
-        abi::compare_registers("%v9", "%v10"),
+        abi::move_immediate(&v10, "Integer", BUF_MAX),
+        abi::compare_registers(&v9, &v10),
         abi::branch_gt(invalid),
     ]);
 }

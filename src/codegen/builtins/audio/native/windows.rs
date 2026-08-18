@@ -240,28 +240,30 @@ fn ole_call(
 /// the fourth are staged in `ARG[4..]` (this helper spills those to the outgoing
 /// tail). Loads `this` into arg0, resolves `method = [[this]+slot*8]`, and
 /// `blr`s it. Sign-extends the HRESULT return.
-fn com_call(slot: usize, n_args: usize, ins: &mut Vec<CodeInstruction>) {
+fn com_call(slot: usize, n_args: usize, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
     // Args 5.. (index 4..) go on the stack above the 32-byte shadow. Four
     // register args on Win64: `this` + three method args.
     for n in 4..n_args {
         ins.push(abi::outgoing_stack_arg_store(abi::c_arg(n), n - 4));
     }
+    let v8 = vregs.next();
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), OBJ_OFF), // this -> arg0
-        abi::load_u64("%v8", abi::stack_pointer(), OBJ_OFF),
-        abi::load_u64("%v8", "%v8", 0),        // vtable
-        abi::load_u64("%v8", "%v8", slot * 8), // method
-        abi::branch_link_register("%v8"),
+        abi::load_u64(&v8, abi::stack_pointer(), OBJ_OFF),
+        abi::load_u64(&v8, &v8, 0),        // vtable
+        abi::load_u64(&v8, &v8, slot * 8), // method
+        abi::branch_link_register(&v8),
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
     ]);
 }
 
 /// Load `state->field` into the `OBJ_OFF` spill slot for the next `com_call`.
-fn spill_obj(field: usize, ins: &mut Vec<CodeInstruction>) {
+fn spill_obj(field: usize, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
+    let v9 = vregs.next();
     ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::load_u64("%v9", "%v9", field),
-        abi::store_u64("%v9", abi::stack_pointer(), OBJ_OFF),
+        abi::load_u64(&v9, abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(&v9, &v9, field),
+        abi::store_u64(&v9, abi::stack_pointer(), OBJ_OFF),
     ]);
 }
 
