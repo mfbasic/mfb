@@ -731,6 +731,9 @@ impl CodeBuilder<'_> {
                 // (plan-01-functions.md §5).
                 // plan-95: prefer a migrated function's own lowering
                 // (`Implementation::Native`) over the legacy ladder below.
+                if let Some(result) = self.try_abi_inline_lower(target, args) {
+                    return result;
+                }
                 if let Some(result) = self.try_native_lower(target, args) {
                     return result;
                 }
@@ -1526,6 +1529,33 @@ impl CodeBuilder<'_> {
     ) -> Option<Result<ValueResult, String>> {
         let lower = crate::codegen::registry::native_lower(target)?;
         Some(lower(self, args))
+    }
+
+    /// The experimental `AbiInline` dual-path: if `target` names an `abi_inline`
+    /// member, lower each `NirValue` arg to a `ValueResult` here (the dispatch owns
+    /// arg acquisition — "pre-lowered `ValueResult`"), bundle an [`AbiCtx`] from the
+    /// builder's own platform/imports/build-mode, and run the body inline.
+    fn try_abi_inline_lower(
+        &mut self,
+        target: &str,
+        args: &[NirValue],
+    ) -> Option<Result<ValueResult, String>> {
+        let lower = crate::codegen::registry::abi_inline_lower(target)?;
+        let mut arg_values = Vec::with_capacity(args.len());
+        for arg in args {
+            match self.lower_value(arg) {
+                Ok(value) => arg_values.push(value),
+                Err(err) => return Some(Err(err)),
+            }
+        }
+        // Copy the `&'a` reference fields out of `self` so `AbiCtx` borrows the
+        // underlying build data, not `self` — leaving `self` free to pass mutably.
+        let ctx = crate::codegen::registry::AbiCtx {
+            platform_imports: self.platform_imports,
+            platform: self.platform,
+            build_mode: self.build_mode,
+        };
+        Some(lower(self, &arg_values, &ctx))
     }
 
     /// Mfb fast-path dual-path dispatch: for a `#collections_<name>$<TypeArgs>`

@@ -91,6 +91,42 @@ pub(crate) type OsLower = fn(
     &dyn crate::codegen::engine::types::CodegenPlatform,
 ) -> crate::codegen::engine::builder::HelperResult;
 
+/// The context handed to a builder-driven `AbiLower` body (the experimental
+/// unification of [`NativeLower`] + [`OsLower`] into `AbiInline`/`AbiFunction`).
+/// It bundles the OS-seam capabilities such a lowering may need — the DL/import
+/// table, the target platform (per-OS emission + symbol/DL resolution), and the
+/// build mode — so a body can reach them without the two distinct legacy
+/// signatures. (Future: agnostic `dlopen`/`dlsym`/`load_const` helper methods hang
+/// off this.)
+pub(crate) struct AbiCtx<'a> {
+    pub(crate) platform_imports: &'a std::collections::HashMap<String, String>,
+    pub(crate) platform: &'a dyn crate::codegen::engine::types::CodegenPlatform,
+    pub(crate) build_mode: crate::target::NativeBuildMode,
+}
+
+/// A builder-driven **inline** lowering (the unified successor to [`NativeLower`]):
+/// given the caller's `CodeBuilder`, the call's **pre-lowered** `ValueResult` args,
+/// and an [`AbiCtx`], emit the call inline and return where the result value lives.
+/// The body reads its `ValueResult` args and never re-lowers or frees them — the
+/// dispatch owns arg acquisition/lifetime.
+pub(crate) type AbiInline =
+    for<'a> fn(
+        &mut crate::codegen::engine::builder::CodeBuilder<'a>,
+        &[crate::codegen::engine::builder::ValueResult],
+        &AbiCtx<'a>,
+    ) -> Result<crate::codegen::engine::builder::ValueResult, String>;
+
+/// A builder-driven **shared-function** lowering (the unified successor to
+/// [`OsLower`]): the *same body shape* as [`AbiInline`], but the wrapper binds its
+/// args to the incoming ABI param registers and emits it once as a shared
+/// `_mfb_rt_*` helper (emit-once, called by `bl` from every call site).
+pub(crate) type AbiFunction =
+    for<'a> fn(
+        &mut crate::codegen::engine::builder::CodeBuilder<'a>,
+        &[crate::codegen::engine::builder::ValueResult],
+        &AbiCtx<'a>,
+    ) -> Result<crate::codegen::engine::builder::ValueResult, String>;
+
 /// A [`Body::Mfb`] member's optional native **fast path** — the plan-95
 /// `target::shared::registry::MfbFastPath` shape. Given the builder, the
 /// `#pkg_<name>$<TypeArgs>` monomorph target, and the call args, it either lowers
@@ -181,6 +217,12 @@ pub(crate) enum Body {
         posix: Option<OsLower>,
         win: Option<OsLower>,
         common: Option<NativeLower>,
+        /// Experimental unified lowerings (see [`AbiInline`]/[`AbiFunction`]). A
+        /// member sets exactly one: `abi_inline` lowers the call inline at each call
+        /// site (like `common`); `abi_function` is wrapped once into a shared
+        /// `_mfb_rt_*` helper (like `posix`/`win`) and `bl`'d from every call site.
+        abi_inline: Option<AbiInline>,
+        abi_function: Option<AbiFunction>,
         /// Auxiliary runtime-call member names this OS-seam member also emits for —
         /// the `builder_values` overload-split code forms (`spawnEnv`, `sendTimeout`,
         /// `receiveFrom`, …) that share this member's `posix`/`win` lowering, which
@@ -257,6 +299,36 @@ impl Body {
             posix,
             win,
             common,
+            abi_inline: None,
+            abi_function: None,
+            os_aliases: &[],
+        }
+    }
+
+    /// An experimental [`AbiInline`] lowering — a builder-driven inline call-site
+    /// lowering (the unified successor to a `common`/[`NativeLower`] member). Lowers
+    /// on all targets; the call is emitted inline at each site.
+    pub(crate) fn abi_inline(lower: AbiInline) -> Self {
+        Body::Native {
+            posix: None,
+            win: None,
+            common: None,
+            abi_inline: Some(lower),
+            abi_function: None,
+            os_aliases: &[],
+        }
+    }
+
+    /// An experimental [`AbiFunction`] lowering — a builder-driven body wrapped once
+    /// into a shared `_mfb_rt_*` helper (the unified successor to an `posix`/`win`
+    /// [`OsLower`] member). Catalogued as a runtime call and `bl`'d from each site.
+    pub(crate) fn abi_function(lower: AbiFunction) -> Self {
+        Body::Native {
+            posix: None,
+            win: None,
+            common: None,
+            abi_inline: None,
+            abi_function: Some(lower),
             os_aliases: &[],
         }
     }
@@ -279,6 +351,8 @@ impl Body {
             posix,
             win,
             common: None,
+            abi_inline: None,
+            abi_function: None,
             os_aliases,
         }
     }
@@ -1584,14 +1658,16 @@ pub(crate) fn runtime_specs() -> &'static [RuntimeCall] {
                     let Body::Native {
                         posix,
                         win,
+                        abi_function,
                         os_aliases,
                         ..
                     } = &implementation.body
                     else {
                         continue;
                     };
-                    // `common`-only inline lowerings emit no runtime helper.
-                    if posix.is_none() && win.is_none() {
+                    // `common`/`abi_inline` inline lowerings emit no runtime helper;
+                    // `posix`/`win`/`abi_function` (shared `_mfb_rt_*` bodies) do.
+                    if posix.is_none() && win.is_none() && abi_function.is_none() {
                         continue;
                     }
                     push_runtime_call(
@@ -2194,6 +2270,44 @@ pub(crate) fn native_lower(qualified: &str) -> Option<NativeLower> {
         }
     }
     None
+}
+
+/// The experimental [`AbiInline`] lowering for `qualified`, or `None`. The inline
+/// dual-path (`try_abi_inline_lower`) consults this at the call site.
+pub(crate) fn abi_inline_lower(qualified: &str) -> Option<AbiInline> {
+    for implementation in &registry().resolve_func(qualified)?.function.implementations {
+        if let Body::Native {
+            abi_inline: Some(lower),
+            ..
+        } = &implementation.body
+        {
+            return Some(*lower);
+        }
+    }
+    None
+}
+
+/// The experimental [`AbiFunction`] lowering for `qualified`, plus the member's
+/// parameter count (so the runtime-helper wrapper can bind that many incoming ABI
+/// argument registers). `None` when `qualified` is not an `abi_function` member.
+pub(crate) fn abi_function_lower(qualified: &str) -> Option<(AbiFunction, usize)> {
+    for implementation in &registry().resolve_func(qualified)?.function.implementations {
+        if let Body::Native {
+            abi_function: Some(lower),
+            ..
+        } = &implementation.body
+        {
+            return Some((*lower, implementation.params.len()));
+        }
+    }
+    None
+}
+
+/// Whether `qualified` names an [`AbiFunction`] member (a runtime-helper-backed
+/// unified lowering). Routes `helper_for_call` to classify it as a runtime call so
+/// the IR emits a `RuntimeCall` for it.
+pub(crate) fn is_abi_function_call(qualified: &str) -> bool {
+    abi_function_lower(qualified).is_some()
 }
 
 /// The inline-`TRAP` fallibility of a migrated **common-native** member (a

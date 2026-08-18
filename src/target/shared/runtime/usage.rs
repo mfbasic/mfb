@@ -11,6 +11,12 @@ pub(crate) fn is_native_direct_call(name: &str) -> bool {
     if crate::builtins::native_builtin_target(name).is_some() {
         return true;
     }
+    // The experimental `abi::` `AbiInline` members lower inline at the call site
+    // (like a `common`/`NativeLower` member), so they are native-direct calls, not
+    // runtime helpers. (`AbiFunction` members go through `helper_for_call` instead.)
+    if crate::codegen::registry::abi_inline_lower(name).is_some() {
+        return true;
+    }
     matches!(
         name,
         "len"

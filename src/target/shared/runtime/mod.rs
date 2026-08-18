@@ -1,5 +1,9 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RuntimeHelper {
+    /// The experimental unified-lowering demo package (`abi::`): its
+    /// `AbiFunction` members are catalogued here so they route through the shared
+    /// runtime-helper pipeline like any other OS-seam family.
+    Abi,
     App,
     Audio,
     Crypto,
@@ -27,6 +31,7 @@ pub enum RuntimeHelper {
 impl RuntimeHelper {
     pub fn name(self) -> &'static str {
         match self {
+            RuntimeHelper::Abi => "abi",
             RuntimeHelper::App => "app",
             RuntimeHelper::Audio => "audio",
             RuntimeHelper::Crypto => "crypto",
@@ -50,6 +55,7 @@ impl RuntimeHelper {
     /// package prefix (`"process"` from `"process.spawn"`) to its family.
     pub fn from_package_name(name: &str) -> Option<RuntimeHelper> {
         Some(match name {
+            "abi" => RuntimeHelper::Abi,
             "app" => RuntimeHelper::App,
             "audio" => RuntimeHelper::Audio,
             "crypto" => RuntimeHelper::Crypto,
@@ -126,7 +132,12 @@ use perf_specs::*;
 use thread_specs::*;
 
 pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
-    if crate::codegen::registry::registry().owning_package(name) == Some("app") {
+    if crate::codegen::registry::is_abi_function_call(name) {
+        // The experimental `abi::` `AbiFunction` members route through the shared
+        // runtime-helper pipeline; their `abi_inline` siblings are NOT runtime calls
+        // (they stay `NirValue::Call` and lower inline), so gate on the slot.
+        Some(RuntimeHelper::Abi)
+    } else if crate::codegen::registry::registry().owning_package(name) == Some("app") {
         Some(RuntimeHelper::App)
     } else if name.starts_with("audio.") {
         // Every `audio.*` runtime call routes to the Audio family: the descriptor

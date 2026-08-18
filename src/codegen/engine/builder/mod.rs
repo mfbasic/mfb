@@ -131,6 +131,13 @@ pub(crate) struct CodeBuilder<'a> {
     pub(crate) functions: &'a HashMap<String, &'a NirFunction>,
     pub(crate) package_return_types: &'a HashMap<String, String>,
     pub(crate) platform_imports: &'a HashMap<String, String>,
+    /// The target platform, threaded so builder-driven lowerings (the `AbiLower`
+    /// experiment) can reach per-OS emission / DL resolution through `AbiCtx`
+    /// without a separate context object.
+    pub(crate) platform: &'a dyn crate::codegen::engine::types::CodegenPlatform,
+    /// The native build mode (console vs app), for builder-driven lowerings that
+    /// branch on it. Carried alongside `platform` for the same reason.
+    pub(crate) build_mode: crate::target::NativeBuildMode,
     pub(crate) globals: &'a HashMap<String, GlobalValue>,
     pub(crate) type_model: TypeModel,
     pub(crate) string_symbols: &'a HashMap<String, String>,
@@ -1288,6 +1295,8 @@ pub(crate) fn lower_module_for_platform(
             &functions,
             &package_return_types,
             &platform_imports,
+            platform,
+            module.build_mode,
             &globals,
             &string_symbols,
             &callback_referenced_functions,
@@ -1303,6 +1312,8 @@ pub(crate) fn lower_module_for_platform(
             &functions,
             &package_return_types,
             &platform_imports,
+            platform,
+            module.build_mode,
             &globals,
             &string_symbols,
             type_model.clone(),
@@ -1334,6 +1345,8 @@ pub(crate) fn lower_module_for_platform(
             &functions,
             &package_return_types,
             &platform_imports,
+            platform,
+            module.build_mode,
             &globals,
             &string_symbols,
             type_model.clone(),
@@ -1974,6 +1987,17 @@ pub(crate) fn lower_runtime_helper(
                         }
                     }
                 }
+                // The experimental `abi::` demo package's `AbiFunction` members are
+                // builder-driven bodies wrapped once into a shared `_mfb_rt_abi_*`
+                // helper (the unified successor to the OS-seam `OsLower` path).
+                call if call.starts_with("abi.") => lower_abi_function_helper(
+                    call,
+                    symbol,
+                    build_mode,
+                    type_model,
+                    platform_imports,
+                    platform,
+                )?,
                 "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset" => {
                     crate::codegen::builtins::datetime::lower_datetime_helper(
                         spec.call,

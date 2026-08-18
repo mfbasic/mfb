@@ -799,6 +799,8 @@ pub(crate) fn lower_function(
     functions: &HashMap<String, &NirFunction>,
     package_return_types: &HashMap<String, String>,
     platform_imports: &HashMap<String, String>,
+    platform: &dyn crate::codegen::engine::types::CodegenPlatform,
+    build_mode: crate::target::NativeBuildMode,
     globals: &HashMap<String, GlobalValue>,
     string_symbols: &HashMap<String, String>,
     callback_referenced_functions: &HashSet<String>,
@@ -836,6 +838,8 @@ pub(crate) fn lower_function(
         functions,
         package_return_types,
         platform_imports,
+        platform,
+        build_mode,
         globals,
         type_model,
         string_symbols,
@@ -1091,6 +1095,8 @@ pub(crate) fn lower_builtin_function_wrapper(
     functions: &HashMap<String, &NirFunction>,
     package_return_types: &HashMap<String, String>,
     platform_imports: &HashMap<String, String>,
+    platform: &dyn crate::codegen::engine::types::CodegenPlatform,
+    build_mode: crate::target::NativeBuildMode,
     globals: &HashMap<String, GlobalValue>,
     string_symbols: &HashMap<String, String>,
     type_model: TypeModel,
@@ -1115,6 +1121,8 @@ pub(crate) fn lower_builtin_function_wrapper(
         functions,
         package_return_types,
         platform_imports,
+        platform,
+        build_mode,
         globals,
         type_model,
         string_symbols,
@@ -1234,6 +1242,158 @@ pub(crate) fn lower_builtin_function_wrapper(
     })
 }
 
+/// The experimental `AbiFunction` wrapper — the unified successor to `OsLower`.
+/// Builds a `CodeBuilder`, binds the incoming ABI argument registers as
+/// **pre-lowered** `ValueResult`s (captured into vregs at entry, since the physical
+/// arg registers are only live-in at the prologue), runs the registered
+/// [`crate::codegen::registry::AbiFunction`] body, then wraps its returned
+/// `ValueResult` in the shared runtime-helper fallible convention (value in
+/// `RESULT_VALUE_REGISTER`, `RESULT_OK_TAG` in `RESULT_TAG_REGISTER`) and finalizes
+/// into the `(frame, instructions, relocations, stack_slots)` tuple every runtime
+/// helper produces. Reached from `lower_runtime_helper`'s `abi.*` arm. The demo
+/// `abi::funcAddTwo` member routes here.
+pub(crate) fn lower_abi_function_helper(
+    call: &str,
+    symbol: &str,
+    build_mode: crate::target::NativeBuildMode,
+    type_model: &TypeModel,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
+    let (lower, arity) = crate::codegen::registry::abi_function_lower(call)
+        .ok_or_else(|| format!("native code plan has no AbiFunction lowering for '{call}'"))?;
+
+    // A runtime helper is standalone: no user functions/globals/strings are in
+    // scope. Empty tables suffice for a builder-driven body that only computes over
+    // its argument registers (the demo). Kept as locals the builder borrows for the
+    // duration of this call.
+    let function_symbols: HashMap<String, String> = HashMap::new();
+    let functions: HashMap<String, &NirFunction> = HashMap::new();
+    let package_return_types: HashMap<String, String> = HashMap::new();
+    let globals: HashMap<String, GlobalValue> = HashMap::new();
+    let string_symbols: HashMap<String, String> = HashMap::new();
+
+    let mut builder = CodeBuilder {
+        current_symbol: symbol.to_string(),
+        function_symbols: &function_symbols,
+        functions: &functions,
+        package_return_types: &package_return_types,
+        platform_imports,
+        platform,
+        build_mode,
+        globals: &globals,
+        type_model: type_model.clone(),
+        string_symbols: &string_symbols,
+        locals: HashMap::new(),
+        instructions: vec![abi::label("entry")],
+        relocations: Vec::new(),
+        stack_slots: Vec::new(),
+        used_callee_saved: Vec::new(),
+        stack_size: 0,
+        next_register: 8,
+        next_vreg: 0,
+        vreg_eager: Vec::new(),
+        next_fp_register: 0,
+        next_fp_vreg: 0,
+        fp_vreg_eager: Vec::new(),
+        float_residents: HashMap::new(),
+        promoted_float_locals: HashMap::new(),
+        address_taken_locals: HashSet::new(),
+        value_used_locals: HashSet::new(),
+        borrow_get_locals: HashSet::new(),
+        borrow_get_result: false,
+        current_returns_param_borrow: false,
+        callback_referenced_functions: HashSet::new(),
+        regalloc_kind: regalloc::active_kind(),
+        regalloc_error: None,
+        next_label: 0,
+        trap: None,
+        loop_stack: Vec::new(),
+        active_cleanups: Vec::new(),
+        cleanup_scope_starts: Vec::new(),
+        pending_result_slots: None,
+        escaping_value_slot: None,
+        error_arena_restore_slot: None,
+        raw_result_capture: None,
+        trap_discard_error_results: HashSet::new(),
+        raw_result_discard_error: false,
+        suppress_resource_source_flag: false,
+        emitting_error_route: false,
+        building_error_block: false,
+        current_file: String::new(),
+        current_loc: NirSourceLoc::default(),
+        resource_owners: HashMap::new(),
+        owner_collections: HashSet::new(),
+        owned_list_heads: HashMap::new(),
+        owned_value_slots: Vec::new(),
+        pending_temp_frees: Vec::new(),
+        for_each_iterable_locals: Vec::new(),
+        string_capacity_slots: HashMap::new(),
+        math_pool_base_vreg: None,
+        vector_natives: HashMap::new(),
+        next_vector_native: 0,
+        promoted_vector_locals: HashMap::new(),
+        promotable_vector_locals: HashSet::new(),
+        integer_lower_bounds: HashMap::new(),
+        integer_strict_upper: std::collections::HashSet::new(),
+        for_bound_expr: HashMap::new(),
+        len_of_local: HashMap::new(),
+        provable_index_locals: HashMap::new(),
+    };
+
+    // Capture each incoming ABI argument register into a vreg at entry, then hand
+    // the body pre-lowered `ValueResult`s (the body never re-lowers or frees args).
+    let mut args = Vec::with_capacity(arity);
+    for index in 0..arity {
+        let reg = builder.allocate_register()?;
+        builder.emit(abi::move_register(&reg, abi::argument_register(index)?));
+        args.push(ValueResult {
+            type_: "Integer".to_string(),
+            location: Operand::from(reg.render()),
+            text: format!("abiArg{index}"),
+        });
+    }
+
+    let ctx = crate::codegen::registry::AbiCtx {
+        platform_imports,
+        platform,
+        build_mode,
+    };
+    let result = lower(&mut builder, &args, &ctx)?;
+
+    builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &result.location));
+    builder.emit(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.emit(abi::return_());
+
+    builder.run_register_allocation()?;
+    let mut instructions = builder.instructions;
+    let is_x86 = mir::active_backend().register_model().arena_base()
+        == crate::arch::x86_64::regmodel::ARENA_BASE_REGISTER;
+    peephole::forward_stores_to_loads(&mut instructions, is_x86);
+    peephole::remove_fp_shuttles(&mut instructions, mir::active_backend().register_model());
+    let mut stack_slots = builder.stack_slots;
+    let frame = finalize_frame(
+        &mut instructions,
+        &mut stack_slots,
+        builder.stack_size,
+        builder.used_callee_saved,
+    );
+
+    Ok((frame, instructions, builder.relocations, stack_slots))
+}
+
 /// The per-type thread-transfer deep-copy function (bug-391). Takes a pointer to
 /// a value of `type_` (a recursive type) in the first argument register and
 /// returns a pointer to a fresh, independent copy in the current arena. Its body
@@ -1248,6 +1408,8 @@ pub(crate) fn lower_thread_copy_function(
     functions: &HashMap<String, &NirFunction>,
     package_return_types: &HashMap<String, String>,
     platform_imports: &HashMap<String, String>,
+    platform: &dyn crate::codegen::engine::types::CodegenPlatform,
+    build_mode: crate::target::NativeBuildMode,
     globals: &HashMap<String, GlobalValue>,
     string_symbols: &HashMap<String, String>,
     type_model: TypeModel,
@@ -1263,6 +1425,8 @@ pub(crate) fn lower_thread_copy_function(
         functions,
         package_return_types,
         platform_imports,
+        platform,
+        build_mode,
         globals,
         type_model,
         string_symbols,
