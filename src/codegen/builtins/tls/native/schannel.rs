@@ -93,12 +93,17 @@ mod st {
 /// constant is `0x80090318` (negative as i32); the encoder rejects the negative
 /// literal, so it is built in `%v14` by shift+add and sign-extended to match the
 /// sign-extended status register.
-fn branch_if_incomplete(status: &str, target: &str, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
+fn branch_if_incomplete(
+    status: &str,
+    target: &str,
+    ins: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
+) {
     let v14 = vregs.next();
     ins.extend([
         abi::move_immediate(&v14, "Integer", "32777"), // 0x8009
-        abi::shift_left_immediate(&v14, &v14, 16),   // 0x80090000
-        abi::add_immediate(&v14, &v14, 792),         // 0x80090318
+        abi::shift_left_immediate(&v14, &v14, 16),     // 0x80090000
+        abi::add_immediate(&v14, &v14, 792),           // 0x80090318
         abi::sign_extend_word(&v14, &v14),
         abi::compare_registers(status, &v14),
         abi::branch_eq(target),
@@ -208,7 +213,8 @@ fn sspi_call_ext(
     platform: &dyn CodegenPlatform,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
- vregs: &mut Vregs) -> Result<(), String> {
+    vregs: &mut Vregs,
+) -> Result<(), String> {
     let v8 = vregs.next();
     let v9 = vregs.next();
     // No manual sub_sp: the stack args go through outgoing_stack_arg_store, which

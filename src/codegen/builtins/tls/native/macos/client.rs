@@ -107,7 +107,8 @@ pub(crate) fn lower_tls_connect_macos(
         &alloc_fail,
         &mut ins,
         &mut rel,
-     &mut vregs);
+        &mut vregs,
+    );
     // Allocate the block context.
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", CTX_SIZE),
@@ -181,7 +182,8 @@ pub(crate) fn lower_tls_connect_macos(
         &alloc_fail,
         &mut ins,
         &mut rel,
-     &mut vregs);
+        &mut vregs,
+    );
     dlsym(
         &mut EmitCtx {
             symbol,
@@ -473,11 +475,7 @@ pub(crate) fn lower_tls_connect_macos(
         BLOCK + BLK_INVOKE,
     ));
     emit_data_address(symbol, &v9, DESC_SYMBOL, &mut ins, &mut rel);
-    ins.push(abi::store_u64(
-        &v9,
-        abi::stack_pointer(),
-        BLOCK + BLK_DESC,
-    ));
+    ins.push(abi::store_u64(&v9, abi::stack_pointer(), BLOCK + BLK_DESC));
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), CTX),
         abi::store_u64(&v9, abi::stack_pointer(), BLOCK + BLK_CAP),
@@ -645,7 +643,8 @@ pub(crate) fn lower_tls_connect_macos(
         CONN,
         FNPTR,
         &load_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     emit_release_queue(
         &mut EmitCtx {
             symbol,
@@ -658,7 +657,8 @@ pub(crate) fn lower_tls_connect_macos(
         QUEUE,
         FNPTR,
         &load_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     // Drain to the terminal `cancelled` state before returning (bug-380).
     // `nw_connection_cancel` is asynchronous, and the state-changed handler
     // (STATE_INVOKE) dereferences the arena-allocated `ctx` on *every* invocation.
@@ -700,7 +700,8 @@ pub(crate) fn lower_tls_connect_macos(
         CONN,
         FNPTR,
         &load_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     emit_release_queue(
         &mut EmitCtx {
             symbol,
@@ -713,7 +714,8 @@ pub(crate) fn lower_tls_connect_macos(
         QUEUE,
         FNPTR,
         &load_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
     ins.push(abi::label(&net_fail));
     emit_fail(symbol, "ErrNetworkFailed", &mut ins, &mut rel, &done);
@@ -961,7 +963,8 @@ pub(crate) fn lower_tls_read_macos(
         CTX,
         FNPTR,
         &load_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     // ctx->retain = &dispatch_retain (used inside the receive block).
     dlsym(
         &mut EmitCtx {
@@ -995,7 +998,8 @@ pub(crate) fn lower_tls_read_macos(
         BLOCK,
         FNPTR,
         &load_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     // bug-386: if the connection has already transitioned to a terminal state
     // (failed=4 / cancelled=5), the async receive we are about to post will have
     // its completion block dropped by Network.framework, and — since no further
@@ -1047,7 +1051,8 @@ pub(crate) fn lower_tls_read_macos(
         CTX,
         FNPTR,
         &load_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     // A null content is end-of-stream.
     ins.extend([
         abi::load_u64(&v9, abi::stack_pointer(), CTX),
@@ -1340,14 +1345,7 @@ pub(crate) fn lower_tls_write_macos(
             // COUNT*ENTRY would mis-address it (byte payload base is
             // HEADER + CAPACITY*ENTRY). Mirrors the OpenSSL path (bug-157).
         ]);
-        push_collection_data_base_from_capacity(
-            &mut ins,
-            &v11,
-            abi::c_arg(1),
-            &v14,
-            &v12,
-            &v13,
-        );
+        push_collection_data_base_from_capacity(&mut ins, &v11, abi::c_arg(1), &v14, &v12, &v13);
         ins.extend([abi::store_u64(&v11, abi::stack_pointer(), DATA)]);
     }
     // Empty payload: nothing to send.
@@ -1379,7 +1377,8 @@ pub(crate) fn lower_tls_write_macos(
         CTX,
         FNPTR,
         &load_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     // content = dispatch_data_create(data, len, NULL, NULL)  (NULL = copy)
     dlsym(
         &mut EmitCtx {
@@ -1436,7 +1435,8 @@ pub(crate) fn lower_tls_write_macos(
         BLOCK,
         FNPTR,
         &load_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     // bug-386: skip the send + FOREVER wait if the connection is already in a
     // terminal state (failed=4 / cancelled=5). The send completion would be
     // dropped and, with no further state transition to fire the state-changed
@@ -1484,7 +1484,8 @@ pub(crate) fn lower_tls_write_macos(
         CTX,
         FNPTR,
         &load_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     // Release the content we created.
     dlsym(
         &mut EmitCtx {
@@ -1667,7 +1668,8 @@ pub(crate) fn lower_tls_poll_macos(
         BLOCK,
         FNPTR,
         &load_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     ins.extend([
         // bug-386 style pre-check: a terminal connection would drop the receive's
         // completion, so route to readable (EOF) rather than arm a receive that

@@ -172,7 +172,8 @@ pub(crate) fn emit_cstring(
     alloc_fail: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
- vregs: &mut Vregs) {
+    vregs: &mut Vregs,
+) {
     let v17 = vregs.next();
     let v18 = vregs.next();
     let v19 = vregs.next();

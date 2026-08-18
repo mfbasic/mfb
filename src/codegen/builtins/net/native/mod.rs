@@ -531,7 +531,13 @@ fn lower_net_endpoint_helper(
             abi::label(&connect_ts_ok),
         ]);
     }
-    emit_hints(HINTS_OFFSET, listen, SOCK_STREAM, &mut instructions, &mut vregs);
+    emit_hints(
+        HINTS_OFFSET,
+        listen,
+        SOCK_STREAM,
+        &mut instructions,
+        &mut vregs,
+    );
     // Default getaddrinfo service = NULL (valid whenever the host is non-NULL).
     instructions.push(abi::store_u64(
         abi::ZERO,

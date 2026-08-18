@@ -459,11 +459,7 @@ fn lower_open_output(
 
 /// AudioQueueSetProperty(queue, kAudioQueueProperty_CurrentDevice, &uidCF, 8)
 /// from the `AudioDevice.id` string, selecting the named device.
-fn emit_select_device(
-    ctx: &mut EmitCtx,
-    dev_fail: &str,
-    vregs: &mut Vregs,
-) -> Result<(), String> {
+fn emit_select_device(ctx: &mut EmitCtx, dev_fail: &str, vregs: &mut Vregs) -> Result<(), String> {
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
@@ -828,8 +824,8 @@ fn emit_channel_flag(
         // mNumberBuffers @ BUFLIST[0]; buffers start at BUFLIST+8, stride 16,
         // mNumberChannels at +0.
         abi::add_immediate(&v9, abi::stack_pointer(), BUFLIST_OFF),
-        abi::load_u32(&v10, &v9, 0),             // nbuf
-        abi::add_immediate(&v11, &v9, 8),        // buffer cursor
+        abi::load_u32(&v10, &v9, 0),               // nbuf
+        abi::add_immediate(&v11, &v9, 8),          // buffer cursor
         abi::move_immediate(&v12, "Integer", "0"), // i
         abi::move_immediate(&v13, "Integer", "0"), // sum
         abi::label(&sum_loop),
@@ -2353,7 +2349,7 @@ fn lower_read(
             abi::add_registers(&v9, &v9, &v11), // now
             abi::load_u64(&v12, abi::stack_pointer(), DEADLINE_OFF),
             abi::compare_registers(&v9, &v12),
-            abi::branch_ge(&drain_done),                    // expired
+            abi::branch_ge(&drain_done),              // expired
             abi::subtract_registers(&v12, &v12, &v9), // remaining
             abi::move_immediate(&v13, "Integer", "1000000000"),
             abi::unsigned_divide_registers(&v14, &v12, &v13),

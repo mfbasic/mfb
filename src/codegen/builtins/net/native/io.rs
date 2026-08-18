@@ -1075,7 +1075,13 @@ pub(crate) fn lower_net_lookup_helper(
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST_OFFSET),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), PORT_OFFSET),
     ]);
-    emit_hints(HINTS_OFFSET, false, SOCK_STREAM, &mut instructions, &mut vregs);
+    emit_hints(
+        HINTS_OFFSET,
+        false,
+        SOCK_STREAM,
+        &mut instructions,
+        &mut vregs,
+    );
     emit_cstring(
         symbol,
         "host",
@@ -1333,7 +1339,13 @@ pub(crate) fn lower_net_bind_udp_helper(
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST_OFFSET),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), PORT_OFFSET),
     ]);
-    emit_hints(HINTS_OFFSET, true, SOCK_DGRAM, &mut instructions, &mut vregs);
+    emit_hints(
+        HINTS_OFFSET,
+        true,
+        SOCK_DGRAM,
+        &mut instructions,
+        &mut vregs,
+    );
     // Default getaddrinfo service = NULL (valid whenever the host is non-NULL).
     instructions.push(abi::store_u64(
         abi::ZERO,
@@ -1942,7 +1954,13 @@ pub(crate) fn lower_net_send_to_helper(
         );
         instructions.extend([abi::store_u64(&v11, abi::stack_pointer(), DATA_OFFSET)]);
     }
-    emit_hints(HINTS_OFFSET, false, SOCK_DGRAM, &mut instructions, &mut vregs);
+    emit_hints(
+        HINTS_OFFSET,
+        false,
+        SOCK_DGRAM,
+        &mut instructions,
+        &mut vregs,
+    );
     emit_cstring(
         symbol,
         "host",

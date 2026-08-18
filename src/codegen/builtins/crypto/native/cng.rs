@@ -201,7 +201,14 @@ impl Sc {
 
 /// A copy loop: `count` bytes from `[src]` to `[dst]` (both register operands,
 /// consumed). Uses `%v9`/`%v-tmp` scratch named by `tag`.
-fn copy_bytes(sc: &Sc, src: &str, dst: &str, count: &str, tag: &str, ins: &mut Vec<CodeInstruction>) {
+fn copy_bytes(
+    sc: &Sc,
+    src: &str,
+    dst: &str,
+    count: &str,
+    tag: &str,
+    ins: &mut Vec<CodeInstruction>,
+) {
     // Internal scratch sc.v4/sc.v5 must not alias any caller's src/dst/count
     // (callers use sc.v6..sc.v15) — otherwise `load,[ptr]` would clobber a pointer.
     let loop_l = format!("{tag}_cp");
@@ -392,7 +399,14 @@ fn generate(
         abi::add_immediate(&sc.v12, &sc.v10, 1),
         abi::move_immediate(&sc.v13, "Integer", &(3 * field).to_string()),
     ]);
-    copy_bytes(&sc, &sc.v11, &sc.v12, &sc.v13, &format!("{symbol}_gk"), &mut ins);
+    copy_bytes(
+        &sc,
+        &sc.v11,
+        &sc.v12,
+        &sc.v13,
+        &format!("{symbol}_gk"),
+        &mut ins,
+    );
 
     // Clean up the CNG handles and wipe the private blob BEFORE building the
     // result — the cleanup calls clobber the caller-saved result registers, and

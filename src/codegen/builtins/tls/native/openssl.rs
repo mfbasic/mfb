@@ -131,7 +131,8 @@ pub(crate) fn lower_tls_connect_openssl(
         &alloc_fail,
         &mut instructions,
         &mut relocations,
-     &mut vregs);
+        &mut vregs,
+    );
     instructions.extend([
         abi::load_u64(
             abi::return_register(),
@@ -391,7 +392,8 @@ pub(crate) fn lower_tls_connect_openssl(
         &alloc_fail,
         &mut instructions,
         &mut relocations,
-     &mut vregs);
+        &mut vregs,
+    );
     instructions.push(abi::branch(&sni_ready));
     instructions.push(abi::label(&use_sname));
     emit_cstring(
@@ -402,7 +404,8 @@ pub(crate) fn lower_tls_connect_openssl(
         &alloc_fail,
         &mut instructions,
         &mut relocations,
-     &mut vregs);
+        &mut vregs,
+    );
     instructions.push(abi::label(&sni_ready));
 
     // --- OpenSSL handshake (shared) ---
@@ -1090,7 +1093,8 @@ pub(crate) fn lower_tls_listen_openssl(
         &alloc_fail,
         &mut instructions,
         &mut relocations,
-     &mut vregs);
+        &mut vregs,
+    );
     instructions.extend([
         abi::branch(&resolved),
         abi::label(&null_host),
@@ -1212,7 +1216,8 @@ pub(crate) fn lower_tls_listen_openssl(
         &alloc_fail_fd,
         &mut instructions,
         &mut relocations,
-     &mut vregs);
+        &mut vregs,
+    );
     emit_cstring(
         symbol,
         "key",
@@ -1221,7 +1226,8 @@ pub(crate) fn lower_tls_listen_openssl(
         &alloc_fail_fd,
         &mut instructions,
         &mut relocations,
-     &mut vregs);
+        &mut vregs,
+    );
     emit_dlopen_libssl(
         &mut EmitCtx {
             symbol,

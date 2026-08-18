@@ -265,8 +265,8 @@ fn lower_datetime_windows(
             instructions.extend([
                 abi::load_u64(&counter, abi::stack_pointer(), WIN_FILETIME_OFFSET), // counter
                 abi::load_u64(&freq, abi::stack_pointer(), WIN_QPC_FREQ_OFFSET),    // freq
-                abi::unsigned_divide_registers(&q, &counter, &freq),               // q
-                abi::multiply_subtract_registers(&rem, &q, &freq, &counter),       // rem = counter - q*freq
+                abi::unsigned_divide_registers(&q, &counter, &freq),                // q
+                abi::multiply_subtract_registers(&rem, &q, &freq, &counter), // rem = counter - q*freq
                 abi::move_immediate(&scale, "Integer", NANOS_PER_SEC),
                 abi::multiply_registers(&q, &q, &scale), // q*1e9
                 abi::multiply_registers(&rem, &rem, &scale), // rem*1e9

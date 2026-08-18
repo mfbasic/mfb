@@ -108,7 +108,7 @@ pub(crate) fn lower_fs_file_drain(
         // fixed base, so advancing it would make later appends write past the
         // buffer's end. dst (base) < src (cursor), so a forward byte copy is
         // overlap-safe.
-        abi::move_register(&slide_dst, &base), // dst = base
+        abi::move_register(&slide_dst, &base),   // dst = base
         abi::move_register(&slide_src, &cursor), // src = base + k
         abi::move_register(&slide_count, &remaining), // count = remaining
         abi::label(&slide_loop),
@@ -2124,7 +2124,7 @@ fn emit_reconcile_read_buffer(
         abi::load_u64(&fd, file, FILE_OFFSET_FD),
         abi::move_register(abi::return_register(), &fd),
         abi::subtract_registers(abi::c_arg(1), abi::ZERO, &unconsumed), // -unconsumed
-        abi::move_immediate(abi::c_arg(2), "Integer", "1"),        // SEEK_CUR
+        abi::move_immediate(abi::c_arg(2), "Integer", "1"),             // SEEK_CUR
     ]);
     platform.emit_seek_file(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
     ctx.instructions.extend([

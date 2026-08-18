@@ -6,7 +6,8 @@ pub(crate) fn emit_port_itoa(
     portbuf_off: usize,
     portcstr_off: usize,
     ins: &mut Vec<CodeInstruction>,
- vregs: &mut Vregs) {
+    vregs: &mut Vregs,
+) {
     let v9 = vregs.next();
     let v10 = vregs.next();
     let v11 = vregs.next();
@@ -309,7 +310,8 @@ fn emit_cancel_and_release_conn(
     conn_off: usize,
     fnptr_off: usize,
     fail: &str,
- vregs: &mut Vregs) -> Result<(), String> {
+    vregs: &mut Vregs,
+) -> Result<(), String> {
     let v9 = vregs.next();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
@@ -349,7 +351,8 @@ fn emit_release_queue(
     queue_off: usize,
     fnptr_off: usize,
     fail: &str,
- vregs: &mut Vregs) -> Result<(), String> {
+    vregs: &mut Vregs,
+) -> Result<(), String> {
     let v9 = vregs.next();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
@@ -388,7 +391,8 @@ fn emit_build_block(
     block_off: usize,
     fnptr_off: usize,
     fail: &str,
- vregs: &mut Vregs) -> Result<(), String> {
+    vregs: &mut Vregs,
+) -> Result<(), String> {
     let v9 = vregs.next();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
@@ -424,13 +428,7 @@ fn emit_build_block(
         abi::stack_pointer(),
         block_off + BLK_INVOKE,
     ));
-    emit_data_address(
-        symbol,
-        &v9,
-        DESC_SYMBOL,
-        ctx.instructions,
-        ctx.relocations,
-    );
+    emit_data_address(symbol, &v9, DESC_SYMBOL, ctx.instructions, ctx.relocations);
     ctx.instructions.push(abi::store_u64(
         &v9,
         abi::stack_pointer(),
@@ -465,7 +463,8 @@ fn emit_fresh_sem(
     ctx_off: usize,
     fnptr_off: usize,
     fail: &str,
- vregs: &mut Vregs) -> Result<(), String> {
+    vregs: &mut Vregs,
+) -> Result<(), String> {
     let v9 = vregs.next();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
@@ -527,7 +526,8 @@ fn emit_wait(
     ctx_off: usize,
     fnptr_off: usize,
     fail: &str,
- vregs: &mut Vregs) -> Result<(), String> {
+    vregs: &mut Vregs,
+) -> Result<(), String> {
     let v9 = vregs.next();
     let v10 = vregs.next();
     let symbol = ctx.symbol;

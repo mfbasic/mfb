@@ -976,7 +976,13 @@ fn sign(
         &mut ins,
         &mut rel,
     );
-    emit_len_check(PRIVLEN, p.point_len + p.field_len, &invalid_fail, &v9, &mut ins);
+    emit_len_check(
+        PRIVLEN,
+        p.point_len + p.field_len,
+        &invalid_fail,
+        &v9,
+        &mut ins,
+    );
 
     dlopen_libcrypto(
         symbol, HANDLE, &load_fail, imports, platform, &mut ins, &mut rel,

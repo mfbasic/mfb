@@ -31,7 +31,8 @@ fn emit_cancel_drain(
     wait_off: usize,
     drain_label: &str,
     cancelled_state: &str,
- vregs: &mut Vregs) {
+    vregs: &mut Vregs,
+) {
     let v9 = vregs.next();
     let v10 = vregs.next();
     ins.extend([
@@ -68,7 +69,8 @@ fn emit_read_whole_file(
     open_fail: &str,
     read_fail_fd: &str,
     alloc_fail: &str,
- vregs: &mut Vregs) -> Result<(), String> {
+    vregs: &mut Vregs,
+) -> Result<(), String> {
     let v9 = vregs.next();
     let v10 = vregs.next();
     let symbol = ctx.symbol;
@@ -85,7 +87,8 @@ fn emit_read_whole_file(
         alloc_fail,
         ctx.instructions,
         ctx.relocations,
-     vregs);
+        vregs,
+    );
     // fd = open(path, O_RDONLY)
     ctx.instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), cstr_off),
@@ -167,7 +170,8 @@ fn emit_import_pem_item(
     fnptr_off: usize,
     fail: &str,
     load_fail: &str,
- vregs: &mut Vregs) -> Result<(), String> {
+    vregs: &mut Vregs,
+) -> Result<(), String> {
     let v9 = vregs.next();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
@@ -319,7 +323,8 @@ fn emit_import_pem_item(
         items_off,
         fnptr_off,
         load_fail,
-     vregs)?;
+        vregs,
+    )?;
     emit_cf_release_slot(
         &mut EmitCtx {
             symbol,
@@ -332,7 +337,8 @@ fn emit_import_pem_item(
         data_off,
         fnptr_off,
         load_fail,
-     vregs)?;
+        vregs,
+    )?;
     Ok(())
 }
 
@@ -349,7 +355,8 @@ fn emit_cf_release_slot(
     slot_off: usize,
     fnptr_off: usize,
     load_fail: &str,
- vregs: &mut Vregs) -> Result<(), String> {
+    vregs: &mut Vregs,
+) -> Result<(), String> {
     let v9 = vregs.next();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
@@ -473,7 +480,8 @@ pub(crate) fn lower_tls_listen_macos(
         &cert_fail,
         &read_fail_fd,
         &alloc_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     emit_read_whole_file(
         &mut EmitCtx {
             symbol,
@@ -492,7 +500,8 @@ pub(crate) fn lower_tls_listen_macos(
         &cert_fail,
         &read_fail_fd,
         &alloc_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     // dlopen Network.framework, Security.framework, CoreFoundation.
     emit_dlopen_at(
         &mut EmitCtx {
@@ -549,7 +558,8 @@ pub(crate) fn lower_tls_listen_macos(
         FNPTR,
         &cert_fail,
         &load_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     emit_import_pem_item(
         &mut EmitCtx {
             symbol,
@@ -568,7 +578,8 @@ pub(crate) fn lower_tls_listen_macos(
         FNPTR,
         &cert_fail,
         &load_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     // identity = SecIdentityCreate(NULL, certRef, keyRef) — the keychain-free
     // cert+key pairing entry point in Security.framework (resolved via dlsym;
     // absent => ErrTlsFailed, never a stub).
@@ -612,7 +623,8 @@ pub(crate) fn lower_tls_listen_macos(
             slot,
             FNPTR,
             &load_fail,
-         &mut vregs)?;
+            &mut vregs,
+        )?;
     }
     // secIdentity = sec_identity_create(identity)
     dlsym(
@@ -804,7 +816,8 @@ pub(crate) fn lower_tls_listen_macos(
         &alloc_fail,
         &mut ins,
         &mut rel,
-     &mut vregs);
+        &mut vregs,
+    );
     ins.push(abi::branch(&host_ready));
     ins.push(abi::label(&null_host));
     emit_data_address(symbol, &v9, ANYHOST_SYMBOL, &mut ins, &mut rel);
@@ -1039,7 +1052,8 @@ pub(crate) fn lower_tls_listen_macos(
         SBLOCK,
         FNPTR,
         &load_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     dlsym(
         &mut EmitCtx {
             symbol,
@@ -1074,7 +1088,8 @@ pub(crate) fn lower_tls_listen_macos(
         CBLOCK,
         FNPTR,
         &load_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     dlsym(
         &mut EmitCtx {
             symbol,
@@ -1222,7 +1237,8 @@ pub(crate) fn lower_tls_listen_macos(
             slot,
             FNPTR,
             &load_fail,
-         &mut vregs)?;
+            &mut vregs,
+        )?;
     }
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&load_fail));
@@ -1532,7 +1548,8 @@ pub(crate) fn lower_tls_accept_macos(
         SBLOCK,
         FNPTR,
         &load_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     dlsym(
         &mut EmitCtx {
             symbol,
@@ -1632,7 +1649,8 @@ pub(crate) fn lower_tls_accept_macos(
         CONN,
         FNPTR,
         &load_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     emit_cancel_drain(&mut ins, CCTX, WAITFN, &conn_fail_drain, "5", &mut vregs);
     emit_fail(symbol, "ErrTlsFailed", &mut ins, &mut rel, &done);
     ins.push(abi::label(&hs_timeout));
@@ -1648,7 +1666,8 @@ pub(crate) fn lower_tls_accept_macos(
         CONN,
         FNPTR,
         &load_fail,
-     &mut vregs)?;
+        &mut vregs,
+    )?;
     emit_cancel_drain(&mut ins, CCTX, WAITFN, &hs_timeout_drain, "5", &mut vregs);
     emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
     ins.push(abi::label(&accept_timeout));
