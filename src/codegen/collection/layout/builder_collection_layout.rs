@@ -594,42 +594,14 @@ impl CodeBuilder<'_> {
     ///
     /// Every other record inlines its `String` fields.
     pub(crate) fn is_pointer_string_record(&self, type_: &str) -> bool {
-        matches!(
-            type_,
-            "Address" | "Datagram" | "DatagramText" | "AudioDevice"
-        )
+        is_pointer_string_record(type_)
     }
 
     /// True when `field_type` occupies a record slot as a pointer to a separate
     /// allocation (nested record/union/collection/`Result`/`Error`). These stay
     /// pointers in Phase 2 (later phases inline them).
     pub(crate) fn record_field_is_pointer(&self, field_type: &str) -> bool {
-        is_collection_type(field_type)
-            || self.type_model.record_fields.contains_key(field_type)
-            // A resource union is a pointer composite (its value is a pointer to a
-            // `{tag, ptr}` block), never a flat block. A transferred stateful union
-            // is spelled `Stream STATE Cursor`; base-strip so the STATE suffix does
-            // not misclassify it as a flat scalar (plan-75 gap 3, else `type_is_flat`
-            // would route the transfer copy to `copy_flat_block` and alias the +8
-            // variant record).
-            || self
-                .type_model
-                .union_names
-                .contains(crate::builtins::resource::base_resource_name(field_type))
-            || field_type.starts_with("Result OF ")
-            || field_type == "Error"
-    }
-
-    /// The payload value types a collection stores: the element type for a
-    /// `List`, the key and value types for a `Map`.
-    fn collection_payload_types(&self, type_: &str) -> Vec<String> {
-        if let Some(value) = type_.strip_prefix("List OF ") {
-            vec![value.to_string()]
-        } else if let Some((key, value)) = map_type_parts(type_) {
-            vec![key, value]
-        } else {
-            Vec::new()
-        }
+        record_field_is_pointer(&self.type_model, field_type)
     }
 
     /// True when a value of `type_` is **fully flat** — a single pointer-free
@@ -641,61 +613,7 @@ impl CodeBuilder<'_> {
     /// helper-built pointer-`String` records, and any recursive type (broken by
     /// the `visited` path set, so a cyclic type stays a pointer).
     pub(crate) fn type_is_flat(&self, type_: &str) -> bool {
-        let mut visited = std::collections::HashSet::new();
-        self.type_is_flat_inner(type_, &mut visited)
-    }
-
-    fn type_is_flat_inner(
-        &self,
-        type_: &str,
-        visited: &mut std::collections::HashSet<String>,
-    ) -> bool {
-        if !visited.insert(type_.to_string()) {
-            // Already on the current path: a type cycle. Cyclic values cannot be
-            // a single finite flat block, so treat them as pointers.
-            return false;
-        }
-        let result = if type_ == "String" {
-            true
-        } else if let Some(payload) = type_.strip_prefix("Result OF ") {
-            // A flat `Result` `{tag, size, payload}` is pointer-free when its
-            // success payload is flat (the `Err` variant is the now-flat `Error`).
-            self.type_is_flat_inner(payload, visited)
-        } else if is_collection_type(type_) {
-            // A collection is flat when every payload is flat — including a nested
-            // flat collection, which is inlined in the data region (plan-02 §4.4,
-            // Phase 5a). A resource or recursive payload makes it non-flat.
-            self.collection_payload_types(type_)
-                .into_iter()
-                .all(|p| self.type_is_flat_inner(&p, visited))
-        } else if self.type_model.record_fields.contains_key(type_) {
-            !self.is_pointer_string_record(type_)
-                && self
-                    .type_model
-                    .record_fields
-                    .get(type_)
-                    .cloned()
-                    .unwrap_or_default()
-                    .iter()
-                    .all(|(_, ft)| self.type_is_flat_inner(ft, visited))
-        } else if self.union_is_data(type_) {
-            self.type_model
-                .variants_for_union(type_)
-                .map(|variant| variant.to_string())
-                .collect::<Vec<_>>()
-                .iter()
-                .all(|variant| self.type_is_flat_inner(variant, visited))
-        } else if crate::builtins::is_resource_type(type_) {
-            // A resource is a move-only handle to its single instance, never a
-            // copyable flat block.
-            false
-        } else {
-            // A scalar (anything that is not a pointer composite, `String`, or
-            // resource) is flat; resource unions / `Result` are excluded above.
-            !self.record_field_is_pointer(type_)
-        };
-        visited.remove(type_);
-        result
+        type_is_flat(&self.type_model, type_)
     }
 
     /// True when field `field_type` of `record_type` is inlined into the record's
@@ -704,17 +622,7 @@ impl CodeBuilder<'_> {
     /// or a flat collection (plan-02 §4.2–§4.4). Scalars stay inline in the slot;
     /// not-yet-flat composites stay pointers.
     pub(crate) fn record_field_is_inlined(&self, record_type: &str, field_type: &str) -> bool {
-        if self.is_pointer_string_record(record_type) {
-            return false;
-        }
-        if field_type == "String" {
-            return true;
-        }
-        let is_composite = self.type_model.record_fields.contains_key(field_type)
-            || self.type_model.union_names.contains(field_type)
-            || is_collection_type(field_type)
-            || field_type.starts_with("Result OF ");
-        is_composite && self.type_is_flat(field_type)
+        record_field_is_inlined(&self.type_model, record_type, field_type)
     }
 
     /// True when `record_type` has at least one inlined field (so its block is
@@ -778,21 +686,7 @@ impl CodeBuilder<'_> {
     /// (plan-02 §4.3); resource unions keep `{tag, resource-ptr}` and are never
     /// reshaped. A union is all-data or all-resource (`rules.rs:790`).
     pub(crate) fn union_is_data(&self, type_: &str) -> bool {
-        // A transferred stateful union spells `Stream STATE Cursor`; the union set
-        // is keyed on the bare name `Stream` (plan-75 gap 3). Strip the suffix so a
-        // resource union with STATE still classifies as all-resource.
-        let type_ = crate::builtins::resource::base_resource_name(type_);
-        if !self.type_model.union_names.contains(type_) {
-            return false;
-        }
-        let mut saw_variant = false;
-        for variant in self.type_model.variants_for_union(type_) {
-            saw_variant = true;
-            if crate::builtins::is_resource_type(variant) {
-                return false;
-            }
-        }
-        saw_variant
+        union_is_data(&self.type_model, type_)
     }
 
     /// Total byte size of a data union into `out_slot`: the `size` word at `+8`
@@ -2650,6 +2544,163 @@ pub(crate) fn emit_alloc_byte_list(
 /// the kind byte should be able to trust it.
 pub(crate) fn byte_list_block_kind() -> usize {
     list_block_kind("Byte")
+}
+
+// ---------------------------------------------------------------------------
+// Record field-layout classification (spec/memory/03_heap-values.md §Record).
+//
+// These are the single source of truth for how a record slot stores each field —
+// inline scalar, block-relative offset into the data region (inlined String /
+// flat composite), or an 8-byte pointer to a separate allocation. The
+// `CodeBuilder` methods above delegate here so the call-site record builder
+// (`emit_build_inlined_record`) and the **helper-tier** record marshaller
+// (`crate::codegen::memory::marshal::emit_build_inlined_record`, driven from an
+// `OsLower` emitter through `OsLowerCtx::type_model`) classify fields identically
+// and can never drift.
+// ---------------------------------------------------------------------------
+
+/// The built-in helper-constructed records whose `String`/sub-record fields are
+/// kept as **pointers** to separate allocations rather than inlined into the data
+/// region (spec §Record "excluded"). The socket helpers build `net::` `Address`/
+/// `Datagram`/`DatagramText` that way, and audio builds `AudioDevice`.
+pub(crate) fn is_pointer_string_record(type_: &str) -> bool {
+    matches!(
+        type_,
+        "Address" | "Datagram" | "DatagramText" | "AudioDevice"
+    )
+}
+
+/// True when `field_type` occupies a record slot as a pointer to a separate
+/// allocation (nested record/union/collection/`Result`/`Error`).
+pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &str) -> bool {
+    is_collection_type(field_type)
+        || model.record_fields.contains_key(field_type)
+        // A resource union is a pointer composite (its value is a pointer to a
+        // `{tag, ptr}` block), never a flat block. A transferred stateful union
+        // is spelled `Stream STATE Cursor`; base-strip so the STATE suffix does
+        // not misclassify it as a flat scalar (plan-75 gap 3, else `type_is_flat`
+        // would route the transfer copy to `copy_flat_block` and alias the +8
+        // variant record).
+        || model
+            .union_names
+            .contains(crate::builtins::resource::base_resource_name(field_type))
+        || field_type.starts_with("Result OF ")
+        || field_type == "Error"
+}
+
+/// The payload value types a collection stores: the element type for a `List`,
+/// the key and value types for a `Map`.
+fn collection_payload_types(type_: &str) -> Vec<String> {
+    if let Some(value) = type_.strip_prefix("List OF ") {
+        vec![value.to_string()]
+    } else if let Some((key, value)) = map_type_parts(type_) {
+        vec![key, value]
+    } else {
+        Vec::new()
+    }
+}
+
+/// True when a value of `type_` is **fully flat** — a single pointer-free block a
+/// `memcpy` deep-copies. See the `CodeBuilder::type_is_flat` doc for the full
+/// rule set; this is its implementation.
+pub(crate) fn type_is_flat(model: &TypeModel, type_: &str) -> bool {
+    let mut visited = std::collections::HashSet::new();
+    type_is_flat_inner(model, type_, &mut visited)
+}
+
+fn type_is_flat_inner(
+    model: &TypeModel,
+    type_: &str,
+    visited: &mut std::collections::HashSet<String>,
+) -> bool {
+    if !visited.insert(type_.to_string()) {
+        // Already on the current path: a type cycle. Cyclic values cannot be
+        // a single finite flat block, so treat them as pointers.
+        return false;
+    }
+    let result = if type_ == "String" {
+        true
+    } else if let Some(payload) = type_.strip_prefix("Result OF ") {
+        // A flat `Result` `{tag, size, payload}` is pointer-free when its
+        // success payload is flat (the `Err` variant is the now-flat `Error`).
+        type_is_flat_inner(model, payload, visited)
+    } else if is_collection_type(type_) {
+        // A collection is flat when every payload is flat — including a nested
+        // flat collection, which is inlined in the data region (plan-02 §4.4,
+        // Phase 5a). A resource or recursive payload makes it non-flat.
+        collection_payload_types(type_)
+            .into_iter()
+            .all(|p| type_is_flat_inner(model, &p, visited))
+    } else if model.record_fields.contains_key(type_) {
+        !is_pointer_string_record(type_)
+            && model
+                .record_fields
+                .get(type_)
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .all(|(_, ft)| type_is_flat_inner(model, ft, visited))
+    } else if union_is_data(model, type_) {
+        model
+            .variants_for_union(type_)
+            .map(|variant| variant.to_string())
+            .collect::<Vec<_>>()
+            .iter()
+            .all(|variant| type_is_flat_inner(model, variant, visited))
+    } else if crate::builtins::is_resource_type(type_) {
+        // A resource is a move-only handle to its single instance, never a
+        // copyable flat block.
+        false
+    } else {
+        // A scalar (anything that is not a pointer composite, `String`, or
+        // resource) is flat; resource unions / `Result` are excluded above.
+        !record_field_is_pointer(model, type_)
+    };
+    visited.remove(type_);
+    result
+}
+
+/// True when field `field_type` of `record_type` is inlined into the record's
+/// trailing data region (the slot holds a block-relative offset): an inlined
+/// `String`, or a fully-flat composite. Scalars stay inline in the slot;
+/// not-yet-flat composites stay pointers.
+pub(crate) fn record_field_is_inlined(
+    model: &TypeModel,
+    record_type: &str,
+    field_type: &str,
+) -> bool {
+    if is_pointer_string_record(record_type) {
+        return false;
+    }
+    if field_type == "String" {
+        return true;
+    }
+    let is_composite = model.record_fields.contains_key(field_type)
+        || model.union_names.contains(field_type)
+        || is_collection_type(field_type)
+        || field_type.starts_with("Result OF ");
+    is_composite && type_is_flat(model, field_type)
+}
+
+/// True when `type_` is a **data** union (all variants are data records, no
+/// resource variants). Data unions use the flat `{tag, size, data}` layout;
+/// resource unions keep `{tag, resource-ptr}` and are never reshaped.
+pub(crate) fn union_is_data(model: &TypeModel, type_: &str) -> bool {
+    // A transferred stateful union spells `Stream STATE Cursor`; the union set
+    // is keyed on the bare name `Stream` (plan-75 gap 3). Strip the suffix so a
+    // resource union with STATE still classifies as all-resource.
+    let type_ = crate::builtins::resource::base_resource_name(type_);
+    if !model.union_names.contains(type_) {
+        return false;
+    }
+    let mut saw_variant = false;
+    for variant in model.variants_for_union(type_) {
+        saw_variant = true;
+        if crate::builtins::is_resource_type(variant) {
+            return false;
+        }
+    }
+    saw_variant
 }
 
 /// The immediate structural components of a type — the types reachable in one
