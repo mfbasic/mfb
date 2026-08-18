@@ -60,18 +60,21 @@ fn emit_send_token(
     platform: &dyn CodegenPlatform,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
+ vregs: &mut Vregs) -> Result<(), String> {
+    let v5 = vregs.next();
+    let v8 = vregs.next();
+    let v9 = vregs.next();
     ins.extend([
-        abi::load_u64("%v5", abi::stack_pointer(), state_off), // STATE
-        abi::load_u32("%v8", "%v5", buf_off),                  // cbBuffer
-        abi::compare_immediate("%v8", "0"),
+        abi::load_u64(&v5, abi::stack_pointer(), state_off), // STATE
+        abi::load_u32(&v8, &v5, buf_off),                  // cbBuffer
+        abi::compare_immediate(&v8, "0"),
         abi::branch_eq(skip),
-        abi::load_u64("%v9", "%v5", buf_off + 8), // pvBuffer
+        abi::load_u64(&v9, &v5, buf_off + 8), // pvBuffer
     ]);
-    send_all(symbol, fd_off, "%v9", "%v8", tag, fail, imports, platform, ins, rel)?;
+    send_all(symbol, fd_off, &v9, &v8, tag, fail, imports, platform, ins, rel, vregs)?;
     // FreeContextBuffer(pvBuffer)
-    ins.push(abi::load_u64("%v5", abi::stack_pointer(), state_off));
-    ins.push(abi::load_u64(abi::return_register(), "%v5", buf_off + 8));
+    ins.push(abi::load_u64(&v5, abi::stack_pointer(), state_off));
+    ins.push(abi::load_u64(abi::return_register(), &v5, buf_off + 8));
     sspi_call(symbol, "FreeContextBuffer", SECUR32, 1, imports, platform, ins, rel)?;
     Ok(())
 }
@@ -89,7 +92,9 @@ fn emit_verify_hostname(
     platform: &dyn CodegenPlatform,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
+ vregs: &mut Vregs) -> Result<(), String> {
+    let v8 = vregs.next();
+    let v9 = vregs.next();
     // Scratch structs live in the ARENA at STATE + st::SC_CRED (the SCHANNEL_CRED /
     // SecBuffer area is idle post-handshake), so no manual sub_sp is needed and every
     // pointer is absolute — a `[sp+off+FRAME]` read at DEPTH 1 would be body_shift off
@@ -103,8 +108,8 @@ fn emit_verify_hostname(
     const POLICYPARA: usize = 0x60; // CERT_CHAIN_POLICY_PARA (0x10)
     const STATUS: usize = 0x90; // CERT_CHAIN_POLICY_STATUS (0x10)
     let load_base = |ins: &mut Vec<CodeInstruction>| {
-        ins.push(abi::load_u64("%v8", abi::stack_pointer(), state_off));
-        ins.push(abi::add_immediate("%v8", "%v8", st::SC_CRED));
+        ins.push(abi::load_u64(&v8, abi::stack_pointer(), state_off));
+        ins.push(abi::add_immediate(&v8, &v8, st::SC_CRED));
     };
     // QueryContextAttributes(&ctxt, REMOTE_CERT_CONTEXT, &certCtx)
     load_base(ins);
@@ -112,27 +117,27 @@ fn emit_verify_hostname(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), state_off),
         abi::add_immediate(abi::return_register(), abi::return_register(), st::CTXT),
         abi::move_immediate(abi::c_arg(1), "Integer", SECPKG_ATTR_REMOTE_CERT_CONTEXT),
-        abi::add_immediate(abi::c_arg(2), "%v8", CERTCTX),
+        abi::add_immediate(abi::c_arg(2), &v8, CERTCTX),
     ]);
     sspi_call(symbol, "QueryContextAttributesW", SECUR32, 3, imports, platform, ins, rel)?;
     ins.push(abi::branch_lt(fail));
     // Zero CERT_CHAIN_PARA (0x30 bytes) and set cbSize.
     load_base(ins);
     for o in (0..0x30).step_by(8) {
-        ins.push(abi::store_u64(abi::ZERO, "%v8", CHAINPARA + o));
+        ins.push(abi::store_u64(abi::ZERO, &v8, CHAINPARA + o));
     }
     ins.extend([
-        abi::move_immediate("%v9", "Integer", "12"), // sizeof(CERT_CHAIN_PARA) minimal
-        abi::store_u32("%v9", "%v8", CHAINPARA),
+        abi::move_immediate(&v9, "Integer", "12"), // sizeof(CERT_CHAIN_PARA) minimal
+        abi::store_u32(&v9, &v8, CHAINPARA),
         // CertGetCertificateChain(NULL, certCtx, NULL, NULL, &chainPara, 0, NULL, &chainCtx)
         abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::load_u64(abi::c_arg(1), "%v8", CERTCTX),
+        abi::load_u64(abi::c_arg(1), &v8, CERTCTX),
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
-        abi::add_immediate(abi::c_arg(4), "%v8", CHAINPARA),
+        abi::add_immediate(abi::c_arg(4), &v8, CHAINPARA),
         abi::move_immediate(abi::c_arg(5), "Integer", "0"),
         abi::move_immediate(abi::c_arg(6), "Integer", "0"),
-        abi::add_immediate(abi::c_arg(7), "%v8", CHAINCTX),
+        abi::add_immediate(abi::c_arg(7), &v8, CHAINCTX),
     ]);
     sspi_call(symbol, "CertGetCertificateChain", CRYPT32, 8, imports, platform, ins, rel)?;
     ins.extend([
@@ -144,26 +149,26 @@ fn emit_verify_hostname(
     //   pvExtraPolicyPara=&ssl } at POLICYPARA; status at STATUS.
     load_base(ins);
     for o in (0..0x60).step_by(8) {
-        ins.push(abi::store_u64(abi::ZERO, "%v8", SSLPARA + o));
+        ins.push(abi::store_u64(abi::ZERO, &v8, SSLPARA + o));
     }
     ins.extend([
-        abi::move_immediate("%v9", "Integer", "24"), // sizeof SSL_EXTRA...PARA (x64)
-        abi::store_u32("%v9", "%v8", SSLPARA),
-        abi::move_immediate("%v9", "Integer", "1"), // AUTHTYPE_SERVER
-        abi::store_u32("%v9", "%v8", SSLPARA + 4),
-        abi::load_u64("%v9", abi::stack_pointer(), snamew_off),
-        abi::store_u64("%v9", "%v8", SSLPARA + 16), // pwszServerName (x64 offset 16, after fdwChecks@8 + 4B pad@12)
-        abi::move_immediate("%v9", "Integer", "16"), // sizeof CERT_CHAIN_POLICY_PARA
-        abi::store_u32("%v9", "%v8", POLICYPARA),
-        abi::add_immediate("%v9", "%v8", SSLPARA),
-        abi::store_u64("%v9", "%v8", POLICYPARA + 8), // pvExtraPolicyPara
-        abi::move_immediate("%v9", "Integer", "16"), // status cbSize
-        abi::store_u32("%v9", "%v8", STATUS),
+        abi::move_immediate(&v9, "Integer", "24"), // sizeof SSL_EXTRA...PARA (x64)
+        abi::store_u32(&v9, &v8, SSLPARA),
+        abi::move_immediate(&v9, "Integer", "1"), // AUTHTYPE_SERVER
+        abi::store_u32(&v9, &v8, SSLPARA + 4),
+        abi::load_u64(&v9, abi::stack_pointer(), snamew_off),
+        abi::store_u64(&v9, &v8, SSLPARA + 16), // pwszServerName (x64 offset 16, after fdwChecks@8 + 4B pad@12)
+        abi::move_immediate(&v9, "Integer", "16"), // sizeof CERT_CHAIN_POLICY_PARA
+        abi::store_u32(&v9, &v8, POLICYPARA),
+        abi::add_immediate(&v9, &v8, SSLPARA),
+        abi::store_u64(&v9, &v8, POLICYPARA + 8), // pvExtraPolicyPara
+        abi::move_immediate(&v9, "Integer", "16"), // status cbSize
+        abi::store_u32(&v9, &v8, STATUS),
         // CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL, chainCtx, &para, &status)
         abi::move_immediate(abi::return_register(), "Integer", CERT_CHAIN_POLICY_SSL),
-        abi::load_u64(abi::c_arg(1), "%v8", CHAINCTX),
-        abi::add_immediate(abi::c_arg(2), "%v8", POLICYPARA),
-        abi::add_immediate(abi::c_arg(3), "%v8", STATUS),
+        abi::load_u64(abi::c_arg(1), &v8, CHAINCTX),
+        abi::add_immediate(abi::c_arg(2), &v8, POLICYPARA),
+        abi::add_immediate(abi::c_arg(3), &v8, STATUS),
     ]);
     sspi_call(symbol, "CertVerifyCertificateChainPolicy", CRYPT32, 4, imports, platform, ins, rel)?;
     ins.push(abi::compare_immediate(abi::return_register(), "0"));
@@ -172,8 +177,8 @@ fn emit_verify_hostname(
     // dwError (at STATUS+4) must be 0 — NOT +8 (lChainIndex, which is -1 on success).
     load_base(ins);
     ins.extend([
-        abi::load_u32("%v9", "%v8", STATUS + 4),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u32(&v9, &v8, STATUS + 4),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_ne(fail),
     ]);
     Ok(())
@@ -200,6 +205,7 @@ mod verify_hostname_tests {
         let imports = HashMap::new();
         let mut ins = Vec::new();
         let mut rel = Vec::new();
+        let mut vregs = Vregs::new();
         emit_verify_hostname(
             "t_vh",
             8,
@@ -209,6 +215,7 @@ mod verify_hostname_tests {
             &TestPlatform,
             &mut ins,
             &mut rel,
+            &mut vregs,
         )
         .expect("lower emit_verify_hostname");
 
@@ -253,6 +260,15 @@ pub(crate) fn lower_tls_write(
     platform: &dyn CodegenPlatform,
     text: bool,
 ) -> HelperResult {
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+    let v14 = vregs.next();
+    let v6 = vregs.next();
+    let v7 = vregs.next();
     const REC: usize = 8;
     const SRC: usize = 16;
     const REMAIN: usize = 24;
@@ -277,29 +293,29 @@ pub(crate) fn lower_tls_write(
     // return_register = resource; ARG[1] = data (String/List).
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
-        abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_CLOSED),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_CLOSED),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_ne(&closed),
-        abi::load_u64("%v9", abi::return_register(), TLS_SCHANNEL_OFFSET_BLOCK),
-        abi::store_u64("%v9", abi::stack_pointer(), STATE),
-        abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_FD),
-        abi::store_u64("%v9", abi::stack_pointer(), FD),
+        abi::load_u64(&v9, abi::return_register(), TLS_SCHANNEL_OFFSET_BLOCK),
+        abi::store_u64(&v9, abi::stack_pointer(), STATE),
+        abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_FD),
+        abi::store_u64(&v9, abi::stack_pointer(), FD),
         // data pointer + length: String/List OF Byte both carry [u64 len][bytes].
-        abi::add_immediate("%v10", abi::c_arg(1), 8),
-        abi::store_u64("%v10", abi::stack_pointer(), SRC),
-        abi::load_u64("%v10", abi::c_arg(1), 0),
-        abi::store_u64("%v10", abi::stack_pointer(), REMAIN),
-        abi::store_u64("%v10", abi::stack_pointer(), ORIGLEN), // result = original length
+        abi::add_immediate(&v10, abi::c_arg(1), 8),
+        abi::store_u64(&v10, abi::stack_pointer(), SRC),
+        abi::load_u64(&v10, abi::c_arg(1), 0),
+        abi::store_u64(&v10, abi::stack_pointer(), REMAIN),
+        abi::store_u64(&v10, abi::stack_pointer(), ORIGLEN), // result = original length
     ]);
     let _ = text;
     // Allocate a send buffer sized header + maxmsg + trailer.
     ins.extend([
-        abi::load_u64("%v10", abi::stack_pointer(), STATE),
-        abi::load_u32("%v11", "%v10", st::HEADER),
-        abi::load_u32("%v12", "%v10", st::MAXMSG),
-        abi::load_u32("%v13", "%v10", st::TRAILER),
-        abi::add_registers(abi::return_register(), "%v11", "%v12"),
-        abi::add_registers(abi::return_register(), abi::return_register(), "%v13"),
+        abi::load_u64(&v10, abi::stack_pointer(), STATE),
+        abi::load_u32(&v11, &v10, st::HEADER),
+        abi::load_u32(&v12, &v10, st::MAXMSG),
+        abi::load_u32(&v13, &v10, st::TRAILER),
+        abi::add_registers(abi::return_register(), &v11, &v12),
+        abi::add_registers(abi::return_register(), abi::return_register(), &v13),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
@@ -307,52 +323,52 @@ pub(crate) fn lower_tls_write(
 
     ins.extend([
         abi::label(&wloop),
-        abi::load_u64("%v10", abi::stack_pointer(), REMAIN),
-        abi::compare_immediate("%v10", "0"),
+        abi::load_u64(&v10, abi::stack_pointer(), REMAIN),
+        abi::compare_immediate(&v10, "0"),
         abi::branch_le(&wdone),
         // chunk = min(remaining, maxmsg)
-        abi::load_u64("%v11", abi::stack_pointer(), STATE),
-        abi::load_u32("%v12", "%v11", st::MAXMSG),
-        abi::compare_registers("%v10", "%v12"),
+        abi::load_u64(&v11, abi::stack_pointer(), STATE),
+        abi::load_u32(&v12, &v11, st::MAXMSG),
+        abi::compare_registers(&v10, &v12),
         abi::branch_le(&format!("{symbol}_ck")),
-        abi::move_register("%v10", "%v12"),
+        abi::move_register(&v10, &v12),
         abi::label(&format!("{symbol}_ck")),
-        abi::store_u64("%v10", abi::stack_pointer(), CHUNK),
+        abi::store_u64(&v10, abi::stack_pointer(), CHUNK),
         // copy plaintext to SENDBUF + header
-        abi::load_u64("%v13", abi::stack_pointer(), STATE),
-        abi::load_u32("%v14", "%v13", st::HEADER),
-        abi::load_u64("%v6", abi::stack_pointer(), SENDBUF),
-        abi::add_registers("%v6", "%v6", "%v14"), // dst = sendbuf+header
-        abi::load_u64("%v7", abi::stack_pointer(), SRC),
+        abi::load_u64(&v13, abi::stack_pointer(), STATE),
+        abi::load_u32(&v14, &v13, st::HEADER),
+        abi::load_u64(&v6, abi::stack_pointer(), SENDBUF),
+        abi::add_registers(&v6, &v6, &v14), // dst = sendbuf+header
+        abi::load_u64(&v7, abi::stack_pointer(), SRC),
     ]);
-    move_bytes("%v7", "%v6", "%v10", &format!("{symbol}_cpin"), &mut ins);
+    move_bytes(&v7, &v6, &v10, &format!("{symbol}_cpin"), &mut ins, &mut vregs);
     // SecBuffers: [0]=HEADER{header, sendbuf}, [1]=DATA{chunk, sendbuf+header},
     //   [2]=TRAILER{trailer, sendbuf+header+chunk}, [3]=EMPTY.
     ins.extend([
-        abi::load_u64("%v13", abi::stack_pointer(), STATE),
-        abi::load_u32("%v14", "%v13", st::HEADER),
-        abi::load_u64("%v6", abi::stack_pointer(), SENDBUF),
-        abi::store_u32("%v14", abi::stack_pointer(), BUFS),
-        abi::move_immediate("%v9", "Integer", SECBUFFER_STREAM_HEADER),
-        abi::store_u32("%v9", abi::stack_pointer(), BUFS + 4),
-        abi::store_u64("%v6", abi::stack_pointer(), BUFS + 8),
+        abi::load_u64(&v13, abi::stack_pointer(), STATE),
+        abi::load_u32(&v14, &v13, st::HEADER),
+        abi::load_u64(&v6, abi::stack_pointer(), SENDBUF),
+        abi::store_u32(&v14, abi::stack_pointer(), BUFS),
+        abi::move_immediate(&v9, "Integer", SECBUFFER_STREAM_HEADER),
+        abi::store_u32(&v9, abi::stack_pointer(), BUFS + 4),
+        abi::store_u64(&v6, abi::stack_pointer(), BUFS + 8),
         // [1] DATA
-        abi::load_u64("%v10", abi::stack_pointer(), CHUNK),
-        abi::store_u32("%v10", abi::stack_pointer(), BUFS + 16),
-        abi::move_immediate("%v9", "Integer", SECBUFFER_DATA),
-        abi::store_u32("%v9", abi::stack_pointer(), BUFS + 20),
-        abi::add_registers("%v7", "%v6", "%v14"),
-        abi::store_u64("%v7", abi::stack_pointer(), BUFS + 24),
+        abi::load_u64(&v10, abi::stack_pointer(), CHUNK),
+        abi::store_u32(&v10, abi::stack_pointer(), BUFS + 16),
+        abi::move_immediate(&v9, "Integer", SECBUFFER_DATA),
+        abi::store_u32(&v9, abi::stack_pointer(), BUFS + 20),
+        abi::add_registers(&v7, &v6, &v14),
+        abi::store_u64(&v7, abi::stack_pointer(), BUFS + 24),
         // [2] TRAILER
-        abi::load_u32("%v11", "%v13", st::TRAILER),
-        abi::store_u32("%v11", abi::stack_pointer(), BUFS + 32),
-        abi::move_immediate("%v9", "Integer", SECBUFFER_STREAM_TRAILER),
-        abi::store_u32("%v9", abi::stack_pointer(), BUFS + 36),
-        abi::add_registers("%v7", "%v7", "%v10"),
-        abi::store_u64("%v7", abi::stack_pointer(), BUFS + 40),
+        abi::load_u32(&v11, &v13, st::TRAILER),
+        abi::store_u32(&v11, abi::stack_pointer(), BUFS + 32),
+        abi::move_immediate(&v9, "Integer", SECBUFFER_STREAM_TRAILER),
+        abi::store_u32(&v9, abi::stack_pointer(), BUFS + 36),
+        abi::add_registers(&v7, &v7, &v10),
+        abi::store_u64(&v7, abi::stack_pointer(), BUFS + 40),
     ]);
-    set_secbuffer(abi::stack_pointer(), BUFS + 48, "0", SECBUFFER_EMPTY, abi::ZERO, &mut ins);
-    set_secbuffer_desc(abi::stack_pointer(), DESC, "4", BUFS, &mut ins);
+    set_secbuffer(abi::stack_pointer(), BUFS + 48, "0", SECBUFFER_EMPTY, abi::ZERO, &mut ins, &mut vregs);
+    set_secbuffer_desc(abi::stack_pointer(), DESC, "4", BUFS, &mut ins, &mut vregs);
     // EncryptMessage(&ctxt, 0, &desc, 0)
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE),
@@ -365,23 +381,23 @@ pub(crate) fn lower_tls_write(
     ins.push(abi::branch_lt(&fail));
     // send header+data+trailer = sum of the three cbBuffer.
     ins.extend([
-        abi::load_u32("%v6", abi::stack_pointer(), BUFS),
-        abi::load_u32("%v7", abi::stack_pointer(), BUFS + 16),
-        abi::add_registers("%v6", "%v6", "%v7"),
-        abi::load_u32("%v7", abi::stack_pointer(), BUFS + 32),
-        abi::add_registers("%v6", "%v6", "%v7"), // total len
-        abi::load_u64("%v7", abi::stack_pointer(), SENDBUF), // buf
+        abi::load_u32(&v6, abi::stack_pointer(), BUFS),
+        abi::load_u32(&v7, abi::stack_pointer(), BUFS + 16),
+        abi::add_registers(&v6, &v6, &v7),
+        abi::load_u32(&v7, abi::stack_pointer(), BUFS + 32),
+        abi::add_registers(&v6, &v6, &v7), // total len
+        abi::load_u64(&v7, abi::stack_pointer(), SENDBUF), // buf
     ]);
-    send_all(symbol, FD, "%v7", "%v6", "enc", &fail, imports, platform, &mut ins, &mut rel)?;
+    send_all(symbol, FD, &v7, &v6, "enc", &fail, imports, platform, &mut ins, &mut rel, &mut vregs)?;
     // advance src/remaining
     ins.extend([
-        abi::load_u64("%v10", abi::stack_pointer(), CHUNK),
-        abi::load_u64("%v11", abi::stack_pointer(), SRC),
-        abi::add_registers("%v11", "%v11", "%v10"),
-        abi::store_u64("%v11", abi::stack_pointer(), SRC),
-        abi::load_u64("%v11", abi::stack_pointer(), REMAIN),
-        abi::subtract_registers("%v11", "%v11", "%v10"),
-        abi::store_u64("%v11", abi::stack_pointer(), REMAIN),
+        abi::load_u64(&v10, abi::stack_pointer(), CHUNK),
+        abi::load_u64(&v11, abi::stack_pointer(), SRC),
+        abi::add_registers(&v11, &v11, &v10),
+        abi::store_u64(&v11, abi::stack_pointer(), SRC),
+        abi::load_u64(&v11, abi::stack_pointer(), REMAIN),
+        abi::subtract_registers(&v11, &v11, &v10),
+        abi::store_u64(&v11, abi::stack_pointer(), REMAIN),
         abi::branch(&wloop),
         abi::label(&wdone),
         // result = original length (saved before the loop clobbered ARG[1]).

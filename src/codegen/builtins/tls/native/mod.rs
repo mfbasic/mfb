@@ -163,6 +163,7 @@ pub(crate) fn tls_cstring_data_objects(server: bool) -> Vec<CodeDataObject> {
 /// Copy a NUL-free MFBASIC `String` (pointer at `sp + str_off`) into a freshly
 /// allocated NUL-terminated C string, storing the result pointer at
 /// `sp + out_off`. Branches to `alloc_fail` on allocation failure.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_cstring(
     symbol: &str,
     prefix: &str,
@@ -171,34 +172,40 @@ pub(crate) fn emit_cstring(
     alloc_fail: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
-) {
+ vregs: &mut Vregs) {
+    let v17 = vregs.next();
+    let v18 = vregs.next();
+    let v19 = vregs.next();
+    let v20 = vregs.next();
+    let v21 = vregs.next();
+    let v22 = vregs.next();
     let copy_loop = format!("{symbol}_{prefix}_cstr_copy");
     let copy_done = format!("{symbol}_{prefix}_cstr_done");
     instructions.extend([
-        abi::load_u64("%v17", abi::stack_pointer(), str_off),
-        abi::load_u64("%v18", "%v17", 0),
-        abi::add_immediate(abi::return_register(), "%v18", 1),
+        abi::load_u64(&v17, abi::stack_pointer(), str_off),
+        abi::load_u64(&v18, &v17, 0),
+        abi::add_immediate(abi::return_register(), &v18, 1),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, instructions, relocations, alloc_fail);
     instructions.extend([
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), out_off),
-        abi::load_u64("%v17", abi::stack_pointer(), str_off),
-        abi::load_u64("%v18", "%v17", 0),
-        abi::add_immediate("%v19", "%v17", 8),
-        abi::move_register("%v20", abi::mfb_return(1)),
-        abi::move_immediate("%v21", "Integer", "0"),
+        abi::load_u64(&v17, abi::stack_pointer(), str_off),
+        abi::load_u64(&v18, &v17, 0),
+        abi::add_immediate(&v19, &v17, 8),
+        abi::move_register(&v20, abi::mfb_return(1)),
+        abi::move_immediate(&v21, "Integer", "0"),
         abi::label(&copy_loop),
-        abi::compare_registers("%v21", "%v18"),
+        abi::compare_registers(&v21, &v18),
         abi::branch_eq(&copy_done),
-        abi::load_u8("%v22", "%v19", 0),
-        abi::store_u8("%v22", "%v20", 0),
-        abi::add_immediate("%v19", "%v19", 1),
-        abi::add_immediate("%v20", "%v20", 1),
-        abi::add_immediate("%v21", "%v21", 1),
+        abi::load_u8(&v22, &v19, 0),
+        abi::store_u8(&v22, &v20, 0),
+        abi::add_immediate(&v19, &v19, 1),
+        abi::add_immediate(&v20, &v20, 1),
+        abi::add_immediate(&v21, &v21, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8(abi::ZERO, "%v20", 0),
+        abi::store_u8(abi::ZERO, &v20, 0),
     ]);
 }
 
@@ -505,6 +512,12 @@ pub(crate) fn lower_tls_poll_list_helper(
     _platform_imports: &HashMap<String, String>,
     _platform: &dyn CodegenPlatform,
 ) -> HelperResult {
+    let mut vregs = Vregs::new();
+    let v13 = vregs.next();
+    let v14 = vregs.next();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
     const FRAME_SIZE: usize = 64;
     const LIST_OFF: usize = 8;
     const COUNT_OFF: usize = 16;
@@ -534,65 +547,65 @@ pub(crate) fn lower_tls_poll_list_helper(
     // (list ptr in LIST_OFF, data_base in DATABASE_OFF, index reg in `idx`.)
     let load_elem = |ins: &mut Vec<CodeInstruction>, dst: Operand, idx: &str| {
         ins.extend([
-            abi::load_u64("%v13", abi::stack_pointer(), LIST_OFF),
-            abi::move_immediate("%v14", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-            abi::multiply_registers("%v14", idx, "%v14"),
-            abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
-            abi::add_registers("%v13", "%v13", "%v14"),
-            abi::load_u64("%v13", "%v13", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-            abi::load_u64("%v14", abi::stack_pointer(), DATABASE_OFF),
-            abi::add_registers("%v13", "%v14", "%v13"),
-            abi::load_u64(dst, "%v13", 0),
+            abi::load_u64(&v13, abi::stack_pointer(), LIST_OFF),
+            abi::move_immediate(&v14, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+            abi::multiply_registers(&v14, idx, &v14),
+            abi::add_immediate(&v13, &v13, COLLECTION_HEADER_SIZE),
+            abi::add_registers(&v13, &v13, &v14),
+            abi::load_u64(&v13, &v13, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+            abi::load_u64(&v14, abi::stack_pointer(), DATABASE_OFF),
+            abi::add_registers(&v13, &v14, &v13),
+            abi::load_u64(dst, &v13, 0),
         ]);
     };
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), LIST_OFF),
         // count = socks.count; reject empty.
-        abi::load_u64("%v9", abi::return_register(), COLLECTION_OFFSET_COUNT),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::return_register(), COLLECTION_OFFSET_COUNT),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_eq(&invalid),
-        abi::store_u64("%v9", abi::stack_pointer(), COUNT_OFF),
+        abi::store_u64(&v9, abi::stack_pointer(), COUNT_OFF),
         // data_base = list + HEADER + capacity * ENTRY_SIZE (kind-0 resource list).
-        abi::load_u64("%v10", abi::return_register(), COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate("%v11", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers("%v10", "%v10", "%v11"),
-        abi::add_immediate("%v11", abi::return_register(), COLLECTION_HEADER_SIZE),
-        abi::add_registers("%v11", "%v11", "%v10"),
-        abi::store_u64("%v11", abi::stack_pointer(), DATABASE_OFF),
+        abi::load_u64(&v10, abi::return_register(), COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate(&v11, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers(&v10, &v10, &v11),
+        abi::add_immediate(&v11, abi::return_register(), COLLECTION_HEADER_SIZE),
+        abi::add_registers(&v11, &v11, &v10),
+        abi::store_u64(&v11, abi::stack_pointer(), DATABASE_OFF),
         // Timeout → mode: sentinel = infinite (block); <0 = invalid; 0 = one scan,
         // no wait; >0 = ceil(t / SLICE) rounds.
         abi::store_u64(abi::ZERO, abi::stack_pointer(), INFINITE_OFF),
-        abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
-        abi::compare_registers(abi::c_arg(1), "%v10"),
+        abi::move_immediate(&v10, "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers(abi::c_arg(1), &v10),
         abi::branch_eq(&mode_infinite),
         abi::compare_immediate(abi::c_arg(1), "0"),
         abi::branch_lt(&invalid),
         abi::branch_eq(&mode_zero),
         // rounds = (t + SLICE - 1) / SLICE
-        abi::move_immediate("%v10", "Integer", SLICE_MS),
+        abi::move_immediate(&v10, "Integer", SLICE_MS),
         abi::add_immediate(abi::c_arg(1), abi::c_arg(1), 19),
-        abi::unsigned_divide_registers("%v9", abi::c_arg(1), "%v10"),
-        abi::store_u64("%v9", abi::stack_pointer(), ROUNDS_OFF),
+        abi::unsigned_divide_registers(&v9, abi::c_arg(1), &v10),
+        abi::store_u64(&v9, abi::stack_pointer(), ROUNDS_OFF),
         abi::branch(&rounds_done),
         abi::label(&mode_infinite),
-        abi::move_immediate("%v9", "Integer", "1"),
-        abi::store_u64("%v9", abi::stack_pointer(), INFINITE_OFF),
+        abi::move_immediate(&v9, "Integer", "1"),
+        abi::store_u64(&v9, abi::stack_pointer(), INFINITE_OFF),
         abi::branch(&rounds_done),
         abi::label(&mode_zero),
-        abi::move_immediate("%v9", "Integer", "1"),
-        abi::store_u64("%v9", abi::stack_pointer(), ROUNDS_OFF),
+        abi::move_immediate(&v9, "Integer", "1"),
+        abi::store_u64(&v9, abi::stack_pointer(), ROUNDS_OFF),
         abi::label(&rounds_done),
         abi::label(&round_loop),
         // Scan every socket non-blocking.
-        abi::move_immediate("%v9", "Integer", "0"),
-        abi::store_u64("%v9", abi::stack_pointer(), I_OFF),
+        abi::move_immediate(&v9, "Integer", "0"),
+        abi::store_u64(&v9, abi::stack_pointer(), I_OFF),
         abi::label(&scan_loop),
-        abi::load_u64("%v9", abi::stack_pointer(), I_OFF),
-        abi::load_u64("%v10", abi::stack_pointer(), COUNT_OFF),
-        abi::compare_registers("%v9", "%v10"),
+        abi::load_u64(&v9, abi::stack_pointer(), I_OFF),
+        abi::load_u64(&v10, abi::stack_pointer(), COUNT_OFF),
+        abi::compare_registers(&v9, &v10),
         abi::branch_ge(&scan_done),
     ]);
-    load_elem(&mut ins, abi::return_register(), "%v9");
+    load_elem(&mut ins, abi::return_register(), &v9);
     ins.extend([
         abi::move_immediate(abi::c_arg(1), "Integer", "0"), // non-blocking check
         abi::branch_link(SCALAR),
@@ -601,26 +614,26 @@ pub(crate) fn lower_tls_poll_list_helper(
         abi::branch_ne(&done),
         abi::compare_immediate(RESULT_VALUE_REGISTER, "1"),
         abi::branch_eq(&found),
-        abi::load_u64("%v9", abi::stack_pointer(), I_OFF),
-        abi::add_immediate("%v9", "%v9", 1),
-        abi::store_u64("%v9", abi::stack_pointer(), I_OFF),
+        abi::load_u64(&v9, abi::stack_pointer(), I_OFF),
+        abi::add_immediate(&v9, &v9, 1),
+        abi::store_u64(&v9, abi::stack_pointer(), I_OFF),
         abi::branch(&scan_loop),
         abi::label(&scan_done),
         // None ready. Infinite mode always waits; otherwise decrement rounds and
         // raise ErrTimeout when exhausted (zero mode: rounds 1 → 0 → timeout, no wait).
-        abi::load_u64("%v9", abi::stack_pointer(), INFINITE_OFF),
-        abi::compare_immediate("%v9", "1"),
+        abi::load_u64(&v9, abi::stack_pointer(), INFINITE_OFF),
+        abi::compare_immediate(&v9, "1"),
         abi::branch_eq(&do_wait),
-        abi::load_u64("%v9", abi::stack_pointer(), ROUNDS_OFF),
-        abi::subtract_immediate("%v9", "%v9", 1),
-        abi::store_u64("%v9", abi::stack_pointer(), ROUNDS_OFF),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::stack_pointer(), ROUNDS_OFF),
+        abi::subtract_immediate(&v9, &v9, 1),
+        abi::store_u64(&v9, abi::stack_pointer(), ROUNDS_OFF),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_le(&timeout_lbl),
         abi::label(&do_wait),
         // Wait a bounded slice on socket 0 (via the scalar helper) before rescanning.
-        abi::move_immediate("%v9", "Integer", "0"),
+        abi::move_immediate(&v9, "Integer", "0"),
     ]);
-    load_elem(&mut ins, abi::return_register(), "%v9");
+    load_elem(&mut ins, abi::return_register(), &v9);
     ins.extend([
         abi::move_immediate(abi::c_arg(1), "Integer", SLICE_MS),
         abi::branch_link(SCALAR),
@@ -629,9 +642,9 @@ pub(crate) fn lower_tls_poll_list_helper(
         abi::branch(&round_loop),
         abi::label(&found),
         // Return socks[i] (borrowed) — the list still owns/closes it.
-        abi::load_u64("%v9", abi::stack_pointer(), I_OFF),
+        abi::load_u64(&v9, abi::stack_pointer(), I_OFF),
     ]);
-    load_elem(&mut ins, RESULT_VALUE_REGISTER, "%v9");
+    load_elem(&mut ins, RESULT_VALUE_REGISTER, &v9);
     ins.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),

@@ -6,25 +6,32 @@ pub(crate) fn emit_port_itoa(
     portbuf_off: usize,
     portcstr_off: usize,
     ins: &mut Vec<CodeInstruction>,
-) {
+ vregs: &mut Vregs) {
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v14 = vregs.next();
+    let v15 = vregs.next();
+    let v16 = vregs.next();
+    let v13 = vregs.next();
     let itoa_loop = format!("{symbol}_itoa");
     ins.extend([
-        abi::move_immediate("%v9", "Integer", "0"),
-        abi::store_u8("%v9", abi::stack_pointer(), portbuf_off + 23),
-        abi::load_u64("%v10", abi::stack_pointer(), port_off),
-        abi::move_immediate("%v11", "Integer", "10"),
-        abi::add_immediate("%v14", abi::stack_pointer(), portbuf_off + 22),
+        abi::move_immediate(&v9, "Integer", "0"),
+        abi::store_u8(&v9, abi::stack_pointer(), portbuf_off + 23),
+        abi::load_u64(&v10, abi::stack_pointer(), port_off),
+        abi::move_immediate(&v11, "Integer", "10"),
+        abi::add_immediate(&v14, abi::stack_pointer(), portbuf_off + 22),
         abi::label(&itoa_loop),
-        abi::unsigned_divide_registers("%v15", "%v10", "%v11"),
-        abi::multiply_subtract_registers("%v16", "%v15", "%v11", "%v10"),
-        abi::add_immediate("%v16", "%v16", 48),
-        abi::store_u8("%v16", "%v14", 0),
-        abi::subtract_immediate("%v14", "%v14", 1),
-        abi::move_register("%v10", "%v15"),
-        abi::compare_immediate("%v10", "0"),
+        abi::unsigned_divide_registers(&v15, &v10, &v11),
+        abi::multiply_subtract_registers(&v16, &v15, &v11, &v10),
+        abi::add_immediate(&v16, &v16, 48),
+        abi::store_u8(&v16, &v14, 0),
+        abi::subtract_immediate(&v14, &v14, 1),
+        abi::move_register(&v10, &v15),
+        abi::compare_immediate(&v10, "0"),
         abi::branch_ne(&itoa_loop),
-        abi::add_immediate("%v13", "%v14", 1),
-        abi::store_u64("%v13", abi::stack_pointer(), portcstr_off),
+        abi::add_immediate(&v13, &v14, 1),
+        abi::store_u64(&v13, abi::stack_pointer(), portcstr_off),
     ]);
 }
 
@@ -302,7 +309,8 @@ fn emit_cancel_and_release_conn(
     conn_off: usize,
     fnptr_off: usize,
     fail: &str,
-) -> Result<(), String> {
+ vregs: &mut Vregs) -> Result<(), String> {
+    let v9 = vregs.next();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
@@ -323,8 +331,8 @@ fn emit_cancel_and_release_conn(
         )?;
         ctx.instructions.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), conn_off),
-            abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
-            abi::branch_link_register("%v9"),
+            abi::load_u64(&v9, abi::stack_pointer(), fnptr_off),
+            abi::branch_link_register(&v9),
         ]);
     }
     Ok(())
@@ -341,7 +349,8 @@ fn emit_release_queue(
     queue_off: usize,
     fnptr_off: usize,
     fail: &str,
-) -> Result<(), String> {
+ vregs: &mut Vregs) -> Result<(), String> {
+    let v9 = vregs.next();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
@@ -361,8 +370,8 @@ fn emit_release_queue(
     )?;
     ctx.instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), queue_off),
-        abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
-        abi::branch_link_register("%v9"),
+        abi::load_u64(&v9, abi::stack_pointer(), fnptr_off),
+        abi::branch_link_register(&v9),
     ]);
     Ok(())
 }
@@ -370,6 +379,7 @@ fn emit_release_queue(
 /// Build a 40-byte block literal at `sp + block_off` whose `invoke` is
 /// `invoke_symbol` and whose single captured variable is the ctx pointer at
 /// `sp + ctx_off`.
+#[allow(clippy::too_many_arguments)]
 fn emit_build_block(
     ctx: &mut EmitCtx,
     handle_off: usize,
@@ -378,7 +388,8 @@ fn emit_build_block(
     block_off: usize,
     fnptr_off: usize,
     fail: &str,
-) -> Result<(), String> {
+ vregs: &mut Vregs) -> Result<(), String> {
+    let v9 = vregs.next();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
@@ -397,37 +408,37 @@ fn emit_build_block(
         fail,
     )?;
     ctx.instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
-        abi::store_u64("%v9", abi::stack_pointer(), block_off + BLK_ISA),
+        abi::load_u64(&v9, abi::stack_pointer(), fnptr_off),
+        abi::store_u64(&v9, abi::stack_pointer(), block_off + BLK_ISA),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), block_off + BLK_FLAGS),
     ]);
     emit_data_address(
         symbol,
-        "%v9",
+        &v9,
         invoke_symbol,
         ctx.instructions,
         ctx.relocations,
     );
     ctx.instructions.push(abi::store_u64(
-        "%v9",
+        &v9,
         abi::stack_pointer(),
         block_off + BLK_INVOKE,
     ));
     emit_data_address(
         symbol,
-        "%v9",
+        &v9,
         DESC_SYMBOL,
         ctx.instructions,
         ctx.relocations,
     );
     ctx.instructions.push(abi::store_u64(
-        "%v9",
+        &v9,
         abi::stack_pointer(),
         block_off + BLK_DESC,
     ));
     ctx.instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), ctx_off),
-        abi::store_u64("%v9", abi::stack_pointer(), block_off + BLK_CAP),
+        abi::load_u64(&v9, abi::stack_pointer(), ctx_off),
+        abi::store_u64(&v9, abi::stack_pointer(), block_off + BLK_CAP),
     ]);
     Ok(())
 }
@@ -454,7 +465,8 @@ fn emit_fresh_sem(
     ctx_off: usize,
     fnptr_off: usize,
     fail: &str,
-) -> Result<(), String> {
+ vregs: &mut Vregs) -> Result<(), String> {
+    let v9 = vregs.next();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
@@ -475,12 +487,12 @@ fn emit_fresh_sem(
         fail,
     )?;
     ctx.instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), ctx_off),
-        abi::load_u64(abi::return_register(), "%v9", CTX_SEM),
+        abi::load_u64(&v9, abi::stack_pointer(), ctx_off),
+        abi::load_u64(abi::return_register(), &v9, CTX_SEM),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&skip_release),
-        abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
-        abi::branch_link_register("%v9"),
+        abi::load_u64(&v9, abi::stack_pointer(), fnptr_off),
+        abi::branch_link_register(&v9),
         abi::label(&skip_release),
     ]);
     dlsym(
@@ -498,12 +510,12 @@ fn emit_fresh_sem(
     )?;
     ctx.instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
-        abi::branch_link_register("%v9"),
-        abi::load_u64("%v9", abi::stack_pointer(), ctx_off),
-        abi::store_u64(abi::return_register(), "%v9", CTX_SEM),
-        abi::store_u64(abi::ZERO, "%v9", CTX_CONTENT),
-        abi::store_u64(abi::ZERO, "%v9", CTX_ERROR),
+        abi::load_u64(&v9, abi::stack_pointer(), fnptr_off),
+        abi::branch_link_register(&v9),
+        abi::load_u64(&v9, abi::stack_pointer(), ctx_off),
+        abi::store_u64(abi::return_register(), &v9, CTX_SEM),
+        abi::store_u64(abi::ZERO, &v9, CTX_CONTENT),
+        abi::store_u64(abi::ZERO, &v9, CTX_ERROR),
     ]);
     Ok(())
 }
@@ -515,7 +527,9 @@ fn emit_wait(
     ctx_off: usize,
     fnptr_off: usize,
     fail: &str,
-) -> Result<(), String> {
+ vregs: &mut Vregs) -> Result<(), String> {
+    let v9 = vregs.next();
+    let v10 = vregs.next();
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
@@ -534,12 +548,12 @@ fn emit_wait(
         fail,
     )?;
     ctx.instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), ctx_off),
-        abi::load_u64(abi::return_register(), "%v9", CTX_SEM),
+        abi::load_u64(&v9, abi::stack_pointer(), ctx_off),
+        abi::load_u64(abi::return_register(), &v9, CTX_SEM),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
         abi::bitwise_not(abi::c_arg(1), abi::c_arg(1)),
-        abi::load_u64("%v10", abi::stack_pointer(), fnptr_off),
-        abi::branch_link_register("%v10"),
+        abi::load_u64(&v10, abi::stack_pointer(), fnptr_off),
+        abi::branch_link_register(&v10),
     ]);
     Ok(())
 }

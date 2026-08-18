@@ -93,13 +93,14 @@ mod st {
 /// constant is `0x80090318` (negative as i32); the encoder rejects the negative
 /// literal, so it is built in `%v14` by shift+add and sign-extended to match the
 /// sign-extended status register.
-fn branch_if_incomplete(status: &str, target: &str, ins: &mut Vec<CodeInstruction>) {
+fn branch_if_incomplete(status: &str, target: &str, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
+    let v14 = vregs.next();
     ins.extend([
-        abi::move_immediate("%v14", "Integer", "32777"), // 0x8009
-        abi::shift_left_immediate("%v14", "%v14", 16),   // 0x80090000
-        abi::add_immediate("%v14", "%v14", 792),         // 0x80090318
-        abi::sign_extend_word("%v14", "%v14"),
-        abi::compare_registers(status, "%v14"),
+        abi::move_immediate(&v14, "Integer", "32777"), // 0x8009
+        abi::shift_left_immediate(&v14, &v14, 16),   // 0x80090000
+        abi::add_immediate(&v14, &v14, 792),         // 0x80090318
+        abi::sign_extend_word(&v14, &v14),
+        abi::compare_registers(status, &v14),
         abi::branch_eq(target),
     ]);
 }
@@ -207,19 +208,21 @@ fn sspi_call_ext(
     platform: &dyn CodegenPlatform,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
+ vregs: &mut Vregs) -> Result<(), String> {
+    let v8 = vregs.next();
+    let v9 = vregs.next();
     // No manual sub_sp: the stack args go through outgoing_stack_arg_store, which
     // finalize_frame resolves against the reserved outgoing-args area (Win64 arg 4
     // at [rsp+0x20]) — everything stays at DEPTH 0, so STATE (`%v8`) can spill and
     // reload without the body_shift skew a manual sub_sp bracket introduces (that
     // skew scribbled an output pointer over the socket fd slot).
-    ins.push(abi::load_u64("%v8", abi::stack_pointer(), state_off));
+    ins.push(abi::load_u64(&v8, abi::stack_pointer(), state_off));
     for (i, arg) in stack.iter().enumerate() {
         match arg {
             None => ins.push(abi::outgoing_stack_arg_store(abi::ZERO, i)),
             Some(off) => {
-                ins.push(abi::add_immediate("%v9", "%v8", *off));
-                ins.push(abi::outgoing_stack_arg_store("%v9", i));
+                ins.push(abi::add_immediate(&v9, &v8, *off));
+                ins.push(abi::outgoing_stack_arg_store(&v9, i));
             }
         }
     }
