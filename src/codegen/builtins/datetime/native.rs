@@ -86,6 +86,7 @@ pub(crate) fn lower_datetime_helper(
     // sp-relative local region; the x9-x11 scratch becomes vregs.
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
 
     // Declared up front so the `localOffset` arm can branch to it and the shared
     // error tail below can define it: the out-of-range failure label for
@@ -105,6 +106,7 @@ pub(crate) fn lower_datetime_helper(
             &mut instructions,
             &mut relocations,
             &localoffset_range_fail,
+            &mut vregs,
         )?;
     } else {
         match call {
@@ -137,12 +139,15 @@ pub(crate) fn lower_datetime_helper(
                     &mut relocations,
                 )?;
                 // nanos = tv_sec * 1_000_000_000 + tv_nsec.
+                let sec = vregs.next();
+                let nsec = vregs.next();
+                let scale = vregs.next();
                 instructions.extend([
-                    abi::load_u64("%v9", abi::stack_pointer(), TIMESPEC_OFFSET),
-                    abi::load_u64("%v10", abi::stack_pointer(), TIMESPEC_OFFSET + 8),
-                    abi::move_immediate("%v11", "Integer", "1000000000"),
-                    abi::multiply_registers("%v9", "%v9", "%v11"),
-                    abi::add_registers(RESULT_VALUE_REGISTER, "%v9", "%v10"),
+                    abi::load_u64(&sec, abi::stack_pointer(), TIMESPEC_OFFSET),
+                    abi::load_u64(&nsec, abi::stack_pointer(), TIMESPEC_OFFSET + 8),
+                    abi::move_immediate(&scale, "Integer", "1000000000"),
+                    abi::multiply_registers(&sec, &sec, &scale),
+                    abi::add_registers(RESULT_VALUE_REGISTER, &sec, &nsec),
                 ]);
             }
             "datetime.localOffset" => {
@@ -225,6 +230,7 @@ fn lower_datetime_windows(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     range_fail: &str,
+    vregs: &mut Vregs,
 ) -> Result<(), String> {
     let call_win = |func: &str,
                     instructions: &mut Vec<CodeInstruction>,
@@ -251,16 +257,21 @@ fn lower_datetime_windows(
             // nanos = (counter/freq)*1e9 + ((counter%freq)*1e9)/freq. Splitting the
             // multiply across the quotient and remainder keeps every intermediate
             // inside u64: `counter*1e9` alone overflows within ~21 s at 10 MHz.
+            let counter = vregs.next();
+            let freq = vregs.next();
+            let q = vregs.next();
+            let rem = vregs.next();
+            let scale = vregs.next();
             instructions.extend([
-                abi::load_u64("%v9", abi::stack_pointer(), WIN_FILETIME_OFFSET), // counter
-                abi::load_u64("%v10", abi::stack_pointer(), WIN_QPC_FREQ_OFFSET), // freq
-                abi::unsigned_divide_registers("%v11", "%v9", "%v10"),           // q
-                abi::multiply_subtract_registers("%v12", "%v11", "%v10", "%v9"), // rem = counter - q*freq
-                abi::move_immediate("%v13", "Integer", NANOS_PER_SEC),
-                abi::multiply_registers("%v11", "%v11", "%v13"), // q*1e9
-                abi::multiply_registers("%v12", "%v12", "%v13"), // rem*1e9
-                abi::unsigned_divide_registers("%v12", "%v12", "%v10"), // (rem*1e9)/freq
-                abi::add_registers(RESULT_VALUE_REGISTER, "%v11", "%v12"),
+                abi::load_u64(&counter, abi::stack_pointer(), WIN_FILETIME_OFFSET), // counter
+                abi::load_u64(&freq, abi::stack_pointer(), WIN_QPC_FREQ_OFFSET),    // freq
+                abi::unsigned_divide_registers(&q, &counter, &freq),               // q
+                abi::multiply_subtract_registers(&rem, &q, &freq, &counter),       // rem = counter - q*freq
+                abi::move_immediate(&scale, "Integer", NANOS_PER_SEC),
+                abi::multiply_registers(&q, &q, &scale), // q*1e9
+                abi::multiply_registers(&rem, &rem, &scale), // rem*1e9
+                abi::unsigned_divide_registers(&rem, &rem, &freq), // (rem*1e9)/freq
+                abi::add_registers(RESULT_VALUE_REGISTER, &q, &rem),
             ]);
         }
         "datetime.nowNanos" => {
@@ -271,12 +282,14 @@ fn lower_datetime_windows(
                 WIN_FILETIME_OFFSET,
             ));
             call_win("GetSystemTimePreciseAsFileTime", instructions, relocations)?;
+            let ft = vregs.next();
+            let tmp = vregs.next();
             instructions.extend([
-                abi::load_u64("%v9", abi::stack_pointer(), WIN_FILETIME_OFFSET),
-                abi::move_immediate("%v10", "Integer", WIN_FILETIME_UNIX_EPOCH_100NS),
-                abi::subtract_registers("%v9", "%v9", "%v10"), // 100 ns since Unix epoch
-                abi::move_immediate("%v10", "Integer", "100"),
-                abi::multiply_registers(RESULT_VALUE_REGISTER, "%v9", "%v10"),
+                abi::load_u64(&ft, abi::stack_pointer(), WIN_FILETIME_OFFSET),
+                abi::move_immediate(&tmp, "Integer", WIN_FILETIME_UNIX_EPOCH_100NS),
+                abi::subtract_registers(&ft, &ft, &tmp), // 100 ns since Unix epoch
+                abi::move_immediate(&tmp, "Integer", "100"),
+                abi::multiply_registers(RESULT_VALUE_REGISTER, &ft, &tmp),
             ]);
         }
         "datetime.localOffset" => {
@@ -293,22 +306,24 @@ fn lower_datetime_windows(
             // below -11644473600 s the FILETIME is negative; above the HIGH bound
             // `epochSeconds*1e7 + epoch` exceeds i64. The residual year>30827 edge is
             // still caught by the FileTimeToSystemTime NULL check downstream.
+            let epoch = vregs.next();
+            let tmp = vregs.next();
             instructions.extend([
-                abi::move_register("%v9", abi::c_arg(0)), // epochSeconds
+                abi::move_register(&epoch, abi::c_arg(0)), // epochSeconds
                 // HIGH: epochSeconds > 910692730085 → epochSeconds*1e7+epoch > i64max.
-                abi::move_immediate("%v10", "Integer", WIN_FILETIME_MAX_UNIX_SEC),
-                abi::compare_registers("%v9", "%v10"),
+                abi::move_immediate(&tmp, "Integer", WIN_FILETIME_MAX_UNIX_SEC),
+                abi::compare_registers(&epoch, &tmp),
                 abi::branch_gt(range_fail),
                 // LOW: epochSeconds + 11644473600 < 0 → FILETIME negative (pre-1601).
-                abi::move_immediate("%v10", "Integer", WIN_UNIX_EPOCH_TO_1601_SEC),
-                abi::add_registers("%v10", "%v9", "%v10"),
-                abi::compare_immediate("%v10", "0"),
+                abi::move_immediate(&tmp, "Integer", WIN_UNIX_EPOCH_TO_1601_SEC),
+                abi::add_registers(&tmp, &epoch, &tmp),
+                abi::compare_immediate(&tmp, "0"),
                 abi::branch_lt(range_fail),
-                abi::move_immediate("%v10", "Integer", WIN_HUNDRED_NS_PER_SEC),
-                abi::multiply_registers("%v9", "%v9", "%v10"), // epochSeconds*1e7
-                abi::move_immediate("%v10", "Integer", WIN_FILETIME_UNIX_EPOCH_100NS),
-                abi::add_registers("%v9", "%v9", "%v10"), // FILETIME
-                abi::store_u64("%v9", abi::stack_pointer(), WIN_FILETIME_OFFSET),
+                abi::move_immediate(&tmp, "Integer", WIN_HUNDRED_NS_PER_SEC),
+                abi::multiply_registers(&epoch, &epoch, &tmp), // epochSeconds*1e7
+                abi::move_immediate(&tmp, "Integer", WIN_FILETIME_UNIX_EPOCH_100NS),
+                abi::add_registers(&epoch, &epoch, &tmp), // FILETIME
+                abi::store_u64(&epoch, abi::stack_pointer(), WIN_FILETIME_OFFSET),
                 abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), WIN_FILETIME_OFFSET),
                 abi::add_immediate(
                     abi::c_arg(1),
@@ -355,11 +370,11 @@ fn lower_datetime_windows(
             instructions.push(abi::branch_eq(range_fail));
             // offsetSeconds = (localFt − ft) / 1e7, signed (west-of-UTC is negative).
             instructions.extend([
-                abi::load_u64("%v9", abi::stack_pointer(), WIN_LOCAL_FILETIME_OFFSET),
-                abi::load_u64("%v10", abi::stack_pointer(), WIN_FILETIME_OFFSET),
-                abi::subtract_registers("%v9", "%v9", "%v10"),
-                abi::move_immediate("%v10", "Integer", WIN_HUNDRED_NS_PER_SEC),
-                abi::signed_divide_registers(RESULT_VALUE_REGISTER, "%v9", "%v10"),
+                abi::load_u64(&epoch, abi::stack_pointer(), WIN_LOCAL_FILETIME_OFFSET),
+                abi::load_u64(&tmp, abi::stack_pointer(), WIN_FILETIME_OFFSET),
+                abi::subtract_registers(&epoch, &epoch, &tmp),
+                abi::move_immediate(&tmp, "Integer", WIN_HUNDRED_NS_PER_SEC),
+                abi::signed_divide_registers(RESULT_VALUE_REGISTER, &epoch, &tmp),
             ]);
         }
         other => {
