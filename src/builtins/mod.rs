@@ -490,12 +490,12 @@ pub(crate) fn is_nonescaping_callback_arg(callee: &str, index: usize) -> bool {
 /// source must not. The resolver applies this only when the calling file is not
 /// `AstFile::internal`, so the glue still resolves (bug-337-D9).
 pub(crate) fn is_internal_only_call(name: &str) -> bool {
-    crate::codegen::builtins::crypto::is_crypto_internal_call(name)
-        // `astrings`' overlay-bridge natives (`readSpans`/`writeSpans`/`scalarLen`)
-        // migrated to the clean-room registry with `internal_only: true` (plan-99
-        // PART C), honored generically here — replacing the deleted per-package
-        // `astrings::is_astrings_internal_call`.
-        || crate::codegen::registry::registry().is_internal_only_member(name)
+    // Honored generically from the registry's `internal_only: true` members —
+    // e.g. `astrings`' overlay-bridge natives (`readSpans`/`writeSpans`/`scalarLen`,
+    // plan-99 PART C). The crypto NIST-EC raw generators that once needed a
+    // per-package predicate here were collapsed into the public `generateP*`
+    // members, so no bespoke crypto case remains.
+    crate::codegen::registry::registry().is_internal_only_member(name)
 }
 
 pub(crate) fn is_builtin_call(name: &str) -> bool {

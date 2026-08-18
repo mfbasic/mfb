@@ -738,7 +738,14 @@ fn generate(
     // buffer before it is freed/wiped below.
     if keypair.is_some() {
         emit_build_pub_list(
-            symbol, curve, RAWBUF, PUBLEN, PUBCOLL, &alloc_fail, &mut ins, &mut rel,
+            symbol,
+            curve,
+            RAWBUF,
+            PUBLEN,
+            PUBCOLL,
+            &alloc_fail,
+            &mut ins,
+            &mut rel,
         );
     }
 

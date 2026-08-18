@@ -484,8 +484,8 @@ impl NativePlanPlatform for Platform {
             // hash/sign surface. Any crypto.* EC call declares the whole set; the
             // merged IAT dedups.
             "crypto.generateP256"
-            | "crypto.generateP384Raw"
-            | "crypto.generateP521Raw"
+            | "crypto.generateP384"
+            | "crypto.generateP521"
             | "crypto.p256Sign"
             | "crypto.p384Sign"
             | "crypto.p521Sign"

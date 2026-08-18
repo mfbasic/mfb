@@ -75,31 +75,14 @@ pub(crate) fn is_native_crypto_call(name: &str) -> bool {
         name,
         "crypto.randomBytes"
             | "crypto.generateP256"
-            | "crypto.generateP384Raw"
-            | "crypto.generateP521Raw"
+            | "crypto.generateP384"
+            | "crypto.generateP521"
             | "crypto.p256Sign"
             | "crypto.p256Verify"
             | "crypto.p384Sign"
             | "crypto.p384Verify"
             | "crypto.p521Sign"
             | "crypto.p521Verify"
-    )
-}
-
-/// The raw NIST key generators are **not user-callable**: they exist only for
-/// `package.mfb`'s `__crypto_generateP*` glue, which slices the public point out of
-/// the returned `0x04||X||Y||K` bytes and builds a `KeyPair`. Reached from injected
-/// toolchain source, so they must stay resolvable there — the exclusion is applied in
-/// the resolver, which knows whether the calling file is toolchain-provided
-/// (`AstFile::internal`); `scripts/list_functions.py`'s `INTERNAL_CALLS` agrees
-/// (bug-337-D9).
-///
-/// P-256 has no raw twin: `crypto::generateP256` is a single native member that
-/// builds the `KeyPair` itself, so only the P-384/P-521 raw generators remain.
-pub(crate) fn is_crypto_internal_call(name: &str) -> bool {
-    matches!(
-        name,
-        "crypto.generateP384Raw" | "crypto.generateP521Raw"
     )
 }
 
@@ -283,8 +266,6 @@ pub(crate) fn register(r: &mut Registry) {
     helper_clamp_scalar::register(&mut pkg);
     helper_ed25519_public::register(&mut pkg);
     helper_generate_ed25519::register(&mut pkg);
-    helper_generate_p384::register(&mut pkg);
-    helper_generate_p521::register(&mut pkg);
     helper_ed25519_sign::register(&mut pkg);
     helper_scalar_below_l::register(&mut pkg);
     helper_ed25519_verify::register(&mut pkg);
@@ -311,16 +292,13 @@ pub(crate) fn register(r: &mut Registry) {
     func_random_bytes::register(&mut pkg);
     func_random_int::register(&mut pkg);
     func_uuid4::register(&mut pkg);
-    // Public-key key generation. Ed25519 source; P-384/P-521 source glue over a
-    // native raw generator; P-256 is a single NATIVE member that builds the
-    // `KeyPair` record itself (its raw twin + source glue were collapsed in).
+    // Public-key key generation. Ed25519 source; each NIST-EC `generateP*` is a
+    // single NATIVE member that builds the `KeyPair` record itself (its raw twin +
+    // source glue were collapsed in).
     func_generate_ed25519::register(&mut pkg);
     func_generate_p256::register(&mut pkg);
     func_generate_p384::register(&mut pkg);
     func_generate_p521::register(&mut pkg);
-    // Raw NIST keygen (native, internal-only) — P-384/P-521 only.
-    func_generate_p384_raw::register(&mut pkg);
-    func_generate_p521_raw::register(&mut pkg);
     // Signatures (Ed25519 source; NIST-EC native).
     func_ed25519_sign::register(&mut pkg);
     func_ed25519_verify::register(&mut pkg);
@@ -346,9 +324,7 @@ mod func_ed25519_verify;
 mod func_generate_ed25519;
 mod func_generate_p256;
 mod func_generate_p384;
-mod func_generate_p384_raw;
 mod func_generate_p521;
-mod func_generate_p521_raw;
 mod func_hkdf_sha256;
 mod func_hkdf_sha512;
 mod func_hmac_sha256;
@@ -427,8 +403,6 @@ mod helper_gcm_inc32;
 mod helper_gcm_j0;
 mod helper_gcm_tag;
 mod helper_generate_ed25519;
-mod helper_generate_p384;
-mod helper_generate_p521;
 mod helper_gf0;
 mod helper_gf1;
 mod helper_gf_at;
@@ -534,8 +508,8 @@ mod tests {
         let pkg = registry()
             .resolve_package("crypto")
             .expect("crypto package");
-        // 32 members: generateP256Raw was collapsed into the native generateP256.
-        assert_eq!(pkg.functions().len(), 32);
+        // 30 members: each generateP*Raw was collapsed into its native generateP*.
+        assert_eq!(pkg.functions().len(), 30);
     }
 
     #[test]
@@ -562,8 +536,6 @@ mod tests {
             "crypto.generateP256",
             "crypto.generateP384",
             "crypto.generateP521",
-            "crypto.generateP384Raw",
-            "crypto.generateP521Raw",
             "crypto.ed25519Sign",
             "crypto.ed25519Verify",
             "crypto.p256Sign",
@@ -584,8 +556,8 @@ mod tests {
         for f in [
             "crypto.randomBytes",
             "crypto.generateP256",
-            "crypto.generateP384Raw",
-            "crypto.generateP521Raw",
+            "crypto.generateP384",
+            "crypto.generateP521",
             "crypto.p256Sign",
             "crypto.p256Verify",
             "crypto.p384Sign",
@@ -597,12 +569,6 @@ mod tests {
         }
         assert!(!super::is_native_crypto_call("crypto.sha256"));
         assert!(!super::is_native_crypto_call("crypto.ed25519Sign"));
-        for f in ["crypto.generateP384Raw", "crypto.generateP521Raw"] {
-            assert!(super::is_crypto_internal_call(f), "{f}");
-        }
-        // P-256 has no raw twin, and the public member is not internal.
-        assert!(!super::is_crypto_internal_call("crypto.generateP256"));
-        assert!(!super::is_crypto_internal_call("crypto.generateP256Raw"));
     }
 
     #[test]

@@ -1,7 +1,12 @@
 //! `crypto::generateP521` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). A single-overload SOURCE member that
-//! takes no arguments and returns a `crypto::KeyPair`.
+//! A NATIVE member that takes no arguments and returns a `crypto::KeyPair`. Its
+//! `Body::native` OS-seam slots point at [`super::native::lower_crypto_ec`], which
+//! generates the P-521 key and **builds the `KeyPair` record directly** via the
+//! generic spec-canonical record marshaller — collapsing the former
+//! `generateP521Raw` native helper plus its `__crypto_generateP521` source glue
+//! into a single member (see [`super::func_generate_p256`] for the mechanism).
+//! Infallible surface (`errors: vec![]`): callers invoke it bare, as before.
 
 use super::{Body, Implementation, ParameterType, RegistryFunction};
 
@@ -72,7 +77,11 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![],
             return_type: ParameterType::Named("KeyPair"),
             errors: vec![],
-            body: Body::Rewrite("__crypto_generateP521"),
+            body: Body::native(
+                Some(super::native::lower_crypto_ec),
+                Some(super::native::lower_crypto_ec),
+                None,
+            ),
         }],
     });
 }

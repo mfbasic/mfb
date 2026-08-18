@@ -632,7 +632,14 @@ fn generate(
     // sets them) is built last.
     if let Some(type_model) = keypair {
         emit_build_pub_list(
-            symbol, curve, BYTEPTR, PUBLEN, PUBCOLL, &alloc_fail, &mut ins, &mut rel,
+            symbol,
+            curve,
+            BYTEPTR,
+            PUBLEN,
+            PUBCOLL,
+            &alloc_fail,
+            &mut ins,
+            &mut rel,
         );
         cf_release(RELEASE, NUM, &mut ins);
         cf_release(RELEASE, DICT, &mut ins);

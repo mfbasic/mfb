@@ -19,13 +19,10 @@ SKIP_FILES = {"mod.rs", "resource.rs"}
 # runtime plumbing but are not part of the user-callable surface, so they are
 # omitted from the documented function list. `tls::closeListener` is the
 # listener-shaped body that `tls::close` over a `TlsListener` rewrites to during
-# IR lowering (plan-06-tls-server.md §4.1). The `crypto::generateP*Raw` entries
-# are the internal raw-key generators backing the public `generateP384`/`generateP521`
-# wrappers (P-256 has no raw twin: `generateP256` is a single native member).
+# IR lowering (plan-06-tls-server.md §4.1). The crypto NIST-EC raw generators that
+# once appeared here were collapsed into the public `generateP*` native members.
 INTERNAL_CALLS = {
     "tls::closeListener",
-    "crypto::generateP384Raw",
-    "crypto::generateP521Raw",
 }
 
 # FUNC/SUB/TYPE declarations in MFBASIC package sources, e.g.

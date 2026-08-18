@@ -1581,17 +1581,14 @@ mod tests {
         quiet(|| crate::resolver::resolve_project(&dir, &manifest, &ast)).is_err()
     }
 
-    /// bug-337-D9: `crypto::generateP*Raw` are the internal raw key generators
-    /// behind the public `generateP*` wrappers. `scripts/list_functions.py` has
-    /// always excluded them from the documented surface, but the resolver
-    /// admitted them, so a user program could call one and get the raw
-    /// `0x04||X||Y||K` bytes with no man page describing them.
-    ///
-    /// The public wrappers must keep working — they are the very thing that
-    /// calls the raw generators, from injected package source.
+    /// bug-337-D9: `crypto::generateP*Raw` were the internal raw key generators
+    /// behind the public `generateP*` members. Each has since been collapsed into
+    /// its `generateP*` (now a single native member that builds the `KeyPair`
+    /// itself), so the raw names no longer exist at all — a user program naming one
+    /// must still fail to resolve, and the public members must keep resolving bare.
     #[test]
     fn crypto_raw_key_generators_are_not_user_callable() {
-        for raw in ["generateP384Raw", "generateP521Raw"] {
+        for raw in ["generateP256Raw", "generateP384Raw", "generateP521Raw"] {
             assert!(
                 resolve_source_fails(&format!(
                     "IMPORT crypto\nSUB main()\n  LET k = crypto::{raw}()\nEND SUB\n"
@@ -1604,8 +1601,7 @@ mod tests {
                 !resolve_source_fails(&format!(
                     "IMPORT crypto\nSUB main()\n  LET k = crypto::{public}()\nEND SUB\n"
                 )),
-                "crypto::{public} must still resolve — it is the public wrapper \
-                 whose injected body calls the raw generator"
+                "crypto::{public} must still resolve as a public native member"
             );
         }
     }

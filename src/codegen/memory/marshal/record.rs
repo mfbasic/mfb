@@ -145,7 +145,13 @@ pub(crate) fn emit_build_inlined_record(
                 abi::load_u64("%v12", abi::stack_pointer(), field_slots[index]), // %v12 = src
                 abi::load_u64("%v13", abi::stack_pointer(), scratch.block_size), // %v13 = len
             ]);
-            emit_byte_copy("%v11", "%v12", "%v13", &format!("{symbol}_{tag}_f{index}"), instructions);
+            emit_byte_copy(
+                "%v11",
+                "%v12",
+                "%v13",
+                &format!("{symbol}_{tag}_f{index}"),
+                instructions,
+            );
             // Advance the cursor past the copied block.
             instructions.extend([
                 abi::load_u64("%v13", abi::stack_pointer(), scratch.block_size),

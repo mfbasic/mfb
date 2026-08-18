@@ -375,7 +375,14 @@ fn generate(
     // them).
     if let Some(type_model) = keypair {
         emit_build_pub_list(
-            symbol, curve, RAW, PUBLEN, PUBCOLL, &alloc_fail, &mut ins, &mut rel,
+            symbol,
+            curve,
+            RAW,
+            PUBLEN,
+            PUBCOLL,
+            &alloc_fail,
+            &mut ins,
+            &mut rel,
         );
         emit_build_keypair_record(
             symbol,
