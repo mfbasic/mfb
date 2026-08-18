@@ -158,23 +158,64 @@ fn bcrypt_call(
     Ok(())
 }
 
+/// Minted scratch-vreg palette for one emitted CNG helper. Each field is a fresh
+/// vreg the shared allocator colors; one `Sc` is built per lowering entry
+/// (`generate`/`sign`/`verify`) and threaded into every emitter contributing to
+/// that function, so all uses of a given original hand-picked number map to the
+/// same minted vreg (and the internal `%v4`/`%v5` copy scratch stays distinct from
+/// the `%v6..%v15` the callers use). Fields a given helper does not use are simply
+/// never emitted.
+struct Sc {
+    v4: String,
+    v5: String,
+    v6: String,
+    v7: String,
+    v8: String,
+    v9: String,
+    v10: String,
+    v11: String,
+    v12: String,
+    v13: String,
+    v14: String,
+    v15: String,
+}
+
+impl Sc {
+    fn new(vregs: &mut Vregs) -> Self {
+        Sc {
+            v4: vregs.next(),
+            v5: vregs.next(),
+            v6: vregs.next(),
+            v7: vregs.next(),
+            v8: vregs.next(),
+            v9: vregs.next(),
+            v10: vregs.next(),
+            v11: vregs.next(),
+            v12: vregs.next(),
+            v13: vregs.next(),
+            v14: vregs.next(),
+            v15: vregs.next(),
+        }
+    }
+}
+
 /// A copy loop: `count` bytes from `[src]` to `[dst]` (both register operands,
 /// consumed). Uses `%v9`/`%v-tmp` scratch named by `tag`.
-fn copy_bytes(src: &str, dst: &str, count: &str, tag: &str, ins: &mut Vec<CodeInstruction>) {
-    // Internal scratch %v4/%v5 must not alias any caller's src/dst/count (callers
-    // use %v6..%v15) — otherwise `load %v9,[%v9]` would clobber a %v9 pointer.
+fn copy_bytes(sc: &Sc, src: &str, dst: &str, count: &str, tag: &str, ins: &mut Vec<CodeInstruction>) {
+    // Internal scratch sc.v4/sc.v5 must not alias any caller's src/dst/count
+    // (callers use sc.v6..sc.v15) — otherwise `load,[ptr]` would clobber a pointer.
     let loop_l = format!("{tag}_cp");
     let done_l = format!("{tag}_cpd");
     ins.extend([
-        abi::move_immediate("%v4", "Integer", "0"),
+        abi::move_immediate(&sc.v4, "Integer", "0"),
         abi::label(&loop_l),
-        abi::compare_registers("%v4", count),
+        abi::compare_registers(&sc.v4, count),
         abi::branch_eq(&done_l),
-        abi::load_u8("%v5", src, 0),
-        abi::store_u8("%v5", dst, 0),
+        abi::load_u8(&sc.v5, src, 0),
+        abi::store_u8(&sc.v5, dst, 0),
         abi::add_immediate(src, src, 1),
         abi::add_immediate(dst, dst, 1),
-        abi::add_immediate("%v4", "%v4", 1),
+        abi::add_immediate(&sc.v4, &sc.v4, 1),
         abi::branch(&loop_l),
         abi::label(&done_l),
     ]);
@@ -232,6 +273,10 @@ fn generate(
 
     let mut ins = vec![abi::label("entry")];
     let mut rel = Vec::new();
+    // Minted scratch palette threaded into copy_bytes/emit_build_pub_list and used
+    // directly by the body (this helper touches %v4/%v5 and %v9..%v13).
+    let mut vregs = Vregs::new();
+    let sc = Sc::new(&mut vregs);
     ins.extend([
         abi::store_u64(abi::ZERO, abi::stack_pointer(), HALG),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), HKEY),
@@ -309,8 +354,8 @@ fn generate(
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
     ins.extend([
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RAW),
-        abi::move_immediate("%v9", "Integer", &raw_len.to_string()),
-        abi::store_u64("%v9", abi::stack_pointer(), RAWLEN),
+        abi::move_immediate(&sc.v9, "Integer", &raw_len.to_string()),
+        abi::store_u64(&sc.v9, abi::stack_pointer(), RAWLEN),
     ]);
 
     // BCryptExportKey(hKey, NULL, L"ECCPRIVATEBLOB", blob, BLOBCAP, &cbResult, 0)
@@ -339,15 +384,15 @@ fn generate(
 
     // raw = 0x04 ‖ (blob body X‖Y‖d). Blob body starts at header +8.
     ins.extend([
-        abi::load_u64("%v10", abi::stack_pointer(), RAW),
-        abi::move_immediate("%v9", "Byte", "4"),
-        abi::store_u8("%v9", "%v10", 0),
-        abi::load_u64("%v11", abi::stack_pointer(), BLOB),
-        abi::add_immediate("%v11", "%v11", 8),
-        abi::add_immediate("%v12", "%v10", 1),
-        abi::move_immediate("%v13", "Integer", &(3 * field).to_string()),
+        abi::load_u64(&sc.v10, abi::stack_pointer(), RAW),
+        abi::move_immediate(&sc.v9, "Byte", "4"),
+        abi::store_u8(&sc.v9, &sc.v10, 0),
+        abi::load_u64(&sc.v11, abi::stack_pointer(), BLOB),
+        abi::add_immediate(&sc.v11, &sc.v11, 8),
+        abi::add_immediate(&sc.v12, &sc.v10, 1),
+        abi::move_immediate(&sc.v13, "Integer", &(3 * field).to_string()),
     ]);
-    copy_bytes("%v11", "%v12", "%v13", &format!("{symbol}_gk"), &mut ins);
+    copy_bytes(&sc, &sc.v11, &sc.v12, &sc.v13, &format!("{symbol}_gk"), &mut ins);
 
     // Clean up the CNG handles and wipe the private blob BEFORE building the
     // result — the cleanup calls clobber the caller-saved result registers, and
@@ -381,6 +426,7 @@ fn generate(
             PUBLEN,
             PUBCOLL,
             &alloc_fail,
+            &sc.v9,
             &mut ins,
             &mut rel,
         );

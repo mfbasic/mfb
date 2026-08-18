@@ -51,6 +51,15 @@ pub(crate) fn lower_crypto_random_bytes_helper(
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
 
+    // Minted scratch vregs (one per distinct hand-picked number this helper used:
+    // %v9..%v13), so the shared allocator colors them per-ISA.
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+
     // Validate 0 <= count <= RANDOM_BYTES_MAX_COUNT and stash it. The upper bound
     // rejects an absurd request before the count*ENTRY + HEADER + count size
     // arithmetic below can overflow (bug-177 D); the cap is materialized into a
@@ -58,8 +67,8 @@ pub(crate) fn lower_crypto_random_bytes_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&invalid),
-        abi::move_immediate("%v9", "Integer", &RANDOM_BYTES_MAX_COUNT.to_string()),
-        abi::compare_registers(abi::return_register(), "%v9"),
+        abi::move_immediate(&v9, "Integer", &RANDOM_BYTES_MAX_COUNT.to_string()),
+        abi::compare_registers(abi::return_register(), &v9),
         abi::branch_gt(&invalid),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), COUNT_OFFSET),
         // Allocate a scratch buffer of `count` bytes (arena_alloc rounds up, so a
@@ -72,24 +81,24 @@ pub(crate) fn lower_crypto_random_bytes_helper(
     instructions.extend([
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BUF_OFFSET),
         // Fill the buffer from OS entropy in <=256-byte chunks.
-        abi::move_immediate("%v9", "Integer", "0"),
-        abi::store_u64("%v9", abi::stack_pointer(), OFF_OFFSET),
+        abi::move_immediate(&v9, "Integer", "0"),
+        abi::store_u64(&v9, abi::stack_pointer(), OFF_OFFSET),
         abi::label(&fill_loop),
-        abi::load_u64("%v9", abi::stack_pointer(), OFF_OFFSET),
-        abi::load_u64("%v10", abi::stack_pointer(), COUNT_OFFSET),
-        abi::compare_registers("%v9", "%v10"),
+        abi::load_u64(&v9, abi::stack_pointer(), OFF_OFFSET),
+        abi::load_u64(&v10, abi::stack_pointer(), COUNT_OFFSET),
+        abi::compare_registers(&v9, &v10),
         abi::branch_ge(&fill_done),
         // chunk = min(count - off, 256)
-        abi::subtract_registers("%v11", "%v10", "%v9"),
-        abi::move_immediate("%v12", "Integer", &GETENTROPY_MAX.to_string()),
-        abi::compare_registers("%v11", "%v12"),
+        abi::subtract_registers(&v11, &v10, &v9),
+        abi::move_immediate(&v12, "Integer", &GETENTROPY_MAX.to_string()),
+        abi::compare_registers(&v11, &v12),
         abi::branch_le(&chunk_ok),
-        abi::move_register("%v11", "%v12"),
+        abi::move_register(&v11, &v12),
         abi::label(&chunk_ok),
         // getentropy(buf + off, chunk)
-        abi::load_u64("%v13", abi::stack_pointer(), BUF_OFFSET),
-        abi::add_registers(abi::return_register(), "%v13", "%v9"),
-        abi::move_register(abi::c_arg(1), "%v11"),
+        abi::load_u64(&v13, abi::stack_pointer(), BUF_OFFSET),
+        abi::add_registers(abi::return_register(), &v13, &v9),
+        abi::move_register(abi::c_arg(1), &v11),
     ]);
     if platform.family() == PlatformFamily::Windows {
         // Windows has no getentropy: BCryptGenRandom(NULL, buf+off, chunk,
@@ -121,17 +130,17 @@ pub(crate) fn lower_crypto_random_bytes_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&entropy_fail),
-        abi::load_u64("%v9", abi::stack_pointer(), OFF_OFFSET),
+        abi::load_u64(&v9, abi::stack_pointer(), OFF_OFFSET),
         // recompute chunk from off/count for the cursor advance
-        abi::load_u64("%v10", abi::stack_pointer(), COUNT_OFFSET),
-        abi::subtract_registers("%v11", "%v10", "%v9"),
-        abi::move_immediate("%v12", "Integer", &GETENTROPY_MAX.to_string()),
-        abi::compare_registers("%v11", "%v12"),
+        abi::load_u64(&v10, abi::stack_pointer(), COUNT_OFFSET),
+        abi::subtract_registers(&v11, &v10, &v9),
+        abi::move_immediate(&v12, "Integer", &GETENTROPY_MAX.to_string()),
+        abi::compare_registers(&v11, &v12),
         abi::branch_le(&format!("{symbol}_adv_ok")),
-        abi::move_register("%v11", "%v12"),
+        abi::move_register(&v11, &v12),
         abi::label(&format!("{symbol}_adv_ok")),
-        abi::add_registers("%v9", "%v9", "%v11"),
-        abi::store_u64("%v9", abi::stack_pointer(), OFF_OFFSET),
+        abi::add_registers(&v9, &v9, &v11),
+        abi::store_u64(&v9, abi::stack_pointer(), OFF_OFFSET),
         abi::branch(&fill_loop),
         abi::label(&fill_done),
     ]);
@@ -165,17 +174,17 @@ pub(crate) fn lower_crypto_random_bytes_helper(
     let zero_loop = format!("{symbol}_zero_loop");
     let zero_end = format!("{symbol}_zero_end");
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), BUF_OFFSET),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::stack_pointer(), BUF_OFFSET),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_eq(&zero_skip),
-        abi::load_u64("%v10", abi::stack_pointer(), COUNT_OFFSET),
-        abi::move_immediate("%v11", "Integer", "0"),
+        abi::load_u64(&v10, abi::stack_pointer(), COUNT_OFFSET),
+        abi::move_immediate(&v11, "Integer", "0"),
         abi::label(&zero_loop),
-        abi::compare_registers("%v11", "%v10"),
+        abi::compare_registers(&v11, &v10),
         abi::branch_eq(&zero_end),
-        abi::store_u8(abi::ZERO, "%v9", 0),
-        abi::add_immediate("%v9", "%v9", 1),
-        abi::add_immediate("%v11", "%v11", 1),
+        abi::store_u8(abi::ZERO, &v9, 0),
+        abi::add_immediate(&v9, &v9, 1),
+        abi::add_immediate(&v11, &v11, 1),
         abi::branch(&zero_loop),
         abi::label(&zero_end),
         abi::label(&zero_skip),

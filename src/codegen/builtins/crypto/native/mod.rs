@@ -127,11 +127,13 @@ pub(crate) use crate::codegen::memory::marshal::{
 };
 
 /// Call the function pointer stored at `fn_off` (args already in x0..). Result
-/// left in the return register. Shared by both EC backends.
-pub(crate) fn call_fn(fn_off: usize, ins: &mut Vec<CodeInstruction>) {
+/// left in the return register. Shared by both EC backends. `scratch` is a
+/// caller-minted vreg the function-pointer is loaded into (threaded so every
+/// emitter contributing to one helper shares that helper's single `Vregs`).
+pub(crate) fn call_fn(fn_off: usize, scratch: &str, ins: &mut Vec<CodeInstruction>) {
     ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), fn_off),
-        abi::branch_link_register("%v9"),
+        abi::load_u64(scratch, abi::stack_pointer(), fn_off),
+        abi::branch_link_register(scratch),
     ]);
 }
 
@@ -148,12 +150,13 @@ pub(crate) fn emit_build_pub_list(
     pub_len_slot: usize,
     pub_coll_slot: usize,
     alloc_fail: &str,
+    len_scratch: &str,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) {
     ins.extend([
-        abi::move_immediate("%v9", "Integer", &curve.point_len().to_string()),
-        abi::store_u64("%v9", abi::stack_pointer(), pub_len_slot),
+        abi::move_immediate(len_scratch, "Integer", &curve.point_len().to_string()),
+        abi::store_u64(len_scratch, abi::stack_pointer(), pub_len_slot),
     ]);
     emit_build_byte_list(
         symbol,

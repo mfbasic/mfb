@@ -4,47 +4,54 @@
 /// Encode one big-endian `field`-wide integer at `[src]` as an ASN.1 INTEGER into
 /// `[dst]`, advancing `dst` past the written bytes. `src`/`dst` are register
 /// operands consumed in place. Scratch: `%v8`..`%v14`.
-fn der_encode_int(src: &str, dst: &str, field: usize, tag: &str, ins: &mut Vec<CodeInstruction>) {
+fn der_encode_int(
+    sc: &Sc,
+    src: &str,
+    dst: &str,
+    field: usize,
+    tag: &str,
+    ins: &mut Vec<CodeInstruction>,
+) {
     let skip = format!("{tag}_lz");
     let skip_done = format!("{tag}_lzd");
     let no_pad = format!("{tag}_np");
     // Find the first significant byte: keep at least one byte even if all-zero.
     ins.extend([
-        abi::move_register("%v9", src),            // working ptr into src
-        abi::move_immediate("%v10", "Integer", "0"), // i
-        abi::move_immediate("%v11", "Integer", &(field - 1).to_string()),
+        abi::move_register(&sc.v9, src),            // working ptr into src
+        abi::move_immediate(&sc.v10, "Integer", "0"), // i
+        abi::move_immediate(&sc.v11, "Integer", &(field - 1).to_string()),
         abi::label(&skip),
-        abi::compare_registers("%v10", "%v11"),
+        abi::compare_registers(&sc.v10, &sc.v11),
         abi::branch_eq(&skip_done),
-        abi::load_u8("%v12", "%v9", 0),
-        abi::compare_immediate("%v12", "0"),
+        abi::load_u8(&sc.v12, &sc.v9, 0),
+        abi::compare_immediate(&sc.v12, "0"),
         abi::branch_ne(&skip_done),
-        abi::add_immediate("%v9", "%v9", 1),
-        abi::add_immediate("%v10", "%v10", 1),
+        abi::add_immediate(&sc.v9, &sc.v9, 1),
+        abi::add_immediate(&sc.v10, &sc.v10, 1),
         abi::branch(&skip),
         abi::label(&skip_done),
         // sig_len = field - i  → %v13
-        abi::move_immediate("%v13", "Integer", &field.to_string()),
-        abi::subtract_registers("%v13", "%v13", "%v10"),
+        abi::move_immediate(&sc.v13, "Integer", &field.to_string()),
+        abi::subtract_registers(&sc.v13, &sc.v13, &sc.v10),
         // need_pad = (src[i] & 0x80) != 0 → %v14 ∈ {0,1}
-        abi::load_u8("%v12", "%v9", 0),
-        abi::shift_right_immediate("%v14", "%v12", 7),
+        abi::load_u8(&sc.v12, &sc.v9, 0),
+        abi::shift_right_immediate(&sc.v14, &sc.v12, 7),
         // content_len = sig_len + need_pad → %v10 (reuse)
-        abi::add_registers("%v10", "%v13", "%v14"),
+        abi::add_registers(&sc.v10, &sc.v13, &sc.v14),
         // dst[0]=0x02, dst[1]=content_len
-        abi::move_immediate("%v12", "Byte", "2"),
-        abi::store_u8("%v12", dst, 0),
-        abi::store_u8("%v10", dst, 1),
+        abi::move_immediate(&sc.v12, "Byte", "2"),
+        abi::store_u8(&sc.v12, dst, 0),
+        abi::store_u8(&sc.v10, dst, 1),
         abi::add_immediate(dst, dst, 2),
         // if need_pad: dst[0]=0x00; dst++
-        abi::compare_immediate("%v14", "0"),
+        abi::compare_immediate(&sc.v14, "0"),
         abi::branch_eq(&no_pad),
         abi::store_u8(abi::ZERO, dst, 0),
         abi::add_immediate(dst, dst, 1),
         abi::label(&no_pad),
     ]);
     // copy sig_len (%v13) bytes from %v9 (src+i) to dst.
-    copy_bytes("%v9", dst, "%v13", tag, ins);
+    copy_bytes(sc, &sc.v9, dst, &sc.v13, tag, ins);
 }
 
 /// Decode one ASN.1 INTEGER at `[body]` into the big-endian `field`-wide slot at
@@ -55,6 +62,7 @@ fn der_encode_int(src: &str, dst: &str, field: usize, tag: &str, ins: &mut Vec<C
 /// (bug-415 #2). Scratch: `%v8`..`%v14`.
 #[allow(clippy::too_many_arguments)]
 fn der_decode_int(
+    sc: &Sc,
     body: &str,
     dst: &str,
     field: usize,
@@ -70,63 +78,63 @@ fn der_decode_int(
     ins.extend([
         // Bound the 2-byte tag+length header against the signature buffer end
         // (end = SIGBUF + SIGLEN) before reading it.
-        abi::load_u64("%v8", abi::stack_pointer(), sigbuf_off),
-        abi::load_u64("%v9", abi::stack_pointer(), siglen_off),
-        abi::add_registers("%v8", "%v8", "%v9"), // %v8 = buffer end
-        abi::add_immediate("%v9", body, 2),
-        abi::compare_registers("%v9", "%v8"),
+        abi::load_u64(&sc.v8, abi::stack_pointer(), sigbuf_off),
+        abi::load_u64(&sc.v9, abi::stack_pointer(), siglen_off),
+        abi::add_registers(&sc.v8, &sc.v8, &sc.v9), // %v8 = buffer end
+        abi::add_immediate(&sc.v9, body, 2),
+        abi::compare_registers(&sc.v9, &sc.v8),
         abi::branch_hi(bounds_fail),
         // tag byte must be 0x02
-        abi::load_u8("%v9", body, 0),
-        abi::compare_immediate("%v9", "2"),
+        abi::load_u8(&sc.v9, body, 0),
+        abi::compare_immediate(&sc.v9, "2"),
         abi::branch_ne(fail),
-        abi::load_u8("%v10", body, 1), // declared length
-        abi::add_immediate("%v11", body, 2), // int body ptr
+        abi::load_u8(&sc.v10, body, 1), // declared length
+        abi::add_immediate(&sc.v11, body, 2), // int body ptr
         // advance `body` past this INTEGER now (2 + declared_len), before trimming.
         abi::add_immediate(body, body, 2),
-        abi::add_registers(body, body, "%v10"),
+        abi::add_registers(body, body, &sc.v10),
         // Reject an empty INTEGER and bound the declared content: after the advance
         // `body` == start + 2 + declared_len, so a non-zero length with `body <=
         // end` keeps the content bytes (and the int_body[0] read below) in bounds.
-        abi::compare_immediate("%v10", "0"),
+        abi::compare_immediate(&sc.v10, "0"),
         abi::branch_eq(bounds_fail),
-        abi::load_u64("%v8", abi::stack_pointer(), sigbuf_off),
-        abi::load_u64("%v9", abi::stack_pointer(), siglen_off),
-        abi::add_registers("%v8", "%v8", "%v9"), // %v8 = buffer end
-        abi::compare_registers(body, "%v8"),
+        abi::load_u64(&sc.v8, abi::stack_pointer(), sigbuf_off),
+        abi::load_u64(&sc.v9, abi::stack_pointer(), siglen_off),
+        abi::add_registers(&sc.v8, &sc.v8, &sc.v9), // %v8 = buffer end
+        abi::compare_registers(body, &sc.v8),
         abi::branch_hi(bounds_fail),
         // if int_body[0]==0 and len>1: skip the pad byte
-        abi::load_u8("%v9", "%v11", 0),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u8(&sc.v9, &sc.v11, 0),
+        abi::compare_immediate(&sc.v9, "0"),
         abi::branch_ne(&no_pad),
-        abi::compare_immediate("%v10", "1"),
+        abi::compare_immediate(&sc.v10, "1"),
         abi::branch_eq(&no_pad),
-        abi::add_immediate("%v11", "%v11", 1),
-        abi::subtract_immediate("%v10", "%v10", 1),
+        abi::add_immediate(&sc.v11, &sc.v11, 1),
+        abi::subtract_immediate(&sc.v10, &sc.v10, 1),
         abi::label(&no_pad),
         // len must be <= field
-        abi::move_immediate("%v12", "Integer", &field.to_string()),
-        abi::compare_registers("%v10", "%v12"),
+        abi::move_immediate(&sc.v12, "Integer", &field.to_string()),
+        abi::compare_registers(&sc.v10, &sc.v12),
         abi::branch_hi(fail),
     ]);
     // zero the dst field, then copy len bytes to dst + (field - len).
     ins.extend([
-        abi::move_immediate("%v13", "Integer", "0"),
-        abi::move_register("%v14", dst),
+        abi::move_immediate(&sc.v13, "Integer", "0"),
+        abi::move_register(&sc.v14, dst),
         abi::label(&format!("{tag}_zl")),
-        abi::compare_registers("%v13", "%v12"),
+        abi::compare_registers(&sc.v13, &sc.v12),
         abi::branch_eq(&format!("{tag}_zld")),
-        abi::store_u8(abi::ZERO, "%v14", 0),
-        abi::add_immediate("%v14", "%v14", 1),
-        abi::add_immediate("%v13", "%v13", 1),
+        abi::store_u8(abi::ZERO, &sc.v14, 0),
+        abi::add_immediate(&sc.v14, &sc.v14, 1),
+        abi::add_immediate(&sc.v13, &sc.v13, 1),
         abi::branch(&format!("{tag}_zl")),
         abi::label(&format!("{tag}_zld")),
         // dst_off = dst + (field - len)
-        abi::subtract_registers("%v12", "%v12", "%v10"),
-        abi::move_register("%v14", dst),
-        abi::add_registers("%v14", "%v14", "%v12"),
+        abi::subtract_registers(&sc.v12, &sc.v12, &sc.v10),
+        abi::move_register(&sc.v14, dst),
+        abi::add_registers(&sc.v14, &sc.v14, &sc.v12),
     ]);
-    copy_bytes("%v11", "%v14", "%v10", tag, ins);
+    copy_bytes(sc, &sc.v11, &sc.v14, &sc.v10, tag, ins);
     ins.push(abi::label(&ok));
     let _ = ok;
 }
@@ -139,6 +147,7 @@ fn der_decode_int(
 /// `ErrInvalidArgument` (bug-415 #1).
 #[allow(clippy::too_many_arguments)]
 fn import_key(
+    sc: &Sc,
     curve: Curve,
     is_private: bool,
     symbol: &str,
@@ -170,17 +179,17 @@ fn import_key(
     ins.push(abi::branch_lt(fail));
     // Build the blob: [magic(4)][cbKey=field(4)][X‖Y(‖d) from SEC1+1].
     ins.extend([
-        abi::load_u64("%v10", abi::stack_pointer(), blob_off),
-        abi::move_immediate("%v9", "Integer", magic),
-        abi::store_u32("%v9", "%v10", 0),
-        abi::move_immediate("%v9", "Integer", &field.to_string()),
-        abi::store_u32("%v9", "%v10", 4),
-        abi::load_u64("%v11", abi::stack_pointer(), key_ptr_off),
-        abi::add_immediate("%v11", "%v11", 1), // skip the 0x04 SEC1 prefix
-        abi::add_immediate("%v12", "%v10", 8),
-        abi::move_immediate("%v13", "Integer", &body_len.to_string()),
+        abi::load_u64(&sc.v10, abi::stack_pointer(), blob_off),
+        abi::move_immediate(&sc.v9, "Integer", magic),
+        abi::store_u32(&sc.v9, &sc.v10, 0),
+        abi::move_immediate(&sc.v9, "Integer", &field.to_string()),
+        abi::store_u32(&sc.v9, &sc.v10, 4),
+        abi::load_u64(&sc.v11, abi::stack_pointer(), key_ptr_off),
+        abi::add_immediate(&sc.v11, &sc.v11, 1), // skip the 0x04 SEC1 prefix
+        abi::add_immediate(&sc.v12, &sc.v10, 8),
+        abi::move_immediate(&sc.v13, "Integer", &body_len.to_string()),
     ]);
-    copy_bytes("%v11", "%v12", "%v13", &format!("{symbol}_ik"), ins);
+    copy_bytes(sc, &sc.v11, &sc.v12, &sc.v13, &format!("{symbol}_ik"), ins);
     // BCryptImportKeyPair(hAlg, NULL, blobId, &hKey, blob, blobLen, 0)
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), halg_off),
@@ -293,6 +302,10 @@ fn sign(
 
     let mut ins = vec![abi::label("entry")];
     let mut rel = Vec::new();
+    // Minted scratch palette threaded through import_key/der_encode_int/copy_bytes
+    // and used directly by the body.
+    let mut vregs = Vregs::new();
+    let sc = Sc::new(&mut vregs);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PRIVCOLL),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MSGCOLL),
@@ -305,8 +318,8 @@ fn sign(
     emit_read_byte_list(symbol, "msg", MSGCOLL, MSGBUF, MSGLEN, &alloc_fail, &mut ins, &mut rel);
     // priv len must be the SEC1 private (point ‖ scalar).
     ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), PRIVLEN),
-        abi::compare_immediate("%v9", priv_raw.to_string()),
+        abi::load_u64(&sc.v9, abi::stack_pointer(), PRIVLEN),
+        abi::compare_immediate(&sc.v9, priv_raw.to_string()),
         abi::branch_ne(&invalid),
     ]);
     // Allocate the CNG blob + rs + der buffers.
@@ -319,7 +332,7 @@ fn sign(
         ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), slot));
     }
 
-    import_key(curve, true, symbol, PRIVBUF, BLOB, HALG, HKEY, &fail, &fail, imports, platform, &mut ins, &mut rel)?;
+    import_key(&sc, curve, true, symbol, PRIVBUF, BLOB, HALG, HKEY, &fail, &fail, imports, platform, &mut ins, &mut rel)?;
     hash_message(curve, symbol, MSGBUF, MSGLEN, HASHINLINE, HASHALG, &fail, imports, platform, &mut ins, &mut rel)?;
 
     // BCryptSignHash(hKey, NULL, hash, hashLen, rs, 2*field, &cbResult, 0)
@@ -338,45 +351,45 @@ fn sign(
 
     // DER-encode: body at DERBUF+3; r at rs+0, s at rs+field.
     ins.extend([
-        abi::load_u64("%v15", abi::stack_pointer(), DERBUF),
-        abi::add_immediate("%v15", "%v15", 3), // body cursor (dst)
-        abi::load_u64("%v7", abi::stack_pointer(), RS), // r src
+        abi::load_u64(&sc.v15, abi::stack_pointer(), DERBUF),
+        abi::add_immediate(&sc.v15, &sc.v15, 3), // body cursor (dst)
+        abi::load_u64(&sc.v7, abi::stack_pointer(), RS), // r src
     ]);
     // encode r (src=%v7, dst=%v15). copy_bytes/der use %v8-%v14; keep %v7/%v15 live.
-    der_encode_int("%v7", "%v15", field, &format!("{symbol}_r"), &mut ins);
+    der_encode_int(&sc, &sc.v7, &sc.v15, field, &format!("{symbol}_r"), &mut ins);
     ins.extend([
-        abi::load_u64("%v7", abi::stack_pointer(), RS),
-        abi::add_immediate("%v7", "%v7", field), // s src
+        abi::load_u64(&sc.v7, abi::stack_pointer(), RS),
+        abi::add_immediate(&sc.v7, &sc.v7, field), // s src
     ]);
-    der_encode_int("%v7", "%v15", field, &format!("{symbol}_s"), &mut ins);
+    der_encode_int(&sc, &sc.v7, &sc.v15, field, &format!("{symbol}_s"), &mut ins);
     // total body len = %v15 - (DERBUF+3)
     let short = format!("{symbol}_short");
     let hdr_done = format!("{symbol}_hdrdone");
     ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), DERBUF),
-        abi::add_immediate("%v10", "%v9", 3),
-        abi::subtract_registers("%v11", "%v15", "%v10"), // total body len
-        abi::compare_immediate("%v11", "128"),
+        abi::load_u64(&sc.v9, abi::stack_pointer(), DERBUF),
+        abi::add_immediate(&sc.v10, &sc.v9, 3),
+        abi::subtract_registers(&sc.v11, &sc.v15, &sc.v10), // total body len
+        abi::compare_immediate(&sc.v11, "128"),
         abi::branch_lt(&short),
         // long form: [0x30][0x81][len] at DERBUF+0; start=DERBUF, len=total+3
-        abi::move_immediate("%v12", "Byte", "48"),
-        abi::store_u8("%v12", "%v9", 0),
-        abi::move_immediate("%v12", "Integer", "129"),
-        abi::store_u8("%v12", "%v9", 1),
-        abi::store_u8("%v11", "%v9", 2),
-        abi::store_u64("%v9", abi::stack_pointer(), DERSTART),
-        abi::add_immediate("%v11", "%v11", 3),
-        abi::store_u64("%v11", abi::stack_pointer(), DERLEN),
+        abi::move_immediate(&sc.v12, "Byte", "48"),
+        abi::store_u8(&sc.v12, &sc.v9, 0),
+        abi::move_immediate(&sc.v12, "Integer", "129"),
+        abi::store_u8(&sc.v12, &sc.v9, 1),
+        abi::store_u8(&sc.v11, &sc.v9, 2),
+        abi::store_u64(&sc.v9, abi::stack_pointer(), DERSTART),
+        abi::add_immediate(&sc.v11, &sc.v11, 3),
+        abi::store_u64(&sc.v11, abi::stack_pointer(), DERLEN),
         abi::branch(&hdr_done),
         abi::label(&short),
         // short form: [0x30][len] at DERBUF+1; start=DERBUF+1, len=total+2
-        abi::add_immediate("%v13", "%v9", 1),
-        abi::move_immediate("%v12", "Byte", "48"),
-        abi::store_u8("%v12", "%v13", 0),
-        abi::store_u8("%v11", "%v13", 1),
-        abi::store_u64("%v13", abi::stack_pointer(), DERSTART),
-        abi::add_immediate("%v11", "%v11", 2),
-        abi::store_u64("%v11", abi::stack_pointer(), DERLEN),
+        abi::add_immediate(&sc.v13, &sc.v9, 1),
+        abi::move_immediate(&sc.v12, "Byte", "48"),
+        abi::store_u8(&sc.v12, &sc.v13, 0),
+        abi::store_u8(&sc.v11, &sc.v13, 1),
+        abi::store_u64(&sc.v13, abi::stack_pointer(), DERSTART),
+        abi::add_immediate(&sc.v11, &sc.v11, 2),
+        abi::store_u64(&sc.v11, abi::stack_pointer(), DERLEN),
         abi::label(&hdr_done),
     ]);
 
@@ -453,6 +466,10 @@ fn verify(
 
     let mut ins = vec![abi::label("entry")];
     let mut rel = Vec::new();
+    // Minted scratch palette threaded through import_key/der_decode_int/copy_bytes
+    // and used directly by the body.
+    let mut vregs = Vregs::new();
+    let sc = Sc::new(&mut vregs);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PUBCOLL),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MSGCOLL),
@@ -467,8 +484,8 @@ fn verify(
     // argument, not a false verdict — raise ErrInvalidArgument to match the
     // macOS/OpenSSL backends (bug-415 #1).
     ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), PUBLEN),
-        abi::compare_immediate("%v9", pub_raw.to_string()),
+        abi::load_u64(&sc.v9, abi::stack_pointer(), PUBLEN),
+        abi::compare_immediate(&sc.v9, pub_raw.to_string()),
         abi::branch_ne(&invalid),
     ]);
     for (cap, slot) in [(BLOBCAP, BLOB), (2 * 66, RS)] {
@@ -480,7 +497,7 @@ fn verify(
         ins.push(abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), slot));
     }
 
-    import_key(curve, false, symbol, PUBBUF, BLOB, HALG, HKEY, &fail, &invalid, imports, platform, &mut ins, &mut rel)?;
+    import_key(&sc, curve, false, symbol, PUBBUF, BLOB, HALG, HKEY, &fail, &invalid, imports, platform, &mut ins, &mut rel)?;
     hash_message(curve, symbol, MSGBUF, MSGLEN, HASHINLINE, HASHALG, &fail, imports, platform, &mut ins, &mut rel)?;
 
     // DER-decode the signature into rs (r at +0, s at +field), zero-padded. The
@@ -490,32 +507,32 @@ fn verify(
     let seq_short = format!("{symbol}_seqshort");
     let seq_body = format!("{symbol}_seqbody");
     ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), SIGLEN),
-        abi::compare_immediate("%v9", "2"),
+        abi::load_u64(&sc.v9, abi::stack_pointer(), SIGLEN),
+        abi::compare_immediate(&sc.v9, "2"),
         abi::branch_lt(&oob),
-        abi::load_u64("%v15", abi::stack_pointer(), SIGBUF),
-        abi::load_u8("%v9", "%v15", 0),
-        abi::compare_immediate("%v9", "48"), // SEQUENCE
+        abi::load_u64(&sc.v15, abi::stack_pointer(), SIGBUF),
+        abi::load_u8(&sc.v9, &sc.v15, 0),
+        abi::compare_immediate(&sc.v9, "48"), // SEQUENCE
         abi::branch_ne(&bad_sig),
-        abi::load_u8("%v9", "%v15", 1),
-        abi::compare_immediate("%v9", "128"),
+        abi::load_u8(&sc.v9, &sc.v15, 1),
+        abi::compare_immediate(&sc.v9, "128"),
         abi::branch_lt(&seq_short),
         // long form 0x81: body starts at +3
-        abi::compare_immediate("%v9", "129"),
+        abi::compare_immediate(&sc.v9, "129"),
         abi::branch_ne(&bad_sig),
-        abi::add_immediate("%v15", "%v15", 3),
+        abi::add_immediate(&sc.v15, &sc.v15, 3),
         abi::branch(&seq_body),
         abi::label(&seq_short),
-        abi::add_immediate("%v15", "%v15", 2),
+        abi::add_immediate(&sc.v15, &sc.v15, 2),
         abi::label(&seq_body),
-        abi::load_u64("%v6", abi::stack_pointer(), RS), // dst for r
+        abi::load_u64(&sc.v6, abi::stack_pointer(), RS), // dst for r
     ]);
-    der_decode_int("%v15", "%v6", field, &format!("{symbol}_dr"), &bad_sig, SIGBUF, SIGLEN, &oob, &mut ins);
+    der_decode_int(&sc, &sc.v15, &sc.v6, field, &format!("{symbol}_dr"), &bad_sig, SIGBUF, SIGLEN, &oob, &mut ins);
     ins.extend([
-        abi::load_u64("%v6", abi::stack_pointer(), RS),
-        abi::add_immediate("%v6", "%v6", field), // dst for s
+        abi::load_u64(&sc.v6, abi::stack_pointer(), RS),
+        abi::add_immediate(&sc.v6, &sc.v6, field), // dst for s
     ]);
-    der_decode_int("%v15", "%v6", field, &format!("{symbol}_ds"), &bad_sig, SIGBUF, SIGLEN, &oob, &mut ins);
+    der_decode_int(&sc, &sc.v15, &sc.v6, field, &format!("{symbol}_ds"), &bad_sig, SIGBUF, SIGLEN, &oob, &mut ins);
 
     // BCryptVerifySignature(hKey, NULL, hash, hashLen, rs, 2*field, 0)
     ins.extend([
@@ -530,11 +547,11 @@ fn verify(
     bcrypt_call(symbol, "BCryptVerifySignature", 7, imports, platform, &mut ins, &mut rel)?;
     // Destroy the CNG handles (clobbers result regs) BEFORE recording the verdict.
     // The NTSTATUS is preserved in a callee-safe vreg across the cleanup calls.
-    ins.push(abi::move_register("%v7", abi::return_register()));
+    ins.push(abi::move_register(&sc.v7, abi::return_register()));
     emit_cleanup(symbol, "cok", HKEY, HALG, imports, platform, &mut ins, &mut rel)?;
     // status == 0 → valid; anything else (incl STATUS_INVALID_SIGNATURE) → false.
     ins.extend([
-        abi::compare_immediate("%v7", "0"),
+        abi::compare_immediate(&sc.v7, "0"),
         abi::branch_ne(&bad_sig),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),

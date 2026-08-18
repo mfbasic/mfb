@@ -285,6 +285,7 @@ fn dlsym_probe(
 #[allow(clippy::too_many_arguments)]
 /// Copy `n` bytes from `[src_ptr_off] + src_const + [src_runtime_off]` to
 /// `[dst_ptr_off] + dst_const`. Call-free (vreg scratch only).
+#[allow(clippy::too_many_arguments)]
 fn emit_copy(
     symbol: &str,
     tag: &str,
@@ -294,35 +295,40 @@ fn emit_copy(
     dst_ptr_off: usize,
     dst_const: usize,
     n: usize,
+    v9: &str,
+    v10: &str,
+    v11: &str,
+    v12: &str,
+    v13: &str,
     ins: &mut Vec<CodeInstruction>,
 ) {
     let loop_l = format!("{symbol}_{tag}_cpy");
     let done_l = format!("{symbol}_{tag}_cpyend");
-    ins.push(abi::load_u64("%v9", abi::stack_pointer(), src_ptr_off));
+    ins.push(abi::load_u64(v9, abi::stack_pointer(), src_ptr_off));
     if src_const > 0 {
-        ins.push(abi::add_immediate("%v9", "%v9", src_const));
+        ins.push(abi::add_immediate(v9, v9, src_const));
     }
     if let Some(off) = src_runtime_off {
         ins.extend([
-            abi::load_u64("%v12", abi::stack_pointer(), off),
-            abi::add_registers("%v9", "%v9", "%v12"),
+            abi::load_u64(v12, abi::stack_pointer(), off),
+            abi::add_registers(v9, v9, v12),
         ]);
     }
-    ins.push(abi::load_u64("%v10", abi::stack_pointer(), dst_ptr_off));
+    ins.push(abi::load_u64(v10, abi::stack_pointer(), dst_ptr_off));
     if dst_const > 0 {
-        ins.push(abi::add_immediate("%v10", "%v10", dst_const));
+        ins.push(abi::add_immediate(v10, v10, dst_const));
     }
     ins.extend([
-        abi::move_immediate("%v11", "Integer", "0"),
-        abi::move_immediate("%v13", "Integer", &n.to_string()),
+        abi::move_immediate(v11, "Integer", "0"),
+        abi::move_immediate(v13, "Integer", &n.to_string()),
         abi::label(&loop_l),
-        abi::compare_registers("%v11", "%v13"),
+        abi::compare_registers(v11, v13),
         abi::branch_eq(&done_l),
-        abi::load_u8("%v12", "%v9", 0),
-        abi::store_u8("%v12", "%v10", 0),
-        abi::add_immediate("%v9", "%v9", 1),
-        abi::add_immediate("%v10", "%v10", 1),
-        abi::add_immediate("%v11", "%v11", 1),
+        abi::load_u8(v12, v9, 0),
+        abi::store_u8(v12, v10, 0),
+        abi::add_immediate(v9, v9, 1),
+        abi::add_immediate(v10, v10, 1),
+        abi::add_immediate(v11, v11, 1),
         abi::branch(&loop_l),
         abi::label(&done_l),
     ]);
@@ -331,10 +337,16 @@ fn emit_copy(
 /// Branch to `fail` unless the byte count stored at `len_off` equals `expected`.
 /// Guards the fixed-length key splices against malformed (wrong-length) input,
 /// which would otherwise read past the argument buffer.
-fn emit_len_check(len_off: usize, expected: usize, fail: &str, ins: &mut Vec<CodeInstruction>) {
+fn emit_len_check(
+    len_off: usize,
+    expected: usize,
+    fail: &str,
+    scratch: &str,
+    ins: &mut Vec<CodeInstruction>,
+) {
     ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), len_off),
-        abi::compare_immediate("%v9", expected.to_string()),
+        abi::load_u64(scratch, abi::stack_pointer(), len_off),
+        abi::compare_immediate(scratch, expected.to_string()),
         abi::branch_ne(fail),
     ]);
 }
@@ -357,13 +369,14 @@ fn free_guarded(
     raw_fail: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    scratch: &str,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
     let skip = format!("{symbol}_{tag}_nofree");
     ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), obj_off),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(scratch, abi::stack_pointer(), obj_off),
+        abi::compare_immediate(scratch, "0"),
         abi::branch_eq(&skip),
     ]);
     dlsym_into(
@@ -374,7 +387,7 @@ fn free_guarded(
         abi::stack_pointer(),
         obj_off,
     ));
-    call_fn(fn_off, ins);
+    call_fn(fn_off, scratch, ins);
     ins.push(abi::label(&skip));
     Ok(())
 }
@@ -436,6 +449,16 @@ fn generate(
     let mut ins = vec![abi::label("entry")];
     let mut rel = Vec::new();
 
+    // Minted scratch vregs (one per distinct hand-picked number the body and its
+    // emit_copy/call_fn helpers used: %v9..%v13), threaded so every emitter shares
+    // this function's single `Vregs`.
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+
     // Zero the pkey/eckey/scratch slots so the error-exit cleanup can null-guard
     // each free/wipe (the frame is not zero-initialised) — bug-55.
     ins.extend([
@@ -466,7 +489,7 @@ fn generate(
         &mut ins,
         &mut rel,
     );
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PKEY),
         abi::branch(&have_pkey),
@@ -490,7 +513,7 @@ fn generate(
         "Integer",
         p.nid,
     ));
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), ECKEY),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -512,7 +535,7 @@ fn generate(
         abi::stack_pointer(),
         ECKEY,
     ));
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     // EC_KEY_generate_key returns 1 on success, 0 on failure; a discarded 0 would
     // carry a keyless EC_KEY forward. Route a failure to gen_fail (bug-177 E).
     ins.extend([
@@ -530,7 +553,7 @@ fn generate(
         &mut ins,
         &mut rel,
     )?;
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.push(abi::store_u64(
         abi::return_register(),
         abi::stack_pointer(),
@@ -559,7 +582,7 @@ fn generate(
         abi::move_immediate(abi::c_arg(1), "Integer", EVP_PKEY_EC),
         abi::load_u64(abi::c_arg(2), abi::stack_pointer(), ECKEY),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     // EVP_PKEY_assign returns 1 on success (taking ownership of eckey) and 0 on
     // failure (ownership NOT transferred). On failure eckey would leak because
     // EVP_PKEY_free no longer covers it; route to gen_fail, which EC_KEY_frees
@@ -594,7 +617,7 @@ fn generate(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), PKEY),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), SEC1LEN),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -611,7 +634,7 @@ fn generate(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), PKEY),
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), SEC1PP),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     // i2d_PrivateKey (the write call) returns the byte count written, <= 0 on
     // error; a discarded failure would leave the SEC1 buffer partially/undefined.
     // Route a non-positive return to gen_fail (bug-177 E).
@@ -639,7 +662,7 @@ fn generate(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), PKEY),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), SPKILEN),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -654,7 +677,7 @@ fn generate(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), PKEY),
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), SPKIPP),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     // i2d_PUBKEY (the write call) returns the byte count written, <= 0 on error;
     // a discarded failure would leave the SPKI buffer partially/undefined. Route a
     // non-positive return to gen_fail (bug-177 E).
@@ -665,9 +688,9 @@ fn generate(
 
     // raw (point_len + field_len) = point || scalar
     ins.extend([
-        abi::move_immediate("%v9", "Integer", &(p.point_len + p.field_len).to_string()),
-        abi::store_u64("%v9", abi::stack_pointer(), RAWLEN),
-        abi::move_register(abi::return_register(), "%v9"),
+        abi::move_immediate(&v9, "Integer", &(p.point_len + p.field_len).to_string()),
+        abi::store_u64(&v9, abi::stack_pointer(), RAWLEN),
+        abi::move_register(abi::return_register(), &v9),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
@@ -682,8 +705,8 @@ fn generate(
     // bug-136.3 SEC1 scalar guard below). Require SPKILEN >= spki_prefix_len +
     // point_len; route to gen_fail otherwise (bug-177 E).
     ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), SPKILEN),
-        abi::compare_immediate("%v9", (p.spki_prefix_len() + p.point_len).to_string()),
+        abi::load_u64(&v9, abi::stack_pointer(), SPKILEN),
+        abi::compare_immediate(&v9, (p.spki_prefix_len() + p.point_len).to_string()),
         abi::branch_lo(&gen_fail),
     ]);
     // point = SPKI bytes after the constant-length prefix (04||X||Y follows the
@@ -697,6 +720,11 @@ fn generate(
         RAWBUF,
         0,
         p.point_len,
+        &v9,
+        &v10,
+        &v11,
+        &v12,
+        &v13,
         &mut ins,
     );
     // Bounds-guard the SEC1 private-key DER before reading the scalar. The
@@ -707,8 +735,8 @@ fn generate(
     // the SEC1LEN-sized buffer (bug-136.3). Require
     // SEC1LEN >= sec1_scalar_off + field_len; route to gen_fail otherwise.
     ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), SEC1LEN),
-        abi::compare_immediate("%v9", (p.sec1_scalar_off + p.field_len).to_string()),
+        abi::load_u64(&v9, abi::stack_pointer(), SEC1LEN),
+        abi::compare_immediate(&v9, (p.sec1_scalar_off + p.field_len).to_string()),
         abi::branch_lo(&gen_fail),
     ]);
     emit_copy(
@@ -720,6 +748,11 @@ fn generate(
         RAWBUF,
         p.point_len,
         p.field_len,
+        &v9,
+        &v10,
+        &v11,
+        &v12,
+        &v13,
         &mut ins,
     );
     emit_build_byte_list(
@@ -744,6 +777,7 @@ fn generate(
             PUBLEN,
             PUBCOLL,
             &alloc_fail,
+            &v9,
             &mut ins,
             &mut rel,
         );
@@ -765,7 +799,7 @@ fn generate(
         abi::stack_pointer(),
         PKEY,
     ));
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     // Wipe the SEC1 private-key DER scratch (holds the raw scalar).
     emit_zero_guarded(symbol, SEC1PTR, Some(SEC1LEN), 0, "sec1S", &mut ins);
     // bug-136: RAWBUF holds the raw private scalar (04||X||Y||K); wipe it once
@@ -815,6 +849,7 @@ fn generate(
             &raw_fail,
             imports,
             platform,
+            &v9,
             ins,
             rel,
         )?;
@@ -828,6 +863,7 @@ fn generate(
             &raw_fail,
             imports,
             platform,
+            &v9,
             ins,
             rel,
         )?;
@@ -898,6 +934,16 @@ fn sign(
     let mut ins = vec![abi::label("entry")];
     let mut rel = Vec::new();
 
+    // Minted scratch vregs (one per distinct hand-picked number the body and its
+    // emit_copy/emit_len_check/call_fn helpers used: %v9..%v13), threaded so every
+    // emitter shares this function's single `Vregs`.
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PRIVCOLL),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MSGCOLL),
@@ -930,7 +976,7 @@ fn sign(
         &mut ins,
         &mut rel,
     );
-    emit_len_check(PRIVLEN, p.point_len + p.field_len, &invalid_fail, &mut ins);
+    emit_len_check(PRIVLEN, p.point_len + p.field_len, &invalid_fail, &v9, &mut ins);
 
     dlopen_libcrypto(
         symbol, HANDLE, &load_fail, imports, platform, &mut ins, &mut rel,
@@ -948,12 +994,12 @@ fn sign(
     ]);
     emit_data_address(
         symbol,
-        "%v9",
+        &v9,
         &format!("_mfb_crypto_ec_tmpl_{}", p.name),
         &mut ins,
         &mut rel,
     );
-    ins.push(abi::store_u64("%v9", abi::stack_pointer(), TMPLPTR));
+    ins.push(abi::store_u64(&v9, abi::stack_pointer(), TMPLPTR));
     emit_copy(
         symbol,
         "tmpl",
@@ -963,6 +1009,11 @@ fn sign(
         DERBUF,
         0,
         p.pkcs8_len,
+        &v9,
+        &v10,
+        &v11,
+        &v12,
+        &v13,
         &mut ins,
     );
     // raw key = 0x04||X||Y||K = point(point_len) || scalar(field_len)
@@ -975,6 +1026,11 @@ fn sign(
         DERBUF,
         p.p8_point_off,
         p.point_len,
+        &v9,
+        &v10,
+        &v11,
+        &v12,
+        &v13,
         &mut ins,
     );
     emit_copy(
@@ -986,6 +1042,11 @@ fn sign(
         DERBUF,
         p.p8_scalar_off,
         p.field_len,
+        &v9,
+        &v10,
+        &v11,
+        &v12,
+        &v13,
         &mut ins,
     );
 
@@ -1006,7 +1067,7 @@ fn sign(
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), DERPP),
         abi::move_immediate(abi::c_arg(2), "Integer", &p.pkcs8_len.to_string()),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PKEY),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -1024,7 +1085,7 @@ fn sign(
         &mut ins,
         &mut rel,
     )?;
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.push(abi::store_u64(
         abi::return_register(),
         abi::stack_pointer(),
@@ -1033,7 +1094,7 @@ fn sign(
     dlsym_into(
         symbol, HANDLE, p.digest, FN, &load_fail, imports, platform, &mut ins, &mut rel,
     )?;
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.push(abi::store_u64(
         abi::return_register(),
         abi::stack_pointer(),
@@ -1068,7 +1129,7 @@ fn sign(
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
         abi::load_u64(abi::c_arg(4), abi::stack_pointer(), PKEY),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "1"),
         abi::branch_ne(&sign_fail),
@@ -1093,7 +1154,7 @@ fn sign(
         abi::load_u64(abi::c_arg(3), abi::stack_pointer(), MSGBUF),
         abi::load_u64(abi::c_arg(4), abi::stack_pointer(), MSGLEN),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "1"),
         abi::branch_ne(&sign_fail),
@@ -1116,7 +1177,7 @@ fn sign(
         abi::load_u64(abi::c_arg(3), abi::stack_pointer(), MSGBUF),
         abi::load_u64(abi::c_arg(4), abi::stack_pointer(), MSGLEN),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "1"),
         abi::branch_ne(&sign_fail),
@@ -1151,7 +1212,7 @@ fn sign(
         abi::stack_pointer(),
         MDCTX,
     ));
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     dlsym_into(
         symbol,
         HANDLE,
@@ -1168,7 +1229,7 @@ fn sign(
         abi::stack_pointer(),
         PKEY,
     ));
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     // Wipe the raw private scalar and the spliced PKCS#8 DER (both hold the key).
     emit_zero_guarded(symbol, PRIVBUF, Some(PRIVLEN), 0, "privS", &mut ins);
     emit_zero_guarded(symbol, DERBUF, None, p.pkcs8_len, "derS", &mut ins);
@@ -1195,6 +1256,7 @@ fn sign(
             &raw_fail,
             imports,
             platform,
+            &v9,
             ins,
             rel,
         )?;
@@ -1208,6 +1270,7 @@ fn sign(
             &raw_fail,
             imports,
             platform,
+            &v9,
             ins,
             rel,
         )?;
@@ -1276,6 +1339,16 @@ fn verify(
     let mut ins = vec![abi::label("entry")];
     let mut rel = Vec::new();
 
+    // Minted scratch vregs (one per distinct hand-picked number the body and its
+    // emit_copy/emit_len_check/call_fn helpers used: %v9..%v13), threaded so every
+    // emitter shares this function's single `Vregs`.
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PUBCOLL),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MSGCOLL),
@@ -1317,7 +1390,7 @@ fn verify(
         &mut ins,
         &mut rel,
     );
-    emit_len_check(PUBLEN, p.point_len, &invalid_fail, &mut ins);
+    emit_len_check(PUBLEN, p.point_len, &invalid_fail, &v9, &mut ins);
 
     dlopen_libcrypto(
         symbol, HANDLE, &load_fail, imports, platform, &mut ins, &mut rel,
@@ -1335,12 +1408,12 @@ fn verify(
     ]);
     emit_data_address(
         symbol,
-        "%v9",
+        &v9,
         &format!("_mfb_crypto_ec_spki_{}", p.name),
         &mut ins,
         &mut rel,
     );
-    ins.push(abi::store_u64("%v9", abi::stack_pointer(), PREFPTR));
+    ins.push(abi::store_u64(&v9, abi::stack_pointer(), PREFPTR));
     emit_copy(
         symbol,
         "pref",
@@ -1350,6 +1423,11 @@ fn verify(
         DERBUF,
         0,
         p.spki_prefix_len(),
+        &v9,
+        &v10,
+        &v11,
+        &v12,
+        &v13,
         &mut ins,
     );
     emit_copy(
@@ -1361,6 +1439,11 @@ fn verify(
         DERBUF,
         p.spki_prefix_len(),
         p.point_len,
+        &v9,
+        &v10,
+        &v11,
+        &v12,
+        &v13,
         &mut ins,
     );
 
@@ -1380,7 +1463,7 @@ fn verify(
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), DERPP),
         abi::move_immediate(abi::c_arg(2), "Integer", &der_len.to_string()),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PKEY),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -1398,7 +1481,7 @@ fn verify(
         &mut ins,
         &mut rel,
     )?;
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.push(abi::store_u64(
         abi::return_register(),
         abi::stack_pointer(),
@@ -1407,7 +1490,7 @@ fn verify(
     dlsym_into(
         symbol, HANDLE, p.digest, FN, &load_fail, imports, platform, &mut ins, &mut rel,
     )?;
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.push(abi::store_u64(
         abi::return_register(),
         abi::stack_pointer(),
@@ -1440,7 +1523,7 @@ fn verify(
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
         abi::load_u64(abi::c_arg(4), abi::stack_pointer(), PKEY),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     // bug-136: check EVP_DigestVerifyInit (returns 1 on success). An init
     // failure must be a real error, not a silent "signature invalid" boolean.
     ins.extend([
@@ -1467,16 +1550,16 @@ fn verify(
         abi::load_u64(abi::c_arg(3), abi::stack_pointer(), MSGBUF),
         abi::load_u64(abi::c_arg(4), abi::stack_pointer(), MSGLEN),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "1"),
         abi::branch_eq(&vtrue),
-        abi::move_immediate("%v9", "Integer", "0"),
+        abi::move_immediate(&v9, "Integer", "0"),
         abi::branch(&vstore),
         abi::label(&vtrue),
-        abi::move_immediate("%v9", "Integer", "1"),
+        abi::move_immediate(&v9, "Integer", "1"),
         abi::label(&vstore),
-        abi::store_u64("%v9", abi::stack_pointer(), BOOLRES),
+        abi::store_u64(&v9, abi::stack_pointer(), BOOLRES),
     ]);
 
     dlsym_into(
@@ -1495,7 +1578,7 @@ fn verify(
         abi::stack_pointer(),
         MDCTX,
     ));
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     dlsym_into(
         symbol,
         HANDLE,
@@ -1512,7 +1595,7 @@ fn verify(
         abi::stack_pointer(),
         PKEY,
     ));
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
 
     ins.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), BOOLRES),
@@ -1536,6 +1619,7 @@ fn verify(
             &raw_fail,
             imports,
             platform,
+            &v9,
             ins,
             rel,
         )?;
@@ -1549,6 +1633,7 @@ fn verify(
             &raw_fail,
             imports,
             platform,
+            &v9,
             ins,
             rel,
         )?;

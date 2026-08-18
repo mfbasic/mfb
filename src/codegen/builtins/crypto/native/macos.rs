@@ -163,6 +163,7 @@ fn load_cf_const(
     fail: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    scratch: &str,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
@@ -178,21 +179,21 @@ fn load_cf_const(
         rel,
     )?;
     ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), scratch_off),
-        abi::load_u64("%v9", "%v9", 0),
-        abi::store_u64("%v9", abi::stack_pointer(), dst_off),
+        abi::load_u64(scratch, abi::stack_pointer(), scratch_off),
+        abi::load_u64(scratch, scratch, 0),
+        abi::store_u64(scratch, abi::stack_pointer(), dst_off),
     ]);
     Ok(())
 }
 
 /// `CFRelease(*obj_off)` using the CFRelease pointer at `release_off`.
-fn cf_release(release_off: usize, obj_off: usize, ins: &mut Vec<CodeInstruction>) {
+fn cf_release(release_off: usize, obj_off: usize, scratch: &str, ins: &mut Vec<CodeInstruction>) {
     ins.push(abi::load_u64(
         abi::return_register(),
         abi::stack_pointer(),
         obj_off,
     ));
-    call_fn(release_off, ins);
+    call_fn(release_off, scratch, ins);
 }
 
 /// `CFRelease(*obj_off)` only when the slot is non-NULL. Used on the error exits
@@ -208,6 +209,7 @@ fn cf_release_guarded(
     release_off: usize,
     obj_off: usize,
     tag: &str,
+    scratch: &str,
     ins: &mut Vec<CodeInstruction>,
 ) {
     let skip = format!("{symbol}_{tag}_norel");
@@ -216,7 +218,7 @@ fn cf_release_guarded(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&skip),
     ]);
-    call_fn(release_off, ins);
+    call_fn(release_off, scratch, ins);
     ins.push(abi::label(&skip));
 }
 
@@ -239,6 +241,7 @@ fn build_dict2(
     fail: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    scratch: &str,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
@@ -251,6 +254,7 @@ fn build_dict2(
         fail,
         imports,
         platform,
+        scratch,
         ins,
         rel,
     )?;
@@ -263,6 +267,7 @@ fn build_dict2(
         fail,
         imports,
         platform,
+        scratch,
         ins,
         rel,
     )?;
@@ -275,6 +280,7 @@ fn build_dict2(
         fail,
         imports,
         platform,
+        scratch,
         ins,
         rel,
     )?;
@@ -287,6 +293,7 @@ fn build_dict2(
         fail,
         imports,
         platform,
+        scratch,
         ins,
         rel,
     )?;
@@ -331,7 +338,7 @@ fn build_dict2(
         abi::load_u64(abi::c_arg(4), abi::stack_pointer(), scratch_off + 32),
         abi::load_u64(abi::c_arg(5), abi::stack_pointer(), scratch_off + 40),
     ]);
-    call_fn(fn_off, ins);
+    call_fn(fn_off, scratch, ins);
     ins.push(abi::store_u64(
         abi::return_register(),
         abi::stack_pointer(),
@@ -398,6 +405,12 @@ fn generate(
     let mut ins = vec![abi::label("entry")];
     let mut rel = Vec::new();
 
+    // One minted scratch vreg for the single hand-picked number this helper used
+    // (%v9), threaded into every emitter that contributes to this function so they
+    // share one `Vregs`.
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+
     // Zero the CF object slots so the error-exit cleanup can null-guard each
     // CFRelease (the frame is not zero-initialised) — bug-55.
     ins.extend([
@@ -441,8 +454,8 @@ fn generate(
 
     // CFNumber for the key size.
     ins.extend([
-        abi::move_immediate("%v9", "Integer", curve.bits()),
-        abi::store_u64("%v9", abi::stack_pointer(), NUMVAL),
+        abi::move_immediate(&v9, "Integer", curve.bits()),
+        abi::store_u64(&v9, abi::stack_pointer(), NUMVAL),
     ]);
     dlsym_into(
         symbol,
@@ -460,7 +473,7 @@ fn generate(
         abi::move_immediate(abi::c_arg(1), "Integer", CF_NUMBER_INT_TYPE),
         abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), NUMVAL),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.push(abi::store_u64(
         abi::return_register(),
         abi::stack_pointer(),
@@ -484,6 +497,7 @@ fn generate(
         &load_fail,
         imports,
         platform,
+        &v9,
         &mut ins,
         &mut rel,
     )?;
@@ -496,6 +510,7 @@ fn generate(
         &load_fail,
         imports,
         platform,
+        &v9,
         &mut ins,
         &mut rel,
     )?;
@@ -508,12 +523,13 @@ fn generate(
         &load_fail,
         imports,
         platform,
+        &v9,
         &mut ins,
         &mut rel,
     )?;
     ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), NUM),
-        abi::store_u64("%v9", abi::stack_pointer(), VALS + 8),
+        abi::load_u64(&v9, abi::stack_pointer(), NUM),
+        abi::store_u64(&v9, abi::stack_pointer(), VALS + 8),
     ]);
     dlsym_into(
         symbol,
@@ -556,7 +572,7 @@ fn generate(
         abi::load_u64(abi::c_arg(4), abi::stack_pointer(), KEYCB),
         abi::load_u64(abi::c_arg(5), abi::stack_pointer(), VALCB),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.push(abi::store_u64(
         abi::return_register(),
         abi::stack_pointer(),
@@ -579,7 +595,7 @@ fn generate(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), DICT),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), KEY),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -602,7 +618,7 @@ fn generate(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), KEY),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), DATA),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -621,6 +637,7 @@ fn generate(
         &alloc_fail,
         imports,
         platform,
+        &v9,
         &mut ins,
         &mut rel,
     )?;
@@ -638,13 +655,14 @@ fn generate(
             PUBLEN,
             PUBCOLL,
             &alloc_fail,
+            &v9,
             &mut ins,
             &mut rel,
         );
-        cf_release(RELEASE, NUM, &mut ins);
-        cf_release(RELEASE, DICT, &mut ins);
-        cf_release(RELEASE, KEY, &mut ins);
-        cf_release(RELEASE, DATA, &mut ins);
+        cf_release(RELEASE, NUM, &v9, &mut ins);
+        cf_release(RELEASE, DICT, &v9, &mut ins);
+        cf_release(RELEASE, KEY, &v9, &mut ins);
+        cf_release(RELEASE, DATA, &v9, &mut ins);
         emit_build_keypair_record(
             symbol,
             type_model,
@@ -662,10 +680,10 @@ fn generate(
         )?;
         ins.push(abi::branch(&done));
     } else {
-        cf_release(RELEASE, NUM, &mut ins);
-        cf_release(RELEASE, DICT, &mut ins);
-        cf_release(RELEASE, KEY, &mut ins);
-        cf_release(RELEASE, DATA, &mut ins);
+        cf_release(RELEASE, NUM, &v9, &mut ins);
+        cf_release(RELEASE, DICT, &v9, &mut ins);
+        cf_release(RELEASE, KEY, &v9, &mut ins);
+        cf_release(RELEASE, DATA, &v9, &mut ins);
 
         ins.extend([
             abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), COLL),
@@ -679,10 +697,10 @@ fn generate(
     // a no-op until the object exists, and CFRelease is only dereferenced when
     // an object is non-NULL (bug-55).
     let cleanup = |ins: &mut Vec<CodeInstruction>, tag: &str| {
-        cf_release_guarded(symbol, RELEASE, NUM, &format!("{tag}n"), ins);
-        cf_release_guarded(symbol, RELEASE, DICT, &format!("{tag}d"), ins);
-        cf_release_guarded(symbol, RELEASE, KEY, &format!("{tag}k"), ins);
-        cf_release_guarded(symbol, RELEASE, DATA, &format!("{tag}a"), ins);
+        cf_release_guarded(symbol, RELEASE, NUM, &format!("{tag}n"), &v9, ins);
+        cf_release_guarded(symbol, RELEASE, DICT, &format!("{tag}d"), &v9, ins);
+        cf_release_guarded(symbol, RELEASE, KEY, &format!("{tag}k"), &v9, ins);
+        cf_release_guarded(symbol, RELEASE, DATA, &format!("{tag}a"), &v9, ins);
     };
     ins.push(abi::label(&load_fail));
     cleanup(&mut ins, "lf");
@@ -735,6 +753,11 @@ fn sign(
 
     let mut ins = vec![abi::label("entry")];
     let mut rel = Vec::new();
+
+    // One minted scratch vreg for the single hand-picked number this helper used
+    // (%v9), threaded into every emitter contributing to this function.
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
 
     // Stash the two collection arguments before anything clobbers x0/x1.
     ins.extend([
@@ -816,8 +839,8 @@ fn sign(
         &mut ins,
         &mut rel,
     )?;
-    emit_cfdata_create(FN, PRIVBUF, PRIVLEN, PRIVDATA, &mut ins);
-    emit_cfdata_create(FN, MSGBUF, MSGLEN, MSGDATA, &mut ins);
+    emit_cfdata_create(FN, PRIVBUF, PRIVLEN, PRIVDATA, &v9, &mut ins);
+    emit_cfdata_create(FN, MSGBUF, MSGLEN, MSGDATA, &v9, &mut ins);
 
     build_dict2(
         symbol,
@@ -834,6 +857,7 @@ fn sign(
         &load_fail,
         imports,
         platform,
+        &v9,
         &mut ins,
         &mut rel,
     )?;
@@ -855,7 +879,7 @@ fn sign(
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), DICT),
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), KEY),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -871,6 +895,7 @@ fn sign(
         &load_fail,
         imports,
         platform,
+        &v9,
         &mut ins,
         &mut rel,
     )?;
@@ -893,7 +918,7 @@ fn sign(
         abi::load_u64(abi::c_arg(2), abi::stack_pointer(), MSGDATA),
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), SIGDATA),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -912,15 +937,16 @@ fn sign(
         &alloc_fail,
         imports,
         platform,
+        &v9,
         &mut ins,
         &mut rel,
     )?;
 
-    cf_release(RELEASE, PRIVDATA, &mut ins);
-    cf_release(RELEASE, MSGDATA, &mut ins);
-    cf_release(RELEASE, DICT, &mut ins);
-    cf_release(RELEASE, KEY, &mut ins);
-    cf_release(RELEASE, SIGDATA, &mut ins);
+    cf_release(RELEASE, PRIVDATA, &v9, &mut ins);
+    cf_release(RELEASE, MSGDATA, &v9, &mut ins);
+    cf_release(RELEASE, DICT, &v9, &mut ins);
+    cf_release(RELEASE, KEY, &v9, &mut ins);
+    cf_release(RELEASE, SIGDATA, &v9, &mut ins);
     // Wipe the private-scalar scratch copied out of the argument byte list.
     emit_zero_guarded(symbol, PRIVBUF, Some(PRIVLEN), 0, "privS", &mut ins);
 
@@ -935,11 +961,11 @@ fn sign(
     // are zero-initialised so releases/wipes are no-ops until they exist
     // (bug-55).
     let cleanup = |ins: &mut Vec<CodeInstruction>, tag: &str| {
-        cf_release_guarded(symbol, RELEASE, PRIVDATA, &format!("{tag}p"), ins);
-        cf_release_guarded(symbol, RELEASE, MSGDATA, &format!("{tag}m"), ins);
-        cf_release_guarded(symbol, RELEASE, DICT, &format!("{tag}d"), ins);
-        cf_release_guarded(symbol, RELEASE, KEY, &format!("{tag}k"), ins);
-        cf_release_guarded(symbol, RELEASE, SIGDATA, &format!("{tag}s"), ins);
+        cf_release_guarded(symbol, RELEASE, PRIVDATA, &format!("{tag}p"), &v9, ins);
+        cf_release_guarded(symbol, RELEASE, MSGDATA, &format!("{tag}m"), &v9, ins);
+        cf_release_guarded(symbol, RELEASE, DICT, &format!("{tag}d"), &v9, ins);
+        cf_release_guarded(symbol, RELEASE, KEY, &format!("{tag}k"), &v9, ins);
+        cf_release_guarded(symbol, RELEASE, SIGDATA, &format!("{tag}s"), &v9, ins);
         emit_zero_guarded(symbol, PRIVBUF, Some(PRIVLEN), 0, &format!("{tag}z"), ins);
     };
     ins.push(abi::label(&load_fail));
@@ -997,6 +1023,12 @@ fn verify(
     let mut ins = vec![abi::label("entry")];
     let mut rel = Vec::new();
 
+    // Minted scratch vregs for the hand-picked numbers this helper used (%v9,
+    // %v10), threaded into every emitter contributing to this function.
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PUBCOLL),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MSGCOLL),
@@ -1028,8 +1060,8 @@ fn verify(
     // backends should reject identically instead of relying on one library's
     // validation (bug-317 T4).
     ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), PUBLEN),
-        abi::compare_immediate("%v9", curve.point_len().to_string()),
+        abi::load_u64(&v9, abi::stack_pointer(), PUBLEN),
+        abi::compare_immediate(&v9, curve.point_len().to_string()),
         abi::branch_ne(&invalid_fail),
     ]);
     emit_read_byte_list(
@@ -1096,9 +1128,9 @@ fn verify(
         &mut ins,
         &mut rel,
     )?;
-    emit_cfdata_create(FN, PUBBUF, PUBLEN, PUBDATA, &mut ins);
-    emit_cfdata_create(FN, MSGBUF, MSGLEN, MSGDATA, &mut ins);
-    emit_cfdata_create(FN, SIGBUF, SIGLEN, SIGDATA, &mut ins);
+    emit_cfdata_create(FN, PUBBUF, PUBLEN, PUBDATA, &v9, &mut ins);
+    emit_cfdata_create(FN, MSGBUF, MSGLEN, MSGDATA, &v9, &mut ins);
+    emit_cfdata_create(FN, SIGBUF, SIGLEN, SIGDATA, &v9, &mut ins);
 
     build_dict2(
         symbol,
@@ -1115,6 +1147,7 @@ fn verify(
         &load_fail,
         imports,
         platform,
+        &v9,
         &mut ins,
         &mut rel,
     )?;
@@ -1135,7 +1168,7 @@ fn verify(
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), DICT),
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), KEY),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -1151,6 +1184,7 @@ fn verify(
         &load_fail,
         imports,
         platform,
+        &v9,
         &mut ins,
         &mut rel,
     )?;
@@ -1174,21 +1208,21 @@ fn verify(
         abi::load_u64(abi::c_arg(3), abi::stack_pointer(), SIGDATA),
         abi::move_immediate(abi::c_arg(4), "Integer", "0"),
     ]);
-    call_fn(FN, &mut ins);
+    call_fn(FN, &v9, &mut ins);
     // Normalise the CF `Boolean` (a 0/1 byte with unspecified upper bits) to a
     // clean 0/1 by masking bit 0. A false verify sets no MFBASIC error — it is a
     // legitimate `Boolean` result.
     ins.extend([
-        abi::move_immediate("%v10", "Integer", "1"),
-        abi::and_registers("%v9", abi::return_register(), "%v10"),
-        abi::store_u64("%v9", abi::stack_pointer(), BOOLRES),
+        abi::move_immediate(&v10, "Integer", "1"),
+        abi::and_registers(&v9, abi::return_register(), &v10),
+        abi::store_u64(&v9, abi::stack_pointer(), BOOLRES),
     ]);
 
-    cf_release(RELEASE, PUBDATA, &mut ins);
-    cf_release(RELEASE, MSGDATA, &mut ins);
-    cf_release(RELEASE, SIGDATA, &mut ins);
-    cf_release(RELEASE, DICT, &mut ins);
-    cf_release(RELEASE, KEY, &mut ins);
+    cf_release(RELEASE, PUBDATA, &v9, &mut ins);
+    cf_release(RELEASE, MSGDATA, &v9, &mut ins);
+    cf_release(RELEASE, SIGDATA, &v9, &mut ins);
+    cf_release(RELEASE, DICT, &v9, &mut ins);
+    cf_release(RELEASE, KEY, &v9, &mut ins);
 
     ins.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), BOOLRES),
@@ -1200,11 +1234,11 @@ fn verify(
     // DICT/KEY) the success path releases; slots are zero-initialised so a
     // release is a no-op until the object exists (bug-55).
     let cleanup = |ins: &mut Vec<CodeInstruction>, tag: &str| {
-        cf_release_guarded(symbol, RELEASE, PUBDATA, &format!("{tag}p"), ins);
-        cf_release_guarded(symbol, RELEASE, MSGDATA, &format!("{tag}m"), ins);
-        cf_release_guarded(symbol, RELEASE, SIGDATA, &format!("{tag}s"), ins);
-        cf_release_guarded(symbol, RELEASE, DICT, &format!("{tag}d"), ins);
-        cf_release_guarded(symbol, RELEASE, KEY, &format!("{tag}k"), ins);
+        cf_release_guarded(symbol, RELEASE, PUBDATA, &format!("{tag}p"), &v9, ins);
+        cf_release_guarded(symbol, RELEASE, MSGDATA, &format!("{tag}m"), &v9, ins);
+        cf_release_guarded(symbol, RELEASE, SIGDATA, &format!("{tag}s"), &v9, ins);
+        cf_release_guarded(symbol, RELEASE, DICT, &format!("{tag}d"), &v9, ins);
+        cf_release_guarded(symbol, RELEASE, KEY, &format!("{tag}k"), &v9, ins);
     };
     ins.push(abi::label(&load_fail));
     cleanup(&mut ins, "lf");
@@ -1226,6 +1260,7 @@ fn emit_cfdata_create(
     buf_off: usize,
     len_off: usize,
     dst_off: usize,
+    scratch: &str,
     ins: &mut Vec<CodeInstruction>,
 ) {
     ins.extend([
@@ -1233,7 +1268,7 @@ fn emit_cfdata_create(
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), buf_off),
         abi::load_u64(abi::c_arg(2), abi::stack_pointer(), len_off),
     ]);
-    call_fn(fn_off, ins);
+    call_fn(fn_off, scratch, ins);
     ins.push(abi::store_u64(
         abi::return_register(),
         abi::stack_pointer(),
@@ -1256,6 +1291,7 @@ fn emit_cfdata_to_list(
     alloc_fail: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    scratch: &str,
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
@@ -1275,7 +1311,7 @@ fn emit_cfdata_to_list(
         abi::stack_pointer(),
         data_off,
     ));
-    call_fn(fn_off, ins);
+    call_fn(fn_off, scratch, ins);
     ins.push(abi::store_u64(
         abi::return_register(),
         abi::stack_pointer(),
@@ -1297,7 +1333,7 @@ fn emit_cfdata_to_list(
         abi::stack_pointer(),
         data_off,
     ));
-    call_fn(fn_off, ins);
+    call_fn(fn_off, scratch, ins);
     ins.push(abi::store_u64(
         abi::return_register(),
         abi::stack_pointer(),
