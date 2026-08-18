@@ -1919,7 +1919,20 @@ pub(crate) fn lower_runtime_helper(
     // Build that tuple here, then construct the single CodeFunction after the
     // match (the shape the net.*/tls.* inner-match arms already used).
     let (frame, mut instructions, mut relocations, stack_slots) =
-        if crate::codegen::registry::registry().owning_package(spec.call) == Some("term") {
+        if crate::codegen::registry::is_abi_function_call(spec.call) {
+            // Any package's `AbiFunction` member (the unified successor to OsLower) is
+            // wrapped once into its shared `_mfb_rt_*` helper by
+            // `lower_abi_function_helper`, regardless of package prefix — so this is
+            // checked before the per-package prefix arms below.
+            lower_abi_function_helper(
+                spec.call,
+                symbol,
+                build_mode,
+                type_model,
+                platform_imports,
+                platform,
+            )?
+        } else if crate::codegen::registry::registry().owning_package(spec.call) == Some("term") {
             // Every `term.*` member carries a `Body::native_os_seam` OS-seam lowering
             // in `codegen::builtins::term::native`; the generic registry-driven
             // dispatch reaches its `lower_term_helper`, which branches app-vs-console
@@ -1987,17 +2000,6 @@ pub(crate) fn lower_runtime_helper(
                         }
                     }
                 }
-                // The experimental `abi::` demo package's `AbiFunction` members are
-                // builder-driven bodies wrapped once into a shared `_mfb_rt_abi_*`
-                // helper (the unified successor to the OS-seam `OsLower` path).
-                call if call.starts_with("abi.") => lower_abi_function_helper(
-                    call,
-                    symbol,
-                    build_mode,
-                    type_model,
-                    platform_imports,
-                    platform,
-                )?,
                 "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset" => {
                     crate::codegen::builtins::datetime::lower_datetime_helper(
                         spec.call,

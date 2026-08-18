@@ -1349,15 +1349,15 @@ pub(crate) fn lower_abi_function_helper(
         provable_index_locals: HashMap::new(),
     };
 
-    // Capture each incoming ABI argument register into a vreg at entry, then hand
-    // the body pre-lowered `ValueResult`s (the body never re-lowers or frees args).
+    // Hand the body its incoming ABI argument registers directly as `ValueResult`s
+    // (a runtime helper is finalized as a vreg body, so an argument register is
+    // live-in at entry; the body reads it before any call clobbers it, exactly like
+    // an OS-seam helper does).
     let mut args = Vec::with_capacity(arity);
     for index in 0..arity {
-        let reg = builder.allocate_register()?;
-        builder.emit(abi::move_register(&reg, abi::argument_register(index)?));
         args.push(ValueResult {
             type_: "Integer".to_string(),
-            location: Operand::from(reg.render()),
+            location: abi::argument_register(index)?,
             text: format!("abiArg{index}"),
         });
     }
@@ -1369,28 +1369,29 @@ pub(crate) fn lower_abi_function_helper(
     };
     let result = lower(&mut builder, &args, &ctx)?;
 
-    builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &result.location));
-    builder.emit(abi::move_immediate(
-        RESULT_TAG_REGISTER,
-        "Integer",
-        RESULT_OK_TAG,
-    ));
-    builder.emit(abi::return_());
+    // A body that returns a `void`-location `ValueResult` has emitted its OWN
+    // fallible ABI — the success value in `RESULT_VALUE_REGISTER` + `RESULT_OK_TAG`,
+    // each error path setting its error + jumping to its own `ret`. The wrapper then
+    // adds nothing (a keygen needs distinct `ErrUnknown`/`ErrOutOfMemory` exits it
+    // can't express through the auto-epilogue). A body that returns a real value
+    // gets the convenient epilogue: move it into the result register, tag OK, return.
+    if result.location.render() != "void" {
+        builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &result.location));
+        builder.emit(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_OK_TAG,
+        ));
+        builder.emit(abi::return_());
+    }
 
-    builder.run_register_allocation()?;
+    // Finalize as a runtime-helper vreg body (like OsLower) — this maps the
+    // hand-picked `%v9`..`%v15` vregs the general marshallers use, which full
+    // register allocation would reject. `stack_size` is the scratch the body
+    // reserved via `allocate_stack_object`.
     let mut instructions = builder.instructions;
-    let is_x86 = mir::active_backend().register_model().arena_base()
-        == crate::arch::x86_64::regmodel::ARENA_BASE_REGISTER;
-    peephole::forward_stores_to_loads(&mut instructions, is_x86);
-    peephole::remove_fp_shuttles(&mut instructions, mir::active_backend().register_model());
-    let mut stack_slots = builder.stack_slots;
-    let frame = finalize_frame(
-        &mut instructions,
-        &mut stack_slots,
-        builder.stack_size,
-        builder.used_callee_saved,
-    );
-
+    let (frame, stack_slots) =
+        finalize_vreg_body_with_locals(&mut instructions, &[], builder.stack_size);
     Ok((frame, instructions, builder.relocations, stack_slots))
 }
 

@@ -23,8 +23,8 @@
 //! their `DOC` descriptions on the `RegistryRecord`/`RecordProp` `description` fields.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RecordProp, Registry, RegistryFunction,
-    RegistryPackage, RegistryRecord,
+    Body, DefaultValue, EnumVariant, Implementation, Parameter, RecordProp, Registry,
+    RegistryEnum, RegistryFunction, RegistryPackage, RegistryRecord,
 };
 use crate::types::ParameterType;
 
@@ -114,6 +114,19 @@ pub(crate) fn register(r: &mut Registry) {
         props: vec![
             RecordProp { name: "privateKey", ty: ParameterType::list_of(ParameterType::Byte), description: "The secret key bytes; keep confidential." },
             RecordProp { name: "publicKey", ty: ParameterType::list_of(ParameterType::Byte), description: "The public key bytes; safe to share." },
+        ],
+    });
+    // The certificate/key type selector for `crypto::generate(type)`. Ordinals are
+    // declaration order (P256=0, P384=1, P521=2, Ed25519=3); `func_generate`'s
+    // `AbiFunction` body branches on that ordinal.
+    pkg.add_enum(RegistryEnum {
+        name: "Certificate",
+        export: true,
+        variants: vec![
+            EnumVariant { name: "P256", description: "NIST P-256 (secp256r1) ECDSA key pair." },
+            EnumVariant { name: "P384", description: "NIST P-384 (secp384r1) ECDSA key pair." },
+            EnumVariant { name: "P521", description: "NIST P-521 (secp521r1) ECDSA key pair." },
+            EnumVariant { name: "Ed25519", description: "Ed25519 EdDSA key pair." },
         ],
     });
 
