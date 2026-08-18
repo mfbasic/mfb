@@ -2,7 +2,7 @@
 
 Here's the updated table with a **Stage** column mapped to your pipeline. Key reasoning: **Opt1 (NIR)** = high-level, language-aware, works without CFG/SSA (tree/linear rewrites, inlining, loop restructuring on structured IR). **Opt2 (MIR)** = anything needing CFG, SSA, def-use, or dataflow analysis. Some things live outside both gates (regalloc, machine-code emission).
 
-The **Ok** column answers "would this work for *this* compiler, given the plan-100 pipeline?" — **Y** = applicable and hostable in the pipeline (even if it needs net-new infra like a machine model or a vectorizer); **N** = fundamentally inapplicable because MFB lacks the property it exploits. Only two rows are N (no undefined behavior; no null model). Read the **Feasibility notes** under the table — several Y rows carry a hard MFB-specific constraint (checked-overflow trapping) that limits *how* they may fire.
+The **Ok** column answers "would this work for *this* compiler, given the plan-100 pipeline?" — **Y** = applicable and hostable in the pipeline (even if it needs net-new infra like a machine model or a vectorizer); **N** = fundamentally inapplicable because MFB lacks the property it exploits. The N rows are inapplicable for a concrete reason — a *missing feature*, not a weakness: no undefined behavior (UB-based), no null model (null-check), no emitted zero-extensions to remove (AArch64 subreg-zext), no hardening to omit (stack-protector), no reference counting (RC-op elimination), no tracing GC / write barriers (write-barrier elimination), and no async/coroutines (state-machine optimization). Read the **Feasibility notes** under the table — several Y rows carry a hard MFB-specific constraint (checked-overflow trapping) that limits *how* they may fire. A "—" in the Level column marks **infrastructure that runs at every level** (register allocation, instruction selection), not a dial pass.
 
 ## The Scale
 
@@ -63,6 +63,8 @@ Here's a 1–5 **risk/safety scale** for your compiler, where the number reflect
 - **Examples:** fast-math / FP reassociation, integer reassociation & expression-tree balancing (change which op overflows), loop strength reduction (the tail add can trap where the source never multiplied), loop deletion of a trap-capable loop, speculative hoisting of a trapping op. (UB-based optimization would live here too, but MFB has no UB to exploit — see the table.)
 
 > **Note on the "safe form" of † passes.** Each † pass has a proof-gated variant that fires only when range/trap analysis proves trap-freedom — that variant *is* behavior-preserving and may run on the numeric dial (e.g. LICM at L3 hoisting only trap-free ops, or deleting a proven-trap-free loop at L2). Level 6 is specifically the *unproven / relaxing* form that fires anyway. Enabling Level 6 demand-drives the range/trap analysis (a Plan2 prerequisite — see plan-100) so the compiler minimizes how much it actually relaxes.
+>
+> **The dial-safe alternative: loop versioning.** For the loop-based † passes there is a third option that keeps precise semantics *and* stays on the numeric dial — emit two loop copies under a runtime "no-trap-possible in this range" guard and run the relaxed/vectorized form only in the proven copy (see the "Loop versioning" row). It is behavior-preserving by construction, so it is MFB's principal route to the Level-6 payoff without the Level-6 opt-in; the cost is code size + the guard, not correctness.
 
 ## Summary table
 
@@ -84,7 +86,8 @@ Levels **1–5 are the numeric performance dial** — enabled cumulatively by `r
 - **Levels 1–2 are your "always on" candidates** — even a debug build could run them with little downside.
 - **Level 4 is the debuggability cliff** — stack traces stop being truthful; a natural default ceiling for development builds, with 4–5 reserved for release.
 - **Level 6 is orthogonal and opt-in** — *never* implied by `-O5` or an "auto/max" setting; the user must name it (`-O6`). Cranking the dial for speed must never silently change results.
-- **Prerequisites are not dial rows.** SSA construction (mem2reg), alias analysis, and range/trap analysis are Plan2 infrastructure, built *on demand* when an enabled pass needs them (LICM needs trap-analysis to hoist safely; alias-based passes need alias analysis; L6 rows need range analysis to minimize relaxation). They live in plan-100's Plan2, not in this table.
+- **Prerequisites are not dial rows.** SSA construction (mem2reg), alias analysis, range/trap analysis, memory-SSA, loop canonicalization, and function-attribute (`no-trap`) inference are Plan2 infrastructure, built *on demand* when an enabled pass needs them (LICM needs trap-analysis to hoist safely; alias-based passes need alias/memory-SSA; L6 rows need range analysis to minimize relaxation). They live in plan-100's Plan2, not in this table.
+- **Size (`-Os`/`-Oz`) is a second, orthogonal objective — not a dial level.** It doesn't fit the 1–6 risk axis; it re-weights *profitability* (inlining/unrolling budgets shrink, outlining/error-path-dedup/shared-trap-stubs become more profitable, layout favors density). Model it like a target flag that shifts each pass's cost model, composed with a numeric level (e.g. `-Oz` + level-3 safety). Net-new — MFB has no `-O*`/size axis today.
 
 
 | Ok  | Name | Level | Stage | Description |
@@ -115,11 +118,11 @@ Levels **1–5 are the numeric performance dial** — enabled cumulatively by `r
 | Y†  | Loop deletion | 6 | Opt2 | Remove side-effect-free loops; needs SSA use analysis. **†off the dial: a loop that can trap is not side-effect-free — deleting it drops an observable raise; Level 6 opt-in (a proven-trap-free loop is safe to delete at L2)** |
 | Y   | Loop fusion (jamming) | 3 | Opt1 | Merge adjacent same-bound loops; far easier on structured NIR loops than on CFG. |
 | Y   | Loop fission (distribution) | 3 | Opt1 | Split loops for locality/vectorization; easiest on structured loops. |
-| Y   | Loop interchange | 3 | Opt1 | Swap nested loop order; needs structured loop nests + dependence analysis. |
-| Y   | Loop tiling / blocking | 3 | Opt1 | Block loops for cache; structured-loop transformation. |
+| Y   | Loop interchange | 5 | Opt1 | Swap nested loop order; needs structured loop nests + dependence analysis. **Reclassified 3→5: relies on array dependence analysis (the deep-analysis-silent-corrupt risk that defines L5), even though results are preserved.** |
+| Y   | Loop tiling / blocking | 5 | Opt1 | Block loops for cache; structured-loop transformation. **Reclassified 3→5: dependence-analysis-driven (see interchange).** |
 | Y   | Loop unrolling | 5 | Opt1 or Opt2 | Replicate loop bodies; simple full-unroll in Opt1, runtime/partial unroll with trip-count analysis in Opt2. |
 | Y   | Loop peeling | 3 | Opt2 | Split off first/last iterations; usually paired with Opt2 loop analyses. |
-| Y   | Loop skewing | 3 | Opt1 | Shift iteration space; structured/polyhedral-level transform. |
+| Y   | Loop skewing | 5 | Opt1 | Shift iteration space; structured/polyhedral-level transform. **Reclassified 3→5: dependence-analysis-driven (see interchange).** |
 | Y‡  | Software pipelining | 5 | Opt2 (late) | Overlap iterations; needs scheduling info, runs near end of Opt2. **‡net-new machine model** |
 | Y   | Function inlining | 4 | Opt1 | Substitute callee bodies; do it on NIR before Plan1 so storage slots/symbols are computed once for the merged body. |
 | Y   | Aggressive/heuristic inlining | 4 | Opt1 | Profile/cost-model-driven inlining; same stage, bigger budget. |
@@ -144,13 +147,13 @@ Levels **1–5 are the numeric performance dial** — enabled cumulatively by `r
 | Y‡  | Auto-vectorization (loop) | 5 | Opt2 | SIMD-ify loops; needs SSA, dependence, and trip-count analysis. **‡2-lane packed SIMD exists; wider = new encoders** |
 | Y‡  | SLP vectorization | 5 | Opt2 | Pack straight-line scalar ops into SIMD; SSA-based. **‡2-lane packed SIMD exists; wider = new encoders** |
 | Y‡  | Instruction scheduling | 3 | pre/post-regalloc | Reorder to hide latency; machine-level, around regalloc. **‡net-new machine/latency model** |
-| Y   | Register allocation | 2 | regalloc | Assign virtual registers to physical; your dedicated stage. (Exists — linear-scan.) |
+| Y   | Register allocation | — | regalloc | Assign virtual registers to physical; your dedicated stage. (Exists — linear-scan.) **Infrastructure, not a dial row: the allocator runs at every level; only its aggressiveness/refinements (coalescing, remat, live-range splitting, callee-save selection, spill-code opt) are level-gated.** |
 | Y   | Register coalescing | 2 | regalloc | Eliminate copies via shared assignment; part of regalloc (interacts with out-of-SSA copies). (Planned — `allocator-20`.) |
 | Y   | Rematerialization | 2 | regalloc | Recompute cheap values instead of spilling; regalloc component. |
 | Y   | Stack slot coloring | 2 | regalloc | Reuse slots for non-overlapping lifetimes; regalloc/frame lowering. |
 | Y   | Frame pointer omission | 2 | codegen | Free FP register; frame lowering. |
-| Y   | Shrink wrapping | 2 | regalloc / codegen | Sink prologue/epilogue to needy paths; after regalloc knows clobbers. |
-| Y   | Instruction selection / combining | 1 | codegen | Fuse MIR ops into machine instructions (e.g., FMA); MIR→machine lowering. (FMA fusion + adrp/add + cmp/branch fusion already exist.) |
+| Y   | Shrink wrapping | 2 | regalloc / codegen | Sink prologue/epilogue to needy paths; after regalloc knows clobbers. (Per-register callee-save placement is a finer-grained variant of the same pass.) |
+| Y   | Instruction selection / combining | 1 | codegen | Fuse MIR ops into machine instructions (e.g., FMA); MIR→machine lowering. (FMA fusion + adrp/add + cmp/branch fusion already exist.) **Base selection is mandatory lowering (not level-gated); only the optional cost-based *combining* is the dial pass.** |
 | Y   | Addressing mode optimization | 1 | codegen | Fold address math into addressing modes; machine-specific. |
 | Y   | Bit-tricks / idiom recognition | 1 | Opt2 | Recognize popcount/bswap/rotate patterns; SSA pattern matching. |
 | Y   | Division-by-constant lowering | 1 | Opt2 / codegen | Div → multiply-shift; MIR lowering or instruction selection. |
@@ -183,6 +186,100 @@ Levels **1–5 are the numeric performance dial** — enabled cumulatively by `r
 | Y   | Polyhedral loop optimization | 5 | Opt1 | Advanced loop nest restructuring; needs structured loops, way easier pre-CFG. (Research-grade effort.) |
 | Y   | Automatic parallelization | 5 | Opt1 | Thread-parallelize loops; structured-loop + dependence analysis. (Threading runtime exists; research-grade effort.) |
 | Y   | Superoptimization | 5 | codegen | Exhaustive search for optimal machine sequences; final code level. (Applicable to any backend; research-grade.) |
+| Y   | Code sinking | 3 | Opt2 | Move a computation down into the branch that uses it, so cold paths don't pay; dual of hoisting. **†sinking a trapping op that removes a trap on the skip path is Level 6; the non-trapping/proven form is L3** |
+| Y   | Aggressive DCE (ADCE) | 3 | Opt2 | Control-dependence-based DCE (assume dead, prove live); removes whole dead control structures plain DCE misses. **†removing a trap-capable region is Level 6; proof-gated form is L3** |
+| Y   | Dead error-handler / fallible-branch elimination | 3 | Opt2 | When a fallible call is *proven* trap-free (range/trap analysis), its error branch and `RECOVER`/TRAP handling is dead. MFB-specific companion to check-elision and the union/error-tag analogue. Behavior-preserving. |
+| Y   | CFG simplification (simplifycfg) | 2 | Opt2 | Umbrella cleanup: block merge + branch fold + trivial-phi fold + two-entry-phi→select + empty-block removal + hoist common code from both arms. The named "rerun between passes" step. |
+| Y   | Loop idiom recognition (broad) | 3 | Opt2 | Beyond memcpy/memset: popcount loops, strlen-style scans, arithmetic-series closed forms (`sum += i` → formula). **†closed-form replacement of a checked sum changes overflow behavior — Level 6 unless proven/versioned** |
+| Y   | Loop versioning | 3 | Opt2 | Emit two loop copies guarded by a runtime check (no-alias / in-range / trip-count); run the relaxed form only in the proven copy. **Behavior-preserving by construction — the mechanism that keeps vectorization and the † passes on the numeric dial instead of Level 6. Highest strategic value of the additions.** |
+| Y†  | Guard / check hoisting & combining | 6 | Opt2 | Merge N per-iteration bounds/overflow checks into one dominating range check. **Off the dial by default: the combined check traps earlier, at a synthetic location, skipping loop-body effects — differs from MFB's per-expression source-stamped trap (§4.1 / §8.5a). Versioned (keep the strict copy) it drops to L3.** |
+| Y   | Constant hoisting | 2 | Opt2 (late) / codegen | Materialize expensive constants (big immediates, address bases) once and reuse — matters on AArch64 (a 64-bit constant is up to 4 `mov`s). |
+| Y   | Global localization / constification | 2 | Opt1 | A global written once at init → constant; a global used by one function → local. Module-level; pairs with dead-global elimination. |
+| Y   | Return-slot / NRVO copy elision | 3 | Opt1 | Construct a value-semantic aggregate directly in the caller's return slot, eliding the copy. **Partially exists — `plan_returned_move` for `RETURN <owned-local>` (plan-25-C, `builder_exits.rs:258`); broadening beyond the direct-`RETURN`-local case is the net-new part.** |
+| Y   | Live-range splitting | 2 | regalloc | Split a long live range so only part spills. The single highest-value linear-scan improvement; pairs with coalescing (`allocator-20`). |
+| Y   | Machine copy propagation / redundant-move elimination | 1 | post-regalloc | Post-regalloc cleanup of moves coalescing/out-of-SSA left behind. Distinct from MIR-level copy propagation (`remove_fp_shuttles` peephole already does a slice of this). |
+| Y   | Shared out-of-line trap stubs | 2 | codegen | Collapse each check's inline miss path (per-site park / build-Error-block sequence, ~40+ instrs — `emit_error_register_return`) into one `bl` to a shared per-error-kind stub. **Net-new: plan-16 already outlined the Error-*Result* assembly (`_mfb_make_error_result`), but each site still inlines the preamble/park/routing — highest value-per-effort given a check after nearly every checked op.** |
+| Y   | Literal interning + read-only placement | 2 | Plan1 / codegen | Dedup identical string/array literals and place immutable data in read-only pages. Companion to constant merging. |
+| N   | Subregister-zeroing zext elimination (AArch64) | 2 | codegen | Exploit `w`-write-zeroes-upper-32 to drop explicit zero-extends. **N/A: the backend emits no `uxtw`/mask zero-extends — Integer math runs in 64-bit `x`-regs and the few narrow ops already rely on implicit zeroing. (Redundant *sign*-ext `sxtw` removal in FFI paths is the existing ext-elim row, still Y.)** |
+| N   | Stack-protector / hardening omission | 1 | codegen | Skip canary/CFI hardening on cold paths. **N/A: MFB emits no stack protector / canary / CFI / PAC / BTI today — nothing to omit. (The FFI OUT-buffer canary in `link_thunk.rs` is a correctness guard, not omittable.)** |
+| Y   | Overflow-check elimination | 3 | Opt2 | Prove a checked integer op cannot overflow and drop its trap branch. **Exists (plan-39: `integer_sub_elidable`/`integer_add_elidable`, `builder_numeric.rs:750`); broaden with a real range analysis — likely MFB's single highest-value pass.** |
+| Y   | Redundant union-tag / error-tag check elimination | 3 | Opt2 | Remove a `MATCH` discriminant or fallible-result test dominated by an equivalent test. The direct MFB analogue of null-check elimination; preserve source-stamped traps. |
+| Y   | Division / modulo-check elimination | 3 | Opt2 | Prove divisor ≠ 0 and (signed) exclude MIN ÷ -1; drop the corresponding error paths (`emit_integer_division_overflow_check`). |
+| Y   | Float finiteness-check elimination & coalescing | 3 | Opt2 / codegen | Remove redundant observation-boundary finiteness checks or combine them — sanctioned by MFB's *explicitly imprecise* Float contract (§4.1). Distinct from fast-math. |
+| Y   | Check fusion with existing comparisons | 3 | Opt2 | Reuse a source/program comparison to discharge a bounds/overflow/divisor/tag/finiteness check instead of emitting another compare. |
+| Y   | Range-check widening / narrowing | 3 | Opt2 | Derive one safe-range fact from another (prove `i`,`i+1`,`i+2` from one dominating condition) without moving the trap. |
+| Y   | Checked-operation fusion | 2 | Opt2 / codegen | Fuse a checked op + a compatible comparison/check into one flag-producing instruction, keeping the exact failing expression's source stamp. (Extends the existing `mir.rs` cmp/branch fusion.) |
+| Y   | Trap-aware path-sensitive DCE | 3 | Opt2 | Model traps as explicit observable exits so cleanup is aggressive without treating a trap-capable op as dead/pure. |
+| Y   | Error construction sinking | 3 | Opt2 | Keep `Error`/source-metadata/recovery-routing construction on the failing edge only; don't prepare it on the success path. |
+| Y   | Error-path deduplication | 2 | Opt2 / codegen | Merge equivalent cold error blocks, keeping per-site source identity as a compact site-ID argument to a shared stub. (Pairs with Shared trap stubs.) |
+| Y   | Recovery-region simplification | 3 | Opt2 | Coalesce nested `RECOVER`/TRAP regions, drop handlers that can't receive an error, route to the nearest live handler. |
+| Y   | Source-location metadata compression | 2 | Plan1 / codegen | Dedup source-location records; pass compact site IDs to shared trap stubs — cuts the cost of precise traps *without* relaxing them. |
+| Y   | Ownership-path optimization | 3 | Opt2 | Merge success/error cleanup paths, remove duplicate moves/drops, prove when an owned value need not be parked across a fallible op. |
+| Y   | Destructor / drop optimization | 3 | Opt2 | Remove redundant drops, merge cleanup blocks, shorten ownership lifetimes — preserving deterministic destruction + trap order. (Machinery exists: `builder_owned_cleanup.rs`.) |
+| Y   | Memory lifetime shortening | 3 | Opt2 | Move last-use cleanup earlier to cut peak memory + register pressure. |
+| N   | Reference-count operation elimination | 3 | Opt1 + Opt2 | Cancel retain/release pairs, batch RC traffic. **N/A: MFB has no reference counting — compile-time ownership + arena (spec `memory-semantics`).** |
+| N   | Write-barrier elimination / coalescing | 3 | Opt2 | Remove/merge GC write barriers. **N/A: MFB has no tracing GC and emits no write barriers.** |
+| Y   | Interprocedural / global DCE (call-graph) | 4 | Opt1 | Call-graph reachability elimination of functions, methods, package initializers, unreachable SCCs. Distinct from the L2 dead-global row. |
+| Y   | Global value specialization / global constant propagation | 4 | Opt1 | Propagate immutable/init-only globals across functions and specialize users. Broader than localization/constification. |
+| Y   | Function merging (IR-level) | 4 | Opt1 | Merge semantically equivalent functions (incl. bodies differing only by constants or arg permutation) before codegen. More powerful than machine ICF. |
+| Y   | Call-site splitting | 4 | Opt1 / Opt2 | Duplicate a join around a call so each copy gets stronger facts — enables specialization / const-prop / devirt. |
+| Y   | Indirect-call promotion | 4 | Opt1 | Turn a profiled likely target (`FUNC`/closure call) into a guarded direct call + fallback. Complements devirt + PGO. |
+| Y   | Recursive inlining / recursion peeling | 5 | Opt1 | Inline/peel a bounded recursive layer to expose constants + base cases. Strict growth controls. |
+| Y   | Hot/cold function outlining | 4 | Opt1 / Opt2 | Extract exceptional/rare paths (esp. bulky MFB trap/error construction) into cold functions. Broader than block placement + generic outlining. |
+| Y   | Fallibility specialization | 4 | Opt1 | Clone a function into proven-infallible + general variants; the infallible clone uses a simpler return convention and omits error-tag handling. (MFB-specific.) |
+| Y   | No-trap call specialization | 4 | Opt1 | Given inferred arg ranges, specialize a fallible callee into a `no-trap` version — unlocks LICM/DSE/tail-calls across it. |
+| Y   | Result / tag representation specialization | 4 | Opt1 | Specialize the internal fallible-result ABI when only one error kind is possible or payloads permit a cheaper representation. |
+| Y   | Closure optimization | 4 | Opt1 | Elide non-escaping closure envs, drop unused captures, convert to direct calls, specialize by captured constants. **Partly exists: no-capture closures collapse to a static `env=0` descriptor; non-escaping capturing closures are drop-eliminated (`builder_control.rs:285`, plan-77).** |
+| N   | Coroutine / state-machine optimization | 4 | Opt1 | Dead-state removal, state merging, frame scalar-replacement. **N/A: MFB has no async/generators/resumable functions — concurrency is OS-thread workers only.** |
+| Y   | Object / aggregate copy propagation | 3 | Opt1 / Opt2 | Forward whole value-semantic aggregates + eliminate redundant copies not caught by scalar copy-prop or NRVO. |
+| Y   | Allocation combining | 4 | Opt1 / Opt2 | Merge several short-lived allocations into one region/object where lifetimes permit. Complements allocation elision/sinking. |
+| Y   | Dead allocation elimination | 4 | Opt2 | Remove an allocation whose result + initialization are dead, even when generic DCE doesn't model allocation effects. |
+| Y   | Partial dead-store elimination | 3 | Opt2 | Remove stores dead on *some* paths, often by sinking/splitting them. |
+| Y   | Store PRE / Load PRE | 3 | Opt2 | Memory PRE — distinct scope from scalar PRE (alias + trap constraints differ). |
+| Y   | Store merging | 2 | Opt2 / codegen | Combine neighboring stores into wider stores / memset-like ops. |
+| Y   | Load widening | 2 | Opt2 / codegen | One wider load for adjacent fields when legal + safe at object/page boundaries. |
+| Y   | Read-only memory inference | 2 | Opt1 | Infer immutable objects/regions and exploit that fact across calls. |
+| Y   | Alias-scope specialization via versioning | 3 | Opt2 | No-alias guarded fast path + strict fallback — a use of the Loop-versioning machinery. |
+| Y   | Aggregate load/store combining | 2 | Opt2 / codegen | Combine adjacent scalar accesses into pair/vector accesses (AArch64 `ldp`/`stp`) when alignment + trap behavior permit. |
+| Y   | Stack allocation merging / frame compaction | 2 | regalloc / codegen | Coalesce fixed stack objects (incl. non-spill locals) with non-overlapping lifetimes. Broader than spill-slot coloring. |
+| Y   | Prologue / epilogue optimization | 2 | regalloc / codegen | Fold stack adjustment, paired saves/restores, return forms, leaf-function cases. Related to shrink-wrapping, distinct. |
+| Y   | Callee-save selection | 2 | regalloc | Cost-based caller-saved-spill vs callee-saved-occupancy choice. Important for linear scan + hot loops. |
+| Y   | Spill-code optimization | 2 | regalloc / post-regalloc | Fold reloads/spills into memory operands, kill redundant reloads, place spills optimally. |
+| Y   | Register-pressure-aware code motion | 3 | Opt2 / scheduling | Constrain LICM/sinking/CSE/scheduling by estimated pressure so "optimized" MIR doesn't over-spill. |
+| Y   | Machine branch relaxation | 1 | codegen | Select short/long branches, insert veneers/islands when range overflows. **Backend facility (correctness-required) + net-new: today AArch64 *hard-errors* on out-of-range branches (`sizing.rs:86`, the >1 MiB failure) — this pass removes that failure class.** |
+| Y   | Constant-island / literal-pool placement | 1 | codegen | Place + dedup literals within architectural reach; coordinate with layout + branch relaxation. Backend facility. |
+| Y   | Machine block reordering + fall-through inversion | 2 | codegen | Invert conditions + reorder successors to maximize fall-through (concrete form of the branch-layout-hints row). |
+| Y   | Machine tail-call formation | 4 | post-regalloc / codegen | Catch ABI-valid tail calls exposed only after lowering/frame layout/copy resolution. Complements MIR-level TCO. |
+| Y   | Load/store pair formation (ldp/stp) | 1 | codegen | Form AArch64 `ldp`/`stp` for adjacent accesses + saves/restores. **Net-new: backend emits only single `ldr`/`str` today.** |
+| Y   | Pre/post-index addressing formation | 1 | codegen | Fold pointer updates into AArch64 memory ops when ordering is preserved. **Net-new: no writeback addressing today.** |
+| Y   | Compare elimination / flag reuse | 1 | Opt2 / codegen | Reuse NZCV from arithmetic/prior compares; avoid repeated `cmp`/`test`. **Partly exists: `mir.rs` fuses cmp+branch, but general flag reuse is net-new.** |
+| Y   | Boolean materialization elimination | 1 | Opt2 / codegen | Feed flags straight into branches/selects instead of producing + retesting a Boolean register. |
+| Y   | Known-bits simplification | 2 | Opt2 | Track known-0/1 bits to simplify masks/shifts/compares/extensions/alignment checks. Broader than demanded-bits narrowing. |
+| Y   | Bit-field extract/insert recognition | 1 | Opt2 / codegen | Recognize mask/shift patterns as `ubfx`/`sbfx`/`bfi`. |
+| Y   | Carry / borrow chain formation | 1 | Opt2 / codegen | Form adc/sbc sequences for wide arithmetic or checked-op idioms. |
+| Y   | Multi-instruction constant synthesis | 1 | codegen | Cost-model choice among `movz`/`movk`/`movn`, literal loads, logical immediates, shared bases. |
+| Y   | Reciprocal / remainder lowering (exact) | 1 | Opt2 / codegen | Expand exact constant division + modulo jointly, sharing the quotient + checks. |
+| Y   | Loop rerolling | 3 | Opt2 | Recognize unrolled repeated bodies and reconstruct a loop (shrinks size, re-enables vectorization). |
+| Y†  | Loop predication | 5 | Opt2 | Convert per-iteration conditions/checks to predicates. **†strict trap semantics need proof or versioning — dial-safe form is versioned, else Level 6.** |
+| Y   | Loop flattening / collapse | 3 | Opt1 | Collapse nested iteration spaces where ordering + overflow are preserved. **†checked index arithmetic needs proof.** |
+| Y   | Loop reversal | 3 | Opt1 | Iterate in reverse to improve addressing / cut induction work. **†must preserve operation/trap order where observable.** |
+| Y   | Loop-invariant branch elimination | 3 | Opt2 | Delete/fold an invariant branch without duplicating the whole loop (lighter than unswitching). |
+| Y   | Loop exit-value simplification | 3 | Opt2 | Compute post-loop induction values directly; remove exit phis / final-iteration work. **†checked arithmetic needs proof.** |
+| Y   | Loop-nest invariant code motion | 3 | Opt2 | Hoist to the shallowest safe loop level, not merely out of one loop. |
+| Y   | Unroll-and-jam | 5 | Opt1 | Unroll an outer loop + fuse inner bodies for reuse/vectorization. Distinct from plain unroll + fusion. |
+| Y   | Strip mining | 3 | Opt1 | Partition the iteration space explicitly; foundation for tiling + vector-width loops. |
+| Y   | Vectorization epilogue optimization | 5 | Opt2 | Masked tails / scalar epilogues / epilogue vectorization / multiple vector widths. |
+| Y†  | Reduction recognition + vectorization | 5 | Opt2 | Sums/products/min-max/logical reductions. **†checked integer reductions need proof/versioning or Level-6 relaxation.** |
+| Y   | String concat / rope fusion | 3 | Opt1 / Opt2 | Fuse a chain `a & b & c` into one pre-sized allocation + writes instead of an intermediate per operator. **Real gap: general `&` chains allocate + discard intermediates (`lower_string_concat`, `builder_value_semantics.rs:475`); only the self-append idiom `s = s & …` is already fused (plan-02 §4.1). Highest-value string win.** |
+| Y   | Small-string / small-array optimization (SSO) | 4 | Opt1 (pre-Plan1) | Inline storage for short strings/arrays to skip a heap/arena allocation; a representation decision before Plan1. **Real gap: general non-empty String/List/Array always arena-allocate; only empty-string, static literals, and the fixed `FloatN` vector carrier are inline today.** |
+| Y   | Multi-value return in registers | 4 | Opt1 | Return a small record in value registers instead of boxing it and returning a pointer. **Real gap: records are materialized in the arena and returned as one pointer (`materialize_inline_value_in_arena`, `builder_exits.rs:335`); the 4-register form is the error-outcome ABI, not aggregate decomposition.** |
+| Y   | Union layout narrowing | 4 | Opt1 | Drop the tag word from a union's runtime representation when it is provably single-variant / statically known. **Real gap: the tag is always stored at offset 0 (`store_u64(tag, block, 0)`); distinct from the tag-*check* elimination row (that removes tests, not the field).** |
+| Y   | Error-payload per-call-site specialization | 4 | Opt1 / Opt2 | When a call site only checks *whether* it failed (not *which* error), skip constructing the `Error` payload and just set the fail flag. Call-site-specific — pairs with, but distinct from, per-function Result/tag specialization and per-edge error-construction sinking. |
+| Y   | Codepoint `len()` caching | 3 | Opt2 | Cache the scanned UTF-8 codepoint count of a String across uses. **Byte length is already an O(1) header read (`strings.byteLen`), but `len(str)` scans codepoints every call (`builder_collection_layout.rs:1179`) — the scan result is the cacheable quantity.** |
+| Y   | Multi-way select / CSEL-chain formation | 2 | codegen | Build 3+-way `csel`/`csinc` (AArch64) or `cmov` (x86) chains where a later select's false input is a prior select's result. Distinct from single-select formation. |
+| Y   | x86 LEA-as-arithmetic | 1 | codegen | Use `lea` as a 3-operand add / shift-add for *arithmetic* (not just address computation). Distinct from the addressing-mode row. |
+| Y   | Compare-with-zero branch (cbz/cbnz) formation | 1 | codegen | Fold `cmp x, #0` + `b.eq`/`b.ne` into AArch64 `cbz`/`cbnz`. Small peephole complementing the existing cmp/branch fusion. |
+| Y   | SoA → AoS transformation | 4 | Opt1 (pre-Plan1) | The reverse of AoS→SoA — choose array-of-structs for pointer-chasing-light access patterns. Completes the bidirectional layout choice (pick a direction by access pattern). |
 
 ## Feasibility notes (grounded in the current compiler)
 
@@ -212,6 +309,45 @@ This is why these passes were pulled onto **Level 6** (opt-in, off the numeric d
 ### Free wins MFB's semantics hand you (not in the classic C playbook)
 
 Memory-safety + checked arithmetic mean the highest-value early passes are **check-elision** ones: broaden the existing **overflow-check elision** (plan-39, `elide_overflow`/`integer_sub_elidable`) and **bounds-check elimination** (plan-86, `is_provable_index_access`) with a real **range/value-range analysis** (a Plan2 prerequisite — see plan-100). These remove real, measurable per-operation checks the compiler emits today — a bigger and safer payoff than chasing UB-style transforms that don't apply here. Note these are behavior-*preserving* (they only elide a check when they prove it can never fire), so they stay on the numeric dial — unlike the Level-6 relaxations.
+
+### Plan2 infrastructure, not dial rows
+
+Several items that look like passes are really the *fact base* other passes consume — like alias/range analysis, they belong in plan-100's Plan2 as demand-driven infrastructure, gated by "does an enabled pass need this," not by a level number:
+
+- **Function attribute inference** (`pure` / `readonly` / `noreturn` / **`no-trap`**). Bottom-up per-function facts. The `no-trap` attribute is load-bearing: without it, every call is an optimization barrier under MFB's semantics (any callee might raise), so LICM/DSE/sinking *across calls* all depend on it. High priority — but as a prerequisite, not a numeric-dial row.
+- **Trivial-phi / phi simplification.** SSA *maintenance* (remove trivial/duplicate phis), runs whenever SSA is live as part of Plan2 construction + out-of-SSA. Constantly re-runnable, never level-gated. Fold into Plan2, not a row. (The *user-visible* CFG cleanup — two-entry-phi→select, empty-block removal — is the separate "CFG simplification" dial row above.)
+- **Memory SSA / memory-dependence analysis.** The shared representation that gives DSE, load elimination, store-to-load forwarding, memory PRE, and LICM their memory facts. Infrastructure, built alongside Plan2's alias analysis — not a dial row.
+- **Loop canonicalization.** Preheaders, dedicated exits, latch normalization, reducible-loop normalization. Enabling infrastructure for every loop pass; runs whenever any loop pass is enabled, not level-gated.
+- **Register allocation & base instruction selection** are also infrastructure (they run at every level — marked `—` in the Level column); only their *refinements/combining* are dial passes.
+
+### The trap-precision decision (verified against the spec)
+
+The one spec-level fork the review flags is real and only partly pre-decided (`mfb spec language types` §4.1, error-model §8.1/§8.5a):
+
+- **Integer/Byte:** checked **per operation**, never wrap; `Error.source` is stamped at the *failing expression's* location and never rewritten. So the spec already pins expression-level precision — you cannot silently move *where* an integer trap claims to originate. That is what makes "Guard/check combining" a Level-6 (behavior-changing) pass by default, and what keeps the trap-order † rows †.
+- **Float:** *explicitly imprecise* — finiteness is enforced "at observation boundaries rather than after each operation," transient non-finite intermediates are allowed to recover without trapping. So combining/reordering **Float** finiteness checks is already sanctioned by the spec (those rows are behavior-preserving, dial-eligible).
+- **Not addressed by any named guarantee:** per-*iteration* precision and whether equivalent integer checks may be reordered/combined. This is the deliberate decision to pin before building the range/trap analysis. Two coherent answers: **(a)** keep precise integer traps and buy performance with **loop versioning** (recommended — preserves MFB's deterministic-error value proposition); or **(b)** weaken the integer contract to "same error for the same input, iteration/location unspecified," which drops the † from check-combining/early-trapping and several loop rows — at the cost of user-visible determinism. They are alternatives, not a stack.
+
+### Reclassifications flagged by review (existing rows)
+
+Level tweaks the review is right about — the loop ones are edited in the table; the rest are constraints on *when* a row keeps its level:
+
+- **Loop interchange / tiling / skewing: 3 → 5** (edited). They rely on array dependence analysis, which is the "deepest-analysis, silent-corruption" risk that defines L5 — even though results are preserved. **Loop fusion / fission stay L3** (coarser legality check, no full dependence solver).
+- **Register allocation & instruction selection → infrastructure** (marked `—`), not dial rows — they run at every level; only refinements/combining are gated.
+- **Constant folding is L1 only for non-trapping expressions.** Folding a *trapping* constant expression (e.g. a constant overflow or divide-by-zero) must preserve the same runtime trap, source location, and execution condition — turning a conditionally-executed runtime trap into an unconditional/earlier one is a behavior change (L6, or emit a compile-time diagnostic only when the expression is unconditionally evaluated).
+- **Division-by-constant lowering is L1 only for the arithmetic;** the checked path (zero divisor, signed MIN ÷ -1) must still be handled correctly — the row assumes the strength-reduced sequence preserves those traps.
+- **Prefetch stays L2, deliberately:** on both arches the prefetch instruction is architecturally non-faulting (AArch64 `prfm`, x86 `prefetch*`), so it cannot miscompile — correctness risk is ~zero, which is an L2/L1 trait, not L3. It *is* code-additive; that's a code-size/perf concern, not a risk-level one.
+- **Jump-table generation / switch lowering** are behavior-preserving codegen *policy* (not "same operations executed"); L1 reflects their ~zero miscompile risk, but read them as lowering-strategy choices rather than transparent rewrites.
+
+### Proposed but moot / already done (recorded so they aren't re-proposed)
+
+Verified against the source — these are *not* gaps:
+
+- **Arena / thread-local state register promotion — already done.** The arena base *and* current-thread pointer are program-wide pinned, allocation-reserved registers on every ISA (AArch64 `x19`/`x20`, x86-64 `r15`/`rbx`, riscv64 `s11`/`s2`; `abi.rs:179`, `:227`). Nothing to promote.
+- **String *byte*-length caching — moot.** Byte length is an O(1) header field at offset 0 (`strings.byteLen` = one load). (Only the *codepoint* `len()` scan is cacheable — that's a real row above.)
+- **Load-and-zero-extend fusion — N/A.** The backend emits no explicit zero-extensions (Integer math runs in 64-bit `x`-regs; narrow ops rely on implicit `w`-write zeroing) — this is the AArch64 subreg-zext N row.
+- **Write-combining buffer optimization — N/A.** MFB has no MMIO / write-combining memory model.
+- **Lock-free mailbox pattern recognition — deferred.** Message-passing goes through runtime primitives; recognizing and rewriting synchronization is research-grade, not a near-term row.
 
 **Key architectural takeaways for your pipeline:**
 

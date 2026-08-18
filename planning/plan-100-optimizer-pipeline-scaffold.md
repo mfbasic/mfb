@@ -26,7 +26,8 @@ AST → IR → NIR → gated[Opt1(NIR)] → Plan1(storage/StorageType/symbols) �
 - **Opt2 bracket** — a `Vec<CodeInstruction> → Vec<CodeInstruction>` transform seam
   sitting between instruction selection and register allocation. No-op today.
   Plan2 (CFG + SSA/def-use construction), Out-of-SSA (phi elimination), and Plan2's
-  three demand-driven analyses (SSA/mem2reg, alias, range/trap) are the *interior*
+  demand-driven analyses (SSA/mem2reg, alias, memory-SSA, range/trap, loop
+  canonicalization, and function-attribute/`no-trap` inference) are the *interior*
   of this bracket; they are **not built in this plan** — they get built when the
   first real Opt2 pass needs them (see Non-goals / Open Decisions). Today the whole
   bracket is one identity function.
@@ -109,10 +110,12 @@ both diff clean against current goldens before any real pass is written.
 - **No optimization is implemented.** Both seams are identity functions. The
   catalog in `optimizations.md` is future work, added one pass at a time.
 - **No SSA / CFG / analysis infrastructure is built.** Plan2 (CFG + SSA/def-use
-  construction), Out-of-SSA (phi elimination), and Plan2's three **demand-driven
-  prerequisites** — SSA promotion (mem2reg), alias analysis, and range/trap analysis
-  (all moved out of `optimizations.md`, which now lists only real passes) — are
-  documented as the *interior* of the Opt2 bracket but are **not** implemented here.
+  construction), Out-of-SSA (phi elimination), and Plan2's **demand-driven
+  prerequisites** — SSA promotion (mem2reg), alias analysis, memory-SSA/memory-
+  dependence, range/trap analysis, loop canonicalization, and function-attribute
+  (`no-trap`) inference (all kept out of `optimizations.md`, which lists only real
+  passes) — are documented as the *interior* of the Opt2 bracket but are **not**
+  implemented here.
   Building and destructing SSA with zero consumers is pure cost and risk. The Opt2
   seam is a single pass-through over the existing `Vec<CodeInstruction>`; these
   arrive with the first Opt2 pass that needs them. (See Open Decisions and §5.)
@@ -121,6 +124,9 @@ both diff clean against current goldens before any real pass is written.
   now — enough to prove the gate is neutral. Higher dial levels are enabled by later
   plans as rows land; Level 6 additionally requires an explicit request and is never
   implied by "max".
+- **No size objective (`-Os`/`-Oz`).** Size is a *second, orthogonal* axis (it
+  re-weights pass profitability, not risk), composed with a numeric level — out of
+  scope for the scaffold, a later flag. `OptLevel` stays a pure risk dial here.
 - **No change to the default codegen path.** `-O0` must be indistinguishable from
   today at the byte level; if any golden moves at `-O0`, that is a bug in this
   plan, not a re-baseline.
@@ -163,8 +169,9 @@ Mirror `RegallocKind` end to end.
       `src/target/shared/code/builder_registers.rs` between selection (`:145`) and
       `regalloc::allocate` (`:149`), reading `opt::active_opt_level()` (the global,
       matching how `regalloc_kind` is read). Doc comment marks this as the future
-      home of Plan2(CFG + SSA/def-use + demand-driven mem2reg/alias/range analyses)
-      → Opt2 passes → Out-of-SSA; note that when the first real pass lands, SSA
+      home of Plan2(CFG + SSA/def-use + demand-driven mem2reg/alias/memory-SSA/
+      range-trap/loop-canonicalization/`no-trap`-inference analyses) → Opt2 passes
+      → Out-of-SSA; note that when the first real pass lands, SSA
       construction/destruction and those analyses get built *inside* this bracket.
 - [ ] Unit test: `optimize_nir`/`optimize_mir` at both levels return structurally
       equal output to their input (identity invariant), so a future pass that
@@ -197,8 +204,9 @@ at the level that first enables it (goldens may move *only* at that level and up
 never at `-O0`), and adds a RED test proving the transform fires. The first Opt2
 pass that needs dataflow is also the plan that builds **Plan2** — the persistent
 CFG + SSA/def-use (promoting the throwaway `build_cfg` in `regalloc/analysis.rs`),
-its **demand-driven analyses** (mem2reg/SSA promotion, alias analysis, range/trap
-analysis — the prerequisites pulled out of `optimizations.md`), and **Out-of-SSA**
+its **demand-driven analyses** (mem2reg/SSA promotion, alias analysis, memory-SSA,
+range/trap analysis, loop canonicalization, and function-attribute/`no-trap`
+inference — the prerequisites listed in `optimizations.md`), and **Out-of-SSA**
 (phi elimination before regalloc). **Level 6** (fast-math + the trap-order-relaxing
 † passes) is a later, orthogonal opt-in with its own explicitly-requested golden
 set; it is never enabled by escalating the numeric dial. Loop unrolling (an Opt1
@@ -213,9 +221,12 @@ the one that first justifies Plan2's range/trap analysis.
   seam, *not* a binary bracket on/off — so one level lights up rows across both Opt1
   and Opt2 (level ≠ stage), and **Level 6** is an orthogonal opt-in never implied by
   the dial. The scaffold's seams are level-aware no-ops; no row exists yet, so every
-  level is identity. The three Plan2 prerequisites (mem2reg/SSA, alias, range/trap)
-  are demand-driven infrastructure, not levels — they build when an enabled pass
-  needs them. (Supersedes the original binary-bracket framing.)
+  level is identity. The Plan2 prerequisites (mem2reg/SSA, alias, memory-SSA,
+  range/trap, loop canonicalization, `no-trap` function-attribute inference) are
+  demand-driven infrastructure, not levels — they build when an enabled pass needs
+  them. Register allocation and base instruction selection are likewise infrastructure
+  (run at every level; `optimizations.md` marks them `—`), gating only their
+  refinements. (Supersedes the original binary-bracket framing.)
 - **SSA infra timing.** This plan makes the Opt2 bracket a single identity
   pass-through and defers Plan2(CFG+SSA)/Out-of-SSA to the first real Opt2 pass.
   Rationale: build+destruct of SSA with zero consumers is pure risk against the
