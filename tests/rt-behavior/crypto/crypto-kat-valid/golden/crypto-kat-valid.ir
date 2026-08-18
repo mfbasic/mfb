@@ -4133,249 +4133,235 @@
     ]
   },
   {
-    "name": "#crypto_generateP256",
-    "line": 2087,
-    "visibility": "public",
-    "kind": "func",
-    "params": [
-    ],
-    "returns": "KeyPair",
-    "body": [
-    { "op": "bind", "line": 2088, "mutable": false, "name": "priv", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "crypto.generateP256Raw", "args": [] } },
-    { "op": "bind", "line": 2089, "mutable": false, "name": "pub", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_truncate", "args": [{ "kind": "local", "name": "priv" }, { "kind": "const", "type": "Integer", "value": "65" }] } },
-    { "op": "return", "line": 2090, "value": { "kind": "constructor", "type": "KeyPair", "args": [{ "kind": "local", "name": "priv" }, { "kind": "local", "name": "pub" }] } }
-    ]
-  },
-  {
     "name": "#crypto_generateP384",
-    "line": 2093,
+    "line": 2080,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "KeyPair",
     "body": [
-    { "op": "bind", "line": 2094, "mutable": false, "name": "priv", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "crypto.generateP384Raw", "args": [] } },
-    { "op": "bind", "line": 2095, "mutable": false, "name": "pub", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_truncate", "args": [{ "kind": "local", "name": "priv" }, { "kind": "const", "type": "Integer", "value": "97" }] } },
-    { "op": "return", "line": 2096, "value": { "kind": "constructor", "type": "KeyPair", "args": [{ "kind": "local", "name": "priv" }, { "kind": "local", "name": "pub" }] } }
+    { "op": "bind", "line": 2081, "mutable": false, "name": "priv", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "crypto.generateP384Raw", "args": [] } },
+    { "op": "bind", "line": 2082, "mutable": false, "name": "pub", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_truncate", "args": [{ "kind": "local", "name": "priv" }, { "kind": "const", "type": "Integer", "value": "97" }] } },
+    { "op": "return", "line": 2083, "value": { "kind": "constructor", "type": "KeyPair", "args": [{ "kind": "local", "name": "priv" }, { "kind": "local", "name": "pub" }] } }
     ]
   },
   {
     "name": "#crypto_generateP521",
-    "line": 2099,
+    "line": 2086,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "KeyPair",
     "body": [
-    { "op": "bind", "line": 2100, "mutable": false, "name": "priv", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "crypto.generateP521Raw", "args": [] } },
-    { "op": "bind", "line": 2101, "mutable": false, "name": "pub", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_truncate", "args": [{ "kind": "local", "name": "priv" }, { "kind": "const", "type": "Integer", "value": "133" }] } },
-    { "op": "return", "line": 2102, "value": { "kind": "constructor", "type": "KeyPair", "args": [{ "kind": "local", "name": "priv" }, { "kind": "local", "name": "pub" }] } }
+    { "op": "bind", "line": 2087, "mutable": false, "name": "priv", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "crypto.generateP521Raw", "args": [] } },
+    { "op": "bind", "line": 2088, "mutable": false, "name": "pub", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_truncate", "args": [{ "kind": "local", "name": "priv" }, { "kind": "const", "type": "Integer", "value": "133" }] } },
+    { "op": "return", "line": 2089, "value": { "kind": "constructor", "type": "KeyPair", "args": [{ "kind": "local", "name": "priv" }, { "kind": "local", "name": "pub" }] } }
     ]
   },
   {
     "name": "#crypto_ed25519Sign",
-    "line": 2105,
+    "line": 2092,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "privateKey", "line": 2105, "type": "List OF Byte", "default": null },
-    { "name": "message", "line": 2105, "type": "List OF Byte", "default": null }
+    { "name": "privateKey", "line": 2092, "type": "List OF Byte", "default": null },
+    { "name": "message", "line": 2092, "type": "List OF Byte", "default": null }
     ],
     "returns": "List OF Byte",
     "body": [
     {
       "op": "if",
-      "line": 2106,
+      "line": 2093,
       "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "privateKey" }] }, "right": { "kind": "const", "type": "Integer", "value": "32" } },
       "then": [
-      { "op": "fail", "line": 2107, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "ed25519 private key must be 32 bytes" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/crypto.mfb" }, { "kind": "const", "type": "Integer", "value": "2107" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "line": 2094, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "ed25519 private key must be 32 bytes" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/crypto.mfb" }, { "kind": "const", "type": "Integer", "value": "2094" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
     },
-    { "op": "bind", "line": 2109, "mutable": false, "name": "d", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_sha512_bytes", "args": [{ "kind": "local", "name": "privateKey" }] } },
-    { "op": "bind", "line": 2110, "mutable": false, "name": "a", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_clampScalar", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_truncate", "args": [{ "kind": "local", "name": "d" }, { "kind": "const", "type": "Integer", "value": "32" }] }] } },
-    { "op": "bind", "line": 2111, "mutable": false, "name": "prefix", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_slice", "args": [{ "kind": "local", "name": "d" }, { "kind": "const", "type": "Integer", "value": "32" }, { "kind": "const", "type": "Integer", "value": "64" }] } },
-    { "op": "bind", "line": 2112, "mutable": false, "name": "pub", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_ed25519Public", "args": [{ "kind": "local", "name": "privateKey" }] } },
-    { "op": "bind", "line": 2113, "mutable": false, "name": "rInput", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_concat", "args": [{ "kind": "local", "name": "prefix" }, { "kind": "local", "name": "message" }] } },
-    { "op": "bind", "line": 2114, "mutable": false, "name": "r", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_reduce", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_sha512_bytes", "args": [{ "kind": "local", "name": "rInput" }] }] } },
-    { "op": "bind", "line": 2115, "mutable": false, "name": "rPoint", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#crypto_scalarbase", "args": [{ "kind": "local", "name": "r" }] } },
-    { "op": "bind", "line": 2116, "mutable": false, "name": "bigR", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_packPoint", "args": [{ "kind": "local", "name": "rPoint" }] } },
-    { "op": "bind", "line": 2117, "mutable": true, "name": "hInput", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_concat", "args": [{ "kind": "local", "name": "bigR" }, { "kind": "local", "name": "pub" }] } },
-    { "op": "assign", "line": 2118, "name": "hInput", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_concat", "args": [{ "kind": "local", "name": "hInput" }, { "kind": "local", "name": "message" }] } },
-    { "op": "bind", "line": 2119, "mutable": false, "name": "h", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_reduce", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_sha512_bytes", "args": [{ "kind": "local", "name": "hInput" }] }] } },
-    { "op": "bind", "line": 2120, "mutable": true, "name": "x", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
-    { "op": "bind", "line": 2121, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 2096, "mutable": false, "name": "d", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_sha512_bytes", "args": [{ "kind": "local", "name": "privateKey" }] } },
+    { "op": "bind", "line": 2097, "mutable": false, "name": "a", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_clampScalar", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_truncate", "args": [{ "kind": "local", "name": "d" }, { "kind": "const", "type": "Integer", "value": "32" }] }] } },
+    { "op": "bind", "line": 2098, "mutable": false, "name": "prefix", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_slice", "args": [{ "kind": "local", "name": "d" }, { "kind": "const", "type": "Integer", "value": "32" }, { "kind": "const", "type": "Integer", "value": "64" }] } },
+    { "op": "bind", "line": 2099, "mutable": false, "name": "pub", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_ed25519Public", "args": [{ "kind": "local", "name": "privateKey" }] } },
+    { "op": "bind", "line": 2100, "mutable": false, "name": "rInput", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_concat", "args": [{ "kind": "local", "name": "prefix" }, { "kind": "local", "name": "message" }] } },
+    { "op": "bind", "line": 2101, "mutable": false, "name": "r", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_reduce", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_sha512_bytes", "args": [{ "kind": "local", "name": "rInput" }] }] } },
+    { "op": "bind", "line": 2102, "mutable": false, "name": "rPoint", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#crypto_scalarbase", "args": [{ "kind": "local", "name": "r" }] } },
+    { "op": "bind", "line": 2103, "mutable": false, "name": "bigR", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_packPoint", "args": [{ "kind": "local", "name": "rPoint" }] } },
+    { "op": "bind", "line": 2104, "mutable": true, "name": "hInput", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_concat", "args": [{ "kind": "local", "name": "bigR" }, { "kind": "local", "name": "pub" }] } },
+    { "op": "assign", "line": 2105, "name": "hInput", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_concat", "args": [{ "kind": "local", "name": "hInput" }, { "kind": "local", "name": "message" }] } },
+    { "op": "bind", "line": 2106, "mutable": false, "name": "h", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_reduce", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_sha512_bytes", "args": [{ "kind": "local", "name": "hInput" }] }] } },
+    { "op": "bind", "line": 2107, "mutable": true, "name": "x", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+    { "op": "bind", "line": 2108, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 2122,
+      "line": 2109,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "64" } },
       "body": [
       {
         "op": "if",
-        "line": 2123,
+        "line": 2110,
         "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "32" } },
         "then": [
-        { "op": "assign", "line": 2124, "name": "x", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "x" }, { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "r" }, { "kind": "local", "name": "i" }] }] }] } }
+        { "op": "assign", "line": 2111, "name": "x", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "x" }, { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "r" }, { "kind": "local", "name": "i" }] }] }] } }
         ],
         "else": [
-        { "op": "assign", "line": 2126, "name": "x", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "x" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
+        { "op": "assign", "line": 2113, "name": "x", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "x" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
         ]
       },
-      { "op": "assign", "line": 2128, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 2115, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "assign", "line": 2130, "name": "i", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "assign", "line": 2117, "name": "i", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 2131,
+      "line": 2118,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "32" } },
       "body": [
-      { "op": "bind", "line": 2132, "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+      { "op": "bind", "line": 2119, "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
       {
         "op": "while",
-        "line": 2133,
+        "line": 2120,
         "loop": "while",
         "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "32" } },
         "body": [
-        { "op": "bind", "line": 2134, "mutable": false, "name": "idx", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "j" } } },
-        { "op": "bind", "line": 2135, "mutable": false, "name": "add", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "h" }, { "kind": "local", "name": "i" }] }] }, "right": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "j" }] }] } } },
-        { "op": "assign", "line": 2136, "name": "x", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "x" }, { "kind": "local", "name": "idx" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "x" }, { "kind": "local", "name": "idx" }] }, "right": { "kind": "local", "name": "add" } }] } },
-        { "op": "assign", "line": 2137, "name": "j", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        { "op": "bind", "line": 2121, "mutable": false, "name": "idx", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "j" } } },
+        { "op": "bind", "line": 2122, "mutable": false, "name": "add", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "h" }, { "kind": "local", "name": "i" }] }] }, "right": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "j" }] }] } } },
+        { "op": "assign", "line": 2123, "name": "x", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.set", "args": [{ "kind": "local", "name": "x" }, { "kind": "local", "name": "idx" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "x" }, { "kind": "local", "name": "idx" }] }, "right": { "kind": "local", "name": "add" } }] } },
+        { "op": "assign", "line": 2124, "name": "j", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
         ]
       },
-      { "op": "assign", "line": 2139, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 2126, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "bind", "line": 2141, "mutable": false, "name": "bigS", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_modL", "args": [{ "kind": "local", "name": "x" }] } },
-    { "op": "return", "line": 2142, "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_concat", "args": [{ "kind": "local", "name": "bigR" }, { "kind": "local", "name": "bigS" }] } }
+    { "op": "bind", "line": 2128, "mutable": false, "name": "bigS", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_modL", "args": [{ "kind": "local", "name": "x" }] } },
+    { "op": "return", "line": 2129, "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_concat", "args": [{ "kind": "local", "name": "bigR" }, { "kind": "local", "name": "bigS" }] } }
     ]
   },
   {
     "name": "#crypto_scalarBelowL",
-    "line": 2150,
+    "line": 2137,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "s", "line": 2150, "type": "List OF Byte", "default": null }
+    { "name": "s", "line": 2137, "type": "List OF Byte", "default": null }
     ],
     "returns": "Boolean",
     "body": [
-    { "op": "bind", "line": 2151, "mutable": false, "name": "order", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#crypto_edL", "args": [] } },
-    { "op": "bind", "line": 2152, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "31" } },
+    { "op": "bind", "line": 2138, "mutable": false, "name": "order", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#crypto_edL", "args": [] } },
+    { "op": "bind", "line": 2139, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "31" } },
     {
       "op": "while",
-      "line": 2153,
+      "line": 2140,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "body": [
-      { "op": "bind", "line": 2154, "mutable": false, "name": "si", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "s" }, { "kind": "local", "name": "i" }] }] } },
-      { "op": "bind", "line": 2155, "mutable": false, "name": "li", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "order" }, { "kind": "local", "name": "i" }] } },
+      { "op": "bind", "line": 2141, "mutable": false, "name": "si", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "s" }, { "kind": "local", "name": "i" }] }] } },
+      { "op": "bind", "line": 2142, "mutable": false, "name": "li", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "order" }, { "kind": "local", "name": "i" }] } },
       {
         "op": "if",
-        "line": 2156,
+        "line": 2143,
         "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "si" }, "right": { "kind": "local", "name": "li" } },
         "then": [
-        { "op": "return", "line": 2157, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+        { "op": "return", "line": 2144, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
         ],
         "else": [
         ]
       },
       {
         "op": "if",
-        "line": 2159,
+        "line": 2146,
         "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "si" }, "right": { "kind": "local", "name": "li" } },
         "then": [
-        { "op": "return", "line": 2160, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+        { "op": "return", "line": 2147, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
         ],
         "else": [
         ]
       },
-      { "op": "assign", "line": 2162, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 2149, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "return", "line": 2164, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+    { "op": "return", "line": 2151, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
     ]
   },
   {
     "name": "#crypto_ed25519Verify",
-    "line": 2167,
+    "line": 2154,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "publicKey", "line": 2167, "type": "List OF Byte", "default": null },
-    { "name": "message", "line": 2167, "type": "List OF Byte", "default": null },
-    { "name": "signature", "line": 2167, "type": "List OF Byte", "default": null }
+    { "name": "publicKey", "line": 2154, "type": "List OF Byte", "default": null },
+    { "name": "message", "line": 2154, "type": "List OF Byte", "default": null },
+    { "name": "signature", "line": 2154, "type": "List OF Byte", "default": null }
     ],
     "returns": "Boolean",
     "body": [
     {
       "op": "if",
-      "line": 2168,
+      "line": 2155,
       "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "publicKey" }] }, "right": { "kind": "const", "type": "Integer", "value": "32" } },
       "then": [
-      { "op": "return", "line": 2169, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+      { "op": "return", "line": 2156, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
       ],
       "else": [
       ]
     },
     {
       "op": "if",
-      "line": 2171,
+      "line": 2158,
       "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "signature" }] }, "right": { "kind": "const", "type": "Integer", "value": "64" } },
       "then": [
-      { "op": "return", "line": 2172, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+      { "op": "return", "line": 2159, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
       ],
       "else": [
       ]
     },
-    { "op": "bind", "line": 2174, "mutable": false, "name": "negRes", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#crypto_unpackneg", "args": [{ "kind": "local", "name": "publicKey" }] } },
+    { "op": "bind", "line": 2161, "mutable": false, "name": "negRes", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#crypto_unpackneg", "args": [{ "kind": "local", "name": "publicKey" }] } },
+    {
+      "op": "if",
+      "line": 2162,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "negRes" }, { "kind": "const", "type": "Integer", "value": "0" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 2163, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 2165, "mutable": true, "name": "q", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+    { "op": "bind", "line": 2166, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    {
+      "op": "while",
+      "line": 2167,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "65" } },
+      "body": [
+      { "op": "assign", "line": 2168, "name": "q", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "q" }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "negRes" }, { "kind": "local", "name": "i" }] }] } },
+      { "op": "assign", "line": 2169, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "line": 2171, "mutable": false, "name": "bigR", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_truncate", "args": [{ "kind": "local", "name": "signature" }, { "kind": "const", "type": "Integer", "value": "32" }] } },
+    { "op": "bind", "line": 2172, "mutable": false, "name": "bigS", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_slice", "args": [{ "kind": "local", "name": "signature" }, { "kind": "const", "type": "Integer", "value": "32" }, { "kind": "const", "type": "Integer", "value": "64" }] } },
     {
       "op": "if",
       "line": 2175,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "negRes" }, { "kind": "const", "type": "Integer", "value": "0" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Boolean", "target": "#crypto_scalarBelowL", "args": [{ "kind": "local", "name": "bigS" }] }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
       "then": [
       { "op": "return", "line": 2176, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
       ],
       "else": [
       ]
     },
-    { "op": "bind", "line": 2178, "mutable": true, "name": "q", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
-    { "op": "bind", "line": 2179, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
-    {
-      "op": "while",
-      "line": 2180,
-      "loop": "while",
-      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "65" } },
-      "body": [
-      { "op": "assign", "line": 2181, "name": "q", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "q" }, { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "negRes" }, { "kind": "local", "name": "i" }] }] } },
-      { "op": "assign", "line": 2182, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
-      ]
-    },
-    { "op": "bind", "line": 2184, "mutable": false, "name": "bigR", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_truncate", "args": [{ "kind": "local", "name": "signature" }, { "kind": "const", "type": "Integer", "value": "32" }] } },
-    { "op": "bind", "line": 2185, "mutable": false, "name": "bigS", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_slice", "args": [{ "kind": "local", "name": "signature" }, { "kind": "const", "type": "Integer", "value": "32" }, { "kind": "const", "type": "Integer", "value": "64" }] } },
-    {
-      "op": "if",
-      "line": 2188,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Boolean", "target": "#crypto_scalarBelowL", "args": [{ "kind": "local", "name": "bigS" }] }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
-      "then": [
-      { "op": "return", "line": 2189, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
-      ],
-      "else": [
-      ]
-    },
-    { "op": "bind", "line": 2191, "mutable": true, "name": "hInput", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_concat", "args": [{ "kind": "local", "name": "bigR" }, { "kind": "local", "name": "publicKey" }] } },
-    { "op": "assign", "line": 2192, "name": "hInput", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_concat", "args": [{ "kind": "local", "name": "hInput" }, { "kind": "local", "name": "message" }] } },
-    { "op": "bind", "line": 2193, "mutable": false, "name": "h", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_reduce", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_sha512_bytes", "args": [{ "kind": "local", "name": "hInput" }] }] } },
-    { "op": "bind", "line": 2194, "mutable": false, "name": "pMul", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#crypto_scalarmult", "args": [{ "kind": "local", "name": "q" }, { "kind": "local", "name": "h" }] } },
-    { "op": "bind", "line": 2195, "mutable": false, "name": "qMul", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#crypto_scalarbase", "args": [{ "kind": "local", "name": "bigS" }] } },
-    { "op": "bind", "line": 2196, "mutable": false, "name": "pSum", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#crypto_edAdd", "args": [{ "kind": "local", "name": "pMul" }, { "kind": "local", "name": "qMul" }] } },
-    { "op": "bind", "line": 2197, "mutable": false, "name": "tCheck", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_packPoint", "args": [{ "kind": "local", "name": "pSum" }] } },
-    { "op": "return", "line": 2198, "value": { "kind": "call", "type": "Boolean", "target": "#crypto_constantTimeEqual", "args": [{ "kind": "local", "name": "bigR" }, { "kind": "local", "name": "tCheck" }] } }
+    { "op": "bind", "line": 2178, "mutable": true, "name": "hInput", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_concat", "args": [{ "kind": "local", "name": "bigR" }, { "kind": "local", "name": "publicKey" }] } },
+    { "op": "assign", "line": 2179, "name": "hInput", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_concat", "args": [{ "kind": "local", "name": "hInput" }, { "kind": "local", "name": "message" }] } },
+    { "op": "bind", "line": 2180, "mutable": false, "name": "h", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_reduce", "args": [{ "kind": "call", "type": "List OF Byte", "target": "#crypto_sha512_bytes", "args": [{ "kind": "local", "name": "hInput" }] }] } },
+    { "op": "bind", "line": 2181, "mutable": false, "name": "pMul", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#crypto_scalarmult", "args": [{ "kind": "local", "name": "q" }, { "kind": "local", "name": "h" }] } },
+    { "op": "bind", "line": 2182, "mutable": false, "name": "qMul", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#crypto_scalarbase", "args": [{ "kind": "local", "name": "bigS" }] } },
+    { "op": "bind", "line": 2183, "mutable": false, "name": "pSum", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "#crypto_edAdd", "args": [{ "kind": "local", "name": "pMul" }, { "kind": "local", "name": "qMul" }] } },
+    { "op": "bind", "line": 2184, "mutable": false, "name": "tCheck", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "#crypto_packPoint", "args": [{ "kind": "local", "name": "pSum" }] } },
+    { "op": "return", "line": 2185, "value": { "kind": "call", "type": "Boolean", "target": "#crypto_constantTimeEqual", "args": [{ "kind": "local", "name": "bigR" }, { "kind": "local", "name": "tCheck" }] } }
     ]
   },
   {

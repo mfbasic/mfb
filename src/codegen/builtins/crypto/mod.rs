@@ -534,8 +534,8 @@ mod tests {
         let pkg = registry()
             .resolve_package("crypto")
             .expect("crypto package");
-        // 33 documented members (23 source + 10 native).
-        assert_eq!(pkg.functions().len(), 33);
+        // 32 members: generateP256Raw was collapsed into the native generateP256.
+        assert_eq!(pkg.functions().len(), 32);
     }
 
     #[test]
