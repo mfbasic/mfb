@@ -9,8 +9,18 @@ fn emit_append_to_stdout_buffer(
     len: &str,
     tag: &str,
     write_error: &str,
+    vregs: &mut Vregs,
 ) -> Result<(), String> {
     let cap = OUT_BUFFER_CAPACITY.to_string();
+    let v0 = vregs.next();
+    let v1 = vregs.next();
+    let v2 = vregs.next();
+    let v3 = vregs.next();
+    let v4 = vregs.next();
+    let v5 = vregs.next();
+    let v6 = vregs.next();
+    let v7 = vregs.next();
+    let v8 = vregs.next();
     let sink = BufferSink {
         state_reg: ARENA_STATE_REGISTER,
         buf_ptr_off: ARENA_OUT_PTR_OFFSET,
@@ -20,7 +30,15 @@ fn emit_append_to_stdout_buffer(
         cap: &cap,
         prefix: "buf",
         v: [
-            "%v20", "%v21", "%v22", "%v23", "%v24", "%v25", "%v26", "%v27", "%v28",
+            v0.as_str(),
+            v1.as_str(),
+            v2.as_str(),
+            v3.as_str(),
+            v4.as_str(),
+            v5.as_str(),
+            v6.as_str(),
+            v7.as_str(),
+            v8.as_str(),
         ],
         fd: None,
     };
@@ -37,6 +55,7 @@ pub(crate) fn lower_io_write_helper(
 ) -> HelperResult {
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
     // plan-35-B: while TUI mode is on, stdout writes mutate the shadow grid's back
     // buffer instead of the terminal (the mirror of app mode's `active`-gated grid
     // routing). Only stdout (not stderr) is retained, and only when the program
@@ -48,17 +67,18 @@ pub(crate) fn lower_io_write_helper(
     // allocated into the return register (rax on x86), clobbering the pointer
     // before the grid path reads it — so save it here and restore the return
     // register for the fall-through (non-TUI) path.
-    let strobj_vreg = "%v31";
+    let strobj_vreg = vregs.next();
     let grid_target = if let Some(tso) = term_state_offset.filter(|_| !stderr) {
-        instructions.push(abi::move_register(strobj_vreg, abi::return_register()));
+        let v29 = vregs.next();
+        instructions.push(abi::move_register(&strobj_vreg, abi::return_register()));
         instructions.push(abi::load_u64(
-            "%v29",
+            &v29,
             ARENA_STATE_REGISTER,
             tso + TERM_STATE_ACTIVE_OFFSET,
         ));
-        instructions.push(abi::compare_immediate("%v29", "0"));
+        instructions.push(abi::compare_immediate(&v29, "0"));
         instructions.push(abi::branch_ne(&grid_path));
-        instructions.push(abi::move_register(abi::return_register(), strobj_vreg));
+        instructions.push(abi::move_register(abi::return_register(), &strobj_vreg));
         Some(tso)
     } else {
         None
@@ -70,13 +90,16 @@ pub(crate) fn lower_io_write_helper(
     if !stderr {
         let direct = format!("{symbol}_direct");
         let write_error = format!("{symbol}_write_error");
+        let v18 = vregs.next();
+        let v19 = vregs.next();
+        let v17 = vregs.next();
         instructions.extend([
-            abi::load_u64("%v18", ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
-            abi::compare_immediate("%v18", "0"),
+            abi::load_u64(&v18, ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
+            abi::compare_immediate(&v18, "0"),
             abi::branch_eq(&direct),
             // Capture the source pointer/length in vregs before any call clobbers x0.
-            abi::load_u64("%v19", abi::return_register(), 0),
-            abi::add_immediate("%v17", abi::return_register(), 8),
+            abi::load_u64(&v19, abi::return_register(), 0),
+            abi::add_immediate(&v17, abi::return_register(), 8),
         ]);
         emit_append_to_stdout_buffer(
             &mut EmitCtx {
@@ -86,17 +109,19 @@ pub(crate) fn lower_io_write_helper(
                 instructions: &mut instructions,
                 relocations: &mut relocations,
             },
-            "%v17",
-            "%v19",
+            &v17,
+            &v19,
             "line",
             &write_error,
+            &mut vregs,
         )?;
         if append_newline {
+            let v16 = vregs.next();
             instructions.extend([
-                abi::move_immediate("%v16", "Integer", "10"),
-                abi::store_u8("%v16", abi::stack_pointer(), 0),
-                abi::add_immediate("%v17", abi::stack_pointer(), 0),
-                abi::move_immediate("%v19", "Integer", "1"),
+                abi::move_immediate(&v16, "Integer", "10"),
+                abi::store_u8(&v16, abi::stack_pointer(), 0),
+                abi::add_immediate(&v17, abi::stack_pointer(), 0),
+                abi::move_immediate(&v19, "Integer", "1"),
             ]);
             emit_append_to_stdout_buffer(
                 &mut EmitCtx {
@@ -106,10 +131,11 @@ pub(crate) fn lower_io_write_helper(
                     instructions: &mut instructions,
                     relocations: &mut relocations,
                 },
-                "%v17",
-                "%v19",
+                &v17,
+                &v19,
                 "newline",
                 &write_error,
+                &mut vregs,
             )?;
         }
         instructions.extend([
@@ -132,14 +158,16 @@ pub(crate) fn lower_io_write_helper(
     // success. %v13/%v14 (cursor/remaining) are vregs, so the allocator spills them
     // across each `bl write` and reloads them afterward (compiler.md register
     // lifetimes) — the pointer/count are never read from a caller-saved register.
+    let v14 = vregs.next();
+    let v13 = vregs.next();
     instructions.extend([
-        abi::load_u64("%v14", abi::return_register(), 0),
-        abi::add_immediate("%v13", abi::return_register(), 8),
+        abi::load_u64(&v14, abi::return_register(), 0),
+        abi::add_immediate(&v13, abi::return_register(), 8),
         abi::label(&direct_loop),
-        abi::compare_immediate("%v14", "0"),
+        abi::compare_immediate(&v14, "0"),
         abi::branch_eq(&direct_written),
-        abi::move_register(abi::string_data_register(), "%v13"),
-        abi::move_register(abi::string_length_register(), "%v14"),
+        abi::move_register(abi::string_data_register(), &v13),
+        abi::move_register(abi::string_length_register(), &v14),
         abi::move_immediate(abi::return_register(), "Integer", fd_str),
     ]);
     platform.emit_write(
@@ -158,8 +186,8 @@ pub(crate) fn lower_io_write_helper(
         },
         abi::return_register(),
         write_uses_raw_syscall(platform),
-        "%v13",
-        "%v14",
+        &v13,
+        &v14,
         &direct_loop,
         &write_error,
     )?;
@@ -167,18 +195,19 @@ pub(crate) fn lower_io_write_helper(
     if append_newline {
         let newline_loop = format!("{symbol}_newline_loop");
         let newline_written = format!("{symbol}_newline_written");
+        let v9 = vregs.next();
         instructions.extend([
-            abi::move_immediate("%v9", "Integer", "10"),
-            abi::store_u64("%v9", abi::stack_pointer(), 8),
-            abi::add_immediate("%v13", abi::stack_pointer(), 8),
-            abi::move_immediate("%v14", "Integer", "1"),
+            abi::move_immediate(&v9, "Integer", "10"),
+            abi::store_u64(&v9, abi::stack_pointer(), 8),
+            abi::add_immediate(&v13, abi::stack_pointer(), 8),
+            abi::move_immediate(&v14, "Integer", "1"),
             // A 1-byte write cannot short-count positively, but a 0 return still
             // means the byte was not written — loop and treat 0/-1 as a failure.
             abi::label(&newline_loop),
-            abi::compare_immediate("%v14", "0"),
+            abi::compare_immediate(&v14, "0"),
             abi::branch_eq(&newline_written),
-            abi::move_register(abi::string_data_register(), "%v13"),
-            abi::move_register(abi::string_length_register(), "%v14"),
+            abi::move_register(abi::string_data_register(), &v13),
+            abi::move_register(abi::string_length_register(), &v14),
             abi::move_immediate(abi::return_register(), "Integer", fd_str),
         ]);
         platform.emit_write(
@@ -197,8 +226,8 @@ pub(crate) fn lower_io_write_helper(
             },
             abi::return_register(),
             write_uses_raw_syscall(platform),
-            "%v13",
-            "%v14",
+            &v13,
+            &v14,
             &newline_loop,
             &write_error,
         )?;
@@ -223,7 +252,7 @@ pub(crate) fn lower_io_write_helper(
         term_grid::emit_grid_write(
             symbol,
             tso,
-            strobj_vreg,
+            &strobj_vreg,
             append_newline,
             &mut instructions,
             &mut relocations,
@@ -303,9 +332,11 @@ pub(crate) fn lower_io_is_buffered_helper(symbol: &str, app_mode: bool) -> Helpe
     if app_mode {
         instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
     } else {
+        let mut vregs = Vregs::new();
+        let v0 = vregs.next();
         instructions.extend([
-            abi::load_u64("%v0", ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
-            abi::compare_immediate("%v0", "0"),
+            abi::load_u64(&v0, ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
+            abi::compare_immediate(&v0, "0"),
             abi::branch_ne(&yes),
             abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -336,6 +367,8 @@ pub(crate) fn lower_io_set_buffered_helper(symbol: &str, app_mode: bool) -> Help
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     if !app_mode {
+        let mut vregs = Vregs::new();
+        let v0 = vregs.next();
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_ne(&enable),
@@ -349,8 +382,8 @@ pub(crate) fn lower_io_set_buffered_helper(symbol: &str, app_mode: bool) -> Help
             abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
             abi::branch(&done),
             abi::label(&enable),
-            abi::move_immediate("%v0", "Integer", "1"),
-            abi::store_u64("%v0", ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
+            abi::move_immediate(&v0, "Integer", "1"),
+            abi::store_u64(&v0, ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
             abi::label(&done),
         ]);
     }
