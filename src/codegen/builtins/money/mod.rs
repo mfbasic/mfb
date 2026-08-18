@@ -12,7 +12,7 @@
 //! The three members lower inline (no runtime helper, no source body): each is a
 //! `Body::native(None, None, Some(lower_money_*))` intrinsic whose call-site
 //! lowering (in its `func_*.rs`, relocated from the former
-//! `src/target/shared/code/builder_money.rs`) reads/writes the arena rounding-mode
+//! `src/codegen/builtins/money/builder_money_math.rs`) reads/writes the arena rounding-mode
 //! field. `setRounding`/`getRounding` are infallible; `round` declares
 //! `ErrInvalidArgument` (a `decimals` outside `0..5`) and `ErrOverflow` (settling a
 //! near-maximum amount upward), a fallibility the inline-`TRAP` census now reads off

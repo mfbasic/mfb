@@ -1,4 +1,4 @@
-//! Split from `src/target/shared/code/codegen_utils.rs` (category `string.validate`).
+//! Split from `the retired flat codegen_utils.rs` (category `string.validate`).
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::operand::*;

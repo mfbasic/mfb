@@ -164,7 +164,7 @@ END FUNC
 ' unchanged, keeping the `.ir` goldens of every `collections`-importing fixture
 ' byte-identical except for the genuine `reduceRight` call-target change. See
 ' `lower_collection_reduce_right_call` in
-' `src/target/shared/code/builder_collection_queries.rs`.
+' `the retired flat collection-query helpers`.
 ' (line-span preserved: 9 comment lines + 1 blank == the removed 10-line body.)
 
 FUNC __collections_any OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Boolean

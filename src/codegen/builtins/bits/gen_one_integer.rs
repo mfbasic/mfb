@@ -2,7 +2,7 @@
 //!
 //! Consumed by `func_bnot`, `func_clz`/`ctz`, `func_pop_count`, and
 //! `func_bswap16`/`bswap32`/`bswap64`. Was a `CodeBuilder` method in the former
-//! `src/target/shared/code/builder_bits.rs`.
+//! `src/codegen/builtins/bits`.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;

@@ -1,4 +1,4 @@
-//! Split from `src/target/shared/code/native_helpers.rs` (category `error.emission`).
+//! Split from `the retired flat native_helpers.rs` (category `error.emission`).
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::types::*;

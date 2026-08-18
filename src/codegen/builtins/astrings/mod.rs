@@ -10,7 +10,7 @@
 //!   - `fromString` is **native-direct** codegen — `Body::Native` `common`, a thin
 //!     wrapper over the shared `AttributedString` carrier
 //!     (`CodeBuilder::lower_astrings_package_call` in
-//!     `src/target/shared/code/builder_astrings.rs`, kept in place like `vector`'s
+//!     `src/codegen/builtins/astrings/builder_astrings.rs`, kept in place like `vector`'s
 //!     SIMD carrier and `strings`' string carrier).
 //!   - the `Attribute`-model constructors (`bold`..`background`) and the Tier-C
 //!     mutation/query members (`addAttribute`..`toMarkdown`) are **source-companion

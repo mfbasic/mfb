@@ -1,7 +1,7 @@
 ' Source companion for the built-in `net` package: URL parsing and rendering.
 '
 ' Sockets, DNS, and UDP stay native (`src/builtins/net.rs`,
-' `src/target/shared/code/net.rs`); this file holds the pure string work — the
+' `src/codegen/builtins/net/native`); this file holds the pure string work — the
 ' `Url` value record and its `toUrl`/`toString` helpers — in the established
 ' source-package idiom (`json`/`csv`/`regex`). See src/docs/spec/stdlib/06_url.md
 ' (and src/docs/spec/stdlib/05_http.md).

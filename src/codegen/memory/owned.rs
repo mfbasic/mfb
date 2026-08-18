@@ -1,5 +1,5 @@
 //! The get-result owning copy. Moved out of
-//! `src/target/shared/code/builder_collection_queries.rs`. Shared beyond the
+//! `the retired flat collection-query helpers`. Shared beyond the
 //! collections package (`builder_control` materializes bound elements too), so it
 //! lives in the `codegen/memory` data tier. Reads the `borrow_get_result` flag
 //! through its accessor and copies via the shared `copy_flat_block` — both stay

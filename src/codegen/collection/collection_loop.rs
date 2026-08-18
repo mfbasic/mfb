@@ -1,6 +1,6 @@
 //! Packed-data loop-walk scaffolding: seed / load / free / advance a cursor over
 //! a `List`/`Map`'s entries (forward and reverse). Moved out of
-//! `src/target/shared/code/builder_collection_queries.rs`. Shared by the native
+//! `the retired flat collection-query helpers`. Shared by the native
 //! HOF/collection lowerings AND by destructor cleanup (`builder_owned_cleanup`),
 //! so it lives in the shared `codegen/memory` data tier, not under
 //! `builtins/collections`. Emit-only through `abi::`, so byte-identical to the

@@ -1,4 +1,4 @@
-//! Split from `src/target/shared/code/codegen_utils.rs` (category `engine.util`).
+//! Split from `the retired flat codegen_utils.rs` (category `engine.util`).
 
 // --- codegen tier imports (migration) ---
 use crate::arch::ops::CodeOp;

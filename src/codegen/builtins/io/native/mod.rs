@@ -19,7 +19,7 @@
 //! (plan-35-B) and the cooked-mode restore on `io.readLine`/`io.input` (bug-149).
 //!
 //! The emitters were the hand-written `lower_io_*_helper` bodies under the former
-//! `src/target/shared/code/{io_stdout,io_stdin,io_terminal}.rs`; they are relocated
+//! `src/codegen/io/{stdout,stdin,terminal}`; they are relocated
 //! here verbatim (byte-identical emission). Shared primitives they call
 //! (`emit_append_to_buffer`, `TerminalModeSlots`, `emit_stdin_next_byte`,
 //! `emit_configure_stdin_terminal`, …) stay in the shared code layer because other
@@ -44,7 +44,7 @@ use stdin::*;
 use stdout::*;
 use terminal::*;
 /// Family-generic OS-seam dispatcher for every `io` member — the verbatim `match
-/// call` block relocated from `src/target/shared/code/mod.rs`. Registered in both
+/// call` block relocated from `src/codegen/engine/builder/mod.rs`. Registered in both
 /// the `posix` and `win` slots of each member's `Body::native_os_seam`. Derives
 /// `app_mode`/`term_state_offset` from the per-compilation
 /// [`OsLowerCtx`](crate::codegen::registry::OsLowerCtx).

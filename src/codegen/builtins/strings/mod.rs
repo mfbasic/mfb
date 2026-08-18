@@ -2,7 +2,7 @@
 //!
 //! `strings` is a large, mostly-**native** package: 29 members
 //! (`trim`/`upper`/`split`/`join`/`padLeft`/…) lower through the shared string
-//! codegen carrier in `src/target/shared/code/builder_strings*` (kept in place like
+//! codegen carrier in `src/codegen/builtins/strings/builder_strings*` (kept in place like
 //! `vector`'s SIMD carrier), reached by the registry's `Body::Native` `common`
 //! slot; three (`find`/`mid`/`replace`) are `Body::Intrinsic`, sharing their bare
 //! native lowering with the `collections::` `List` overloads through

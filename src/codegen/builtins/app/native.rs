@@ -19,7 +19,7 @@
 //!
 //! The cross-package `ErrWrongMode` gate that fences `term::` / console-read `io::`
 //! helpers outside `Console` mode is NOT part of this package — it stays in the
-//! shared code layer (`src/target/shared/code/app.rs::prepend_wrong_mode_gate`),
+//! shared code layer (`src/codegen/app/hook/app.rs::prepend_wrong_mode_gate`),
 //! since it splices into other packages' helper bodies.
 
 // --- codegen tier imports (migration) ---

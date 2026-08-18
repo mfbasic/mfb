@@ -2,7 +2,7 @@
 //!
 //! Consumed by `func_band`/`bor`/`bxor`, `func_sl`/`sr`/`sra`, and
 //! `func_rl32`/`rr32`/`rl64`/`rr64`. Was a `CodeBuilder` method in the former
-//! `src/target/shared/code/builder_bits.rs`; the `abi::` register operands are
+//! `src/codegen/builtins/bits`; the `abi::` register operands are
 //! passed by value (`VirtualRegister` is `Copy`).
 
 // --- codegen tier imports (migration) ---

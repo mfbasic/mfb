@@ -2,7 +2,7 @@
 //! package (plan-96 follow-up: A1 code motion out of `src/target`).
 //!
 //! `emit_key_membership` was a `CodeBuilder` method in
-//! `src/target/shared/code/builder_collection_queries.rs`. The census in the git
+//! `the retired flat collection-query helpers`. The census in the git
 //! history of `planning/` classified it **A1** — its only callers are collection
 //! lowerings (`func_has_key`, `func_contains`, and the Set/Map membership paths
 //! in `builder_collection_queries.rs`). Membership is a Set's defining operation,

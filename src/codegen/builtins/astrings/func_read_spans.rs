@@ -3,7 +3,7 @@
 //! Never user-callable (`internal_only`): the source companion (`package.mfb`, an
 //! `internal` file) reads the opaque `AttributedString` attribute overlay through
 //! this native primitive; `resolver::resolution` rejects it from user source. The
-//! lowering stays SHARED in `src/target/shared/code/builder_astrings.rs`.
+//! lowering stays SHARED in `src/codegen/builtins/astrings/builder_astrings.rs`.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;

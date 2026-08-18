@@ -14,7 +14,7 @@
 //! bodies are injected from the companion source (`package.mfb`) as helper functions.
 //!
 //! The SIMD inline-lowering **carrier** stays shared in
-//! `src/target/shared/code/builder_vector_inline.rs` (the `VECTOR_NATIVE_MARKER`
+//! `src/codegen/builtins/vector/builder_vector_inline.rs` (the `VECTOR_NATIVE_MARKER`
 //! register-native side-table + `try_inline_vector_op`): it is a codegen-wide
 //! escape-boundary hook wired into `CodeBuilder`, not a per-call lowering, and it
 //! keys on the `#vector_<op>_<type>` rewrite targets this descriptor produces. Its

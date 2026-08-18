@@ -6,7 +6,7 @@
 //! so they live in the shared code layer rather than in the migrated `fs`
 //! package's `native/` dir (the plan-72 transitivity rule: a helper called by a
 //! non-`fs` function stays in `src/target`). Relocated verbatim from the former
-//! `src/target/shared/code/fs/io.rs`.
+//! `src/codegen/builtins/fs/native/io.rs`.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;

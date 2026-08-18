@@ -1,6 +1,6 @@
 //! `strings::displayWidth` — descriptor + native-lowering wrapper.
 //!
-//! The native lowering stays SHARED in `src/target/shared/code/builder_strings*`
+//! The native lowering stays SHARED in `src/codegen/builtins/strings/builder_strings*`
 //! (the string codegen carrier, kept in place like `vector`'s SIMD carrier); this
 //! thin wrapper points the registry's `Body::Native` `common` slot at the shared
 //! dispatcher `CodeBuilder::lower_strings_package_call`.

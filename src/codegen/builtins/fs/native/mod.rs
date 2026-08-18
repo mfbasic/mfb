@@ -4,7 +4,7 @@
 //! per-platform OS-seam runtime helper (`open`/`read`/`write`/`close`/`stat`/…)
 //! or, for the five `path*` string members, to a target-generic call-site
 //! lowering. These emitters were the hand-written `lower_fs_*_helper` bodies under
-//! the former `src/target/shared/code/fs/` and `builder_fs_paths.rs`; they are
+//! the former `src/codegen/builtins/fs/native/` and `builder_fs_paths.rs`; they are
 //! relocated here verbatim (byte-identical emission).
 //!
 //! The 36 syscall members share one family-generic dispatcher, [`lower_fs_helper`]
@@ -49,7 +49,7 @@ pub(crate) use shared::*;
 /// Family-generic OS-seam dispatcher for every syscall `fs` member. Registered in
 /// both the `posix` and `win` slots of each member's `Body::native`; the relocated
 /// `lower_fs_*_helper` emitters branch on `platform.family()` internally. This is
-/// the verbatim `match call` block relocated from `src/target/shared/code/mod.rs`.
+/// the verbatim `match call` block relocated from `src/codegen/engine/builder/mod.rs`.
 /// `fs` carries no build context, so the [`OsLowerCtx`](crate::codegen::registry::OsLowerCtx)
 /// is ignored.
 pub(crate) fn lower_fs_helper(

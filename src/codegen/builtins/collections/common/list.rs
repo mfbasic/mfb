@@ -1,7 +1,7 @@
 //! Target-generic list-retrieval primitives shared within the `collections`
 //! package (plan-96 follow-up: A1 code motion out of `src/target`).
 //!
-//! These were `CodeBuilder` methods in `src/target/shared/code/builder_collection_query.rs`.
+//! These were `CodeBuilder` methods in `the retired flat collection-query helpers`.
 //! The census in the git history of `planning/` classified them **A1** — only
 //! collection-domain callers (`func_get`/`func_get_or` and sibling collection
 //! lowerings), never anything outside the package — so they belong here beside

@@ -1,4 +1,4 @@
-//! Split from `src/target/shared/code/native_helpers.rs` (category `string.util`).
+//! Split from `the retired flat native_helpers.rs` (category `string.util`).
 
 // --- codegen tier imports (migration) ---
 /// Hex-encode `text` as a NUL-terminated C string payload (two hex digits per

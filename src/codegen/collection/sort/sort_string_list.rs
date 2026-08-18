@@ -1,4 +1,4 @@
-//! Split from `src/target/shared/code/codegen_utils.rs` (category `collection.sort`).
+//! Split from `the retired flat codegen_utils.rs` (category `collection.sort`).
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::types::*;

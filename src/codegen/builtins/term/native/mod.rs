@@ -28,7 +28,7 @@ use crate::codegen::app::hook::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 /// Family-generic OS-seam dispatcher for every `term` member — the verbatim term
-/// block relocated from `src/target/shared/code/mod.rs`. Registered in both the
+/// block relocated from `src/codegen/engine/builder/mod.rs`. Registered in both the
 /// `posix` and `win` slots of each member's `Body::native_os_seam`. Branches
 /// app-vs-console off the per-compilation
 /// [`OsLowerCtx`](crate::codegen::registry::OsLowerCtx).

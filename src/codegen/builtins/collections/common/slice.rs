@@ -7,7 +7,7 @@
 //! `emit_string_list_slice_block` is the String-list slice helper shared by the
 //! `chunks`/`window` String fast paths (`func_chunks` / `func_window`), so it
 //! lives here rather than in either. Moved out of
-//! `src/target/shared/code/builder_collection_queries.rs`; stays `impl CodeBuilder`
+//! `the retired flat collection-query helpers`; stays `impl CodeBuilder`
 //! methods (call sites unchanged).
 
 // --- codegen tier imports (migration) ---

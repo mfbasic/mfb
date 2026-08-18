@@ -23,7 +23,7 @@
 //! injected source by `get_mfb`, like `money`'s `Rounding` and `datetime`'s
 //! enums); there is no source companion. The cross-package `ErrWrongMode`
 //! presentation-mode gate that fences `term::` / console-read `io::` helpers stays
-//! in the shared code layer (`src/target/shared/code/app.rs`) — it is not part of
+//! in the shared code layer (`src/codegen/app/hook/app.rs`) — it is not part of
 //! this package.
 
 // --- codegen tier imports (migration) ---

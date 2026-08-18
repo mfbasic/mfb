@@ -1,4 +1,4 @@
-//! Split from `src/target/shared/code/native_helpers.rs` (category `memory.arena`).
+//! Split from `the retired flat native_helpers.rs` (category `memory.arena`).
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::operand::*;

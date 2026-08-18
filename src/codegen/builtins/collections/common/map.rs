@@ -1,7 +1,7 @@
 //! Target-generic map-retrieval primitives shared within the `collections`
 //! package (plan-96 follow-up: A1 code motion out of `src/target`).
 //!
-//! These were `CodeBuilder` methods in `src/target/shared/code/builder_collection_query.rs`.
+//! These were `CodeBuilder` methods in `the retired flat collection-query helpers`.
 //! The census in the git history of `planning/` classified them **A1** — their
 //! only callers are collection-domain lowerings (`func_get`/`func_get_or`, the
 //! map `set`/`hasKey`/mutate paths in `builder_collection_queries.rs`/

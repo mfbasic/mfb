@@ -1,6 +1,6 @@
 //! `astrings::fromString` — native-direct constructor (`Body::Native` `common`).
 //!
-//! The native lowering stays SHARED in `src/target/shared/code/builder_astrings.rs`
+//! The native lowering stays SHARED in `src/codegen/builtins/astrings/builder_astrings.rs`
 //! (the `AttributedString` codegen carrier, kept in place like `vector`'s SIMD
 //! carrier and `strings`' string carrier); this thin wrapper points the registry's
 //! `Body::Native` `common` slot at the shared dispatcher

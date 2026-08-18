@@ -2,7 +2,7 @@
 //!
 //! A NATIVE member: the OS-entropy CSPRNG. Its `Body::native` OS-seam slots point at
 //! [`super::native::lower_crypto_random_bytes`] (emission relocated from the former
-//! `src/target/shared/code/crypto.rs`), dispatched generically through
+//! `src/codegen/builtins/crypto/native`), dispatched generically through
 //! `registry::os_helper` and its runtime spec DERIVED by `registry::runtime_specs`.
 
 use super::{
