@@ -9,12 +9,12 @@
 //!     Makes the `bug-56` hand-picked-physical-register class a source lint on
 //!     top of the authoritative runtime guard `regalloc::find_physical_operand`.
 //!
-//!  2. `builtins_no_hand_picked_vreg` — a ratchet on hand-*numbered* virtual
-//!     registers (`"%v9"`, `"%f3"`) in `src/codegen/builtins`. These are legal
-//!     (they pass the physical guard) but they are hand-allocated register
-//!     identities, the exact style the minting migration (`temporary_vreg()` /
-//!     `allocate_register()`) exists to replace. The ratchet bans NEW ones and
-//!     forces the count monotonically toward 0.
+//!  2. `builtins_no_hand_picked_vreg` — bans hand-*numbered* virtual registers
+//!     (`"%v9"`, `"%f3"`) in `src/codegen/builtins`. These are legal (they pass
+//!     the physical guard) but they are hand-allocated register identities, the
+//!     exact style the minting migration (`temporary_vreg()` /
+//!     `allocate_register()`) replaced. The migration is complete, so the count
+//!     is a hard floor of 0: any new hand-numbered `"%vN"` fails the test.
 //!
 //! Both live in `tests/` (an integration-test crate) rather than inside the
 //! compiler's module tree, so neither the scan roots nor the self-exemption need
@@ -158,25 +158,6 @@ fn shared_lowering_names_no_physical_register() {
     );
 }
 
-/// The committed ratchet baseline: the number of hand-picked virtual-register
-/// literals (`"%vN"` / `"%fN"`) currently in `src/codegen/builtins`. **The
-/// migration is complete — this is now 0.** Every native OS-seam helper mints its
-/// scratch through `Vregs::next()` (standalone helpers) or `temporary_vreg()` /
-/// `allocate_register()` (CodeBuilder value lowerings), so the allocator owns
-/// placement. The ratchet is a hard floor: any new hand-numbered `"%vN"` reopens
-/// the class and fails this test. It must never be raised above 0.
-const HAND_PICKED_VREG_BASELINE: usize = 0;
-
-/// The ratchet ceiling for this run: the `VREG` environment variable when set to
-/// a valid number (e.g. `VREG=0 cargo test` to surface the full cleanup target,
-/// or a lower number to test-drive tightening), else the committed baseline.
-fn hand_picked_vreg_baseline() -> usize {
-    std::env::var("VREG")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(HAND_PICKED_VREG_BASELINE)
-}
-
 /// Count `"%vN"` / `"%fN"` literals (a quoted `%`, then `v`/`f`, then a digit).
 fn count_hand_picked_vregs(line: &str) -> usize {
     line.match_indices("\"%")
@@ -215,12 +196,15 @@ fn builtins_no_hand_picked_vreg() {
             }
         }
     }
-    let baseline = hand_picked_vreg_baseline();
-    assert!(
-        count <= baseline,
+    // The migration is complete: every native OS-seam helper mints its scratch
+    // through `Vregs::next()` (standalone helpers) or `temporary_vreg()` /
+    // `allocate_register()` (CodeBuilder value lowerings), so the allocator owns
+    // placement. This is a hard floor of 0 — any new hand-numbered `"%vN"`
+    // reopens the class and fails here.
+    assert_eq!(
+        count, 0,
         "hand-picked virtual-register literals in src/codegen/builtins: {count} \
-         exceeds the ratchet baseline {baseline}. New hand-numbered \
-         `\"%vN\"` are banned —\n \
+         (must be 0). New hand-numbered `\"%vN\"` are banned —\n \
          Mint via temporary_vreg()/temporary_fp_vreg()/allocate_register()/allocate_fp_register() so the \
          allocator owns placement. See builder_registers.rs. First offenders:\n{}",
         sample.join("\n")
