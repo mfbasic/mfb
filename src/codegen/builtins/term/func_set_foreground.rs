@@ -5,12 +5,13 @@
 //! generic OS-seam dispatch. The heavy terminal emission stays in the shared code
 //! layer (`code::lower_term_helper` / `emit_app_term_helper`).
 
+// --- codegen tier imports (migration) ---
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::types::ParameterType;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "setForeground",
         intro: "",

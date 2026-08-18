@@ -70,6 +70,6 @@ FUNC __crypto_sha2_32(data AS List OF Byte, iv AS List OF Integer, outBytes AS I
   RETURN __crypto_truncate(digest, outBytes)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_sha2_32", BODY));
 }

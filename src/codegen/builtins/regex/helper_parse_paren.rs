@@ -72,6 +72,6 @@ r#"FUNC __regex_parseParen(pat AS List OF String, n AS Integer, i AS Integer, fl
   FAIL error(77050003, "invalid regex")
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_parseParen", BODY));
 }

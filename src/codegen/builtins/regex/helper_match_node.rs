@@ -67,6 +67,6 @@ r#"FUNC __regex_matchNode(node AS __regex_Node, pos AS Integer, caps AS List OF 
   END MATCH
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_matchNode", BODY));
 }

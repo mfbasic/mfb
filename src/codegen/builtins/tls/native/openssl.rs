@@ -2,12 +2,13 @@
 //! write/close helpers and their OpenSSL machinery (see `super` for the
 //! shared emit helpers and `macos` for the Network.framework backend).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
 use std::collections::HashMap;
 
 use super::*;
 use crate::target::shared::abi;
-
-pub(super) fn lower_tls_connect_openssl(
+pub(crate) fn lower_tls_connect_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1002,7 +1003,7 @@ pub(super) fn lower_tls_connect_openssl(
 // tls.listen
 // ---------------------------------------------------------------------------
 
-pub(super) fn lower_tls_listen_openssl(
+pub(crate) fn lower_tls_listen_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1527,7 +1528,7 @@ pub(super) fn lower_tls_listen_openssl(
 // tls.accept
 // ---------------------------------------------------------------------------
 
-pub(super) fn lower_tls_accept_openssl(
+pub(crate) fn lower_tls_accept_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1956,7 +1957,7 @@ pub(super) fn lower_tls_accept_openssl(
 // tls.read / tls.readText
 // ---------------------------------------------------------------------------
 
-pub(super) fn lower_tls_read_openssl(
+pub(crate) fn lower_tls_read_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -2207,7 +2208,7 @@ pub(super) fn lower_tls_read_openssl(
 /// fallback carries the plan-73 timeout (sentinel→block, `<0`→invalid, `>0`→clamp
 /// `INT_MAX`, EINTR-retry — the `net::poll` policy). `x0` = sock record, `x1` =
 /// timeoutMs. Returns `Boolean`.
-pub(super) fn lower_tls_poll_openssl(
+pub(crate) fn lower_tls_poll_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -2385,7 +2386,7 @@ pub(super) fn lower_tls_poll_openssl(
 // tls.write / tls.writeText
 // ---------------------------------------------------------------------------
 
-pub(super) fn lower_tls_write_openssl(
+pub(crate) fn lower_tls_write_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -2526,7 +2527,7 @@ pub(super) fn lower_tls_write_openssl(
 // tls.close
 // ---------------------------------------------------------------------------
 
-pub(super) fn lower_tls_close_openssl(
+pub(crate) fn lower_tls_close_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -2687,7 +2688,7 @@ pub(super) fn lower_tls_close_openssl(
 // name stays `tls::close` — see plan-06-tls-server.md §4.1/§6.4)
 // ---------------------------------------------------------------------------
 
-pub(super) fn lower_tls_close_listener_openssl(
+pub(crate) fn lower_tls_close_listener_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -2797,8 +2798,8 @@ mod error_path_release_tests {
     // and so the alloc_fail cleanup is null/-1-guarded.
     use super::*;
     use crate::arch::ops::CodeOp;
-    use crate::target::shared::code::mir;
-    use crate::target::shared::code::test_support::{has_label, TestPlatform};
+    use crate::codegen::engine::mir;
+    use crate::codegen::engine::tests::{has_label, TestPlatform};
 
     fn reloc_count(rel: &[CodeRelocation], needle: &str) -> usize {
         rel.iter().filter(|r| r.to.contains(needle)).count()

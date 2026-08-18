@@ -46,6 +46,6 @@ FUNC __encoding_percentDecodeBytes(text AS String, plusSpace AS Boolean) AS Stri
   RETURN toString(result)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_percentDecodeBytes", BODY));
 }

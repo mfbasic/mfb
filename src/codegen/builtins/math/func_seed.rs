@@ -1,12 +1,12 @@
 //! `math::seed` — reseed this thread's PCG64 random generator.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType::{Integer, Nothing};
 
 use super::{overload, req};
-
 const INTRO: &str = r#"Reseed this thread's random generator."#;
 const DESC: &str = r#"`seed(value)` reseeds this thread's PCG64 generator so a subsequent sequence of
 `math::rand` draws is reproducible. It returns Nothing. Seeding is per-execution
@@ -23,7 +23,7 @@ END SUB
 
 const SEED_A: &[&str] = &["seed"];
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     let impls: Vec<Implementation> = vec![overload(
         vec![req("value", SEED_A, Integer)],
         Nothing,

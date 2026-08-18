@@ -21,6 +21,6 @@ r#"FUNC __encoding_base32Value(c AS Integer) AS Integer
   RETURN -1
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_base32Value", BODY));
 }

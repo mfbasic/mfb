@@ -24,6 +24,6 @@ FUNC __json_skipWhitespace(chars AS List OF String, index AS Integer) AS Integer
   RETURN at
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_skipWhitespace", BODY));
 }

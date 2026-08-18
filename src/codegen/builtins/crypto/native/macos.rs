@@ -3,14 +3,18 @@
 //! (no dispatch blocks, unlike the TLS backend). See the parent module for the
 //! wire-compatible key/signature encodings.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::memory::arena::*;
+use crate::codegen::memory::marshal::*;
+use crate::codegen::string::util::*;
 use std::collections::HashMap;
 
 use super::{call_fn, emit_build_byte_list, emit_fail, emit_read_byte_list, Curve, EcOp};
 use crate::target::shared::abi;
-use crate::target::shared::code::native_helpers::{
-    emit_data_address, emit_zero_guarded, hex_encode_cstring,
-};
-use crate::target::shared::code::*;
 
 impl Curve {
     /// Curve size in bits, passed as `kSecAttrKeySizeInBits` to SecKey.
@@ -333,7 +337,7 @@ fn build_dict2(
     Ok(())
 }
 
-pub(super) fn lower(
+pub(crate) fn lower(
     op: EcOp,
     curve: Curve,
     symbol: &str,
@@ -1272,8 +1276,8 @@ mod error_path_release_tests {
     // zeroing so they cannot silently regress.
     use super::*;
     use crate::arch::ops::CodeOp;
-    use crate::target::shared::code::mir;
-    use crate::target::shared::code::test_support::{has_label, TestPlatform};
+    use crate::codegen::engine::mir;
+    use crate::codegen::engine::tests::{has_label, TestPlatform};
 
     fn reloc_has(rel: &[CodeRelocation], needle: &str) -> bool {
         rel.iter().any(|r| r.to.contains(needle))

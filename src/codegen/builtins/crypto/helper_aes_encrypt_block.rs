@@ -26,6 +26,6 @@ FUNC __crypto_aesEncryptBlock(roundKeys AS List OF Byte, block AS List OF Byte) 
   RETURN s
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_aesEncryptBlock", BODY));
 }

@@ -72,7 +72,7 @@ r#"FUNC __regex_match(value AS String, pattern AS String) AS Boolean
   RETURN r.ok
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "match",
         intro: INTRO,

@@ -64,7 +64,7 @@ r#"FUNC __datetime_addDays(dt AS DateTime, days AS Integer) AS DateTime
   RETURN __datetime_civil(__datetime_civilFromDays(newDays), dt.time, dt.zone)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "addDays",
         intro: INTRO,

@@ -86,7 +86,7 @@ r#"FUNC __datetime_time(hour AS Integer, minute AS Integer, second AS Integer, n
   RETURN Time[hour, minute, second, nanos]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     use super::{Body, DefaultValue, Implementation, Parameter, ParameterType};
     // `second`/`nanos` are optional and default to `0`. They are `Fill` params, so
     // the generic `registry::default_argument_padding` injects the `("Integer","0")`

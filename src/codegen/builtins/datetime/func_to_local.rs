@@ -60,7 +60,7 @@ r#"FUNC __datetime_toLocal(at AS Instant) AS DateTime
   RETURN __datetime_inZone(at, __datetime_local())
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "toLocal",
         intro: INTRO,

@@ -13,12 +13,11 @@
 //! defining module moved. It delegates to the map probe/scan helpers now in
 //! [`super::map`] and the shared payload-compare branch in `src/target`.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::{
-    CodeBuilder, Operand, ValueResult, COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-    COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-};
-
 impl CodeBuilder<'_> {
     /// The shared Map/Set membership test: probe the FNV-1a bucket index for a
     /// probe-eligible key type, else linear-scan the entry keys, yielding a

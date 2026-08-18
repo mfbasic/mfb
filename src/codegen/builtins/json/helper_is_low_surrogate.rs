@@ -12,6 +12,6 @@ r#"FUNC __json_isLowSurrogate(value AS Integer) AS Boolean
   RETURN value >= 56320 AND value <= 57343
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_isLowSurrogate", BODY));
 }

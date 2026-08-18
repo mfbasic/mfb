@@ -2,10 +2,12 @@
 //! `net.poll` readiness checks and `net.setReadTimeout`/`net.setWriteTimeout`
 //! socket-option machinery. See the parent module for the shared emitters.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::target::shared::abi;
 use std::collections::HashMap;
 
 use super::*;
-
 // `EINTR_ERRNO` (bug-115) is defined once in `net/mod.rs` and reaches here via
 // the `use super::*` glob above; this module previously shadowed it with a
 // byte-identical local copy (bug-331 §I).
@@ -506,7 +508,7 @@ pub(crate) fn lower_net_set_timeout_helper(
     // above the shadow, not rdi (bug-384) — a garbage optlen makes
     // SO_RCVTIMEO/SNDTIMEO setsockopt fail. The shared helper spills it through
     // the outgoing-args sentinel; POSIX passes it in a register, byte-unchanged.
-    crate::target::shared::code::native_helpers::emit_external_int_call(
+    crate::codegen::os::ffi::emit_external_int_call(
         platform,
         net_symbol(platform, NetSymbol::SetSockOpt),
         symbol,

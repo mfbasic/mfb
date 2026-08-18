@@ -1,7 +1,9 @@
 use super::*;
-use crate::target::shared::code::{
-    CodeDataObject, CodeFrame, CodeFunction, CodeImport, NativeCodePlan,
-};
+use crate::codegen::engine::types::CodeDataObject;
+use crate::codegen::engine::types::CodeFrame;
+use crate::codegen::engine::types::CodeFunction;
+use crate::codegen::engine::types::CodeImport;
+use crate::codegen::engine::types::NativeCodePlan;
 use crate::target::NativeBuildMode;
 
 /// Encode a single function's instructions and return its text bytes.

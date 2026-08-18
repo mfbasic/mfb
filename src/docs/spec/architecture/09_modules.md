@@ -46,7 +46,7 @@ A map of the compiler's source modules and their responsibilities.
 | Runtime helper discovery[[src/target/shared/runtime/]] | Runtime helper discovery and helper ABI metadata. |
 | Native validation[[src/target/shared/validate/mod.rs]] | Native target, NIR, capability, and plan validation. |
 | Shared native plan[[src/target/shared/plan/]] | Shared native plan lowering. |
-| Shared native code generator[[src/target/shared/code/]] | Shared native code-plan lowering (directory module with builder submodules). |
+| Shared native code generator[[src/codegen/]] | Shared native code-plan lowering (directory module with builder submodules). |
 | macOS aarch64 backend[[src/target/macos_aarch64/]] | macOS aarch64 backend wrappers and platform behavior (AppKit app mode included). |
 | Linux aarch64 backend[[src/target/linux_aarch64/]] | Linux aarch64 backend wrappers and platform behavior. |
 | Linux x86-64 backend[[src/target/linux_x86_64/]] | Linux x86-64 backend wrappers and platform behavior. |
@@ -60,7 +60,7 @@ A map of the compiler's source modules and their responsibilities.
 | Linux flavor selection[[src/os/linux/flavor.rs]] | Linux flavor enumeration (glibc/musl) and suffix/interpreter selection. |
 | Linux ELF linker[[src/os/linux/link/]] | ELF object planning and executable writing. |
 | Linux ELF object planning[[src/os/linux/object.rs]] | ELF container layout planning. |
-| Built-in help text[[src/docs/man/]] | Built-in package/function help text. |
+| Built-in help text[[src/codegen/registry]] | Built-in package/function help text. |
 | Embedded specification[[src/docs/spec/]] | Embedded language/architecture specification (`mfb spec`). |
 | Diagnostic display[[src/rules/]] | Diagnostic display support. |
 | Numeric helpers[[src/numeric.rs]] | Numeric parsing and representation helpers. |

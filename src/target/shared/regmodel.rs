@@ -2,13 +2,13 @@
 //! hoisted out of `arch::aarch64::regmodel`).
 //!
 //! Formalizes the register facts the ISA-neutral allocator core
-//! (`crate::target::shared::code::regalloc`) queries: which physical registers
+//! (`crate::codegen::engine::regalloc`) queries: which physical registers
 //! exist, which class each belongs to, the caller/callee-saved partition per
 //! class, and the spill/reload/move emitters. Each backend supplies its own
 //! implementation (`Aarch64RegisterModel`, `X86RegisterModel`,
 //! `Riscv64RegisterModel`) without touching the core.
 
-use crate::target::shared::code::CodeInstruction;
+use crate::codegen::engine::types::CodeInstruction;
 
 /// The two register classes the allocator distinguishes. On AArch64 the
 /// floating-point/SIMD class is one physical file (`d_n` ⊂ `v_n`).

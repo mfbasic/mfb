@@ -1,13 +1,14 @@
 //! `bits::bor` — bitwise OR of two 64-bit integers.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTRO: &str = r#"Bitwise OR of two 64-bit integers."#;
 const DESC: &str = r#"`bor` returns the bitwise OR of `a` and `b`, computed independently across all
 64 bit positions: bit *i* of the result is `1` when bit *i* is `1` in either
@@ -47,7 +48,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "bor",
         intro: INTRO,

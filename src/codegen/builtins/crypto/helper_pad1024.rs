@@ -26,6 +26,6 @@ FUNC __crypto_pad1024(data AS List OF Byte) AS List OF Byte
   RETURN msg
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_pad1024", BODY));
 }

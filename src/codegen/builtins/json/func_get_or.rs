@@ -97,7 +97,7 @@ r#"FUNC __json_getOr(value AS Json, path AS List OF String, defaultValue AS Json
   RETURN current
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "getOr",
         intro: INTRO,

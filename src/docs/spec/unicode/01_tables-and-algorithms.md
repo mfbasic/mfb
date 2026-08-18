@@ -14,12 +14,12 @@ There are two distinct table consumers, which must not be confused:
   string argument, the compiler evaluates it in-process using the Rust crates
   `unicode_segmentation`, `unicode_normalization`, and `unicode_casefold`, and
   the result is baked in as a literal. No table lookup happens at runtime.
-  [[src/target/shared/code/builder_strings_package.rs:static_strings_package_string]]
+  [[src/codegen/builtins/strings/builder_strings_package.rs:static_strings_package_string]]
   [[src/unicode/backend.rs:graphemes]]
 - **Runtime tables.** When the argument is dynamic, the compiler emits code that
   performs a two-stage property lookup and the algorithms below against the
   embedded tables. The tables are derived from utf8proc, not from those Rust
-  crates. [[src/target/shared/code/private/unicode.rs:emit_unicode_property_lookup]]
+  crates. [[src/codegen/string/unicode_props.rs:emit_unicode_property_lookup]]
 
 The string memory model these routines operate on (UTF-8 length-prefixed heap
 values) is `./mfb spec unicode strings-model`. Per-function `strings::` API
@@ -70,8 +70,8 @@ load the stage-1 entry, add `cp & 0xFF`, scale by 2, load the stage-2 entry,
 multiply by the 12-byte record size, and add to the base of the properties
 table. The result register holds a pointer to the live `PackedProperty` record;
 individual fields are then read with `load_u16` at fixed offsets.
-[[src/target/shared/code/private/unicode.rs:emit_unicode_property_lookup]]
-[[src/target/shared/code/private/unicode.rs:emit_unicode_property_u16]]
+[[src/codegen/string/unicode_props.rs:emit_unicode_property_lookup]]
+[[src/codegen/string/unicode_props.rs:emit_unicode_property_u16]]
 
 Reference table sizes (asserted by tests): stage1 = 4352 u16, stage2 = 46336
 u16, properties = 8385 records, combinations = 961 entries each.
@@ -101,7 +101,7 @@ shrank the record from 24 to 12 bytes (~82 KB off the 8385-record table in every
 unicode-using binary) and eliminated the trailing zero-pad `u16`. The
 compiler-side offset constants are a parallel definition of the same layout and
 must stay in sync with how `PackedProperty` is encoded.
-[[src/target/shared/code/private/unicode.rs:UNICODE_PROPERTY_SIZE]]
+[[src/codegen/string/unicode_props.rs:UNICODE_PROPERTY_SIZE]]
 
 `flags` is a bitfield packed from four utf8proc booleans plus the display-width
 fields (plan-70-A):
@@ -164,7 +164,7 @@ Each entry is the `NfdEntry` record, serialized little-endian as **16 bytes**
 
 [[src/unicode/runtime_tables.rs:NfdEntry]]
 [[src/unicode/runtime_tables.rs:nfd_entries_hex]]
-[[src/target/shared/code/private/unicode.rs:UNICODE_NFD_ENTRY_SIZE]]
+[[src/codegen/string/unicode_props.rs:UNICODE_NFD_ENTRY_SIZE]]
 
 `sequence_offset` is a u32 index into the corresponding flattened sequences
 table (each element a u32 codepoint); `sequence_length` is the element count.
@@ -173,7 +173,7 @@ by the 16-byte record stride (`<< 4`), with a `not_found` exit that returns
 length 0. On a hit it scales `sequence_offset` by 4 to a byte address into the
 sequences table. The same helper serves NFD and all three case maps; only the
 entries/sequences symbols and the entry count differ.
-[[src/target/shared/code/private/unicode.rs:emit_unicode_u32_mapping_lookup]]
+[[src/codegen/string/unicode_props.rs:emit_unicode_u32_mapping_lookup]]
 
 ## Embedding: data objects and symbols
 
@@ -190,8 +190,8 @@ coarse NIR usage heuristic remains only as a fallback that emits the full set
 should unicode use be detected with no table relocation named (practically
 unreachable). Each table's bytes come from a hex serializer; sizes and
 alignments are fixed per table (u16 tables align 2, u32 / record tables align
-4). [[src/target/shared/code/data_objects.rs:unicode_runtime_data_objects]]
-[[src/target/shared/code/module_analysis.rs:module_uses_unicode_runtime_tables]]
+4). [[src/codegen/memory/data/data_objects.rs:unicode_runtime_data_objects]]
+[[src/codegen/engine/analysis/module_analysis.rs:module_uses_unicode_runtime_tables]]
 
 | Symbol (`_mfb_unicode_*`)        | Element / record       | Align |
 |----------------------------------|------------------------|-------|
@@ -206,12 +206,12 @@ alignments are fixed per table (u16 tables align 2, u32 / record tables align
 | `lowercase_entries` / `_sequences` | 16-byte record / u32 | 4     |
 | `casefold_entries` / `_sequences`  | 16-byte record / u32 | 4     |
 
-[[src/target/shared/code/error_constants.rs:UNICODE_STAGE1_SYMBOL]]
+[[src/codegen/error/constants/error_constants.rs:UNICODE_STAGE1_SYMBOL]]
 
 The emitter reads each table's `.len()` from `unicode::runtime_tables::tables()`
 to compute object sizes; the runtime helpers likewise pass `tables().*.len()` as
 the binary-search entry count, so embedded data and emitted code share one source
-of truth. [[src/target/shared/code/private/unicode.rs:emit_unicode_u32_mapping_lookup]]
+of truth. [[src/codegen/string/unicode_props.rs:emit_unicode_u32_mapping_lookup]]
 
 ## Runtime algorithm: UTF-8 codec
 
@@ -227,8 +227,8 @@ lookup in-bounds regardless of caller discipline; on a valid `String` the
 substitution never fires. `emit_utf8_encoded_width` computes a scalar's encoded
 width (thresholds 0x80 / 0x800 / 0x10000), and `emit_utf8_encode_next` writes
 1–4 bytes and advances the cursor.
-[[src/target/shared/code/private/unicode.rs:emit_utf8_decode_next]]
-[[src/target/shared/code/private/unicode.rs:emit_utf8_encode_next]]
+[[src/codegen/string/unicode_props.rs:emit_utf8_decode_next]]
+[[src/codegen/string/unicode_props.rs:emit_utf8_encode_next]]
 
 ## Runtime algorithm: grapheme segmentation
 
@@ -238,32 +238,32 @@ maintaining a two-field state machine — `state_bc` (boundclass) and `state_icb
 (Indic conjunct break) — and for each new scalar looks up `boundclass` and
 `indic_conjunct_break` from the property record, then asks two helpers: whether
 to break before this scalar, and how to fold it into the running state.
-[[src/target/shared/code/builder_strings_builtins.rs:lower_strings_graphemes]]
+[[src/codegen/builtins/strings/builder_strings_builtins.rs:lower_strings_graphemes]]
 
 `emit_grapheme_break_branch` is the boundary decision, encoding the UAX #29 rules
 in order: GB3 (CR×LF no-break), GB4/GB5 (control boundaries), GB6/GB7/GB8 (Hangul
 L/V/T jamo sequences), GB9/GB9a (Extend, ZWJ, SpacingMark, Prepend),
 GB11 (emoji ZWJ sequence: E_ZWG × Extended_Pictographic), GB12/GB13 (regional
 indicator pairing), and GB9c (Indic linker conjunct: a linker state followed by
-a consonant does not break). [[src/target/shared/code/private/unicode.rs:emit_grapheme_break_branch]]
+a consonant does not break). [[src/codegen/string/unicode_props.rs:emit_grapheme_break_branch]]
 
 `emit_grapheme_state_update` advances the state machine after a no-break: it
 tracks the Indic conjunct chain (consonant → linker → consonant transitions) and
 promotes the boundclass for emoji ZWJ sequences (Extended_Pictographic + Extend
 stays pictographic; + ZWJ becomes E_ZWG) and resets regional-indicator pairing.
-[[src/target/shared/code/private/unicode.rs:emit_grapheme_state_update]]
+[[src/codegen/string/unicode_props.rs:emit_grapheme_state_update]]
 
 The compiled cluster boundary classes are integer constants matching utf8proc's
 `UTF8PROC_BOUNDCLASS_*` numbering (e.g. CR=2, LF=3, CONTROL=4, EXTEND=5, L=6 …
 ZWJ=14, EXTENDED_PICTOGRAPHIC=19, E_ZWG=20) and conjunct-break values
-(LINKER=1, CONSONANT=2, EXTEND=3). [[src/target/shared/code/private/unicode.rs:GRAPHEME_BOUNDCLASS_CR]]
+(LINKER=1, CONSONANT=2, EXTEND=3). [[src/codegen/string/unicode_props.rs:GRAPHEME_BOUNDCLASS_CR]]
 [[src/unicode/runtime_tables.rs:boundclass_value]]
 
 ## Runtime algorithm: NFD and NFC normalization
 
 `strings::normalizeNfc` performs full NFD-then-recompose in five passes over a
 scalar buffer. NFD on its own is the first three passes.
-[[src/target/shared/code/builder_strings_builtins.rs:lower_strings_normalize_nfc]]
+[[src/codegen/builtins/strings/builder_strings_builtins.rs:lower_strings_normalize_nfc]]
 
 1. **Count + allocate.** Decode each scalar, look it up in the NFD mapping table,
    and sum the decomposed lengths (or 1 for scalars with no entry) to size a
@@ -281,13 +281,13 @@ scalar buffer. NFD on its own is the first three passes.
    `comb_index`/`comb_length` and the current scalar's `COMB_IS_SECOND` flag —
    and on success overwrites the starter in place and drops the combined scalar.
    The combining-class blocking rule prevents composing across a same/greater
-   combining class. [[src/target/shared/code/private/unicode.rs:emit_hangul_composition_attempt]]
+   combining class. [[src/codegen/string/unicode_props.rs:emit_hangul_composition_attempt]]
 5. **Encode.** Compute the composed byte length, arena-allocate the length-
    prefixed result string, and UTF-8-encode the composed scalars.
 
 NFC composition therefore reads `combining_class`, `comb_index`, `comb_length`,
 and the `COMB_IS_SECOND` flag from property records, plus the two combinations
-tables and the NFD mapping tables. [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_normalize_nfc]]
+tables and the NFD mapping tables. [[src/codegen/builtins/strings/builder_strings_builtins.rs:lower_strings_normalize_nfc]]
 
 ## Runtime algorithm: case folding and upper/lower casing
 
@@ -298,8 +298,8 @@ the output (summing the encoded widths of each scalar's mapped sequence, or the
 scalar's own width when there is no mapping entry), then arena-allocates the
 result and a writing pass that re-decodes, re-looks-up, and UTF-8-encodes either
 the mapped sequence or the original scalar. A zero-length lookup result means
-"identity" (no mapping). [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_case_map]]
-[[src/target/shared/code/builder_strings_package.rs:UnicodeCaseMap]]
+"identity" (no mapping). [[src/codegen/builtins/strings/builder_strings_builtins.rs:lower_strings_case_map]]
+[[src/codegen/builtins/strings/builder_strings_package.rs:UnicodeCaseMap]]
 
 All three maps are full (sequence-valued), so multi-scalar expansions like
 `ß → ss` (uppercase) and Turkish-dotted-I lowering are handled by the flattened
@@ -310,7 +310,7 @@ Every two-pass allocator (case mapping, NFC, `graphemes`) asserts at the end of
 its writing pass that the write cursor landed exactly on the byte length the
 counting pass allocated; a count/write divergence — which would otherwise be a
 silent heap overflow — faults deterministically instead.
-[[src/target/shared/code/builder_error_emission.rs:emit_write_cursor_assert]]
+[[src/codegen/error/emission/builder_error_emission.rs:emit_write_cursor_assert]]
 
 ## See Also
 

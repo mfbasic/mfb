@@ -12,6 +12,6 @@ r#"FUNC __crypto_pbkdf2Sha256_text(password AS String, salt AS List OF Byte, ite
   RETURN __crypto_pbkdf2Sha256_bytes(strings::toBytes(password), salt, iterations, length)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_pbkdf2Sha256_text", BODY));
 }

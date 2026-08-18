@@ -2,7 +2,7 @@
 //! (write/flush/input/terminal-size/set-color/attr/move/clear/cursor) (plan-11 split).
 
 use super::*;
-use crate::target::shared::code::AppHookBody;
+use crate::codegen::engine::builder::AppHookBody;
 
 /// App-mode body for `io.print`/`io.write`/`io.printError`/`io.writeError`. The
 /// runtime helper receives the MFBASIC string object in `x0` (`{u64 len; bytes}`)
@@ -48,7 +48,7 @@ pub(crate) fn emit_app_io_write_helper(
         asm.push(abi::load_u64(
             abi::SCRATCH[0],
             TERM_ARENA_STATE_REG,
-            off + code::TERM_STATE_ACTIVE_OFFSET,
+            off + crate::codegen::error::constants::TERM_STATE_ACTIVE_OFFSET,
         ));
         asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 56)); // string object
         asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
@@ -349,32 +349,37 @@ pub(crate) fn emit_app_term_on_helper(symbol: &str, term_state_offset: usize) ->
     store_term_state(
         &mut asm,
         term_state_offset,
-        code::TERM_STATE_ACTIVE_OFFSET,
+        crate::codegen::error::constants::TERM_STATE_ACTIVE_OFFSET,
         "1",
     );
     store_term_state(
         &mut asm,
         term_state_offset,
-        code::TERM_STATE_FG_OFFSET,
+        crate::codegen::error::constants::TERM_STATE_FG_OFFSET,
         "16777215",
     );
-    store_term_state(&mut asm, term_state_offset, code::TERM_STATE_BG_OFFSET, "0");
     store_term_state(
         &mut asm,
         term_state_offset,
-        code::TERM_STATE_BOLD_OFFSET,
+        crate::codegen::error::constants::TERM_STATE_BG_OFFSET,
         "0",
     );
     store_term_state(
         &mut asm,
         term_state_offset,
-        code::TERM_STATE_UNDERLINE_OFFSET,
+        crate::codegen::error::constants::TERM_STATE_BOLD_OFFSET,
         "0",
     );
     store_term_state(
         &mut asm,
         term_state_offset,
-        code::TERM_STATE_CURSOR_VISIBLE_OFFSET,
+        crate::codegen::error::constants::TERM_STATE_UNDERLINE_OFFSET,
+        "0",
+    );
+    store_term_state(
+        &mut asm,
+        term_state_offset,
+        crate::codegen::error::constants::TERM_STATE_CURSOR_VISIBLE_OFFSET,
         "1",
     );
 
@@ -477,7 +482,7 @@ pub(crate) fn emit_app_term_off_helper(symbol: &str, term_state_offset: usize) -
     asm.push(abi::load_u64(
         abi::SCRATCH[0],
         TERM_ARENA_STATE_REG,
-        term_state_offset + code::TERM_STATE_ACTIVE_OFFSET,
+        term_state_offset + crate::codegen::error::constants::TERM_STATE_ACTIVE_OFFSET,
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_eq("term_off_done"));
@@ -558,7 +563,7 @@ pub(crate) fn emit_app_term_off_helper(symbol: &str, term_state_offset: usize) -
     store_term_state(
         &mut asm,
         term_state_offset,
-        code::TERM_STATE_ACTIVE_OFFSET,
+        crate::codegen::error::constants::TERM_STATE_ACTIVE_OFFSET,
         "0",
     );
 
@@ -596,25 +601,25 @@ pub(crate) fn emit_app_term_helper(
         "term.setForeground" => emit_app_set_color(
             symbol,
             term_state_offset,
-            code::TERM_STATE_FG_OFFSET,
+            crate::codegen::error::constants::TERM_STATE_FG_OFFSET,
             TV_CUR_FG_OFFSET,
         ),
         "term.setBackground" => emit_app_set_color(
             symbol,
             term_state_offset,
-            code::TERM_STATE_BG_OFFSET,
+            crate::codegen::error::constants::TERM_STATE_BG_OFFSET,
             TV_CUR_BG_OFFSET,
         ),
         "term.setBold" => emit_app_set_attr(
             symbol,
             term_state_offset,
-            code::TERM_STATE_BOLD_OFFSET,
+            crate::codegen::error::constants::TERM_STATE_BOLD_OFFSET,
             TV_CUR_BOLD_OFFSET,
         ),
         "term.setUnderline" => emit_app_set_attr(
             symbol,
             term_state_offset,
-            code::TERM_STATE_UNDERLINE_OFFSET,
+            crate::codegen::error::constants::TERM_STATE_UNDERLINE_OFFSET,
             TV_CUR_UNDERLINE_OFFSET,
         ),
         "term.moveTo" => emit_app_move_to(symbol, term_state_offset),
@@ -752,7 +757,7 @@ fn emit_term_active_gate(asm: &mut Asm, term_state_offset: usize, done: &str) {
     asm.push(abi::load_u64(
         abi::SCRATCH[0],
         TERM_ARENA_STATE_REG,
-        term_state_offset + code::TERM_STATE_ACTIVE_OFFSET,
+        term_state_offset + crate::codegen::error::constants::TERM_STATE_ACTIVE_OFFSET,
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_eq(done));
@@ -1078,9 +1083,9 @@ fn emit_app_draw_line(symbol: &str, term_state_offset: usize, is_horizontal: boo
     // fall-through default. The table is chosen at emit time (this body is emitted
     // separately for drawHLine and drawVLine).
     let table: &[u32; 7] = if is_horizontal {
-        &code::TERM_HLINE_CODEPOINTS
+        &crate::codegen::error::constants::TERM_HLINE_CODEPOINTS
     } else {
-        &code::TERM_VLINE_CODEPOINTS
+        &crate::codegen::error::constants::TERM_VLINE_CODEPOINTS
     };
     let gdone = format!("{symbol}_gdone");
     asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 32)); // ordinal
@@ -1230,12 +1235,36 @@ fn emit_app_draw_box(symbol: &str, term_state_offset: usize) -> AppHookBody {
     // so `ord`/`dst` stay stable).
     asm.push(abi::load_u64(ord, abi::stack_pointer(), 32));
     let glyphs: [(&[u32; 7], usize, &str); 6] = [
-        (&code::TERM_HLINE_CODEPOINTS, TV_BOX_HG_OFFSET, "hg"),
-        (&code::TERM_VLINE_CODEPOINTS, TV_BOX_VG_OFFSET, "vg"),
-        (&code::TERM_CORNER_TL_CODEPOINTS, TV_BOX_CTL_OFFSET, "tl"),
-        (&code::TERM_CORNER_TR_CODEPOINTS, TV_BOX_CTR_OFFSET, "tr"),
-        (&code::TERM_CORNER_BL_CODEPOINTS, TV_BOX_CBL_OFFSET, "bl"),
-        (&code::TERM_CORNER_BR_CODEPOINTS, TV_BOX_CBR_OFFSET, "br"),
+        (
+            &crate::codegen::error::constants::TERM_HLINE_CODEPOINTS,
+            TV_BOX_HG_OFFSET,
+            "hg",
+        ),
+        (
+            &crate::codegen::error::constants::TERM_VLINE_CODEPOINTS,
+            TV_BOX_VG_OFFSET,
+            "vg",
+        ),
+        (
+            &crate::codegen::error::constants::TERM_CORNER_TL_CODEPOINTS,
+            TV_BOX_CTL_OFFSET,
+            "tl",
+        ),
+        (
+            &crate::codegen::error::constants::TERM_CORNER_TR_CODEPOINTS,
+            TV_BOX_CTR_OFFSET,
+            "tr",
+        ),
+        (
+            &crate::codegen::error::constants::TERM_CORNER_BL_CODEPOINTS,
+            TV_BOX_CBL_OFFSET,
+            "bl",
+        ),
+        (
+            &crate::codegen::error::constants::TERM_CORNER_BR_CODEPOINTS,
+            TV_BOX_CBR_OFFSET,
+            "br",
+        ),
     ];
     for (table, off, tag) in glyphs {
         emit_app_select_unichar(&mut asm, ord, dst, table, &format!("{symbol}_box_{tag}"));
@@ -1326,7 +1355,7 @@ fn emit_app_fill_rect(symbol: &str, term_state_offset: usize) -> AppHookBody {
         &mut asm,
         ord,
         dst,
-        &code::TERM_FILL_CODEPOINTS,
+        &crate::codegen::error::constants::TERM_FILL_CODEPOINTS,
         &format!("{symbol}_fill"),
     );
     asm.push(abi::store_u64(dst, abi::LOCAL[2], TV_FILL_GLYPH_OFFSET));
@@ -1546,7 +1575,7 @@ fn emit_app_set_cursor_visible(symbol: &str, term_state_offset: usize, value: &s
     asm.push(abi::store_u64(
         abi::SCRATCH[0],
         TERM_ARENA_STATE_REG,
-        term_state_offset + code::TERM_STATE_CURSOR_VISIBLE_OFFSET,
+        term_state_offset + crate::codegen::error::constants::TERM_STATE_CURSOR_VISIBLE_OFFSET,
     ));
     emit_get_tv_state(&mut asm, abi::LOCAL[1], &done);
     asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", value));
@@ -1587,7 +1616,7 @@ fn emit_app_terminal_size(symbol: &str, term_state_offset: usize) -> AppHookBody
     asm.push(abi::load_u64(
         abi::SCRATCH[0],
         TERM_ARENA_STATE_REG,
-        term_state_offset + code::TERM_STATE_ACTIVE_OFFSET,
+        term_state_offset + crate::codegen::error::constants::TERM_STATE_ACTIVE_OFFSET,
     ));
     asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_eq(&unsupported));

@@ -29,6 +29,6 @@ FUNC __crypto_chacha20(key AS List OF Byte, nonce AS List OF Byte, counter AS In
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_chacha20", BODY));
 }

@@ -12,6 +12,6 @@ r#"FUNC __encoding_percentByte(c AS Integer) AS String
   RETURN "%" & strings::upper(__encoding_hexDigit(c / 16) & __encoding_hexDigit(c - (c / 16) * 16))
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_percentByte", BODY));
 }

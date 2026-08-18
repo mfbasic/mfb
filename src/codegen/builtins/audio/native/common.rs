@@ -5,13 +5,13 @@
 //! a private copy of all three; they now live here and both backends import
 //! them.
 
+// --- codegen tier imports (migration) ---
 use super::*;
 use crate::target::shared::abi;
-
 /// The runtime queries a backend answers about a live stream: bytes available,
 /// a blocking poll, a timed poll, and the xrun (over/underrun) counter.
 #[derive(Clone, Copy)]
-pub(super) enum Query {
+pub(crate) enum Query {
     Available,
     Poll,
     PollTimeout,
@@ -26,12 +26,12 @@ const BUF_MAX: &str = "8192";
 
 /// Upper bound on a single `audio::read(frames)` request (plan-33-A §3.5),
 /// shared by both backends' read paths.
-pub(super) const READ_FRAMES_MAX: &str = "1048576";
+pub(crate) const READ_FRAMES_MAX: &str = "1048576";
 
 /// Validate `openOutput`/`openInput` scalar parameters (sampleRate at `sr_off`,
 /// channels at `ch_off`, bufferFrames at `bf_off`, each an sp-relative slot),
 /// branching to `invalid` (→ ErrInvalidArgument) on any §3.5 violation.
-pub(super) fn emit_validate_open(
+pub(crate) fn emit_validate_open(
     symbol: &str,
     sr_off: usize,
     ch_off: usize,

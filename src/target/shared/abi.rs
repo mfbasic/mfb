@@ -1,4 +1,7 @@
-use crate::target::shared::code::{AbiConvention, AbiRole, CodeInstruction, Operand};
+use crate::codegen::engine::operand::AbiConvention;
+use crate::codegen::engine::operand::AbiRole;
+use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::types::CodeInstruction;
 
 // There is deliberately no per-helper clobber list here: every internal
 // `bl _mfb_*` runtime call destroys the entire caller-saved integer file
@@ -180,7 +183,7 @@ pub(crate) const LR: &str = "lr";
 /// allocation on every ISA (`RegisterModel::arena_base`). The neutral MIR token;
 /// each backend's selection realizes it (AArch64 `x19`, RISC-V `s11`, x86-64
 /// `r15`). Never `"x19"`. (plan-34-A)
-pub(crate) const ARENA: &str = crate::target::shared::code::mir::ARENA_BASE;
+pub(crate) const ARENA: &str = crate::codegen::engine::mir::ARENA_BASE;
 
 // --- neutral `%`-sentinel call-boundary tokens ---
 //

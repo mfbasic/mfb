@@ -37,6 +37,6 @@ FUNC __encoding_baseEncode(data AS List OF Byte, alphabet AS String, bitsPer AS 
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_baseEncode", BODY));
 }

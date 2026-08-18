@@ -1,6 +1,7 @@
 use super::*;
 use crate::arch::ops::CodeOp;
-use crate::target::shared::code::{CodeInstruction, Operand};
+use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::types::CodeInstruction;
 
 #[test]
 fn instruction_size_expands_large_stack_and_memory_immediates() {
@@ -950,13 +951,13 @@ fn shift_immediate_out_of_range_errors() {
 fn plan_fn(
     symbol: &str,
     instructions: Vec<CodeInstruction>,
-) -> crate::target::shared::code::CodeFunction {
-    crate::target::shared::code::CodeFunction {
+) -> crate::codegen::engine::types::CodeFunction {
+    crate::codegen::engine::types::CodeFunction {
         name: symbol.to_string(),
         symbol: symbol.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),
-        frame: crate::target::shared::code::CodeFrame {
+        frame: crate::codegen::engine::types::CodeFrame {
             stack_size: 0,
             callee_saved: Vec::new(),
         },
@@ -967,12 +968,12 @@ fn plan_fn(
 }
 
 fn plan(
-    functions: Vec<crate::target::shared::code::CodeFunction>,
-    data_objects: Vec<crate::target::shared::code::CodeDataObject>,
-    imports: Vec<crate::target::shared::code::CodeImport>,
+    functions: Vec<crate::codegen::engine::types::CodeFunction>,
+    data_objects: Vec<crate::codegen::engine::types::CodeDataObject>,
+    imports: Vec<crate::codegen::engine::types::CodeImport>,
     entry: Option<&str>,
-) -> crate::target::shared::code::NativeCodePlan {
-    crate::target::shared::code::NativeCodePlan {
+) -> crate::codegen::engine::types::NativeCodePlan {
+    crate::codegen::engine::types::NativeCodePlan {
         target: "linux-aarch64".to_string(),
         build_mode: crate::target::NativeBuildMode::Console,
         arch: "aarch64".to_string(),
@@ -990,8 +991,8 @@ fn data_obj(
     value: &str,
     align: usize,
     size: usize,
-) -> crate::target::shared::code::CodeDataObject {
-    crate::target::shared::code::CodeDataObject {
+) -> crate::codegen::engine::types::CodeDataObject {
+    crate::codegen::engine::types::CodeDataObject {
         symbol: symbol.to_string(),
         kind: kind.to_string(),
         layout: "bytes".to_string(),
@@ -1102,7 +1103,7 @@ fn encode_carries_imports_as_functions() {
     let image = super::encode(&plan(
         vec![func],
         Vec::new(),
-        vec![crate::target::shared::code::CodeImport {
+        vec![crate::codegen::engine::types::CodeImport {
             library: "libc".to_string(),
             symbol: "puts".to_string(),
         }],

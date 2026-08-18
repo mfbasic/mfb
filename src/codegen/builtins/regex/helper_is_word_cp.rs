@@ -30,6 +30,6 @@ r#"FUNC __regex_isWordCp(cp AS Integer, cat AS String) AS Boolean
   RETURN FALSE
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_isWordCp", BODY));
 }

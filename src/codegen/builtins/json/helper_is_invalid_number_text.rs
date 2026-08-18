@@ -24,6 +24,6 @@ r#"FUNC __json_isInvalidNumberText(value AS String) AS Boolean
   RETURN FALSE
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_isInvalidNumberText", BODY));
 }

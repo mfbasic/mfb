@@ -2,7 +2,7 @@
 //!
 //! Per-member file (planning/migrate.md). `os` is a native OS-seam package: the
 //! member registers a `Body::native` whose per-family slots both hold the shared
-//! [`super::lower_os_helper`] dispatcher (which branches on `platform.family()`
+//! [`crate::codegen::builtins::os::native::lower_os_helper`] dispatcher (which branches on `platform.family()`
 //! and the runtime-call name internally).
 
 use crate::codegen::registry::{
@@ -49,7 +49,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "getEnv",
         intro: INTRO,
@@ -69,8 +69,8 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::String,
             errors: vec![],
             body: Body::native(
-                Some(super::lower_os_helper),
-                Some(super::lower_os_helper),
+                Some(crate::codegen::builtins::os::native::lower_os_helper),
+                Some(crate::codegen::builtins::os::native::lower_os_helper),
                 None,
             ),
         }],

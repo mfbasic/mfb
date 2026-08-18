@@ -673,38 +673,19 @@ mod tests {
     /// passing (bug-336-S3). The floor is now an exact-ish lower bound on the
     /// whole corpus rather than a number the legacy half alone could satisfy.
     fn documented_builtins() -> Vec<String> {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/docs/man/builtins");
+        // Man rendering became registry-driven (the Markdown `src/docs/man`
+        // corpus was retired), so enumerate the builtin members from the clean-
+        // room registry — the source of truth the man pages are now generated
+        // from — rather than a directory of pages.
         let mut names = Vec::new();
-        for package in std::fs::read_dir(&root).expect("man builtins dir") {
-            let package = package.expect("package dir").path();
-            let Some(package_name) = package.file_name().and_then(|name| name.to_str()) else {
-                continue;
-            };
-            if !package.is_dir() {
-                continue;
-            }
-            for page in std::fs::read_dir(&package).expect("package dir") {
-                let page = page.expect("man page").path();
-                if !matches!(
-                    page.extension().and_then(|ext| ext.to_str()),
-                    Some("txt") | Some("md")
-                ) {
-                    continue;
-                }
-                let Some(function) = page.file_stem().and_then(|name| name.to_str()) else {
-                    continue;
-                };
-                // `package.md` is the package overview, not a function page, and
-                // `types.md` is a package's consolidated type page.
-                if matches!(function, "package" | "types") {
-                    continue;
-                }
-                names.push(format!("{package_name}.{function}"));
+        for package in crate::codegen::registry::registry().packages() {
+            for function in package.functions() {
+                names.push(format!("{}.{}", package.import_name(), function.name));
             }
         }
         assert!(
-            names.len() > 400,
-            "expected the full builtin man corpus, got {} pages",
+            names.len() > 100,
+            "expected the registry builtin corpus, got {} members",
             names.len()
         );
         names

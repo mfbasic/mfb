@@ -20,11 +20,13 @@
 //! primitives, …), which remain in `src/target` — the accepted temporary
 //! `codegen -> target` edge until the memory tier moves.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::{collection_payload_alignment_for_code, list_element_type};
+use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::{
-    collection_payload_alignment_for_code, list_element_type,
-};
-use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
 impl CodeBuilder<'_> {
     /// Shared body of `append`/`prepend`: insert a single item at one end of a
@@ -762,7 +764,7 @@ impl CodeBuilder<'_> {
     /// NO second copy pass, and NO fresh-map overhead (vs `lower_map_remove_key`).
     /// The removed entry's key/value bytes are left as DATA slack (shifted entries
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn emit_copy_one_map_entry(
+    pub(crate) fn emit_copy_one_map_entry(
         &mut self,
         source_entry: impl Into<Operand>,
         source_data: impl Into<Operand>,

@@ -93,7 +93,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     // Arity-dispatched: 2 args -> `__datetime_parse2`, 3 args (trailing `zone`) ->
     // `__datetime_parse3`. `select` picks by arity and yields the right rewrite.
     pkg.add_function(super::RegistryFunction {

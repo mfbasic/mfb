@@ -7,8 +7,8 @@
 
 use crate::arch::riscv64::regmodel::Riscv64RegisterModel;
 use crate::arch::riscv64::select::select_riscv64;
-use crate::target::shared::code::mir::{Backend, MirInstruction};
-use crate::target::shared::code::CodeInstruction;
+use crate::codegen::engine::mir::{Backend, MirInstruction};
+use crate::codegen::engine::types::CodeInstruction;
 use crate::target::shared::regmodel::RegisterModel;
 
 static RISCV64_MODEL: Riscv64RegisterModel = Riscv64RegisterModel;
@@ -40,7 +40,7 @@ impl Backend for Riscv64Backend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::target::shared::code::mir::lower_to_mir;
+    use crate::codegen::engine::mir::lower_to_mir;
 
     #[test]
     fn backend_selects_and_reports_model_and_padding() {

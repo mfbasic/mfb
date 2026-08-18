@@ -6,7 +6,7 @@ use super::sizing::{
     next_add_sub_chunk, MAX_ADD_SUB_CHUNKS,
 };
 use super::*;
-use crate::target::shared::code::RelocIntent;
+use crate::codegen::engine::types::RelocIntent;
 
 pub(super) struct Encoder {
     pub(super) text: Vec<u8>,

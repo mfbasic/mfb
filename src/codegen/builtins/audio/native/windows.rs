@@ -27,11 +27,16 @@
 //! (it fast-fails on the test box). The fallback is a last resort, recorded in
 //! `W_SHARED`; there is no buffer-alignment retry.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::error::emission::*;
+use crate::codegen::memory::arena::*;
+use crate::codegen::os::ffi::*;
 use std::collections::HashMap;
 
 use super::*;
 use crate::target::shared::abi;
-
 // --- COM / WASAPI constants -------------------------------------------------
 const CLSCTX_ALL: &str = "23"; // INPROC_SERVER|INPROC_HANDLER|LOCAL_SERVER|REMOTE_SERVER
 const COINIT_MULTITHREADED: &str = "0";
@@ -161,7 +166,7 @@ fn guid_object(name: &str, size: usize, bytes: &str) -> CodeDataObject {
 
 /// The read-only GUIDs the COM calls reference. First three fields little-endian,
 /// last eight bytes big-endian — Windows GUID byte order.
-pub(super) fn data_objects() -> Vec<CodeDataObject> {
+pub(crate) fn data_objects() -> Vec<CodeDataObject> {
     vec![
         // CLSID_MMDeviceEnumerator {BCDE0395-E52F-467C-8E3D-C4579291692E}
         guid_object(
@@ -261,7 +266,7 @@ fn spill_obj(field: usize, ins: &mut Vec<CodeInstruction>) {
     ]);
 }
 
-pub(super) fn lower_audio_windows(
+pub(crate) fn lower_audio_windows(
     call: &str,
     symbol: &str,
     platform_imports: &HashMap<String, String>,

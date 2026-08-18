@@ -1,14 +1,14 @@
 //! `collections::removeAt` — descriptor entry + target-generic lowering (plan-96).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::list_element_type;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::list_element_type;
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTO_REMOVE_AT: &str = "Return a list with the element at a given index removed";
 const DESC_REMOVE_AT: &str = r#"`collections::removeAt` returns a new list containing every element of `value`
 except the one at `index`, with the elements above `index` shifted down by one to
@@ -76,7 +76,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "removeAt",
         intro: INTO_REMOVE_AT,

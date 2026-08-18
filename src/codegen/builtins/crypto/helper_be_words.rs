@@ -21,6 +21,6 @@ FUNC __crypto_beWords(data AS List OF Byte) AS List OF Integer
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_beWords", BODY));
 }

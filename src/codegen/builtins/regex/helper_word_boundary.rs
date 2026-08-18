@@ -20,6 +20,6 @@ r#"FUNC __regex_wordBoundary(pos AS Integer, ctx AS __regex_Ctx) AS Boolean
   RETURN before <> after
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_wordBoundary", BODY));
 }

@@ -7,16 +7,19 @@
 //! descriptor, those entry fns, and the
 //! docs.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
 use std::collections::HashMap;
 
+use crate::codegen::error::emission::emit_fail;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::native_helpers::emit_fail;
-use crate::target::shared::code::*;
 use crate::types::ParameterType;
-
 const INTRO: &str = r#"Deliver a cross-platform signal bucket to a child process."#;
 const DESC: &str = r#"`process::signal` delivers one of the four `Signal` buckets to the child behind a
 `Process` handle. The bucket abstracts over platform signal numbers so the same
@@ -50,7 +53,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "signal",
         intro: INTRO,

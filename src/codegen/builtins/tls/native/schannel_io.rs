@@ -182,7 +182,7 @@ fn emit_verify_hostname(
 #[cfg(test)]
 mod verify_hostname_tests {
     use super::*;
-    use crate::target::shared::code::test_support::TestPlatform;
+    use crate::codegen::engine::tests::TestPlatform;
     use crate::arch::ops::CodeOp;
     use std::collections::HashMap;
 
@@ -247,7 +247,7 @@ mod verify_hostname_tests {
 // ---------------------------------------------------------------------------
 // write: EncryptMessage each chunk, send [header][data][trailer].
 // ---------------------------------------------------------------------------
-pub(super) fn lower_tls_write(
+pub(crate) fn lower_tls_write(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,

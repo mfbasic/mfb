@@ -4,7 +4,7 @@
 //! AppKit bootstrap and the pthread worker shim. `_main` runs on the process
 //! main thread (AppKit's required home), creates the `NSApplication` and a
 //! window via the Objective-C runtime, spawns a worker thread that runs the
-//! standard MFBASIC program entry ([`code::MACAPP_PROGRAM_SYMBOL`]), then runs
+//! standard MFBASIC program entry ([`crate::codegen::error::constants::MACAPP_PROGRAM_SYMBOL`]), then runs
 //! the AppKit event loop.
 //!
 //! All Objective-C interaction goes through the public runtime functions
@@ -21,10 +21,15 @@ use bootstrap::*;
 use term_view::*;
 
 use crate::arch::aarch64::abi;
-use crate::target::shared::code::{
-    self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation,
-    Operand, PresentationMode, RelocIntent,
-};
+use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::types::AppEntrySpec;
+use crate::codegen::engine::types::CodeDataObject;
+use crate::codegen::engine::types::CodeFrame;
+use crate::codegen::engine::types::CodeFunction;
+use crate::codegen::engine::types::CodeInstruction;
+use crate::codegen::engine::types::CodeRelocation;
+use crate::codegen::engine::types::PresentationMode;
+use crate::codegen::engine::types::RelocIntent;
 
 const MAIN_SYMBOL: &str = "_main";
 const WORKER_SYMBOL: &str = "_mfb_macapp_worker";
@@ -670,7 +675,7 @@ impl Asm {
 
 /// Emit the macOS app-mode `_main` bootstrap plus the worker shim. The standard
 /// program entry is emitted separately by the shared lowering under
-/// [`code::MACAPP_PROGRAM_SYMBOL`].
+/// [`crate::codegen::error::constants::MACAPP_PROGRAM_SYMBOL`].
 pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunction>, String> {
     let mut functions = vec![
         emit_main_bootstrap(spec.initial_mode),
@@ -721,7 +726,7 @@ pub(crate) fn emit_reconcile_seam(
 ) {
     instructions.push(abi::load_u64(
         abi::mfb_arg(0),
-        code::ARENA_STATE_REGISTER,
+        crate::codegen::error::constants::ARENA_STATE_REGISTER,
         presentation_mode_offset,
     ));
     instructions.push(abi::branch_link(RECONCILE_MARSHAL_SYMBOL));

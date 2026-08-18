@@ -57,7 +57,7 @@ r#"FUNC __datetime_toNanos(at AS Instant) AS Integer
   RETURN at.seconds * 1000000000 + at.nanos
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "toNanos",
         intro: INTRO,

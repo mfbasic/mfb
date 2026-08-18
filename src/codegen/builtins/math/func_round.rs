@@ -1,10 +1,10 @@
 //! `math::round` — round half away from zero, exiting to `Integer`.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
 use crate::codegen::registry::RegistryPackage;
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType::{Fixed, Float, Money};
-
 const INTRO: &str = r#"Round to the nearest whole number, half away from zero."#;
 const DESC: &str = r#"`round` returns the nearest integer to `value`, rounding halves away from zero. It
 accepts `Float`, `Fixed`, and `Money` and returns `Integer` (a deliberate dimension
@@ -19,7 +19,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     super::rounding(
         "round",
         INTRO,

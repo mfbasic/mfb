@@ -13,6 +13,6 @@ FUNC __crypto_m32() AS Integer
   RETURN 4294967295
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_m32", BODY));
 }

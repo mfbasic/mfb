@@ -21,6 +21,6 @@ FUNC __crypto_aesAddRoundKey(state AS List OF Byte, roundKeys AS List OF Byte, r
   RETURN s
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_aesAddRoundKey", BODY));
 }

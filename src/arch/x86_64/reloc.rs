@@ -16,7 +16,7 @@
 //! The `*Hi` intents map to the same kinds for totality, but `select_x86` never
 //! emits them (it produces a single reference, not a page pair).
 
-use crate::target::shared::code::RelocIntent;
+use crate::codegen::engine::types::RelocIntent;
 
 /// The concrete x86-64 reloc kind a neutral [`RelocIntent`] realizes as, used by
 /// the x86 encoder when it materializes a `call`/`lea`/GOT-load relocation and

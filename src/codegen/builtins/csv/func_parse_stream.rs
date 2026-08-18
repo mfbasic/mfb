@@ -49,7 +49,7 @@ r#"FUNC __csv_parseStream(value AS String, delimiter AS String, quote AS String)
   RETURN CsvReader[chars, len(chars), 0, __csv_firstCode(delimiter), __csv_firstCode(quote)]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "parseStream",
         intro: INTRO,

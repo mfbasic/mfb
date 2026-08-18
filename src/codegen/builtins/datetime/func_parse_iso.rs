@@ -127,7 +127,7 @@ r#"FUNC __datetime_parseIso(value AS String) AS DateTime
   RETURN DateTime[d, t, __datetime_fixedOffset1(off.value), off.value]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "parseIso",
         intro: INTRO,

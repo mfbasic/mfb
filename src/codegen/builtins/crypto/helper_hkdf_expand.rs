@@ -24,6 +24,6 @@ FUNC __crypto_hkdfExpand(prk AS List OF Byte, info AS List OF Byte, length AS In
   RETURN __crypto_truncate(okm, length)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_hkdfExpand", BODY));
 }

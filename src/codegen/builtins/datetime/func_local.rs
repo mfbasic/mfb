@@ -71,7 +71,7 @@ r#"FUNC __datetime_local AS Zone
   RETURN Zone[0, 2, "Local"]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "local",
         intro: INTRO,

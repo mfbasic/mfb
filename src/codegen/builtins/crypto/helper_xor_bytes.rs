@@ -22,6 +22,6 @@ FUNC __crypto_xorBytes(a AS List OF Byte, b AS List OF Byte) AS List OF Byte
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_xorBytes", BODY));
 }

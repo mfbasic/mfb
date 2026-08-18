@@ -13,11 +13,15 @@
 //! rather than reading an uninitialized stack qword (bug-42). The portable
 //! calendar math that consumes these lives in `datetime_package.mfb`.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::memory::data::*;
 use std::collections::HashMap;
 
 use crate::target::shared::abi;
-use crate::target::shared::code::*;
-
 // Frame layout (16-aligned). `LOCALS_SIZE` is the size of this locals region,
 // which `finalize_vreg_body_with_locals` rounds to 16 and reserves; the vreg
 // frame owns saving the link register, not a slot named here.

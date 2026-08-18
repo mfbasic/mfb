@@ -1,13 +1,13 @@
 //! `collections::values` — descriptor entry + target-generic lowering (plan-96).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::map_type_parts;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::code::type_utils::map_type_parts;
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTO_VALUES: &str = "Return a map's values as a list.";
 const DESC_VALUES: &str = r#"`collections::values` builds a new `List OF V` holding the value of every entry
 in `value`. It walks the map's lookup-entry table front to back, copying each
@@ -76,7 +76,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "values",
         intro: INTO_VALUES,

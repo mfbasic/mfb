@@ -1,7 +1,7 @@
 //! `os::resourcePath` — descriptor entry + authored docs.
 //!
 //! Per-member file (planning/migrate.md). **This is the one `os` member that
-//! consumes per-compilation build context**: the shared [`super::lower_os_helper`]
+//! consumes per-compilation build context**: the shared [`crate::codegen::builtins::os::native::lower_os_helper`]
 //! dispatcher threads the real `build_mode`/`module_name` (the strip/suffix
 //! selection baked into the resource-base offset) into its `os.resourcePath` arm
 //! (`native::lower_resource_path`), exactly as the legacy `os::lower_os_helper`
@@ -54,7 +54,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "resourcePath",
         intro: INTRO,
@@ -73,8 +73,8 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::String,
             errors: vec![],
             body: Body::native(
-                Some(super::lower_os_helper),
-                Some(super::lower_os_helper),
+                Some(crate::codegen::builtins::os::native::lower_os_helper),
+                Some(crate::codegen::builtins::os::native::lower_os_helper),
                 None,
             ),
         }],

@@ -15,7 +15,7 @@ behind that API.
 `Json` is an exported `UNION` of six exported single-field record types, one per
 JSON value kind. Each variant wraps its payload in a named record rather than
 storing it bare, so a `Json` is always a tagged record value.
-[[src/codegen/builtins/json/package.mfb:Json]]
+[[src/codegen/builtins/json/mod.rs:Json]]
 
 | Variant | Record field | MFBASIC type | Represents |
 | --- | --- | --- | --- |
@@ -43,7 +43,7 @@ JSON has a single numeric type and the model follows: every number — integral 
 fractional — is stored in `JsonNum.value` as a 64-bit `Float`. There is no
 `JsonInt`. Parsing converts the lexed numeric token to `Float` via `toFloat`;
 out-of-range or unparseable tokens fail (see grammar).
-[[src/codegen/builtins/json/package.mfb:__json_parseNumber]]
+[[src/codegen/builtins/json/helper_parse_number.rs:__json_parseNumber]]
 
 ## AST injection (front-end seam)
 
@@ -104,20 +104,20 @@ Notable parse rules and deviations:
   *before* `toFloat` conversion. The exponent marker accepts both `e` and `E`; a
   leading `0` may not be followed by more integer digits; a fraction requires at
   least one digit after `.`; an exponent requires at least one digit.
-  [[src/codegen/builtins/json/package.mfb:__json_validNumber]]
+  [[src/codegen/builtins/json/helper_valid_number.rs:__json_validNumber]]
 - **Strings**: raw control characters (code points `< 32`) inside a string are
   rejected. Escapes decode `\" \\ \/ \b \f \n \r \t` and `\uXXXX`. A `\u` high
   surrogate (`U+D800`–`U+DBFF`) must be immediately followed by `\u` and a low
   surrogate (`U+DC00`–`U+DFFF`), combined into one astral code point; a lone or
   mismatched surrogate fails. Hex digits accept both cases.
-  [[src/codegen/builtins/json/package.mfb:__json_parseUnicodeEscape]]
+  [[src/codegen/builtins/json/helper_parse_unicode_escape.rs:__json_parseUnicodeEscape]]
 - Sibling array items and object members are accumulated iteratively, but each
   level of structural *nesting* is a recursive call, so nesting depth would
   otherwise be bounded only by the runtime call stack. Because MFBASIC has no
   tail-call optimization, an adversarially deep document would overflow that stack
   and crash the process, so the parser caps structural nesting at an explicit fixed
   depth (256 levels of arrays and objects combined) and rejects anything deeper
-  with `77050003`. [[src/codegen/builtins/json/package.mfb:__json_parseValue]]
+  with `77050003`. [[src/codegen/builtins/json/helper_parse_value.rs:__json_parseValue]]
 
 ## Stringify output form
 
@@ -147,7 +147,7 @@ decimal point). Otherwise the value is rendered with 9 fractional digits and the
 trailing zeros — and a trailing `.` — are trimmed by `__json_trimFloatText`. NaN
 and ±infinity (`"nan"`, `"-nan"`, `"inf"`, `"-inf"`) are rejected with error
 `77050003`, since JSON has no representation for them.
-[[src/codegen/builtins/json/package.mfb:__json_stringifyNumber]]
+[[src/codegen/builtins/json/helper_stringify_number.rs:__json_stringifyNumber]]
 
 ### String escaping
 
@@ -157,7 +157,7 @@ and ±infinity (`"nan"`, `"-nan"`, `"inf"`, `"-inf"`) are rejected with error
 (code point `< 32`) is emitted as a `\u00XX` escape; all other characters pass
 through unchanged (non-ASCII is left as raw UTF-8, not `\u`-escaped). Note the
 solidus `/` is always escaped on output even though it is optional in JSON.
-[[src/codegen/builtins/json/package.mfb:__json_escapeString]]
+[[src/codegen/builtins/json/helper_escape_string.rs:__json_escapeString]]
 
 ## Path-based access: `get` / `getOr`
 

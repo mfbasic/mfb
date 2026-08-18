@@ -19,6 +19,6 @@ FUNC __csv_fieldValue(chars AS List OF Integer, buf AS List OF Integer, wasQuote
   RETURN __csv_decodeRange(chars, fieldStart, index)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("csv_fieldValue", BODY));
 }

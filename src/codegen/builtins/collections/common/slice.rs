@@ -10,11 +10,14 @@
 //! `src/target/shared/code/builder_collection_queries.rs`; stays `impl CodeBuilder`
 //! methods (call sites unchanged).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::list_element_type;
+use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::list_element_type;
-use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
-
 impl CodeBuilder<'_> {
     /// plan-39 A4: intercept the internal `#collections_slice$T` helper and lower
     /// it as a native contiguous-range copy. The only callers are the window/chunks
@@ -48,7 +51,7 @@ impl CodeBuilder<'_> {
     /// offset — correct for every element type. `start`/`stop` are clamped to
     /// `[0, count]` so an out-of-range index can never read past the source block
     /// (the live callers always pass valid ranges).
-    pub(super) fn lower_list_slice_range(
+    pub(crate) fn lower_list_slice_range(
         &mut self,
         args: &[NirValue],
         element_type: &str,

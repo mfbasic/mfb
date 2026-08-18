@@ -34,7 +34,7 @@ The trailing NUL byte is a native helper convenience and is not part of the
 logical string length. A `String` object's total allocation size is therefore
 `byteLength + 9` (the 8-byte length word plus the bytes plus the NUL); this same
 `+9` formula sizes a `String` block inlined into a record or collection
-(`emit_inlined_block_size_from_ptr_slot`). [[src/target/shared/code/builder_collection_layout.rs:emit_inlined_block_size_from_ptr_slot]]
+(`emit_inlined_block_size_from_ptr_slot`). [[src/codegen/collection/layout/builder_collection_layout.rs:emit_inlined_block_size_from_ptr_slot]]
 
 ## Record
 
@@ -63,7 +63,7 @@ stores, by field type:
   offset into the data region, exactly like a `String`. The field read recovers
   `recordBase + offset`, and because the inlined block's own offsets are relative
   to that same base, a whole-block `memcpy` deep-copies the entire tree. A field is
-  inlined into the data region iff it is a `String` or a flat composite. [[src/target/shared/code/builder_collection_layout.rs:record_field_is_inlined]]
+  inlined into the data region iff it is a `String` or a flat composite. [[src/codegen/collection/layout/builder_collection_layout.rs:record_field_is_inlined]]
 - **non-flat composite** — a **resource** `Union`, a `List`/`Map` carrying a
   resource or recursive payload, a non-flat `Result`, or a nested record that is
   not (or cannot be) flat (e.g. one on a type cycle): an 8-byte **pointer** to a
@@ -80,7 +80,7 @@ separate allocation. The built-in helper-
 constructed `net::` records `Address`, `Datagram`, and `DatagramText` are
 **excluded**: their `String`/sub-record fields remain pointers to separate
 allocations (the socket helpers build them that way), so reads of those records
-do not rebase. [[src/target/shared/code/builder_collection_layout.rs:type_is_flat]]
+do not rebase. [[src/codegen/collection/layout/builder_collection_layout.rs:type_is_flat]]
 
 ## `Error` and `ErrorLoc`
 
@@ -101,7 +101,7 @@ Error                              ErrorLoc
 OOM-degraded error with no origin) is represented by an **offset-0 sentinel**
 (offset 0 can never address a real inlined block, since the data region starts at
 24); `emit_load_error_fields` maps it back to a null pointer when loading the
-fallible-call ABI registers. [[src/target/shared/code/builder_error_emission.rs:emit_load_error_fields]] Construction, field access, copy, and
+fallible-call ABI registers. [[src/codegen/error/emission/builder_error_emission.rs:emit_load_error_fields]] Construction, field access, copy, and
 thread-transfer reuse the generic flat-record machinery — copying an `Error` is
 one `memcpy`.
 
@@ -110,7 +110,7 @@ own offset word and skips the field when that word is 0, rather than assuming
 every inlined sub-block is present at the running offset. An origin-less `Error`
 is `{code, message}` with nothing written past the message, so the running-offset
 assumption sized a phantom `ErrorLoc` out of whatever followed the block — and
-freeing that error handed `arena_free` a garbage size (bug-371). [[src/target/shared/code/builder_collection_layout.rs:emit_record_block_size_to_slot]]
+freeing that error handed `arena_free` a garbage size (bug-371). [[src/codegen/collection/layout/builder_collection_layout.rs:emit_record_block_size_to_slot]]
 
 ## `Result`
 
@@ -211,7 +211,7 @@ carries `RESOURCE_TAG_NATIVE`:
 | 10  | `RESOURCE_TAG_PROCESS`      | child `Process`                     |
 | 255 | `RESOURCE_TAG_NATIVE`       | imported / native `LINK` resource   |
 
-[[src/target/shared/code/error_constants.rs:RESOURCE_TAG_FILE]]
+[[src/codegen/error/constants/error_constants.rs:RESOURCE_TAG_FILE]]
 
 The type-specific tail (offsets 32+) differs per backend; every kind shares the
 `0..32` header and the closed-default covers the widest layout. `—` is an inert
@@ -261,7 +261,7 @@ individual bits (a moved record is flagged `moved|closed` = 3). A closed-default
 record is 96 zeroed bytes with this word set to 1. Compile-time asserts tie every
 per-backend resource layout to the header offsets, so a future resource whose
 `closed`/`STATE` slot drifts fails to build.
-[[src/target/shared/code/error_constants.rs:RESOURCE_RECORD_SIZE_BYTES]] [[src/target/shared/code/error_constants.rs:RESOURCE_OFFSET_TAG]] [[src/target/shared/code/error_constants.rs:RESOURCE_OFFSET_CLOSED]] [[src/target/shared/code/error_constants.rs:RESOURCE_OFFSET_STATE]] [[src/target/shared/code/error_constants.rs:RESOURCE_MOVED_BIT]]
+[[src/codegen/error/constants/error_constants.rs:RESOURCE_RECORD_SIZE_BYTES]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_TAG]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_CLOSED]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_OFFSET_STATE]] [[src/codegen/error/constants/error_constants.rs:RESOURCE_MOVED_BIT]]
 
 Every pointer to a resource shares the one record, and therefore shares the `state`
 pointer. Scope-drop reclaims the two buffers and the `STATE` payload but leaves

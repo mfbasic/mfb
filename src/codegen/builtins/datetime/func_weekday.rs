@@ -68,7 +68,7 @@ r#"FUNC __datetime_weekday(dt AS DateTime) AS Weekday
   RETURN Weekday.Sunday
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "weekday",
         intro: INTRO,

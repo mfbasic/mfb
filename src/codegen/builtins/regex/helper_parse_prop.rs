@@ -36,6 +36,6 @@ FUNC __regex_parseProp(pat AS List OF String, n AS Integer, i AS Integer, neg AS
   RETURN __regex_PropParse[canon, neg, i + 1]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_parseProp", BODY));
 }

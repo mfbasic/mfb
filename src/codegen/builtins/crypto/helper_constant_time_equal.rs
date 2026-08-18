@@ -33,6 +33,6 @@ FUNC __crypto_constantTimeEqual(a AS List OF Byte, b AS List OF Byte) AS Boolean
   RETURN diff = 0
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_constantTimeEqual", BODY));
 }

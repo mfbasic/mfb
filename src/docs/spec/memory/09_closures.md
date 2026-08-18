@@ -19,7 +19,7 @@ the null sentinel `0` (a bare function reference).
 non-capturing `FunctionRef` allocates **nothing**: there is one **static
 descriptor per function**, in BSS, populated once at startup, and evaluating the
 reference loads its address. That is what makes a bare lambda in a loop stop
-growing the arena (bug-78). [[src/target/shared/code/builder_values.rs:NirValue::FunctionRef]] [[src/target/shared/code/error_constants.rs:closure_descriptor_symbol]] [[src/target/shared/code/error_constants.rs:CLOSURE_OBJECT_SIZE]] [[src/target/shared/code/error_constants.rs:CLOSURE_OFFSET_CODE]] [[src/target/shared/code/error_constants.rs:CLOSURE_OFFSET_ENV]]
+growing the arena (bug-78). [[src/codegen/engine/value/builder_values.rs:NirValue::FunctionRef]] [[src/codegen/error/constants/error_constants.rs:closure_descriptor_symbol]] [[src/codegen/error/constants/error_constants.rs:CLOSURE_OBJECT_SIZE]] [[src/codegen/error/constants/error_constants.rs:CLOSURE_OFFSET_CODE]] [[src/codegen/error/constants/error_constants.rs:CLOSURE_OFFSET_ENV]]
 
 ## Function Reference vs Closure
 
@@ -34,7 +34,7 @@ sole determinant of whether an env allocation happens:
   capture environment first, populates its slots, then builds the 16-byte object
   with `code = <symbol>` and `env = <env pointer>`. With an empty capture list a
   `Closure` degrades to the `FunctionRef` shape (env word set to `0`), so an env
-  object is produced *only* when there is at least one capture. [[src/target/shared/nir/mod.rs:NirValue]] [[src/target/shared/code/builder_values.rs:268]]
+  object is produced *only* when there is at least one capture. [[src/target/shared/nir/mod.rs:NirValue]] [[src/codegen/engine/value/builder_values.rs:268]]
 
 Both forms share the identical 16-byte object layout, so a call site dispatches the
 same way regardless of which producer made the value.
@@ -43,7 +43,7 @@ same way regardless of which producer made the value.
 
 The environment is a **separate arena allocation**, distinct from the 16-byte
 closure object, sized `captures.len() * 8` bytes and 8-aligned. Each capture
-occupies one word at byte offset `index * 8`. [[src/target/shared/code/builder_values.rs:268]]
+occupies one word at byte offset `index * 8`. [[src/codegen/engine/value/builder_values.rs:268]]
 
 ```text
 Environment (arena-allocated, captures.len() * 8 bytes)
@@ -66,18 +66,18 @@ A slot's word holds one of two things, set by the capture's `by_ref` flag:
 - **By-ref capture (`by_ref = true`).** The slot stores a **pointer to the parent
   binding's slot** rather than a value. The capturing body binds a *reference*
   local that dereferences through this pointer on every read and write, so the
-  callback observes and mutates the live parent binding (a by-reference `MUT` slot capture). [[src/target/shared/nir/mod.rs:NirValue]] [[src/target/shared/code/builder_values.rs:399]]
+  callback observes and mutates the live parent binding (a by-reference `MUT` slot capture). [[src/target/shared/nir/mod.rs:NirValue]] [[src/codegen/engine/value/builder_values.rs:399]]
 
 A `Capture` read inside the body loads the raw slot word from the active
 environment at `index * 8`. For a by-value capture that word is the value/block
 pointer directly; for a by-ref capture it is the parent-slot pointer that the
-reference local derefs. [[src/target/shared/code/builder_values.rs:399]]
+reference local derefs. [[src/codegen/engine/value/builder_values.rs:399]]
 
 ## The Environment Register (x28)
 
 During codegen of a closure body, the reserved register **x28 =
 `CLOSURE_ENV_REGISTER`** holds the active closure's environment pointer. Every
-`Capture` load reads from `[x28 + index*8]`. [[src/target/shared/code/error_constants.rs:CLOSURE_ENV_REGISTER]]
+`Capture` load reads from `[x28 + index*8]`. [[src/codegen/error/constants/error_constants.rs:CLOSURE_ENV_REGISTER]]
 
 `CLOSURE_ENV_REGISTER` is the neutral `%closure_env` role token,
 realized per ISA at selection — AArch64 `x28`, x86-64 `r13`, riscv64 `s10`. Each
@@ -94,7 +94,7 @@ x28 is established by the **caller** at the call site, not by the callee prologu
 moves `env` into x28, then `blr code`. Because x28 is reserved and a call may
 itself be made from inside an enclosing closure body, the caller **saves its own
 x28 to a stack slot before the call and restores it afterward**, so the enclosing
-closure's environment survives the nested call. [[src/target/shared/code/builder_emit_helpers.rs:emit_function_value_call]]
+closure's environment survives the nested call. [[src/codegen/engine/builder/builder_emit_helpers.rs:emit_function_value_call]]
 
 ```text
 function-value call (caller side)
@@ -119,7 +119,7 @@ returning it, or storing it into a collection copies the pointer only. This is t
 same discipline a resource handle follows (a non-owning pointer, `./mfb spec memory
 arenas`), and it is why `lower_value_owned`'s copy-insertion and the
 `is_freeable_flat_value` owned-value drop **exclude** function types: there is no
-per-value copy on a store and no per-value `arena_free` on scope drop. [[src/target/shared/code/builder_values.rs:is_freeable_flat_value]] [[src/target/shared/code/type_utils.rs:is_function_type]]
+per-value copy on a store and no per-value `arena_free` on scope drop. [[src/codegen/engine/value/builder_values.rs:is_freeable_flat_value]] [[src/codegen/engine/types/type_utils.rs:is_function_type]]
 
 The consequence for lifetime is the **arena-lifetime closure rule**: a closure
 object (and its capture environment, if any) is owned by the constructing scope's
@@ -149,7 +149,7 @@ restores the closure environment the same way a normal call does: it loads the
 entry closure object from the control block, reads `env` from `[obj + 8]` into x28
 and `code` from `[obj + 0]`, and branches to the body — having saved the caller's
 x28 (and arena-state register) into the trampoline frame first. The per-worker
-arena handling is owned by `./mfb spec threading thread-runtime-helpers`. [[src/target/shared/code/error_constants.rs:CLOSURE_ENV_REGISTER]]
+arena handling is owned by `./mfb spec threading thread-runtime-helpers`. [[src/codegen/error/constants/error_constants.rs:CLOSURE_ENV_REGISTER]]
 
 ## See Also
 

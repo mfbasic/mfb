@@ -57,7 +57,7 @@ r#"FUNC __datetime_resolve(dt AS DateTime) AS Instant
   RETURN Instant[localSeconds - dt.offset, dt.time.nanos]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "resolve",
         intro: INTRO,

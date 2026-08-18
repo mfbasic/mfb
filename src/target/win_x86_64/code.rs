@@ -22,10 +22,18 @@ use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
 use crate::arch::x86_64::backend::WIN64_BACKEND;
-use crate::target::shared::code::{
-    self, AppEntrySpec, AppHookBody, CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation,
-    FsPathOperation, MirPlan, NativeCodePlan, Operand, ProgramEntrySpec, RelocIntent,
-};
+use crate::codegen::engine::builder::AppHookBody;
+use crate::codegen::engine::mir::MirPlan;
+use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::types::AppEntrySpec;
+use crate::codegen::engine::types::CodeDataObject;
+use crate::codegen::engine::types::CodeFunction;
+use crate::codegen::engine::types::CodeInstruction;
+use crate::codegen::engine::types::CodeRelocation;
+use crate::codegen::engine::types::FsPathOperation;
+use crate::codegen::engine::types::NativeCodePlan;
+use crate::codegen::engine::types::ProgramEntrySpec;
+use crate::codegen::engine::types::RelocIntent;
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
 use crate::target::win_x86_64::app;
@@ -90,11 +98,11 @@ fn arena_alloc_to_slot(
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", size),
         abi::move_immediate(abi::mfb_arg(1), "Integer", "2"),
-        abi::branch_link(code::ARENA_ALLOC_SYMBOL),
+        abi::branch_link(crate::codegen::error::constants::ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(CodeRelocation {
         from: from.to_string(),
-        to: code::ARENA_ALLOC_SYMBOL.to_string(),
+        to: crate::codegen::error::constants::ARENA_ALLOC_SYMBOL.to_string(),
         kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
@@ -187,11 +195,11 @@ fn emit_marshal_path(
         // blocks via VirtualAlloc), so the Result tag is not checked here.
         abi::move_immediate(abi::return_register(), "Integer", "65536"),
         abi::move_immediate(abi::mfb_arg(1), "Integer", "2"),
-        abi::branch_link(code::ARENA_ALLOC_SYMBOL),
+        abi::branch_link(crate::codegen::error::constants::ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(CodeRelocation {
         from: from.to_string(),
-        to: code::ARENA_ALLOC_SYMBOL.to_string(),
+        to: crate::codegen::error::constants::ARENA_ALLOC_SYMBOL.to_string(),
         kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
@@ -374,11 +382,11 @@ fn emit_dir_path_query(
         // arena UTF-16 scratch (64 KiB, 32767 wchars = Windows max path).
         abi::move_immediate(abi::return_register(), "Integer", "65536"),
         abi::move_immediate(abi::mfb_arg(1), "Integer", "2"),
-        abi::branch_link(code::ARENA_ALLOC_SYMBOL),
+        abi::branch_link(crate::codegen::error::constants::ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(CodeRelocation {
         from: from.to_string(),
-        to: code::ARENA_ALLOC_SYMBOL.to_string(),
+        to: crate::codegen::error::constants::ARENA_ALLOC_SYMBOL.to_string(),
         kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
@@ -426,7 +434,12 @@ pub(crate) fn lower_module(
     // No inline stack probe is needed: the PE header commits 1 MiB of stack up
     // front (see `os/windows/link/pe.rs`), which covers every real frame, so a
     // large `sub rsp, N` never skips the guard page.
-    code::lower_module_for_platform(module, native_plan, packages, &Platform)
+    crate::codegen::engine::builder::lower_module_for_platform(
+        module,
+        native_plan,
+        packages,
+        &Platform,
+    )
 }
 
 pub(crate) fn lower_module_mir(
@@ -434,7 +447,12 @@ pub(crate) fn lower_module_mir(
     native_plan: &NativePlan,
     packages: &[PathBuf],
 ) -> Result<MirPlan, String> {
-    code::lower_module_mir_for_platform(module, native_plan, packages, &Platform)
+    crate::codegen::engine::builder::lower_module_mir_for_platform(
+        module,
+        native_plan,
+        packages,
+        &Platform,
+    )
 }
 
 pub(crate) struct Platform;
@@ -500,7 +518,7 @@ fn emit_ioctl_fionbio(
     instructions.push(abi::add_stack(FRAME));
 }
 
-impl code::CodegenPlatform for Platform {
+impl crate::codegen::engine::types::CodegenPlatform for Platform {
     fn target(&self) -> &'static str {
         "windows-x86_64"
     }
@@ -509,7 +527,7 @@ impl code::CodegenPlatform for Platform {
         "x86_64"
     }
 
-    fn backend(&self) -> &'static dyn code::mir::Backend {
+    fn backend(&self) -> &'static dyn crate::codegen::engine::mir::Backend {
         // Wires the Win64 ABI backend (plan-47-B A1) — the production consumer
         // that removes A1's dead-code allows.
         &WIN64_BACKEND
@@ -575,11 +593,11 @@ impl code::CodegenPlatform for Platform {
             abi::add_immediate(abi::return_register(), abi::return_register(), 1),
             abi::shift_left_immediate(abi::return_register(), abi::return_register(), 3),
             abi::move_immediate(abi::mfb_arg(1), "Integer", "8"),
-            abi::branch_link(code::ARENA_ALLOC_SYMBOL),
+            abi::branch_link(crate::codegen::error::constants::ARENA_ALLOC_SYMBOL),
         ]);
         relocations.push(CodeRelocation {
             from: from.to_string(),
-            to: code::ARENA_ALLOC_SYMBOL.to_string(),
+            to: crate::codegen::error::constants::ARENA_ALLOC_SYMBOL.to_string(),
             kind: RelocIntent::Call,
             binding: "internal".to_string(),
             library: None,
@@ -640,7 +658,7 @@ impl code::CodegenPlatform for Platform {
         spec: &ProgramEntrySpec<'_>,
         platform_imports: &HashMap<String, String>,
     ) -> Result<CodeFunction, String> {
-        code::lower_program_entry(
+        crate::codegen::engine::function::lower_program_entry(
             spec.entry_symbol,
             spec.language_entry_symbol,
             spec.language_entry_returns,
@@ -673,7 +691,7 @@ impl code::CodegenPlatform for Platform {
         // winapp finish helper (transcript readback/dump + ExitProcess) instead of
         // a bare ExitProcess, so the window transcript is observable. Console
         // programs (and the headless app fallback inside finish) ExitProcess here.
-        if from == code::MACAPP_PROGRAM_SYMBOL {
+        if from == crate::codegen::error::constants::MACAPP_PROGRAM_SYMBOL {
             instructions.push(abi::branch_link(app::FINISH_SYMBOL));
             relocations.push(CodeRelocation {
                 from: from.to_string(),
@@ -721,8 +739,8 @@ impl code::CodegenPlatform for Platform {
             abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), 0),
             abi::store_u64(
                 abi::mfb_arg(0),
-                code::ARENA_STATE_REGISTER,
-                code::ARENA_START_TIME_OFFSET,
+                crate::codegen::error::constants::ARENA_STATE_REGISTER,
+                crate::codegen::error::constants::ARENA_START_TIME_OFFSET,
             ),
             // Balance the buffer reservation (matching the default's
             // `subtract_stack(16)`/`add_stack(16)` contract) so the entry's stack
@@ -841,7 +859,7 @@ impl code::CodegenPlatform for Platform {
         // `WIN_LINK_PATHBUF` scratch is safe to reuse across libraries. The buffer
         // address is re-materialized (a RIP-relative `lea`) before each call, so
         // no register needs to survive one — only the buffer's memory does.
-        use crate::target::shared::code::link_thunk::{
+        use crate::codegen::link::thunk::{
             emit_data_address, WIN_LINK_PATHBUF_BYTES, WIN_LINK_PATHBUF_SYMBOL,
             WIN_LINK_VENDORSEP_SYMBOL,
         };
@@ -949,7 +967,7 @@ impl code::CodegenPlatform for Platform {
         // bug-431: GetProcAddress(handle, symbolName) — the Windows `dlsym`. The
         // handle is a callee-saved vreg the shared loop keeps live across these
         // calls; the resolved address lands in `return_register()`.
-        use crate::target::shared::code::link_thunk::emit_data_address;
+        use crate::codegen::link::thunk::emit_data_address;
         instructions.push(abi::move_register(abi::mfb_arg(0), handle_reg));
         emit_data_address(
             from,
@@ -1514,11 +1532,11 @@ impl code::CodegenPlatform for Platform {
             abi::add_immediate(abi::return_register(), abi::SCRATCH[1], 1),
             abi::shift_left_immediate(abi::return_register(), abi::return_register(), 3), // *8
             abi::move_immediate(abi::SCRATCH[1], "Integer", "8"),
-            abi::branch_link(code::ARENA_ALLOC_SYMBOL),
+            abi::branch_link(crate::codegen::error::constants::ARENA_ALLOC_SYMBOL),
         ]);
         relocations.push(CodeRelocation {
             from: from.to_string(),
-            to: code::ARENA_ALLOC_SYMBOL.to_string(),
+            to: crate::codegen::error::constants::ARENA_ALLOC_SYMBOL.to_string(),
             kind: RelocIntent::Call,
             binding: "internal".to_string(),
             library: None,
@@ -2456,11 +2474,11 @@ impl code::CodegenPlatform for Platform {
             // Allocate the DIR struct.
             abi::move_immediate(abi::return_register(), "Integer", DIR_SIZE),
             abi::move_immediate(abi::mfb_arg(1), "Integer", "8"),
-            abi::branch_link(code::ARENA_ALLOC_SYMBOL),
+            abi::branch_link(crate::codegen::error::constants::ARENA_ALLOC_SYMBOL),
         ]);
         relocations.push(CodeRelocation {
             from: from.to_string(),
-            to: code::ARENA_ALLOC_SYMBOL.to_string(),
+            to: crate::codegen::error::constants::ARENA_ALLOC_SYMBOL.to_string(),
             kind: RelocIntent::Call,
             binding: "internal".to_string(),
             library: None,
@@ -2607,11 +2625,11 @@ impl code::CodegenPlatform for Platform {
             // arena UTF-16 output scratch.
             abi::move_immediate(abi::return_register(), "Integer", "65536"),
             abi::move_immediate(abi::mfb_arg(1), "Integer", "2"),
-            abi::branch_link(code::ARENA_ALLOC_SYMBOL),
+            abi::branch_link(crate::codegen::error::constants::ARENA_ALLOC_SYMBOL),
         ]);
         relocations.push(CodeRelocation {
             from: from.to_string(),
-            to: code::ARENA_ALLOC_SYMBOL.to_string(),
+            to: crate::codegen::error::constants::ARENA_ALLOC_SYMBOL.to_string(),
             kind: RelocIntent::Call,
             binding: "internal".to_string(),
             library: None,
@@ -2910,13 +2928,13 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_terminal_control_call(
         &self,
-        call: crate::target::shared::code::TerminalControlCall,
+        call: crate::codegen::engine::types::TerminalControlCall,
         from: &str,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        use crate::target::shared::code::TerminalControlCall;
+        use crate::codegen::engine::types::TerminalControlCall;
         // Windows realizes the three POSIX terminal-control calls over the Console
         // API. The fd is in ARG[0]; resolve it to a std HANDLE the same way as
         // emit_write (GetStdHandle(-(fd+10)) — fd 0 → STD_INPUT).
@@ -3017,7 +3035,7 @@ impl code::CodegenPlatform for Platform {
             abi::and_registers(mode, mode, mask),       // 0x10 iff a directory
             abi::compare_immediate(mode, "0"),
         ]);
-        if expected_kind == code::FS_MODE_DIRECTORY {
+        if expected_kind == crate::codegen::error::constants::FS_MODE_DIRECTORY {
             instructions.push(abi::branch_ne(found)); // directory bit set => is a dir
         } else {
             instructions.push(abi::branch_eq(found)); // bit clear => a regular file
@@ -3163,11 +3181,16 @@ impl code::CodegenPlatform for Platform {
         &self,
         platform_imports: &HashMap<String, String>,
         uses_stdin: bool,
-        arena_init: code::ArenaInitSymbols,
+        arena_init: crate::codegen::engine::types::ArenaInitSymbols,
     ) -> Result<CodeFunction, String> {
         // The shared trampoline; its pthread_* calls route through this platform's
         // emit_thread_external_call Windows arms (CreateThread/SRWLOCK/condvar).
-        code::lower_thread_trampoline(platform_imports, self, uses_stdin, arena_init)
+        crate::codegen::runtime::thread::lower_thread_trampoline(
+            platform_imports,
+            self,
+            uses_stdin,
+            arena_init,
+        )
     }
 
     // ---- plan-66-J Win32 app-mode floor (delegates to win_x86_64::app) --------

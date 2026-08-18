@@ -149,7 +149,7 @@ freedom is whether a given function is a *readiness query* or a *producing call*
 Omitting the argument is implemented by padding it with the internal
 "wait unbounded" sentinel (the `i64::MIN` bit pattern); each family's wait helper
 routes that sentinel to its block-forever path and rejects every other negative
-value. [[src/target/shared/code/error_constants.rs:TIMEOUT_UNBOUNDED_SENTINEL]]
+value. [[src/codegen/error/constants/error_constants.rs:TIMEOUT_UNBOUNDED_SENTINEL]]
 
 **Conforming functions** (every waiting built-in obeys the table above):
 `net::poll`, `net::accept`, `net::connectTcp`, `net::setReadTimeout`,

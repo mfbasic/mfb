@@ -17,6 +17,6 @@ r#"FUNC __regex_makeCtx(value AS String) AS __regex_Ctx
   RETURN __regex_Ctx[chars, cps, len(chars)]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_makeCtx", BODY));
 }

@@ -1,10 +1,7 @@
 use super::*;
-
-/// itoa(port) → NUL-terminated decimal in the 24-byte scratch at `portbuf_off`,
-/// leaving a pointer to the first digit at `portcstr_off`; `port_off` holds the
-/// numeric port. Character-identical between the client and server backends
-/// (bug-330), differing only in these three frame slots.
-pub(super) fn emit_port_itoa(
+use crate::codegen::engine::builder::*;
+use crate::target::shared::abi;
+pub(crate) fn emit_port_itoa(
     symbol: &str,
     port_off: usize,
     portbuf_off: usize,
@@ -221,7 +218,7 @@ fn raw_cstr(symbol: &str, text: &str) -> CodeDataObject {
     }
 }
 
-pub(super) fn data_objects(server: bool) -> Vec<CodeDataObject> {
+pub(crate) fn data_objects(server: bool) -> Vec<CodeDataObject> {
     let mut objects = vec![
         raw_cstr(MACLIB_SYMBOL, MACLIB),
         raw_cstr(QLABEL_SYMBOL, QLABEL),
@@ -608,10 +605,10 @@ mod server;
 #[cfg(test)]
 mod tests;
 
-pub(super) use client::{
+pub(crate) use client::{
     lower_tls_close_macos, lower_tls_connect_macos, lower_tls_poll_macos, lower_tls_read_macos,
     lower_tls_write_macos,
 };
-pub(super) use server::{
+pub(crate) use server::{
     lower_tls_accept_macos, lower_tls_close_listener_macos, lower_tls_listen_macos,
 };

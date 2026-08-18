@@ -1,13 +1,14 @@
 //! `bits::clz` — count the leading zero bits of a 64-bit integer.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTRO: &str = r#"Count the leading zero bits of a 64-bit integer."#;
 const DESC: &str = r#"`clz` returns the number of zero bits that precede the most significant set (`1`)
 bit of `value`, counting down from bit 63 (the highest bit) toward bit 0.
@@ -42,7 +43,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "clz",
         intro: INTRO,

@@ -34,6 +34,6 @@ FUNC __crypto_chachaBlock(key AS List OF Byte, nonce AS List OF Byte, counter AS
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_chachaBlock", BODY));
 }

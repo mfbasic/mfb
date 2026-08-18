@@ -31,6 +31,6 @@ FUNC __encoding_leb128Emit(seed AS Integer) AS List OF Byte
   RETURN result
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_leb128Emit", BODY));
 }

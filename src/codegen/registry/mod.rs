@@ -35,9 +35,9 @@ use std::sync::OnceLock;
 /// Held by the `common` slot of [`Body::Native`] (the all-targets lowering).
 pub(crate) type NativeLower =
     for<'a> fn(
-        &mut crate::target::shared::code::CodeBuilder<'a>,
+        &mut crate::codegen::engine::builder::CodeBuilder<'a>,
         &[crate::target::shared::nir::NirValue],
-    ) -> Result<crate::target::shared::code::ValueResult, String>;
+    ) -> Result<crate::codegen::engine::builder::ValueResult, String>;
 
 /// The per-compilation context an OS-seam ([`OsLower`]) emitter may bake into its
 /// runtime-helper body — bundled into one struct instead of a growing positional
@@ -81,8 +81,8 @@ pub(crate) type OsLower = fn(
     &str,
     &OsLowerCtx,
     &std::collections::HashMap<String, String>,
-    &dyn crate::target::shared::code::CodegenPlatform,
-) -> crate::target::shared::code::HelperResult;
+    &dyn crate::codegen::engine::types::CodegenPlatform,
+) -> crate::codegen::engine::builder::HelperResult;
 
 /// A [`Body::Mfb`] member's optional native **fast path** — the plan-95
 /// `target::shared::registry::MfbFastPath` shape. Given the builder, the
@@ -93,10 +93,10 @@ pub(crate) type OsLower = fn(
 /// than being its own realization kind or a second overload.
 pub(crate) type MfbFastPath =
     for<'a> fn(
-        &mut crate::target::shared::code::CodeBuilder<'a>,
+        &mut crate::codegen::engine::builder::CodeBuilder<'a>,
         &str,
         &[crate::target::shared::nir::NirValue],
-    ) -> Result<Option<crate::target::shared::code::ValueResult>, String>;
+    ) -> Result<Option<crate::codegen::engine::builder::ValueResult>, String>;
 
 // A [`Parameter`]'s type is [`crate::types::ParameterType`] — the compiler-wide type
 // vocabulary (see that module for why it lives outside `codegen`). Imported for the
@@ -2310,9 +2310,9 @@ pub(crate) fn os_helper(
     symbol: &str,
     ctx: &OsLowerCtx,
     platform_imports: &std::collections::HashMap<String, String>,
-    platform: &dyn crate::target::shared::code::CodegenPlatform,
-) -> Option<crate::target::shared::code::HelperResult> {
-    use crate::target::shared::code::PlatformFamily;
+    platform: &dyn crate::codegen::engine::types::CodegenPlatform,
+) -> Option<crate::codegen::engine::builder::HelperResult> {
+    use crate::codegen::engine::types::PlatformFamily;
     let (pkg_name, member) = call.split_once('.')?;
     let package = registry()
         .packages()
@@ -3367,9 +3367,9 @@ mod tests {
     }
 
     fn sample_lower<'a>(
-        _b: &mut crate::target::shared::code::CodeBuilder<'a>,
+        _b: &mut crate::codegen::engine::builder::CodeBuilder<'a>,
         _args: &[crate::target::shared::nir::NirValue],
-    ) -> Result<crate::target::shared::code::ValueResult, String> {
+    ) -> Result<crate::codegen::engine::builder::ValueResult, String> {
         Err("sample lowering (test fixture, not invoked)".to_string())
     }
 
@@ -3378,16 +3378,16 @@ mod tests {
         _symbol: &str,
         _ctx: &OsLowerCtx,
         _imports: &std::collections::HashMap<String, String>,
-        _platform: &dyn crate::target::shared::code::CodegenPlatform,
-    ) -> crate::target::shared::code::HelperResult {
+        _platform: &dyn crate::codegen::engine::types::CodegenPlatform,
+    ) -> crate::codegen::engine::builder::HelperResult {
         Err("sample OS lowering (test fixture, not invoked)".to_string())
     }
 
     fn sample_fast_path<'a>(
-        _b: &mut crate::target::shared::code::CodeBuilder<'a>,
+        _b: &mut crate::codegen::engine::builder::CodeBuilder<'a>,
         _target: &str,
         _args: &[crate::target::shared::nir::NirValue],
-    ) -> Result<Option<crate::target::shared::code::ValueResult>, String> {
+    ) -> Result<Option<crate::codegen::engine::builder::ValueResult>, String> {
         Ok(None)
     }
 

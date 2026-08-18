@@ -14,6 +14,6 @@ FUNC __regex_scriptTest(name AS String, cp AS Integer) AS Boolean
   RETURN __regex_scriptOf(cp) = name
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_scriptTest", BODY));
 }

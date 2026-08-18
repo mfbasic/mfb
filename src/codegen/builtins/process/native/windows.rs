@@ -9,11 +9,12 @@
 //! helper, so the `unimplemented_on_windows` arms below are unreachable
 //! placeholders, not live stubs).
 
+// --- codegen tier imports (migration) ---
 use super::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::error::emission::emit_fail;
 use crate::target::shared::abi;
-use crate::target::shared::code::native_helpers::emit_fail;
 use std::collections::HashMap;
-
 pub(crate) fn unimplemented_on_windows(op: &str) -> HelperResult {
     Err(format!(
         "process::{op} native Windows backend is not yet emitted (plan-90-D)"

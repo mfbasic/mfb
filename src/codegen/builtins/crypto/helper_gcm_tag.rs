@@ -19,6 +19,6 @@ FUNC __crypto_gcmTag(roundKeys AS List OF Byte, hHi AS Integer, hLo AS Integer, 
   RETURN __crypto_xorBytes(block, ej0)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_gcmTag", BODY));
 }

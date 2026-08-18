@@ -19,6 +19,6 @@ r#"FUNC __crypto_gfAt(p AS List OF Integer, which AS Integer) AS List OF Integer
   RETURN g
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_gfAt", BODY));
 }

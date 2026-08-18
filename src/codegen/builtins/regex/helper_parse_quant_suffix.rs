@@ -58,6 +58,6 @@ r#"FUNC __regex_parseQuantSuffix(pat AS List OF String, n AS Integer, i AS Integ
   RETURN __regex_Parse[rep, nxt, g, names]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_parseQuantSuffix", BODY));
 }

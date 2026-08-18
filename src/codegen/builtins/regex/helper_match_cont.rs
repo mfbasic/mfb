@@ -29,6 +29,6 @@ r#"FUNC __regex_matchCont(c AS __regex_Cont, pos AS Integer, caps AS List OF Int
   END MATCH
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_matchCont", BODY));
 }

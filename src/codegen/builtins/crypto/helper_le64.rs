@@ -21,6 +21,6 @@ FUNC __crypto_le64(value AS Integer) AS List OF Byte
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_le64", BODY));
 }

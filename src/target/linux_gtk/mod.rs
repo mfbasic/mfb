@@ -32,10 +32,16 @@ use term_draw::*;
 use std::collections::HashMap;
 
 use crate::arch::aarch64::abi;
-use crate::target::shared::code::{
-    self, AppEntrySpec, AppHookBody, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction,
-    CodeRelocation, Operand, PresentationMode, RelocIntent,
-};
+use crate::codegen::engine::builder::AppHookBody;
+use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::types::AppEntrySpec;
+use crate::codegen::engine::types::CodeDataObject;
+use crate::codegen::engine::types::CodeFrame;
+use crate::codegen::engine::types::CodeFunction;
+use crate::codegen::engine::types::CodeInstruction;
+use crate::codegen::engine::types::CodeRelocation;
+use crate::codegen::engine::types::PresentationMode;
+use crate::codegen::engine::types::RelocIntent;
 
 // --- Emitted symbols -------------------------------------------------------
 
@@ -308,7 +314,7 @@ pub(crate) struct AppLibcNames {
 }
 
 /// Placeholder written into a relocation's `library` at emit time, resolved by
-/// `shared::code::bind_deferred_relocation_libraries` (plan-56-A §4.2).
+/// `shared::crate::codegen::engine::builder::bind_deferred_relocation_libraries` (plan-56-A §4.2).
 ///
 /// This replaced a `lib_for` symbol→library table that was a **second** copy of
 /// `app_mode_imports`, obliged by its own doc comment to stay in sync with it —
@@ -350,7 +356,7 @@ impl Asm {
     /// `bl <symbol>` to an imported C function.
     ///
     /// The relocation's `library` is deferred ([`UNBOUND_LIBRARY`]) and filled
-    /// in by `shared::code::bind_deferred_relocation_libraries` from the
+    /// in by `shared::crate::codegen::engine::builder::bind_deferred_relocation_libraries` from the
     /// flavor-correct import map, so no emitter needs to know the libc flavor or
     /// the arch. bug-176 D's "unmapped symbol is an error, never a panic" rule
     /// is preserved there: an undeclared symbol fails the build with a message
@@ -457,7 +463,7 @@ impl Asm {
 // --- Bootstrap + UI + worker -----------------------------------------------
 
 /// Emit the GTK4 `_main` bootstrap and supporting functions. The standard program
-/// entry runs separately on the worker thread under [`code::MACAPP_PROGRAM_SYMBOL`].
+/// entry runs separately on the worker thread under [`crate::codegen::error::constants::MACAPP_PROGRAM_SYMBOL`].
 pub(crate) fn emit_app_program_entry(
     spec: &AppEntrySpec,
     _platform_imports: &HashMap<String, String>,
@@ -588,7 +594,8 @@ const X86_WRAP_BYTES: usize = 56;
 /// as plain scratch save/restore it through their own frame slots.
 pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>) {
     use crate::arch::ops::CodeOp;
-    use crate::target::shared::code::{mir, regalloc};
+    use crate::codegen::engine::mir;
+    use crate::codegen::engine::regalloc;
 
     // Rename the AArch64 scratch/parking registers to per-function vregs (one
     // per distinct register, preserving each def/use chain — the same mapping
@@ -1125,7 +1132,7 @@ mod import_tests {
 
     /// plan-56-A §4.2: `lib_for`'s job — every symbol the emitters reference is
     /// declared in `app_mode_imports` — is now enforced by
-    /// `shared::code::bind_deferred_relocation_libraries`, which errors on an
+    /// `shared::crate::codegen::engine::builder::bind_deferred_relocation_libraries`, which errors on an
     /// undeclared symbol. Pin the half that lives here: the symbols the emitters
     /// actually call must all be in the import list, so the binding cannot fail
     /// at build time.

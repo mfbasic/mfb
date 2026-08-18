@@ -22,6 +22,6 @@ r#"FUNC __csv_stringifyRow(row AS List OF String, delimiter AS String, quote AS 
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("csv_stringifyRow", BODY));
 }

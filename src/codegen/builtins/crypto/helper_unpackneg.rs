@@ -54,6 +54,6 @@ FUNC __crypto_unpackneg(p AS List OF Byte) AS List OF Integer
   RETURN __crypto_concatInt(ok, point)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_unpackneg", BODY));
 }

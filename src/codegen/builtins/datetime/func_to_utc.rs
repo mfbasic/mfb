@@ -55,7 +55,7 @@ r#"FUNC __datetime_toUtc(at AS Instant) AS DateTime
   RETURN __datetime_inZone(at, __datetime_utc())
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "toUtc",
         intro: INTRO,

@@ -25,11 +25,17 @@
 //! `emit_configure_stdin_terminal`, …) stay in the shared code layer because other
 //! packages use them, reachable here through the `code::*` glob.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::io::stdin::*;
+use crate::codegen::io::stdout::*;
+use crate::codegen::io::terminal::*;
+use crate::codegen::memory::data::*;
+use crate::codegen::os::syscall::*;
 use std::collections::HashMap;
-
-use crate::target::shared::abi;
-use crate::target::shared::code::*;
-
 mod stdin;
 mod stdout;
 mod terminal;
@@ -37,7 +43,6 @@ mod terminal;
 use stdin::*;
 use stdout::*;
 use terminal::*;
-
 /// Family-generic OS-seam dispatcher for every `io` member — the verbatim `match
 /// call` block relocated from `src/target/shared/code/mod.rs`. Registered in both
 /// the `posix` and `win` slots of each member's `Body::native_os_seam`. Derives

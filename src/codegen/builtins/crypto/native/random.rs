@@ -10,12 +10,16 @@
 //! in <=256-byte chunks. A negative `count` fails `ErrInvalidArgument`; `count`
 //! of 0 returns the empty list.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::error::emission::*;
+use crate::codegen::memory::marshal::*;
 use std::collections::HashMap;
 
 use crate::target::shared::abi;
-use crate::target::shared::code::native_helpers::{emit_build_byte_list, emit_fail};
-use crate::target::shared::code::*;
-
 const GETENTROPY_MAX: usize = 256;
 
 /// Upper bound on `crypto::randomBytes(count)`. Far above any real key-material

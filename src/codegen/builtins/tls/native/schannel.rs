@@ -13,6 +13,14 @@
 //! stream sizes, the ciphertext receive buffer, and any leftover decrypted
 //! plaintext a short read left behind.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::error::emission::*;
+use crate::codegen::memory::marshal::*;
 use std::collections::HashMap;
 
 use super::{
@@ -21,10 +29,6 @@ use super::{
 };
 use crate::codegen::builtins::net::native::emit_string_result_build;
 use crate::target::shared::abi;
-use crate::target::shared::code::emit_alloc;
-use crate::target::shared::code::native_helpers::{emit_build_byte_list, emit_fail};
-use crate::target::shared::code::*;
-
 const SECUR32: &str = "secur32.dll";
 const CRYPT32: &str = "crypt32.dll";
 
@@ -139,7 +143,7 @@ fn wide_addr(
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) {
-    crate::target::shared::code::native_helpers::emit_data_address(from, dst, &sym(id), ins, rel);
+    crate::codegen::memory::arena::emit_data_address(from, dst, &sym(id), ins, rel);
 }
 
 /// Emit a Win64 external call: args 0..=3 in `return_register`/`ARG[1..3]`, args

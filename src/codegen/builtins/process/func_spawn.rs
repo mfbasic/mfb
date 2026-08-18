@@ -6,20 +6,23 @@
 //! (`super::dispatch_os_helper`) picks by `platform.family()`. This file carries the
 //! registry entry, those emitters, and the docs.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
 use std::collections::HashMap;
 
+use crate::codegen::error::emission::emit_fail;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::native_helpers::emit_fail;
-use crate::target::shared::code::*;
 use crate::types::ParameterType;
 
 use super::native::unix::*;
 use super::native::windows::*;
 use super::native::*;
-
 const INTRO: &str =
     r#"Run a program directly from an argument list, returning a handle to the child."#;
 const DESC: &str = r#"`process::spawn` starts a child process from an explicit argument vector and
@@ -73,7 +76,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     // Both overloads lower through the same posix/win emitters; the full form is
     // selected at codegen by argument count (`builder_values` → `process.spawnEnv`),
     // and each emitter branches on the runtime-call name internally.

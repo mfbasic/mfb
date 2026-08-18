@@ -7,7 +7,7 @@
 use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     let ret = || ParameterType::Named(super::SOCKET_TYPE_ID);
     pkg.add_function(RegistryFunction {
         name: "connectTcp",

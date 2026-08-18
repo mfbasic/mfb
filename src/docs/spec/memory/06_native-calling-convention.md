@@ -24,17 +24,17 @@ no struct-by-value classification — this is **not** AAPCS64/SysV stack passing
 In the prologue, register parameter *N* (`N < 8`) is read from `x{N}`; a stack
 parameter is loaded from the caller's tail (an `sp`-relative load resolved once
 the frame size is known) and spilled into its local slot like any register
-parameter. The parameter's type plays no part in choosing its slot. [[src/target/shared/code/function_lowering.rs:lower_function]] At a call
+parameter. The parameter's type plays no part in choosing its slot. [[src/codegen/engine/function/function_lowering.rs:lower_function]] At a call
 site, each argument is lowered and spilled to a marshalling slot; the first eight
 are then reloaded and moved into the positional `x{index}`, and the rest are
-stored into the caller's reserved outgoing tail — again with no type dispatch. [[src/target/shared/code/builder_emit_helpers.rs:emit_prepared_call_args]]
+stored into the caller's reserved outgoing tail — again with no type dispatch. [[src/codegen/engine/builder/builder_emit_helpers.rs:emit_prepared_call_args]]
 
 The stack tail is realized entirely at frame finalization: a call passing more
 than eight arguments reserves a 16-byte-aligned outgoing area at the very bottom
 of the caller frame (below the callee-saved registers), and the callee reads its
 incoming arguments from just above its own frame, past the entry return-address
 padding (8 bytes on x86-64, 0 on AArch64). The register-only path — every call of
-eight or fewer arguments — is byte-for-byte unchanged. [[src/target/shared/code/codegen_utils.rs:finalize_frame]]
+eight or fewer arguments — is byte-for-byte unchanged. [[src/codegen/engine/util/vreg_frame.rs:finalize_frame]]
 
 ### Float and Fixed arguments go in `x` registers
 
@@ -117,7 +117,7 @@ Lowerings do not name physical temporary registers. `allocate_register` mints a
 **virtual register** carried in the instruction stream; after a function is fully
 lowered, a coloring pass assigns each virtual register a physical register (or a
 spill slot). The method is a pluggable strategy selected by `--regalloc <name>`
-(see `./mfb spec architecture native`). [[src/target/shared/code/builder_registers.rs:allocate_register]] [[src/target/shared/code/regalloc/mod.rs:allocate]]
+(see `./mfb spec architecture native`). [[src/codegen/engine/regalloc/builder_registers.rs:allocate_register]] [[src/codegen/engine/regalloc/mod.rs:allocate]]
 
 The default strategy, **`linear-scan`**, computes liveness over the lowered
 stream and colors the integer class by live interval, reusing a register as soon
@@ -126,17 +126,17 @@ A value whose live range crosses a call is spilled, since no register survives a
 internal runtime helper (e.g. `_mfb_arena_alloc` clobbers callee-saved
 `x20`–`x28`). Because pressure spills rather than failing, there is **no
 "break a deep expression into `LET` bindings" limit** — an arbitrarily nested
-expression compiles. [[src/target/shared/code/regalloc/linear_scan.rs:run]]
+expression compiles. [[src/codegen/engine/regalloc/linear_scan.rs:run]]
 
 The reference strategy, **`bump`**, replays the fixed numbering — the
 `next_register` counter starts at `8` and `temporary_register` maps it to a
 physical register (`8..17` → `x8..x17`; `18..26` → the callee-saved `x20..x28`,
 skipping the reserved `x18`/`x19`); allocation past `26` is a hard error. It is
 byte-identical to the pre-allocator backend and kept as the differential oracle
-(`--regalloc bump`). [[src/target/shared/abi.rs:temporary_register]] [[src/target/shared/code/regalloc/mod.rs:BumpAndReset]]
+(`--regalloc bump`). [[src/target/shared/abi.rs:temporary_register]] [[src/codegen/engine/regalloc/mod.rs:BumpAndReset]]
 
 When the coloring uses a callee-saved register (`x20..x28`), it is recorded so
-the frame finalizer saves and restores it. [[src/target/shared/code/builder_registers.rs:mark_register_used]]
+the frame finalizer saves and restores it. [[src/codegen/engine/regalloc/builder_registers.rs:mark_register_used]]
 
 ## Reserved Registers
 
@@ -145,10 +145,10 @@ Two registers carry pinned roles in the convention:
 * **`x19` — arena-state** (`ARENA_STATE_REGISTER`). Pins the current package
   instance's arena-state for the life of the call chain; never handed out by the
   temporary allocator (the bump map skips `x18`/`x19`). Owned by `./mfb spec
-  memory arenas`. [[src/target/shared/code/error_constants.rs:ARENA_STATE_REGISTER]]
+  memory arenas`. [[src/codegen/error/constants/error_constants.rs:ARENA_STATE_REGISTER]]
 * **`x28` — closure environment** (`CLOSURE_ENV_REGISTER`). Holds the captured
   environment pointer for an `Indirect` (closure) call; owned by `./mfb spec
-  memory closures`. [[src/target/shared/code/error_constants.rs:CLOSURE_ENV_REGISTER]]
+  memory closures`. [[src/codegen/error/constants/error_constants.rs:CLOSURE_ENV_REGISTER]]
 
 Unlike `x19`, `x28` is **not** excluded from the temporary map: it is the highest
 register the bump allocator can reach (allocation `26`), so `x28` serves double
@@ -159,7 +159,7 @@ duty as both the closure-environment register and the final scratch slot.
 The register names above are the concrete AArch64 realizations. The three registers
 whose role is a program- or frame-wide **invariant** are never spelled by their
 AArch64 number in shared lowering; each is named by one
-neutral token, realized per ISA at selection: [[src/target/shared/code/]]
+neutral token, realized per ISA at selection: [[src/codegen/]]
 
 | role | token | AArch64 | RISC-V | x86-64 |
 |---|---|---|---|---|
@@ -174,7 +174,7 @@ through the tokens. [[src/target/]]
 ## Stack Frame, Prologue, and Epilogue
 
 There is **no `x29` frame-pointer chain**. `finalize_frame` builds the frame once
-the body is lowered: [[src/target/shared/code/codegen_utils.rs:finalize_frame]]
+the body is lowered: [[src/codegen/engine/util/vreg_frame.rs:finalize_frame]]
 
 1. If the body contains **any** `bl`/`blr` and `x30` (the link register) is not
    already in the callee-saved set, `x30` is added to it automatically. [[src/target/shared/abi.rs:link_register]]
@@ -209,7 +209,7 @@ reload all callee-saved registers (in reverse), then `add sp, sp, #total`, then
 return — so the save/restore is repeated at each return site rather than via a
 single shared epilogue. A callee reads incoming stack argument `k` from
 `sp + total + entry_padding + k*8`, where `entry_padding` is the entry
-return-address slot (8 on x86-64, 0 on AArch64). [[src/target/shared/code/codegen_utils.rs:finalize_frame]]
+return-address slot (8 on x86-64, 0 on AArch64). [[src/codegen/engine/util/vreg_frame.rs:finalize_frame]]
 
 The callee-saved set the convention preserves is **`x19..x28`**
 (`is_callee_saved`); `x0..x17` and `x30` are caller-saved (`x30` only auto-added

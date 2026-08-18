@@ -1,14 +1,15 @@
 //! `bits::popCount` — count the set bits of a 64-bit integer (population count).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::mir;
+use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::mir;
-use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTRO: &str = r#"Count the set (`1`) bits of a 64-bit integer (population count)."#;
 const DESC: &str = r#"`popCount` returns the number of set (`1`) bits in `value`, also known as its
 Hamming weight or population count.
@@ -47,7 +48,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "popCount",
         intro: INTRO,

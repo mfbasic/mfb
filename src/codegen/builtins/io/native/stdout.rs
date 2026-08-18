@@ -1,5 +1,9 @@
+// --- codegen tier imports (migration) ---
 use super::*;
-
+use crate::codegen::engine::builder::*;
+use crate::codegen::term::grid as term_grid;
+use crate::target::shared::abi;
+use std::collections::HashMap;
 fn emit_append_to_stdout_buffer(
     ctx: &mut EmitCtx,
     src: &str,
@@ -24,7 +28,7 @@ fn emit_append_to_stdout_buffer(
     emit_append_to_buffer(ctx, src, len, tag, write_error, &sink)
 }
 
-pub(super) fn lower_io_write_helper(
+pub(crate) fn lower_io_write_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -238,7 +242,7 @@ pub(super) fn lower_io_write_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(super) fn lower_io_flush_helper(
+pub(crate) fn lower_io_flush_helper(
     symbol: &str,
     // Flush is now drain-only (no fsync), so it no longer needs the platform to
     // emit a libc/syscall sequence; kept in the signature for parity with the
@@ -292,7 +296,7 @@ pub(super) fn lower_io_flush_helper(
 /// `io::isBuffered()` (plan-14-A §4.2): report whether opt-in stdout buffering is
 /// on for this thread — `OUT_ENABLED != 0`. In app mode the buffer is inert, so it
 /// always reports FALSE.
-pub(super) fn lower_io_is_buffered_helper(symbol: &str, app_mode: bool) -> HelperResult {
+pub(crate) fn lower_io_is_buffered_helper(symbol: &str, app_mode: bool) -> HelperResult {
     const FRAME_SIZE: usize = 16;
     let yes = format!("{symbol}_yes");
     let done = format!("{symbol}_done");
@@ -326,7 +330,7 @@ pub(super) fn lower_io_is_buffered_helper(symbol: &str, app_mode: bool) -> Helpe
 /// first** (so pending bytes are never stranded on the off transition) and then
 /// clears `OUT_ENABLED`. Returns `Nothing`. In app mode buffering is inert, so it
 /// is a no-op returning OK.
-pub(super) fn lower_io_set_buffered_helper(symbol: &str, app_mode: bool) -> HelperResult {
+pub(crate) fn lower_io_set_buffered_helper(symbol: &str, app_mode: bool) -> HelperResult {
     const FRAME_SIZE: usize = 16;
     let enable = format!("{symbol}_enable");
     let done = format!("{symbol}_done");

@@ -29,8 +29,9 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 
 use crate::arch::ops::CodeOp;
-use crate::target::shared::code::mir::MirInstruction;
-use crate::target::shared::code::{CodeInstruction, Operand};
+use crate::codegen::engine::mir::MirInstruction;
+use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::types::CodeInstruction;
 
 /// Maximum distinct `v128` values per function. Capped so the largest lane
 /// offset (`(SLOT_COUNT-1)*16 + 8`) stays within the 12-bit signed load/store
@@ -346,7 +347,7 @@ pub(crate) fn scalarize_v128(
             ("src", crate::arch::riscv64::regmodel::ARENA_BASE_REGISTER),
             (
                 "imm",
-                &crate::target::shared::code::ARENA_V128_SLOTS_OFFSET.to_string(),
+                &crate::codegen::error::constants::ARENA_V128_SLOTS_OFFSET.to_string(),
             ),
         ],
     ));
@@ -813,7 +814,7 @@ pub(crate) fn scalarize_v128(
 /// plan-32-C: load the process-global `_mfb_rt_has_rvv` flag byte into `dst`
 /// (`adrp`/`add_pageoff` the symbol, then a byte load).
 fn load_has_rvv_flag(dst: &str) -> Vec<CodeInstruction> {
-    let sym = crate::target::shared::code::HAS_RVV_GLOBAL_SYMBOL;
+    let sym = crate::codegen::error::constants::HAS_RVV_GLOBAL_SYMBOL;
     vec![
         ci("adrp", &[("dst", dst), ("symbol", sym)]),
         ci(
@@ -1298,7 +1299,7 @@ fn rvv_prologue(out: &mut Vec<CodeInstruction>) {
             ("src", crate::arch::riscv64::regmodel::ARENA_BASE_REGISTER),
             (
                 "imm",
-                &crate::target::shared::code::ARENA_V128_SLOTS_OFFSET.to_string(),
+                &crate::codegen::error::constants::ARENA_V128_SLOTS_OFFSET.to_string(),
             ),
         ],
     ));
@@ -1467,7 +1468,7 @@ mod tests {
         assert_eq!(out.len(), 9);
         assert_eq!(out[0].op.mnemonic(), "add_imm");
         assert_eq!(out[0].get("src").as_deref(), Some("s11"));
-        let expected_offset = crate::target::shared::code::ARENA_V128_SLOTS_OFFSET.to_string();
+        let expected_offset = crate::codegen::error::constants::ARENA_V128_SLOTS_OFFSET.to_string();
         assert_eq!(out[0].get("imm").as_deref(), Some(expected_offset.as_str()));
         assert_eq!(
             out.iter().filter(|i| i.op.mnemonic() == "fadd_d").count(),
@@ -1610,7 +1611,7 @@ mod tests {
     }
 
     fn mir(
-        op: crate::target::shared::code::mir::MirOp,
+        op: crate::codegen::engine::mir::MirOp,
         fields: &[(&'static str, &str)],
     ) -> MirInstruction {
         MirInstruction {
@@ -1626,7 +1627,7 @@ mod tests {
 
     #[test]
     fn slots_are_reused_across_disjoint_live_ranges() {
-        use crate::target::shared::code::mir::MirOp;
+        use crate::codegen::engine::mir::MirOp;
         // Two independent lane-adds in straight-line code: the second op's values
         // recycle the first op's slots (their ranges do not overlap), so six
         // distinct values need only three concurrent slots.
@@ -1647,7 +1648,7 @@ mod tests {
 
     #[test]
     fn loop_carried_values_never_share_a_slot() {
-        use crate::target::shared::code::mir::MirOp;
+        use crate::codegen::engine::mir::MirOp;
         // The same two ops inside a loop (a backward branch to `top`): a value
         // defined late could be read early on the next iteration, so live ranges
         // are extended across the whole loop and no slot is recycled within it —
@@ -1682,7 +1683,7 @@ mod tests {
     /// falls back to `None` (scalar-arm-only).
     #[test]
     fn vreg_map_reuse_loop_distinctness_and_overflow() {
-        use crate::target::shared::code::mir::MirOp;
+        use crate::codegen::engine::mir::MirOp;
         use std::collections::HashSet;
 
         // Reuse: six values across two disjoint straight-line ops → three regs.
@@ -1792,7 +1793,7 @@ mod tests {
         // Guard: load the flag and branch to the scalar label when it is clear.
         assert!(out.iter().any(|i| i.op.mnemonic() == "adrp"
             && i.get("symbol").as_deref()
-                == Some(crate::target::shared::code::HAS_RVV_GLOBAL_SYMBOL)));
+                == Some(crate::codegen::error::constants::HAS_RVV_GLOBAL_SYMBOL)));
         assert!(out.iter().any(|i| i.op.mnemonic() == "rv.br"
             && i.get("target").as_deref() == Some("v128_scalar_0")
             && i.get("cond").as_deref() == Some("eq")));

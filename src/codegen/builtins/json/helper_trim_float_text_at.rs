@@ -22,6 +22,6 @@ r#"FUNC __json_trimFloatTextAt(value AS String, endIndex AS Integer) AS String
   RETURN strings::mid(value, 0, endIndex)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_trimFloatTextAt", BODY));
 }

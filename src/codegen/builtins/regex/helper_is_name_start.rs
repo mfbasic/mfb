@@ -18,6 +18,6 @@ r#"FUNC __regex_isNameStart(ch AS String) AS Boolean
   RETURN ch = "_"
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_isNameStart", BODY));
 }

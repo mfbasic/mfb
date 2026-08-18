@@ -65,7 +65,7 @@ r#"FUNC __datetime_utc AS Zone
   RETURN Zone[0, 0, "UTC"]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "utc",
         intro: INTRO,

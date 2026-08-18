@@ -14,7 +14,8 @@ pub(crate) fn lower_module(
     Ok(NirModule {
         target,
         build_mode,
-        stdin_log_cap: stdin_log_cap.unwrap_or(crate::target::shared::code::STDIN_LOG_CAP_DEFAULT),
+        stdin_log_cap: stdin_log_cap
+            .unwrap_or(crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT),
         project: ir.name.clone(),
         entry: ir.entry.as_ref().map(lower_entry),
         globals: ir

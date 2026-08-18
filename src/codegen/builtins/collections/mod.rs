@@ -1,7 +1,7 @@
+// --- codegen tier imports (migration) ---
 use crate::ast::AstProject;
 use crate::codegen::registry::{Registry, RegistryPackage};
 use std::path::Path;
-
 pub(crate) mod common;
 mod func_add;
 mod func_all;

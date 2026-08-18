@@ -53,7 +53,7 @@ r#"FUNC __datetime_negate(d AS Duration) AS Duration
   RETURN __datetime_normDuration(-d.seconds, -d.nanos)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "negate",
         intro: INTRO,

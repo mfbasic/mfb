@@ -29,8 +29,8 @@ use crate::codegen::registry::{Registry, RegistryPackage};
 
 mod native;
 pub(crate) use native::{
-    lower_os_helper, module_uses_env_lock, os_env_lock_init_hex, OS_ARGC_GLOBAL_SYMBOL,
-    OS_ARGV_GLOBAL_SYMBOL, OS_ENV_LOCK_SIZE, OS_ENV_LOCK_SYMBOL,
+    module_uses_env_lock, os_env_lock_init_hex, OS_ARGC_GLOBAL_SYMBOL, OS_ARGV_GLOBAL_SYMBOL,
+    OS_ENV_LOCK_SIZE, OS_ENV_LOCK_SYMBOL,
 };
 
 mod func_arch;

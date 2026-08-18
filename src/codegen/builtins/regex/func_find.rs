@@ -109,7 +109,7 @@ r#"FUNC __regex_find(value AS String, pattern AS String, start AS Integer) AS In
   RETURN collections::get(r.caps, 0)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "find",
         intro: INTRO,

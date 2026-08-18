@@ -1,14 +1,14 @@
 //! `collections::removeKey` — descriptor entry + target-generic lowering (plan-96).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::map_type_parts;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::map_type_parts;
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTO_REMOVE_KEY: &str = "Return a copy of a map with the entry for one key removed.";
 const DESC_REMOVE_KEY: &str = r#"`collections::removeKey` produces a **new** map containing every entry of
 `value` except the one whose key matches `key`. It does not edit `value` in
@@ -80,7 +80,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "removeKey",
         intro: INTO_REMOVE_KEY,

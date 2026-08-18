@@ -138,7 +138,7 @@ r#"FUNC __json_stringify(value AS Json) AS String
   END MATCH
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "stringify",
         intro: INTRO,

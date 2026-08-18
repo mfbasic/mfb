@@ -20,6 +20,6 @@ FUNC __crypto_beWord64(data AS List OF Byte, o AS Integer) AS Integer
   RETURN w
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_beWord64", BODY));
 }

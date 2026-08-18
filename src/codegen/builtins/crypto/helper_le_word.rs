@@ -22,6 +22,6 @@ FUNC __crypto_leWord(data AS List OF Byte, o AS Integer) AS Integer
   RETURN bits::bor(lo, hi)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_leWord", BODY));
 }

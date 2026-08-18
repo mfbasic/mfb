@@ -1,6 +1,6 @@
+// --- codegen tier imports (migration) ---
 use super::*;
 use crate::target::shared::abi;
-
 /// Emit the shared path→C-string copy loop (bug-331 §A): copy `len` bytes from
 /// `src` into `dst`, advancing both, then write the trailing NUL. When
 /// `reject_nul` is set an embedded NUL byte branches to `invalid` (the caller's

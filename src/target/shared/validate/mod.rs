@@ -203,7 +203,7 @@ mod tests {
         NirModule {
             target: "test-target".to_string(),
             build_mode: crate::target::NativeBuildMode::Console,
-            stdin_log_cap: crate::target::shared::code::STDIN_LOG_CAP_DEFAULT,
+            stdin_log_cap: crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT,
             project: "hello".to_string(),
             entry: Some(NirEntryPoint {
                 name: "main".to_string(),
@@ -347,7 +347,7 @@ mod tests {
         NirModule {
             target: "test-target".to_string(),
             build_mode: crate::target::NativeBuildMode::Console,
-            stdin_log_cap: crate::target::shared::code::STDIN_LOG_CAP_DEFAULT,
+            stdin_log_cap: crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT,
             project: "hello".to_string(),
             entry: Some(NirEntryPoint {
                 name: "main".to_string(),

@@ -19,20 +19,14 @@
 //! surface. When `memory/` lands, this file's calls become `memory::…` across a
 //! real seam. They stay `impl CodeBuilder` methods, so call sites are unchanged.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::{callable_return_type, list_element_type};
+use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::{callable_return_type, list_element_type};
-use crate::target::shared::code::{
-    list_entry_stride, CodeBuilder, CollectionTypeLayout, Operand, ValueResult,
-    COLLECTION_ENTRY_FLAG_USED, COLLECTION_ENTRY_OFFSET_FLAGS, COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-    COLLECTION_ENTRY_OFFSET_KEY_OFFSET, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-    COLLECTION_ENTRY_OFFSET_VALUE_OFFSET, COLLECTION_ENTRY_SIZE, COLLECTION_HEADER_SIZE,
-    COLLECTION_OFFSET_BUCKETS_READY, COLLECTION_OFFSET_CAPACITY, COLLECTION_OFFSET_COUNT,
-    COLLECTION_OFFSET_DATA_CAPACITY, COLLECTION_OFFSET_DATA_LENGTH,
-    COLLECTION_OFFSET_FLAGS_VERSION, COLLECTION_OFFSET_KEY_TYPE, COLLECTION_OFFSET_KIND,
-    COLLECTION_OFFSET_VALUE_TYPE, RESULT_OK_TAG, RESULT_TAG_REGISTER, RESULT_VALUE_REGISTER,
-};
 use crate::target::shared::nir::NirValue;
-
 impl CodeBuilder<'_> {
     pub(crate) fn lower_map_projection(
         &mut self,

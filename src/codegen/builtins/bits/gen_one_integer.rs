@@ -4,9 +4,9 @@
 //! `func_bswap16`/`bswap32`/`bswap64`. Was a `CodeBuilder` method in the former
 //! `src/target/shared/code/builder_bits.rs`.
 
-use crate::target::shared::code::{CodeBuilder, ValueResult};
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
 use crate::target::shared::nir::NirValue;
-
 /// Lower a single `bits.*` argument and require it to be `Integer`, returning the
 /// lowered value or the shared `does not accept` diagnostic (bug-332 G5).
 pub(crate) fn lower_bits_one_integer(

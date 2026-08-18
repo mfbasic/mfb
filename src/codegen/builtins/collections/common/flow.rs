@@ -17,13 +17,12 @@
 //! the inline-TRAP capture label through the `raw_result_capture_label` accessor,
 //! so this module needs no access to `CodeBuilder`'s private fields.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::regalloc;
+use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::{
-    regalloc, CodeBuilder, Operand, OwnedValueCleanup, ValueResult, CLOSURE_ENV_REGISTER,
-    CLOSURE_OFFSET_CODE, CLOSURE_OFFSET_ENV, RESULT_ERROR_MESSAGE_REGISTER,
-    RESULT_ERROR_SOURCE_REGISTER, RESULT_TAG_REGISTER, RESULT_VALUE_REGISTER,
-};
-
 impl CodeBuilder<'_> {
     pub(crate) fn emit_callback_failure_exit(
         &mut self,

@@ -21,6 +21,6 @@ r#"FUNC __json_parseObject(chars AS List OF String, index AS Integer, depth AS I
   RETURN __json_parseObjectItems(chars, nextIndex, Map OF String TO Json {}, depth)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_parseObject", BODY));
 }

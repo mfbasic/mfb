@@ -36,6 +36,6 @@ FUNC __crypto_scalarmult(q AS List OF Integer, s AS List OF Byte) AS List OF Int
   RETURN __crypto_first64(pair)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_scalarmult", BODY));
 }

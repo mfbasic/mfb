@@ -99,6 +99,6 @@ FUNC __encoding_punyDecodeLabel(label AS String) AS String
   RETURN result
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_punyDecodeLabel", BODY));
 }

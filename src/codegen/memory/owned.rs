@@ -4,9 +4,9 @@
 //! lives in the `codegen/memory` data tier. Reads the `borrow_get_result` flag
 //! through its accessor and copies via the shared `copy_flat_block` — both stay
 //! in `src/target` (the accepted `codegen -> target` edge).
-
-use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
-
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
 impl CodeBuilder<'_> {
     /// `collections::get`/`getOr` extract an element as an alias into the
     /// container's data region for inline composite / nested-collection payloads

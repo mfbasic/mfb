@@ -24,18 +24,17 @@
 //! cross-package `code::prepend_wrong_mode_gate` (`app` owns `Mode`, so the gate stays
 //! shared), reached here through the `code` re-exports.
 
-use std::collections::HashMap;
-
-use crate::target::shared::code::{
-    lower_term_helper as console_lower_term_helper, pad_no_slots, prepend_wrong_mode_gate,
-    CodegenPlatform, HelperResult,
-};
-
+use crate::codegen::app::hook::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
 /// Family-generic OS-seam dispatcher for every `term` member — the verbatim term
 /// block relocated from `src/target/shared/code/mod.rs`. Registered in both the
 /// `posix` and `win` slots of each member's `Body::native_os_seam`. Branches
 /// app-vs-console off the per-compilation
 /// [`OsLowerCtx`](crate::codegen::registry::OsLowerCtx).
+// --- codegen tier imports (migration) ---
+use crate::codegen::term::core::lower_term_helper as console_lower_term_helper;
+use std::collections::HashMap;
 pub(crate) fn lower_term_helper(
     call: &str,
     symbol: &str,

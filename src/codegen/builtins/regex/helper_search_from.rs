@@ -31,6 +31,6 @@ r#"FUNC __regex_searchFrom(prog AS __regex_Program, ctx AS __regex_Ctx, from AS 
   RETURN __regex_fail()
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_searchFrom", BODY));
 }

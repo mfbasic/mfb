@@ -61,7 +61,7 @@ r#"FUNC __datetime_monotonic AS Duration
   RETURN __datetime_normDuration(ns / 1000000000, ns MOD 1000000000)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "monotonic",
         intro: INTRO,

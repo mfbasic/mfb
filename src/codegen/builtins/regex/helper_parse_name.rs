@@ -24,6 +24,6 @@ r#"FUNC __regex_parseName(pat AS List OF String, n AS Integer, i AS Integer) AS 
   RETURN __regex_Name[name, j + 1]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_parseName", BODY));
 }

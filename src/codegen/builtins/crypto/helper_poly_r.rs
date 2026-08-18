@@ -31,6 +31,6 @@ FUNC __crypto_polyR(key AS List OF Byte) AS List OF Integer
   RETURN r
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_polyR", BODY));
 }

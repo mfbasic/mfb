@@ -19,6 +19,6 @@ r#"FUNC __regex_matchAlt(opts AS List OF __regex_Node, i AS Integer, pos AS Inte
   RETURN __regex_matchAlt(opts, i + 1, pos, caps, c, ctx, depth + 1)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_matchAlt", BODY));
 }

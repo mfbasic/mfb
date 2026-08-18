@@ -13,7 +13,7 @@
 //! relocation), by the `-ncode` serializer, and by the Linux linker
 //! (`src/os/linux/link`), which patches the RISC-V instruction immediates.
 
-use crate::target::shared::code::RelocIntent;
+use crate::codegen::engine::types::RelocIntent;
 
 /// The concrete rv64 reloc kind a neutral [`RelocIntent`] realizes as.
 ///

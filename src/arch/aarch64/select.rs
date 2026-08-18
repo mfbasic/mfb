@@ -11,11 +11,12 @@
 use crate::arch::aarch64::abi;
 use crate::arch::aarch64::regmodel::ARENA_BASE_REGISTER;
 use crate::arch::ops::CodeOp;
-use crate::target::shared::code::mir::{
+use crate::codegen::engine::mir::{
     code_fields_from_mir, fused_setter_codeop, rename_operand_field_values, MirInstruction, MirOp,
     ARENA_BASE, FUSED_COND_FIELD, FUSED_SHARE_FIELD,
 };
-use crate::target::shared::code::{CodeInstruction, Operand};
+use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::types::CodeInstruction;
 
 pub(crate) fn select_aarch64(instructions: Vec<MirInstruction>) -> Vec<CodeInstruction> {
     let mut out = Vec::with_capacity(instructions.len());
@@ -130,7 +131,7 @@ pub(crate) fn select_aarch64(instructions: Vec<MirInstruction>) -> Vec<CodeInstr
     // `MFB_BUG387_SELFMOVE`; unset, this reads nothing and every emitted byte is
     // unchanged (the scan never mutates `out`).
     if std::env::var_os("MFB_BUG387_SELFMOVE").is_some() {
-        for line in crate::target::shared::code::bug387_selfmove_lines(&out, "aarch64") {
+        for line in crate::codegen::compiler::opt::bug387_selfmove_lines(&out, "aarch64") {
             eprintln!("{line}");
         }
     }
@@ -140,7 +141,7 @@ pub(crate) fn select_aarch64(instructions: Vec<MirInstruction>) -> Vec<CodeInstr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::target::shared::code::mir::lower_to_mir;
+    use crate::codegen::engine::mir::lower_to_mir;
 
     fn values(out: &[CodeInstruction]) -> Vec<String> {
         out.iter()

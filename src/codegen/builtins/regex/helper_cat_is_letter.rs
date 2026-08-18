@@ -12,6 +12,6 @@ r#"FUNC __regex_catIsLetter(cat AS String) AS Boolean
   RETURN strings::startsWith(cat, "L")
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_catIsLetter", BODY));
 }

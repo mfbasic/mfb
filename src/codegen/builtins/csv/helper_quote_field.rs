@@ -13,6 +13,6 @@ r#"FUNC __csv_quoteField(field AS String, quote AS String) AS String
   RETURN quote & strings::replace(field, quote, quote & quote) & quote
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("csv_quoteField", BODY));
 }

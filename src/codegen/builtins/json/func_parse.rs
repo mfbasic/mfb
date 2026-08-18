@@ -118,7 +118,7 @@ r#"FUNC __json_parse(value AS String) AS Json
   RETURN parsed.value
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "parse",
         intro: INTRO,

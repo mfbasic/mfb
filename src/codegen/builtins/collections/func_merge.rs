@@ -1,17 +1,18 @@
 //! `collections::merge` — descriptor entry + MFBASIC source body (Implementation::Mfb).
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::{collection_has_buckets, list_element_type, map_type_parts};
+use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::{
-    collection_has_buckets, list_element_type, map_type_parts,
-};
-use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
-
 /// Native fast path for `#collections_merge$K$V` with a String key, fixed-width
 /// value, and compile-time-`TRUE` `preferB` (presized copy + in-place bulk
 /// insert). Other shapes decline (`Ok(None)`). Free fn.
-pub(super) fn merge_fast_path(
+pub(crate) fn merge_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],
@@ -153,7 +154,7 @@ impl CodeBuilder<'_> {
     /// a shared key, which is exactly `set_in_place`'s overwrite-or-append, so no
     /// `hasKey` probe is needed. Other shapes (non-const/false preferB, String
     /// value, non-String key) fall through to the `.mfb` `__collections_merge`.
-    pub(super) fn lower_collection_merge_call(
+    pub(crate) fn lower_collection_merge_call(
         &mut self,
         args: &[NirValue],
     ) -> Result<ValueResult, String> {

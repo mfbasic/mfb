@@ -98,7 +98,7 @@ END FUNC
 /// `native_builtin_target` bare-name dispatch (`lower_find`), so its `Body` is
 /// [`Body::Intrinsic`] (no `native_lower`, no rewrite); the descriptor exists only
 /// for return-type resolution, arity, errors, and parameter names.
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "find",
         intro: INTO_FIND,

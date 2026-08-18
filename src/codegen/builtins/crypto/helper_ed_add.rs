@@ -39,6 +39,6 @@ FUNC __crypto_edAdd(p AS List OF Integer, q AS List OF Integer) AS List OF Integ
   RETURN __crypto_point4(x3, y3, z3, t3)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_edAdd", BODY));
 }

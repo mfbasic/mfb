@@ -14,6 +14,6 @@ FUNC __crypto_copyBytes(data AS List OF Byte) AS List OF Byte
   RETURN collections::mid(data, 0, len(data))
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_copyBytes", BODY));
 }

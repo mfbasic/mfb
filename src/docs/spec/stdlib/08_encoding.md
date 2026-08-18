@@ -4,7 +4,7 @@ The `encoding` package is a pure-MFBASIC source package that converts between ra
 bytes and text and between text and Unicode code units. It is built on the
 built-in `bits` package (bitwise/shift/rotate primitives), `strings::toBytes`
 (the raw UTF-8 bytes of a `String`, the inverse of `toString(List OF Byte)`), and
-`collections`. [[src/codegen/builtins/encoding/package.mfb]]
+`collections`. [[src/codegen/builtins/encoding/mod.rs]]
 
 This topic owns the codec *models* (algorithms, alphabets, padding, and error
 conditions). The per-function API — signatures, parameters, return types, errors

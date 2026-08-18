@@ -77,7 +77,7 @@ r#"FUNC __datetime_compare(a AS Instant, b AS Instant) AS Integer
   RETURN 0
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "compare",
         intro: INTRO,

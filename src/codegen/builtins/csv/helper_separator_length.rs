@@ -26,6 +26,6 @@ FUNC __csv_separatorLength(chars AS List OF Integer, count AS Integer, index AS 
   RETURN 0
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("csv_separatorLength", BODY));
 }

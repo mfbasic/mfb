@@ -33,6 +33,6 @@ r#"FUNC __json_parseUnicodeEscape(chars AS List OF String, index AS Integer) AS 
   RETURN __json_StringNode[__json_codePointToString(first), index + 4]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_parseUnicodeEscape", BODY));
 }

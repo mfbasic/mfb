@@ -2,7 +2,7 @@
 //! (terminal-size/set-color/attr/cursor/clear/move/write/flush/input) (plan-11 split).
 
 use super::*;
-use crate::target::shared::code::AppHookBody;
+use crate::codegen::engine::builder::AppHookBody;
 
 /// App-mode `term::*` dispatcher. Returns the helper body for the calls the GTK
 /// surface implements; the rest fall back to the console backend (no-op while the
@@ -16,20 +16,29 @@ pub(crate) fn emit_app_term_helper(call: &str, symbol: &str, tso: usize) -> Opti
         "term.clear" => emit_app_term_clear(symbol),
         "term.sync" => emit_app_term_sync(symbol),
         "term.moveTo" => emit_app_term_move_to(symbol),
-        "term.setForeground" => {
-            emit_app_term_set_color(symbol, ST_TERM_CUR_FG, tso, code::TERM_STATE_FG_OFFSET)
-        }
-        "term.setBackground" => {
-            emit_app_term_set_color(symbol, ST_TERM_CUR_BG, tso, code::TERM_STATE_BG_OFFSET)
-        }
-        "term.setBold" => {
-            emit_app_term_set_attr(symbol, ST_TERM_CUR_BOLD, tso, code::TERM_STATE_BOLD_OFFSET)
-        }
+        "term.setForeground" => emit_app_term_set_color(
+            symbol,
+            ST_TERM_CUR_FG,
+            tso,
+            crate::codegen::error::constants::TERM_STATE_FG_OFFSET,
+        ),
+        "term.setBackground" => emit_app_term_set_color(
+            symbol,
+            ST_TERM_CUR_BG,
+            tso,
+            crate::codegen::error::constants::TERM_STATE_BG_OFFSET,
+        ),
+        "term.setBold" => emit_app_term_set_attr(
+            symbol,
+            ST_TERM_CUR_BOLD,
+            tso,
+            crate::codegen::error::constants::TERM_STATE_BOLD_OFFSET,
+        ),
         "term.setUnderline" => emit_app_term_set_attr(
             symbol,
             ST_TERM_CUR_UNDERLINE,
             tso,
-            code::TERM_STATE_UNDERLINE_OFFSET,
+            crate::codegen::error::constants::TERM_STATE_UNDERLINE_OFFSET,
         ),
         "term.terminalSize" => emit_app_term_terminal_size(symbol),
         "term.showCursor" => emit_app_term_set_cursor(symbol, "1"),
@@ -94,7 +103,7 @@ fn emit_app_term_terminal_size(symbol: &str) -> AppHookBody {
     // record = arena_alloc(16, 8) -> x0=tag, x1=ptr (clobbers caller-saved).
     asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "16"));
     asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
-    asm.call_internal(code::ARENA_ALLOC_SYMBOL);
+    asm.call_internal(crate::codegen::error::constants::ARENA_ALLOC_SYMBOL);
     asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
     asm.push(abi::branch_ne("ts_err")); // non-OK tag -> propagate x0/x1/x2
     asm.load_state("x9", ST_TERM_COLS);
@@ -113,14 +122,17 @@ fn emit_app_term_terminal_size(symbol: &str) -> AppHookBody {
     asm.push(abi::move_immediate(
         abi::c_arg(0),
         "Integer",
-        code::RESULT_ERR_TAG,
+        crate::codegen::error::constants::RESULT_ERR_TAG,
     ));
     asm.push(abi::move_immediate(
         abi::c_arg(1),
         "Integer",
         unsupported_code,
     ));
-    asm.local_address(code::RESULT_ERROR_MESSAGE_REGISTER, unsupported_symbol);
+    asm.local_address(
+        crate::codegen::error::constants::RESULT_ERROR_MESSAGE_REGISTER,
+        unsupported_symbol,
+    );
     asm.push(abi::label("ts_err"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(16));
@@ -233,19 +245,19 @@ fn emit_app_term_on(symbol: &str, tso: usize) -> AppHookBody {
     asm.push(abi::store_u64(
         "x10",
         ARENA_REG,
-        tso + code::TERM_STATE_ACTIVE_OFFSET,
+        tso + crate::codegen::error::constants::TERM_STATE_ACTIVE_OFFSET,
     ));
     asm.push(abi::move_immediate("x10", "Integer", TERM_DEFAULT_FG));
     asm.push(abi::store_u64(
         "x10",
         ARENA_REG,
-        tso + code::TERM_STATE_FG_OFFSET,
+        tso + crate::codegen::error::constants::TERM_STATE_FG_OFFSET,
     ));
     asm.push(abi::move_immediate("x10", "Integer", "0"));
     for field in [
-        code::TERM_STATE_BG_OFFSET,
-        code::TERM_STATE_BOLD_OFFSET,
-        code::TERM_STATE_UNDERLINE_OFFSET,
+        crate::codegen::error::constants::TERM_STATE_BG_OFFSET,
+        crate::codegen::error::constants::TERM_STATE_BOLD_OFFSET,
+        crate::codegen::error::constants::TERM_STATE_UNDERLINE_OFFSET,
     ] {
         asm.push(abi::store_u64("x10", ARENA_REG, tso + field));
     }
@@ -281,7 +293,7 @@ fn emit_app_term_off(symbol: &str, tso: usize) -> AppHookBody {
     asm.push(abi::store_u64(
         "x10",
         ARENA_REG,
-        tso + code::TERM_STATE_ACTIVE_OFFSET,
+        tso + crate::codegen::error::constants::TERM_STATE_ACTIVE_OFFSET,
     ));
     // bug-150: leaving TUI mode returns the transcript to line input so
     // subsequent reads commit on Return again (symmetric with the console

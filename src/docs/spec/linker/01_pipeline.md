@@ -15,7 +15,7 @@ IrProject                                                language IR
   -> target linker                                       container encoding
   -> executable file(s)
 ```
-[[src/ir/mod.rs]] [[src/target/shared/nir/mod.rs]] [[src/target/shared/plan/mod.rs]] [[src/target/shared/code/mod.rs]] [[src/arch/aarch64/encode/mod.rs]] [[src/os/macos/link/mod.rs]] [[src/os/linux/link/mod.rs]]
+[[src/ir/mod.rs]] [[src/target/shared/nir/mod.rs]] [[src/target/shared/plan/mod.rs]] [[src/codegen/engine/builder/mod.rs]] [[src/arch/aarch64/encode/mod.rs]] [[src/os/macos/link/mod.rs]] [[src/os/linux/link/mod.rs]]
 
 ## Stage producers
 

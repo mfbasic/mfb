@@ -52,6 +52,6 @@ FUNC __regex_posixProp(name AS String) AS String
   RETURN ""
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_posixProp", BODY));
 }

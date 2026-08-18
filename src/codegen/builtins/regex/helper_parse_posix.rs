@@ -35,6 +35,6 @@ FUNC __regex_parsePosix(pat AS List OF String, n AS Integer, idx AS Integer) AS 
   RETURN __regex_Endpoint[1, "", item, j + 2]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_parsePosix", BODY));
 }

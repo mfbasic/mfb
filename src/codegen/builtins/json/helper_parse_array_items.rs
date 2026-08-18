@@ -39,6 +39,6 @@ r#"FUNC __json_parseArrayItems(chars AS List OF String, index AS Integer, items 
   RETURN __json_Node[value, endIndex]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_parseArrayItems", BODY));
 }

@@ -15,6 +15,6 @@ FUNC __json_isDigit(ch AS String) AS Boolean
   RETURN ch >= "0" AND ch <= "9"
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_isDigit", BODY));
 }

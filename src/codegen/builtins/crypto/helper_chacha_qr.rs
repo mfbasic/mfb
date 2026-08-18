@@ -30,6 +30,6 @@ FUNC __crypto_chachaQr(s AS List OF Integer, ai AS Integer, bi AS Integer, ci AS
   RETURN st
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_chachaQr", BODY));
 }

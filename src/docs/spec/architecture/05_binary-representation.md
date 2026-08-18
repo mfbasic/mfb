@@ -162,7 +162,7 @@ originated. The location flows through every layer:
   overflow/divide-by-zero, failing built-in/helper calls). The origin is then
   carried through the fallible-call result ABI — owned by
   `./mfb spec memory fallible-call-abi` — and materialized into the 3-field
-  `Error` when a result traps.[[src/target/shared/code]]
+  `Error` when a result traps.[[src/codegen]]
 
 ## See Also
 

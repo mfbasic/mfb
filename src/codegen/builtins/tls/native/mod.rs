@@ -12,13 +12,19 @@
 //! symbol version, which is why a single binary works against both OpenSSL
 //! series. The macOS record layout differs and is documented in `macos`.
 
-use std::collections::HashMap;
-
+// --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::error::emission::*;
+use crate::codegen::memory::arena::*;
+use crate::codegen::string::util::*;
+use crate::codegen::string::validate::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::native_helpers::{
-    emit_data_address, emit_fail, hex_encode_cstring,
-};
-use crate::target::shared::code::*;
+use std::collections::HashMap;
 
 // TLS handles share the canonical resource-record header (plan-80): tag@0,
 // fd (handle)@8, closed@16, STATE@24 — then the TLS-specific `SSL_CTX*`/`SSL*`
@@ -27,26 +33,26 @@ use crate::target::shared::code::*;
 // over a `TlsSocket` (plan-76-D D4). An accepted (server-side) `TlsSocket`
 // stores 0 in the `SSL_CTX*` slot: the marker that it points at the listener's
 // shared server context and must not free it (plan-06-tls-server.md §5.1).
-pub(super) const TLS_OFFSET_FD: usize = RESOURCE_OFFSET_HANDLE;
-pub(super) const TLS_OFFSET_CLOSED: usize = RESOURCE_OFFSET_CLOSED;
-pub(super) const TLS_OFFSET_STATE: usize = RESOURCE_OFFSET_STATE;
-pub(super) const TLS_OFFSET_CTX: usize = 32;
-pub(super) const TLS_OFFSET_SSL: usize = 40;
-pub(super) const TLS_RECORD_SIZE: &str = RESOURCE_RECORD_SIZE;
+pub(crate) const TLS_OFFSET_FD: usize = RESOURCE_OFFSET_HANDLE;
+pub(crate) const TLS_OFFSET_CLOSED: usize = RESOURCE_OFFSET_CLOSED;
+pub(crate) const TLS_OFFSET_STATE: usize = RESOURCE_OFFSET_STATE;
+pub(crate) const TLS_OFFSET_CTX: usize = 32;
+pub(crate) const TLS_OFFSET_SSL: usize = 40;
+pub(crate) const TLS_RECORD_SIZE: &str = RESOURCE_RECORD_SIZE;
 
 // The schannel (Windows) backend stores a pointer to its separate SSPI
 // credential/context arena block in the record. Before plan-80 that pointer sat
 // at offset 16 (a bare literal); the header now owns 0..32, so it moves to the
 // TLS-specific tail at 40 (there is no `SSL*` slot on Windows — SSPI keeps its
 // handles in the block this points at).
-pub(super) const TLS_SCHANNEL_OFFSET_BLOCK: usize = 40;
+pub(crate) const TLS_SCHANNEL_OFFSET_BLOCK: usize = 40;
 
 // The `TlsListener` record: the listening fd plus the server `SSL_CTX*` it owns
 // (freed exactly once, when the listener closes). Shares the canonical header;
 // the `SSL_CTX*` moves to the type-specific tail at 32 (plan-80).
-pub(super) const TLS_LISTENER_OFFSET_FD: usize = RESOURCE_OFFSET_HANDLE;
-pub(super) const TLS_LISTENER_OFFSET_CLOSED: usize = RESOURCE_OFFSET_CLOSED;
-pub(super) const TLS_LISTENER_OFFSET_CTX: usize = 32;
+pub(crate) const TLS_LISTENER_OFFSET_FD: usize = RESOURCE_OFFSET_HANDLE;
+pub(crate) const TLS_LISTENER_OFFSET_CLOSED: usize = RESOURCE_OFFSET_CLOSED;
+pub(crate) const TLS_LISTENER_OFFSET_CTX: usize = 32;
 
 // Both OpenSSL records place `closed`/`STATE` at the canonical resource offsets
 // (plan-38, plan-80), so the backend-independent closed-default and union STATE
@@ -60,25 +66,25 @@ const _: () = assert!(TLS_OFFSET_FD == RESOURCE_OFFSET_HANDLE);
 const _: () = assert!(TLS_OFFSET_SSL + 8 <= RESOURCE_RECORD_SIZE_BYTES);
 const _: () = assert!(TLS_SCHANNEL_OFFSET_BLOCK + 8 <= RESOURCE_RECORD_SIZE_BYTES);
 
-pub(super) const SOCK_STREAM: &str = "1";
-pub(super) const HINTS_FAMILY_WORD: &str = "8589934592"; // ai_family = AF_INET (2 << 32), ai_flags = 0
-pub(super) const HINTS_FAMILY_WORD_PASSIVE: &str = "8589934593"; // ai_flags = AI_PASSIVE (1)
-pub(super) const RTLD_NOW: &str = "2";
+pub(crate) const SOCK_STREAM: &str = "1";
+pub(crate) const HINTS_FAMILY_WORD: &str = "8589934592"; // ai_family = AF_INET (2 << 32), ai_flags = 0
+pub(crate) const HINTS_FAMILY_WORD_PASSIVE: &str = "8589934593"; // ai_flags = AI_PASSIVE (1)
+pub(crate) const RTLD_NOW: &str = "2";
 
 // OpenSSL constants (stable across 1.1.1 and 3.x).
-pub(super) const SSL_VERIFY_PEER: &str = "1";
-pub(super) const SSL_CTRL_SET_TLSEXT_HOSTNAME: &str = "55";
-pub(super) const TLSEXT_NAMETYPE_HOST_NAME: &str = "0";
-pub(super) const SSL_CTRL_SET_MIN_PROTO_VERSION: &str = "123";
-pub(super) const TLS1_2_VERSION: &str = "771"; // 0x0303
+pub(crate) const SSL_VERIFY_PEER: &str = "1";
+pub(crate) const SSL_CTRL_SET_TLSEXT_HOSTNAME: &str = "55";
+pub(crate) const TLSEXT_NAMETYPE_HOST_NAME: &str = "0";
+pub(crate) const SSL_CTRL_SET_MIN_PROTO_VERSION: &str = "123";
+pub(crate) const TLS1_2_VERSION: &str = "771"; // 0x0303
 
 /// Candidate `libssl` sonames, tried in order at load time. `.so.3` first
 /// (OpenSSL 3.x), then `.so.1.1` (OpenSSL 1.1.1).
-pub(super) const TLS_LIB_NAMES: &[&str] = &["libssl.so.3", "libssl.so.1.1"];
+pub(crate) const TLS_LIB_NAMES: &[&str] = &["libssl.so.3", "libssl.so.1.1"];
 
 /// Every OpenSSL symbol the client-side helpers `dlsym`. Each gets a read-only
 /// C-string data object so the load can name it.
-pub(super) const TLS_SYMBOLS: &[&str] = &[
+pub(crate) const TLS_SYMBOLS: &[&str] = &[
     "TLS_client_method",
     "SSL_CTX_new",
     "SSL_CTX_set_default_verify_paths",
@@ -103,7 +109,7 @@ pub(super) const TLS_SYMBOLS: &[&str] = &[
 /// The additional server-side entry points (`tls::listen`/`tls::accept`).
 /// Their name strings are emitted only when a module uses a server helper, so
 /// client-only programs stay byte-identical (plan-06-tls-server.md §1).
-pub(super) const TLS_SERVER_SYMBOLS: &[&str] = &[
+pub(crate) const TLS_SERVER_SYMBOLS: &[&str] = &[
     "TLS_server_method",
     "SSL_CTX_ctrl",
     "SSL_CTX_use_certificate_chain_file",
@@ -116,7 +122,7 @@ fn lib_data_symbol(index: usize) -> String {
     format!("_mfb_tls_lib_{index}")
 }
 
-pub(super) fn sym_data_symbol(name: &str) -> String {
+pub(crate) fn sym_data_symbol(name: &str) -> String {
     format!("_mfb_tls_sym_{name}")
 }
 
@@ -157,7 +163,7 @@ pub(crate) fn tls_cstring_data_objects(server: bool) -> Vec<CodeDataObject> {
 /// Copy a NUL-free MFBASIC `String` (pointer at `sp + str_off`) into a freshly
 /// allocated NUL-terminated C string, storing the result pointer at
 /// `sp + out_off`. Branches to `alloc_fail` on allocation failure.
-pub(super) fn emit_cstring(
+pub(crate) fn emit_cstring(
     symbol: &str,
     prefix: &str,
     str_off: usize,
@@ -198,7 +204,7 @@ pub(super) fn emit_cstring(
 
 /// `dlopen` `libssl.so.3`, falling back to `libssl.so.1.1`; the handle is stored
 /// at `sp + handle_off`. Branches to `fail` when neither loads.
-pub(super) fn emit_dlopen_libssl(
+pub(crate) fn emit_dlopen_libssl(
     ctx: &mut EmitCtx,
     handle_off: usize,
     fail: &str,
@@ -255,7 +261,7 @@ pub(super) fn emit_dlopen_libssl(
 }
 
 /// `dlsym(handle, name)` into `sp + fnptr_off`. Branches to `fail` if missing.
-pub(super) fn emit_dlsym(
+pub(crate) fn emit_dlsym(
     ctx: &mut EmitCtx,
     handle_off: usize,
     name: &str,
@@ -298,7 +304,7 @@ pub(super) fn emit_dlsym(
 /// blocking TLS handshake by `timeoutMs` (and, with a zero `timeval`, to clear
 /// the bound afterwards so `read`/`write` stay unbounded). Best effort: a
 /// `setsockopt` failure is ignored — the handshake just falls back to blocking.
-pub(super) fn emit_set_sock_timeouts(
+pub(crate) fn emit_set_sock_timeouts(
     ctx: &mut EmitCtx,
     fd_off: usize,
     tv_off: usize,
@@ -330,7 +336,7 @@ pub(super) fn emit_set_sock_timeouts(
         // SO_*TIMEO silently fail to install and the later recv blocks forever. Route
         // through emit_external_int_call, which spills the overflow arg on Win64 and
         // is byte-identical on POSIX (all 5 fit in registers → plain emit_libc_call).
-        crate::target::shared::code::native_helpers::emit_external_int_call(
+        crate::codegen::os::ffi::emit_external_int_call(
             platform,
             "setsockopt",
             symbol,
@@ -384,7 +390,7 @@ pub(crate) fn lower_tls_helper(
 // `crypto_ec::lower_crypto_ec_helper` — so neither backend is the entry point
 // that owns the other's dispatch (bug-330). Each backend file is a pure
 // `*_openssl` / `*_macos` implementation; the macOS decision lives only here.
-pub(super) fn lower_tls_connect_helper(
+pub(crate) fn lower_tls_connect_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -398,7 +404,7 @@ pub(super) fn lower_tls_connect_helper(
     }
 }
 
-pub(super) fn lower_tls_listen_helper(
+pub(crate) fn lower_tls_listen_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -412,7 +418,7 @@ pub(super) fn lower_tls_listen_helper(
     }
 }
 
-pub(super) fn lower_tls_accept_helper(
+pub(crate) fn lower_tls_accept_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -426,7 +432,7 @@ pub(super) fn lower_tls_accept_helper(
     }
 }
 
-pub(super) fn lower_tls_read_helper(
+pub(crate) fn lower_tls_read_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -445,7 +451,7 @@ pub(super) fn lower_tls_read_helper(
     }
 }
 
-pub(super) fn lower_tls_write_helper(
+pub(crate) fn lower_tls_write_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -467,7 +473,7 @@ pub(super) fn lower_tls_write_helper(
 /// plan-76-B: `tls::poll(sock[, timeoutMs]) AS Boolean` — the TLS readiness query,
 /// per-backend (openssl `SSL_pending`+`poll`, schannel carry-over+`WSAPoll`, macOS
 /// the outstanding-receive model).
-pub(super) fn lower_tls_poll_helper(
+pub(crate) fn lower_tls_poll_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -494,7 +500,7 @@ pub(super) fn lower_tls_poll_helper(
 /// so every backend's buffered + raw readiness is honoured with no new native code.
 /// The scalar helper also propagates any per-socket error (e.g. a closed socket).
 /// `x0` = list ptr, `x1` = timeoutMs.
-pub(super) fn lower_tls_poll_list_helper(
+pub(crate) fn lower_tls_poll_list_helper(
     symbol: &str,
     _platform_imports: &HashMap<String, String>,
     _platform: &dyn CodegenPlatform,
@@ -640,7 +646,7 @@ pub(super) fn lower_tls_poll_list_helper(
     Ok((frame, ins, rel, stack_slots))
 }
 
-pub(super) fn lower_tls_close_helper(
+pub(crate) fn lower_tls_close_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -654,7 +660,7 @@ pub(super) fn lower_tls_close_helper(
     }
 }
 
-pub(super) fn lower_tls_close_listener_helper(
+pub(crate) fn lower_tls_close_listener_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,

@@ -14,6 +14,6 @@ r#"FUNC __crypto_generateEd25519() AS KeyPair
   RETURN KeyPair[seed, pub]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_generateEd25519", BODY));
 }

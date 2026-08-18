@@ -25,6 +25,6 @@ r#"FUNC __crypto_chacha20Poly1305Open(key AS List OF Byte, nonce AS List OF Byte
   RETURN __crypto_chacha20(key, nonce, 1, ciphertext)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_chacha20Poly1305Open", BODY));
 }

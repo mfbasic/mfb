@@ -66,7 +66,7 @@ r#"FUNC __datetime_withZone(dt AS DateTime, z AS Zone) AS DateTime
   RETURN __datetime_inZone(__datetime_resolve(dt), z)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "withZone",
         intro: INTRO,

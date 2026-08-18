@@ -10,9 +10,11 @@
 //! their defining module moved. Emit-only through `abi::`, so byte-identical to
 //! the copies they replaced.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::{CodeBuilder, Operand, ValueResult, COLLECTION_OFFSET_COUNT};
-
 impl CodeBuilder<'_> {
     pub(crate) fn lower_list_get(
         &mut self,

@@ -17,6 +17,6 @@ FUNC __crypto_aesSboxTable() AS List OF Byte
   RETURN encoding::hexDecode(h1 & h2 & h3 & h4)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_aesSboxTable", BODY));
 }

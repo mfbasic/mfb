@@ -29,6 +29,6 @@ FUNC __encoding_utf8Decode(value AS List OF Integer) AS String
   RETURN toString(data)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_utf8Decode", BODY));
 }

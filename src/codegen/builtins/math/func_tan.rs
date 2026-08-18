@@ -1,10 +1,10 @@
 //! `math::tan` — tangent of a `Float`/`Fixed` value or `Float` list (radians).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
 use crate::codegen::registry::RegistryPackage;
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType::{Fixed, Float};
-
 const INTRO: &str = r#"Tangent of an angle in radians."#;
 const DESC: &str = r#"`tan` returns the tangent of `value` (an angle in radians), echoing the operand type
 (`Float` or `Fixed`), plus the `List OF Float` vectorized form. An argument near an
@@ -18,7 +18,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     super::preserving_unary(
         "tan",
         INTRO,

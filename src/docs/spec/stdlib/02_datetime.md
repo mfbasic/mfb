@@ -16,7 +16,7 @@ is not added to the project. [[src/codegen/builtins/datetime/mod.rs:uses_package
 ## Value model
 
 Every public type is a flat, copyable record or enum — no handles, no hidden
-state. [[src/codegen/builtins/datetime/package.mfb:Instant]]
+state. [[src/codegen/builtins/datetime/mod.rs:Instant]]
 
 | Type | Fields | Meaning |
 | --- | --- | --- |
@@ -55,7 +55,7 @@ normalizing — `instant`/`duration` accept 1..5 trailing `Integer` arguments
 each multiplying by `60 / 3600 / 86400` as appropriate. Arithmetic
 (`add`, `subtract`, `between`, `plus`, `minus`, `negate`) adds or subtracts the
 raw field pairs and re-normalizes; comparison (`compare`, `isBefore`, `isAfter`,
-`equals`) orders on `seconds` then `nanos`. [[src/codegen/builtins/datetime/package.mfb:__datetime_normInstant]]
+`equals`) orders on `seconds` then `nanos`. [[src/codegen/builtins/datetime/mod.rs:__datetime_normInstant]]
 
 `fromMillis` converts against the epoch with the same borrow logic;
 `toMillis`/`toNanos` are a straight multiply-add on the already-canonical pair.
@@ -86,7 +86,7 @@ All date math is platform-independent and runs in MFBASIC. The epoch-day
 conversions use Howard Hinnant's branch-free civil ↔ days algorithm, valid
 across the full `Integer` range; the explicit era adjustments keep every divisor
 operand non-negative so truncating division equals flooring.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_daysFromCivil]]
+[[src/codegen/builtins/datetime/mod.rs:__datetime_daysFromCivil]]
 
 * `daysFromCivil(y, m, d)` → days since `1970-01-01` (the `719468` constant
   shifts from the `0000-03-01` internal era origin to the Unix epoch).
@@ -121,7 +121,7 @@ negative epoch-second into a day index and a second-of-day requires *flooring*.
 The package defines `floorDiv` / `floorMod` (adjust the truncated quotient down
 when the remainder is negative) and uses them whenever a value can be negative —
 day-of-epoch splitting, weekday index, and `addMonths` month rollover.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_floorDiv]]
+[[src/codegen/builtins/datetime/mod.rs:__datetime_floorDiv]]
 
 ## Zones, projection, and the OS clock/zone seam
 
@@ -162,7 +162,7 @@ and the error propagates through `offsetAt`/`toLocal` for a `Local` zone.
 `fixedOffset` takes either total seconds or `(hours, minutes)`; the magnitude
 must be under 24h (`|offset| < 86400`) and minutes `0..59`, else
 `ErrInvalidArgument` (`77050002`). The label is rendered `±HH:MM`.
-[[src/codegen/builtins/datetime/package.mfb:__datetime_fixedOffset1]]
+[[src/codegen/builtins/datetime/mod.rs:__datetime_fixedOffset1]]
 
 `offsetAt(zone, at)` returns `localOffset(at.seconds)` for a `Local` zone and
 the stored `offsetSeconds` otherwise — so a `Local` zone's effective offset is
@@ -184,7 +184,7 @@ hard case is a `Local` zone where the offset depends on the very instant being
 constructed. `resolveLocal` handles a single DST transition near the local time:
 it probes the offset one day on each side to bracket the transition, then
 applies the §"DST policy" below. `withZone(dt, z)` re-projects through
-`resolve` then `inZone`. [[src/codegen/builtins/datetime/package.mfb:__datetime_resolveLocal]]
+`resolve` then `inZone`. [[src/codegen/builtins/datetime/mod.rs:__datetime_resolveLocal]]
 
 **DST policy** (`resolveLocal`): with no transition in the bracket, use the
 common offset. Across a transition: an unambiguous time uses the bracketing
@@ -207,7 +207,7 @@ month's length (e.g. Jan 31 + 1 month → Feb 28/29). `startOfDay` is `civil` at
 unchanged, copying single-quoted runs verbatim (`''` is a literal quote), and
 expanding **runs** of a recognized letter (the run length selects width/style).
 An unrecognized letter run fails `ErrInvalidFormat` (`77050003`).
-[[src/codegen/builtins/datetime/package.mfb:__datetime_formatToken]]
+[[src/codegen/builtins/datetime/mod.rs:__datetime_formatToken]]
 
 | Token | Meaning | Run-length behavior |
 | --- | --- | --- |
@@ -234,7 +234,7 @@ filling field accumulators in a `__datetime_Fields` record. Absent fields keep
 epoch/zero defaults (`year=1970, month=1, day=1`, all time fields `0`). A
 structural mismatch — wrong literal, missing digits, bad AM/PM, bad month name,
 bad offset — fails `ErrInvalidFormat` (`77050003`). The pattern letters mirror
-`format`. [[src/codegen/builtins/datetime/package.mfb:__datetime_parseFields]]
+`format`. [[src/codegen/builtins/datetime/mod.rs:__datetime_parseFields]]
 
 Field-read rules:
 

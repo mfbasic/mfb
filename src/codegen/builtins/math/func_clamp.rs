@@ -1,12 +1,12 @@
 //! `math::clamp` — restrict a value (or list) to an inclusive `[low, high]` range.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType::{self, Fixed, Float, Integer, Money};
 
 use super::{overload, req};
-
 const INTRO: &str = r#"Restrict a value or list to an inclusive [low, high] range."#;
 const DESC: &str = r#"`clamp` returns `value` restricted to `[low, high]`: `low` when `value < low`,
 `high` when `value > high`, and `value` otherwise. All three arguments must be the
@@ -24,7 +24,7 @@ END SUB
 const LOW: &[&str] = &["minimum"];
 const HIGH: &[&str] = &["maximum"];
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     let mut impls: Vec<Implementation> = Vec::new();
     // Array `(List OF T, T, T) AS List OF T` first (lenient resolution coarsely
     // accepts a scalar pattern against a `List OF` concrete, so a scalar-first order

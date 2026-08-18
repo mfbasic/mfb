@@ -13,6 +13,6 @@ r#"FUNC __regex_fail AS __regex_Result
   RETURN __regex_Result[FALSE, 0, e]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_fail", BODY));
 }

@@ -58,7 +58,7 @@ r#"FUNC __datetime_add(at AS Instant, by AS Duration) AS Instant
   RETURN __datetime_normInstant(at.seconds + by.seconds, at.nanos + by.nanos)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "add",
         intro: INTRO,

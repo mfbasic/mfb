@@ -32,6 +32,6 @@ r#"FUNC __regex_classMatchOne(items AS List OF __regex_ClassItem, ch AS String, 
   RETURN FALSE
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_classMatchOne", BODY));
 }

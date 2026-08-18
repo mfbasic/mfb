@@ -13,6 +13,6 @@ r#"FUNC __crypto_sha384Iv() AS List OF Integer
   RETURN __crypto_beWords64(encoding::hexDecode(hex))
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_sha384Iv", BODY));
 }

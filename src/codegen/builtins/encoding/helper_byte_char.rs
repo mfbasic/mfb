@@ -15,6 +15,6 @@ FUNC __encoding_byteChar(c AS Integer) AS String
   RETURN toString(one)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_byteChar", BODY));
 }

@@ -1,13 +1,14 @@
 //! `bits::bnot` — bitwise NOT (one's complement) of a 64-bit integer.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTRO: &str = r#"Bitwise NOT (one's complement) of a 64-bit integer."#;
 const DESC: &str = r#"`bnot` returns the one's complement of `a`: every one of the 64 bit positions is
 inverted, so bit *i* of the result is `1` exactly when bit *i* of `a` is `0`, and
@@ -47,7 +48,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "bnot",
         intro: INTRO,

@@ -12,6 +12,6 @@ r#"FUNC __crypto_aesSub(b AS Integer) AS Integer
   RETURN toInt(collections::get(__CRYPTO_AES_SBOX, bits::band(b, 255)))
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_aesSub", BODY));
 }

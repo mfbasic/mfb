@@ -92,7 +92,7 @@ two `Money` bounds, a `Money`); `seed` returns Nothing.
 
 /// One required parameter with optional keyword aliases and no default. `desc` is
 /// left empty — the human parameter documentation lives in the `math/*` man pages.
-pub(super) fn req(
+pub(crate) fn req(
     name: &'static str,
     aliases: &'static [&'static str],
     ty: ParameterType,
@@ -107,7 +107,7 @@ pub(super) fn req(
 }
 
 /// A single concrete-type overload lowering inline through `lower`.
-pub(super) fn overload(
+pub(crate) fn overload(
     params: Vec<Parameter>,
     return_type: ParameterType,
     errors: Vec<&'static str>,
@@ -186,7 +186,7 @@ const CONSTANTS: &[(&str, &str, &str)] = &[
 /// The argument-type-preserving unary shape: a member accepting a single numeric
 /// scalar (each of `scalars`) or its `List OF` form (each of `lists`) and echoing
 /// the operand type (`Arg(0)`). `errors` is declared on every overload.
-pub(super) fn preserving_unary(
+pub(crate) fn preserving_unary(
     name: &'static str,
     intro: &'static str,
     desc: &'static str,
@@ -235,7 +235,7 @@ pub(super) fn preserving_unary(
 /// The rounding shape (`floor`/`ceil`/`round`): a single numeric scalar (each of
 /// `scalars`) returns `Integer`, a `List OF` (each of `lists`) returns `List OF
 /// Integer` — a deliberate dimension exit, so this is not `Arg(0)`.
-pub(super) fn rounding(
+pub(crate) fn rounding(
     name: &'static str,
     intro: &'static str,
     desc: &'static str,
@@ -283,7 +283,7 @@ pub(super) fn rounding(
 /// `List OF T` (each `T` in `lists`), echoing `Arg(0)`. `p0`/`p1` are the two
 /// parameters' `(name, aliases)`.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn preserving_binary(
+pub(crate) fn preserving_binary(
     name: &'static str,
     intro: &'static str,
     desc: &'static str,
@@ -438,3 +438,10 @@ mod tests {
         );
     }
 }
+
+pub(crate) mod builder_math;
+pub(crate) use builder_math::*;
+pub(crate) mod builder_fmod;
+pub(crate) mod builder_pow;
+pub(crate) mod rng_pcg64;
+pub(crate) use rng_pcg64::*;

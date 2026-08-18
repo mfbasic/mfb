@@ -790,10 +790,12 @@ fn write_executable_rejects_unbound_external_all_kinds() {
 /// from the imported-stub path the dynamic test exercises).
 #[test]
 fn write_executable_riscv64_internal_call_patches_auipc_jalr_pair() {
-    use crate::target::shared::code::{CodeFrame, CodeFunction, NativeCodePlan};
+    use crate::codegen::engine::types::CodeFrame;
+    use crate::codegen::engine::types::CodeFunction;
+    use crate::codegen::engine::types::NativeCodePlan;
     fn func(
         name: &str,
-        instructions: Vec<crate::target::shared::code::CodeInstruction>,
+        instructions: Vec<crate::codegen::engine::types::CodeInstruction>,
     ) -> CodeFunction {
         CodeFunction {
             name: name.to_string(),
@@ -1081,8 +1083,8 @@ fn riscv_hi_lo_rejects_a_displacement_past_the_auipc_reach() {
 fn rv_inst(
     op: &str,
     fields: &[(&'static str, &str)],
-) -> crate::target::shared::code::CodeInstruction {
-    let mut instruction = crate::target::shared::code::CodeInstruction::new(op);
+) -> crate::codegen::engine::types::CodeInstruction {
+    let mut instruction = crate::codegen::engine::types::CodeInstruction::new(op);
     for (key, value) in fields {
         instruction = instruction.field(key, value);
     }
@@ -1097,9 +1099,11 @@ fn rv_inst(
 // RISC-V dynamic ELF header/e_flags/interpreter path on any CI host.
 #[test]
 fn write_executable_riscv64_dynamic_covers_call_pcrel_and_got() {
-    use crate::target::shared::code::{
-        CodeDataObject, CodeFrame, CodeFunction, CodeImport, NativeCodePlan,
-    };
+    use crate::codegen::engine::types::CodeDataObject;
+    use crate::codegen::engine::types::CodeFrame;
+    use crate::codegen::engine::types::CodeFunction;
+    use crate::codegen::engine::types::CodeImport;
+    use crate::codegen::engine::types::NativeCodePlan;
     let main = CodeFunction {
         name: "_main".to_string(),
         symbol: "_main".to_string(),

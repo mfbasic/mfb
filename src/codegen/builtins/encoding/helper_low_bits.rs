@@ -16,6 +16,6 @@ FUNC __encoding_lowBits(value AS Integer, n AS Integer) AS Integer
   RETURN bits::band(value, bits::sl(1, n) - 1)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_lowBits", BODY));
 }

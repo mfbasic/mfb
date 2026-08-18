@@ -35,6 +35,6 @@ r#"FUNC __regex_parseCounted(pat AS List OF String, n AS Integer, i AS Integer) 
   RETURN __regex_Count[lo, hi, j + 1]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_parseCounted", BODY));
 }

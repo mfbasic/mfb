@@ -15,6 +15,6 @@ r#"FUNC __regex_lookupRef(ref AS String, r AS __regex_Result, value AS String, p
   RETURN __regex_lookupName(ref, r, value, prog)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_lookupRef", BODY));
 }

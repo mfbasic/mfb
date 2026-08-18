@@ -8,26 +8,30 @@
 //! `AudioDevice` is a plain read-only record (pointer-`String` layout, like
 //! `net::Address`): six 8-byte field slots.
 
-use std::collections::HashMap;
-
-use crate::target::shared::code::*;
 // Moved to `builder_collection_layout` (plan-58-B) so `link_thunk`'s
 // `OUT CBuffer` staging can reach it without depending on `audio`. Re-imported
 // here so both backends keep naming it unqualified.
-use crate::target::shared::code::builder_collection_layout::emit_alloc_byte_list;
+// --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use std::collections::HashMap;
 
 // --- AudioHandle: arena record, pointer-sized reference (plan-33-A §5.1) ------
 // Identical layout for both resource types. Shares the canonical plan-80
 // header: tag@0, handle (`H_KIND`)@8, closed@16, generic union STATE@24 — then
 // the audio-specific tail (sample-rate/…/mmap-`H_STATE` ptr) at 32+.
-pub(super) const H_KIND: usize = RESOURCE_OFFSET_HANDLE; // 1 = input, 2 = output
-pub(super) const H_CLOSED: usize = RESOURCE_OFFSET_CLOSED; // mirror; authoritative `closed` is in state
-pub(super) const H_SAMPLE_RATE: usize = 32;
-pub(super) const H_CHANNELS: usize = 40;
-pub(super) const H_BYTES_PER_FRAME: usize = 48; // channels * 2
-pub(super) const H_BUFFER_FRAMES: usize = 56;
-pub(super) const H_STATE: usize = 64; // -> mmap'd AudioState
-pub(super) const H_RECORD_SIZE: usize = RESOURCE_RECORD_SIZE_BYTES;
+pub(crate) const H_KIND: usize = RESOURCE_OFFSET_HANDLE; // 1 = input, 2 = output
+pub(crate) const H_CLOSED: usize = RESOURCE_OFFSET_CLOSED; // mirror; authoritative `closed` is in state
+pub(crate) const H_SAMPLE_RATE: usize = 32;
+pub(crate) const H_CHANNELS: usize = 40;
+pub(crate) const H_BYTES_PER_FRAME: usize = 48; // channels * 2
+pub(crate) const H_BUFFER_FRAMES: usize = 56;
+pub(crate) const H_STATE: usize = 64; // -> mmap'd AudioState
+pub(crate) const H_RECORD_SIZE: usize = RESOURCE_RECORD_SIZE_BYTES;
 
 // The `closed` mirror is at the canonical resource closed-flag offset
 // (plan-38/80): the closed-default (`lower_default_value`) sets exactly this
@@ -42,39 +46,39 @@ const _: () = assert!(H_RECORD_SIZE <= RESOURCE_RECORD_SIZE_BYTES);
 const _: () = assert!(H_STATE + 8 <= RESOURCE_RECORD_SIZE_BYTES);
 const _: () = assert!(H_SAMPLE_RATE > RESOURCE_OFFSET_STATE);
 
-pub(super) const KIND_INPUT: &str = "1";
-pub(super) const KIND_OUTPUT: &str = "2";
-pub(super) const NUM_BUFFERS: usize = 4;
+pub(crate) const KIND_INPUT: &str = "1";
+pub(crate) const KIND_OUTPUT: &str = "2";
+pub(crate) const NUM_BUFFERS: usize = 4;
 
 // --- AudioState: one mmap'd page, NOT arena (an OS callback thread touches it) -
 // pthread_mutex_t (64 B) / pthread_cond_t (48 B) get 128 B each (§5.1). Compile-
 // time asserts below guard the reservations against the platform sizes.
-pub(super) const S_MUTEX: usize = 0;
-pub(super) const S_COND: usize = 128;
-pub(super) const S_XRUNS: usize = 256;
-pub(super) const S_CLOSED: usize = 264;
-pub(super) const S_STARTED: usize = 272;
-pub(super) const S_OSOBJECT: usize = 280; // AudioQueueRef (macOS) / snd_pcm_t* (Linux)
-pub(super) const S_FREE_TOP: usize = 288; // count of free output buffers
-pub(super) const S_FREE_BUFS: usize = 296; // [NUM_BUFFERS] AudioQueueBufferRef -> 296..328
-pub(super) const S_RING_CAP: usize = 328;
-pub(super) const S_RING_HEAD: usize = 336; // wrapped write index [0, ringCap)
-pub(super) const S_RING_TAIL: usize = 344; // wrapped read index [0, ringCap)
-pub(super) const S_MAP_SIZE: usize = 352; // total mmap length, for munmap
-pub(super) const S_RING_FILL: usize = 360; // bytes currently buffered
+pub(crate) const S_MUTEX: usize = 0;
+pub(crate) const S_COND: usize = 128;
+pub(crate) const S_XRUNS: usize = 256;
+pub(crate) const S_CLOSED: usize = 264;
+pub(crate) const S_STARTED: usize = 272;
+pub(crate) const S_OSOBJECT: usize = 280; // AudioQueueRef (macOS) / snd_pcm_t* (Linux)
+pub(crate) const S_FREE_TOP: usize = 288; // count of free output buffers
+pub(crate) const S_FREE_BUFS: usize = 296; // [NUM_BUFFERS] AudioQueueBufferRef -> 296..328
+pub(crate) const S_RING_CAP: usize = 328;
+pub(crate) const S_RING_HEAD: usize = 336; // wrapped write index [0, ringCap)
+pub(crate) const S_RING_TAIL: usize = 344; // wrapped read index [0, ringCap)
+pub(crate) const S_MAP_SIZE: usize = 352; // total mmap length, for munmap
+pub(crate) const S_RING_FILL: usize = 360; // bytes currently buffered
 
 // Output only: the buffer `write` is still filling, and how many bytes are in
 // it. An AudioQueue never finishes a buffer holding less than a full period, so
 // a partly-filled buffer must not be enqueued (bug-370) — it is carried here
 // until a later `write` fills it or `close` pads it with silence. Only the
 // writing thread touches these, so they need no mutex.
-pub(super) const S_PENDING_BUF: usize = 368;
-pub(super) const S_PENDING_FILL: usize = 376;
-pub(super) const S_RING: usize = 384; // input ring payload (page-area)
+pub(crate) const S_PENDING_BUF: usize = 368;
+pub(crate) const S_PENDING_FILL: usize = 376;
+pub(crate) const S_RING: usize = 384; // input ring payload (page-area)
 
 // `AudioState` bookkeeping fits in the first page; output uses no ring so one
 // page suffices. Input sizes the mapping to `S_RING + ringCapacity`.
-pub(super) const STATE_PAGE: usize = 16384;
+pub(crate) const STATE_PAGE: usize = 16384;
 
 // Build-time guards (plan-33-B §6): the pthread reservations must exceed the
 // platform sizes (macOS pthread_mutex_t = 64 B, pthread_cond_t = 48 B; glibc 40 /
@@ -89,23 +93,19 @@ const _: () = assert!(
 );
 
 // The `AudioDevice` record: six word-slots, `String` fields as pointers.
-pub(super) const DEVICE_FIELD_ID: usize = 0;
-pub(super) const DEVICE_FIELD_NAME: usize = 8;
-pub(super) const DEVICE_FIELD_CAN_INPUT: usize = 16;
-pub(super) const DEVICE_FIELD_CAN_OUTPUT: usize = 24;
-pub(super) const DEVICE_FIELD_IS_DEFAULT_INPUT: usize = 32;
-pub(super) const DEVICE_FIELD_IS_DEFAULT_OUTPUT: usize = 40;
-pub(super) const DEVICE_RECORD_SIZE: usize = 48;
+pub(crate) const DEVICE_FIELD_ID: usize = 0;
+pub(crate) const DEVICE_FIELD_NAME: usize = 8;
+pub(crate) const DEVICE_FIELD_CAN_INPUT: usize = 16;
+pub(crate) const DEVICE_FIELD_CAN_OUTPUT: usize = 24;
+pub(crate) const DEVICE_FIELD_IS_DEFAULT_INPUT: usize = 32;
+pub(crate) const DEVICE_FIELD_IS_DEFAULT_OUTPUT: usize = 40;
+pub(crate) const DEVICE_RECORD_SIZE: usize = 48;
 
 // Shared generic emitters, all from `native_helpers` (bug-330): `emit_alloc`
 // is the one arena-allocation free function (`code/mod.rs`, bug-322); the rest
 // are the package-neutral emitters that used to live in `tls`. Reuse them
 // rather than duplicating. `emit_data_address` is re-exported for the
 // AudioQueue phases.
-pub(crate) use crate::target::shared::code::emit_alloc;
-pub(crate) use crate::target::shared::code::native_helpers::{
-    emit_arena_free, emit_data_address, emit_external_int_call, emit_fail, hex_encode_cstring,
-};
 
 // The emitted AudioQueue output callback (macOS): a C-ABI function the OS calls
 // on an ordinary internal thread when a played buffer is free. openOutput takes
@@ -121,7 +121,6 @@ mod windows;
 // Scaffolding both backends share (bug-330); imported here so each backend's
 // `use super::*` picks them up.
 use common::{emit_validate_open, Query, READ_FRAMES_MAX};
-
 pub(crate) use macos::{lower_audio_input_callback, lower_audio_output_callback};
 
 /// Dispatch an `audio.*` runtime-helper body to the platform backend. The

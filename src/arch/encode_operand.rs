@@ -10,7 +10,7 @@
 
 use std::borrow::Cow;
 
-use crate::target::shared::code::CodeInstruction;
+use crate::codegen::engine::types::CodeInstruction;
 
 /// The value of `instruction`'s field named `name`, or an error naming the
 /// missing field and the instruction's mnemonic.

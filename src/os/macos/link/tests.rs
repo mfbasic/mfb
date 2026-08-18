@@ -1144,12 +1144,12 @@ fn links_and_launches_app_bundle_importing_libobjc() {
 // dysymtab, rebase_info, linkedit_layout — on Linux CI too, where the
 // `#[cfg(target_os = "macos")]` launch tests do not run.
 fn encode_aarch64(
-    imports: Vec<crate::target::shared::code::CodeImport>,
-    data_objects: Vec<crate::target::shared::code::CodeDataObject>,
-    functions: Vec<crate::target::shared::code::CodeFunction>,
+    imports: Vec<crate::codegen::engine::types::CodeImport>,
+    data_objects: Vec<crate::codegen::engine::types::CodeDataObject>,
+    functions: Vec<crate::codegen::engine::types::CodeFunction>,
     entry: &str,
 ) -> EncodedImage {
-    let plan = crate::target::shared::code::NativeCodePlan {
+    let plan = crate::codegen::engine::types::NativeCodePlan {
         target: "macos-aarch64".to_string(),
         build_mode: crate::target::NativeBuildMode::Console,
         arch: "aarch64".to_string(),
@@ -1164,14 +1164,14 @@ fn encode_aarch64(
 
 fn code_fn(
     name: &str,
-    instructions: Vec<crate::target::shared::code::CodeInstruction>,
-) -> crate::target::shared::code::CodeFunction {
-    crate::target::shared::code::CodeFunction {
+    instructions: Vec<crate::codegen::engine::types::CodeInstruction>,
+) -> crate::codegen::engine::types::CodeFunction {
+    crate::codegen::engine::types::CodeFunction {
         name: name.to_string(),
         symbol: name.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),
-        frame: crate::target::shared::code::CodeFrame {
+        frame: crate::codegen::engine::types::CodeFrame {
             stack_size: 0,
             callee_saved: Vec::new(),
         },
@@ -1181,8 +1181,11 @@ fn code_fn(
     }
 }
 
-fn inst(op: &str, fields: &[(&'static str, &str)]) -> crate::target::shared::code::CodeInstruction {
-    let mut instruction = crate::target::shared::code::CodeInstruction::new(op);
+fn inst(
+    op: &str,
+    fields: &[(&'static str, &str)],
+) -> crate::codegen::engine::types::CodeInstruction {
+    let mut instruction = crate::codegen::engine::types::CodeInstruction::new(op);
     for (key, value) in fields {
         instruction = instruction.field(key, value);
     }
@@ -1205,11 +1208,11 @@ fn writes_full_mach_o_with_imports_data_and_initializer() {
     );
     let init0 = code_fn("_init0", vec![inst("ret", &[])]);
     let mut image = encode_aarch64(
-        vec![crate::target::shared::code::CodeImport {
+        vec![crate::codegen::engine::types::CodeImport {
             library: "libSystem".to_string(),
             symbol: "_write".to_string(),
         }],
-        vec![crate::target::shared::code::CodeDataObject {
+        vec![crate::codegen::engine::types::CodeDataObject {
             symbol: "_msg".to_string(),
             kind: "string".to_string(),
             layout: String::new(),

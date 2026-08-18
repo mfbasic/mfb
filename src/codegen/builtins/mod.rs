@@ -21,6 +21,7 @@ pub(crate) mod math;
 pub(crate) mod money;
 pub(crate) mod net;
 pub(crate) mod os;
+pub(crate) mod perf;
 pub(crate) mod process;
 pub(crate) mod regex;
 pub(crate) mod strings;

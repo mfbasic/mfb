@@ -37,7 +37,7 @@ const CHANNELS: &str = "Channel count: `1` (mono) or `2` (stereo).";
 const BUFFER_FRAMES: &str = "Frames per OS buffer. Must be in `64..=8192`.";
 const DEVICE: &str = "The device to open, from `audio::devices()` (four-argument form only). A device whose `id` no longer exists raises `ErrAudioDevice`.";
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     let errors = || {
         vec![
             "ErrInvalidArgument",

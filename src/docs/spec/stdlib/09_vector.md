@@ -8,7 +8,7 @@ public-call → internal-implementation mapping are on the compiler
 side. This topic specifies the value model, the dispatch
 model, the per-function formulas, the Integer rounding rule, and the determinism
 guarantee — the *behaviour behind* the API, not the per-function signatures
-(those are `./mfb man vector`). [[src/codegen/builtins/vector/package.mfb]] [[src/codegen/builtins/vector/mod.rs]]
+(those are `./mfb man vector`). [[src/codegen/builtins/vector/mod.rs]] [[src/codegen/builtins/vector/mod.rs]]
 
 ## The nine value records
 
@@ -69,7 +69,7 @@ land in `{-1, 0, 1}`) but mathematically defined and kept per the requested
 The deterministic rounding integer square root is `__vector_isqrtRound`: it takes
 the floor sqrt by Newton's method, then rounds up exactly when the remainder
 exceeds the floor (the exact half `(f + 0.5)² = f² + f + 0.25` is never an
-integer, so there is never a tie). [[src/codegen/builtins/vector/package.mfb:__vector_isqrtRound]]
+integer, so there is never a tie). [[src/codegen/builtins/vector/mod.rs:__vector_isqrtRound]]
 
 ## Function formulas
 

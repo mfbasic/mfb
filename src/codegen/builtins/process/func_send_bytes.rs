@@ -6,14 +6,15 @@
 //! (`crate::codegen::os`) picks by `platform.family()`. This file carries the
 //! descriptor and those entry fns.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
 use std::collections::HashMap;
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::code::{CodegenPlatform, HelperResult};
 use crate::types::ParameterType;
-
 const INTRO: &str = r#"Write raw bytes to a child's standard input, with no newline added."#;
 const DESC: &str = r#"`process::sendBytes` writes the raw bytes of `data` to the child's standard input,
 in list order, with **no** trailing newline and no re-encoding. It is the binary
@@ -52,7 +53,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     // The optional trailing `timeoutMs` widens arity to 3 and is NOT default-padded:
     // the 3-arg form is selected at codegen (`builder_values` →
     // `process.sendBytesTimeout`), and the emitter branches on the runtime-call name.

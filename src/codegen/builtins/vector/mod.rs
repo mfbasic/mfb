@@ -839,3 +839,11 @@ mod tests {
         .expect("reassembled vector source parses");
     }
 }
+
+pub(crate) mod builder_simd_fixed_math;
+pub(crate) mod builder_simd_float_math;
+pub(crate) mod builder_simd_math;
+pub(crate) mod simd_kernel_coeffs;
+pub(crate) use simd_kernel_coeffs::*;
+pub(crate) mod builder_vector_inline;
+pub(crate) use builder_vector_inline::*;

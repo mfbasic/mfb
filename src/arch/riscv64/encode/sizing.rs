@@ -101,7 +101,7 @@ pub(super) fn instruction_size(instruction: &CodeInstruction) -> Result<usize, S
         // relocation target, so seeding it renders a `String` binding resolution
         // never reads. Binding never affects the byte count, so restricting the
         // seed to `Raw` operands is size-identical (mirrors the aarch64 sizing).
-        if let crate::target::shared::code::Operand::Raw(text) = value {
+        if let crate::codegen::engine::operand::Operand::Raw(text) = value {
             probe.imports.insert(text.to_string(), String::new());
         }
     }

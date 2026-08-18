@@ -23,6 +23,6 @@ r#"FUNC __json_controlEscape(codePoint AS Integer) AS String
   RETURN __json_unicodeControlEscape(codePoint)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_controlEscape", BODY));
 }

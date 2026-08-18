@@ -1,10 +1,10 @@
 //! `math::atan2` — arctangent of `y / x` using the quadrant of both signs.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
 use crate::codegen::registry::RegistryPackage;
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType::{Fixed, Float};
-
 const INTRO: &str = r#"Arctangent of y / x, using the signs of both to pick the quadrant."#;
 const DESC: &str = r#"`atan2` returns the angle in radians (in `(-pi, pi]`) between the positive x-axis
 and the point `(x, y)`, using the signs of both arguments to select the correct
@@ -19,7 +19,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     super::preserving_binary(
         "atan2",
         INTRO,

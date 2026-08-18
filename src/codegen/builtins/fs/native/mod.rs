@@ -21,10 +21,19 @@
 //! ([`lower_fs_path_join_helper`]) so imported-package binary_repr lowers it
 //! identically; that helper is injected module-wide from `code/mod.rs`.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
+use crate::codegen::collection::sort::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::io::stdout::*;
+use crate::codegen::memory::data::*;
+use crate::codegen::os::syscall::*;
+use crate::codegen::string::validate::*;
 use std::collections::HashMap;
-
-use crate::target::shared::code::*;
-
 mod atomic;
 mod io;
 mod paths;

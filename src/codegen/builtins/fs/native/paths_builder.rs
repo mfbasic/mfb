@@ -1,7 +1,8 @@
+// --- codegen tier imports (migration) ---
 use super::*;
+use crate::codegen::engine::builder::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
-
 impl CodeBuilder<'_> {
     /// Emit the shared trailing-`/` trim loop (bug-331 §J): walk `length` down
     /// while the last byte (`bytes[length-1]`) is `/` (47), stopping at length 1.

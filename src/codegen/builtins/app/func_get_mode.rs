@@ -3,9 +3,9 @@
 //! The native lowering (the per-arena presentation-mode load) lives in
 //! [`super::native::lower_app_helper`].
 
+// --- codegen tier imports (migration) ---
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
-
 const INTRO: &str = r#"Read the presentation mode currently in effect for this `--app` program"#;
 const DESC: &str = r#"`app::getMode` returns the program's current presentation mode as a `Mode` value.
 It takes no arguments and always succeeds.
@@ -36,7 +36,7 @@ SUB main
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "getMode",
         intro: INTRO,

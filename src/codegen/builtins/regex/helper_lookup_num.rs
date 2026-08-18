@@ -20,6 +20,6 @@ r#"FUNC __regex_lookupNum(num AS Integer, r AS __regex_Result, value AS String, 
   RETURN strings::mid(value, s, e - s)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_lookupNum", BODY));
 }

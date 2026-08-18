@@ -23,8 +23,9 @@
 //! registry's generic overload/return resolution answers everything with no custom
 //! resolver.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::error::constants::*;
 use crate::codegen::registry::{Registry, RegistryPackage, RegistryResource};
-
 pub(crate) mod native;
 
 mod func_accept;
@@ -61,7 +62,7 @@ pub(crate) const CLOSE_LISTENER: &str = "tls.closeListener";
 /// The unbounded-timeout sentinel a `Fill`ed trailing `timeoutMs`/`serverName`
 /// injects when omitted (the timeout convention's omit=unbounded rule), shared by
 /// the func-file descriptors.
-pub(super) const SENTINEL: &str = crate::target::shared::code::TIMEOUT_UNBOUNDED_SENTINEL;
+pub(crate) const SENTINEL: &str = TIMEOUT_UNBOUNDED_SENTINEL;
 
 const MODULE_INTRO: &str =
     r#"TLS client connections, TLS termination, and encrypted application-data transfer"#;

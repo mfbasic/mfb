@@ -15,6 +15,6 @@ r#"FUNC __crypto_point4(x AS List OF Integer, y AS List OF Integer, z AS List OF
   RETURN p
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_point4", BODY));
 }

@@ -1,15 +1,17 @@
 //! `collections::chunks` — descriptor entry + MFBASIC source body (Implementation::Mfb).
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::list_element_type;
+use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::list_element_type;
-use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
-
 /// Native fast path for `#collections_chunks$T` with a constant `size >= 1`:
 /// fixed-width via the contiguous-block builder, String via per-chunk slice
 /// construction. Everything else declines (`Ok(None)`). Free fn.
-pub(super) fn chunks_fast_path(
+pub(crate) fn chunks_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],
@@ -42,7 +44,7 @@ impl CodeBuilder<'_> {
     /// chunk may be shorter. Builds the `List OF List OF T` result directly (outer
     /// kind-0 list, per-chunk kind-2 inner blocks written in place at the data
     /// tail), one word-copy per chunk — no per-chunk slice-alloc/copy/free.
-    pub(super) fn lower_collection_chunks_call(
+    pub(crate) fn lower_collection_chunks_call(
         &mut self,
         args: &[NirValue],
         size: i64,
@@ -253,7 +255,7 @@ impl CodeBuilder<'_> {
     /// growable outer via `lower_list_append_in_place` and freed. (An earlier
     /// per-element reserve+append version REGRESSED the benchmark ~2.3× and was
     /// reverted — see plan-86-A Corrections.)
-    pub(super) fn lower_collection_chunks_string_call(
+    pub(crate) fn lower_collection_chunks_string_call(
         &mut self,
         args: &[NirValue],
         size: i64,

@@ -41,6 +41,6 @@ r#"FUNC __regex_classMatch(cls AS __regex_Class, pos AS Integer, ctx AS __regex_
   RETURN hit
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_classMatch", BODY));
 }

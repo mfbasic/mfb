@@ -23,6 +23,6 @@ FUNC __crypto_pbkdf2Block(password AS List OF Byte, salt AS List OF Byte, iterat
   RETURN result
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_pbkdf2Block", BODY));
 }

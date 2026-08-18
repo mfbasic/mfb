@@ -29,7 +29,7 @@ _mfb_rt_thread_trampoline              ; pthread start routine
 ```
 
 These helpers are compiler-owned runtime helpers. They are not source-level
-`LINK` imports and do not appear as package dependencies. [[src/target/shared/code/runtime_helpers.rs:lower_thread_helper]]
+`LINK` imports and do not appear as package dependencies. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_helper]]
 
 ## Direction split
 
@@ -37,7 +37,7 @@ The source API has only four channel verbs — `thread::send`, `thread::receive`
 `thread::transfer`, `thread::accept` (plus `thread::poll`) — but each lowers to a
 *different* helper depending on whether the handle is a parent `Thread` or a
 worker `ThreadWorker`, because the two ends use different queues. The split is
-applied when the runtime call is lowered: [[src/target/shared/code/builder_values.rs:1607]]
+applied when the runtime call is lowered: [[src/codegen/engine/value/builder_values.rs:1607]]
 
 | Source op                 | On a parent `Thread`      | On a worker `ThreadWorker` |
 | ------------------------- | ------------------------- | -------------------------- |
@@ -53,7 +53,7 @@ like the channel verbs, splits by handle type — the parent form is a plain
 `nanosleep`, the worker form a cancellation-aware condvar wait. (`thread::transfer`/`thread::accept` first
 lower to the internal `thread.transferResource`/`thread.acceptResource` targets
 during IR lowering, then the value builder applies the worker-direction split to
-`emitResource`/`readResource`.) [[src/ir/lower.rs]] [[src/target/shared/code/builder_values.rs]]
+`emitResource`/`readResource`.) [[src/ir/lower.rs]] [[src/codegen/engine/value/builder_values.rs]]
 
 ## `thread::start`
 
@@ -76,7 +76,7 @@ storing:
 
 It then asks the OS to start `_mfb_rt_thread_trampoline`, passing the control
 block pointer as the pthread argument (see `os-integration`). A `pthread_create`
-failure is reported as `ErrInterrupted`. [[src/target/shared/code/runtime_helpers.rs:lower_thread_start_helper]]
+failure is reported as `ErrInterrupted`. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper]]
 
 ## `thread::sleep`
 
@@ -89,7 +89,7 @@ for `ErrResourceClosed` parity with `thread::poll`, then splits `ms` into a
 that retries on signal interruption (`EINTR`) so a signal cannot truncate the
 sleep. On Windows there is no `nanosleep`: the helper converts the `timespec` to
 whole milliseconds and calls `Sleep(dwMilliseconds)`, which is uninterruptible, so
-the retry loop exits after one call. [[src/target/shared/code/runtime_helpers.rs:lower_thread_sleep_helper]]
+the retry loop exits after one call. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_sleep_helper]]
 
 On a `ThreadWorker` handle the call lowers instead to `thread.sleepWorker`, a
 cancellation-aware delay. It validates `ms` identically, then computes an
@@ -103,7 +103,7 @@ spurious wake (a parent `send` broadcasting not-empty) re-enters the wait for th
 remaining time and never shortens the sleep. On Windows the same helper is built
 from `pthread_mutex_*`/`pthread_cond_timedwait`, which already translate to
 SRWLOCK / `SleepConditionVariableSRW`, so no new Win32 arm is required.
-[[src/target/shared/code/runtime_helpers_thread.rs:lower_thread_sleep_worker_helper]]
+[[src/codegen/runtime/thread/runtime_helpers_thread.rs:lower_thread_sleep_worker_helper]]
 
 ## Trampoline
 
@@ -134,7 +134,7 @@ x1 = input value
 - Closes the inbound and resource queues (broadcasting their waiters), then, under
   the outbound queue lock, stores the result into the control block and marks the
   thread `complete` (unless the parent already dropped the handle, in which case
-  the result is discarded). It returns `NULL` to pthread. [[src/target/shared/code/runtime_helpers.rs:lower_thread_trampoline]]
+  the result is discarded). It returns `NULL` to pthread. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_trampoline]]
 
 If the stored result references worker-arena storage, the worker arena remains
 owned by the control block until the result is materialized for the parent or the

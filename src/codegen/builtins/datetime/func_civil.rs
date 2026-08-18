@@ -70,7 +70,7 @@ r#"FUNC __datetime_civil(d AS Date, t AS Time, z AS Zone) AS DateTime
   RETURN __datetime_inZone(Instant[epochSeconds, t.nanos], z)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "civil",
         intro: INTRO,

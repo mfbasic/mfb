@@ -78,6 +78,6 @@ r#"FUNC __regex_matchRep(rep AS __regex_Repeat, count AS Integer, pos AS Integer
   RETURN __regex_fail()
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_matchRep", BODY));
 }

@@ -7,11 +7,12 @@
 //! status int, the `read` errno buffer, the built `argv` array — uses the
 //! explicit `sp`-relative frame from `finalize_vreg_body_with_locals`.
 
+// --- codegen tier imports (migration) ---
 use super::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::error::emission::emit_fail;
 use crate::target::shared::abi;
-use crate::target::shared::code::native_helpers::emit_fail;
 use std::collections::HashMap;
-
 // POSIX constants identical across macOS and Linux for the ops here.
 pub(crate) const SIGKILL: &str = "9";
 pub(crate) const WNOHANG: &str = "1";

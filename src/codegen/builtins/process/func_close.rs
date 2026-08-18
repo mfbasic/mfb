@@ -6,18 +6,21 @@
 //! helper body; the runtime-call dispatch (`crate::codegen::os`) picks by
 //! `platform.family()`.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
 use std::collections::HashMap;
 
+use crate::codegen::error::emission::emit_fail;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::native_helpers::emit_fail;
-use crate::target::shared::code::*;
 use crate::types::ParameterType;
 
 use super::native::PROC_STDIN_W;
-
 const INTRO: &str =
     r#"Close a child's standard input, signalling end-of-input; the child keeps running."#;
 const DESC: &str = r#"`process::close` closes the child's standard input — the parent's write end of the
@@ -52,7 +55,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "close",
         intro: INTRO,

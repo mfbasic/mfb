@@ -23,7 +23,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "hostName",
         intro: INTRO,
@@ -36,8 +36,8 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::String,
             errors: vec![],
             body: Body::native(
-                Some(super::lower_os_helper),
-                Some(super::lower_os_helper),
+                Some(crate::codegen::builtins::os::native::lower_os_helper),
+                Some(crate::codegen::builtins::os::native::lower_os_helper),
                 None,
             ),
         }],

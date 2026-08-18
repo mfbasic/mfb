@@ -1,16 +1,16 @@
 //! `collections::filter` — descriptor entry + target-generic lowering (plan-96).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::{callable_return_type, list_element_type};
+use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::{callable_return_type, list_element_type};
-use crate::target::shared::code::{
-    CodeBuilder, Operand, ValueResult, RESULT_OK_TAG, RESULT_TAG_REGISTER, RESULT_VALUE_REGISTER,
-};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTO_FILTER: &str = "Keep the elements of a list for which a predicate returns TRUE";
 const DESC_FILTER: &str = r#"`collections::filter` walks `value` from the first element to the last, calls
 `predicate` once per element, and appends the element to a new list when the
@@ -86,7 +86,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "filter",
         intro: INTO_FILTER,

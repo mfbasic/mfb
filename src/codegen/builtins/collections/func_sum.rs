@@ -1,17 +1,17 @@
 //! `collections::sum` — descriptor entry + target-generic lowering (plan-96).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::list_element_type;
+use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::list_element_type;
-use crate::target::shared::code::{
-    kind2_payload_size, CodeBuilder, Operand, ValueResult, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-    COLLECTION_ENTRY_SIZE, COLLECTION_HEADER_SIZE, COLLECTION_OFFSET_COUNT,
-};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTO_SUM: &str = "Add up the elements of an Integer, Float, or Fixed list";
 const DESC_SUM: &str = r#"`collections::sum` walks `value` from the first element to the last and adds
 each element into a running total, returning that total. It is a **native**
@@ -89,7 +89,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "sum",
         intro: INTO_SUM,

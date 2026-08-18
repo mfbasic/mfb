@@ -48,7 +48,7 @@ fn output_param() -> Parameter {
     )
 }
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     let errors = || {
         vec![
             "ErrInvalidArgument",

@@ -24,6 +24,6 @@ r#"' bug-315: is this node a "simple" one-scalar matcher -- Lit, Any or Class? S
 ' needs counting. It has to be module-level and monotonic, reset once per search.
 MUT __regex_steps AS Integer = 0"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_steps", BODY));
 }

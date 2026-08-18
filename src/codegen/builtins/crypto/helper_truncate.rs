@@ -15,6 +15,6 @@ FUNC __crypto_truncate(data AS List OF Byte, n AS Integer) AS List OF Byte
   RETURN collections::mid(data, 0, n)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_truncate", BODY));
 }

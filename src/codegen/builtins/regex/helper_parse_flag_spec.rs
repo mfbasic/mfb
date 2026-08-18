@@ -68,6 +68,6 @@ r#"FUNC __regex_parseFlagSpec(pat AS List OF String, n AS Integer, i AS Integer,
   RETURN __regex_FlagSpec[fl, any, term, j]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_parseFlagSpec", BODY));
 }

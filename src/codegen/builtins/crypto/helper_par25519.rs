@@ -13,6 +13,6 @@ r#"FUNC __crypto_par25519(a AS List OF Integer) AS Integer
   RETURN bits::band(toInt(collections::get(packed, 0)), 1)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_par25519", BODY));
 }

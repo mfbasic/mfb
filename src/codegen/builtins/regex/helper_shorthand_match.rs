@@ -29,6 +29,6 @@ FUNC __regex_shorthandMatch(kind AS Integer, cp AS Integer) AS Boolean
   RETURN NOT __regex_isSpaceCp(cp, cat)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_shorthandMatch", BODY));
 }

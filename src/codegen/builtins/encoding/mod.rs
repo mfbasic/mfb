@@ -49,8 +49,8 @@
 //! descriptor field — no per-package `expected_arguments`/`argument_types`/
 //! `call_param_names` seam remains.
 
+// --- codegen tier imports (migration) ---
 use crate::codegen::registry::{registry, Registry, RegistryPackage};
-
 mod func_base32_decode;
 mod func_base32_encode;
 mod func_base64_decode;

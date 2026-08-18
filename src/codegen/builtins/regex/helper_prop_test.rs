@@ -72,6 +72,6 @@ FUNC __regex_propTest(name AS String, cp AS Integer) AS Boolean
   RETURN __regex_scriptTest(name, cp)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_propTest", BODY));
 }

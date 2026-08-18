@@ -47,7 +47,7 @@ Key dialect points: [[src/codegen/builtins/csv/func_parse.rs:__csv_parse]]
   overridable per call with `delimiter` (e.g. a tab or semicolon).
 - **LF or CRLF record separators.** A record ends at `\n` or `\r\n`. A **bare CR**
   (`\r` not followed by `\n`) is **ordinary data**, copied into the field.
-  [[src/codegen/builtins/csv/package.mfb:__csv_separatorLength]]
+  [[src/codegen/builtins/csv/helper_separator_length.rs:__csv_separatorLength]]
 - **Double-quote escaping.** Inside a quoted field, `""` decodes to a single `"`;
   a single `"` ends the quoted region. Outside a quote, commas, CR, and LF are
   structural; inside, they are data.
@@ -62,7 +62,7 @@ list with a small state set: `inQuotes`, `fieldStarted`, `wasQuoted`, and
 `recordPending`. The configured `delimiter`/`quote` are each converted to their
 first scalar code once (`__csv_firstCode`). It accumulates the current field's
 scalars, the current `row`, and the completed `rows`.
-[[src/codegen/builtins/csv/func_parse.rs:__csv_parse]] [[src/codegen/builtins/csv/package.mfb:__csv_firstCode]]
+[[src/codegen/builtins/csv/func_parse.rs:__csv_parse]] [[src/codegen/builtins/csv/helper_first_code.rs:__csv_firstCode]]
 
 | State at cursor | Grapheme | Action |
 |-----------------|----------|--------|
@@ -92,7 +92,7 @@ The runtime grapheme splitter does **not** guarantee `\r\n` arrives as one
 grapheme cluster — it may yield `\r` and `\n` as two separate graphemes. The
 scanner therefore never assumes a single cursor step per record separator and
 instead asks `__csv_separatorLength` for the step count:
-[[src/codegen/builtins/csv/package.mfb:__csv_separatorLength]]
+[[src/codegen/builtins/csv/helper_separator_length.rs:__csv_separatorLength]]
 
 | Grapheme at index | Next grapheme | Separator length |
 |-------------------|---------------|------------------|
@@ -108,7 +108,7 @@ whole separator and yield identical results.
 
 The CR grapheme is the one-character carriage-return (U+000D) string, written
 directly as a `"\r"` string literal — the lexer decodes the `\r` escape.
-[[src/codegen/builtins/csv/package.mfb:__csv_needsQuote]]
+[[src/codegen/builtins/csv/helper_needs_quote.rs:__csv_needsQuote]]
 
 ## Errors
 
@@ -131,8 +131,8 @@ Fields are joined with the `delimiter` (default `,`) and rows with the `newline`
 returns true when the field contains the delimiter, the quote character, a CR, or
 an LF. When quoted, the field is wrapped in the quote character and every interior
 occurrence of it is doubled (`__csv_quoteField`, via `strings::replace`).
-[[src/codegen/builtins/csv/package.mfb:__csv_needsQuote]]
-[[src/codegen/builtins/csv/package.mfb:__csv_quoteField]]
+[[src/codegen/builtins/csv/helper_needs_quote.rs:__csv_needsQuote]]
+[[src/codegen/builtins/csv/helper_quote_field.rs:__csv_quoteField]]
 
 ```text
 a,b          ' no special chars  → a,b

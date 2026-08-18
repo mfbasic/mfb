@@ -13,6 +13,6 @@ r#"FUNC __json_expectLiteral(chars AS List OF String, index AS Integer, literal 
   RETURN __json_expectLiteralAt(chars, index, target, 0)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_expectLiteral", BODY));
 }

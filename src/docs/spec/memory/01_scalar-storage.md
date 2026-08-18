@@ -14,4 +14,4 @@ collection data region.
 | `Scalar` | 4 bytes (u32 Unicode codepoint, alignment 4) |
 
 Payloads in the data region are aligned so every payload begins at an offset
-valid for that payload's type. Padding bytes are not observable. [[src/target/shared/code/builder_collection_layout.rs:collection_payload_alignment]]
+valid for that payload's type. Padding bytes are not observable. [[src/codegen/collection/layout/builder_collection_layout.rs:collection_payload_alignment]]

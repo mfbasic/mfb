@@ -1,10 +1,10 @@
 //! `math::abs` — absolute value of a numeric value or list.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
 use crate::codegen::registry::RegistryPackage;
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType::{Fixed, Float, Integer, Money};
-
 const INTRO: &str = r#"Absolute value of a numeric value or list."#;
 const DESC: &str = r#"`abs` returns the magnitude of `value`: the value with its sign removed. It accepts
 `Integer`, `Float`, `Fixed`, and `Money` scalars (echoing the operand type) and the
@@ -19,7 +19,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     super::preserving_unary(
         "abs",
         INTRO,

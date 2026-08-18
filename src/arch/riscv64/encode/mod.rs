@@ -22,7 +22,8 @@
 
 use std::collections::HashMap;
 
-use crate::target::shared::code::{CodeInstruction, NativeCodePlan};
+use crate::codegen::engine::types::CodeInstruction;
+use crate::codegen::engine::types::NativeCodePlan;
 
 // The neutral image/symbol/relocation/import containers are ISA-independent
 // (`crate::arch::image`, bug-341-B2). Re-export the ones the emitter and this

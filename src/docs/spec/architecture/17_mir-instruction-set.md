@@ -3,7 +3,7 @@
 The target-neutral machine IR (MIR) is the seam between the per-target code
 builder and the backend: a single ISA-independent op vocabulary the backend
 lowers *to* and selects *from*. It is the layer every backend plugs into, and
-the `--mir` dump is its observable form. [[src/target/shared/code/mir.rs:MirOp]]
+the `--mir` dump is its observable form. [[src/codegen/engine/mir/mir.rs:MirOp]]
 
 > The op set, mnemonics, and grouping below catalogue the MIR vocabulary. The NIR
 > the code builder derives from is `./mfb spec architecture native-ir`; how a
@@ -17,27 +17,27 @@ MIR is introduced *underneath* the existing backend without changing a single
 emitted byte. The raise/lower round trip `select ∘ lower_to_mir` is the
 **identity** on the instruction stream: every backend op maps to exactly one
 `MirOp` and back, and the fused/expand ops re-expand to the exact instruction
-sequence the builders emit today. [[src/target/shared/code/mir.rs:lower_to_mir]]
+sequence the builders emit today. [[src/codegen/engine/mir/mir.rs:lower_to_mir]]
 [[src/arch/aarch64/select.rs:select_aarch64]]
 
 The MIR is the **sole** code path; there is no no-MIR (`direct`) backend. A
 coverage gap is a *compile* error, not a test miss — `from_code`/`to_code` are
 exhaustive matches over the backend op set, so a missing variant fails the build.
-[[src/target/shared/code/mir.rs:from_code]] [[src/target/shared/code/mir.rs:to_code]]
+[[src/codegen/engine/mir/mir.rs:from_code]] [[src/codegen/engine/mir/mir.rs:to_code]]
 
 ## Instruction model
 
 A `MirInstruction` is `{ op: MirOp, fields: Vec<(&'static str, String)> }` — an
 op tag plus an order-independent bag of named string operands. The register
 allocator's field-based liveness works unchanged across the seam.
-[[src/target/shared/code/mir.rs:MirInstruction]] Two neutral conventions replace
+[[src/codegen/engine/mir/mir.rs:MirInstruction]] Two neutral conventions replace
 ISA-specific spellings in the field values:
 
 - **`arena_base`** names the arena-state base pointer instead of a pinned
   physical register; a backend realizes it as whatever register or memory slot
   it pins the arena to. The rename is total and reversible because the arena
-  base is pinned program-wide. [[src/target/shared/code/mir.rs:ARENA_BASE]]
-  [[src/target/shared/code/mir.rs:rename_field_values]]
+  base is pinned program-wide. [[src/codegen/engine/mir/mir.rs:ARENA_BASE]]
+  [[src/codegen/engine/mir/mir.rs:rename_field_values]]
 - Virtual registers (`%vN` integer, `%fN` float) appear in the pre-allocation
   `--mir` dump; the hand-written runtime helpers are shown over their final
   physical-register stream instead (see *The `--mir` dump*).
@@ -46,7 +46,7 @@ ISA-specific spellings in the field values:
 
 `MirOp` is one enum built from five groups by the `mir_ops!` macro; the group an
 op belongs to decides how a backend maps it.
-[[src/target/shared/code/mir.rs:MirOp]]
+[[src/codegen/engine/mir/mir.rs:MirOp]]
 
 | Group | Maps to | Mnemonic | Purpose |
 |-------|---------|----------|---------|
@@ -59,14 +59,14 @@ op belongs to decides how a backend maps it.
 Mirror, renamed, and simd ops are 1:1 with a backend op (`to_code` returns it).
 Fused and expand ops have no single backend op (`to_code` is `None`) — they are
 produced by fusing adjacent instruction pairs in `lower_to_mir` and expanded
-back byte-for-byte at selection. [[src/target/shared/code/mir.rs:to_code]]
+back byte-for-byte at selection. [[src/codegen/engine/mir/mir.rs:to_code]]
 
 ### renamed ops (neutral scalar names)
 
 Each carries the ISA-neutral semantic name instead of an ISA-specific
 instruction spelling. The mapping is 1:1, so selection and encoding stay
 byte-identical; only the `--mir` mnemonic changes.
-[[src/target/shared/code/mir.rs:mir_ops]]
+[[src/codegen/engine/mir/mir.rs:mir_ops]]
 
 | MIR mnemonic | Meaning |
 |--------------|---------|
@@ -93,7 +93,7 @@ namespace. Lanes are `2×f64` / `2×i64` / `16×i8` as the op needs. The lane
 *semantics* — NaN propagation of `v128.fmin`/`v128.fmax`, `bsl`/`bit` mask
 polarity, round-mode ties, lane-compare all-ones/all-zeros masks — are the
 contract every backend must realize against, pinned by an executable
-lane-semantics test matrix. [[src/target/shared/code/mir.rs:mir_ops]] Examples:
+lane-semantics test matrix. [[src/codegen/engine/mir/mir.rs:mir_ops]] Examples:
 `v128.load`/`v128.store`, `v128.fadd`/`v128.fmul`/`v128.fma`,
 `v128.fmin`/`v128.fmax`, `v128.fcmp_gt`/`v128.icmp_ge`,
 `v128.fround_even`/`v128.fround_trunc`, `v128.f2i_nearest`/`v128.i2f`,
@@ -105,8 +105,8 @@ A flag-setter immediately followed by the flag-reading branch that consumed it
 is fused into one flagless op, so the MIR carries no compare/branch pair with a
 hidden condition-flag dependency. The operands and the branch condition are
 carried explicitly; selection expands each back to the two instructions a
-backend emits. [[src/target/shared/code/mir.rs:fused_variant]]
-[[src/target/shared/code/mir.rs:fused_setter_codeop]]
+backend emits. [[src/codegen/engine/mir/mir.rs:fused_variant]]
+[[src/codegen/engine/mir/mir.rs:fused_setter_codeop]]
 
 | MIR mnemonic | Folds |
 |--------------|-------|
@@ -119,8 +119,8 @@ The branch condition rides in a `cond` field; it marks the split point between
 the setter operands and the branch operands. A second or third branch reading
 the *same* comparison (a 3-way ordering such as `lo`/`hi` on one compare) carries
 a `share` field so the backend emits only the branch, reusing the single shared
-comparison. [[src/target/shared/code/mir.rs:FUSED_COND_FIELD]]
-[[src/target/shared/code/mir.rs:FUSED_SHARE_FIELD]]
+comparison. [[src/codegen/engine/mir/mir.rs:FUSED_COND_FIELD]]
+[[src/codegen/engine/mir/mir.rs:FUSED_SHARE_FIELD]]
 
 ### expand ops (structural)
 
@@ -130,7 +130,7 @@ comparison. [[src/target/shared/code/mir.rs:FUSED_COND_FIELD]]
 
 `addr_of` is one neutral op for materializing a symbol's address; a backend
 realizes it natively as whatever PC-relative sequence it uses (a single
-instruction or a short pair). [[src/target/shared/code/mir.rs:fuse_addr_of]]
+instruction or a short pair). [[src/codegen/engine/mir/mir.rs:fuse_addr_of]]
 
 ## Authoring reference
 
@@ -140,7 +140,7 @@ instruction, not just read one.
 ### Operand grammar
 
 Every operand is a string in the field bag, distinguished only by which field
-names it. [[src/target/shared/code/mir.rs:MirInstruction]]
+names it. [[src/codegen/engine/mir/mir.rs:MirInstruction]]
 
 - **Registers.** `%vN` is a virtual integer/GPR value, `%fN` a virtual float
   value (`N` a decimal index), as they appear in the pre-allocation `--mir` dump.
@@ -157,13 +157,13 @@ names it. [[src/target/shared/code/mir.rs:MirInstruction]]
 The field bag is order-independent for every op **except the fused ops**, where
 order is significant: the `cond` field marks the boundary between the setter's
 operands (before it) and the branch's operands (after it).
-[[src/target/shared/code/mir.rs:FUSED_COND_FIELD]]
+[[src/codegen/engine/mir/mir.rs:FUSED_COND_FIELD]]
 
 ### Field signatures
 
 Required fields per op (validated before encoding). Renamed and `v128.*` ops
 carry the same fields as the shape they rename.
-[[src/target/shared/code/code_impl.rs:validate]]
+[[src/codegen/engine/builder/code_impl.rs:validate]]
 
 | Op(s) | Required fields | Role |
 |-------|-----------------|------|
@@ -206,7 +206,7 @@ x86 `adc`, rv64 `add`+`sltu`). [[src/arch/ops.rs:AddCarry]]
 
 A fused op's field bag is `[<setter fields>, cond=<condition>, <branch fields>,
 share?]`. The setter fields are those of the compare/arith it folded; the branch
-fields are the branch's (`target`). [[src/target/shared/code/mir.rs:lower_to_mir]]
+fields are the branch's (`target`). [[src/codegen/engine/mir/mir.rs:lower_to_mir]]
 
 | Op | Setter fields | Branch fields | Notes |
 |----|---------------|---------------|-------|
@@ -219,7 +219,7 @@ fields are the branch's (`target`). [[src/target/shared/code/mir.rs:lower_to_mir
 
 An optional `share` field (value `"true"`) marks a branch that reuses the
 immediately preceding fused op's comparison rather than recomputing it — used for
-multi-way branches on one compare. [[src/target/shared/code/mir.rs:FUSED_SHARE_FIELD]]
+multi-way branches on one compare. [[src/codegen/engine/mir/mir.rs:FUSED_SHARE_FIELD]]
 
 ### Condition codes
 
@@ -237,19 +237,19 @@ Signed orderings use `b.ge`/`b.lt`/`b.gt`/`b.le`; unsigned use
 captured **before** register allocation and instruction selection, as stable,
 versioned JSON. The whole-module form is deliberately ISA-independent — no
 `target` / `arch` field, so diffing a `--mir` dump across targets is identical
-where a per-target code dump is not. [[src/target/shared/code/mir.rs:MirPlan]]
-[[src/target/shared/code/mod.rs:lower_module_mir_for_platform]]
+where a per-target code dump is not. [[src/codegen/engine/mir/mir.rs:MirPlan]]
+[[src/codegen/engine/builder/mod.rs:lower_module_mir_for_platform]]
 
 Builder-emitted functions appear with their pre-allocation MIR (virtual
 registers `%vN`/`%fN`); the hand-written runtime helpers, which never pass
 through the pre-allocation seam, appear over their final physical-register
 stream — so the dump is complete and honest about what is neutral versus not.
-[[src/target/shared/code/mir.rs:build_mir_plan]]
+[[src/codegen/engine/mir/mir.rs:build_mir_plan]]
 
 Relocations carry their **neutral intent** (`call`, `data_addr_hi`,
 `data_addr_lo`, `got_load_hi`, `got_load_lo`) rather than the concrete reloc kind
-a backend picks. [[src/target/shared/code/mir.rs:MirRelocation]]
-[[src/target/shared/code/types.rs:RelocIntent]]
+a backend picks. [[src/codegen/engine/mir/mir.rs:MirRelocation]]
+[[src/codegen/engine/types/types.rs:RelocIntent]]
 
 ```json
 {

@@ -6,9 +6,21 @@
 //! packages (`builtins`) and, as functions migrate, their target-generic lowering.
 //! The builtin registry itself lives in `codegen::registry`.
 
+pub(crate) mod app;
 pub(crate) mod builtins;
+pub(crate) mod cleanup;
+pub(crate) mod collection;
+pub(crate) mod compiler;
+pub(crate) mod engine;
+pub(crate) mod error;
+pub(crate) mod io;
+pub(crate) mod link;
 pub(crate) mod memory;
 pub(crate) mod os;
+pub(crate) mod resource;
+pub(crate) mod runtime;
+pub(crate) mod string;
+pub(crate) mod term;
 // The clean-room builtin registry (planning/todo.md): every builtin package now
 // registers itself here and all builtin dispatch flows through it. A few
 // descriptor accessors are exercised only by the registry's own `#[cfg(test)]`

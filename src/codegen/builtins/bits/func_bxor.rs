@@ -1,13 +1,14 @@
 //! `bits::bxor` — bitwise exclusive-OR of two 64-bit integers.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTRO: &str = r#"Bitwise exclusive-OR of two 64-bit integers."#;
 const DESC: &str = r#"`bxor` returns the bitwise exclusive-OR of `a` and `b`, computed independently
 across all 64 bit positions: bit *i* of the result is `1` when bit *i* differs
@@ -53,7 +54,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "bxor",
         intro: INTRO,

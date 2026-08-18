@@ -13,6 +13,6 @@ FUNC __crypto_slice(data AS List OF Byte, start AS Integer, stop AS Integer) AS 
   RETURN collections::mid(data, start, stop - start)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_slice", BODY));
 }

@@ -12,6 +12,6 @@ r#"FUNC __json_isNonZeroDigit(ch AS String) AS Boolean
   RETURN strings::contains("123456789", ch)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_isNonZeroDigit", BODY));
 }

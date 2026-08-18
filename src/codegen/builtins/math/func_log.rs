@@ -1,10 +1,10 @@
 //! `math::log` — natural logarithm of a `Float`/`Fixed` value or list.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
 use crate::codegen::registry::RegistryPackage;
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType::{Fixed, Float};
-
 const INTRO: &str = r#"Natural logarithm of a Float or Fixed value or list."#;
 const DESC: &str = r#"`log` returns the natural logarithm (base `e`) of `value`, echoing the operand type
 (`Float` or `Fixed`), plus the `List OF Float`/`List OF Fixed` forms. A non-positive
@@ -18,7 +18,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     super::preserving_unary(
         "log",
         INTRO,

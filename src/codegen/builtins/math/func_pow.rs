@@ -1,10 +1,10 @@
 //! `math::pow` — raise a base to an exponent (scalar + vectorized).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
 use crate::codegen::registry::RegistryPackage;
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType::{Fixed, Float};
-
 const INTRO: &str = r#"Raise a base to an exponent."#;
 const DESC: &str = r#"`pow` returns `base ** exponent`. Both arguments must be the same type (`Float` or
 `Fixed`), echoing that type; the `List OF Float` array form raises two equal-length
@@ -19,7 +19,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     super::preserving_binary(
         "pow",
         INTRO,

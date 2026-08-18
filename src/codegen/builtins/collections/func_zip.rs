@@ -1,15 +1,18 @@
 //! `collections::zip` — descriptor entry + MFBASIC source body (Implementation::Mfb).
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::list_element_type;
+use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::list_element_type;
-use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
-
 /// Native fast path for `#collections_zip$A$B` over two fixed-width scalar lists
 /// (or both-String). `try_inline_zip_op` already self-gates and returns `Ok(None)`
 /// to decline. Free fn (an `impl` method would not coerce to `MfbFastPath`).
-pub(super) fn zip_fast_path(
+pub(crate) fn zip_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],
@@ -22,7 +25,7 @@ impl CodeBuilder<'_> {
     /// natively when A and B are both fixed-width scalars (the `Pair$A$B` record is
     /// then a flat 16 bytes `[a@0][b@8]`). Anything else — a String/List/record
     /// element, or a non-list argument — falls back to the FUNC (`Ok(None)`).
-    pub(super) fn try_inline_zip_op(
+    pub(crate) fn try_inline_zip_op(
         &mut self,
         target: &str,
         args: &[NirValue],
@@ -385,7 +388,7 @@ impl CodeBuilder<'_> {
     /// its tight size (`emit_inlined_block_size_from_ptr_slot`), which for a
     /// no-headroom block (e.g. one built by `emit_build_inlined_record`) is exactly
     /// the allocated size.
-    pub(super) fn emit_free_owned_inlined_block(
+    pub(crate) fn emit_free_owned_inlined_block(
         &mut self,
         ptr_slot: usize,
         type_: &str,
@@ -415,7 +418,7 @@ impl CodeBuilder<'_> {
     /// each String element, build the inlined Pair record, append it into a growable
     /// outer, and free the two materialized items + the copied record each iteration.
     /// Marginal (the `.mfb` is already native get+append), capped vs Python.
-    pub(super) fn lower_list_zip_string(
+    pub(crate) fn lower_list_zip_string(
         &mut self,
         args: &[NirValue],
     ) -> Result<ValueResult, String> {

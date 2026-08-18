@@ -24,6 +24,6 @@ r#"FUNC __encoding_punyAdapt(delta AS Integer, numPoints AS Integer, firstTime A
   RETURN k + (36 * d) / (d + 38)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_punyAdapt", BODY));
 }

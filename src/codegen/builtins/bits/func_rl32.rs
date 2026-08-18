@@ -1,13 +1,14 @@
 //! `bits::rl32` — rotate the low 32 bits of an integer left.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTRO: &str = r#"Rotate the low 32 bits of an integer left."#;
 const DESC: &str = r#"`rl32` rotates the low 32 bits of `value` left by `count` bit positions and
 returns the result zero-extended into bits 32..63. The rotate is a 32-bit barrel
@@ -53,7 +54,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "rl32",
         intro: INTRO,

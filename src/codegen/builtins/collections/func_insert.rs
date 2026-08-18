@@ -1,14 +1,14 @@
 //! `collections::insert` — descriptor entry + target-generic lowering (plan-96).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::list_element_type;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::list_element_type;
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTO_INSERT: &str = "Return a list with one element inserted before a given index";
 const DESC_INSERT: &str = r#"`collections::insert` returns a new list in which `item` occupies position
 `index`, every element of `value` below `index` keeps its position, and every
@@ -78,7 +78,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "insert",
         intro: INTO_INSERT,

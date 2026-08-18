@@ -3,6 +3,7 @@
 //! The native lowering (store the discriminant, then the per-backend surface-reconcile
 //! seam) lives in [`super::native::lower_app_helper`].
 
+// --- codegen tier imports (migration) ---
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -37,7 +38,7 @@ SUB main
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "setMode",
         intro: INTRO,

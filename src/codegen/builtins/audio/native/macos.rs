@@ -7,11 +7,16 @@
 //! stack and is reloaded afterward (runtime helpers clobber all caller-saved
 //! registers).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
+use crate::codegen::engine::builder::emit_arena_free;
+use crate::codegen::engine::builder::*;
+use crate::codegen::error::emission::*;
+use crate::codegen::memory::arena::*;
 use std::collections::HashMap;
 
 use super::*;
 use crate::target::shared::abi;
-
 // --- Core Audio constants (verified against CoreAudio/AudioHardware.h) --------
 const SYS_OBJECT: &str = "1"; // kAudioObjectSystemObject
 const SEL_DEVICES: &str = "1684370979"; // 0x64657623 'dev#' kAudioHardwarePropertyDevices
@@ -53,7 +58,7 @@ const IDSBUF_CAP: &str = "256";
 const BUFLIST_OFF: usize = 672; // AudioBufferList scratch
 const BUFLIST_CAP: &str = "256";
 
-pub(super) fn lower_audio_macos(
+pub(crate) fn lower_audio_macos(
     call: &str,
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -1582,7 +1587,7 @@ fn lower_query(
 /// so the AudioQueue output callback (whose address `openOutput` takes) must be
 /// emitted. Gated here, next to the emitter, rather than re-derived in
 /// `code/mod.rs` (bug-330).
-pub(super) const OUTPUT_CALLBACK_SYMBOLS: &[&str] = &[
+pub(crate) const OUTPUT_CALLBACK_SYMBOLS: &[&str] = &[
     "_mfb_rt_audio_audio_openOutput",
     "_mfb_rt_audio_audio_openOutputDevice",
     "_mfb_rt_audio_audio_write",
@@ -1590,7 +1595,7 @@ pub(super) const OUTPUT_CALLBACK_SYMBOLS: &[&str] = &[
 ];
 
 /// The input-stream counterpart of [`OUTPUT_CALLBACK_SYMBOLS`].
-pub(super) const INPUT_CALLBACK_SYMBOLS: &[&str] = &[
+pub(crate) const INPUT_CALLBACK_SYMBOLS: &[&str] = &[
     "_mfb_rt_audio_audio_openInput",
     "_mfb_rt_audio_audio_openInputDevice",
     "_mfb_rt_audio_audio_read",

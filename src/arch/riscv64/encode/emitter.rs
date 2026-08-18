@@ -8,7 +8,7 @@
 use super::operand::{field, freg, immediate, reg, shift, vreg};
 use super::sizing::{li_steps, LiStep};
 use super::*;
-use crate::target::shared::code::RelocIntent;
+use crate::codegen::engine::types::RelocIntent;
 
 // Base opcodes.
 const OP: u32 = 0x33;

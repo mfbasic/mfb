@@ -18,6 +18,6 @@ r#"FUNC __regex_parseIntClamp(s AS String) AS Integer
   END TRAP
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_parseIntClamp", BODY));
 }

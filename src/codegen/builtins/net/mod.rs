@@ -35,7 +35,7 @@ use crate::types::ParameterType;
 /// A required `net` member parameter. Docs live in the `src/docs/man/builtins/net`
 /// pages (as the legacy descriptor's empty doc strings did); the registry carries
 /// name/aliases/type for arity, coercion, and named-argument binding.
-pub(super) fn req(
+pub(crate) fn req(
     name: &'static str,
     aliases: &'static [&'static str],
     ty: ParameterType,
@@ -52,7 +52,7 @@ pub(super) fn req(
 /// An optional trailing parameter that widens the arity but is NOT default-padded
 /// by the registry — the code layer injects the timeout/port/backlog sentinel
 /// (`builder_values`), matching the legacy `DefaultValue::Optional`.
-pub(super) fn opt(name: &'static str, ty: ParameterType) -> Parameter {
+pub(crate) fn opt(name: &'static str, ty: ParameterType) -> Parameter {
     Parameter {
         name,
         desc: "",
@@ -63,13 +63,13 @@ pub(super) fn opt(name: &'static str, ty: ParameterType) -> Parameter {
 }
 
 /// The qualified socket / listener / UDP resource types as `ParameterType`s.
-pub(super) fn socket() -> ParameterType {
+pub(crate) fn socket() -> ParameterType {
     ParameterType::Named(SOCKET_TYPE_ID)
 }
-pub(super) fn listener() -> ParameterType {
+pub(crate) fn listener() -> ParameterType {
     ParameterType::Named(LISTENER_TYPE_ID)
 }
-pub(super) fn udp() -> ParameterType {
+pub(crate) fn udp() -> ParameterType {
     ParameterType::Named(UDP_SOCKET_TYPE_ID)
 }
 
@@ -141,7 +141,7 @@ automatically by lexical drop; `net::close` releases one earlier."#;
 /// family-generic [`native::lower_net_helper`] in both the posix and win slots (the
 /// os/fs/tls twin idiom), plus any code-form `os_aliases`
 /// (`connectTcpAddr`/`pollList`) the overload emits.
-pub(super) fn net_native(os_aliases: &'static [&'static str]) -> Body {
+pub(crate) fn net_native(os_aliases: &'static [&'static str]) -> Body {
     Body::native_os_seam(
         Some(native::lower_net_helper),
         Some(native::lower_net_helper),

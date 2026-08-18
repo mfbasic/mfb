@@ -48,6 +48,6 @@ FUNC __crypto_aesExpandKey(key AS List OF Byte) AS List OF Byte
   RETURN w
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_aesExpandKey", BODY));
 }

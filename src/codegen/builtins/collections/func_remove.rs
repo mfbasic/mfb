@@ -1,14 +1,14 @@
 //! `collections::remove` — descriptor entry + target-generic lowering (plan-96).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::set_element_type;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::set_element_type;
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTO_REMOVE: &str = "Return a set with one element removed, leaving the argument unchanged";
 const DESC_REMOVE: &str = r#"`collections::remove` returns a new `Set OF T` containing every element of
 `value` except `item`. It takes exactly two arguments; neither is optional and
@@ -56,7 +56,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "remove",
         intro: INTO_REMOVE,

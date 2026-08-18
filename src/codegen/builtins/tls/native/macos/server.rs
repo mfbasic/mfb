@@ -1,5 +1,8 @@
+// --- codegen tier imports (migration) ---
 use super::*;
-
+use crate::codegen::engine::builder::*;
+use crate::target::shared::abi;
+use std::collections::HashMap;
 // ===========================================================================
 // Server side: tls.listen / tls.accept / tls.closeListener
 // (plan-06-tls-server.md §7)
@@ -377,7 +380,7 @@ fn emit_cf_release_slot(
     Ok(())
 }
 
-pub(in crate::codegen::builtins::tls::native) fn lower_tls_listen_macos(
+pub(crate) fn lower_tls_listen_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1223,7 +1226,7 @@ pub(in crate::codegen::builtins::tls::native) fn lower_tls_listen_macos(
     }
 }
 
-pub(in crate::codegen::builtins::tls::native) fn lower_tls_accept_macos(
+pub(crate) fn lower_tls_accept_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1652,7 +1655,7 @@ pub(in crate::codegen::builtins::tls::native) fn lower_tls_accept_macos(
     }
 }
 
-pub(in crate::codegen::builtins::tls::native) fn lower_tls_close_listener_macos(
+pub(crate) fn lower_tls_close_listener_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,

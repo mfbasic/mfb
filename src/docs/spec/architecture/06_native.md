@@ -228,7 +228,7 @@ layout. The concrete segment/section regions are owned by
 ## Native Code Plan
 
 Native code planning is implemented by platform-specific wrappers, one per
-target, that both delegate to a shared code generator.[[src/target/macos_aarch64/code.rs]][[src/target/linux_aarch64/code.rs]][[src/target/shared/code/]]
+target, that both delegate to a shared code generator.[[src/target/macos_aarch64/code.rs]][[src/target/linux_aarch64/code.rs]][[src/codegen/]]
 
 The native code plan records:
 
@@ -262,7 +262,7 @@ sentinel `%vN`; `allocate_fp_register` mints a floating-point virtual register
 `%fN`. After a function is fully lowered, a coloring pass rewrites every virtual
 register to a physical
 register, before the peephole pass and `finalize_frame` (which expect physical
-names).[[src/target/shared/code/regalloc/mod.rs:allocate]]
+names).[[src/codegen/engine/regalloc/mod.rs:allocate]]
 
 The integer and FP/SIMD classes have separate physical files that never
 interfere, so each is colored by an independent linear-scan pass over its own
@@ -311,7 +311,7 @@ core:
 
 - **ISA-neutral core**: the virtual-register
   representation, the rewrite pass, and the pluggable `AllocationStrategy`
-  interface. It names no physical registers.[[src/target/shared/code/regalloc]]
+  interface. It names no physical registers.[[src/codegen/engine/regalloc]]
 - **Per-ISA register model**: the `RegisterModel`
   trait answers every register question — the allocatable banks and their class
   (integer `x0`–`x30` vs FP/SIMD `d0`–`d31`, where `d_n` aliases the low 64 bits
@@ -338,9 +338,9 @@ register model.
 
 ### The CodegenPlatform Seam
 
-The shared code generator is OS-independent.[[src/target/shared/code/mod.rs]]
+The shared code generator is OS-independent.[[src/codegen/engine/builder/mod.rs]]
 Everything that differs between macOS and Linux is funnelled through the
-`CodegenPlatform` trait, implemented once per OS.[[src/target/macos_aarch64/code.rs]][[src/target/linux_aarch64/code.rs]][[src/target/shared/code/types.rs:CodegenPlatform]]
+`CodegenPlatform` trait, implemented once per OS.[[src/target/macos_aarch64/code.rs]][[src/target/linux_aarch64/code.rs]][[src/codegen/engine/types/types.rs:CodegenPlatform]]
 
 The seam carries two kinds of platform knowledge: ABI struct layouts queried as
 scalar accessors, and `emit_*` methods that splice platform-specific

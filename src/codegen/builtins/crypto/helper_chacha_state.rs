@@ -28,6 +28,6 @@ FUNC __crypto_chachaState(key AS List OF Byte, nonce AS List OF Byte, counter AS
   RETURN s
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_chachaState", BODY));
 }

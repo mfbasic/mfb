@@ -1,6 +1,9 @@
+// --- codegen tier imports (migration) ---
 use super::*;
-
-pub(super) fn lower_io_poll_input_helper(
+use crate::codegen::engine::builder::*;
+use crate::target::shared::abi;
+use std::collections::HashMap;
+pub(crate) fn lower_io_poll_input_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -253,7 +256,7 @@ fn emit_stdin_byte_read(
     Ok(())
 }
 
-pub(super) fn lower_io_read_byte_helper(
+pub(crate) fn lower_io_read_byte_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -607,7 +610,7 @@ fn emit_utf8_sequence_read(
     Ok(())
 }
 
-pub(super) fn lower_io_read_char_helper(
+pub(crate) fn lower_io_read_char_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -796,7 +799,7 @@ pub(super) fn lower_io_read_char_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(super) fn lower_io_read_line_helper(
+pub(crate) fn lower_io_read_line_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,

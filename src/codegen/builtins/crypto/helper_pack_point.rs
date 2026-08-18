@@ -23,6 +23,6 @@ FUNC __crypto_packPoint(p AS List OF Integer) AS List OF Byte
   RETURN r
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_packPoint", BODY));
 }

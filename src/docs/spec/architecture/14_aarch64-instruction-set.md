@@ -21,12 +21,12 @@ an explicit access width in the mnemonic, and the floating-point ops are
 
 A `CodeInstruction` is `{ op: CodeOp, fields: Vec<(&'static str, String)> }` —
 an op tag and an order-independent set of named string operands.
-[[src/target/shared/code/types.rs:CodeInstruction]] There is no typed operand
+[[src/codegen/engine/types/types.rs:CodeInstruction]] There is no typed operand
 union: every operand (register name, immediate, label, symbol) is a string,
 looked up by name at encode time via `field(instruction, "name")`. Construction
 is fluent (`CodeInstruction::new(mnemonic).field("dst","x0")…`), and `validate`
 checks that each op carries its required field names before encoding.
-[[src/target/shared/code/code_impl.rs:validate]]
+[[src/codegen/engine/builder/code_impl.rs:validate]]
 
 Operands are decoded by small helpers:
 

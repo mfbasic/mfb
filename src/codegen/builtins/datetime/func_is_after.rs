@@ -73,7 +73,7 @@ r#"FUNC __datetime_isAfter(a AS Instant, b AS Instant) AS Boolean
   RETURN __datetime_compare(a, b) > 0
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "isAfter",
         intro: INTRO,

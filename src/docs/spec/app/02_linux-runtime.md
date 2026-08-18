@@ -352,7 +352,7 @@ backend's `Platform` resolves those two names and passes them in as
 
 The relocation `library` field is cosmetic — the linker binds by symbol name —
 and is filled in after emission from the same import list, so it cannot disagree
-with it. [[src/target/shared/code/mod.rs:bind_deferred_relocation_libraries]]
+with it. [[src/codegen/engine/builder/mod.rs:bind_deferred_relocation_libraries]]
 
 ⚠️ A musl binary that wrongly declares the glibc sonames **runs correctly
 anyway**: musl's loader absorbs `libc.so.6` and `libpthread.so.0` into itself and

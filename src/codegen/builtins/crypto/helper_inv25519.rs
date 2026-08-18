@@ -21,6 +21,6 @@ r#"FUNC __crypto_inv25519(i0 AS List OF Integer) AS List OF Integer
   RETURN c
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_inv25519", BODY));
 }

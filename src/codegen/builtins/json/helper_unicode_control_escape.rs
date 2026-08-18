@@ -14,6 +14,6 @@ r#"FUNC __json_unicodeControlEscape(codePoint AS Integer) AS String
   RETURN "\\u00" & __json_hexDigit(high) & __json_hexDigit(low)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_unicodeControlEscape", BODY));
 }

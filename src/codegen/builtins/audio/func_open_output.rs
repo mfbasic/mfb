@@ -38,7 +38,7 @@ const BUFFER_FRAMES: &str =
     "Frames per OS buffer. Must be in `64..=8192`; need not be a power of two.";
 const DEVICE: &str = "The device to open, from `audio::devices()` with `canOutput` set (four-argument form only). A device whose `id` no longer exists raises `ErrAudioDevice`.";
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     let errors = || {
         vec![
             "ErrInvalidArgument",

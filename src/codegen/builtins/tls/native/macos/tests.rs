@@ -6,104 +6,154 @@
 // (remote) memory-exhaustion DoS. Runtime proof lives in the fix's leak
 // measurement (`leaks` shows the per-read `dispatch_data_t` leak drop to 0);
 // this test pins the codegen so the releases cannot silently regress.
+// --- codegen tier imports (migration) ---
 use super::*;
 use crate::arch::ops::CodeOp;
-use crate::target::shared::code::mir;
-
+use crate::codegen::app::hook as app;
+use crate::codegen::app::hook::*;
+use crate::codegen::cleanup::owned::*;
+use crate::codegen::cleanup::thread::*;
+use crate::codegen::collection::assign::*;
+use crate::codegen::collection::buffer::*;
+use crate::codegen::collection::compare::*;
+use crate::codegen::collection::layout::*;
+use crate::codegen::collection::list::*;
+use crate::codegen::collection::map::*;
+use crate::codegen::collection::search::*;
+use crate::codegen::collection::sort::*;
+use crate::codegen::compiler::opt::*;
+use crate::codegen::engine::analysis::*;
+use crate::codegen::engine::arch::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::control::*;
+use crate::codegen::engine::convert::*;
+use crate::codegen::engine::function::*;
+use crate::codegen::engine::mir;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::operators::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::engine::validation;
+use crate::codegen::engine::validation::*;
+use crate::codegen::engine::value::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::error::emission::*;
+use crate::codegen::error::result::*;
+use crate::codegen::io::stdin::*;
+use crate::codegen::io::stdout::*;
+use crate::codegen::io::terminal::*;
+use crate::codegen::memory::arena::*;
+use crate::codegen::memory::data::*;
+use crate::codegen::memory::marshal::*;
+use crate::codegen::memory::value::*;
+use crate::codegen::os::ffi::*;
+use crate::codegen::os::process::*;
+use crate::codegen::os::syscall::*;
+use crate::codegen::resource::cleanup::*;
+use crate::codegen::runtime::thread::*;
+use crate::codegen::string::format::*;
+use crate::codegen::string::repr::*;
+use crate::codegen::string::util::*;
+use crate::codegen::string::validate::*;
+use crate::codegen::term::core as term;
+use crate::codegen::term::core::*;
+use crate::codegen::term::grid::*;
+use crate::target::shared::abi;
+use std::collections::HashMap;
 struct TlsReadTestPlatform;
 
 #[rustfmt::skip]
 impl CodegenPlatform for TlsReadTestPlatform {
     fn target(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::target") }
     fn arch(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::arch") }
-    fn backend(&self) -> &'static dyn crate::target::shared::code::mir::Backend { &crate::arch::aarch64::backend::AARCH64_BACKEND }
+    fn backend(&self) -> &'static dyn crate::codegen::engine::mir::Backend { &crate::arch::aarch64::backend::AARCH64_BACKEND }
     fn emit_apply_raw_mode(&self, _b: &str, _o: usize, _m: usize, _de: bool, _dc: bool, _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_apply_raw_mode") }
     fn emit_program_exit(
     &self,
     _from: &str,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_program_exit") }
     fn emit_write(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_write") }
     fn emit_poll_input(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_poll_input") }
     fn emit_is_terminal(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_is_terminal") }
     fn emit_terminal_size(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_terminal_size") }
     fn emit_path_exists(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_path_exists") }
     fn emit_path_stat(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_path_stat") }
     fn emit_stat_is_kind(&self, _so: usize, _ek: &str, _m: &str, _mk: &str, _e: &str, _f: &str, _mi: &str, _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_stat_is_kind") }
     fn emit_current_directory(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_current_directory") }
     fn emit_environ_pointer(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_environ_pointer") }
     fn emit_fs_path_operation(
     &self,
     _from: &str,
-    _operation: crate::target::shared::code::FsPathOperation,
+    _operation: FsPathOperation,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_fs_path_operation") }
     fn emit_errno(
     &self,
     _from: &str,
     _dst: Operand,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_errno") }
     fn emit_libc_call(
     &self,
     _base: &str,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
         // Minimal stand-in: a plain `bl` to the named libc function is
         // enough for the read helper to lower and register-allocate; the
@@ -115,100 +165,100 @@ impl CodegenPlatform for TlsReadTestPlatform {
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_open_file") }
     fn emit_read_file(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_read_file") }
     fn emit_close_file(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_close_file") }
     fn emit_sync_file(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_sync_file") }
     fn emit_seek_file(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_seek_file") }
     fn emit_rename_path(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_rename_path") }
     fn emit_mkstemps(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_mkstemps") }
     fn emit_random_bytes(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_random_bytes") }
     fn emit_temp_directory(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_temp_directory") }
     fn emit_opendir(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_opendir") }
     fn emit_readdir(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_readdir") }
     fn emit_closedir(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_closedir") }
     fn emit_read_dir_entry(&self, _p: &str, _np: &str, _nl: &str, _b: &str, _s: &str, _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_read_dir_entry") }
     fn emit_realpath(
     &self,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_realpath") }
     fn emit_arena_map(
     &self,
     _size_reg: &str,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
+    _instructions: &mut Vec<CodeInstruction>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_arena_map") }
-    fn emit_arena_unmap(&self, _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_arena_unmap") }
+    fn emit_arena_unmap(&self, _instructions: &mut Vec<CodeInstruction>) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_arena_unmap") }
     fn addrinfo_addr_offset(&self) -> usize { unimplemented!("TlsReadTestPlatform::addrinfo_addr_offset") }
     fn sol_socket(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::sol_socket") }
     fn so_reuseaddr(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_reuseaddr") }
@@ -224,20 +274,20 @@ impl CodegenPlatform for TlsReadTestPlatform {
     _base: &str,
     _from: &str,
     _platform_imports: &HashMap<String, String>,
-    _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
-    _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
+    _instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_variadic_call") }
     fn emit_program_entry(
     &self,
-    _spec: &crate::target::shared::code::ProgramEntrySpec<'_>,
+    _spec: &ProgramEntrySpec<'_>,
     _platform_imports: &HashMap<String, String>,
-) -> Result<crate::target::shared::code::CodeFunction, String> { unimplemented!("TlsReadTestPlatform::emit_program_entry") }
+) -> Result<CodeFunction, String> { unimplemented!("TlsReadTestPlatform::emit_program_entry") }
     fn emit_thread_trampoline(
     &self,
     _platform_imports: &HashMap<String, String>,
     _uses_stdin: bool,
-    _arena_init: crate::target::shared::code::ArenaInitSymbols,
-) -> Result<crate::target::shared::code::CodeFunction, String> { unimplemented!("TlsReadTestPlatform::emit_thread_trampoline") }
+    _arena_init: ArenaInitSymbols,
+) -> Result<CodeFunction, String> { unimplemented!("TlsReadTestPlatform::emit_thread_trampoline") }
 }
 
 /// Number of `blr` (indirect call) instructions between the `start` and the

@@ -66,7 +66,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "hmacSha512",
         intro: INTRO,

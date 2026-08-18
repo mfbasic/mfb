@@ -38,7 +38,7 @@ server (see the Server section): the response constructors (`http::ok`,
 `http::status`, `http::json`, `http::responseDefault`) build it, and
 `http::bytes` / `strings::toBytes` encode a `String` into the body type.
 
-[[src/codegen/builtins/http/package.mfb:Response]]
+[[src/codegen/builtins/http/mod.rs:Response]]
 
 ## Header Model
 
@@ -55,7 +55,7 @@ Duplicate field names **collapse last-wins**: the parser writes each field into
 the map with `collections::set`, so a later occurrence overwrites an earlier one.
 There is no comma-joining of duplicate values.
 
-[[src/codegen/builtins/http/package.mfb:__http_parseResponse]]
+[[src/codegen/builtins/http/mod.rs:__http_parseResponse]]
 
 ## Request Construction
 
@@ -64,7 +64,7 @@ normalized: empty or whitespace-containing methods fail (`77050002`); otherwise
 it is uppercased. The request target is the URL path (defaulting to `/` when
 empty) with `?query` appended when the URL carries a query.
 
-[[src/codegen/builtins/http/package.mfb:__http_normalizeMethod]] [[src/codegen/builtins/http/package.mfb:__http_requestTarget]]
+[[src/codegen/builtins/http/mod.rs:__http_normalizeMethod]] [[src/codegen/builtins/http/mod.rs:__http_requestTarget]]
 
 Four headers are emitted automatically, each overridable by a caller header of
 the same name (matched case-insensitively):
@@ -86,7 +86,7 @@ cannot override.
 The body, when present, follows the blank `CRLF` line; `Content-Length` is the
 body's **byte** length (`strings::byteLen`), not its grapheme count.
 
-[[src/codegen/builtins/http/package.mfb:__http_buildRequest]] [[src/codegen/builtins/http/package.mfb:__http_isExtraHeader]] [[src/codegen/builtins/http/package.mfb:__http_headerValue]]
+[[src/codegen/builtins/http/mod.rs:__http_buildRequest]] [[src/codegen/builtins/http/mod.rs:__http_isExtraHeader]] [[src/codegen/builtins/http/mod.rs:__http_headerValue]]
 
 ### Line terminators
 
@@ -94,7 +94,7 @@ body's **byte** length (`strings::byteLen`), not its grapheme count.
 and `\n` escapes — and all framing (status line, header lines, the blank
 separator) uses it.
 
-[[src/codegen/builtins/http/package.mfb:__http_buildRequest]]
+[[src/codegen/builtins/http/mod.rs:__http_buildRequest]]
 
 ## Response Parsing
 
@@ -115,7 +115,7 @@ first space is split at its first space into the numeric status and the reason
 phrase (reason is `""` when there is no second space). Status digits are parsed
 in base 10; any non-digit fails (`77050003`).
 
-[[src/codegen/builtins/http/package.mfb:__http_parseStatusLine]] [[src/codegen/builtins/http/package.mfb:__http_decToInt]]
+[[src/codegen/builtins/http/mod.rs:__http_parseStatusLine]] [[src/codegen/builtins/http/mod.rs:__http_decToInt]]
 
 ## Body Decoding
 
@@ -130,7 +130,7 @@ body =
 what was read. The `transfer-encoding` header (already lowercased) is matched
 case-insensitively for the substring `chunked`.
 
-[[src/codegen/builtins/http/package.mfb:__http_decodeBody]]
+[[src/codegen/builtins/http/mod.rs:__http_decodeBody]]
 
 ### Chunked transfer decoding
 
@@ -147,7 +147,7 @@ chunk        = HEX [ ";" ext ] CRLF  data  CRLF
 last-chunk   = "0" CRLF
 ```
 
-[[src/codegen/builtins/http/package.mfb:__http_dechunk]] [[src/codegen/builtins/http/package.mfb:__http_hexToInt]]
+[[src/codegen/builtins/http/mod.rs:__http_dechunk]] [[src/codegen/builtins/http/mod.rs:__http_hexToInt]]
 
 ## Response Size Cap
 
@@ -157,7 +157,7 @@ after each read; exceeding it fails with `77050010` ("response too large").
 The limit applies to the raw, pre-decode stream, so a chunked body's framing
 counts against it.
 
-[[src/codegen/builtins/http/package.mfb:__HTTP_MAX_RESPONSE]]
+[[src/codegen/builtins/http/mod.rs:__HTTP_MAX_RESPONSE]]
 
 ## Transport Selection
 
@@ -184,7 +184,7 @@ recovered as a close; any other transport error is captured in the stream's STAT
 The size cap is enforced as bytes accumulate. The socket is a scoped resource
 (`RES`), closed once when the `Stream` leaves scope.
 
-[[src/codegen/builtins/http/package.mfb:__http_startExchange]] [[src/codegen/builtins/http/package.mfb:__http_readNet]] [[src/codegen/builtins/http/package.mfb:__http_readTls]]
+[[src/codegen/builtins/http/mod.rs:__http_startExchange]] [[src/codegen/builtins/http/mod.rs:__http_readNet]] [[src/codegen/builtins/http/mod.rs:__http_readTls]]
 
 ## Non-Blocking Client
 
@@ -230,7 +230,7 @@ write(url, body, headers, method):
 produce the same `Response` a direct read loop would, byte for byte. Neither entry
 point follows redirects or retries.
 
-[[src/codegen/builtins/http/package.mfb:__http_read]] [[src/codegen/builtins/http/package.mfb:__http_write]] [[src/codegen/builtins/http/package.mfb:__http_waitReadable]]
+[[src/codegen/builtins/http/mod.rs:__http_read]] [[src/codegen/builtins/http/mod.rs:__http_write]] [[src/codegen/builtins/http/mod.rs:__http_waitReadable]]
 
 ## Server
 
@@ -354,7 +354,7 @@ absolute, symlink-out) yields `403`, a missing file yields `404`, never a read
 outside `root`. `Content-Length`, the reason phrase, and `Connection: close`
 are always server-supplied on emit; a handler-set `Content-Length` is ignored.
 
-[[src/codegen/builtins/http/package.mfb:__http_handleRequest]] [[src/codegen/builtins/http/package.mfb:__http_matchPath]]
+[[src/codegen/builtins/http/mod.rs:__http_handleRequest]] [[src/codegen/builtins/http/mod.rs:__http_matchPath]]
 
 ## See Also
 

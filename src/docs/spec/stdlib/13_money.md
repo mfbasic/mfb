@@ -34,7 +34,7 @@ integer arithmetic under overflow checking. Rounding enters only where a result
 cannot be represented at five places — `M / k`, `M * Float`, `M * Fixed`, the
 `toMoney` / `toFixed` conversions, and the explicit `money::round`. Every one of
 those sites consults a single rounding rule, described below, so the two modes are
-implemented exactly once. [[src/target/shared/code/builder_money_math.rs:emit_apply_rounding]]
+implemented exactly once. [[src/codegen/builtins/money/builder_money_math.rs:emit_apply_rounding]]
 
 ## The rounding-mode state
 
@@ -53,7 +53,7 @@ amounts are summed. [[src/codegen/builtins/money/mod.rs:Rounding]]
 The mode is **mutable, per-execution-context state**, not a global constant. It
 lives in a single word of the per-thread arena state — the `moneyRoundingMode`
 field, whose layout is owned by `./mfb spec memory arenas`.
-[[src/target/shared/code/error_constants.rs:ARENA_ROUNDING_MODE_OFFSET]]
+[[src/codegen/error/constants/error_constants.rs:ARENA_ROUNDING_MODE_OFFSET]]
 
 - `money::setRounding(mode)` writes the field. The stored value is masked to its
   low bit (`mode & 1`), so only the two defined modes are ever recorded.
@@ -67,7 +67,7 @@ thread owns its own arena and therefore its own mode word. A worker thread
 `Commercial`, then the parent's mode is copied in — and thereafter changes
 independently, exactly parallel to the per-thread RNG and other arena state.
 Setting the mode on one thread never disturbs another.
-[[src/target/shared/code/runtime_helpers.rs:455]]
+[[src/codegen/runtime/thread/runtime_helpers.rs:455]]
 
 Setting the mode affects **only** `Money` arithmetic. It does not change `Fixed`
 or `Float` rounding, and — importantly — it does **not** change how
@@ -97,7 +97,7 @@ if |rem| == half:               ; exact tie
 `|rem|` avoids overflow near `i64::MAX`. The result carries the true sign, which is
 tracked separately because a truncated quotient of `0` has no sign of its own.
 This is the sole implementation of both modes.
-[[src/target/shared/code/builder_money_math.rs:emit_apply_rounding]]
+[[src/codegen/builtins/money/builder_money_math.rs:emit_apply_rounding]]
 
 The rule is fully **deterministic**: for a given operand, mode, and target scale
 the rounded result is identical on every run and every target, because it is exact

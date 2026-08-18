@@ -12,11 +12,17 @@
 //! single `AudioHandle` layout across platforms; it holds only the `snd_pcm_t*`
 //! (S_OSOBJECT) and the `xruns` counter (S_XRUNS).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
+use crate::codegen::engine::builder::emit_arena_free;
+use crate::codegen::engine::builder::*;
+use crate::codegen::error::emission::*;
+use crate::codegen::memory::arena::*;
+use crate::codegen::string::util::*;
 use std::collections::HashMap;
 
 use super::*;
 use crate::target::shared::abi;
-
 const ALSA_SONAME: &str = "libasound.so.2";
 const RTLD_NOW: &str = "2"; // RTLD_NOW | RTLD_LOCAL (RTLD_LOCAL == 0)
 
@@ -66,7 +72,7 @@ fn sym_data_symbol(name: &str) -> String {
 }
 
 /// The read-only C strings (soname + ALSA symbol names) the backend references.
-pub(super) fn data_objects() -> Vec<CodeDataObject> {
+pub(crate) fn data_objects() -> Vec<CodeDataObject> {
     let mut objects = vec![
         CodeDataObject {
             symbol: lib_data_symbol(),
@@ -240,7 +246,7 @@ fn emit_dlsym(ctx: &mut EmitCtx, name: &str, unavailable: &str) -> Result<(), St
     Ok(())
 }
 
-pub(super) fn lower_audio_alsa(
+pub(crate) fn lower_audio_alsa(
     call: &str,
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -2383,8 +2389,8 @@ mod open_error_cleanup_tests {
     //! the two open-error exits must dispose of everything the open acquired.
     use super::*;
     use crate::arch::ops::CodeOp;
-    use crate::target::shared::code::mir;
-    use crate::target::shared::code::test_support::{has_label, TestPlatform};
+    use crate::codegen::engine::mir;
+    use crate::codegen::engine::tests::{has_label, TestPlatform};
 
     fn open_ins(device: bool) -> Vec<CodeInstruction> {
         mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);

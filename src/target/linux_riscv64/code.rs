@@ -6,11 +6,13 @@
 
 use std::path::PathBuf;
 
+use crate::codegen::engine::mir::MirPlan;
+use crate::codegen::engine::types::CodeInstruction;
+use crate::codegen::engine::types::NativeCodePlan;
 use crate::os::linux::flavor::LinuxFlavor;
 use crate::target::linux_common::code::{
     self as common, emit_asm_generic_arena_map, emit_asm_generic_arena_unmap, AppSupport, LinuxArch,
 };
-use crate::target::shared::code::{self, CodeInstruction, MirPlan, NativeCodePlan};
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
 
@@ -54,7 +56,7 @@ impl LinuxArch for Riscv64 {
         "libc.musl-riscv64.so.1"
     }
 
-    fn backend(&self) -> &'static dyn code::mir::Backend {
+    fn backend(&self) -> &'static dyn crate::codegen::engine::mir::Backend {
         &crate::arch::riscv64::backend::RISCV64_BACKEND
     }
 

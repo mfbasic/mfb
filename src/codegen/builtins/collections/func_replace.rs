@@ -81,7 +81,7 @@ END FUNC
 
 /// `collections::replace` — List element replacement. Bare-name dispatch
 /// (`lower_replace`); [`Body::Intrinsic`].
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "replace",
         intro: INTO_REPLACE,

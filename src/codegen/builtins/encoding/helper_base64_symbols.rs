@@ -38,6 +38,6 @@ FUNC __encoding_base64Symbols(text AS String, urlSafe AS Boolean) AS List OF Int
   RETURN values
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_base64Symbols", BODY));
 }

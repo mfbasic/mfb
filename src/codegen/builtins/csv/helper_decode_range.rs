@@ -27,6 +27,6 @@ FUNC __csv_decodeRange(chars AS List OF Integer, startIndex AS Integer, endIndex
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("csv_decodeRange", BODY));
 }

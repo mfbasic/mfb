@@ -7,15 +7,18 @@
 //! `src/target`. Body byte-significant (2-space indent → `.ncode` columns); do
 //! not reformat.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::{callable_return_type, list_element_type};
+use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::{callable_return_type, list_element_type};
-use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
-
 /// Native fast path for `#collections_findLastIndex$String` (3-arg form): a
 /// reverse predicate scan. Other element types decline (`Ok(None)`) and run the
 /// `.mfb` body. Free fn (an `impl` method would not coerce to `MfbFastPath`).
-pub(super) fn find_last_index_fast_path(
+pub(crate) fn find_last_index_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],
@@ -45,7 +48,7 @@ impl CodeBuilder<'_> {
     ///   * otherwise returns the highest matching index.
     /// String items are read through `load_collection_loop_item` (materializes an
     /// owned block) and freed after the predicate call, mirroring `filter`.
-    pub(super) fn lower_collection_find_last_index_call(
+    pub(crate) fn lower_collection_find_last_index_call(
         &mut self,
         args: &[NirValue],
     ) -> Result<ValueResult, String> {

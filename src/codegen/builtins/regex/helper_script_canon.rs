@@ -15,6 +15,6 @@ FUNC __regex_scriptCanon(low AS String) AS String
   RETURN __regex_scriptCanonName(low)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_scriptCanon", BODY));
 }

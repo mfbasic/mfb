@@ -5,10 +5,11 @@
 //! `src/target/shared/code/builder_bits.rs`; the `abi::` register operands are
 //! passed by value (`VirtualRegister` is `Copy`).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::{CodeBuilder, VirtualRegister};
 use crate::target::shared::nir::NirValue;
-
 /// Lower the two `Integer` operands of a binary `bits` op into fresh registers,
 /// spilling the first across the second lowering so a temporary reset cannot
 /// clobber it.

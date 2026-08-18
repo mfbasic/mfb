@@ -30,6 +30,6 @@ r#"FUNC __regex_shortKind(e AS String) AS Integer
   RETURN 0
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_shortKind", BODY));
 }

@@ -40,6 +40,6 @@ r#"FUNC __regex_parseAlt(pat AS List OF String, n AS Integer, i AS Integer, flag
   RETURN __regex_Parse[node, idx, gg, nm]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_parseAlt", BODY));
 }

@@ -1,11 +1,12 @@
+// --- codegen tier imports (migration) ---
 use super::*;
+use crate::codegen::engine::builder::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
-
 /// `os::name` / `os::arch` — return a fixed, target-selected `String` constant,
 /// materialized directly into a fresh arena `String` (length header + bytes +
 /// NUL) so the result is an ordinary owned value.
-pub(super) fn lower_const_string(symbol: &str, value: &str) -> HelperResult {
+pub(crate) fn lower_const_string(symbol: &str, value: &str) -> HelperResult {
     let alloc_ok = format!("{symbol}_ok");
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
@@ -52,7 +53,7 @@ pub(super) fn lower_const_string(symbol: &str, value: &str) -> HelperResult {
 
 /// `os::pid` — `getpid()` as an `Integer` (a small positive value; the int
 /// return is zero-extended by the W-register write, so no widening is needed).
-pub(super) fn lower_pid(
+pub(crate) fn lower_pid(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -85,7 +86,7 @@ pub(super) fn lower_pid(
 
 /// `os::cpuCount` — `sysconf(_SC_NPROCESSORS_ONLN)` as an `Integer`, clamped to
 /// at least 1. `_SC_NPROCESSORS_ONLN` is 58 on Darwin and 84 on Linux.
-pub(super) fn lower_cpu_count(
+pub(crate) fn lower_cpu_count(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -174,7 +175,7 @@ pub(super) fn lower_cpu_count(
 /// failure) in the return register; build a `String` from it, or raise
 /// `ErrUnsupported`. The `*W` query + UTF-16→UTF-8 marshal live in the Windows
 /// backend; this reuses the shared String builder and error tails.
-pub(super) fn lower_os_wide_string_windows(
+pub(crate) fn lower_os_wide_string_windows(
     symbol: &str,
     which: &str,
     platform_imports: &HashMap<String, String>,
@@ -222,7 +223,7 @@ pub(super) fn lower_os_wide_string_windows(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(super) fn lower_host_name(
+pub(crate) fn lower_host_name(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -286,7 +287,7 @@ pub(super) fn lower_host_name(
 /// `os::userName` — `getpwuid(getuid())->pw_name` (`pw_name` is the first field
 /// of `struct passwd` on every supported libc). Raises `ErrUnsupported` if the
 /// uid has no passwd entry (e.g. a bare container uid).
-pub(super) fn lower_user_name(
+pub(crate) fn lower_user_name(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -376,7 +377,7 @@ pub(super) fn lower_user_name(
 /// `os::args` — build a `List OF String` from the entry-captured `argv`,
 /// excluding `argv[0]` (the program name; D1). Reads the `_mfb_rt_os_argc` /
 /// `_mfb_rt_os_argv` globals the program entry fills at startup.
-pub(super) fn lower_args(symbol: &str) -> HelperResult {
+pub(crate) fn lower_args(symbol: &str) -> HelperResult {
     let count_loop = format!("{symbol}_count_loop");
     let count_done = format!("{symbol}_count_done");
     let count_str = format!("{symbol}_count_str");

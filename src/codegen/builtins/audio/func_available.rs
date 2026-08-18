@@ -47,7 +47,7 @@ fn overload(stream_ty: &'static str) -> Implementation {
     }
 }
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "available",
         intro: INTRO,

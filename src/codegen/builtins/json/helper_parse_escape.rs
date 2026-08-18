@@ -19,6 +19,6 @@ r#"FUNC __json_parseEscape(chars AS List OF String, index AS Integer) AS __json_
   RETURN __json_StringNode[__json_decodeEscape(ch), index + 1]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_parseEscape", BODY));
 }

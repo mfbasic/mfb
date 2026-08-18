@@ -30,6 +30,6 @@ FUNC __crypto_ghash(hHi AS Integer, hLo AS Integer, data AS List OF Byte) AS Lis
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_ghash", BODY));
 }

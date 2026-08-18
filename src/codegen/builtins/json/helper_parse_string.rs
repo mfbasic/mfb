@@ -48,6 +48,6 @@ FUNC __json_parseString(chars AS List OF String, index AS Integer, current AS St
   RETURN __json_StringNode[result, endIndex]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_parseString", BODY));
 }

@@ -23,7 +23,7 @@ fn color_params() -> Vec<Parameter> {
         .collect()
 }
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "background",
         intro: "",

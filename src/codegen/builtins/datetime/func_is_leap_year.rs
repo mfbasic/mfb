@@ -54,7 +54,7 @@ r#"FUNC __datetime_isLeapYear(year AS Integer) AS Boolean
   RETURN (year MOD 4 = 0 AND year MOD 100 <> 0) OR year MOD 400 = 0
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "isLeapYear",
         intro: INTRO,

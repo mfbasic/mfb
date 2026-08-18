@@ -20,6 +20,6 @@ r#"FUNC __regex_allDigits(s AS String) AS Boolean
   RETURN TRUE
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_allDigits", BODY));
 }

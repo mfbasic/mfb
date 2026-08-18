@@ -10,7 +10,7 @@ under the app program symbol while `_main` is the toolkit bootstrap — see
 The entry is emitted by `lower_program_entry`; it carries the assembler label
 `entry` and is renamed `_main` at link time (console mode). The macapp variant
 emits the same body under the app program symbol instead.
-[[src/target/shared/code/entry.rs:lower_program_entry]]
+[[src/codegen/engine/function/entry.rs:lower_program_entry]]
 
 ## Entry Frame
 
@@ -18,7 +18,7 @@ The entry has no callee-save prologue: it carves its whole frame with one
 `sp -= entry_stack_size`, points `x19` (`ARENA_STATE_REGISTER`) at `sp`, and
 that stack region **is** the main arena-state for the life of the program. `x19`
 and the arena live as long as the process; they are never restored because the
-entry exits rather than returns. [[src/target/shared/code/entry.rs:lower_program_entry]]
+entry exits rather than returns. [[src/codegen/engine/function/entry.rs:lower_program_entry]]
 
 Because the arena-state lives on the stack (not zero-filled memory), the shim
 clears it before the first allocation — **the whole range**, in a loop from the
@@ -33,7 +33,7 @@ Growing the arena state — adding quick bins, say — or the globals region can
 never leave a new field as garbage in one path but initialized in the other. A
 spec that named individual offsets here would invite exactly that divergence.
 The full arena-state byte layout is owned by `./mfb spec memory arenas`.
-[[src/target/shared/code/error_constants.rs:ARENA_STATE_SIZE]] [[src/target/shared/code/entry.rs:lower_program_entry]]
+[[src/codegen/error/constants/error_constants.rs:ARENA_STATE_SIZE]] [[src/codegen/engine/function/entry.rs:lower_program_entry]]
 
 Slot layout in the entry frame:
 
@@ -57,13 +57,13 @@ past the frame (at a raw Linux ELF entry the words above the frame are the OS
 `argc`/`argv` vector itself). The total frame is `ENTRY_STACK_SIZE + (globals +
 LINK + term:: state slots) * 8`, rounded up to 16, plus `ENTRY_ARGS_REGION_SIZE`
 (`48`) when the entry accepts args.
-[[src/target/shared/code/error_constants.rs:ENTRY_ARGS_REGION_SIZE]]
+[[src/codegen/error/constants/error_constants.rs:ENTRY_ARGS_REGION_SIZE]]
 
 When the program uses `term::`, `TERM_STATE_SLOTS` (`u64` each, 27 in all —
 leading style slots plus the raw-termios save area) are reserved just past the
 program globals and `LINK` slots; the entry's global-slot clear zero-initializes
-them, which is the inert (TUI-off) default. [[src/target/shared/code/error_constants.rs:TERM_STATE_SLOTS]]
-[[src/target/shared/code/error_constants.rs:TERM_STATE_SLOTS]]
+them, which is the inert (TUI-off) default. [[src/codegen/error/constants/error_constants.rs:TERM_STATE_SLOTS]]
+[[src/codegen/error/constants/error_constants.rs:TERM_STATE_SLOTS]]
 
 ## Publishing the Arena Address
 
@@ -72,7 +72,7 @@ After zero-init, the shim writes `x19` (the arena-state address) into the writab
 signal handler and `_mfb_shutdown` find the main arena without the pinned `x19`,
 which is unavailable on a signal frame. `x9` is the scratch temporary; `x0`/`x1`
 (argc/argv) are left untouched. Only the main arena is tracked here — worker
-arenas are never freed by the entry. [[src/target/shared/code/error_constants.rs:MAIN_ARENA_GLOBAL_SYMBOL]]
+arenas are never freed by the entry. [[src/codegen/error/constants/error_constants.rs:MAIN_ARENA_GLOBAL_SYMBOL]]
 
 ## Signal Handlers (console only)
 
@@ -81,7 +81,7 @@ installs `_mfb_rt_signal_handler` (`SIGNAL_HANDLER_SYMBOL`) for `SIGINT` (`2`) a
 `SIGTERM` (`15`) via libc `signal()`. `signal()` clobbers `x0`/`x1`, so argc/argv
 are parked 16 bytes below the frame across the two calls (`x19` pins the frame, so
 lowering `sp` temporarily is safe) and restored afterward.
-[[src/target/shared/code/error_constants.rs:SIGNAL_HANDLER_SYMBOL]]
+[[src/codegen/error/constants/error_constants.rs:SIGNAL_HANDLER_SYMBOL]]
 
 The handler is `void handler(int signo)`: it runs the shared `_mfb_shutdown`
 teardown and then `_exit(128 + signo)` — exit code `130` for `SIGINT`, `143` for
@@ -89,7 +89,7 @@ teardown and then `_exit(128 + signo)` — exit code `130` for `SIGINT`, `143` f
 locates the arena through `_mfb_shutdown`'s global read rather than the
 interrupted `x19`. Its 16-byte frame keeps `sp` aligned across the `bl`s and parks
 `signo`. App-mode builds skip handler installation but still share `_mfb_shutdown`
-for normal-exit cleanup. [[src/target/shared/code/process_lifecycle.rs:lower_signal_handler]]
+for normal-exit cleanup. [[src/codegen/os/process/process_lifecycle.rs:lower_signal_handler]]
 
 ## RNG Seeding and Start Time
 
@@ -102,7 +102,7 @@ When the program uses `math::rand`/`math::seed` (`seed_rng`), the shim draws 8
 entropy bytes from the OS (`emit_random_bytes`) into the dedicated
 `ENTRY_SEED_SCRATCH_OFFSET` slot at the top of the entry frame — pre-filled with the arena address so a `getentropy` failure still
 yields a varying seed — then calls `_mfb_rng_seed_at` (`RNG_SEED_SYMBOL`) with
-`x0 = x19` and the seed in `x1`. [[src/target/shared/code/error_constants.rs:RNG_SEED_SYMBOL]] [[src/target/shared/code/error_constants.rs:ENTRY_SEED_SCRATCH_OFFSET]]
+`x0 = x19` and the seed in `x1`. [[src/codegen/error/constants/error_constants.rs:RNG_SEED_SYMBOL]] [[src/codegen/error/constants/error_constants.rs:ENTRY_SEED_SCRATCH_OFFSET]]
 
 The memory-fill stream is seeded unconditionally (entropy fill is always on). The
 shim parks argc/argv in callee-saved `x27`/`x28`, captures the arena start time at
@@ -111,7 +111,7 @@ nanoseconds (`sec * 1e9 + nsec`), draws 8 entropy bytes, XORs them with the star
 time and the arena address, calls `_mfb_arena_fill_seed`, then restores
 argc/argv. Mixing the start time and arena address keeps two arenas seeding in the
 same instant (or after a `getentropy` failure) distinct.
-[[src/target/shared/code/error_constants.rs:ARENA_START_TIME_OFFSET]]
+[[src/codegen/error/constants/error_constants.rs:ARENA_START_TIME_OFFSET]]
 
 ## Running the Program
 
@@ -124,22 +124,22 @@ fallible result (`x0` tag, `x1` value/code, `x2` message, `x3` source — owned 
    descriptor. It runs once, before everything below and before any thread is
    spawned, and cannot fail — there is no tag to check. This is what lets a
    `FunctionRef` be an address rather than an allocation (bug-78; see
-   `./mfb spec memory closures`). [[src/target/shared/code/error_constants.rs:CLOSURE_DESC_INIT_SYMBOL]]
+   `./mfb spec memory closures`). [[src/codegen/error/constants/error_constants.rs:CLOSURE_DESC_INIT_SYMBOL]]
 2. **Native `LINK` init.** If the program has `LINK` bindings, call the link-init
    symbol (dlopen/dlsym) first; a non-`RESULT_OK_TAG` result jumps to the error
-   path, so a load failure aborts before `main`. [[src/target/shared/code/entry.rs:lower_program_entry]]
+   path, so a load failure aborts before `main`. [[src/codegen/engine/function/entry.rs:lower_program_entry]]
 3. **Global initializer.** If present, call it. A `RESULT_PROGRAM_EXIT_TAG`
    (`2`) routes `x1` to the process exit register and jumps to the exit path; any
-   non-`RESULT_OK_TAG` jumps to the error path. [[src/target/shared/code/error_constants.rs:RESULT_PROGRAM_EXIT_TAG]]
+   non-`RESULT_OK_TAG` jumps to the error path. [[src/codegen/error/constants/error_constants.rs:RESULT_PROGRAM_EXIT_TAG]]
 4. **Argument list.** If the language entry accepts args, save argc/argv to their
    slots and materialize the argv strings into an in-arena `List OF String`
    (`emit_entry_args_list_materialization`, via `arena_alloc`); the resulting list
-   pointer is loaded into `x0` as the entry's argument. [[src/target/shared/code/entry.rs:emit_entry_args_list_materialization]]
+   pointer is loaded into `x0` as the entry's argument. [[src/codegen/engine/function/entry.rs:emit_entry_args_list_materialization]]
 5. **Language entry.** Call the language entry FUNC/SUB. The result is routed the
    same way: `RESULT_PROGRAM_EXIT_TAG` → exit with `x1`; non-OK → error path. On
    success, a `Nothing` return exits `0`; an `Integer` return becomes the exit
    code but is range-checked against `255` (`ERR_OVERFLOW` if higher).
-   [[src/target/shared/code/entry.rs:lower_program_entry]]
+   [[src/codegen/engine/function/entry.rs:lower_program_entry]]
 
 ## Error Path
 
@@ -152,14 +152,14 @@ the same shape is shared with the cleanup-failure banner
 word at offset `32` and the message pointer in `x20`. When the program can record
 cleanup failures, the cleanup-failure audit (count/code/message at arena offsets
 `64`/`72`/`80`) is reported next. The process exit code is then forced to `255`.
-[[src/target/shared/code/error_constants.rs:ENTRY_ERROR_PREFIX_SYMBOL]]
+[[src/codegen/error/constants/error_constants.rs:ENTRY_ERROR_PREFIX_SYMBOL]]
 
 ## Teardown and Exit
 
 The exit path (`entry_exit`) parks the exit code in the arena-state scratch word
 at offset `32` (which lives in the stack-resident entry frame, not the mmap'd
 arena blocks that teardown unmaps), calls `_mfb_shutdown` (`SHUTDOWN_SYMBOL`),
-reloads the exit code, and calls the platform process-exit. [[src/target/shared/code/error_constants.rs:SHUTDOWN_SYMBOL]]
+reloads the exit code, and calls the platform process-exit. [[src/codegen/error/constants/error_constants.rs:SHUTDOWN_SYMBOL]]
 
 `_mfb_shutdown` reads the arena address from `_mfb_rt_main_arena`, **clears that
 global first** (so a signal arriving mid-teardown re-enters as a no-op), and skips
@@ -168,7 +168,7 @@ all work if it was already null. It restores the terminal when `term::` was acti
 preserves `x19` and the link register across the call, so the entry's reloaded
 exit code is valid on return. Because the global gate is idempotent, the
 SIGINT/SIGTERM handler racing the normal exit path cannot double-free.
-[[src/target/shared/code/process_lifecycle.rs:lower_shutdown]]
+[[src/codegen/os/process/process_lifecycle.rs:lower_shutdown]]
 
 ## See Also
 
@@ -209,7 +209,7 @@ inject libc/syscall staging into shared streams use the role banks as well
 and Linux's `%sysnr` realizes `x8`). Because `d0`–`d7` sit *inside* the FP
 allocatable file, the register allocator's occupancy analysis parses the
 scratch tokens directly, at exactly the index of their
-realization, so coloring is unchanged. [[src/target/shared/code/regalloc/analysis.rs]]
+realization, so coloring is unchanged. [[src/codegen/engine/regalloc/analysis.rs]]
 
 Two guards enforce the invariant with **no allowlist**:
 
@@ -217,12 +217,12 @@ Two guards enforce the invariant with **no allowlist**:
   shared lowering except the two that define the physical namespace
   (the realization tables and the occupancy
   parsers) may spell a physical register of any class or ISA, quoted or
-  dynamically constructed; [[src/target/shared/]] [[src/target/shared/abi.rs]] [[src/target/shared/code/regalloc/analysis.rs]]
+  dynamically constructed; [[src/target/shared/]] [[src/target/shared/abi.rs]] [[src/codegen/engine/regalloc/analysis.rs]]
 * an always-on stream assertion at every
   point a shared stream is finished — the pre-selection seam, the hand-built
   helper finalizer, the entry stub, and the thread
   trampoline. A physical name in a shared stream is a build error (an ICE for
-  helper bodies), not a silent miscompile. [[src/target/shared/code/regalloc/mod.rs:find_physical_operand]] [[run_register_allocation]] [[finalize_vreg_body_with_locals]]
+  helper bodies), not a silent miscompile. [[src/codegen/engine/regalloc/mod.rs:find_physical_operand]] [[run_register_allocation]] [[finalize_vreg_body_with_locals]]
 
 Standalone per-target streams (the macOS app-mode views, the GTK app
 functions, the TLS block trampolines) are target-native machine floor with

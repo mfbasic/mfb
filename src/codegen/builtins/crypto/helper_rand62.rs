@@ -22,6 +22,6 @@ FUNC __crypto_rand62() AS Integer
   RETURN v + top * 72057594037927936
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_rand62", BODY));
 }

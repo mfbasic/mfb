@@ -68,9 +68,9 @@ fn emit_gtk_charwidth(
     s3: &str,
     tag: &str,
 ) {
-    use crate::target::shared::code::{
-        UNICODE_PROPERTIES_SYMBOL, UNICODE_STAGE1_SYMBOL, UNICODE_STAGE2_SYMBOL,
-    };
+    use crate::codegen::error::constants::UNICODE_PROPERTIES_SYMBOL;
+    use crate::codegen::error::constants::UNICODE_STAGE1_SYMBOL;
+    use crate::codegen::error::constants::UNICODE_STAGE2_SYMBOL;
     let n2 = format!("{tag}_n2");
     let n3 = format!("{tag}_n3");
     let n4 = format!("{tag}_n4");

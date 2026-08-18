@@ -21,9 +21,9 @@ mod helper_stringify_row;
 
 /// RFC-4180 dialect defaults, injected as raw String literals when an optional
 /// dialect argument is omitted (the `expr` of a `Fill` is the literal value).
-pub(super) const DEFAULT_DELIMITER: &str = ",";
-pub(super) const DEFAULT_QUOTE: &str = "\"";
-pub(super) const DEFAULT_NEWLINE: &str = "\n";
+pub(crate) const DEFAULT_DELIMITER: &str = ",";
+pub(crate) const DEFAULT_QUOTE: &str = "\"";
+pub(crate) const DEFAULT_NEWLINE: &str = "\n";
 
 const INTRO: &str = r#"Parse and serialize CSV text as a grid of String cells"#;
 

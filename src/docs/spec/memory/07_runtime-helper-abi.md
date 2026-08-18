@@ -93,7 +93,7 @@ source in `%retMFB3` (AArch64 `x0..x3`) — regardless of whether the helper can
 actually fail. That ABI (the three tags and the four register roles) is owned
 by `./mfb spec memory fallible-call-abi`. The dispatch site always compares the
 tag in `%retMFB0` against the OK tag and, on a non-OK tag, stamps the call-site
-origin and propagates; on the OK tag it reads the result value from `%retMFB1`. [[src/target/shared/code/builder_emit_helpers.rs:emit_runtime_helper_call]] [[src/target/shared/code/error_constants.rs:RESULT_VALUE_REGISTER]]
+origin and propagates; on the OK tag it reads the result value from `%retMFB1`. [[src/codegen/engine/builder/builder_emit_helpers.rs:emit_runtime_helper_call]] [[src/codegen/error/constants/error_constants.rs:RESULT_VALUE_REGISTER]]
 
 A helper that **cannot fail** therefore does not return its value bare in
 `%retMFB0` in the way an ordinary infallible callable does (see
@@ -133,14 +133,14 @@ on `perf_injection_enabled()` (a `--cfg perf`-built compiler) **and** a macOS en
 module: a perf-free compiler, and every Linux/Windows build, emit nothing, so their
 output is byte-identical to a pre-perf build. The emitted symbols are forced into
 the plan's runtime-symbol set (`plan::symbols::runtime_symbols`), not derived from
-the IR. [[src/target/shared/code/perf.rs:lower_perf_helper]]
+the IR. [[src/codegen/builtins/perf/perf.rs:lower_perf_helper]]
 
 Under the same gate, the program-entry stub opens a whole-program `program` span,
 and the arena hot-path helpers `_mfb_arena_alloc` / `_mfb_arena_free` are bracketed
 with `perf_start`/`perf_end` (regions `mfb_alloc` / `mfb_free`), so `perf_done`
 prints a timing row per region at exit. The perf helpers themselves never touch the
 arena (their region is the `emit_arena_map` mmap seam), so bracketing arena code
-cannot recurse. [[src/target/shared/code/arena.rs:lower_arena_alloc]]
+cannot recurse. [[src/codegen/memory/arena/arena.rs:lower_arena_alloc]]
 
 ## Required-Helper Analysis
 

@@ -39,7 +39,7 @@ arena at send time, then the reader just dequeues the already-materialized value
 
 The message copy is emitted at the send site (the builder points the arena-state
 register at the receiver's state, then copies); the queue-write helper only stores
-the already-copied pointer into the queue slot. [[src/target/shared/code/builder_emit_helpers.rs:emit_thread_send_runtime_helper_call]] [[src/target/shared/code/runtime_helpers_thread.rs:thread_queue_write_helper]]
+the already-copied pointer into the queue slot. [[src/codegen/engine/builder/builder_emit_helpers.rs:emit_thread_send_runtime_helper_call]] [[src/codegen/runtime/thread/runtime_helpers_thread.rs:thread_queue_write_helper]]
 
 Resource handles move as scalar handles through the resource queues without the
 flat-block deep copy used for data-plane values.

@@ -77,7 +77,7 @@ const DESC: &str = "";
 /// so `strings`' file-local copy never collides with `regex`' when both are imported
 /// (bug-339 B1: one SOURCE of truth, one COMPILED copy per package — language-mandated
 /// because an injected builtin source is one file whose FUNCs are file-local).
-const GENCAT_TABLE: &str = include_str!("../../unicode/unicode_gencat.mfb");
+const GENCAT_TABLE: &str = include_str!("../../string/unicode/unicode_gencat.mfb");
 
 /// The scalar-seam source companion (the `__strings_toScalars`/`__strings_fromScalars`
 /// seam + the five classification predicates), backing the seven `Body::Rewrite`
@@ -308,3 +308,7 @@ pub(crate) fn tier_b_transform_impl(name: &str) -> Option<&'static str> {
     };
     Some(symbol)
 }
+
+pub(crate) mod builder_strings_builtins;
+pub(crate) mod builder_strings_package;
+pub(crate) use builder_strings_package::*;

@@ -10,6 +10,6 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 const BODY: &str =
 r#"LET __CRYPTO_AES_SBOX AS List OF Byte = __crypto_aesSboxTable()"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_aesSbox", BODY));
 }

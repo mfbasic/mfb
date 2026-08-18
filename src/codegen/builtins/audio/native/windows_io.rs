@@ -708,7 +708,7 @@ fn lower_read(
             abi::move_register(abi::c_arg(1), "%v11"),
             abi::load_u64(abi::return_register(), abi::stack_pointer(), LIST_OFF),
         ]);
-        emit_arena_free(symbol, &mut ins, &mut rel);
+        crate::codegen::memory::arena::emit_arena_free(symbol, &mut ins, &mut rel);
         ins.extend([
             abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), FINAL_LIST_OFF),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),

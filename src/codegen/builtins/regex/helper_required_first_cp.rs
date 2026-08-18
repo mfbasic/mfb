@@ -32,6 +32,6 @@ FUNC __regex_requiredFirstCp(node AS __regex_Node) AS Integer
   END MATCH
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_requiredFirstCp", BODY));
 }

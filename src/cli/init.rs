@@ -90,7 +90,7 @@ pub(crate) fn project_manifest(location: &Path) -> String {
             "}}"
         ),
         name,
-        crate::target::shared::code::STDIN_LOG_CAP_DEFAULT
+        crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT
     )
 }
 
@@ -123,7 +123,7 @@ fn package_project_manifest(location: &Path) -> String {
             "}}"
         ),
         name,
-        crate::target::shared::code::STDIN_LOG_CAP_DEFAULT
+        crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT
     )
 }
 
@@ -216,7 +216,7 @@ mod tests {
         // and it round-trips through the manifest reader.
         assert_eq!(
             crate::manifest::stdin_log_cap(object),
-            Some(crate::target::shared::code::STDIN_LOG_CAP_DEFAULT)
+            Some(crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT)
         );
     }
 
@@ -236,7 +236,7 @@ mod tests {
         );
         assert_eq!(
             crate::manifest::stdin_log_cap(object),
-            Some(crate::target::shared::code::STDIN_LOG_CAP_DEFAULT)
+            Some(crate::codegen::error::constants::STDIN_LOG_CAP_DEFAULT)
         );
     }
 

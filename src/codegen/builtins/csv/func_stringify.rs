@@ -82,7 +82,7 @@ r#"FUNC __csv_stringify(value AS List OF List OF String, delimiter AS String, qu
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "stringify",
         intro: INTRO,

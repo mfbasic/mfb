@@ -107,7 +107,7 @@ r#"FUNC __csv_next(reader AS CsvReader) AS CsvRow
   RETURN CsvRow[row, CsvReader[chars, count, index, delimCode, quoteCode], FALSE]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "readRow",
         intro: INTRO,

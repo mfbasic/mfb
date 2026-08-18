@@ -15,6 +15,6 @@ r#"FUNC __crypto_ed25519Public(seed AS List OF Byte) AS List OF Byte
   RETURN __crypto_packPoint(p)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_ed25519Public", BODY));
 }

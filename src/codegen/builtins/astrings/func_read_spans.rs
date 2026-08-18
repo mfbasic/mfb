@@ -5,13 +5,13 @@
 //! this native primitive; `resolver::resolution` rejects it from user source. The
 //! lowering stays SHARED in `src/target/shared/code/builder_astrings.rs`.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 fn span_list() -> ParameterType {
     ParameterType::list_of(ParameterType::Named("AttrSpan"))
 }
@@ -24,7 +24,7 @@ pub(crate) fn lower(builder: &mut CodeBuilder, args: &[NirValue]) -> Result<Valu
         .ok_or_else(|| "astrings.readSpans: no native lowering for these arguments".to_string())
 }
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "readSpans",
         intro: "",

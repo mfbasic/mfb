@@ -15,6 +15,6 @@ r#"FUNC __json_toNumber(value AS String) AS Float
   END TRAP
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_toNumber", BODY));
 }

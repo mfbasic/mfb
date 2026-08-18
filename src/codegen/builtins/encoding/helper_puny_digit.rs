@@ -16,6 +16,6 @@ FUNC __encoding_punyDigit(d AS Integer) AS Integer
   RETURN d - 26 + 48
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_punyDigit", BODY));
 }

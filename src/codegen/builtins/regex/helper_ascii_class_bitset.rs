@@ -43,6 +43,6 @@ FUNC __regex_asciiClassBitset(items AS List OF __regex_ClassItem, fold AS Boolea
   RETURN bits
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_asciiClassBitset", BODY));
 }

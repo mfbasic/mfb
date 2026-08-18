@@ -68,7 +68,7 @@ r#"FUNC __datetime_date(year AS Integer, month AS Integer, day AS Integer) AS Da
   RETURN Date[year, month, day]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "date",
         intro: INTRO,

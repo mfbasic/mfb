@@ -2,10 +2,16 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
-use crate::target::shared::code::{
-    self, AppEntrySpec, CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation, MirPlan,
-    NativeCodePlan, Operand, ProgramEntrySpec, RelocIntent,
-};
+use crate::codegen::engine::mir::MirPlan;
+use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::types::AppEntrySpec;
+use crate::codegen::engine::types::CodeDataObject;
+use crate::codegen::engine::types::CodeFunction;
+use crate::codegen::engine::types::CodeInstruction;
+use crate::codegen::engine::types::CodeRelocation;
+use crate::codegen::engine::types::NativeCodePlan;
+use crate::codegen::engine::types::ProgramEntrySpec;
+use crate::codegen::engine::types::RelocIntent;
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
 
@@ -16,7 +22,12 @@ pub(crate) fn lower_module(
     native_plan: &NativePlan,
     packages: &[PathBuf],
 ) -> Result<NativeCodePlan, String> {
-    code::lower_module_for_platform(module, native_plan, packages, &Platform)
+    crate::codegen::engine::builder::lower_module_for_platform(
+        module,
+        native_plan,
+        packages,
+        &Platform,
+    )
 }
 
 pub(crate) fn lower_module_mir(
@@ -24,7 +35,12 @@ pub(crate) fn lower_module_mir(
     native_plan: &NativePlan,
     packages: &[PathBuf],
 ) -> Result<MirPlan, String> {
-    code::lower_module_mir_for_platform(module, native_plan, packages, &Platform)
+    crate::codegen::engine::builder::lower_module_mir_for_platform(
+        module,
+        native_plan,
+        packages,
+        &Platform,
+    )
 }
 
 struct Platform;
@@ -35,7 +51,7 @@ const DARWIN_SYSCALL_MMAP: &str = "33554629";
 const DARWIN_SYSCALL_MUNMAP: &str = "33554505";
 const DARWIN_CS_USER_TEMP_DIR: &str = "65537";
 
-impl code::CodegenPlatform for Platform {
+impl crate::codegen::engine::types::CodegenPlatform for Platform {
     fn target(&self) -> &'static str {
         "macos-aarch64"
     }
@@ -44,7 +60,7 @@ impl code::CodegenPlatform for Platform {
         "aarch64"
     }
 
-    fn backend(&self) -> &'static dyn code::mir::Backend {
+    fn backend(&self) -> &'static dyn crate::codegen::engine::mir::Backend {
         &crate::arch::aarch64::backend::AARCH64_BACKEND
     }
 
@@ -106,7 +122,7 @@ impl code::CodegenPlatform for Platform {
         spec: &ProgramEntrySpec<'_>,
         platform_imports: &HashMap<String, String>,
     ) -> Result<CodeFunction, String> {
-        code::lower_program_entry(
+        crate::codegen::engine::function::lower_program_entry(
             spec.entry_symbol,
             spec.language_entry_symbol,
             spec.language_entry_returns,
@@ -133,9 +149,14 @@ impl code::CodegenPlatform for Platform {
         &self,
         platform_imports: &HashMap<String, String>,
         uses_stdin: bool,
-        arena_init: code::ArenaInitSymbols,
+        arena_init: crate::codegen::engine::types::ArenaInitSymbols,
     ) -> Result<CodeFunction, String> {
-        code::lower_thread_trampoline(platform_imports, self, uses_stdin, arena_init)
+        crate::codegen::runtime::thread::lower_thread_trampoline(
+            platform_imports,
+            self,
+            uses_stdin,
+            arena_init,
+        )
     }
 
     fn emit_tls_block_trampolines(&self, server: bool) -> Vec<CodeFunction> {
@@ -160,7 +181,16 @@ impl code::CodegenPlatform for Platform {
         newline: bool,
         term_state_offset: Option<usize>,
         _platform_imports: &HashMap<String, String>,
-    ) -> Option<Result<(code::CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    ) -> Option<
+        Result<
+            (
+                crate::codegen::engine::types::CodeFrame,
+                Vec<CodeInstruction>,
+                Vec<CodeRelocation>,
+            ),
+            String,
+        >,
+    > {
         Some(Ok(app::emit_app_io_write_helper(
             symbol,
             stderr,
@@ -172,14 +202,32 @@ impl code::CodegenPlatform for Platform {
     fn emit_app_io_flush_helper(
         &self,
         symbol: &str,
-    ) -> Option<Result<(code::CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    ) -> Option<
+        Result<
+            (
+                crate::codegen::engine::types::CodeFrame,
+                Vec<CodeInstruction>,
+                Vec<CodeRelocation>,
+            ),
+            String,
+        >,
+    > {
         Some(Ok(app::emit_app_io_flush_helper(symbol)))
     }
 
     fn emit_app_io_input_helper(
         &self,
         symbol: &str,
-    ) -> Option<Result<(code::CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    ) -> Option<
+        Result<
+            (
+                crate::codegen::engine::types::CodeFrame,
+                Vec<CodeInstruction>,
+                Vec<CodeRelocation>,
+            ),
+            String,
+        >,
+    > {
         Some(Ok(app::emit_app_io_input_helper(symbol)))
     }
 
@@ -196,7 +244,16 @@ impl code::CodegenPlatform for Platform {
     fn emit_app_io_is_terminal_helper(
         &self,
         symbol: &str,
-    ) -> Option<Result<(code::CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    ) -> Option<
+        Result<
+            (
+                crate::codegen::engine::types::CodeFrame,
+                Vec<CodeInstruction>,
+                Vec<CodeRelocation>,
+            ),
+            String,
+        >,
+    > {
         Some(Ok(app::emit_app_io_is_terminal_helper(symbol)))
     }
 
@@ -205,7 +262,16 @@ impl code::CodegenPlatform for Platform {
         call: &str,
         symbol: &str,
         term_state_offset: usize,
-    ) -> Option<Result<(code::CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+    ) -> Option<
+        Result<
+            (
+                crate::codegen::engine::types::CodeFrame,
+                Vec<CodeInstruction>,
+                Vec<CodeRelocation>,
+            ),
+            String,
+        >,
+    > {
         app::emit_app_term_helper(call, symbol, term_state_offset).map(Ok)
     }
 
@@ -233,7 +299,7 @@ impl code::CodegenPlatform for Platform {
         // _mfb_macapp_program_finish instead of hard-exiting, so the window can
         // stay open. Console programs (and the headless app fallback inside the
         // finish helper) still terminate via _exit.
-        if from == code::MACAPP_PROGRAM_SYMBOL {
+        if from == crate::codegen::error::constants::MACAPP_PROGRAM_SYMBOL {
             instructions.extend([
                 abi::branch_link(app::FINISH_SYMBOL),
                 abi::branch_self(),
@@ -398,7 +464,11 @@ impl code::CodegenPlatform for Platform {
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_ne(missing),
             abi::load_u16(mode, abi::stack_pointer(), stat_offset + 4),
-            abi::move_immediate(mask, "Integer", code::FS_MODE_TYPE_MASK),
+            abi::move_immediate(
+                mask,
+                "Integer",
+                crate::codegen::error::constants::FS_MODE_TYPE_MASK,
+            ),
             abi::and_registers(mode, mode, mask),
             abi::move_immediate(expected, "Integer", expected_kind),
             abi::compare_registers(mode, expected),
@@ -458,22 +528,25 @@ impl code::CodegenPlatform for Platform {
     fn emit_fs_path_operation(
         &self,
         from: &str,
-        operation: code::FsPathOperation,
+        operation: crate::codegen::engine::types::FsPathOperation,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
         let symbol = match operation {
-            code::FsPathOperation::Chdir => "_chdir",
-            code::FsPathOperation::Unlink => "_unlink",
-            code::FsPathOperation::Mkdir => "_mkdir",
-            code::FsPathOperation::Rmdir => "_rmdir",
+            crate::codegen::engine::types::FsPathOperation::Chdir => "_chdir",
+            crate::codegen::engine::types::FsPathOperation::Unlink => "_unlink",
+            crate::codegen::engine::types::FsPathOperation::Mkdir => "_mkdir",
+            crate::codegen::engine::types::FsPathOperation::Rmdir => "_rmdir",
         };
         let library = platform_imports
             .get(symbol)
             .ok_or_else(|| format!("filesystem runtime helper requires {symbol} import"))?
             .clone();
-        if matches!(operation, code::FsPathOperation::Mkdir) {
+        if matches!(
+            operation,
+            crate::codegen::engine::types::FsPathOperation::Mkdir
+        ) {
             instructions.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "493"));
         }
         instructions.push(abi::branch_link(symbol));

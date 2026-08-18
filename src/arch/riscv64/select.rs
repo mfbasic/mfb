@@ -26,11 +26,12 @@
 //!    the scratch pool for `x9`–`x29`, and the FP `dN` → the FP ABI role).
 
 use crate::arch::ops::CodeOp;
-use crate::target::shared::code::mir::{
+use crate::codegen::engine::mir::{
     fused_setter_codeop, rename_operand_field_values, MirInstruction, MirOp, ARENA_BASE,
     FUSED_COND_FIELD, FUSED_SHARE_FIELD,
 };
-use crate::target::shared::code::{CodeInstruction, Operand};
+use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::types::CodeInstruction;
 
 use super::regmodel::ARENA_BASE_REGISTER;
 
@@ -383,7 +384,7 @@ enum FlagRhs {
 /// (`ARENA_BASE` is renamed to the physical arena register at the end of
 /// selection). `dst` must be a lowering-scratch register free at the call site.
 fn flag_rhs_address(dst: &str) -> Vec<CodeInstruction> {
-    let offset = crate::target::shared::code::ARENA_FLAG_RHS_OFFSET.to_string();
+    let offset = crate::codegen::error::constants::ARENA_FLAG_RHS_OFFSET.to_string();
     vec![
         ci("mov_imm", &[("dst", dst), ("value", &offset)]),
         ci("add", &[("dst", dst), ("lhs", ARENA_BASE), ("rhs", dst)]),
@@ -696,7 +697,7 @@ pub(crate) fn select_riscv64(instructions: Vec<MirInstruction>) -> Vec<CodeInstr
     // no-op here. Report those under `MFB_BUG387_SELFMOVE`; unset, this reads
     // nothing and every emitted byte is unchanged (the scan never mutates `out`).
     if std::env::var_os("MFB_BUG387_SELFMOVE").is_some() {
-        for line in crate::target::shared::code::bug387_selfmove_lines(&out, "riscv64") {
+        for line in crate::codegen::compiler::opt::bug387_selfmove_lines(&out, "riscv64") {
             eprintln!("{line}");
         }
     }
@@ -832,7 +833,7 @@ fn remap_register(value: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::target::shared::code::mir::lower_to_mir;
+    use crate::codegen::engine::mir::lower_to_mir;
 
     fn build(mnemonic: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
         ci(mnemonic, fields)
@@ -1002,7 +1003,7 @@ mod tests {
 
     #[test]
     fn arena_base_realizes_to_s11() {
-        let realization = crate::target::shared::code::mir::arena_base_realization();
+        let realization = crate::codegen::engine::mir::arena_base_realization();
         let out = sel(&[
             build(
                 "ldr_u64",

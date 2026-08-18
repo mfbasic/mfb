@@ -1,0 +1,691 @@
+// --- codegen tier imports (migration) ---
+use super::*;
+use crate::arch::aarch64::regmodel::Aarch64RegisterModel;
+use crate::codegen::app::hook as app;
+use crate::codegen::app::hook::*;
+use crate::codegen::cleanup::owned::*;
+use crate::codegen::cleanup::thread::*;
+use crate::codegen::collection::assign::*;
+use crate::codegen::collection::buffer::*;
+use crate::codegen::collection::compare::*;
+use crate::codegen::collection::layout::*;
+use crate::codegen::collection::list::*;
+use crate::codegen::collection::map::*;
+use crate::codegen::collection::search::*;
+use crate::codegen::collection::sort::*;
+use crate::codegen::compiler::opt::*;
+use crate::codegen::engine::analysis::*;
+use crate::codegen::engine::arch::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::control::*;
+use crate::codegen::engine::convert::*;
+use crate::codegen::engine::function::*;
+use crate::codegen::engine::mir;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::operators::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::engine::validation;
+use crate::codegen::engine::validation::*;
+use crate::codegen::engine::value::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::error::emission::*;
+use crate::codegen::error::result::*;
+use crate::codegen::io::stdin::*;
+use crate::codegen::io::stdout::*;
+use crate::codegen::io::terminal::*;
+use crate::codegen::memory::arena::*;
+use crate::codegen::memory::data::*;
+use crate::codegen::memory::marshal::*;
+use crate::codegen::memory::value::*;
+use crate::codegen::os::ffi::*;
+use crate::codegen::os::process::*;
+use crate::codegen::os::syscall::*;
+use crate::codegen::resource::cleanup::*;
+use crate::codegen::runtime::thread::*;
+use crate::codegen::string::format::*;
+use crate::codegen::string::repr::*;
+use crate::codegen::string::util::*;
+use crate::codegen::string::validate::*;
+use crate::codegen::term::core as term;
+use crate::codegen::term::core::*;
+use crate::codegen::term::grid::*;
+use crate::target::shared::nir;
+#[test]
+fn vreg_roundtrips() {
+    assert_eq!(parse_vreg(&vreg_name(0)), Some(0));
+    assert_eq!(parse_vreg(&vreg_name(42)), Some(42));
+    assert_eq!(parse_vreg("x9"), None);
+    assert_eq!(parse_vreg("sp"), None);
+    assert_eq!(parse_vreg("Integer"), None);
+    assert_eq!(parse_vreg("loop_3"), None);
+}
+
+#[test]
+fn parse_kind_known_and_unknown() {
+    assert_eq!(parse_kind("bump"), Ok(RegallocKind::BumpAndReset));
+    assert!(parse_kind("graph-coloring").is_err());
+}
+
+#[test]
+fn bump_rewrite_substitutes_eager_physicals() {
+    // dst = %v0, lhs = %v1, rhs = x9 (a hardcoded physical), offset untouched.
+    let mut instructions = vec![
+        CodeInstruction::new("add")
+            .field("dst", &vreg_name(0))
+            .field("lhs", &vreg_name(1))
+            .field("rhs", "x9"),
+        CodeInstruction::new("ldr_u64")
+            .field("dst", &vreg_name(1))
+            .field("base", "sp")
+            .field("offset", "16"),
+    ];
+    let eager = vec!["x8".to_string(), "x10".to_string()];
+    let outcome = allocate(
+        RegallocKind::BumpAndReset,
+        &mut instructions,
+        &eager,
+        &[],
+        &Aarch64RegisterModel,
+        0,
+        &[],
+    );
+    assert_eq!(instructions[0].get("dst").as_deref(), Some("x8"));
+    assert_eq!(instructions[0].get("lhs").as_deref(), Some("x10"));
+    assert_eq!(instructions[0].get("rhs").as_deref(), Some("x9"));
+    assert_eq!(instructions[1].get("dst").as_deref(), Some("x10"));
+    assert_eq!(instructions[1].get("base").as_deref(), Some("sp"));
+    assert_eq!(instructions[1].get("offset").as_deref(), Some("16"));
+    assert!(outcome.spill_slots.is_empty());
+    assert!(outcome.extra_callee_saved.is_empty());
+}
+
+/// A value live across a call must be colored to a callee-saved register the
+/// call preserves (not a caller-saved one the call clobbers). A generic
+/// (PCS-compliant) call preserves `x19`–`x28`, so the value stays in a register
+/// rather than spilling; whatever register it gets, it must not be caller-saved.
+#[test]
+fn linear_scan_keeps_value_across_call_in_callee_saved() {
+    // v0 = mov_imm 5; bl helper; use v0 (str v0). v0 is live across the call.
+    let mut instructions = vec![
+        CodeInstruction::new("label").field("name", "entry"),
+        CodeInstruction::new("mov_imm")
+            .field("dst", &vreg_name(0))
+            .field("type", "Integer")
+            .field("value", "5"),
+        CodeInstruction::new("bl").field("target", "helper"),
+        CodeInstruction::new("str_u64")
+            .field("src", &vreg_name(0))
+            .field("base", "sp")
+            .field("offset", "0"),
+        CodeInstruction::new("ret"),
+    ];
+    let outcome = allocate(
+        RegallocKind::LinearScan,
+        &mut instructions,
+        &[String::new()],
+        &[],
+        &Aarch64RegisterModel,
+        64,
+        &[],
+    );
+    // No spill, and the chosen register is callee-saved (the call preserves it).
+    assert!(outcome.spill_slots.is_empty());
+    let colored = instructions[1].get("dst").unwrap().to_string();
+    assert!(
+        Aarch64RegisterModel.is_callee_saved(&colored),
+        "value across a call must be in a callee-saved register, got {colored}"
+    );
+    // No sentinel survives anywhere in the rewritten stream.
+    for instruction in &instructions {
+        for (_field, value) in &instruction.fields {
+            let value = value.render();
+            assert!(
+                parse_vreg(&value).is_none(),
+                "virtual register {value} survived coloring"
+            );
+        }
+    }
+}
+
+/// `_mfb_arena_alloc` is hand-written and tramples callee-saved `x20`–`x28` on top
+/// of the caller-saved set, so no integer register survives it: an integer value
+/// live across the call must spill (a slot is allocated for it).
+#[test]
+fn linear_scan_spills_integer_across_arena_alloc() {
+    let mut instructions = vec![
+        CodeInstruction::new("label").field("name", "entry"),
+        CodeInstruction::new("mov_imm")
+            .field("dst", &vreg_name(0))
+            .field("type", "Integer")
+            .field("value", "5"),
+        CodeInstruction::new("bl").field("target", "_mfb_arena_alloc"),
+        CodeInstruction::new("str_u64")
+            .field("src", &vreg_name(0))
+            .field("base", "sp")
+            .field("offset", "0"),
+        CodeInstruction::new("ret"),
+    ];
+    let outcome = allocate(
+        RegallocKind::LinearScan,
+        &mut instructions,
+        &[String::new()],
+        &[],
+        &Aarch64RegisterModel,
+        64,
+        &[],
+    );
+    assert_eq!(outcome.spill_slots, vec![64]);
+    // No sentinel survives anywhere in the rewritten stream.
+    for instruction in &instructions {
+        for (_field, value) in &instruction.fields {
+            let value = value.render();
+            assert!(
+                parse_vreg(&value).is_none(),
+                "virtual register {value} survived coloring"
+            );
+        }
+    }
+}
+
+/// bug-54: when the caller-saved allocatable bank (`x8`–`x17`) is fully occupied
+/// at a spill-reload point, the "genuinely free" scratch selection commandeers a
+/// callee-saved register (`x20`+) but emits no save/restore for it. That register
+/// must therefore be recorded in the frame's callee-saved save set, or the
+/// callee silently clobbers the caller's `x20`.
+///
+/// Construction: `v0` crosses `_mfb_arena_alloc` (which tramples every integer
+/// register) so it must spill; ten short-lived colored vregs (`v1`–`v10`)
+/// saturate `x8`–`x17` at the instruction that reloads `v0`, forcing its reload
+/// scratch onto callee-saved `x20`.
+#[test]
+fn linear_scan_records_callee_saved_reload_scratch_int() {
+    let mut instructions = vec![
+        CodeInstruction::new("label").field("name", "entry"),
+        // v0: defined, then live across the arena-alloc call -> spilled.
+        CodeInstruction::new("mov_imm")
+            .field("dst", &vreg_name(0))
+            .field("type", "Integer")
+            .field("value", "5"),
+        CodeInstruction::new("bl").field("target", "_mfb_arena_alloc"),
+    ];
+    // v1..v10: defined after the call (never cross it), all live across the
+    // reload of v0 below, so they occupy x8..x17 there.
+    for k in 1..=10u32 {
+        instructions.push(
+            CodeInstruction::new("mov_imm")
+                .field("dst", &vreg_name(k))
+                .field("type", "Integer")
+                .field("value", "1"),
+        );
+    }
+    // Reload point: uses spilled v0 while v1..v10 are all live -> reload scratch
+    // must come from the callee-saved bank (x21, the first allocatable callee-saved
+    // now that x20 realizes the pinned `%thread` token and is out of the pool).
+    instructions.push(
+        CodeInstruction::new("str_u64")
+            .field("src", &vreg_name(0))
+            .field("base", "sp")
+            .field("offset", "0"),
+    );
+    // Keep v1..v10 live past the reload (two per `add`, dst is a non-allocatable
+    // physical so it adds no pressure).
+    for pair in 0..5u32 {
+        instructions.push(
+            CodeInstruction::new("add")
+                .field("dst", "x0")
+                .field("lhs", &vreg_name(pair * 2 + 1))
+                .field("rhs", &vreg_name(pair * 2 + 2)),
+        );
+    }
+    instructions.push(CodeInstruction::new("ret"));
+
+    // `LinearScan` ignores the eager (bump) assignment.
+    let outcome = allocate(
+        RegallocKind::LinearScan,
+        &mut instructions,
+        &[],
+        &[],
+        &Aarch64RegisterModel,
+        64,
+        &[],
+    );
+    // v0 spilled (a slot was allocated), and the callee-saved register commandeered
+    // as its reload scratch is in the frame's save set.
+    assert!(
+        !outcome.spill_slots.is_empty(),
+        "v0 must spill across the call"
+    );
+    assert!(
+        outcome.extra_callee_saved.contains(&"x21".to_string()),
+        "callee-saved reload scratch x21 must be saved by the frame, got {:?}",
+        outcome.extra_callee_saved
+    );
+}
+
+/// bug-54, FP class: the same hole exists for `d8`–`d15`. Saturate the 24
+/// caller-saved FP registers (`d0`–`d7`, `d16`–`d31`) with colored vregs at a
+/// reload point, and force a spill via full-file physical pressure earlier in the
+/// spilled value's live range, so its reload scratch lands on callee-saved `d8`.
+#[test]
+fn linear_scan_records_callee_saved_reload_scratch_fp() {
+    // f200: the spilled value. Defined first; its live range spans a region where
+    // every physical FP register is made busy (below), so it cannot be colored.
+    let mut instructions = vec![
+        CodeInstruction::new("label").field("name", "entry"),
+        CodeInstruction::new("fabs_d")
+            .field("dst", &fp_vreg_name(200))
+            .field("src", "sp"),
+    ];
+    // Saturation region: make each physical d0..d31 busy once (dst only; `src=sp`
+    // is not an FP operand, so no liveness chain forms). This forbids f200 from
+    // every physical over its interval -> f200 spills. These are literal
+    // physicals, not colored homes, so they do not enter the save set themselves.
+    for r in 0..32u32 {
+        instructions.push(
+            CodeInstruction::new("fabs_d")
+                .field("dst", &format!("d{r}"))
+                .field("src", "sp"),
+        );
+    }
+    // 24 colored fillers, defined after the saturation region so they color to
+    // the 24 caller-saved FP registers, all live across the reload below.
+    for k in 0..24u32 {
+        instructions.push(
+            CodeInstruction::new("fabs_d")
+                .field("dst", &fp_vreg_name(k))
+                .field("src", "sp"),
+        );
+    }
+    // Reload point for f200: 24 caller-saved FP registers occupied -> scratch
+    // must be callee-saved d8.
+    instructions.push(
+        CodeInstruction::new("fabs_d")
+            .field("dst", "sp")
+            .field("src", &fp_vreg_name(200)),
+    );
+    // Keep the 24 fillers live past the reload.
+    for k in 0..24u32 {
+        instructions.push(
+            CodeInstruction::new("fabs_d")
+                .field("dst", "sp")
+                .field("src", &fp_vreg_name(k)),
+        );
+    }
+    instructions.push(CodeInstruction::new("ret"));
+
+    // `LinearScan` ignores the eager (bump) assignment.
+    let outcome = allocate(
+        RegallocKind::LinearScan,
+        &mut instructions,
+        &[],
+        &[],
+        &Aarch64RegisterModel,
+        0,
+        &[],
+    );
+    assert!(
+        !outcome.spill_slots.is_empty(),
+        "f200 must spill under full FP pressure"
+    );
+    assert!(
+        outcome.extra_callee_saved.contains(&"d8".to_string()),
+        "callee-saved reload scratch d8 must be saved by the frame, got {:?}",
+        outcome.extra_callee_saved
+    );
+}
+
+/// A value with a short, call-free range is colored to a physical register, not
+/// spilled.
+#[test]
+fn linear_scan_colors_short_range_in_register() {
+    let mut instructions = vec![
+        CodeInstruction::new("label").field("name", "entry"),
+        CodeInstruction::new("mov_imm")
+            .field("dst", &vreg_name(0))
+            .field("type", "Integer")
+            .field("value", "7"),
+        CodeInstruction::new("add")
+            .field("dst", "x0")
+            .field("lhs", &vreg_name(0))
+            .field("rhs", &vreg_name(0)),
+        CodeInstruction::new("ret"),
+    ];
+    let outcome = allocate(
+        RegallocKind::LinearScan,
+        &mut instructions,
+        &[String::new()],
+        &[],
+        &Aarch64RegisterModel,
+        0,
+        &[],
+    );
+    assert!(outcome.spill_slots.is_empty());
+    // v0 colored to some allocatable physical; both operands match.
+    let colored = instructions[1].get("dst").unwrap().to_string();
+    assert!(colored.starts_with('x'));
+    assert_eq!(
+        instructions[2].get("lhs").as_deref(),
+        Some(colored.as_str())
+    );
+}
+
+/// plan-34-D hazard regression: an `abi::FP_SCRATCH` token occupies its
+/// realization's physical index, exactly as the literal `dN` it replaced did.
+/// `%f0` is live across a `%fscratch0` def/use, so it must NOT be colored `d0`
+/// — losing this occupancy would let the scratch write clobber the live value.
+#[test]
+fn linear_scan_avoids_live_fp_scratch_token_realization() {
+    use crate::target::shared::abi;
+    let mut instructions = vec![
+        CodeInstruction::new("label").field("name", "entry"),
+        // def %f0
+        CodeInstruction::new("fabs_d")
+            .field("dst", &fp_vreg_name(0))
+            .field("src", "sp"),
+        // hand-staged scratch inside %f0's live range
+        CodeInstruction::new("fabs_d")
+            .field("dst", abi::FP_SCRATCH[0])
+            .field("src", "sp"),
+        CodeInstruction::new("fabs_d")
+            .field("dst", "sp")
+            .field("src", abi::FP_SCRATCH[0]),
+        // use %f0 — keeps it live across the scratch def
+        CodeInstruction::new("fabs_d")
+            .field("dst", "sp")
+            .field("src", &fp_vreg_name(0)),
+        CodeInstruction::new("ret"),
+    ];
+    let outcome = allocate(
+        RegallocKind::LinearScan,
+        &mut instructions,
+        &[],
+        &[],
+        &Aarch64RegisterModel,
+        0,
+        &[],
+    );
+    assert!(
+        outcome.spill_slots.is_empty(),
+        "no FP pressure — %f0 must color"
+    );
+    let colored = instructions[1].get("dst").unwrap().to_string();
+    assert!(
+        colored.starts_with('d'),
+        "%f0 must color to a d register, got {colored}"
+    );
+    assert_ne!(colored, "d0", "%f0 is live across %fscratch0 (realizes d0)");
+    // The token itself is never rewritten by coloring.
+    assert_eq!(
+        instructions[2].get("dst").as_deref(),
+        Some(abi::FP_SCRATCH[0])
+    );
+    // And the analysis sees the token at its realization's index.
+    assert_eq!(analysis::fp_physical_index(abi::FP_SCRATCH[0]), Some(0));
+    assert_eq!(analysis::fp_physical_index("%fscratch7"), Some(7));
+    assert_eq!(analysis::fp_physical_index("%fscratch8"), None);
+}
+
+/// plan-34-D: `find_physical_operand` — the stream-level zero-physical guard.
+/// Physical names of every class/ISA are caught; vregs, tokens, the neutral
+/// `sp`, sentinels, labels, symbols, types, and immediates pass.
+#[test]
+fn find_physical_operand_catches_every_class_and_passes_tokens() {
+    use crate::target::shared::abi;
+    let physical = [
+        "x9", "w3", "d3", "v0", "q7", "s2", "rsi", "r10", "xmm4", "a0", "t3", "fa1", "zero", "ra",
+    ];
+    for reg in physical {
+        let stream = [CodeInstruction::new("mov")
+            .field("dst", reg)
+            .field("src", "sp")];
+        let hit = find_physical_operand(&stream);
+        assert!(
+            hit.as_deref().is_some_and(|h| h.contains(reg)),
+            "`{reg}` must be caught, got {hit:?}"
+        );
+    }
+    let clean = [
+        CodeInstruction::new("label").field("name", "entry"),
+        CodeInstruction::new("mov")
+            .field("dst", &vreg_name(4))
+            .field("src", &fp_vreg_name(2)),
+        CodeInstruction::new("str_u64")
+            .field("src", abi::FP_SCRATCH[0])
+            .field("base", "sp")
+            .field("offset", "16"),
+        CodeInstruction::new("mov")
+            .field("dst", abi::VEC_SCRATCH[3])
+            .field("src", abi::c_arg(0)),
+        CodeInstruction::new("mov")
+            .field("dst", abi::MATH_POOL)
+            .field("src", abi::CURRENT_THREAD),
+        CodeInstruction::new("ldr_u64")
+            .field("dst", abi::mfb_return(0))
+            .field("base", "incoming_args")
+            .field("offset", "0"),
+        CodeInstruction::new("mov_imm")
+            .field("dst", crate::codegen::engine::mir::ARENA_BASE)
+            .field("type", "Integer")
+            .field("value", "7"),
+        CodeInstruction::new("str_u64")
+            .field("src", abi::ZERO)
+            .field("base", "sp"),
+        CodeInstruction::new("bl").field("target", "_mfb_arena_alloc"),
+    ];
+    assert_eq!(find_physical_operand(&clean), None);
+}
+
+/// The call-clobber masks are derived from each target's `caller_saved` table
+/// (bug-350). Assert the DERIVED mask against the ABI truth spelled out
+/// independently here, per ISA — the derivation makes drift impossible, this
+/// makes a wrong index map or a wrong table visible.
+///
+/// The bug this pins: `call_clobber_mask` used to branch only on `is_riscv`, so
+/// x86-64 fell into the `else` arm and inherited AArch64's constants. The masks
+/// are indexed by physical-register *number*, and bit 8 means `d8` on AArch64
+/// (callee-saved by the PCS) but `xmm8` on x86 (caller-saved — SysV has no
+/// callee-saved xmm bank at all). The allocator therefore believed
+/// `xmm8`–`xmm14` survived a call, and `FP_REGS`' plain `xmm0..xmm14` ordering
+/// steered straight into them once bits 0–7 were excluded.
+#[test]
+fn call_clobber_masks_match_each_targets_abi() {
+    use crate::arch::riscv64::regmodel::Riscv64RegisterModel;
+    use crate::arch::x86_64::regmodel::X86_64RegisterModel;
+
+    let bits = |indices: &[u32]| indices.iter().fold(0u64, |m, i| m | (1u64 << i));
+
+    // AArch64 AAPCS: `x0`–`x17` caller-saved; FP `d0`–`d7` + `d16`–`d31`
+    // (`d8`–`d15` are callee-saved).
+    let aarch64_int: Vec<u32> = (0..=17).collect();
+    let aarch64_fp: Vec<u32> = (0..=7).chain(16..=31).collect();
+    assert_eq!(
+        analysis::caller_saved_mask(
+            &Aarch64RegisterModel,
+            RegClass::Int,
+            analysis::int_physical_index
+        ),
+        bits(&aarch64_int),
+    );
+    assert_eq!(
+        analysis::caller_saved_mask(
+            &Aarch64RegisterModel,
+            RegClass::Fp,
+            analysis::fp_physical_index
+        ),
+        bits(&aarch64_fp),
+    );
+
+    // rv64 lp64d: `ra`(1), `t0`–`t2`(5–7), `a0`–`a7`(10–17), `t3`–`t6`(28–31);
+    // FP `ft0`–`ft7`(0–7), `fa0`–`fa7`(10–17), `ft8`–`ft11`(28–31).
+    let riscv_int: Vec<u32> = [1]
+        .into_iter()
+        .chain(5..=7)
+        .chain(10..=17)
+        .chain(28..=31)
+        .collect();
+    let riscv_fp: Vec<u32> = (0..=7).chain(10..=17).chain(28..=31).collect();
+    assert_eq!(
+        analysis::caller_saved_mask(
+            &Riscv64RegisterModel,
+            RegClass::Int,
+            analysis::int_physical_index_non_aarch64
+        ),
+        bits(&riscv_int),
+    );
+    assert_eq!(
+        analysis::caller_saved_mask(
+            &Riscv64RegisterModel,
+            RegClass::Fp,
+            analysis::fp_physical_index
+        ),
+        bits(&riscv_fp),
+    );
+
+    // x86-64 SysV: caller-saved GPRs rax(0), rcx(1), rdx(2), rsi(6), rdi(7),
+    // r8(8), r9(9), r10(10), r11(11) — and NO callee-saved xmm, so every
+    // allocatable xmm (`xmm0`–`xmm14`; `xmm15` is the reserved SSE scratch and
+    // never a coloring candidate) is destroyed by a call.
+    let x86_int = bits(&[0, 1, 2, 6, 7, 8, 9, 10, 11]);
+    let x86_fp = bits(&(0..=14).collect::<Vec<_>>());
+    assert_eq!(
+        analysis::caller_saved_mask(
+            &X86_64RegisterModel,
+            RegClass::Int,
+            analysis::int_physical_index_non_aarch64
+        ),
+        x86_int,
+    );
+    assert_eq!(
+        analysis::caller_saved_mask(
+            &X86_64RegisterModel,
+            RegClass::Fp,
+            analysis::fp_physical_index
+        ),
+        x86_fp,
+    );
+
+    // The precise defect: the AArch64 FP mask, if inherited, leaves bits 8–14
+    // clear — exactly the registers SysV destroys and the x86 pool reaches first.
+    let inherited = bits(&aarch64_fp);
+    for xmm in 8..=14u32 {
+        assert_eq!(
+            inherited & (1 << xmm),
+            0,
+            "the inherited AArch64 mask must be the thing that modeled xmm{xmm} as call-safe",
+        );
+        assert_ne!(x86_fp & (1 << xmm), 0, "xmm{xmm} must now be clobbered");
+    }
+}
+
+/// With nine simultaneously-live FP values spanning a `bl`, no value may be
+/// colored onto `xmm8`–`xmm14` on x86-64: SysV destroys them across the call.
+/// Before bug-350 the allocator not only permitted that placement, it preferred
+/// it — `FP_REGS` lists `xmm0..xmm14` in order, so once bits 0–7 were excluded
+/// by the (AArch64) mask, `xmm8` was the first survivor it found.
+#[test]
+fn x86_fp_values_live_across_a_call_avoid_the_volatile_high_xmm() {
+    use crate::arch::x86_64::regmodel::X86_64RegisterModel;
+
+    const LIVE: usize = 9;
+    let mut instructions = vec![CodeInstruction::new("label").field("name", "entry")];
+    // Define every value before the call...
+    for v in 0..LIVE {
+        instructions.push(
+            CodeInstruction::new("fmov_d_from_d")
+                .field("dst", &fp_vreg_name(v as u32))
+                .field("src", "d0"),
+        );
+    }
+    // ...cross a PCS call...
+    instructions.push(CodeInstruction::new("bl").field("target", "_mfb_fn_user"));
+    // ...and use every one after it, so each interval spans the call.
+    for v in 0..LIVE {
+        instructions.push(
+            CodeInstruction::new("fmov_d_from_d")
+                .field("dst", "d1")
+                .field("src", &fp_vreg_name(v as u32)),
+        );
+    }
+    instructions.push(CodeInstruction::new("ret"));
+
+    allocate(
+        RegallocKind::LinearScan,
+        &mut instructions,
+        &[],
+        &[],
+        &X86_64RegisterModel,
+        0,
+        &[],
+    );
+
+    let volatile_high: Vec<String> = (8..=14).map(|n| format!("xmm{n}")).collect();
+    for (index, instruction) in instructions.iter().enumerate() {
+        for (field, value) in &instruction.fields {
+            let value = value.render();
+            assert!(
+                !volatile_high.contains(&value),
+                "instruction {index} field `{field}` colored a call-spanning value \
+                 onto `{value}`, which a SysV `call` destroys",
+            );
+        }
+    }
+}
+
+/// plan-82-B: a colored virtual register is rewritten to a typed
+/// `Operand::Phys { class, index, name }` — carrying the class index the encoder
+/// reads directly (plan-82-D) and the `&'static str` physical name (no heap box)
+/// — NOT a `Raw` string. `Phys.index` equals `int_physical_index(name)` and
+/// `rendered()` equals the physical-name string the pre-typing rewrite wrote, so
+/// every downstream reader and dump stays byte-identical (proven end-to-end by
+/// artifact-gate).
+#[test]
+fn linear_scan_writes_typed_phys_operands() {
+    let mut instructions = vec![
+        CodeInstruction::new("label").field("name", "entry"),
+        CodeInstruction::new("mov_imm")
+            .field("dst", &vreg_name(0))
+            .field("type", "Integer")
+            .field("value", "7"),
+        CodeInstruction::new("add")
+            .field("dst", "x0")
+            .field("lhs", &vreg_name(0))
+            .field("rhs", &vreg_name(0)),
+        CodeInstruction::new("ret"),
+    ];
+    allocate(
+        RegallocKind::LinearScan,
+        &mut instructions,
+        &[String::new()],
+        &[],
+        &Aarch64RegisterModel,
+        0,
+        &[],
+    );
+    // v0's def is now a typed Phys of the Int class.
+    let dst = instructions[1].operand("dst").expect("dst operand");
+    match dst {
+        Operand::Phys { class, index, name } => {
+            assert_eq!(*class, RegClass::Int);
+            assert!(name.starts_with('x'), "physical name should be x*: {name}");
+            assert_eq!(
+                analysis::int_physical_index(name),
+                Some(*index),
+                "Phys.index must equal int_physical_index(name)"
+            );
+            assert_eq!(
+                dst.rendered(),
+                *name,
+                "rendered() must equal the static physical name"
+            );
+        }
+        other => panic!("expected Operand::Phys, got {other:?}"),
+    }
+    // The use sites carry the same typed physical.
+    assert_eq!(instructions[2].operand("lhs"), Some(dst));
+    // A hardcoded physical (x0) stays a Raw operand — not touched by coloring.
+    assert!(matches!(
+        instructions[2].operand("dst"),
+        Some(Operand::Raw(_))
+    ));
+}

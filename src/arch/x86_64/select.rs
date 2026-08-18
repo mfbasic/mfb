@@ -7,12 +7,14 @@
 //! selection lives here, not in shared `mir.rs`.
 
 use crate::arch::ops::CodeOp;
-use crate::target::shared::code::mir::{
+use crate::codegen::engine::mir::{
     code_fields_from_mir, fused_setter_codeop, MirInstruction, MirOp, ARENA_BASE, FUSED_COND_FIELD,
     FUSED_SHARE_FIELD,
 };
-use crate::target::shared::code::CodeInstruction;
-use crate::target::shared::code::{AbiConvention, AbiRole, Operand};
+use crate::codegen::engine::operand::AbiConvention;
+use crate::codegen::engine::operand::AbiRole;
+use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::types::CodeInstruction;
 
 /// Map residual AArch64 scratch `xN` (N ≥ 9) to an x86 GPR (encoding-only; see
 /// the call site). Avoids `r14` (zero), `r15` (arena_base), and `rsp`.
@@ -362,7 +364,7 @@ pub(crate) fn select_x86(instructions: Vec<MirInstruction>, abi: X86Abi) -> Vec<
         }
     }
     for instruction in &mut out {
-        crate::target::shared::code::mir::rename_operand_field_values(
+        crate::codegen::engine::mir::rename_operand_field_values(
             &mut instruction.fields,
             ARENA_BASE,
             "r15",
@@ -411,7 +413,7 @@ pub(crate) fn select_x86(instructions: Vec<MirInstruction>, abi: X86Abi) -> Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::target::shared::code::mir::lower_to_mir;
+    use crate::codegen::engine::mir::lower_to_mir;
 
     /// Build one aarch64-form `CodeInstruction`.
     fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
@@ -634,7 +636,7 @@ mod tests {
     fn arena_base_realizes_to_r15() {
         // The AArch64 arena-base realization register, once lowered to the neutral
         // `arena_base` and selected, becomes the x86 pin r15.
-        let realization = crate::target::shared::code::mir::arena_base_realization();
+        let realization = crate::codegen::engine::mir::arena_base_realization();
         let out = sel(&[
             ci(
                 "ldr_u64",

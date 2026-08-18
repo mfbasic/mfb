@@ -47,6 +47,6 @@ FUNC __crypto_randomInt(min AS Integer, max AS Integer) AS Integer
   RETURN min + (v MOD range)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_randomInt", BODY));
 }

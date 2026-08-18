@@ -15,6 +15,6 @@ r#"FUNC __csv_encodeField(field AS String, delimiter AS String, quote AS String)
   RETURN field
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("csv_encodeField", BODY));
 }

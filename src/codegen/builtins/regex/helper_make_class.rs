@@ -12,6 +12,6 @@ r#"FUNC __regex_makeClass(neg AS Boolean, fold AS Boolean, items AS List OF __re
   RETURN __regex_Class[neg, fold, items, __regex_asciiClassBitset(items, fold)]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_makeClass", BODY));
 }

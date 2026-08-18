@@ -1,13 +1,14 @@
 //! `bits::bswap16` — reverse the byte order of the low 16 bits of an integer.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTRO: &str = r#"Reverse the byte order of the low 16 bits of an integer."#;
 const DESC: &str = r#"`bswap16` swaps the two bytes that make up the low 16 bits of `value`: byte `0`
 (bits `0`..`7`) and byte `1` (bits `8`..`15`) exchange places, so a value laid
@@ -42,7 +43,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "bswap16",
         intro: INTRO,

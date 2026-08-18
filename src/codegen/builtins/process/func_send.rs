@@ -6,14 +6,15 @@
 //! (`crate::codegen::os`) picks by `platform.family()`. This file carries the
 //! descriptor and those entry fns.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
 use std::collections::HashMap;
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::code::{CodegenPlatform, HelperResult};
 use crate::types::ParameterType;
-
 const INTRO: &str = r#"Write a line of text to a child's standard input, appending a newline."#;
 const DESC: &str = r#"`process::send` writes the UTF-8 bytes of `text` to the child's standard input and
 then appends a single newline (`'\n'`), so each call delivers one complete line to
@@ -64,7 +65,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     // The optional trailing `timeoutMs` widens arity to 3 and is NOT default-padded:
     // the 3-arg form is selected at codegen (`builder_values` → `process.sendTimeout`),
     // and the emitter branches on the runtime-call name.

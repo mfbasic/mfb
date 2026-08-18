@@ -33,6 +33,6 @@ FUNC __json_collectNumber(chars AS List OF String, index AS Integer, current AS 
   RETURN __json_StringNode[acc, at]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_collectNumber", BODY));
 }

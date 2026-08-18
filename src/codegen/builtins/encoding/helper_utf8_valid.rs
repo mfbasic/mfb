@@ -73,6 +73,6 @@ FUNC __encoding_utf8Valid(data AS List OF Byte) AS Boolean
   RETURN TRUE
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_utf8Valid", BODY));
 }

@@ -17,6 +17,6 @@ FUNC __crypto_aeadMacData(aad AS List OF Byte, ciphertext AS List OF Byte) AS Li
   RETURN macData
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_aeadMacData", BODY));
 }

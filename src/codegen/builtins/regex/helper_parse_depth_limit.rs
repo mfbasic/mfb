@@ -21,6 +21,6 @@ r#"' bug-423: the recursive-descent parser had no depth cap, so a deeply-nested-
 ' leaving any realistic pattern -- which nests only a handful deep -- untouched.
 LET __REGEX_PARSE_DEPTH_LIMIT AS Integer = 200"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_parseDepthLimit", BODY));
 }

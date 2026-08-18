@@ -19,6 +19,6 @@ r#"FUNC __regex_initCaps(groups AS Integer) AS List OF Integer
   RETURN caps
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_initCaps", BODY));
 }

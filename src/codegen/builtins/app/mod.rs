@@ -26,8 +26,8 @@
 //! in the shared code layer (`src/target/shared/code/app.rs`) — it is not part of
 //! this package.
 
+// --- codegen tier imports (migration) ---
 use crate::codegen::registry::{EnumVariant, Registry, RegistryEnum, RegistryPackage};
-
 pub(crate) mod native;
 
 mod func_get_mode;

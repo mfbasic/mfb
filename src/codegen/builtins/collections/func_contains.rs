@@ -1,18 +1,17 @@
 //! `collections::contains` — descriptor entry + target-generic lowering (plan-96).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::{list_element_type, set_element_type};
+use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::{list_element_type, set_element_type};
-use crate::target::shared::code::{
-    kind2_payload_size, CodeBuilder, Operand, ValueResult, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-    COLLECTION_ENTRY_OFFSET_VALUE_OFFSET, COLLECTION_ENTRY_SIZE, COLLECTION_HEADER_SIZE,
-    COLLECTION_OFFSET_COUNT,
-};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTO_CONTAINS: &str = "Test whether a list holds an item equal to a given value.";
 const DESC_CONTAINS: &str = r#"`collections::contains` scans `value` from index `0` upward and returns `TRUE`
 as soon as an element matches `item`, or `FALSE` after every element has been
@@ -104,7 +103,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "contains",
         intro: INTO_CONTAINS,

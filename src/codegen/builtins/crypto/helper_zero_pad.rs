@@ -17,6 +17,6 @@ FUNC __crypto_zeroPad(data AS List OF Byte, size AS Integer) AS List OF Byte
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_zeroPad", BODY));
 }

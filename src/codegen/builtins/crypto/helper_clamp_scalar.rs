@@ -16,6 +16,6 @@ r#"FUNC __crypto_clampScalar(a AS List OF Byte) AS List OF Byte
   RETURN r
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_clampScalar", BODY));
 }

@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use crate::arch::ops::CodeOp;
-use crate::target::shared::code::{CodeInstruction, NativeCodePlan};
+use crate::codegen::engine::types::CodeInstruction;
+use crate::codegen::engine::types::NativeCodePlan;
 
 mod emitter;
 mod operand;

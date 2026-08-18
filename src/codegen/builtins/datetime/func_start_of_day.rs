@@ -61,7 +61,7 @@ r#"FUNC __datetime_startOfDay(dt AS DateTime) AS DateTime
   RETURN __datetime_civil(dt.date, Time[0, 0, 0, 0], dt.zone)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "startOfDay",
         intro: INTRO,

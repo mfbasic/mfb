@@ -16,6 +16,6 @@ FUNC __json_hexDigit(value AS Integer) AS String
   RETURN strings::mid("0123456789ABCDEF", value, 1)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_hexDigit", BODY));
 }

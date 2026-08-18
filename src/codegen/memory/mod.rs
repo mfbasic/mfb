@@ -1,20 +1,21 @@
 //! Target-generic value/data memory codegen (see `readme.md`).
 //!
-//! First real residents (moved out of `src/target/shared/code`): the packed-data
-//! **loop-walk scaffolding** (`collection_loop`) and the get-result **owning copy**
-//! (`owned`). These are collection-*data* primitives — they operate on the raw
-//! memory representation of a collection — but they are NOT collection-*package*
-//! logic: core codegen shares them (destructor cleanup in `builder_owned_cleanup`
-//! walks a `List` to free its elements through the loop scaffolding; `LET x =
-//! get(...)` owns its element through `materialize_owned_element`; `builder_control`
-//! materializes bound elements). So they belong in this shared data tier rather
-//! than under `builtins/collections`.
+//! Current resident: the get-result **owning copy** (`owned`) — `LET x =
+//! get(...)` owns its element through `materialize_owned_element`. It is a
+//! value-materialization primitive on the raw memory representation, shared by
+//! core codegen, not `collections::` package logic. (The packed-data loop-walk
+//! scaffolding that used to sit beside it has moved to the shared collection tier
+//! at `codegen::collection::collection_loop`.)
 //!
-//! They stay `impl CodeBuilder` methods (call sites unchanged). Because
-//! `CodeBuilder` and the low-level emit helpers still live in `src/target`, these
-//! call *back* into target (the accepted temporary `codegen -> target` edge), and
-//! `src/target` code that uses them now calls *forward* into codegen — a
+//! It stays an `impl CodeBuilder` method (call sites unchanged). Because
+//! `CodeBuilder` and the low-level emit helpers still live in `src/target`, it
+//! calls *back* into target (the accepted temporary `codegen -> target` edge), and
+//! `src/target` code that uses it now calls *forward* into codegen — a
 //! transitional bidirectional edge that resolves when `CodeBuilder` itself moves.
 
-pub(crate) mod collection_loop;
+pub(crate) mod arena;
+pub(crate) mod data;
+pub(crate) mod marshal;
 pub(crate) mod owned;
+pub(crate) use owned::*;
+pub(crate) mod value;

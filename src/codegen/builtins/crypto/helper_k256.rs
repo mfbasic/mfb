@@ -13,6 +13,6 @@ r#"' The round-constant and initial-value tables are computed once at program
 ' of HMAC/HKDF/PBKDF2, where a per-call rebuild dominated the cost.
 LET __CRYPTO_K256 AS List OF Integer = __crypto_sha256Ktable()"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_k256", BODY));
 }

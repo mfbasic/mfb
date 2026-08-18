@@ -12,6 +12,6 @@ r#"FUNC __crypto_edS(a AS List OF Integer) AS List OF Integer
   RETURN __crypto_edM(a, a)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_edS", BODY));
 }

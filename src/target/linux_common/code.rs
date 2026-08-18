@@ -1,13 +1,13 @@
 //! The Linux-invariant codegen material (bug-321).
 //!
-//! All three Linux backends implement the same 64-method [`code::CodegenPlatform`]
+//! All three Linux backends implement the same 64-method [`crate::codegen::engine::types::CodegenPlatform`]
 //! surface, and 48 of those methods were byte-identical across the copies: the
 //! kernel/libc struct offsets, the socket and errno constants, the libc-call
 //! seam, and the whole `emit_*` runtime-helper surface are facts about *Linux*,
 //! not about the ISA.
 //!
 //! This module owns them once. [`Platform`] is the single
-//! [`code::CodegenPlatform`] implementation for Linux; the per-arch delta lives
+//! [`crate::codegen::engine::types::CodegenPlatform`] implementation for Linux; the per-arch delta lives
 //! behind [`LinuxArch`], whose required methods are exactly the things that
 //! genuinely differ (the ISA name, the mir backend, the syscall ABI, the
 //! `struct stat` layout, and whether app mode exists at all).
@@ -22,14 +22,20 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
+use crate::codegen::engine::builder::AppHookBody;
+use crate::codegen::engine::mir::MirPlan;
+use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::types::AppEntrySpec;
+use crate::codegen::engine::types::CodeDataObject;
+use crate::codegen::engine::types::CodeFunction;
+use crate::codegen::engine::types::CodeInstruction;
+use crate::codegen::engine::types::CodeRelocation;
+use crate::codegen::engine::types::NativeCodePlan;
+use crate::codegen::engine::types::ProgramEntrySpec;
+use crate::codegen::engine::types::RelocIntent;
+use crate::codegen::engine::types::TEMP_DIRECTORY_SCRATCH_BYTES;
 use crate::os::linux::flavor::LinuxFlavor;
 use crate::target::linux_gtk as gtk;
-use crate::target::shared::code::AppHookBody;
-use crate::target::shared::code::Operand;
-use crate::target::shared::code::{
-    self, AppEntrySpec, CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation, MirPlan,
-    NativeCodePlan, ProgramEntrySpec, RelocIntent, TEMP_DIRECTORY_SCRATCH_BYTES,
-};
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
 
@@ -92,7 +98,7 @@ pub(crate) trait LinuxArch {
     fn target(&self) -> &'static str;
     /// The musl C-library soname; glibc's is `libc.so.6` on every ISA.
     fn musl_libc(&self) -> &'static str;
-    fn backend(&self) -> &'static dyn code::mir::Backend;
+    fn backend(&self) -> &'static dyn crate::codegen::engine::mir::Backend;
     fn app(&self) -> AppSupport;
 
     /// **Genuinely per-arch — do not fold into the shared constants.** Linux
@@ -191,12 +197,17 @@ pub(crate) trait LinuxArch {
     /// re-bias overrides.
     fn emit_thread_trampoline(
         &self,
-        platform: &dyn code::CodegenPlatform,
+        platform: &dyn crate::codegen::engine::types::CodegenPlatform,
         platform_imports: &HashMap<String, String>,
         uses_stdin: bool,
-        arena_init: code::ArenaInitSymbols,
+        arena_init: crate::codegen::engine::types::ArenaInitSymbols,
     ) -> Result<CodeFunction, String> {
-        code::lower_thread_trampoline(platform_imports, platform, uses_stdin, arena_init)
+        crate::codegen::runtime::thread::lower_thread_trampoline(
+            platform_imports,
+            platform,
+            uses_stdin,
+            arena_init,
+        )
     }
 }
 
@@ -289,7 +300,7 @@ pub(crate) fn emit_linux_c_call(
     Ok(())
 }
 
-/// The one Linux [`code::CodegenPlatform`], parameterized by its ISA delta.
+/// The one Linux [`crate::codegen::engine::types::CodegenPlatform`], parameterized by its ISA delta.
 pub(crate) struct Platform<A: LinuxArch> {
     arch: A,
     flavor: LinuxFlavor,
@@ -315,7 +326,12 @@ pub(crate) fn lower_module<A: LinuxArch>(
     flavor: LinuxFlavor,
     arch: A,
 ) -> Result<NativeCodePlan, String> {
-    code::lower_module_for_platform(module, native_plan, packages, &Platform { arch, flavor })
+    crate::codegen::engine::builder::lower_module_for_platform(
+        module,
+        native_plan,
+        packages,
+        &Platform { arch, flavor },
+    )
 }
 
 pub(crate) fn lower_module_mir<A: LinuxArch>(
@@ -325,10 +341,15 @@ pub(crate) fn lower_module_mir<A: LinuxArch>(
     flavor: LinuxFlavor,
     arch: A,
 ) -> Result<MirPlan, String> {
-    code::lower_module_mir_for_platform(module, native_plan, packages, &Platform { arch, flavor })
+    crate::codegen::engine::builder::lower_module_mir_for_platform(
+        module,
+        native_plan,
+        packages,
+        &Platform { arch, flavor },
+    )
 }
 
-impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
+impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A> {
     // --- per-arch identity (forwarded to `LinuxArch`) -----------------------
 
     fn target(&self) -> &'static str {
@@ -339,7 +360,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         self.arch.arch()
     }
 
-    fn backend(&self) -> &'static dyn code::mir::Backend {
+    fn backend(&self) -> &'static dyn crate::codegen::engine::mir::Backend {
         self.arch.backend()
     }
 
@@ -417,7 +438,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         // main thread (GTK loop) decides the shutdown policy. Console programs (and
         // the finish helper's own fallback) still terminate through the backend's
         // exit primitive.
-        if from == code::MACAPP_PROGRAM_SYMBOL {
+        if from == crate::codegen::error::constants::MACAPP_PROGRAM_SYMBOL {
             // Hard-stop rather than emit the aarch64-convention GTK finish call
             // on an ISA that never got an app-mode port (bug-117.1).
             self.arch.app().require_gtk();
@@ -449,7 +470,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         // installs signal handlers, runs the initializers and the language entry,
         // then tears down. Each backend's `mir::Backend` realizes the neutral
         // registers on its own ISA, so no per-arch entry code is needed.
-        code::lower_program_entry(
+        crate::codegen::engine::function::lower_program_entry(
             spec.entry_symbol,
             spec.language_entry_symbol,
             spec.language_entry_returns,
@@ -476,7 +497,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         &self,
         platform_imports: &HashMap<String, String>,
         uses_stdin: bool,
-        arena_init: code::ArenaInitSymbols,
+        arena_init: crate::codegen::engine::types::ArenaInitSymbols,
     ) -> Result<CodeFunction, String> {
         self.arch
             .emit_thread_trampoline(self, platform_imports, uses_stdin, arena_init)
@@ -705,7 +726,11 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
                 abi::stack_pointer(),
                 stat_offset + self.arch.stat_mode_offset(),
             ),
-            abi::move_immediate(mask, "Integer", code::FS_MODE_TYPE_MASK),
+            abi::move_immediate(
+                mask,
+                "Integer",
+                crate::codegen::error::constants::FS_MODE_TYPE_MASK,
+            ),
             abi::and_registers(mode, mode, mask),
             abi::move_immediate(expected, "Integer", expected_kind),
             abi::compare_registers(mode, expected),
@@ -766,18 +791,21 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
     fn emit_fs_path_operation(
         &self,
         from: &str,
-        operation: code::FsPathOperation,
+        operation: crate::codegen::engine::types::FsPathOperation,
         platform_imports: &HashMap<String, String>,
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
         let symbol = match operation {
-            code::FsPathOperation::Chdir => "chdir",
-            code::FsPathOperation::Unlink => "unlink",
-            code::FsPathOperation::Mkdir => "mkdir",
-            code::FsPathOperation::Rmdir => "rmdir",
+            crate::codegen::engine::types::FsPathOperation::Chdir => "chdir",
+            crate::codegen::engine::types::FsPathOperation::Unlink => "unlink",
+            crate::codegen::engine::types::FsPathOperation::Mkdir => "mkdir",
+            crate::codegen::engine::types::FsPathOperation::Rmdir => "rmdir",
         };
-        if matches!(operation, code::FsPathOperation::Mkdir) {
+        if matches!(
+            operation,
+            crate::codegen::engine::types::FsPathOperation::Mkdir
+        ) {
             instructions.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "493"));
         }
         emit_linux_c_call(
@@ -1262,10 +1290,10 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codegen::engine::types::CodegenPlatform;
     use crate::target::linux_aarch64::code::Aarch64;
     use crate::target::linux_riscv64::code::Riscv64;
     use crate::target::linux_x86_64::code::X86_64;
-    use crate::target::shared::code::CodegenPlatform;
 
     fn aarch64() -> Platform<Aarch64> {
         Platform {
@@ -1392,7 +1420,7 @@ mod tests {
 
     /// A minimal console program entry for the given platform (no args/rng/signal
     /// handlers/initializers), used to inspect the emitted startup sequence.
-    fn probe_entry(platform: &dyn CodegenPlatform) -> crate::target::shared::code::CodeFunction {
+    fn probe_entry(platform: &dyn CodegenPlatform) -> crate::codegen::engine::types::CodeFunction {
         let spec = ProgramEntrySpec {
             entry_symbol: "_main",
             language_entry_symbol: "main",
@@ -1441,7 +1469,7 @@ mod tests {
     /// aarch64/x86-64 entries must contain none of it (byte-identity).
     #[test]
     fn riscv64_entry_carries_hwcap_probe_others_do_not() {
-        use crate::target::shared::code::HAS_RVV_GLOBAL_SYMBOL;
+        use crate::codegen::error::constants::HAS_RVV_GLOBAL_SYMBOL;
 
         let rv = probe_entry(&riscv64());
         // References the flag global via a relocation.
@@ -1520,7 +1548,7 @@ mod tests {
         #[should_panic(expected = "rv64 app mode not ported")]
         fn program_exit() {
             let _ = riscv64().emit_program_exit(
-                crate::target::shared::code::MACAPP_PROGRAM_SYMBOL,
+                crate::codegen::error::constants::MACAPP_PROGRAM_SYMBOL,
                 &mut Vec::new(),
                 &mut Vec::new(),
             );
@@ -1532,7 +1560,7 @@ mod tests {
             let spec = AppEntrySpec {
                 language_entry_accepts_args: false,
                 uses_term: false,
-                initial_mode: code::PresentationMode::Console,
+                initial_mode: crate::codegen::engine::types::PresentationMode::Console,
             };
             let _ = riscv64().emit_app_program_entry(&spec, &HashMap::new());
         }
@@ -1653,7 +1681,7 @@ mod tests {
                 .emit_thread_trampoline(
                     &imports,
                     false,
-                    crate::target::shared::code::ArenaInitSymbols::default(),
+                    crate::codegen::engine::types::ArenaInitSymbols::default(),
                 )
                 .expect("emit thread trampoline");
 

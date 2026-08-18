@@ -14,7 +14,7 @@
 //! compare staging). The remaining registers form a large allocatable pool, so
 //! the linear-scan allocator rarely spills.
 
-use crate::target::shared::code::CodeInstruction;
+use crate::codegen::engine::types::CodeInstruction;
 use crate::target::shared::regmodel::{RegClass, RegisterModel};
 
 /// Every integer register by its lp64d ABI name. `class_of` recognizes these as

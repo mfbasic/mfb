@@ -18,6 +18,6 @@ r#"FUNC __encoding_punyThreshold(k AS Integer, bias AS Integer) AS Integer
   RETURN k - bias
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_punyThreshold", BODY));
 }

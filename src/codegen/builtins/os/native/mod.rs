@@ -21,13 +21,17 @@
 //! arena-copy idiom the `fs` path helpers use; results are the standard owned
 //! `String`/`Boolean`/`Map OF String` values built directly in the arena.
 
-use std::collections::HashMap;
-
-use crate::target::shared::abi;
-use crate::target::shared::code::*;
-
 // `setenv`/`unsetenv` set `errno` on failure; ENOMEM/EINVAL are identical on
 // Linux and macOS.
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::analysis::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::memory::data::*;
+use crate::target::shared::abi;
+use std::collections::HashMap;
 const ERRNO_ENOMEM: &str = "12";
 pub(crate) const OS_ARGC_GLOBAL_SYMBOL: &str = "_mfb_rt_os_argc";
 pub(crate) const OS_ARGV_GLOBAL_SYMBOL: &str = "_mfb_rt_os_argv";
@@ -362,7 +366,6 @@ mod introspect;
 mod paths;
 
 use env::*;
+pub(crate) use env::{module_uses_env_lock, os_env_lock_init_hex};
 use introspect::*;
 use paths::*;
-
-pub(crate) use env::{module_uses_env_lock, os_env_lock_init_hex};

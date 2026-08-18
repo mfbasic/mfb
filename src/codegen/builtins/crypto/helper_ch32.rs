@@ -14,6 +14,6 @@ r#"FUNC __crypto_ch32(x AS Integer, y AS Integer, z AS Integer) AS Integer
   RETURN bits::bxor(l, r)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_ch32", BODY));
 }

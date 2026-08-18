@@ -28,6 +28,6 @@ FUNC __crypto_gcmGctr(roundKeys AS List OF Byte, ctr AS List OF Byte, data AS Li
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_gcmGctr", BODY));
 }

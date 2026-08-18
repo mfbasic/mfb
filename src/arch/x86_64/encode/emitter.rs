@@ -15,7 +15,7 @@
 
 use super::operand::{field, fp_reg, immediate, is_zero_token, reg, shift};
 use super::*;
-use crate::target::shared::code::RelocIntent;
+use crate::codegen::engine::types::RelocIntent;
 
 pub(super) struct Encoder {
     pub(super) text: Vec<u8>,

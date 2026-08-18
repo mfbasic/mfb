@@ -36,6 +36,6 @@ r#"FUNC __regex_isGcName(name AS String) AS Boolean
   RETURN FALSE
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_isGcName", BODY));
 }

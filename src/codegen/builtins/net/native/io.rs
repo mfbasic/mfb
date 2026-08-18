@@ -5,10 +5,12 @@
 //! `(tag, value)` result in `x0`/`x1`. See the parent module for the shared
 //! emitters and record-layout invariants.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::target::shared::abi;
 use std::collections::HashMap;
 
 use super::*;
-
 /// Winsock `WSAETIMEDOUT`: a blocking socket op that hits SO_RCVTIMEO/SO_SNDTIMEO
 /// reports this on Windows, where POSIX reports EAGAIN/EWOULDBLOCK (plan-47-I,
 /// bug-109). Used only on the `PlatformFamily::Windows` timeout arms.
@@ -1548,7 +1550,7 @@ pub(crate) fn lower_net_receive_from_helper(
     // helper spills them through the outgoing-args sentinel that finalize_frame
     // reserves; POSIX passes all six in registers, byte-unchanged.
     let win64_six_args = platform.family() == PlatformFamily::Windows;
-    crate::target::shared::code::native_helpers::emit_external_int_call(
+    crate::codegen::os::ffi::emit_external_int_call(
         platform,
         net_symbol(platform, NetSymbol::RecvFrom),
         symbol,
@@ -1929,7 +1931,7 @@ pub(crate) fn lower_net_send_to_helper(
     // stack arguments above the shadow, not rdi/rsi (bug-384). The shared helper
     // spills them through the outgoing-args sentinel; POSIX unchanged.
     let win64_sendto = platform.family() == PlatformFamily::Windows;
-    crate::target::shared::code::native_helpers::emit_external_int_call(
+    crate::codegen::os::ffi::emit_external_int_call(
         platform,
         net_symbol(platform, NetSymbol::SendTo),
         symbol,
@@ -2063,8 +2065,8 @@ mod lookup_release_tests {
     // calls (success exit + error exit).
     use super::*;
     use crate::arch::ops::CodeOp;
-    use crate::target::shared::code::mir;
-    use crate::target::shared::code::test_support::TestPlatform;
+    use crate::codegen::engine::mir;
+    use crate::codegen::engine::tests::TestPlatform;
 
     #[test]
     fn lookup_frees_addrinfo_on_addr_fail() {

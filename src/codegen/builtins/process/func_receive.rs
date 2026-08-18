@@ -6,18 +6,21 @@
 //! (`crate::codegen::os`) picks by `platform.family()`. This file carries the
 //! descriptor and those entry fns.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
 use std::collections::HashMap;
 
+use crate::codegen::error::emission::emit_fail;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::native_helpers::emit_fail;
-use crate::target::shared::code::*;
 use crate::types::ParameterType;
 
 use super::native::*;
-
 const INTRO: &str = r#"Read one newline-terminated line of text from a child's output."#;
 const DESC: &str = r#"`process::receive` reads one line from a child's output stream and returns it as a
 `String`, **including** the trailing newline. It reads until it sees a `'\n'`,
@@ -64,7 +67,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     // The optional trailing `from AS Stream` widens arity to 2 and is NOT
     // default-padded: the 2-arg form is selected at codegen (`builder_values` →
     // `process.receiveFrom`), and the emitter branches on the runtime-call name.
@@ -413,7 +416,7 @@ pub(crate) fn lower_process_receive_helper_win(
         abi::add_immediate(abi::return_register(), abi::mfb_arg(0), 8),
         abi::load_u64(abi::c_arg(1), sp, N),
     ]);
-    crate::target::shared::code::codegen_utils::emit_call_validate_utf8(
+    crate::codegen::string::validate::emit_call_validate_utf8(
         symbol,
         &encoding_error,
         &mut instructions,

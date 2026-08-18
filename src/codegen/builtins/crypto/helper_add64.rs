@@ -24,6 +24,6 @@ FUNC __crypto_add64(a AS Integer, b AS Integer) AS Integer
   RETURN bits::bor(hiShifted, loMasked)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_add64", BODY));
 }

@@ -1,14 +1,14 @@
 //! `collections::hasKey` — descriptor entry + target-generic lowering (plan-96).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::{map_type_parts, set_element_type};
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::{map_type_parts, set_element_type};
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTO_HAS_KEY: &str = "Test whether a map contains an entry for a key.";
 const DESC_HAS_KEY: &str = r#"`collections::hasKey` returns `TRUE` when `value` holds an entry whose key
 matches `key`, and `FALSE` otherwise. The map is neither copied nor mutated, and
@@ -80,7 +80,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "hasKey",
         intro: INTO_HAS_KEY,

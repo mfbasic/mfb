@@ -15,6 +15,6 @@ r#"FUNC __regex_charEq(a AS String, b AS String, fold AS Boolean) AS Boolean
   RETURN a = b
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_charEq", BODY));
 }

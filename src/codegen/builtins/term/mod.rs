@@ -43,6 +43,7 @@
 //! (the audio/strings idiom), read by `ir::lower` keyed on [`DRAW_TEXT`], NOT the
 //! registry matcher (`AttributedString` is `astrings`' still-hardcoded type).
 
+// --- codegen tier imports (migration) ---
 use crate::codegen::registry::{
     HelperGate, RecordProp, Registry, RegistryHelper, RegistryPackage, RegistryRecord,
 };

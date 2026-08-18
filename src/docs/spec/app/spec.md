@@ -8,7 +8,7 @@ program-startup sequence (`./mfb spec memory program-startup`) and from the
 Mach-O/ELF container bytes (`./mfb spec linker`).
 
 App mode is dispatched through shared codegen hooks, with the target OS selecting
-the toolkit: AppKit on macOS, GTK4 on Linux. [[src/target/shared/code/types.rs:AppEntrySpec]]
+the toolkit: AppKit on macOS, GTK4 on Linux. [[src/codegen/engine/types/types.rs:AppEntrySpec]]
 
 macOS emits one `build/<name>.app` bundle. Linux emits **one AppImage per libc
 world** — `build/<name>-glibc.AppImage` and `build/<name>-musl.AppImage` — each

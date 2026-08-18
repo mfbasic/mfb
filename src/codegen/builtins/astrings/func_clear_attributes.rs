@@ -32,7 +32,7 @@ fn integer_param(name: &'static str) -> Parameter {
     }
 }
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "clearAttributes",
         intro: "",

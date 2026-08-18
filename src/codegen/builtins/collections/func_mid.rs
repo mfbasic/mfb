@@ -89,7 +89,7 @@ END FUNC
 ```"#;
 
 /// `collections::mid` — List slice. Bare-name dispatch (`lower_mid`); [`Body::Intrinsic`].
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "mid",
         intro: INTO_MID,

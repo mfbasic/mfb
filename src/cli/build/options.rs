@@ -10,7 +10,7 @@ fn parse_common_option(
     iter: &mut impl Iterator<Item = String>,
     cmd: &str,
     target: &mut Option<target::BuildTarget>,
-    regalloc: &mut target::shared::code::regalloc::RegallocKind,
+    regalloc: &mut crate::codegen::engine::regalloc::RegallocKind,
 ) -> Result<bool, String> {
     if arg == "--target" || arg == "-target" {
         let Some(value) = iter.next() else {
@@ -26,12 +26,12 @@ fn parse_common_option(
         let Some(value) = iter.next() else {
             return Err(format!("mfb {cmd} -regalloc requires a strategy name"));
         };
-        *regalloc = target::shared::code::regalloc::parse_kind(&value)?;
+        *regalloc = crate::codegen::engine::regalloc::parse_kind(&value)?;
     } else if let Some(value) = arg
         .strip_prefix("--regalloc=")
         .or_else(|| arg.strip_prefix("-regalloc="))
     {
-        *regalloc = target::shared::code::regalloc::parse_kind(value)?;
+        *regalloc = crate::codegen::engine::regalloc::parse_kind(value)?;
     } else {
         return Ok(false);
     }
@@ -46,7 +46,7 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
     let mut app_mode = false;
     let mut app_debug = false;
     let mut allow_unsigned = false;
-    let mut regalloc = target::shared::code::regalloc::active_kind();
+    let mut regalloc = crate::codegen::engine::regalloc::active_kind();
     let mut verbosity: Option<Verbosity> = None;
     let mut iter = args.into_iter();
 
@@ -119,7 +119,7 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
 pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, String> {
     let mut location = None;
     let mut target = None;
-    let mut regalloc = target::shared::code::regalloc::active_kind();
+    let mut regalloc = crate::codegen::engine::regalloc::active_kind();
     let mut coverage = false;
     let mut iter = args.into_iter();
 

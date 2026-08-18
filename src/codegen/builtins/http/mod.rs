@@ -39,17 +39,17 @@ mod func_write;
 
 /// The value-type names authored in `package.mfb`. The `Stream STATE PendingState`
 /// composite is the stateful-resource string a non-blocking `Stream` carries.
-pub(super) const RESPONSE_TYPE: &str = "Response";
-pub(super) const REQUEST_TYPE: &str = "Request";
-pub(super) const ROUTE_TYPE: &str = "Route";
-pub(super) const STREAM_STATE: &str = "Stream STATE PendingState";
-pub(super) const LISTENER_TYPE: &str = "net.Listener";
-pub(super) const TLS_LISTENER_TYPE: &str = "tls.TlsListener";
-pub(super) const FILE_TYPE: &str = "fs.File";
-pub(super) const HANDLER_TYPE: &str = "FUNC(Request) AS Response";
+pub(crate) const RESPONSE_TYPE: &str = "Response";
+pub(crate) const REQUEST_TYPE: &str = "Request";
+pub(crate) const ROUTE_TYPE: &str = "Route";
+pub(crate) const STREAM_STATE: &str = "Stream STATE PendingState";
+pub(crate) const LISTENER_TYPE: &str = "net.Listener";
+pub(crate) const TLS_LISTENER_TYPE: &str = "tls.TlsListener";
+pub(crate) const FILE_TYPE: &str = "fs.File";
+pub(crate) const HANDLER_TYPE: &str = "FUNC(Request) AS Response";
 
 /// A required `http` member parameter (docs live in `src/docs/man/builtins/http`).
-pub(super) fn req(
+pub(crate) fn req(
     name: &'static str,
     aliases: &'static [&'static str],
     ty: ParameterType,
@@ -67,7 +67,7 @@ pub(super) fn req(
 /// registry `Fill` produces the exact `(type_name, expr)` pair the legacy
 /// `default_argument_padding` injected (a `Map` default lowers to an empty map
 /// literal, a scalar default to its const).
-pub(super) fn fill(name: &'static str, ty: ParameterType, expr: &'static str) -> Parameter {
+pub(crate) fn fill(name: &'static str, ty: ParameterType, expr: &'static str) -> Parameter {
     Parameter {
         name,
         desc: "",
@@ -81,7 +81,7 @@ pub(super) fn fill(name: &'static str, ty: ParameterType, expr: &'static str) ->
 }
 
 /// The header map type (`Map OF String TO String`).
-pub(super) fn header_map() -> ParameterType {
+pub(crate) fn header_map() -> ParameterType {
     ParameterType::map_of(ParameterType::String, ParameterType::String)
 }
 

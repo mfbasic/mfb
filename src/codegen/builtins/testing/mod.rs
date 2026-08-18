@@ -30,11 +30,11 @@
 //! `(1, 2)` but is never default-padded (the desugar selects the trap-with-code body
 //! by argument count, never by injecting a literal).
 
+// --- codegen tier imports (migration) ---
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, Registry, RegistryFunction, RegistryPackage,
 };
 use crate::types::ParameterType;
-
 const INTRO: &str = r#"Assertion builtins for the built-in test framework."#;
 
 const DESC: &str = r#"The `testing` package provides the assertion builtins used inside a `TESTING`

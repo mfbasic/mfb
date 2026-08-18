@@ -39,6 +39,6 @@ r#"FUNC __regex_anchorMatch(anchor AS __regex_Anchor, pos AS Integer, ctx AS __r
   RETURN NOT __regex_wordBoundary(pos, ctx)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_anchorMatch", BODY));
 }

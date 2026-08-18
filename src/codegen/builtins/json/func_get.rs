@@ -98,7 +98,7 @@ r#"FUNC __json_get(value AS Json, path AS List OF String) AS Json
   RETURN current
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "get",
         intro: INTRO,

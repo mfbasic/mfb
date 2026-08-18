@@ -12,6 +12,6 @@ r#"FUNC __regex_setCap(caps AS List OF Integer, idx AS Integer, val AS Integer) 
   RETURN collections::set(caps, idx, val)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_setCap", BODY));
 }

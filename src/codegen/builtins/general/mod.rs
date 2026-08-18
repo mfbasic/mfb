@@ -32,12 +32,12 @@
 //! function, so `error` carries one illustrative implementation but [`arity`] special-
 //! cases it back to `None`, reproducing the legacy diagnostic exactly.
 
-use std::borrow::Cow;
-
+// --- codegen tier imports (migration) ---
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, Registry, RegistryFunction, RegistryPackage,
 };
 use crate::types::ParameterType;
+use std::borrow::Cow;
 
 const ERROR: &str = "error";
 const LEN: &str = "len";
@@ -458,7 +458,6 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
 }
 
 use crate::builtins::exact;
-
 fn exact_one_of(arg_types: &[String], expected: &[&str]) -> bool {
     arg_types.len() == 1 && expected.iter().any(|expected| arg_types[0] == *expected)
 }

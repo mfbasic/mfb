@@ -16,6 +16,6 @@ r#"FUNC __regex_propMatchItem(name AS String, neg AS Boolean, cp AS Integer) AS 
   RETURN hit
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_propMatchItem", BODY));
 }

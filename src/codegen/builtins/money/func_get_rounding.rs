@@ -1,13 +1,13 @@
 //! `money::getRounding` — read the `Money`-arithmetic rounding mode in effect.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::error::constants::*;
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::target::shared::abi;
-use crate::target::shared::code::{
-    CodeBuilder, Operand, ValueResult, ARENA_ROUNDING_MODE_OFFSET, ARENA_STATE_REGISTER,
-};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTRO: &str = r#"Read the rounding mode currently in effect for Money arithmetic"#;
 const DESC: &str = r#"`money::getRounding` returns the `Money` arithmetic rounding mode currently in
 effect, as a `Rounding` value. It takes no arguments and always succeeds.
@@ -58,7 +58,7 @@ SUB main
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "getRounding",
         intro: INTRO,

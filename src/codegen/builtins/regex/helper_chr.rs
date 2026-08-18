@@ -24,6 +24,6 @@ r#"FUNC __regex_chr(value AS Integer) AS String
   RETURN encoding::utf32Decode([v])
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_chr", BODY));
 }

@@ -18,7 +18,9 @@ use crate::arch::image::{
     EncodedImage, EncodedImport, EncodedRelocation, EncodedSection, EncodedSymbol, ImportKind,
 };
 use crate::arch::ops::CodeOp;
-use crate::target::shared::code::{layout_data_objects, CodeInstruction, NativeCodePlan};
+use crate::codegen::engine::types::layout_data_objects;
+use crate::codegen::engine::types::CodeInstruction;
+use crate::codegen::engine::types::NativeCodePlan;
 
 /// The per-ISA surface [`encode_plan`] drives. Each backend's `Encoder`
 /// implements it; the byte production and relocation/label bookkeeping stay in

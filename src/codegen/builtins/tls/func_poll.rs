@@ -83,7 +83,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     let timeout = |desc: &'static str| Parameter {
         name: "timeoutMs",
         desc,

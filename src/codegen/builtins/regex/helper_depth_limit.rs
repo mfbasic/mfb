@@ -14,6 +14,6 @@ r#"' Ceiling on matcher recursion depth. Measured: the native stack is exhausted
 ' over a single-scalar child is iterative and unaffected at any input length.
 LET __REGEX_DEPTH_LIMIT AS Integer = 600"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_depthLimit", BODY));
 }

@@ -96,7 +96,7 @@ r#"FUNC __regex_replace(value AS String, pattern AS String, replacement AS Strin
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "replace",
         intro: INTRO,

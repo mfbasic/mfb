@@ -12,6 +12,6 @@ r#"FUNC __crypto_hmacSha512_text(key AS List OF Byte, data AS String) AS List OF
   RETURN __crypto_hmacSha512_bytes(key, strings::toBytes(data))
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_hmacSha512_text", BODY));
 }

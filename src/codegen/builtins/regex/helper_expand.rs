@@ -81,6 +81,6 @@ r#"FUNC __regex_expand(repl AS String, r AS __regex_Result, value AS String, pro
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_expand", BODY));
 }

@@ -14,6 +14,6 @@ FUNC __crypto_add32(a AS Integer, b AS Integer) AS Integer
   RETURN bits::band(s, 4294967295)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_add32", BODY));
 }

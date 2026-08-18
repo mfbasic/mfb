@@ -12,6 +12,6 @@ r#"FUNC __regex_isScriptName(low AS String) AS Boolean
   RETURN __regex_scriptCanon(low) <> ""
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_isScriptName", BODY));
 }

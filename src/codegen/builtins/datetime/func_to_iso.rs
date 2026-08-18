@@ -64,7 +64,7 @@ r#"FUNC __datetime_toIso(dt AS DateTime) AS String
   RETURN __datetime_padN(dt.date.year, 4) & "-" & __datetime_pad2(dt.date.month) & "-" & __datetime_pad2(dt.date.day) & "T" & __datetime_pad2(dt.time.hour) & ":" & __datetime_pad2(dt.time.minute) & ":" & __datetime_pad2(dt.time.second) & "." & strings::left(__datetime_padN(dt.time.nanos, 9), 3) & __datetime_isoZone(dt.offset)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "toIso",
         intro: INTRO,

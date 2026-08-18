@@ -56,7 +56,7 @@ r#"FUNC __datetime_now AS Instant
   RETURN __datetime_normInstant(ns / 1000000000, ns MOD 1000000000)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "now",
         intro: INTRO,

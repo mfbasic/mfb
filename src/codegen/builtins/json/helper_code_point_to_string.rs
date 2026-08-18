@@ -22,6 +22,6 @@ r#"FUNC __json_codePointToString(value AS Integer) AS String
   RETURN encoding::utf32Decode([value])
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_codePointToString", BODY));
 }

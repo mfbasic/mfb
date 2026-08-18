@@ -50,6 +50,6 @@ r#"FUNC __crypto_modL(x AS List OF Integer) AS List OF Byte
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_modL", BODY));
 }

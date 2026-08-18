@@ -1,16 +1,18 @@
 //! `collections::window` — descriptor entry + MFBASIC source body (Implementation::Mfb).
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::list_element_type;
+use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::list_element_type;
-use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
-
 /// Native fast path for `#collections_window$T` with constant `size >= 1` /
 /// `stride >= 1`: fixed-width (stride 1) via the contiguous-block builder, String
 /// (any stride) via per-window slice construction. Everything else declines
 /// (`Ok(None)`). Free fn.
-pub(super) fn window_fast_path(
+pub(crate) fn window_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],
@@ -54,7 +56,7 @@ impl CodeBuilder<'_> {
     /// free per window); this builds the `List OF List OF T` result directly —
     /// each window is a kind-2 inner block written in place at the outer's data
     /// tail with one copy from the source. `size`/`stride` are the parsed literals.
-    pub(super) fn lower_collection_window_call(
+    pub(crate) fn lower_collection_window_call(
         &mut self,
         args: &[NirValue],
         size: i64,
@@ -264,7 +266,7 @@ impl CodeBuilder<'_> {
     /// `slice`+`append`/`stride` shape but without the interpreted loop. Matches the
     /// `.mfb` (both are per-window native slice), so like chunks it is a marginal,
     /// non-regressing improvement, not a G1 clear (String-copy-bound vs Python's C).
-    pub(super) fn lower_collection_window_string_call(
+    pub(crate) fn lower_collection_window_string_call(
         &mut self,
         args: &[NirValue],
         size: i64,

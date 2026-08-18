@@ -27,8 +27,8 @@
 //! `ErrResourceBusy` → `_mfb_str_error_directory_not_empty`, …); byte-identity
 //! requires reproducing them exactly, so the symbol is stored, not derived.
 
+// --- codegen tier imports (migration) ---
 use crate::codegen::registry::{Registry, RegistryConstant, RegistryPackage};
-
 const MODULE_INTRO: &str =
     "Named `Integer` constants for the runtime error codes a `TRAP` can match on";
 

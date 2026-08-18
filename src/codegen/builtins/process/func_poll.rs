@@ -7,18 +7,21 @@
 //! descriptor, those entry fns, and the
 //! docs.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
 use std::collections::HashMap;
 
+use crate::codegen::error::emission::emit_fail;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::native_helpers::emit_fail;
-use crate::target::shared::code::*;
 use crate::types::ParameterType;
 
 use super::native::*;
-
 const INTRO: &str = r#"Test whether a child's output stream is readable within a timeout."#;
 const DESC: &str = r#"`process::poll` reports whether a following read of a child's output stream can
 proceed without blocking. It returns `TRUE` when the selected stream is readable —
@@ -66,7 +69,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     // The optional trailing `from AS Stream` widens arity to 3 and is NOT
     // default-padded: the 3-arg form is selected at codegen (`builder_values` →
     // `process.pollFrom`), and the emitter branches on the runtime-call name.

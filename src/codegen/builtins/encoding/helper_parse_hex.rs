@@ -32,6 +32,6 @@ r#"FUNC __encoding_parseHex(text AS String) AS Integer
   RETURN value
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_parseHex", BODY));
 }

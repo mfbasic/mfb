@@ -13,6 +13,6 @@ FUNC __crypto_shr32(x AS Integer, n AS Integer) AS Integer
   RETURN bits::sr(x, n)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_shr32", BODY));
 }

@@ -9,10 +9,10 @@
 //! layer. The mapping is total and stays byte-identical — `Call` is always a
 //! `branch26`, both `*Hi` intents are a `page21`, both `*Lo` a `pageoff12`; the
 //! data-vs-GOT split (and the direct-vs-stub call split) is carried by
-//! [`CodeRelocation::binding`](crate::target::shared::code::CodeRelocation), as
+//! [`CodeRelocation::binding`](crate::codegen::engine::types::CodeRelocation), as
 //! it is in the linker today.
 
-use crate::target::shared::code::RelocIntent;
+use crate::codegen::engine::types::RelocIntent;
 
 /// The concrete AArch64 reloc kind a neutral [`RelocIntent`] realizes as. Used
 /// by the encoder when it materializes `bl`/`adrp`/`add :lo12:` relocations and

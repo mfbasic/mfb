@@ -56,7 +56,7 @@ the OS reclaim the arena instead.
 Raw Linux thread syscalls such as `clone`, `clone3`, `futex`, `set_tid_address`,
 `gettid`, `tgkill`, and thread-local raw `exit` are not the threading ABI for
 the Linux backend. They may be used by libc internally, but generated
-thread helpers must call the libc/pthread interface. [[src/target/shared/code/runtime_helpers.rs:lower_thread_start_helper]]
+thread helpers must call the libc/pthread interface. [[src/codegen/runtime/thread/runtime_helpers.rs:lower_thread_start_helper]]
 
 ## Standard Input Broadcast
 
@@ -93,7 +93,7 @@ arena when the module uses stdin), so an exited or crashed worker never permanen
 pins `base`. On process shutdown a worker parked in a blocking stdin read is
 terminated by process exit, exactly as for any other worker (§ arena teardown
 above), so shutdown never hangs on a parked reader.
-[[src/target/shared/code/stdin_broadcast.rs]] [[src/codegen/builtins/thread/mod.rs:openStdIn]]
+[[src/codegen/io/stdin/stdin_broadcast.rs]] [[src/codegen/builtins/thread/mod.rs:openStdIn]]
 
 ## See Also
 

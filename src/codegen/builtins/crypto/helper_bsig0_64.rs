@@ -15,6 +15,6 @@ r#"FUNC __crypto_bsig0_64(x AS Integer) AS Integer
   RETURN bits::bxor(bits::bxor(a, b), c)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_bsig0_64", BODY));
 }

@@ -13,15 +13,11 @@
 //! inline `internal`/`None` push it replaced), so this module needs no access to
 //! `CodeBuilder`'s private `relocations`/`current_symbol` fields.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::{
-    CodeBuilder, Operand, ValueResult, COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-    COLLECTION_ENTRY_OFFSET_KEY_OFFSET, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-    COLLECTION_ENTRY_OFFSET_VALUE_OFFSET, COLLECTION_ENTRY_SIZE, COLLECTION_HEADER_SIZE,
-    COLLECTION_OFFSET_BUCKETS_READY, COLLECTION_OFFSET_CAPACITY, COLLECTION_OFFSET_COUNT,
-    COLLECTION_OFFSET_DATA_CAPACITY, FNV1A_BASIS, FNV1A_PRIME, MAP_PROBE_SYMBOL,
-};
-
 impl CodeBuilder<'_> {
     /// Entry-table linear-scan preamble shared by the map lookups
     /// (`lower_map_get`/`lower_map_get_or`/`lower_has_key`): load the entry count,

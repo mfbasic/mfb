@@ -1,12 +1,12 @@
 //! `collections::prepend` — descriptor entry + target-generic lowering (plan-96).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTO_PREPEND: &str = "Return a list with one element added at the start";
 const DESC_PREPEND: &str = r#"`collections::prepend` returns a new list whose first element is `item` and whose
 remaining elements are those of `value` in their original order. The result is
@@ -82,7 +82,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "prepend",
         intro: INTO_PREPEND,

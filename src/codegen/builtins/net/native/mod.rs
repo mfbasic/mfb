@@ -10,11 +10,20 @@
 //! platforms for `AF_INET`.
 //!
 //! Visibility here is spelled `pub(crate)` in full,
-//! matching `io.rs` and `poll.rs`, rather than the shorter `pub(super)`. In this
+//! matching `io.rs` and `poll.rs`, rather than the shorter `pub(crate)`. In this
 //! file the two happen to mean the same thing; in the child modules they do not
-//! (`pub(super)` there would mean `pub(in ...::net)`), so the long form is the
+//! (`pub(crate)` there would mean `pub(in ...::net)`), so the long form is the
 //! only spelling that is correct in all three and can be copied between them.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::error::emission::*;
+use crate::codegen::os::syscall::*;
+use crate::codegen::string::validate::*;
 mod io;
 mod poll;
 
@@ -24,8 +33,6 @@ pub(crate) use poll::*;
 use std::collections::HashMap;
 
 use crate::target::shared::abi;
-use crate::target::shared::code::*;
-
 /// The socket-call symbols the shared `net` lowering issues. Every hardcoded
 /// libc symbol literal routes through [`net_symbol`] so a platform whose socket
 /// ABI diverges from POSIX (Windows/Winsock) can rename it in one place instead
@@ -131,26 +138,10 @@ const POLLIN: &str = "1";
 /// `EINTR` errno (Linux/macOS both use 4): a `poll` interrupted by a signal
 /// returns `-1`/`EINTR` and must be re-issued rather than treated as a hard
 /// connect failure (bug-115).
-const EINTR_ERRNO: &str = "4";
 
 // `emit_alloc` (used below) is the shared arena allocator emitter reached via the
-// `crate::target::shared::code::*` glob; it emits `bl _mfb_arena_alloc` with the size
+// `*` glob; it emits `bl _mfb_arena_alloc` with the size
 // in `x0`/alignment in `x1` and leaves the block pointer in `x1` on success.
-
-/// Set the result registers to a named `errorCode` failure and branch to `done`.
-/// Sources `(code, message-symbol)` from `ERRORCODE_CONSTANTS` via
-/// `raise_error_into` (plan-88-C), the same table-driven emission as
-/// `native_helpers::emit_fail`.
-fn emit_fail(
-    symbol: &str,
-    error_name: &str,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-    done: &str,
-) {
-    raise_error_into(symbol, error_name, instructions, relocations);
-    instructions.push(abi::branch(done));
-}
 
 /// Emit the shared "build a String result" body (bug-331 §H): allocate `N + 9`
 /// bytes, copy the `N` received bytes from `sp + buf_offset` into the new String's
@@ -604,7 +595,7 @@ fn lower_net_endpoint_helper(
         // setsockopt takes FIVE int args; on Win64 the 5th (optlen) is a stack
         // argument above the shadow, not rdi (bug-384). POSIX passes it in a
         // register, byte-unchanged.
-        crate::target::shared::code::native_helpers::emit_external_int_call(
+        crate::codegen::os::ffi::emit_external_int_call(
             platform,
             net_symbol(platform, NetSymbol::SetSockOpt),
             symbol,
@@ -806,7 +797,7 @@ fn lower_net_endpoint_helper(
         // argument above the shadow, not rdi (bug-384) — a garbage optlen makes
         // getsockopt fail and the non-blocking connect never resolves. POSIX
         // passes it in a register, byte-unchanged.
-        crate::target::shared::code::native_helpers::emit_external_int_call(
+        crate::codegen::os::ffi::emit_external_int_call(
             platform,
             net_symbol(platform, NetSymbol::GetSockOpt),
             symbol,

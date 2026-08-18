@@ -43,7 +43,7 @@ flat-block copy. At the send site the builder points the arena-state
 register at the *receiver's* state (read from the control block — worker arena
 state at offset 80, parent arena state at offset 88 for worker→parent sends) and
 copies the message into that arena; the queue-write helper then stores the
-already-copied pointer into the queue slot. [[src/target/shared/code/builder_emit_helpers.rs:emit_thread_send_runtime_helper_call]] [[src/target/shared/code/builder_arena_transfer.rs:copy_value_to_current_arena]]
+already-copied pointer into the queue slot. [[src/codegen/engine/builder/builder_emit_helpers.rs:emit_thread_send_runtime_helper_call]] [[src/codegen/memory/arena/builder_arena_transfer.rs:copy_value_to_current_arena]]
 
 The move-consumes rule for non-copyable sendable values (including sendable
 resource handles) — a successful `thread::start`/`thread::send` consumes the

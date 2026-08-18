@@ -12,6 +12,6 @@ r#"FUNC __regex_isNameCont(ch AS String) AS Boolean
   RETURN __regex_isNameStart(ch) OR __regex_isDigit(ch)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_isNameCont", BODY));
 }

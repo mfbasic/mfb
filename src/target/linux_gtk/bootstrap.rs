@@ -329,7 +329,7 @@ pub(crate) fn emit_reconcile_seam(
     asm.local_address(abi::mfb_arg(0), RECONCILE_IDLE_SYMBOL); // GSourceFunc
     asm.push(abi::load_u64(
         abi::mfb_arg(1),
-        code::ARENA_STATE_REGISTER,
+        crate::codegen::error::constants::ARENA_STATE_REGISTER,
         presentation_mode_offset,
     )); // user-data = mode
     asm.call_external("g_idle_add");
@@ -475,7 +475,7 @@ pub(super) fn emit_worker_shim(spec: &AppEntrySpec) -> Result<CodeFunction, Stri
         asm.load_state(abi::c_arg(1), ST_ARGV);
         asm.load_state(abi::c_arg(0), ST_ARGC);
     }
-    asm.call_internal(code::MACAPP_PROGRAM_SYMBOL);
+    asm.call_internal(crate::codegen::error::constants::MACAPP_PROGRAM_SYMBOL);
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::add_stack(16));
     asm.push(abi::move_immediate(abi::c_return(0), "Integer", "0"));

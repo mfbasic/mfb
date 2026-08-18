@@ -114,7 +114,7 @@ imports `audio` still starts on a Linux host without alsa-lib, and every
 `IMPORT audio` gains no audio symbol and no dynamic-library dependency."#;
 
 /// A required parameter with optional keyword aliases.
-pub(super) fn param(
+pub(crate) fn param(
     name: &'static str,
     desc: &'static str,
     aliases: &'static [&'static str],
@@ -134,7 +134,7 @@ pub(super) fn param(
 /// timed form is selected at codegen (`builder_values` → `audio.readTimeout` /
 /// `audio.pollTimeout`), and the emitter branches on the runtime-call name (the
 /// `process::poll` idiom).
-pub(super) fn timeout_ms(desc: &'static str) -> Parameter {
+pub(crate) fn timeout_ms(desc: &'static str) -> Parameter {
     Parameter {
         name: "timeoutMs",
         desc,
@@ -147,7 +147,7 @@ pub(super) fn timeout_ms(desc: &'static str) -> Parameter {
 /// The native OS-seam body shared by every device-I/O member: the one
 /// family-generic dispatcher in both slots, picked by `platform.family()`, plus
 /// the code-form `os_aliases` this overload declares.
-pub(super) fn native_body(os_aliases: &'static [&'static str]) -> Body {
+pub(crate) fn native_body(os_aliases: &'static [&'static str]) -> Body {
     Body::native_os_seam(
         Some(native::lower_audio_helper),
         Some(native::lower_audio_helper),

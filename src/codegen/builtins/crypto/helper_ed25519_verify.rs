@@ -42,6 +42,6 @@ r#"FUNC __crypto_ed25519Verify(publicKey AS List OF Byte, message AS List OF Byt
   RETURN __crypto_constantTimeEqual(bigR, tCheck)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_ed25519Verify", BODY));
 }

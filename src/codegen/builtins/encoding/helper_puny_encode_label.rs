@@ -71,6 +71,6 @@ FUNC __encoding_punyEncodeLabel(points AS List OF Integer) AS String
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_punyEncodeLabel", BODY));
 }

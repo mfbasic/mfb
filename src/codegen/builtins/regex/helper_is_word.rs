@@ -12,6 +12,6 @@ r#"FUNC __regex_isWord(cp AS Integer) AS Boolean
   RETURN __regex_isWordCp(cp, __regex_genCat(cp))
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_isWord", BODY));
 }

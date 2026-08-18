@@ -1,6 +1,10 @@
+// --- codegen tier imports (migration) ---
 use super::*;
-
-pub(in crate::codegen::builtins::tls::native) fn lower_tls_connect_macos(
+use crate::codegen::engine::builder::emit_arena_free;
+use crate::codegen::engine::builder::*;
+use crate::target::shared::abi;
+use std::collections::HashMap;
+pub(crate) fn lower_tls_connect_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -726,7 +730,7 @@ pub(in crate::codegen::builtins::tls::native) fn lower_tls_connect_macos(
     }
 }
 
-pub(in crate::codegen::builtins::tls::native) fn lower_tls_read_macos(
+pub(crate) fn lower_tls_read_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1267,7 +1271,7 @@ pub(in crate::codegen::builtins::tls::native) fn lower_tls_read_macos(
     }
 }
 
-pub(in crate::codegen::builtins::tls::native) fn lower_tls_write_macos(
+pub(crate) fn lower_tls_write_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1517,7 +1521,7 @@ pub(in crate::codegen::builtins::tls::native) fn lower_tls_write_macos(
 /// poll/read rather than lost. Readable = buffered plaintext present, OR the
 /// outstanding receive has completed with bytes, OR the connection is terminal
 /// (EOF/error). `x0` = sock record, `x1` = timeoutMs.
-pub(in crate::codegen::builtins::tls::native) fn lower_tls_poll_macos(
+pub(crate) fn lower_tls_poll_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1854,7 +1858,7 @@ pub(in crate::codegen::builtins::tls::native) fn lower_tls_poll_macos(
     }
 }
 
-pub(in crate::codegen::builtins::tls::native) fn lower_tls_close_macos(
+pub(crate) fn lower_tls_close_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,

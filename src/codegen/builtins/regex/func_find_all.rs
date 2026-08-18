@@ -108,7 +108,7 @@ r#"FUNC __regex_findAll(value AS String, pattern AS String, start AS Integer) AS
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "findAll",
         intro: INTRO,

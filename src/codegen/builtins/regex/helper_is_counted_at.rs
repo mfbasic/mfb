@@ -36,6 +36,6 @@ r#"FUNC __regex_isCountedAt(pat AS List OF String, n AS Integer, i AS Integer) A
   RETURN FALSE
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_isCountedAt", BODY));
 }

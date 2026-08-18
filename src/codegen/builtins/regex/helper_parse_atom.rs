@@ -32,6 +32,6 @@ r#"FUNC __regex_parseAtom(pat AS List OF String, n AS Integer, i AS Integer, fla
   RETURN __regex_Parse[node, i + 1, g, names]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_parseAtom", BODY));
 }

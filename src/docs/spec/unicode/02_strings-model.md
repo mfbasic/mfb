@@ -52,7 +52,7 @@ accepted and maps to the end-of-string offset; this is what lets a zero-length
 `mid` at the end, and `find` at the end, succeed. Any index strictly past that
 raises `ErrIndexOutOfRange`. The reverse mapping (a byte hit back to a scalar
 index) counts the scalar boundaries crossed up to that offset.
-[[src/target/shared/code/builder_search.rs:lower_mid]]
+[[src/codegen/collection/search/builder_search.rs:lower_mid]]
 
 ```text
 value = "a é 日"  (spaces shown for clarity; actual: "aé日")
@@ -67,7 +67,7 @@ it is purely an ordinal position within `value`.
 ## `mid` semantics — scalar slicing
 
 `mid(value, start, length)` slices by **scalar index**, not byte or grapheme.
-[[src/target/shared/code/builder_search.rs:lower_mid]]
+[[src/codegen/collection/search/builder_search.rs:lower_mid]]
 
 - A negative `start` or `length` raises `ErrIndexOutOfRange`, as does a
   `start + length` sum that wraps (checked with an unsigned compare before any
@@ -95,7 +95,7 @@ condition must keep folding to the runtime raise.
 
 `find(value, needle, start)` searches for the first occurrence of `needle` at or
 after scalar index `start`, and returns the match position as a **scalar index**.
-[[src/target/shared/code/builder_search.rs:lower_find]]
+[[src/codegen/collection/search/builder_search.rs:lower_find]]
 
 - A negative `start`, or a `start` past `scalar_count`, raises
   `ErrIndexOutOfRange` (the negative case is checked explicitly up front, before
@@ -121,7 +121,7 @@ check that arithmetic for 64-bit overflow *before* allocating and raise
 `ErrInvalidArgument` for a size that cannot be represented; sizes derived only
 from in-memory strings route through the same checked helpers and report an
 allocation failure on the (unreachable) wrap.
-[[src/target/shared/code/builder_error_emission.rs:emit_checked_size_multiply]]
+[[src/codegen/error/emission/builder_error_emission.rs:emit_checked_size_multiply]]
 
 ## Unicode-whitespace trimming
 
@@ -129,7 +129,7 @@ The three trims classify a code point with Rust `char::is_whitespace`, which is
 the Unicode `White_Space` property — broader than ASCII. This includes the ASCII
 set (`\t \n \x0b \x0c \r` space), plus NBSP `U+00A0`, the various Unicode spaces
 `U+2000`–`U+200A`, line/paragraph separators `U+2028`/`U+2029`, and ideographic
-space `U+3000`, among others. [[src/target/shared/code/private/unicode.rs:emit_unicode_whitespace_branch]]
+space `U+3000`, among others. [[src/codegen/string/unicode_props.rs:emit_unicode_whitespace_branch]]
 
 | Function | Strips from | Backing |
 | --- | --- | --- |
@@ -140,19 +140,19 @@ space `U+3000`, among others. [[src/target/shared/code/private/unicode.rs:emit_u
 Trimming operates scalar by scalar from the end(s); it is not grapheme-aware (it
 cannot strip a whitespace scalar buried inside a cluster, but no standard cluster
 begins with a `White_Space` scalar). Zero-width characters (e.g. ZWSP `U+200B`,
-ZWJ) are **not** `White_Space` and are never trimmed. [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_trim]]
+ZWJ) are **not** `White_Space` and are never trimmed. [[src/codegen/builtins/strings/builder_strings_builtins.rs:lower_strings_trim]]
 
 ## `split` and the empty-delimiter error
 
 `split(value, delimiter)` splits on a **byte-exact** delimiter substring and
 returns the parts. An empty `delimiter` is rejected (raising `ErrInvalidArgument`
-before scanning) — there is no per-scalar or per-grapheme split mode. [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_split]]
+before scanning) — there is no per-scalar or per-grapheme split mode. [[src/codegen/builtins/strings/builder_strings_builtins.rs:lower_strings_split]]
 
 Splitting delegates to `str::split`, so it follows Rust semantics: a leading or
 trailing delimiter yields an empty leading/trailing part, and N non-overlapping
 matches produce N+1 parts. The delimiter match is on raw UTF-8 bytes with no
 normalization. The inverse `join(parts, delimiter)` concatenates with the
-delimiter between parts and never errors. [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_join]]
+delimiter between parts and never errors. [[src/codegen/builtins/strings/builder_strings_builtins.rs:lower_strings_join]]
 
 ## See Also
 

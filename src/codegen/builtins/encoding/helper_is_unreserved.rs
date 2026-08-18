@@ -17,6 +17,6 @@ FUNC __encoding_isUnreserved(c AS Integer) AS Boolean
   RETURN c = 45 OR c = 46 OR c = 95 OR c = 126
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_isUnreserved", BODY));
 }

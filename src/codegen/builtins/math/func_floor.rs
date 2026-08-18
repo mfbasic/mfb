@@ -1,10 +1,10 @@
 //! `math::floor` — round toward negative infinity, exiting to `Integer`.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
 use crate::codegen::registry::RegistryPackage;
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType::{Fixed, Float, Money};
-
 const INTRO: &str = r#"Round toward negative infinity to a whole number."#;
 const DESC: &str = r#"`floor` returns the greatest integer not greater than `value`. It accepts `Float`,
 `Fixed`, and `Money` and returns `Integer` (a deliberate dimension exit — for
@@ -19,7 +19,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     super::rounding(
         "floor",
         INTRO,

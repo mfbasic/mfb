@@ -1,15 +1,14 @@
 //! `money::setRounding` — install the `Money`-arithmetic rounding mode.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::{
-    CodeBuilder, ValueResult, ARENA_ROUNDING_MODE_OFFSET, ARENA_STATE_REGISTER,
-};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTRO: &str = r#"Set the rounding mode used by Money arithmetic on the calling thread"#;
 const DESC: &str = r#"`money::setRounding` selects how `Money` arithmetic settles the exact half case.
 `mode` is one of the two `Rounding` enum members: `Rounding.Commercial` (round
@@ -52,7 +51,7 @@ SUB main
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "setRounding",
         intro: INTRO,

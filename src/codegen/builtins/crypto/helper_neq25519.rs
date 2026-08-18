@@ -14,6 +14,6 @@ r#"FUNC __crypto_neq25519(a AS List OF Integer, b AS List OF Integer) AS Boolean
   RETURN __crypto_constantTimeEqual(pa, pb) = FALSE
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_neq25519", BODY));
 }

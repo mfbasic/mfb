@@ -78,7 +78,7 @@ r#"FUNC __datetime_inZone(at AS Instant, z AS Zone) AS DateTime
   RETURN DateTime[date, time, z, off]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "inZone",
         intro: INTRO,

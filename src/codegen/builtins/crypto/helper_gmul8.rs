@@ -25,6 +25,6 @@ FUNC __crypto_gmul8(a AS Integer, b AS Integer) AS Integer
   RETURN bits::band(p, 255)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_gmul8", BODY));
 }

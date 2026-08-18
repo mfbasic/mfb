@@ -1,13 +1,14 @@
 //! `bits::rr64` — rotate all 64 bits of an integer right.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTRO: &str = r#"Rotate all 64 bits of an integer right."#;
 const DESC: &str = r#"`rr64` rotates all 64 bits of `value` right by `count` bit positions and returns
 the result. The rotate is a full-width 64-bit barrel rotate: bits shifted out of
@@ -52,7 +53,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "rr64",
         intro: INTRO,

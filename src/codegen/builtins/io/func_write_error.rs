@@ -2,9 +2,10 @@
 //!
 //! Per-member file (planning/migrate.md). `io` is a native OS-seam package: the
 //! member registers a `Body::native_os_seam` whose per-family slots both hold the
-//! shared [`super::lower_io_helper`] dispatcher (which branches on
+//! shared [`crate::codegen::builtins::io::native::lower_io_helper`] dispatcher (which branches on
 //! `platform.family()` and the runtime-call name internally).
 
+// --- codegen tier imports (migration) ---
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -41,7 +42,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "writeError",
         intro: INTRO,
@@ -61,8 +62,8 @@ pub(super) fn register(pkg: &mut RegistryPackage) {
             return_type: ParameterType::Nothing,
             errors: vec![],
             body: Body::native_os_seam(
-                Some(super::lower_io_helper),
-                Some(super::lower_io_helper),
+                Some(crate::codegen::builtins::io::native::lower_io_helper),
+                Some(crate::codegen::builtins::io::native::lower_io_helper),
                 &[],
             ),
         }],

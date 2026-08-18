@@ -327,7 +327,7 @@ A function whose peak concurrent `v128` pressure exceeds the 30-register pool
 (`v0` is the mask, `v31` scratch) simply emits the **scalar arm only** — still one
 correct binary, just without the vector speedup for that function.
 [[src/arch/riscv64/v128.rs:lower_v128_run]] [[src/arch/riscv64/v128.rs:build_vreg_map]]
-[[src/target/shared/code/error_constants.rs:HAS_RVV_GLOBAL_SYMBOL]]
+[[src/codegen/error/constants/error_constants.rs:HAS_RVV_GLOBAL_SYMBOL]]
 
 ## Calls, labels, and relocations
 

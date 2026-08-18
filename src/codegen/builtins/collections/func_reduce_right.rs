@@ -1,12 +1,12 @@
 //! `collections::reduceRight` — descriptor entry + target-generic lowering (plan-96).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTO_REDUCE_RIGHT: &str =
     "Fold a list into a single value, walking from the last item to the first";
 const DESC_REDUCE_RIGHT: &str = r#"`collections::reduceRight` folds `value` into a single accumulated result. The
@@ -88,7 +88,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "reduceRight",
         intro: INTO_REDUCE_RIGHT,

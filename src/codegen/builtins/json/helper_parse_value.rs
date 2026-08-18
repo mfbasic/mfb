@@ -51,6 +51,6 @@ r#"FUNC __json_parseValue(chars AS List OF String, index AS Integer, depth AS In
   RETURN __json_parseNumber(chars, nextIndex)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_parseValue", BODY));
 }

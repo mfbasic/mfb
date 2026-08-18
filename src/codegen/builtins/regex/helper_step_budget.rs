@@ -14,6 +14,6 @@ r#"' Ceiling on backtracking steps for one search. Generous enough that no reali
 ' second.
 LET __REGEX_STEP_BUDGET AS Integer = 2000000"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_stepBudget", BODY));
 }

@@ -81,6 +81,6 @@ FUNC __crypto_polyFinish(ph0 AS Integer, ph1 AS Integer, ph2 AS Integer, ph3 AS 
   RETURN tag
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_polyFinish", BODY));
 }

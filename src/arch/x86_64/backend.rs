@@ -7,8 +7,8 @@
 
 use crate::arch::x86_64::regmodel::{Win64RegisterModel, X86_64RegisterModel};
 use crate::arch::x86_64::select::{select_x86, X86Abi};
-use crate::target::shared::code::mir::{Backend, MirInstruction};
-use crate::target::shared::code::CodeInstruction;
+use crate::codegen::engine::mir::{Backend, MirInstruction};
+use crate::codegen::engine::types::CodeInstruction;
 use crate::target::shared::regmodel::RegisterModel;
 
 static X86_64_MODEL: X86_64RegisterModel = X86_64RegisterModel;
@@ -89,7 +89,7 @@ impl Backend for Win64Backend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::target::shared::code::mir::lower_to_mir;
+    use crate::codegen::engine::mir::lower_to_mir;
 
     #[test]
     fn backend_selects_and_reports_model_and_padding() {

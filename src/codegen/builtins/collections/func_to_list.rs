@@ -1,13 +1,13 @@
 //! `collections::toList` — descriptor entry + target-generic lowering (plan-96).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::set_element_type;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::code::type_utils::set_element_type;
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTO_TO_LIST: &str = "Return the elements of a set as a list, in insertion order";
 const DESC_TO_LIST: &str = r#"`collections::toList` returns a new `List OF T` holding every element of the set
 `value` exactly once, in the set's stable insertion order. It takes exactly one
@@ -48,7 +48,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "toList",
         intro: INTO_TO_LIST,

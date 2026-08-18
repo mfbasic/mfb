@@ -17,6 +17,6 @@ FUNC __crypto_sha256Ktable() AS List OF Integer
   RETURN __crypto_beWords(raw)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_sha256Ktable", BODY));
 }

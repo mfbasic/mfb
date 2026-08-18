@@ -18,6 +18,6 @@ r#"FUNC __crypto_reduce(r AS List OF Byte) AS List OF Byte
   RETURN __crypto_modL(x)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_reduce", BODY));
 }

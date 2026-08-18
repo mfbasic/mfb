@@ -69,6 +69,6 @@ r#"FUNC __regex_parseClass(pat AS List OF String, n AS Integer, i AS Integer, fl
   RETURN __regex_Parse[node, idx, g, names]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_parseClass", BODY));
 }

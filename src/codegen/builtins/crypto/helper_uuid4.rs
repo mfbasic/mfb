@@ -25,6 +25,6 @@ FUNC __crypto_uuid4() AS String
   RETURN p1 & "-" & p2 & "-" & p3 & "-" & p4 & "-" & p5
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_uuid4", BODY));
 }

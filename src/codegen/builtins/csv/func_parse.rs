@@ -141,7 +141,7 @@ r#"FUNC __csv_parse(value AS String, delimiter AS String, quote AS String) AS Li
   RETURN rows
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "parse",
         intro: INTRO,

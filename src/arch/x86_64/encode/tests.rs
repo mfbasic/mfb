@@ -6,9 +6,12 @@
 
 use super::emitter::{encode_instruction, Encoder};
 use super::sizing::instruction_size;
-use crate::target::shared::code::{
-    CodeDataObject, CodeFrame, CodeFunction, CodeImport, CodeInstruction, NativeCodePlan,
-};
+use crate::codegen::engine::types::CodeDataObject;
+use crate::codegen::engine::types::CodeFrame;
+use crate::codegen::engine::types::CodeFunction;
+use crate::codegen::engine::types::CodeImport;
+use crate::codegen::engine::types::CodeInstruction;
+use crate::codegen::engine::types::NativeCodePlan;
 use std::collections::HashMap;
 
 fn fresh_encoder() -> Encoder {
@@ -1984,7 +1987,7 @@ fn blr_and_unknown_register() {
     assert!(enc_err(&ins).contains("xmm"));
 }
 
-fn encode_err(plan: &crate::target::shared::code::NativeCodePlan) -> String {
+fn encode_err(plan: &crate::codegen::engine::types::NativeCodePlan) -> String {
     match super::encode(plan) {
         Ok(_) => panic!("expected encode to fail"),
         Err(err) => err,
@@ -1992,12 +1995,12 @@ fn encode_err(plan: &crate::target::shared::code::NativeCodePlan) -> String {
 }
 
 fn minimal_plan(
-    functions: Vec<crate::target::shared::code::CodeFunction>,
-    data_objects: Vec<crate::target::shared::code::CodeDataObject>,
-    imports: Vec<crate::target::shared::code::CodeImport>,
+    functions: Vec<crate::codegen::engine::types::CodeFunction>,
+    data_objects: Vec<crate::codegen::engine::types::CodeDataObject>,
+    imports: Vec<crate::codegen::engine::types::CodeImport>,
     entry: Option<&str>,
-) -> crate::target::shared::code::NativeCodePlan {
-    crate::target::shared::code::NativeCodePlan {
+) -> crate::codegen::engine::types::NativeCodePlan {
+    crate::codegen::engine::types::NativeCodePlan {
         target: "linux-x86_64".to_string(),
         build_mode: crate::target::NativeBuildMode::Console,
         arch: "x86_64".to_string(),
@@ -2012,13 +2015,13 @@ fn minimal_plan(
 fn simple_function(
     symbol: &str,
     instructions: Vec<CodeInstruction>,
-) -> crate::target::shared::code::CodeFunction {
-    crate::target::shared::code::CodeFunction {
+) -> crate::codegen::engine::types::CodeFunction {
+    crate::codegen::engine::types::CodeFunction {
         name: symbol.to_string(),
         symbol: symbol.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),
-        frame: crate::target::shared::code::CodeFrame {
+        frame: crate::codegen::engine::types::CodeFrame {
             stack_size: 0,
             callee_saved: Vec::new(),
         },
@@ -2030,7 +2033,7 @@ fn simple_function(
 
 #[test]
 fn encode_produces_an_image_with_symbols_and_data() {
-    let data = crate::target::shared::code::CodeDataObject {
+    let data = crate::codegen::engine::types::CodeDataObject {
         symbol: "g".to_string(),
         kind: "string".to_string(),
         layout: "bytes".to_string(),
@@ -2038,7 +2041,7 @@ fn encode_produces_an_image_with_symbols_and_data() {
         size: 16,
         value: "hi".to_string(),
     };
-    let raw = crate::target::shared::code::CodeDataObject {
+    let raw = crate::codegen::engine::types::CodeDataObject {
         symbol: "r".to_string(),
         kind: "raw".to_string(),
         layout: "bytes".to_string(),
@@ -2086,7 +2089,7 @@ fn encode_data_rejects_bad_hex() {
     // Odd digit count.
     let plan = minimal_plan(
         Vec::new(),
-        vec![crate::target::shared::code::CodeDataObject {
+        vec![crate::codegen::engine::types::CodeDataObject {
             symbol: "r".to_string(),
             kind: "raw".to_string(),
             layout: "bytes".to_string(),
@@ -2101,7 +2104,7 @@ fn encode_data_rejects_bad_hex() {
     // Non-hex digit.
     let plan = minimal_plan(
         Vec::new(),
-        vec![crate::target::shared::code::CodeDataObject {
+        vec![crate::codegen::engine::types::CodeDataObject {
             symbol: "r".to_string(),
             kind: "raw".to_string(),
             layout: "bytes".to_string(),
@@ -2127,7 +2130,7 @@ fn encode_carries_imports() {
     let plan = minimal_plan(
         vec![func],
         Vec::new(),
-        vec![crate::target::shared::code::CodeImport {
+        vec![crate::codegen::engine::types::CodeImport {
             library: "libc".to_string(),
             symbol: "puts".to_string(),
         }],
@@ -3382,8 +3385,9 @@ fn encode_external_call_and_got_load() {
         .iter()
         .any(|r| r.binding == "external" && r.library.as_deref() == Some("libc")));
     // The GOT-routed data load carries the GotLoadLo kind.
-    let got_kind =
-        crate::arch::x86_64::reloc::reloc_kind(crate::target::shared::code::RelocIntent::GotLoadLo);
+    let got_kind = crate::arch::x86_64::reloc::reloc_kind(
+        crate::codegen::engine::types::RelocIntent::GotLoadLo,
+    );
     assert!(image.relocations.iter().any(|r| r.kind == got_kind));
 }
 

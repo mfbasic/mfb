@@ -12,13 +12,18 @@
 //! `BCryptSignHash` emits a fixed `r‖s` (2·field); this backend DER-encodes it and
 //! DER-decodes the peer signature back into `r‖s` for `BCryptVerifySignature`.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::memory::arena::*;
+use crate::codegen::memory::marshal::*;
 use std::collections::HashMap;
 
 use super::{emit_build_byte_list, emit_fail, emit_read_byte_list, Curve, EcOp};
 use crate::target::shared::abi;
-use crate::target::shared::code::native_helpers::{emit_data_address, emit_zero_guarded};
-use crate::target::shared::code::*;
-
 impl Curve {
     fn field_len(self) -> usize {
         match self {
@@ -172,7 +177,7 @@ fn copy_bytes(src: &str, dst: &str, count: &str, tag: &str, ins: &mut Vec<CodeIn
     ]);
 }
 
-pub(super) fn lower(
+pub(crate) fn lower(
     op: EcOp,
     curve: Curve,
     symbol: &str,
@@ -425,8 +430,8 @@ mod cng_backend_tests {
     // paths that cannot execute on this macOS host — the assertions pin the
     // emitted instruction stream / resolved symbols so the fixes cannot regress.
     use super::*;
-    use crate::target::shared::code::mir;
-    use crate::target::shared::code::test_support::{has_label, TestPlatform};
+    use crate::codegen::engine::mir;
+    use crate::codegen::engine::tests::{has_label, TestPlatform};
 
     fn reloc_has(rel: &[CodeRelocation], needle: &str) -> bool {
         rel.iter().any(|r| r.to.contains(needle))

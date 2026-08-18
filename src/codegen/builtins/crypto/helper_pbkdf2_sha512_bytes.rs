@@ -21,6 +21,6 @@ r#"FUNC __crypto_pbkdf2Sha512_bytes(password AS List OF Byte, salt AS List OF By
   RETURN __crypto_truncate(okm, length)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_pbkdf2Sha512_bytes", BODY));
 }

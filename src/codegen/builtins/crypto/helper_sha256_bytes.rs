@@ -12,6 +12,6 @@ r#"FUNC __crypto_sha256_bytes(data AS List OF Byte) AS List OF Byte
   RETURN __crypto_sha2_32(data, __CRYPTO_IV256, 32)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_sha256_bytes", BODY));
 }

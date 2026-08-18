@@ -71,7 +71,7 @@ r#"FUNC __datetime_offsetAt(z AS Zone, at AS Instant) AS Integer
   RETURN z.offsetSeconds
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "offsetAt",
         intro: INTRO,

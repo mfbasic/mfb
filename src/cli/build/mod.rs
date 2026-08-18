@@ -24,7 +24,6 @@ use crate::resolver;
 use crate::rules;
 use crate::syntaxcheck;
 use crate::target;
-use crate::target::shared::code::link_locator;
 
 /// How much human-facing progress `mfb build` prints (plan-36). Never reaches
 /// codegen — only the CLI's own `println!`/`eprintln!` lines are gated on it, so
@@ -111,7 +110,7 @@ pub(crate) struct BuildOptions {
     pub(crate) app_debug: bool,
     /// Register-allocation strategy selected by `-regalloc <name>` (plan-03
     /// §4.2). Defaults to the backend default.
-    pub(crate) regalloc: target::shared::code::regalloc::RegallocKind,
+    pub(crate) regalloc: crate::codegen::engine::regalloc::RegallocKind,
     /// `--unsigned`: opt into building against unsigned dependencies whose
     /// source is not local (audit-1 PKG-01). Unsigned *local* (`file:`/`local:`)
     /// dependencies are always permitted; this flag additionally allows unsigned
@@ -177,7 +176,7 @@ impl BuildOutput {
 pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // Record the register-allocation strategy for the native backend to read
     // during lowering (plan-03 §4.2).
-    target::shared::code::regalloc::set_strategy(options.regalloc);
+    crate::codegen::engine::regalloc::set_strategy(options.regalloc);
     let reporter = Reporter::new(options.verbosity);
     let target = options.target.clone();
     let project_path = options.location.join("project.json");
@@ -591,38 +590,40 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             // image and vice versa: harmless at runtime (each binary `dlopen`s
             // its own filename) but it doubles the payload and ships a library
             // that can never load there.
-            let vendor_copies: Vec<(Vec<link_locator::ResolvedLibrary>, Vec<PathBuf>)> =
-                if build_mode == target::NativeBuildMode::LinuxApp {
-                    crate::os::linux::flavor::LinuxFlavor::ALL
-                        .iter()
-                        .map(|flavor| {
-                            let libc = flavor.libc();
-                            let for_flavor = vendored
-                                .iter()
-                                .filter(|library| {
-                                    // `libc: None` means the locator applies to
-                                    // every libc world, so it belongs in both.
-                                    library.locator.libc.is_none_or(|l| l == libc)
-                                })
-                                .cloned()
-                                .collect();
-                            let dir = output_dir
-                                .join(crate::os::BUILD_DIR)
-                                .join(crate::os::linux::appdir::appdir_name(
-                                    &ir.name,
-                                    flavor.suffix(),
-                                ))
-                                .join("usr")
-                                .join("lib");
-                            (for_flavor, vec![dir])
-                        })
-                        .collect()
-                } else {
-                    vec![(
-                        vendored.clone(),
-                        vendor_output_dirs(output_dir, &ir.name, build_mode),
-                    )]
-                };
+            let vendor_copies: Vec<(
+                Vec<crate::codegen::link::locator::ResolvedLibrary>,
+                Vec<PathBuf>,
+            )> = if build_mode == target::NativeBuildMode::LinuxApp {
+                crate::os::linux::flavor::LinuxFlavor::ALL
+                    .iter()
+                    .map(|flavor| {
+                        let libc = flavor.libc();
+                        let for_flavor = vendored
+                            .iter()
+                            .filter(|library| {
+                                // `libc: None` means the locator applies to
+                                // every libc world, so it belongs in both.
+                                library.locator.libc.is_none_or(|l| l == libc)
+                            })
+                            .cloned()
+                            .collect();
+                        let dir = output_dir
+                            .join(crate::os::BUILD_DIR)
+                            .join(crate::os::linux::appdir::appdir_name(
+                                &ir.name,
+                                flavor.suffix(),
+                            ))
+                            .join("usr")
+                            .join("lib");
+                        (for_flavor, vec![dir])
+                    })
+                    .collect()
+            } else {
+                vec![(
+                    vendored.clone(),
+                    vendor_output_dirs(output_dir, &ir.name, build_mode),
+                )]
+            };
             for (libraries, dirs) in &vendor_copies {
                 if let Err(err) =
                     copy_vendor_libraries(libraries, &options.location, &ir.name, dirs)
@@ -998,7 +999,7 @@ mod tests {
             assert_eq!(long.regalloc, short.regalloc);
             assert_eq!(
                 long.regalloc,
-                target::shared::code::regalloc::parse_kind("bump").expect("bump")
+                crate::codegen::engine::regalloc::parse_kind("bump").expect("bump")
             );
         }
 
@@ -1638,10 +1639,10 @@ mod tests {
         }
     }
 
-    fn resolved(unit: &str, source: &str) -> link_locator::ResolvedLibrary {
+    fn resolved(unit: &str, source: &str) -> crate::codegen::link::locator::ResolvedLibrary {
         let locator = vendor_locator(source);
-        link_locator::ResolvedLibrary {
-            dlopen_name: link_locator::dlopen_name(&locator, unit),
+        crate::codegen::link::locator::ResolvedLibrary {
+            dlopen_name: crate::codegen::link::locator::dlopen_name(&locator, unit),
             declaring_unit: unit.to_string(),
             locator,
         }
@@ -1655,7 +1656,11 @@ mod tests {
     /// Write a resolved library's source bytes where `vendor_source_path` will
     /// look for them given `OWN_UNIT` — the imported `packages/<unit>.vendor/`
     /// directory for a unit other than `OWN_UNIT`.
-    fn write_vendor_source(root: &Path, library: &link_locator::ResolvedLibrary, bytes: &[u8]) {
+    fn write_vendor_source(
+        root: &Path,
+        library: &crate::codegen::link::locator::ResolvedLibrary,
+        bytes: &[u8],
+    ) {
         let path = vendor_source_path(root, OWN_UNIT, library);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, bytes).unwrap();

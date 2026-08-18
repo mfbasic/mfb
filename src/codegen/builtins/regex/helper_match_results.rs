@@ -41,6 +41,6 @@ FUNC __regex_matchResults(prog AS __regex_Program, ctx AS __regex_Ctx, start AS 
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_matchResults", BODY));
 }

@@ -1,6 +1,8 @@
+// --- codegen tier imports (migration) ---
 use super::*;
+use crate::codegen::engine::builder::*;
 use crate::target::shared::abi;
-
+use std::collections::HashMap;
 /// `_mfb_rt_fs_file_drain` (plan-14-B): flush one `File`'s per-handle output buffer
 /// to its fd. `x0 = File*`. No-op when the handle is unbuffered (`BUF_ENABLED == 0`)
 /// or nothing is pending; otherwise a `write(fd, BUF_PTR, BUF_FILLED)` loop that

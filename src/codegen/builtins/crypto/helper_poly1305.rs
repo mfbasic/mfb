@@ -87,6 +87,6 @@ FUNC __crypto_poly1305(key AS List OF Byte, msg AS List OF Byte) AS List OF Byte
   RETURN __crypto_polyFinish(h0, h1, h2, h3, h4, key)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_poly1305", BODY));
 }

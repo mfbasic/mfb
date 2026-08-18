@@ -1,15 +1,17 @@
 //! `collections::groupBy` — descriptor entry + MFBASIC source body (Implementation::Mfb).
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
-
 /// Native fast path for `#collections_groupBy$T$K$V` (Integer key, fixed-width or
 /// String T/V, re-eval-safe value). Every other instantiation declines
 /// (`Ok(None)`) and runs the `.mfb` body. Free fn (an `impl` method would not
 /// coerce to `MfbFastPath`).
-pub(super) fn group_by_fast_path(
+pub(crate) fn group_by_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],
@@ -47,7 +49,7 @@ impl CodeBuilder<'_> {
     /// key, re-eval-safe `value`). Grows each bucket as a top-level list keyed via
     /// an inline open-addressing hash table (no O(bucket²) get-copy), then
     /// materializes the `Map OF K TO List OF V` once. Else `.mfb`.
-    pub(super) fn lower_collection_group_by_call(
+    pub(crate) fn lower_collection_group_by_call(
         &mut self,
         args: &[NirValue],
         key_type: &str,

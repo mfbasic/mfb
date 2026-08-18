@@ -79,7 +79,7 @@ r#"FUNC __datetime_fromMillis(millis AS Integer) AS Instant
   RETURN Instant[q, r * 1000000]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "fromMillis",
         intro: INTRO,

@@ -24,6 +24,6 @@ r#"FUNC __csv_needsQuote(field AS String, delimiter AS String, quote AS String) 
   RETURN FALSE
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("csv_needsQuote", BODY));
 }

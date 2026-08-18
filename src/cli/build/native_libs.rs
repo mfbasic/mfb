@@ -42,7 +42,7 @@ pub(super) fn assemble_native_library_table(
 pub(super) fn emitted_link_targets(
     target: &target::BuildTarget,
     _build_mode: target::NativeBuildMode,
-) -> Vec<link_locator::LinkTarget> {
+) -> Vec<crate::codegen::link::locator::LinkTarget> {
     if target.os == "linux" {
         // plan-56-B §4.1: every Linux build — console AND app — emits both libc
         // worlds, so vendor resolution must cover both. Leaving app mode on
@@ -50,14 +50,14 @@ pub(super) fn emitted_link_targets(
         let flavors: &[Libc] = &[Libc::Glibc, Libc::Musl];
         flavors
             .iter()
-            .map(|libc| link_locator::LinkTarget {
+            .map(|libc| crate::codegen::link::locator::LinkTarget {
                 os: target.os.clone(),
                 arch: target.arch.clone(),
                 libc: Some(*libc),
             })
             .collect()
     } else {
-        vec![link_locator::LinkTarget {
+        vec![crate::codegen::link::locator::LinkTarget {
             os: target.os.clone(),
             arch: target.arch.clone(),
             libc: None,
@@ -76,9 +76,12 @@ pub(super) fn resolved_vendor_libraries(
     packages: &[PathBuf],
     target: &target::BuildTarget,
     build_mode: target::NativeBuildMode,
-) -> Result<Vec<link_locator::ResolvedLibrary>, String> {
-    let tables =
-        link_locator::LibraryTables::collect(packages, &ir.name, ir.native_libraries.clone())?;
+) -> Result<Vec<crate::codegen::link::locator::ResolvedLibrary>, String> {
+    let tables = crate::codegen::link::locator::LibraryTables::collect(
+        packages,
+        &ir.name,
+        ir.native_libraries.clone(),
+    )?;
     // Derived from the tables, not `ir.link_library_names()`: `ir` here is the
     // project's own IR, not yet merged with its imported packages, so its
     // `link_functions` would miss every library an imported binding links — which
@@ -88,9 +91,13 @@ pub(super) fn resolved_vendor_libraries(
         return Ok(Vec::new());
     }
 
-    let mut vendored: Vec<link_locator::ResolvedLibrary> = Vec::new();
+    let mut vendored: Vec<crate::codegen::link::locator::ResolvedLibrary> = Vec::new();
     for link_target in emitted_link_targets(target, build_mode) {
-        let resolved = link_locator::LinkLibraries::resolve_all(&tables, &linked, &link_target)?;
+        let resolved = crate::codegen::link::locator::LinkLibraries::resolve_all(
+            &tables,
+            &linked,
+            &link_target,
+        )?;
         for library in resolved.vendored() {
             if !vendored
                 .iter()
@@ -113,7 +120,7 @@ pub(super) fn resolved_vendor_libraries(
 pub(super) fn vendor_source_path(
     project_root: &Path,
     own_unit: &str,
-    library: &link_locator::ResolvedLibrary,
+    library: &crate::codegen::link::locator::ResolvedLibrary,
 ) -> PathBuf {
     if library.declaring_unit == own_unit {
         crate::manifest::libraries::vendor_path(project_root, &library.locator.source)
@@ -134,7 +141,7 @@ pub(super) fn vendor_source_path(
 /// `pkg add` downloaded to `<project>/packages/<declaring-unit>.vendor/<source>`.
 /// Either way the `.mfp` carries the hash, never the blob.
 pub(super) fn verify_vendor_libraries(
-    vendored: &[link_locator::ResolvedLibrary],
+    vendored: &[crate::codegen::link::locator::ResolvedLibrary],
     project_root: &Path,
     own_unit: &str,
 ) -> bool {
@@ -315,7 +322,7 @@ pub(super) fn resource_output_dirs(
 /// written here and the string emitted there ever disagreed, the `dlopen` would
 /// miss at runtime and nothing at build time would notice.
 pub(super) fn copy_vendor_libraries(
-    vendored: &[link_locator::ResolvedLibrary],
+    vendored: &[crate::codegen::link::locator::ResolvedLibrary],
     project_root: &Path,
     own_unit: &str,
     output_dirs: &[PathBuf],

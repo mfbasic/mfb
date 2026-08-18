@@ -69,7 +69,7 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
     // for the injected `bl`s to resolve. Perf-free / non-macOS / non-entry plans
     // are untouched, staying byte-identical to pre-plan-67 HEAD. `perf.start` /
     // `perf.end` are added by plan-67-C / plan-67-D when their injection lands.
-    if crate::target::shared::code::perf_injection_enabled()
+    if crate::codegen::engine::builder::perf_injection_enabled()
         && module.entry.is_some()
         && module.target == "macos-aarch64"
     {
@@ -190,7 +190,7 @@ pub(super) fn platform_imports(
     // above; force the import under the same perf-macOS-entry gate as the perf
     // symbols and injection. `perf_init`/`perf_done` need no libc import (their
     // mmap / write ride syscalls).
-    if crate::target::shared::code::perf_injection_enabled()
+    if crate::codegen::engine::builder::perf_injection_enabled()
         && module.entry.is_some()
         && module.target == "macos-aarch64"
     {

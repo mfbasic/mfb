@@ -18,6 +18,6 @@ r#"FUNC __csv_isDoubledQuote(chars AS List OF Integer, count AS Integer, index A
   RETURN FALSE
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("csv_isDoubledQuote", BODY));
 }

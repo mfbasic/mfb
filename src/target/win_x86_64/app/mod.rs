@@ -24,13 +24,27 @@
 use std::collections::HashMap;
 
 use crate::arch::aarch64::abi;
-use crate::target::shared::code::{
-    AppEntrySpec, AppHookBody, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction,
-    CodeRelocation, Operand, RelocIntent, ARENA_ALLOC_SYMBOL, ARENA_STATE_REGISTER,
-    MACAPP_PROGRAM_SYMBOL, RESULT_OK_TAG, RESULT_TAG_REGISTER, RESULT_VALUE_REGISTER,
-    TERM_STATE_ACTIVE_OFFSET, TERM_STATE_BG_OFFSET, TERM_STATE_BOLD_OFFSET,
-    TERM_STATE_CURSOR_VISIBLE_OFFSET, TERM_STATE_FG_OFFSET, TERM_STATE_UNDERLINE_OFFSET,
-};
+use crate::codegen::engine::builder::AppHookBody;
+use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::types::AppEntrySpec;
+use crate::codegen::engine::types::CodeDataObject;
+use crate::codegen::engine::types::CodeFrame;
+use crate::codegen::engine::types::CodeFunction;
+use crate::codegen::engine::types::CodeInstruction;
+use crate::codegen::engine::types::CodeRelocation;
+use crate::codegen::engine::types::RelocIntent;
+use crate::codegen::error::constants::ARENA_ALLOC_SYMBOL;
+use crate::codegen::error::constants::ARENA_STATE_REGISTER;
+use crate::codegen::error::constants::MACAPP_PROGRAM_SYMBOL;
+use crate::codegen::error::constants::RESULT_OK_TAG;
+use crate::codegen::error::constants::RESULT_TAG_REGISTER;
+use crate::codegen::error::constants::RESULT_VALUE_REGISTER;
+use crate::codegen::error::constants::TERM_STATE_ACTIVE_OFFSET;
+use crate::codegen::error::constants::TERM_STATE_BG_OFFSET;
+use crate::codegen::error::constants::TERM_STATE_BOLD_OFFSET;
+use crate::codegen::error::constants::TERM_STATE_CURSOR_VISIBLE_OFFSET;
+use crate::codegen::error::constants::TERM_STATE_FG_OFFSET;
+use crate::codegen::error::constants::TERM_STATE_UNDERLINE_OFFSET;
 
 const KERNEL32: &str = "kernel32.dll";
 const USER32: &str = "user32.dll";
@@ -2947,7 +2961,7 @@ fn writable_qword(symbol: &str) -> CodeDataObject {
 mod tests {
     use super::*;
     use crate::arch::ops::CodeOp;
-    use crate::target::shared::code::PresentationMode;
+    use crate::codegen::engine::types::PresentationMode;
 
     fn spec() -> AppEntrySpec {
         AppEntrySpec {

@@ -27,6 +27,6 @@ FUNC __encoding_baseDecodeBits(values AS List OF Integer, bitsPer AS Integer) AS
   RETURN result
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_baseDecodeBits", BODY));
 }

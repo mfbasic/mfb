@@ -22,12 +22,15 @@
 //! shared code layer (`src/target/shared/code/app.rs::prepend_wrong_mode_gate`),
 //! since it splices into other packages' helper bodies.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
 use std::collections::HashMap;
 
 use crate::codegen::registry::OsLowerCtx;
 use crate::target::shared::abi;
-use crate::target::shared::code::*;
-
 /// The two `app::` presentation-mode runtime helpers. Reads the per-arena
 /// presentation-mode slot (`getMode`) or writes it and runs the per-backend
 /// surface-reconcile seam (`setMode`). `ctx.presentation_mode_offset` is the arena

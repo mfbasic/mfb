@@ -61,7 +61,7 @@ array at all**. Element `i` is at `Data[i * payloadSize]`, so the entry a kind-0
 list would hold is exactly the identity mapping and stores nothing the index
 does not already say.
 
-[[src/target/shared/code/error_constants.rs:COLLECTION_KIND_LIST_FIXED]]
+[[src/codegen/error/constants/error_constants.rs:COLLECTION_KIND_LIST_FIXED]]
 
 | Element type | Payload width |
 |---|---|
@@ -111,7 +111,7 @@ in the `Buckets` region after the data. It reuses the map machinery verbatim, bu
 it is a hash-indexed set of **elements, not key/value pairs**: each element is
 stored as an entry **key** (in `keyOffset`/`keyLength`), and the entry's value is
 a single implementation-detail tag byte carrying no information a program can
-read. [[src/target/shared/code/error_constants.rs:COLLECTION_KIND_SET]]
+read. [[src/codegen/error/constants/error_constants.rs:COLLECTION_KIND_SET]]
 
 Because a set is map-shaped it carries buckets exactly as a map does — the
 bucket region is shared through `collection_has_buckets`, which is true for both
@@ -120,7 +120,7 @@ O(1)-average FNV-1a probe of the element key for a probe-eligible element type
 (`Integer`, `Float`, `Fixed`, `Byte`, `Boolean`, `String`) and a linear scan over
 the live lookup entries otherwise, with the index built lazily on first use and
 `bucketsReady` set exactly as for a map.
-[[src/target/shared/code/type_utils.rs:collection_has_buckets]]
+[[src/codegen/engine/types/type_utils.rs:collection_has_buckets]]
 The lookup table stays insertion-ordered, so `FOR EACH` over a set and
 `collections::toList` visit the elements in insertion order, and a set literal
 `Set OF T { … }` builds a tight block (`capacity == count`) with each distinct
@@ -131,7 +131,7 @@ element inserted once. Copy and thread transfer are shrink-to-fit and leave
 
 - `kind` identifies whether the allocation is a `List` (`0`), a `Map` (`1`), a
   fixed-width `List` carrying no lookup entries (`2`; see *Fixed-Width Lists*), or
-  a `Set` (`3`; see *Sets*). [[src/target/shared/code/error_constants.rs:COLLECTION_KIND_SET]]
+  a `Set` (`3`; see *Sets*). [[src/codegen/error/constants/error_constants.rs:COLLECTION_KIND_SET]]
 - `keyType` identifies the map key payload type. It is `0` for `List`.
 - `valueType` identifies the list item type or map value type.
 - `flagsVersion` identifies the layout version and collection-level flags.
@@ -151,7 +151,7 @@ element inserted once. Copy and thread transfer are shrink-to-fit and leave
 
 `keyType` and `valueType` are compact runtime type identifiers. The **payload
 size and alignment** columns are what a decoder strides by; they are not implied
-by the identifier's value. [[src/target/shared/code/error_constants.rs:COLLECTION_TYPE_SCALAR]] [[src/target/shared/code/builder_collection_layout.rs:collection_payload_alignment]]
+by the identifier's value. [[src/codegen/error/constants/error_constants.rs:COLLECTION_TYPE_SCALAR]] [[src/codegen/collection/layout/builder_collection_layout.rs:collection_payload_alignment]]
 
 | Type | Identifier | Payload | Align |
 |------|------------|---------|-------|
@@ -201,7 +201,7 @@ metadata). `keys`/`values`/iteration walk this array directly.
 A `Map` carries a hash index in the `Buckets` array that sits **after** the data
 region (a `List` reserves none). It makes key lookup O(1) average instead of the
 linear entry scan, without disturbing the capacity-based data base or the
-insertion-ordered entries. [[src/target/shared/code/mod.rs:lower_map_probe_helper]]
+insertion-ordered entries. [[src/codegen/engine/builder/mod.rs:lower_map_probe_helper]]
 
 - **Size and addressing.** `Buckets` has `2 * capacity` `U64` slots (load factor
   ≤ 0.5), based at `header + capacity*entryStride + dataCapacity`. Each slot holds
@@ -233,7 +233,7 @@ entry offsets are relative to its own base, an inlined nested collection
 relocates correctly under the enclosing block's `memcpy`. The **only** payloads
 that remain an 8-byte pointer handle are a **resource** and a **non-flat** nested
 collection (one whose own payloads include a resource or a recursive type) — see
-`is_pointer_collection_payload_type`. [[src/target/shared/code/builder_collection_layout.rs:is_pointer_collection_payload_type]]
+`is_pointer_collection_payload_type`. [[src/codegen/collection/layout/builder_collection_layout.rs:is_pointer_collection_payload_type]]
 
 A **function value** (`FUNC(...) AS T`, list element or map value) is packed as a
 single **8-byte pointer** to its arena-lifetime closure object (`./mfb spec memory
@@ -246,7 +246,7 @@ matches the `List OF Integer` flatness class (`type_is_flat` is true for a funct
 type), so a `List`/`Map` of function values is itself a flat block whose scope-drop
 `arena_free` reclaims only the packed pointer array, leaving every referenced
 closure object owned by the arena. A record **field** of function type is likewise
-a bare 8-byte slot and is unaffected. [[src/target/shared/code/type_utils.rs:is_function_type]] [[src/target/shared/code/builder_collection_layout.rs:emit_payload_length_to_stack]]
+a bare 8-byte slot and is unaffected. [[src/codegen/engine/types/type_utils.rs:is_function_type]] [[src/codegen/collection/layout/builder_collection_layout.rs:emit_payload_length_to_stack]]
 
 ### Capacity Headroom and Growth
 
@@ -331,7 +331,7 @@ Note that `list_element_padding_alignment` returning 1 guarantees there are no
 *gaps* between payloads, not that they are in *order*. The two are independent,
 and conflating them is what made every linear reader wrong for permuted lists
 before this rule was written down (bug-365).
-[[src/target/shared/code/builder_collection_layout.rs:list_element_is_fixed_width]]
+[[src/codegen/collection/layout/builder_collection_layout.rs:list_element_is_fixed_width]]
 
 ## List Examples
 
@@ -444,7 +444,7 @@ leaving five unobservable padding bytes at offsets `3` through `7`.
 ### Copy
 
 A collection copy is **shrink-to-fit**: `copy_flat_block` routes a collection to
-`copy_collection_tight`, which allocates exactly [[src/target/shared/code/builder_collection_layout.rs:copy_collection_tight]]
+`copy_collection_tight`, which allocates exactly [[src/codegen/collection/layout/builder_collection_layout.rs:copy_collection_tight]]
 
 ```text
 CollectionHeader + LookupEntry[count] + Data[dataLength]
@@ -479,7 +479,7 @@ lookup entries. [[src/codegen/builtins/collections/common/map.rs:lower_map_get]]
 
 - **In-place (`MUT`, amortized O(1)).** When the buffer is a uniquely-owned `MUT`
   working buffer with headroom (`capacity > count` and enough `dataCapacity`),
-  `lower_list_append_in_place` writes the new item payload at `Data + dataLength`, [[src/target/shared/code/list_mutate.rs:lower_list_append_in_place]]
+  `lower_list_append_in_place` writes the new item payload at `Data + dataLength`, [[src/codegen/collection/list/list_mutate.rs:lower_list_append_in_place]]
   fills the next spare lookup entry, and bumps `count`/`dataLength` in place — no
   reallocation. If headroom is insufficient it first grows the buffer using the
   geometric shape in *Capacity Headroom and Growth* (reallocate-and-copy once,
@@ -494,7 +494,7 @@ lookup entries. [[src/codegen/builtins/collections/common/map.rs:lower_map_get]]
 in place, like `append`. It is excluded while the binding is an active `FOR EACH`
 iterable — an overwrite of an existing entry is observable to the snapshotting
 iterator, unlike a beyond-`count` append, so that case takes the value path.
-[[src/target/shared/code/list_mutate.rs:lower_list_set_in_place]]
+[[src/codegen/collection/list/list_mutate.rs:lower_list_set_in_place]]
 
 - **`List`.** When the replacement payload is the **same size**
   (`newValueLength == oldValueLength` — always true for fixed-width elements and
@@ -516,7 +516,7 @@ iterator, unlike a beyond-`count` append, so that case takes the value path.
   when full. Insertion order is preserved, and the new key is folded into the hash
   index per *Map Hash Index* (incremental `_mfb_rt_map_bucket_put` when built, or
   `bucketsReady = 0` when a grow moved the bucket region).
-  [[src/target/shared/code/map_mutate.rs:lower_map_set_in_place]]
+  [[src/codegen/collection/map/map_mutate.rs:lower_map_set_in_place]]
 
 The source `collections::sort` is an insertion sort built on `set`, so its
 per-swap `items = collections::set(items, j, …)` overwrites run in place:
@@ -526,7 +526,7 @@ argument (the argument itself is never modified).
 ### `insert`
 
 `List` `insert` is **not** an in-place shift. `lower_list_insert_collection`
-allocates a fresh **tight** buffer sized for `count + insertedCount` entries and [[src/target/shared/code/list_mutate.rs:lower_list_insert_collection]]
+allocates a fresh **tight** buffer sized for `count + insertedCount` entries and [[src/codegen/collection/list/list_mutate.rs:lower_list_insert_collection]]
 `dataLength + insertedDataLength` bytes, copies the pre-insertion data region then
 the inserted data region verbatim, splices the lookup table (head, inserted,
 tail), and writes a tight header (`capacity == count`, `dataCapacity ==
@@ -552,7 +552,7 @@ built with `insert`/`prepend`/`set` packs the spliced payload at the data tail, 
 `entry[0]` can point past the hole and shift while a later entry does not). The
 data region keeps its existing order minus the hole rather than being re-packed
 into list order; the observable value and tight sizing are unchanged.
-[[src/target/shared/code/list_mutate.rs:lower_list_remove_at]]
+[[src/codegen/collection/list/list_mutate.rs:lower_list_remove_at]]
 
 ### Map Updates
 

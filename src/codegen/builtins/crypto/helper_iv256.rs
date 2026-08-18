@@ -10,6 +10,6 @@ use crate::codegen::registry::{RegistryHelper, RegistryPackage};
 const BODY: &str =
 r#"LET __CRYPTO_IV256 AS List OF Integer = __crypto_sha256Iv()"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_iv256", BODY));
 }

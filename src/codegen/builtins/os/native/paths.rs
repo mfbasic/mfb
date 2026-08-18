@@ -1,7 +1,8 @@
+// --- codegen tier imports (migration) ---
 use super::*;
+use crate::codegen::engine::builder::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
-
 /// Emit the platform acquisition of the running executable's absolute path into
 /// the function frame (plan-55-B §4.1). macOS uses `_NSGetExecutablePath(buf,
 /// &size)`; Linux reads the `/proc/self/exe` symlink with `readlink`. Returns the
@@ -14,7 +15,7 @@ use std::collections::HashMap;
 /// this FIRST, before allocating any other vreg, so `os::executablePath` keeps the
 /// exact vreg-allocation order — and therefore the byte-identical output — it had
 /// before this factoring.
-pub(super) fn emit_executable_path_into(
+pub(crate) fn emit_executable_path_into(
     ctx: &mut EmitCtx,
     fail: &str,
     vregs: &mut Vregs,
@@ -102,7 +103,7 @@ pub(super) fn emit_executable_path_into(
 /// `os::executablePath` — the absolute path of the running binary. Acquires the
 /// path via `emit_executable_path_into` (plan-55-B §4.1) and builds an owned
 /// `String` from it: NUL-terminated on macOS, byte-counted on Linux.
-pub(super) fn lower_executable_path(
+pub(crate) fn lower_executable_path(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -183,7 +184,7 @@ pub(super) fn lower_executable_path(
 /// | console       | `…/build/<name>`          | 1     | ``             | `…/build`              |
 /// | macos `--app` | `…/Contents/MacOS/<name>` | 2     | `Resources`    | `…/Contents/Resources` |
 /// | linux `--app` | `…/usr/bin/<name>`        | 2     | `share/<name>` | `…/usr/share/<name>`   |
-pub(super) fn resource_base_offset(
+pub(crate) fn resource_base_offset(
     build_mode: crate::target::NativeBuildMode,
     module_name: &str,
 ) -> (u32, String) {
@@ -205,7 +206,7 @@ pub(super) fn resource_base_offset(
 /// components and appends the mode `suffix` to form the base, and concatenates
 /// `base + "/" + relative` into an owned arena `String`. The acquisition-failure
 /// path returns `ErrUnsupported`, matching `os::executablePath`.
-pub(super) fn lower_resource_path(
+pub(crate) fn lower_resource_path(
     symbol: &str,
     build_mode: crate::target::NativeBuildMode,
     module_name: &str,
@@ -467,7 +468,7 @@ pub(super) fn lower_resource_path(
 
 /// Branch to `bad_arg` when the just-ended path component is exactly `.` or `..`
 /// (all dots, length 1 or 2), else to `ok` (plan-55-B §4.4 step 1).
-pub(super) fn emit_reject_dot_component(
+pub(crate) fn emit_reject_dot_component(
     comp_len: &str,
     comp_all_dots: &str,
     bad_arg: &str,

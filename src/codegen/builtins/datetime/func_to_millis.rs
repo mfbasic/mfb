@@ -56,7 +56,7 @@ r#"FUNC __datetime_toMillis(at AS Instant) AS Integer
   RETURN at.seconds * 1000 + at.nanos / 1000000
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "toMillis",
         intro: INTRO,

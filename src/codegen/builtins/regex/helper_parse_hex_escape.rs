@@ -48,6 +48,6 @@ FUNC __regex_parseHexEscape(pat AS List OF String, n AS Integer, i AS Integer) A
   RETURN __regex_LitScalar[__regex_chr(value), i + 2]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_parseHexEscape", BODY));
 }

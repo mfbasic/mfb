@@ -7,11 +7,13 @@
 //! monomorph target and either lowers natively or declines (`Ok(None)`), in which
 //! case the codegen seam monomorphizes BODY instead.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::list_element_type;
+use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::list_element_type;
-use crate::target::shared::code::{CodeBuilder, Operand, ValueResult, COLLECTION_OFFSET_COUNT};
 use crate::target::shared::nir::NirValue;
-
 /// plan-86 A3: native `collections::flatten` (`#collections_flatten$T`, 1 arg)
 /// for a simple result element T (String or fixed-width) — the inner lists are
 /// inline self-contained blocks, bulk-appended into the result with no per-inner
@@ -21,7 +23,7 @@ use crate::target::shared::nir::NirValue;
 /// A free function, not a method: an `impl` method does not coerce to the
 /// higher-ranked `MfbFastPath` fn-pointer type (E0308), the same reason the
 /// `Native` lowerings are free functions.
-pub(super) fn flatten_fast_path(
+pub(crate) fn flatten_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],

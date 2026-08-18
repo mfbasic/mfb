@@ -26,9 +26,13 @@
 //! emitter shared by `send`/`sendBytes`, and the `process.__drop` helper (not a
 //! descriptor member, so it is still reached by name).
 
-use crate::target::shared::code::*;
+// --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
 use std::collections::HashMap;
-
 pub(crate) mod unix;
 pub(crate) mod windows;
 

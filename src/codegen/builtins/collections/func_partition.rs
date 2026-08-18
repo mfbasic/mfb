@@ -2,14 +2,16 @@
 //! Body byte-significant (2-space indent + inline comments → `.ncode` columns);
 //! do not reformat.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::{callable_return_type, list_element_type};
+use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::{callable_return_type, list_element_type};
-use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
-
 /// Native fast path for `#collections_partition$T` (fixed-width or String
 /// elements). Scalar/Byte decline (`Ok(None)`) and run the `.mfb` body. Free fn.
-pub(super) fn partition_fast_path(
+pub(crate) fn partition_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],
@@ -37,7 +39,7 @@ impl CodeBuilder<'_> {
     /// the destination data region), and the materialized item is freed after the
     /// append (plan-86 A2, mirroring `filter`). Scalar/Byte elements fall through to
     /// the `.mfb` version at the dispatch gate.
-    pub(super) fn lower_collection_partition_call(
+    pub(crate) fn lower_collection_partition_call(
         &mut self,
         args: &[NirValue],
         element_type: &str,

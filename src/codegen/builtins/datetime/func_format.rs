@@ -107,7 +107,7 @@ r#"FUNC __datetime_format(dt AS DateTime, pattern AS String) AS String
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "format",
         intro: INTRO,

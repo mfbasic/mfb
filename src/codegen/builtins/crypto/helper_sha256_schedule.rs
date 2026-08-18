@@ -32,6 +32,6 @@ FUNC __crypto_sha256Schedule(msg AS List OF Byte, base AS Integer) AS List OF In
   RETURN w
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_sha256Schedule", BODY));
 }

@@ -30,6 +30,6 @@ r#"FUNC __json_decodeEscape(ch AS String) AS String
   FAIL error(77050003, "invalid JSON format")
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_decodeEscape", BODY));
 }

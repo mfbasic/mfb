@@ -102,7 +102,7 @@ fn socket_connect(
         abi::branch_ne(fail),
         // effectiveTimeout = sentinel ? -1 (INFINITE) : timeoutMs (0 = immediate).
         abi::load_u64("%v9", abi::stack_pointer(), timeout_off),
-        abi::move_immediate("%v10", "Integer", crate::target::shared::code::TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
         abi::compare_registers("%v9", "%v10"),
         abi::branch_ne(&have_to),
         abi::move_immediate("%v9", "Integer", "0"),
@@ -219,7 +219,7 @@ fn set_secbuffer_desc(base: &str, off: usize, count: &str, buffers_off: usize, i
     ]);
 }
 
-pub(super) fn lower_tls_connect(
+pub(crate) fn lower_tls_connect(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -280,7 +280,7 @@ pub(super) fn lower_tls_connect(
         let ts_store = format!("{symbol}_ts_clamped");
         ins.extend([
             abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT),
-            abi::move_immediate("%v10", "Integer", crate::target::shared::code::TIMEOUT_UNBOUNDED_SENTINEL),
+            abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
             abi::compare_registers("%v9", "%v10"),
             abi::branch_eq(&ts_ok),
             abi::compare_immediate("%v9", "0"),
@@ -310,7 +310,7 @@ pub(super) fn lower_tls_connect(
         let hs_ts_skip = format!("{symbol}_hs_ts_skip");
         ins.extend([
             abi::load_u64("%v14", abi::stack_pointer(), TIMEOUT),
-            abi::move_immediate("%v15", "Integer", crate::target::shared::code::TIMEOUT_UNBOUNDED_SENTINEL),
+            abi::move_immediate("%v15", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
             abi::compare_registers("%v14", "%v15"),
             abi::branch_eq(&hs_ts_skip),
             // Winsock SO_*TIMEO is a DWORD of milliseconds (not a timeval); a value of
@@ -587,7 +587,7 @@ pub(super) fn lower_tls_connect(
         let hs_clr_skip = format!("{symbol}_hs_clr_skip");
         ins.extend([
             abi::load_u64("%v14", abi::stack_pointer(), TIMEOUT),
-            abi::move_immediate("%v15", "Integer", crate::target::shared::code::TIMEOUT_UNBOUNDED_SENTINEL),
+            abi::move_immediate("%v15", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
             abi::compare_registers("%v14", "%v15"),
             abi::branch_eq(&hs_clr_skip),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTV),

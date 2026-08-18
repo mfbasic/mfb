@@ -53,7 +53,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "localOffset",
         intro: INTRO,

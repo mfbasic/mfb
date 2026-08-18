@@ -19,7 +19,6 @@
 use crate::codegen::registry::{Registry, RegistryPackage};
 
 mod native;
-pub(crate) use native::lower_io_helper;
 
 mod func_flush;
 mod func_input;

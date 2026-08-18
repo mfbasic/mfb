@@ -37,6 +37,6 @@ FUNC __regex_parseClassEndpoint(pat AS List OF String, n AS Integer, idx AS Inte
   RETURN __regex_Endpoint[0, c, dummy, idx + 1]
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_parseClassEndpoint", BODY));
 }

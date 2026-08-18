@@ -17,7 +17,8 @@ use crate::codegen::builtins::tls::native::macos::{
     CTX_STATE, LCONN_INVOKE, LCTX_HEAD, LCTX_RING, LCTX_RING_CAP, LCTX_TAIL, RECV_INVOKE,
     RECV_POLL_INVOKE, SEND_INVOKE, STATE_INVOKE,
 };
-use crate::target::shared::code::{CodeFrame, CodeFunction};
+use crate::codegen::engine::types::CodeFrame;
+use crate::codegen::engine::types::CodeFunction;
 
 /// A leaf frame that only saves the link register (these trampolines call
 /// captured function pointers, so they are not true leaves).

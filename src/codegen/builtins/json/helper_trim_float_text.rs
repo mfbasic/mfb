@@ -15,6 +15,6 @@ r#"FUNC __json_trimFloatText(value AS String) AS String
   RETURN __json_trimFloatTextAt(value, len(value))
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_trimFloatText", BODY));
 }

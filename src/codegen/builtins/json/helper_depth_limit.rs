@@ -15,6 +15,6 @@ r#"' bug-422: ceiling on structural nesting depth. The native stack is exhausted
 ' it — the scalar scanners are iterative (bug-302) and unbounded at any length.
 LET __JSON_DEPTH_LIMIT AS Integer = 256"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_depthLimit", BODY));
 }

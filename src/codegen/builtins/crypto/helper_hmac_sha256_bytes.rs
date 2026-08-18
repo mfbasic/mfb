@@ -21,6 +21,6 @@ FUNC __crypto_hmacSha256_bytes(key AS List OF Byte, data AS List OF Byte) AS Lis
   RETURN __crypto_sha256_bytes(__crypto_concat(outer, innerHash))
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_hmacSha256_bytes", BODY));
 }

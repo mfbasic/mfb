@@ -1,12 +1,12 @@
 //! `collections::reduce` — descriptor entry + target-generic lowering (plan-96).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTO_REDUCE: &str = "Fold a list left to right into a single accumulated value";
 const DESC_REDUCE: &str = r#"`collections::reduce` folds `value` into one value. The accumulator starts as
 `initial`. The list is walked from the first element to the last, and for each
@@ -95,7 +95,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "reduce",
         intro: INTO_REDUCE,

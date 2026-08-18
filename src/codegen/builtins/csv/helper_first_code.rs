@@ -18,6 +18,6 @@ FUNC __csv_firstCode(s AS String) AS Integer
   RETURN collections::get(codes, 0)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("csv_firstCode", BODY));
 }

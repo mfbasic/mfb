@@ -887,11 +887,11 @@ pub(crate) fn register(r: &mut Registry) {
     // `__regex_scriptOf` / `__regex_scriptCanonName`).
     pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
         "regex_unicode_gencat",
-        include_str!("../../unicode/unicode_gencat.mfb"),
+        include_str!("../../string/unicode/unicode_gencat.mfb"),
     ));
     pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
         "regex_unicode_script_of",
-        include_str!("../../unicode/unicode_script_of.mfb"),
+        include_str!("../../string/unicode/unicode_script_of.mfb"),
     ));
 
     func_find::register(&mut pkg);

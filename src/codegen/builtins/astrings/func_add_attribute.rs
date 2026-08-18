@@ -42,7 +42,7 @@ fn ranged_attr_params() -> Vec<Parameter> {
     ]
 }
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "addAttribute",
         intro: "",

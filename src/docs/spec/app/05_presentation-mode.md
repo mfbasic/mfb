@@ -45,7 +45,7 @@ The current mode is one word in the program-entry frame, reserved a single slot
 past the `term::` state region and addressed off the pinned arena-state register —
 the same threading model as `term::` state. The slot is reserved only when the
 program actually uses `app::` (the `uses_term` model), so an app binary that never
-touches `app::` keeps its exact entry frame. [[src/target/shared/code/error_constants.rs:PRESENTATION_MODE_SLOTS]]
+touches `app::` keeps its exact entry frame. [[src/codegen/error/constants/error_constants.rs:PRESENTATION_MODE_SLOTS]]
 
 `app::getMode` and `app::setMode` are lowered inline to runtime helpers that load
 and store this word — `getMode` is a single load (as cheap as reading a local),
@@ -63,12 +63,12 @@ never-taken branch — and `Console` otherwise. A program that intends to manage
 own surface therefore starts windowless and brings a window up deliberately, while
 a program that never touches the mode keeps the default terminal-in-a-window
 surface. The decision keys on `setMode` specifically: a read-only `getMode` does
-not force windowless startup. [[src/target/shared/code/mod.rs:lower_module]]
+not force windowless startup. [[src/codegen/engine/builder/mod.rs:lower_module]]
 
 The worker entry seeds the mode slot to `None` when that is the static default;
 `Console` needs no store because the arena-state region zero-inits to `0`
 (`Console`), so a `Console`-default program's entry is byte-identical to one that
-never referenced the mode at all. [[src/target/shared/code/entry.rs:lower_program_entry]]
+never referenced the mode at all. [[src/codegen/engine/function/entry.rs:lower_program_entry]]
 
 ## The surface-reconcile seam
 
@@ -79,7 +79,7 @@ tear down the window (with an implicit `term::off` so no raw/grid state survives
 mode switch). The reconcile reads the authoritative mode back from the slot rather
 than a caller-saved register, since it emits register-clobbering cross-thread
 calls. The per-backend window mechanics are `./mfb spec app macos-runtime` and
-`./mfb spec app linux-runtime`. [[src/target/shared/code/types.rs:CodegenPlatform]]
+`./mfb spec app linux-runtime`. [[src/codegen/engine/types/types.rs:CodegenPlatform]]
 
 ## Mode-gated I/O
 

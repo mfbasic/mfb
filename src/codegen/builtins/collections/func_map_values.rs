@@ -1,14 +1,16 @@
 //! `collections::mapValues` — descriptor entry + MFBASIC source body (Implementation::Mfb).
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
-
 /// Native fast path for `#collections_mapValues$K$V$U` with V == U and 8-byte
 /// fixed-width (rewrites value payloads in place over a tight copy). Other
 /// instantiations decline (`Ok(None)`). Free fn.
-pub(super) fn map_values_fast_path(
+pub(crate) fn map_values_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],
@@ -37,7 +39,7 @@ impl CodeBuilder<'_> {
     /// N inserts, leaving `ready=0`); this copies the map's key/bucket structure
     /// once and rewrites each value payload in place (keys unchanged → the copied
     /// index stays valid). Every other instantiation falls through to the `.mfb`.
-    pub(super) fn lower_collection_map_values_call(
+    pub(crate) fn lower_collection_map_values_call(
         &mut self,
         args: &[NirValue],
     ) -> Result<ValueResult, String> {

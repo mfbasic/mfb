@@ -77,7 +77,7 @@ r#"FUNC __datetime_addMonths(dt AS DateTime, months AS Integer) AS DateTime
   RETURN __datetime_civil(Date[y, m, day], dt.time, dt.zone)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "addMonths",
         intro: INTRO,

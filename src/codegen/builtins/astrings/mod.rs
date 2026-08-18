@@ -104,3 +104,5 @@ pub(crate) fn register(r: &mut Registry) {
 
     r.add_package(pkg);
 }
+
+pub(crate) mod builder_astrings;

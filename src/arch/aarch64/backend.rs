@@ -7,8 +7,8 @@
 
 use crate::arch::aarch64::regmodel::Aarch64RegisterModel;
 use crate::arch::aarch64::select::select_aarch64;
-use crate::target::shared::code::mir::{Backend, MirInstruction};
-use crate::target::shared::code::CodeInstruction;
+use crate::codegen::engine::mir::{Backend, MirInstruction};
+use crate::codegen::engine::types::CodeInstruction;
 use crate::target::shared::regmodel::RegisterModel;
 
 /// The AArch64 register model singleton handed to the shared allocator.

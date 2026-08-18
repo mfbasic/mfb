@@ -62,7 +62,7 @@ r#"FUNC __datetime_minus(a AS Duration, b AS Duration) AS Duration
   RETURN __datetime_normDuration(a.seconds - b.seconds, a.nanos - b.nanos)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "minus",
         intro: INTRO,

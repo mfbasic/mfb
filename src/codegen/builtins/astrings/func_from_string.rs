@@ -6,13 +6,13 @@
 //! `Body::Native` `common` slot at the shared dispatcher
 //! `CodeBuilder::lower_astrings_package_call`.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 /// Target-generic native lowering for `astrings.fromString` (registry `Body::Native`
 /// `common` slot), delegating to the shared `AttributedString` codegen carrier
 /// (`CodeBuilder::lower_astrings_package_call` in `src/target/shared/code`).
@@ -22,7 +22,7 @@ pub(crate) fn lower(builder: &mut CodeBuilder, args: &[NirValue]) -> Result<Valu
         .ok_or_else(|| "astrings.fromString: no native lowering for these arguments".to_string())
 }
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "fromString",
         intro: "",

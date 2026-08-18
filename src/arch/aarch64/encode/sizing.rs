@@ -20,7 +20,7 @@ pub(super) fn instruction_size(instruction: &CodeInstruction) -> Result<usize, S
         // count either way, so restricting the seed to `Raw` operands is
         // size-identical while dropping the per-field `render()` allocation for
         // the register/immediate operands that dominate the stream.
-        if let crate::target::shared::code::Operand::Raw(text) = value {
+        if let crate::codegen::engine::operand::Operand::Raw(text) = value {
             probe.imports.insert(text.to_string(), String::new());
         }
     }

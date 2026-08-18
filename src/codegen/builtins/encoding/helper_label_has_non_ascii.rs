@@ -17,6 +17,6 @@ r#"FUNC __encoding_labelHasNonAscii(points AS List OF Integer) AS Boolean
   RETURN FALSE
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("encoding_labelHasNonAscii", BODY));
 }

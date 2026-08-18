@@ -24,6 +24,6 @@ FUNC __crypto_cswap128(pair AS List OF Integer, b AS Integer) AS List OF Integer
   RETURN r
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_cswap128", BODY));
 }

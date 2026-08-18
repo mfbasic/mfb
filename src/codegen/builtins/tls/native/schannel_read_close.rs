@@ -1,6 +1,6 @@
 // Included into schannel_io.rs. read (DecryptMessage) and close (shutdown).
 
-pub(super) fn lower_tls_read(
+pub(crate) fn lower_tls_read(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -347,7 +347,7 @@ pub(super) fn lower_tls_read(
     Ok((frame, ins, rel, slots))
 }
 
-pub(super) fn lower_tls_close(
+pub(crate) fn lower_tls_close(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -482,7 +482,7 @@ pub(super) fn lower_tls_close(
 // readable. The buffered fast-path is mandatory: a DecryptMessage can leave plaintext
 // in the carry-over buffer with the socket idle, which an fd-only poll would miss.
 // x0 = sock record, x1 = timeoutMs.
-pub(super) fn lower_tls_poll(
+pub(crate) fn lower_tls_poll(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -518,7 +518,7 @@ pub(super) fn lower_tls_poll(
         // >0→clamp INT_MAX. No external call precedes WSAPoll, so the record pointer in
         // x0 stays live for the fd load below.
         abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT),
-        abi::move_immediate("%v10", "Integer", crate::target::shared::code::TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
         abi::compare_registers("%v9", "%v10"),
         abi::branch_eq(&poll_infinite),
         abi::compare_immediate("%v9", "0"),

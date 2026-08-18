@@ -23,6 +23,6 @@ r#"FUNC __regex_toScalars(s AS String) AS List OF String
   RETURN out
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_toScalars", BODY));
 }

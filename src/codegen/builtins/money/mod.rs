@@ -161,3 +161,6 @@ mod tests {
         assert_eq!(registry::argument_types(GET_ROUNDING), Some(vec![]));
     }
 }
+
+pub(crate) mod builder_fixed_math;
+pub(crate) mod builder_money_math;

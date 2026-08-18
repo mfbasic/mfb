@@ -1,7 +1,7 @@
 //! AArch64 register model (plan-03-register-allocator §5).
 //!
 //! Formalizes the register facts the ISA-neutral allocator core
-//! (`crate::target::shared::code::regalloc`) queries: which physical registers
+//! (`crate::codegen::engine::regalloc`) queries: which physical registers
 //! exist, which class each belongs to, the caller/callee-saved partition per
 //! class, and the spill/reload/move emitters. Today these facts were scattered
 //! across the `abi::*` primitives and the bump allocator's fixed numbering; the
@@ -14,7 +14,7 @@
 //! the plan; it is defined in full now as the ISA description the core queries.
 
 use super::abi;
-use crate::target::shared::code::CodeInstruction;
+use crate::codegen::engine::types::CodeInstruction;
 // `RegClass` + the `RegisterModel` trait live in the neutral
 // `crate::target::shared::regmodel` (plan-34-B Phase 2); import them for the
 // AArch64 impl below. (bug-341-B4 removed the back-compat re-export that let the

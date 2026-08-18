@@ -1,8 +1,9 @@
+// --- codegen tier imports (migration) ---
 use super::*;
+use crate::codegen::engine::builder::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirModule;
 use std::collections::HashMap;
-
 /// Whether `module` uses any `os::` helper that must serialize on the env/pwd
 /// lock, so the writable mutex global is emitted (see `OS_ENV_LOCK_SYMBOL`).
 pub(crate) fn module_uses_env_lock(module: &NirModule) -> bool {
@@ -46,7 +47,7 @@ fn env_lock_fns(family: PlatformFamily) -> (&'static str, &'static str) {
 /// Acquire the env/pwd lock: `pthread_mutex_lock(&_mfb_rt_os_env_lock)`. Emitted at
 /// helper entry, after incoming `String*` arguments have been saved into vregs (the
 /// call clobbers all caller-saved registers).
-pub(super) fn emit_env_lock(ctx: &mut EmitCtx) -> Result<(), String> {
+pub(crate) fn emit_env_lock(ctx: &mut EmitCtx) -> Result<(), String> {
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
@@ -73,7 +74,7 @@ pub(super) fn emit_env_lock(ctx: &mut EmitCtx) -> Result<(), String> {
 /// clobbers all caller-saved registers — through vregs the allocator keeps live.
 /// Every helper routes all exit paths through a single `done` label so exactly one
 /// balanced unlock runs per (matched) lock.
-pub(super) fn emit_env_unlock_return(ctx: &mut EmitCtx, vregs: &mut Vregs) -> Result<(), String> {
+pub(crate) fn emit_env_unlock_return(ctx: &mut EmitCtx, vregs: &mut Vregs) -> Result<(), String> {
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
@@ -113,7 +114,7 @@ pub(super) fn emit_env_unlock_return(ctx: &mut EmitCtx, vregs: &mut Vregs) -> Re
     Ok(())
 }
 
-pub(super) fn lower_get_env(
+pub(crate) fn lower_get_env(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -257,7 +258,7 @@ pub(super) fn lower_get_env(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(super) fn lower_has_env(
+pub(crate) fn lower_has_env(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -343,7 +344,7 @@ pub(super) fn lower_has_env(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(super) fn lower_set_env(
+pub(crate) fn lower_set_env(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -467,7 +468,7 @@ pub(super) fn lower_set_env(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(super) fn lower_unset_env(
+pub(crate) fn lower_unset_env(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -550,7 +551,7 @@ pub(super) fn lower_unset_env(
 /// total key+value data bytes (the `=` separator is dropped); pass 2 allocates
 /// the `Map OF String` (header + entry table + data + lazy bucket region) and
 /// fills it. Each `KEY=VALUE` splits at the first `=`.
-pub(super) fn lower_environ(
+pub(crate) fn lower_environ(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,

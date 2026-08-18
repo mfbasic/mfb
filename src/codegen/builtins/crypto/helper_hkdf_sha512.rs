@@ -21,6 +21,6 @@ FUNC __crypto_hkdfSha512(ikm AS List OF Byte, salt AS List OF Byte, info AS List
   RETURN __crypto_hkdfExpand(prk, info, length, __crypto_hmacSha512_bytes)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("crypto_hkdfSha512", BODY));
 }

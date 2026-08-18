@@ -14,7 +14,7 @@
 //!   tripled verbatim.
 //! - [`plan`] — the libc import rules, parameterized by each backend's
 //!   raw-syscall policy.
-//! - [`code`] — the [`crate::target::shared::code::CodegenPlatform`]
+//! - [`code`] — the [`crate::codegen::engine::types::CodegenPlatform`]
 //!   implementation, parameterized by each backend's ISA delta.
 //! - The five diagnostic dump writers below.
 //!
@@ -26,10 +26,11 @@
 pub(crate) mod code;
 pub(crate) mod plan;
 
+use crate::codegen::engine::mir::MirPlan;
+use crate::codegen::engine::types::NativeCodePlan;
 use crate::ir::IrProject;
 use crate::os;
 use crate::os::linux::flavor::LinuxFlavor;
-use crate::target::shared::code::{MirPlan, NativeCodePlan};
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
 use crate::target::{BuildTarget, NativeBuildMode};

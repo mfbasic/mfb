@@ -20,7 +20,7 @@ divergences are flagged.
 The GUI setters write the same per-program TUI slots the console backend reads.
 These live in the program-entry frame just past the program globals/`LINK` slots,
 reached off the pinned arena-state register `x19` at `term_state_offset + field`.
-Eight `u64` slots, zero-initialized (the inert TUI-off default). [[src/target/shared/code/error_constants.rs:TERM_STATE_ACTIVE_OFFSET]]
+Eight `u64` slots, zero-initialized (the inert TUI-off default). [[src/codegen/error/constants/error_constants.rs:TERM_STATE_ACTIVE_OFFSET]]
 
 | Field | Offset | Meaning |
 |-------|--------|---------|
@@ -45,7 +45,7 @@ recorded on the surface's own geometry (the macOS `TVSTATE` struct, the GTK stat
 global) rather than the arena term-state, each app backend implements its own
 `didResize` arm reading that surface flag, while the console/CLI backend reads the
 slot-56 flag above. In every case the read clears the flag so it latches until
-observed. [[src/target/shared/code/term.rs:emit_did_resize]]
+observed. [[src/codegen/term/core/term.rs:emit_did_resize]]
 
 `store_term_state` is the one-line writer: `mov x9, #value; str x9, [x19,
 term_state_offset+field]`. [[src/target/macos_aarch64/app/app_io.rs:store_term_state]]
@@ -133,7 +133,7 @@ emits (bug-313 raised it from 64, which was the exact worst case with zero margi
 and only for coordinates below 1000). The trailing 64 bytes are reserved past the
 exact `rows*cols*72` so the fixed trailing reset/CUP/cursor sequence still has
 headroom on a near-saturating repaint.
-[[src/target/shared/code/term_grid.rs:OUTBUF_PER_CELL]] [[src/target/shared/code/term_grid.rs:TRAILER_SLACK]]
+[[src/codegen/term/grid/term_grid.rs:OUTBUF_PER_CELL]] [[src/codegen/term/grid/term_grid.rs:TRAILER_SLACK]]
 
 Plan-70-B added a per-cell **EGC pool** (`POOL_BYTES_PER_CELL` = 64) as an
 additional region in the arena block (past back/front/out-buffer; slot =
@@ -141,7 +141,7 @@ additional region in the arena block (past back/front/out-buffer; slot =
 pooled cell. The out buffer grew to `OUTBUF_PER_CELL` = 136 bytes/cell (was 72)
 to carry the multi-byte UTF-8 of wide/pooled clusters in the escape stream. The
 cell stays 16 bytes with a width byte at offset 14 (`C_WIDTH`).
-[[src/target/shared/code/term_grid.rs:POOL_BYTES_PER_CELL]]
+[[src/codegen/term/grid/term_grid.rs:POOL_BYTES_PER_CELL]]
 
 `term::off` runs the final present, frees the block, and zeroes slot 48;
 `_mfb_shutdown` frees it if `off` was skipped. On a terminal resize between frames

@@ -7,12 +7,12 @@ the parse/render *model*, not the per-function API (that is `./mfb man net`).
 
 The `Url` record and both helpers live in the source companion
 injected MFBASIC source; only the nominal type name `Url` is registered natively,
-and the universal `toString` is routed to the record renderer. [[src/codegen/builtins/net/package.mfb:Url]] [[src/codegen/builtins/net/mod.rs:URL_TYPE]]
+and the universal `toString` is routed to the record renderer. [[src/codegen/builtins/net/mod.rs:Url]] [[src/codegen/builtins/net/mod.rs:URL_TYPE]]
 
 ## The `Url` record
 
 `Url` is an `EXPORT TYPE` value record with eight scalar/String fields, in this
-declaration order: [[src/codegen/builtins/net/package.mfb:Url]]
+declaration order: [[src/codegen/builtins/net/mod.rs:Url]]
 
 | Field      | Type      | Meaning |
 |------------|-----------|---------|
@@ -31,7 +31,7 @@ is split into the two separate `username`/`password` fields rather than kept as 
 single `userinfo` string.
 
 Construction is positional: the parser returns
-`Url[scheme, username, password, host, port, path, query, fragment]`. [[src/codegen/builtins/net/package.mfb:__net_toUrl]]
+`Url[scheme, username, password, host, port, path, query, fragment]`. [[src/codegen/builtins/net/mod.rs:__net_toUrl]]
 
 ## Parsing model (`net::toUrl` → `__net_toUrl`)
 
@@ -50,32 +50,32 @@ pathpart   = path [ "?" query ] [ "#" fragment ]
 
 All string indexing is by **grapheme** (via `strings::find`/`strings::mid`, with
 `strings::contains` guarding a miss), through half-open-slice, `-1`-on-miss
-wrappers. Parsing proceeds: [[src/codegen/builtins/net/package.mfb:__net_toUrl]] [[src/codegen/builtins/net/package.mfb:__net_indexOf]]
+wrappers. Parsing proceeds: [[src/codegen/builtins/net/mod.rs:__net_toUrl]] [[src/codegen/builtins/net/mod.rs:__net_indexOf]]
 
 1. **Scheme.** Split at the first `"://"`. Absence fails. The scheme text is
    lowercased (`strings::lower`); only `"http"` and `"https"` are accepted —
-   any other scheme fails as unsupported. [[src/codegen/builtins/net/package.mfb:__net_toUrl]]
+   any other scheme fails as unsupported. [[src/codegen/builtins/net/mod.rs:__net_toUrl]]
 2. **Authority span.** The authority runs from just after `"://"` to the first
    of `/`, `?`, `#`, or end-of-string, computed by `__net_authorityEnd`. The
-   remainder is `pathPart`. [[src/codegen/builtins/net/package.mfb:__net_authorityEnd]]
+   remainder is `pathPart`. [[src/codegen/builtins/net/mod.rs:__net_authorityEnd]]
 3. **Userinfo.** If the authority contains `@`, the text before it is userinfo
    and the text after is `hostport`. Userinfo is split at its first `:` into
    `username`/`password`; with no `:`, the whole userinfo is the `username` and
-   `password` stays `""`. No `@` → both stay `""`. [[src/codegen/builtins/net/package.mfb:__net_toUrl]]
+   `password` stays `""`. No `@` → both stay `""`. [[src/codegen/builtins/net/mod.rs:__net_toUrl]]
 4. **Host + port.** See IPv6 handling below. After extraction, an empty `host`
-   fails. [[src/codegen/builtins/net/package.mfb:__net_toUrl]]
+   fails. [[src/codegen/builtins/net/mod.rs:__net_toUrl]]
 5. **Port defaulting.** `port` is initialized to `__net_defaultPort(scheme)` and
-   overwritten only when an explicit port text is present. [[src/codegen/builtins/net/package.mfb:__net_defaultPort]]
+   overwritten only when an explicit port text is present. [[src/codegen/builtins/net/mod.rs:__net_defaultPort]]
 6. **Path / query / fragment.** From `pathPart`: split off `fragment` at the
    first `#`, then split off `query` at the first `?` of what remains; the rest
    is `path`. An empty `path` defaults to `"/"`. The `?`/`#` delimiters are
    stripped; `query`/`fragment` are stored raw (no percent-decoding,
-   no `+`-decoding, no key/value parsing). [[src/codegen/builtins/net/package.mfb:__net_toUrl]]
+   no `+`-decoding, no key/value parsing). [[src/codegen/builtins/net/mod.rs:__net_toUrl]]
 
 ### Scheme default ports
 
 `__net_defaultPort` is the single source of truth for default ports, used by
-both parse and render: [[src/codegen/builtins/net/package.mfb:__net_defaultPort]]
+both parse and render: [[src/codegen/builtins/net/mod.rs:__net_defaultPort]]
 
 | scheme    | default port |
 |-----------|--------------|
@@ -84,7 +84,7 @@ both parse and render: [[src/codegen/builtins/net/package.mfb:__net_defaultPort]
 
 ### IPv6 host handling
 
-The host is parsed two ways depending on a leading `[`: [[src/codegen/builtins/net/package.mfb:__net_toUrl]]
+The host is parsed two ways depending on a leading `[`: [[src/codegen/builtins/net/mod.rs:__net_toUrl]]
 
 - **Bracketed (IPv6 literal).** If `hostport` starts with `[`, the host is the
   text between `[` and the first `]`; a missing `]` fails (unterminated literal).
@@ -102,21 +102,21 @@ or `-`, any non-digit content, or a value exceeding 65535 each fail. A leading
 sign is rejected up front (ports are unsigned; `toInt`'s signed parse would
 otherwise accept one), then the digits are parsed with `toInt(text, 10)` under
 an inline `TRAP` — a parse failure re-raises as an invalid-port error. There is
-no leading-zero or upper-bound-on-zero special handling beyond `<= 65535`. [[src/codegen/builtins/net/package.mfb:__net_parsePort]]
+no leading-zero or upper-bound-on-zero special handling beyond `<= 65535`. [[src/codegen/builtins/net/mod.rs:__net_parsePort]]
 
 ### Parse failures
 
 All parse/validation failures `FAIL error(...)` with one of two codes:
 `77050003` (malformed URL: missing `://`, empty/unterminated/garbage host or
-port, port out of range) and `77050007` (unsupported scheme). [[src/codegen/builtins/net/package.mfb:__net_toUrl]] [[src/codegen/builtins/net/package.mfb:__net_parsePort]]
+port, port out of range) and `77050007` (unsupported scheme). [[src/codegen/builtins/net/mod.rs:__net_toUrl]] [[src/codegen/builtins/net/mod.rs:__net_parsePort]]
 
 ## Rendering model (`toString(Url)` → `__net_urlToString`)
 
 A universal `toString(value)` whose argument is a `Url` is routed to
 `__net_urlToString` (the `__`-prefix internalizes the name so it never collides
-with the builtin `toString`). [[src/builtins/mod.rs:73]] [[src/codegen/builtins/net/package.mfb:__net_urlToString]]
+with the builtin `toString`). [[src/builtins/mod.rs:73]] [[src/codegen/builtins/net/mod.rs:__net_urlToString]]
 
-Rendering is the inverse of parsing and reconstructs an absolute href: [[src/codegen/builtins/net/package.mfb:__net_urlToString]]
+Rendering is the inverse of parsing and reconstructs an absolute href: [[src/codegen/builtins/net/mod.rs:__net_urlToString]]
 
 ```
 out = scheme "://"
@@ -163,7 +163,7 @@ standalone):
   last-wins. Decoding is **tolerant**: a component with a malformed escape is
   kept as its raw text rather than failing the whole parse.
 
-[[src/codegen/builtins/net/package.mfb:__net_percentDecode]] [[src/codegen/builtins/net/package.mfb:__net_parseQuery]]
+[[src/codegen/builtins/net/mod.rs:__net_percentDecode]] [[src/codegen/builtins/net/mod.rs:__net_parseQuery]]
 
 ## See Also
 

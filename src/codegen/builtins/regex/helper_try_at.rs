@@ -15,6 +15,6 @@ r#"FUNC __regex_tryAt(prog AS __regex_Program, ctx AS __regex_Ctx, start AS Inte
   RETURN __regex_matchNode(prog.root, start, caps, __regex_ContCap[0, __regex_ContDone[TRUE]], ctx, 0)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("regex_tryAt", BODY));
 }

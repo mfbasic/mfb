@@ -10,7 +10,12 @@
 
 use std::collections::HashMap;
 
-use crate::target::shared::code::{CodegenPlatform, HelperResult};
+use crate::codegen::engine::builder::HelperResult;
+use crate::codegen::engine::types::CodegenPlatform;
+
+pub(crate) mod ffi;
+pub(crate) mod process;
+pub(crate) mod syscall;
 
 /// Emit the runtime-helper body for `call` from the owning member's `Body::Native`
 /// lowering, chosen by `platform.family()`. `call` may be the member's own name or

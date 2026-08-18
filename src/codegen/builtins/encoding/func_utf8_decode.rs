@@ -52,7 +52,7 @@ SUB main()
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     // Parameter overload selected by the argument's element type. Both
     // implementations carry `Body::Intrinsic` (no registry rewrite target), so IR
     // lowering leaves the canonical `encoding.utf8Decode` for the monomorphizer to

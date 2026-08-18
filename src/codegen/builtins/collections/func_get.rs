@@ -8,15 +8,15 @@
 //! still live in `src/target` and are referenced here (the accepted temporary
 //! `codegen → target` edge until `CodeBuilder` itself relocates).
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::{list_element_type, map_type_parts};
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::{list_element_type, map_type_parts};
-use crate::target::shared::code::{CodeBuilder, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTO_GET: &str = "Read a list item by index or a map value by key.";
 const DESC_GET: &str = r#"`collections::get` reads one element out of a collection. The collection itself
 is neither copied nor mutated: the lowering stores only a handle to it, walks
@@ -88,7 +88,7 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "get",
         intro: INTO_GET,

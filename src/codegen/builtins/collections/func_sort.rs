@@ -1,15 +1,17 @@
 //! `collections::sort` — descriptor entry + MFBASIC source body (Implementation::Mfb).
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::list_element_type;
+use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::list_element_type;
-use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
-
 /// Native fast path for `#collections_sort$T` (String or signed 8-byte
 /// fixed-width, 1 arg): an index-permutation merge. Float and everything else
 /// decline (`Ok(None)`). Free fn.
-pub(super) fn sort_fast_path(
+pub(crate) fn sort_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],
@@ -31,7 +33,7 @@ impl CodeBuilder<'_> {
     /// smaller than the `n*8` an index-permutation buffer needs — so the native
     /// index sorts allocate their buffers through here. Header stamped count=n,
     /// capacity=n, dataLength=n*8, dataCapacity=n*8 (a well-formed fixed-width list).
-    pub(super) fn reserve_integer_index_list(
+    pub(crate) fn reserve_integer_index_list(
         &mut self,
         n_slot: usize,
     ) -> Result<ValueResult, String> {
@@ -97,7 +99,7 @@ impl CodeBuilder<'_> {
     /// left run on ties — and gathers `source[idx]` once at the end. Only String is
     /// routed here (fixed-width `sort` has no native path today either); the gate
     /// requires a re-eval-safe source.
-    pub(super) fn lower_collection_sort_call(
+    pub(crate) fn lower_collection_sort_call(
         &mut self,
         args: &[NirValue],
     ) -> Result<ValueResult, String> {

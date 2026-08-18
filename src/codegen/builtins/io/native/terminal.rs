@@ -1,6 +1,9 @@
+// --- codegen tier imports (migration) ---
 use super::*;
-
-pub(super) fn lower_io_is_terminal_helper(
+use crate::codegen::engine::builder::*;
+use crate::target::shared::abi;
+use std::collections::HashMap;
+pub(crate) fn lower_io_is_terminal_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,

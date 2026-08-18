@@ -17,7 +17,7 @@ fn overload(ty: ParameterType) -> Implementation {
     }
 }
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "setWriteTimeout",
         intro: "",

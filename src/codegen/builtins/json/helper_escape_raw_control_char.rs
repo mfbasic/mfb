@@ -23,6 +23,6 @@ FUNC __json_escapeRawControlChar(ch AS String) AS String
   RETURN ch
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_helper(RegistryHelper::always("json_escapeRawControlChar", BODY));
 }

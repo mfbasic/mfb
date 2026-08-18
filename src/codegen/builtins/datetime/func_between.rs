@@ -75,7 +75,7 @@ r#"FUNC __datetime_between(start AS Instant, finish AS Instant) AS Duration
   RETURN __datetime_normDuration(finish.seconds - start.seconds, finish.nanos - start.nanos)
 END FUNC"#;
 
-pub(super) fn register(pkg: &mut super::RegistryPackage) {
+pub(crate) fn register(pkg: &mut super::RegistryPackage) {
     pkg.add_function(super::RegistryFunction {
         name: "between",
         intro: INTRO,

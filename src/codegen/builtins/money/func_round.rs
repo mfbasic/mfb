@@ -1,13 +1,14 @@
 //! `money::round` — settle a `Money` to a given number of decimal places.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::code::{CodeBuilder, Operand, ValueResult};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-
 const INTRO: &str =
     r#"Settle a Money to a given number of decimal places under the current rounding mode"#;
 const DESC: &str = r#"`money::round` settles `value` to `decimals` fractional places and returns the
@@ -72,7 +73,7 @@ SUB main
 END SUB
 ```"#;
 
-pub(super) fn register(pkg: &mut RegistryPackage) {
+pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "round",
         intro: INTRO,

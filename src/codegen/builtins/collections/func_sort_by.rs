@@ -1,15 +1,17 @@
 //! `collections::sortBy` — descriptor entry + MFBASIC source body (Implementation::Mfb).
 //! Body byte-significant (2-space indent → `.ncode` columns); do not reformat.
 
+// --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::{callable_return_type, list_element_type};
+use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::code::type_utils::{callable_return_type, list_element_type};
-use crate::target::shared::code::*;
 use crate::target::shared::nir::NirValue;
-
 /// Native fast path for `#collections_sortBy$T$U`: 8-byte fixed-width items and
 /// signed 8-byte keys (String items allowed when the source is re-eval-safe).
 /// Other shapes decline (`Ok(None)`). Free fn.
-pub(super) fn sort_by_fast_path(
+pub(crate) fn sort_by_fast_path(
     builder: &mut CodeBuilder,
     target: &str,
     args: &[NirValue],
@@ -51,7 +53,7 @@ impl CodeBuilder<'_> {
     /// two ping-pong buffer pairs once and swaps their pointers per pass. Stable
     /// bottom-up merge sort, taking the left run on ties, so the sorted order is
     /// byte-identical to the interpreted version.
-    pub(super) fn lower_collection_sortby_call(
+    pub(crate) fn lower_collection_sortby_call(
         &mut self,
         args: &[NirValue],
     ) -> Result<ValueResult, String> {

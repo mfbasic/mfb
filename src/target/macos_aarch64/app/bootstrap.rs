@@ -921,7 +921,7 @@ pub(super) fn emit_worker_shim(spec: &AppEntrySpec) -> CodeFunction {
         asm.push(abi::load_u64("x1", "x0", OFF_ARGV));
         asm.push(abi::load_u64("x0", "x0", OFF_ARGC));
     }
-    asm.call_internal(code::MACAPP_PROGRAM_SYMBOL);
+    asm.call_internal(crate::codegen::error::constants::MACAPP_PROGRAM_SYMBOL);
     asm.push(abi::branch_self());
     asm.push(abi::return_());
 
