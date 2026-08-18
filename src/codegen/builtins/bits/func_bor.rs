@@ -4,10 +4,9 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTRO: &str = r#"Bitwise OR of two 64-bit integers."#;
 const DESC: &str = r#"`bor` returns the bitwise OR of `a` and `b`, computed independently across all
@@ -75,7 +74,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Integer,
             errors: vec![],
-            body: Body::native(None, None, Some(lower_bits_bor)),
+            body: Body::abi_inline(lower_bits_bor),
         }],
     });
 }
@@ -83,10 +82,19 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// Target-generic call-site lowering for `bits::bor`.
 pub(crate) fn lower_bits_bor(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let (left_reg, right_reg, left_text, right_text) =
-        super::gen_two_integers::lower_bits_two_integers(builder, "bor", args)?;
+    if args[0].type_ != "Integer" {
+        return Err(format!("bits.bor does not accept {}", args[0].type_));
+    }
+    if args[1].type_ != "Integer" {
+        return Err(format!("bits.bor does not accept {}", args[1].type_));
+    }
+    let left_reg = args[0].location.clone();
+    let right_reg = args[1].location.clone();
+    let left_text = &args[0].text;
+    let right_text = &args[1].text;
     let dst = builder.allocate_register()?;
     builder.emit(abi::or_registers(dst, left_reg, right_reg));
     Ok(ValueResult {

@@ -2047,7 +2047,9 @@ fn expression_type(
                     .collect::<Option<Vec<_>>>()?;
                 return builtins::resolve_call_return_type(&canonical_callee, &arg_types, false);
             }
-            if crate::codegen::registry::native_lower(&canonical_callee).is_some() {
+            if crate::codegen::registry::native_lower(&canonical_callee).is_some()
+                || crate::codegen::registry::abi_inline_lower(&canonical_callee).is_some()
+            {
                 let normalized =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
                 if crate::codegen::registry::callback_member(&canonical_callee)

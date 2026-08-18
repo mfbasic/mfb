@@ -5,10 +5,9 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::mir;
 use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTRO: &str = r#"Count the set (`1`) bits of a 64-bit integer (population count)."#;
 const DESC: &str = r#"`popCount` returns the number of set (`1`) bits in `value`, also known as its
@@ -66,7 +65,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Integer,
             errors: vec![],
-            body: Body::native(None, None, Some(lower_bits_pop_count)),
+            body: Body::abi_inline(lower_bits_pop_count),
         }],
     });
 }
@@ -85,9 +84,13 @@ const POPCOUNT_MASK_0101: &str = "72340172838076673"; //  0x0101010101010101
 /// SWAR over the integer ALU.
 pub(crate) fn lower_bits_pop_count(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let value = super::gen_one_integer::lower_bits_one_integer(builder, "popCount", &args[0])?;
+    let value = &args[0];
+    if value.type_ != "Integer" {
+        return Err(format!("bits.popCount does not accept {}", value.type_));
+    }
     let text = format!("bits.popCount({})", value.text);
 
     // plan-39 K2: on AArch64 the 64-bit Hamming weight is a short NEON sequence —

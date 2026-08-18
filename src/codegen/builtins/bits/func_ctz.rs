@@ -4,10 +4,9 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTRO: &str = r#"Count the trailing zero bits of a 64-bit integer."#;
 const DESC: &str = r#"`ctz` returns the number of zero bits *below* the least significant set (`1`) bit
@@ -162,7 +161,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Integer,
             errors: vec![],
-            body: Body::native(None, None, Some(lower_bits_ctz)),
+            body: Body::abi_inline(lower_bits_ctz),
         }],
     });
 }
@@ -170,9 +169,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// Target-generic call-site lowering for `bits::ctz`.
 pub(crate) fn lower_bits_ctz(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let value = super::gen_one_integer::lower_bits_one_integer(builder, "ctz", &args[0])?;
+    let value = &args[0];
+    if value.type_ != "Integer" {
+        return Err(format!("bits.ctz does not accept {}", value.type_));
+    }
     let dst = builder.allocate_register()?;
     // `ctz` reverses the bits (`RBIT`) and then counts leading zeros; both `clz`
     // and `ctz` return `64` for a zero input.

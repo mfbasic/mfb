@@ -4,10 +4,9 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTRO: &str = r#"Reverse the byte order of the low 16 bits of an integer."#;
 const DESC: &str = r#"`bswap16` swaps the two bytes that make up the low 16 bits of `value`: byte `0`
@@ -61,7 +60,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Integer,
             errors: vec![],
-            body: Body::native(None, None, Some(lower_bits_bswap16)),
+            body: Body::abi_inline(lower_bits_bswap16),
         }],
     });
 }
@@ -69,9 +68,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// Target-generic call-site lowering for `bits::bswap16`.
 pub(crate) fn lower_bits_bswap16(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let value = super::gen_one_integer::lower_bits_one_integer(builder, "bswap16", &args[0])?;
+    let value = &args[0];
+    if value.type_ != "Integer" {
+        return Err(format!("bits.bswap16 does not accept {}", value.type_));
+    }
     let dst = builder.allocate_register()?;
     // REV of the low word puts the two low bytes at bits [31:16]; a logical
     // >>16 drops the other two bytes and clears bits 16..63.

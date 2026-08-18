@@ -1541,13 +1541,10 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
     ) -> Option<Result<ValueResult, String>> {
         let lower = crate::codegen::registry::abi_inline_lower(target)?;
-        let mut arg_values = Vec::with_capacity(args.len());
-        for arg in args {
-            match self.lower_value(arg) {
-                Ok(value) => arg_values.push(value),
-                Err(err) => return Some(Err(err)),
-            }
-        }
+        let arg_values = match self.lower_abi_inline_args(args) {
+            Ok(values) => values,
+            Err(err) => return Some(Err(err)),
+        };
         // Copy the `&'a` reference fields out of `self` so `AbiCtx` borrows the
         // underlying build data, not `self` — leaving `self` free to pass mutably.
         let ctx = crate::codegen::registry::AbiCtx {
@@ -1556,6 +1553,50 @@ impl CodeBuilder<'_> {
             build_mode: self.build_mode,
         };
         Some(lower(self, &arg_values, &ctx))
+    }
+
+    /// Pre-lower each `NirValue` arg to a `ValueResult` for an `AbiInline` body
+    /// ("pre-lowered `ValueResult`"). A single arg is consumed immediately and needs
+    /// no stabilization. With two or more args, lowering a later arg can reset
+    /// temporaries and clobber an earlier arg's register, so each is spilled to a
+    /// fresh stack slot and, after the reset, reloaded into a persistent register —
+    /// the exact spill/reset/reload the former `bits::gen_two_integers` did by hand,
+    /// now owned by the dispatch so every multi-arg `AbiInline` body gets
+    /// non-aliasing operands (and byte-identically to the pre-migration bodies).
+    fn lower_abi_inline_args(&mut self, args: &[NirValue]) -> Result<Vec<ValueResult>, String> {
+        if args.len() <= 1 {
+            let mut values = Vec::with_capacity(args.len());
+            for arg in args {
+                values.push(self.lower_value(arg)?);
+            }
+            return Ok(values);
+        }
+        // Spill each lowered arg to its own stack slot (arg0 spilled before arg1 is
+        // lowered, so a temporary reset cannot clobber it).
+        let mut spilled = Vec::with_capacity(args.len());
+        for (index, arg) in args.iter().enumerate() {
+            let value = self.lower_value(arg)?;
+            let slot = self.allocate_stack_object(&format!("abi_inline_arg{index}"), 8);
+            self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
+            spilled.push((slot, value.type_, value.text));
+        }
+        self.reset_temporary_registers();
+        // Allocate every result register first, then reload — matching the former
+        // helper's instruction order.
+        let mut registers = Vec::with_capacity(spilled.len());
+        for _ in &spilled {
+            registers.push(self.allocate_register()?);
+        }
+        let mut arg_values = Vec::with_capacity(spilled.len());
+        for ((slot, type_, text), register) in spilled.into_iter().zip(registers) {
+            self.emit(abi::load_u64(&register, abi::stack_pointer(), slot));
+            arg_values.push(ValueResult {
+                type_,
+                location: Operand::from(register.render()),
+                text,
+            });
+        }
+        Ok(arg_values)
     }
 
     /// Mfb fast-path dual-path dispatch: for a `#collections_<name>$<TypeArgs>`

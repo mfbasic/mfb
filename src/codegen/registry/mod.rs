@@ -2321,7 +2321,11 @@ pub(crate) fn is_abi_function_call(qualified: &str) -> bool {
 /// name predicate (`is_bits_shift`).
 pub(crate) fn native_member_declares_error(qualified: &str) -> Option<bool> {
     let function = registry().resolve_func(qualified)?.function;
-    let mut common_native = false;
+    // An inline call-site lowering is either the legacy `common` slot or the
+    // migrated `abi_inline` slot (bits); both feed the same inline-`TRAP`
+    // fallibility census, so a fallible `abi_inline` member (bits' variable shifts)
+    // is recognized exactly like a fallible `common` one.
+    let mut inline_native = false;
     let mut declares = false;
     for implementation in &function.implementations {
         if matches!(
@@ -2329,15 +2333,18 @@ pub(crate) fn native_member_declares_error(qualified: &str) -> Option<bool> {
             Body::Native {
                 common: Some(_),
                 ..
+            } | Body::Native {
+                abi_inline: Some(_),
+                ..
             }
         ) {
-            common_native = true;
+            inline_native = true;
             if !implementation.errors.is_empty() {
                 declares = true;
             }
         }
     }
-    common_native.then_some(declares)
+    inline_native.then_some(declares)
 }
 
 /// The native HOF **fast path** for a source-generic monomorph `target`

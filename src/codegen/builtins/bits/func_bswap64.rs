@@ -4,10 +4,9 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTRO: &str = r#"Reverse the byte order of all 64 bits of an integer."#;
 const DESC: &str = r#"`bswap64` reverses the order of the eight bytes that make up the full 64 bits of
@@ -67,7 +66,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Integer,
             errors: vec![],
-            body: Body::native(None, None, Some(lower_bits_bswap64)),
+            body: Body::abi_inline(lower_bits_bswap64),
         }],
     });
 }
@@ -75,9 +74,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// Target-generic call-site lowering for `bits::bswap64`.
 pub(crate) fn lower_bits_bswap64(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let value = super::gen_one_integer::lower_bits_one_integer(builder, "bswap64", &args[0])?;
+    let value = &args[0];
+    if value.type_ != "Integer" {
+        return Err(format!("bits.bswap64 does not accept {}", value.type_));
+    }
     let dst = builder.allocate_register()?;
     builder.emit(abi::reverse_bytes(dst, &value.location));
     Ok(ValueResult {

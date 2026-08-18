@@ -4,10 +4,9 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTRO: &str = r#"Rotate the low 32 bits of an integer right."#;
 const DESC: &str = r#"`rr32` rotates the low 32 bits of `value` right by `count` bit positions and
@@ -81,7 +80,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Integer,
             errors: vec![],
-            body: Body::native(None, None, Some(lower_bits_rr32)),
+            body: Body::abi_inline(lower_bits_rr32),
         }],
     });
 }
@@ -89,10 +88,19 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// Target-generic call-site lowering for `bits::rr32`.
 pub(crate) fn lower_bits_rr32(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let (value_reg, count_reg, value_text, count_text) =
-        super::gen_two_integers::lower_bits_two_integers(builder, "rr32", args)?;
+    if args[0].type_ != "Integer" {
+        return Err(format!("bits.rr32 does not accept {}", args[0].type_));
+    }
+    if args[1].type_ != "Integer" {
+        return Err(format!("bits.rr32 does not accept {}", args[1].type_));
+    }
+    let value_reg = args[0].location.clone();
+    let count_reg = args[1].location.clone();
+    let value_text = &args[0].text;
+    let count_text = &args[1].text;
     let dst = builder.allocate_register()?;
     builder.emit(abi::rotate_right_word_registers(dst, value_reg, count_reg));
     Ok(ValueResult {

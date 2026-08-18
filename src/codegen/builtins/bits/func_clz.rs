@@ -4,10 +4,9 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTRO: &str = r#"Count the leading zero bits of a 64-bit integer."#;
 const DESC: &str = r#"`clz` returns the number of zero bits that precede the most significant set (`1`)
@@ -61,7 +60,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Integer,
             errors: vec![],
-            body: Body::native(None, None, Some(lower_bits_clz)),
+            body: Body::abi_inline(lower_bits_clz),
         }],
     });
 }
@@ -69,9 +68,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// Target-generic call-site lowering for `bits::clz`.
 pub(crate) fn lower_bits_clz(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let value = super::gen_one_integer::lower_bits_one_integer(builder, "clz", &args[0])?;
+    let value = &args[0];
+    if value.type_ != "Integer" {
+        return Err(format!("bits.clz does not accept {}", value.type_));
+    }
     let dst = builder.allocate_register()?;
     builder.emit(abi::count_leading_zeros(dst, &value.location));
     Ok(ValueResult {

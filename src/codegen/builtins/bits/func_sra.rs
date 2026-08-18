@@ -4,10 +4,9 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTRO: &str = r#"Arithmetic (sign-filling) right shift of a 64-bit integer."#;
 const DESC: &str = r#"`sra` shifts `value` right by `count` bit positions as a signed quantity.
@@ -96,7 +95,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Integer,
             errors: vec!["ErrInvalidArgument"],
-            body: Body::native(None, None, Some(lower_bits_sra)),
+            body: Body::abi_inline(lower_bits_sra),
         }],
     });
 }
@@ -104,15 +103,24 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// Target-generic call-site lowering for `bits::sra`.
 pub(crate) fn lower_bits_sra(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let (value_reg, count_reg, value_text, count_text) =
-        super::gen_two_integers::lower_bits_two_integers(builder, "sra", args)?;
+    if args[0].type_ != "Integer" {
+        return Err(format!("bits.sra does not accept {}", args[0].type_));
+    }
+    if args[1].type_ != "Integer" {
+        return Err(format!("bits.sra does not accept {}", args[1].type_));
+    }
+    let value_reg = args[0].location.clone();
+    let count_reg = args[1].location.clone();
+    let value_text = &args[0].text;
+    let count_text = &args[1].text;
     let valid = builder.label("bits_shift_valid");
     let out_of_range = builder.label("bits_shift_out_of_range");
-    builder.emit(abi::compare_immediate(count_reg, "0"));
+    builder.emit(abi::compare_immediate(&count_reg, "0"));
     builder.emit(abi::branch_lt(&out_of_range));
-    builder.emit(abi::compare_immediate(count_reg, "63"));
+    builder.emit(abi::compare_immediate(&count_reg, "63"));
     builder.emit(abi::branch_le(&valid));
     builder.emit(abi::label(&out_of_range));
     builder.raise_error_bare("ErrInvalidArgument")?;

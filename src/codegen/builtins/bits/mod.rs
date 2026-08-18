@@ -7,12 +7,15 @@
 //! lowers to one (or a few) native instructions inline — there is no source
 //! companion, no value type, no resource, and no runtime helper.
 //!
-//! Each member is a `Body::native(None, None, Some(lower_bits_*))` intrinsic: its
-//! `Implementation::Native` `common` slot points at a [`crate::codegen::registry::NativeLower`]
-//! function that lives in that member's own `func_*.rs` and emits its unique
-//! instruction sequence directly through `abi::`. The only shared code is the two
-//! operand helpers ([`gen_two_integers`] for the binary/shift/rotate ops,
-//! [`gen_one_integer`] for the unary ops). The three variable-shift members
+//! Each member is a `Body::abi_inline(lower_bits_*)` intrinsic: its
+//! `Implementation::Native` `abi_inline` slot points at a
+//! [`crate::codegen::registry::AbiInline`] function that lives in that member's own
+//! `func_*.rs` and emits its unique instruction sequence directly through `abi::`.
+//! (`bits` was the first package migrated off the legacy `common`/`NativeLower`
+//! slot onto the unified `AbiInline` lowering.) The `AbiInline` dispatch hands each
+//! body its **pre-lowered, stabilized** `ValueResult` operands, so each member is
+//! self-contained — it type-checks its operands inline and emits its op, with no
+//! shared per-arity helper. The three variable-shift members
 //! (`sl`/`sr`/`sra`) declare `ErrInvalidArgument` (an out-of-range `count`), which
 //! is what routes an inline `TRAP` on them through the raw-capture path; the other
 //! 14 members declare no error and are infallible — a distinction the inline-`TRAP`
@@ -20,9 +23,6 @@
 //! predicate.
 
 use crate::codegen::registry::{Registry, RegistryPackage};
-
-mod gen_one_integer;
-mod gen_two_integers;
 
 mod func_band;
 mod func_bnot;
@@ -139,16 +139,17 @@ mod tests {
     }
 
     #[test]
-    fn every_member_is_a_common_native_intrinsic() {
-        // Each member owns a `Body::Native` `common` call-site lowering, so the
-        // generic native-lower dual-path (`try_native_lower`) reaches it.
+    fn every_member_is_an_abi_inline_intrinsic() {
+        // Each member owns a `Body::Native` `abi_inline` call-site lowering, so the
+        // generic AbiInline dual-path (`try_abi_inline_lower`) reaches it — migrated
+        // off the former `common`/`NativeLower` slot.
         for name in [
             "band", "bor", "bxor", "bnot", "sl", "sr", "sra", "rl32", "rr32", "rl64", "rr64",
             "clz", "ctz", "popCount", "bswap16", "bswap32", "bswap64",
         ] {
             assert!(
-                crate::codegen::registry::native_lower(&format!("bits.{name}")).is_some(),
-                "{name} should have a common native lowering"
+                crate::codegen::registry::abi_inline_lower(&format!("bits.{name}")).is_some(),
+                "{name} should have an abi_inline lowering"
             );
         }
     }
