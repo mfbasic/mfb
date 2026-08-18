@@ -20,25 +20,37 @@ pub(crate) fn lower_fs_file_drain(
     let err = format!("{symbol}_err");
     let slide_loop = format!("{symbol}_slide");
     let slide_done = format!("{symbol}_slide_done");
+    let mut vregs = Vregs::new();
+    let file_ptr = vregs.next();
+    let buf_enabled = vregs.next();
+    let remaining = vregs.next();
+    let fd = vregs.next();
+    let cursor = vregs.next();
+    let base = vregs.next();
+    let write_ret = vregs.next();
+    let slide_dst = vregs.next();
+    let slide_src = vregs.next();
+    let slide_count = vregs.next();
+    let slide_byte = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::move_register("%v0", abi::return_register()), // File* survives the write call
-        abi::load_u64("%v1", "%v0", FILE_OFFSET_BUF_ENABLED),
-        abi::compare_immediate("%v1", "0"),
+        abi::move_register(&file_ptr, abi::return_register()), // File* survives the write call
+        abi::load_u64(&buf_enabled, &file_ptr, FILE_OFFSET_BUF_ENABLED),
+        abi::compare_immediate(&buf_enabled, "0"),
         abi::branch_eq(&ok),
-        abi::load_u64("%v2", "%v0", FILE_OFFSET_BUF_FILLED),
-        abi::compare_immediate("%v2", "0"),
+        abi::load_u64(&remaining, &file_ptr, FILE_OFFSET_BUF_FILLED),
+        abi::compare_immediate(&remaining, "0"),
         abi::branch_eq(&ok),
-        abi::load_u64("%v3", "%v0", FILE_OFFSET_FD),
-        abi::load_u64("%v4", "%v0", FILE_OFFSET_BUF_PTR),
+        abi::load_u64(&fd, &file_ptr, FILE_OFFSET_FD),
+        abi::load_u64(&cursor, &file_ptr, FILE_OFFSET_BUF_PTR),
         // bug-311: keep the buffer base in %v6 (never advanced) so a partial-write
         // error can slide the unflushed tail back to it. %v4 is the cursor and IS
         // advanced per partial write, so it cannot serve as the base.
-        abi::move_register("%v6", "%v4"),
+        abi::move_register(&base, &cursor),
         abi::label(&drain_loop),
-        abi::move_register(abi::return_register(), "%v3"),
-        abi::move_register(abi::string_data_register(), "%v4"),
-        abi::move_register(abi::string_length_register(), "%v2"),
+        abi::move_register(abi::return_register(), &fd),
+        abi::move_register(abi::string_data_register(), &cursor),
+        abi::move_register(abi::string_length_register(), &remaining),
     ];
     let mut relocations = Vec::new();
     platform.emit_write(
@@ -48,8 +60,8 @@ pub(crate) fn lower_fs_file_drain(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::move_register("%v5", abi::return_register()),
-        abi::compare_immediate("%v5", "0"),
+        abi::move_register(&write_ret, abi::return_register()),
+        abi::compare_immediate(&write_ret, "0"),
         abi::branch_gt(&advance),
         // A 0-byte return for a nonzero-length write moved nothing: error out
         // rather than advancing by zero and re-testing `remaining != 0` forever
@@ -66,18 +78,18 @@ pub(crate) fn lower_fs_file_drain(
             instructions: &mut instructions,
             relocations: &mut relocations,
         },
-        "%v5",
+        &write_ret,
         write_uses_raw_syscall(platform),
         &drain_loop,
         &err,
     )?;
     instructions.extend([
         abi::label(&advance),
-        abi::add_registers("%v4", "%v4", "%v5"),
-        abi::subtract_registers("%v2", "%v2", "%v5"),
-        abi::compare_immediate("%v2", "0"),
+        abi::add_registers(&cursor, &cursor, &write_ret),
+        abi::subtract_registers(&remaining, &remaining, &write_ret),
+        abi::compare_immediate(&remaining, "0"),
         abi::branch_ne(&drain_loop),
-        abi::store_u64(abi::ZERO, "%v0", FILE_OFFSET_BUF_FILLED),
+        abi::store_u64(abi::ZERO, &file_ptr, FILE_OFFSET_BUF_FILLED),
         abi::label(&ok),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::return_(),
@@ -96,21 +108,21 @@ pub(crate) fn lower_fs_file_drain(
         // fixed base, so advancing it would make later appends write past the
         // buffer's end. dst (base) < src (cursor), so a forward byte copy is
         // overlap-safe.
-        abi::move_register("%v7", "%v6"), // dst = base
-        abi::move_register("%v8", "%v4"), // src = base + k
-        abi::move_register("%v9", "%v2"), // count = remaining
+        abi::move_register(&slide_dst, &base), // dst = base
+        abi::move_register(&slide_src, &cursor), // src = base + k
+        abi::move_register(&slide_count, &remaining), // count = remaining
         abi::label(&slide_loop),
-        abi::compare_immediate("%v9", "0"),
+        abi::compare_immediate(&slide_count, "0"),
         abi::branch_eq(&slide_done),
-        abi::load_u8("%v10", "%v8", 0),
-        abi::store_u8("%v10", "%v7", 0),
-        abi::add_immediate("%v7", "%v7", 1),
-        abi::add_immediate("%v8", "%v8", 1),
-        abi::subtract_immediate("%v9", "%v9", 1),
+        abi::load_u8(&slide_byte, &slide_src, 0),
+        abi::store_u8(&slide_byte, &slide_dst, 0),
+        abi::add_immediate(&slide_dst, &slide_dst, 1),
+        abi::add_immediate(&slide_src, &slide_src, 1),
+        abi::subtract_immediate(&slide_count, &slide_count, 1),
         abi::branch(&slide_loop),
         abi::label(&slide_done),
-        abi::store_u64("%v6", "%v0", FILE_OFFSET_BUF_PTR),
-        abi::store_u64("%v2", "%v0", FILE_OFFSET_BUF_FILLED),
+        abi::store_u64(&base, &file_ptr, FILE_OFFSET_BUF_PTR),
+        abi::store_u64(&remaining, &file_ptr, FILE_OFFSET_BUF_FILLED),
         abi::move_immediate(abi::return_register(), "Integer", "1"),
         abi::return_(),
     ]);
@@ -132,6 +144,7 @@ pub(crate) fn lower_fs_file_drain(
 /// `write_error`. `tag` disambiguates the emitted labels. Uses vregs `%v30`..`%v39`.
 fn emit_append_to_file_buffer(
     ctx: &mut EmitCtx,
+    vregs: &mut Vregs,
     file: &str,
     src: &str,
     len: &str,
@@ -139,6 +152,19 @@ fn emit_append_to_file_buffer(
     write_error: &str,
 ) -> Result<(), String> {
     let cap = FILE_BUFFER_CAPACITY.to_string();
+    // The nine sink role registers plus the fd-load register, minted from the
+    // caller's counter so they never collide with vregs it holds live across this
+    // append (was `%v30`..`%v39` with the fd load at `%v31`).
+    let role0 = vregs.next();
+    let role1 = vregs.next();
+    let role2 = vregs.next();
+    let role3 = vregs.next();
+    let role4 = vregs.next();
+    let role5 = vregs.next();
+    let role6 = vregs.next();
+    let role7 = vregs.next();
+    let role8 = vregs.next();
+    let fd_reg = vregs.next();
     let sink = BufferSink {
         state_reg: file,
         buf_ptr_off: FILE_OFFSET_BUF_PTR,
@@ -148,10 +174,18 @@ fn emit_append_to_file_buffer(
         cap: &cap,
         prefix: "fbuf",
         v: [
-            "%v30", "%v32", "%v33", "%v34", "%v35", "%v36", "%v37", "%v38", "%v39",
+            role0.as_str(),
+            role1.as_str(),
+            role2.as_str(),
+            role3.as_str(),
+            role4.as_str(),
+            role5.as_str(),
+            role6.as_str(),
+            role7.as_str(),
+            role8.as_str(),
         ],
         fd: Some(FdLoad {
-            reg: "%v31",
+            reg: fd_reg.as_str(),
             off: FILE_OFFSET_FD,
         }),
     };
@@ -162,10 +196,12 @@ fn emit_append_to_file_buffer(
 pub(crate) fn lower_fs_is_buffered_helper(symbol: &str) -> HelperResult {
     let yes = format!("{symbol}_yes");
     let done = format!("{symbol}_done");
+    let mut vregs = Vregs::new();
+    let enabled = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::load_u64("%v0", abi::return_register(), FILE_OFFSET_BUF_ENABLED),
-        abi::compare_immediate("%v0", "0"),
+        abi::load_u64(&enabled, abi::return_register(), FILE_OFFSET_BUF_ENABLED),
+        abi::compare_immediate(&enabled, "0"),
         abi::branch_ne(&yes),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -185,6 +221,9 @@ pub(crate) fn lower_fs_is_buffered_helper(symbol: &str) -> HelperResult {
 pub(crate) fn lower_fs_set_buffered_helper(symbol: &str) -> HelperResult {
     let enable = format!("{symbol}_enable");
     let done = format!("{symbol}_done");
+    let mut vregs = Vregs::new();
+    let parked_file = vregs.next();
+    let one = vregs.next();
     // x0 = File*, x1 = enabled (Boolean).
     let mut instructions = vec![
         abi::label("entry"),
@@ -192,16 +231,16 @@ pub(crate) fn lower_fs_set_buffered_helper(symbol: &str) -> HelperResult {
         abi::branch_ne(&enable),
         // Disable: drain first (best-effort — setBuffered returns Nothing), then
         // clear the flag. File* is already in x0 for the drain; park it for the store.
-        abi::move_register("%v0", abi::return_register()),
+        abi::move_register(&parked_file, abi::return_register()),
         abi::branch_link(FILE_DRAIN_SYMBOL),
     ];
     let relocations = vec![internal_branch(symbol, FILE_DRAIN_SYMBOL)];
     instructions.extend([
-        abi::store_u64(abi::ZERO, "%v0", FILE_OFFSET_BUF_ENABLED),
+        abi::store_u64(abi::ZERO, &parked_file, FILE_OFFSET_BUF_ENABLED),
         abi::branch(&done),
         abi::label(&enable),
-        abi::move_immediate("%v1", "Integer", "1"),
-        abi::store_u64("%v1", abi::return_register(), FILE_OFFSET_BUF_ENABLED),
+        abi::move_immediate(&one, "Integer", "1"),
+        abi::store_u64(&one, abi::return_register(), FILE_OFFSET_BUF_ENABLED),
         abi::label(&done),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::return_(),
@@ -1234,6 +1273,7 @@ pub(crate) fn lower_fs_write_all_helper(
             instructions: &mut instructions,
             relocations: &mut relocations,
         },
+        &mut vregs,
         &file,
         "wa",
         &write_error,
@@ -1257,6 +1297,7 @@ pub(crate) fn lower_fs_write_all_helper(
             instructions: &mut instructions,
             relocations: &mut relocations,
         },
+        &mut vregs,
         &file,
         &cursor,
         &remaining,
@@ -1363,6 +1404,7 @@ pub(crate) fn lower_fs_read_all_helper(
             instructions: &mut instructions,
             relocations: &mut relocations,
         },
+        &mut vregs,
         &file,
         "readall",
         &seek_error,
@@ -1535,6 +1577,7 @@ pub(crate) fn lower_fs_write_all_bytes_helper(
             instructions: &mut instructions,
             relocations: &mut relocations,
         },
+        &mut vregs,
         &file,
         "wab",
         &write_error,
@@ -1565,6 +1608,7 @@ pub(crate) fn lower_fs_write_all_bytes_helper(
             instructions: &mut instructions,
             relocations: &mut relocations,
         },
+        &mut vregs,
         &file,
         &cursor,
         &remaining,
@@ -1677,6 +1721,7 @@ pub(crate) fn lower_fs_read_all_bytes_helper(
             instructions: &mut instructions,
             relocations: &mut relocations,
         },
+        &mut vregs,
         &file,
         "readall",
         &seek_error,
@@ -1963,6 +2008,7 @@ fn emit_append_to_line_accumulator(
     symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
     temp: &str,
     temp_cap: &str,
     line_len: &str,
@@ -1977,20 +2023,29 @@ fn emit_append_to_line_accumulator(
     let grow_copy_done = format!("{symbol}_acc_{tag}_grow_copy_done");
     let copy = format!("{symbol}_acc_{tag}_copy");
     let copy_done = format!("{symbol}_acc_{tag}_copy_done");
+    // Scratch minted from the caller's counter so it never collides with the vregs
+    // it holds live across this append (was `%v50`..`%v56`).
+    let needed = vregs.next();
+    let new_cap = vregs.next();
+    let old_block = vregs.next();
+    let copy_dst = vregs.next();
+    let copy_src = vregs.next();
+    let copy_count = vregs.next();
+    let copy_byte = vregs.next();
     instructions.extend([
         // needed = 8 (slack header) + line_len + count
-        abi::add_registers("%v50", line_len, count),
-        abi::add_immediate("%v50", "%v50", 8),
-        abi::compare_registers("%v50", temp_cap),
+        abi::add_registers(&needed, line_len, count),
+        abi::add_immediate(&needed, &needed, 8),
+        abi::compare_registers(&needed, temp_cap),
         abi::branch_ls(&fits),
         // grow: new_cap = max(temp_cap * 2, needed)
-        abi::add_registers("%v51", temp_cap, temp_cap),
-        abi::compare_registers("%v51", "%v50"),
+        abi::add_registers(&new_cap, temp_cap, temp_cap),
+        abi::compare_registers(&new_cap, &needed),
         abi::branch_ge(&cap_ok),
-        abi::move_register("%v51", "%v50"),
+        abi::move_register(&new_cap, &needed),
         abi::label(&cap_ok),
-        abi::move_register("%v52", temp), // stash old block
-        abi::move_register(abi::return_register(), "%v51"),
+        abi::move_register(&old_block, temp), // stash old block
+        abi::move_register(abi::return_register(), &new_cap),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -1999,35 +2054,35 @@ fn emit_append_to_line_accumulator(
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(alloc_error),
         // copy the existing line_len bytes from old(+8) to new(+8)
-        abi::add_immediate("%v53", "%v52", 8),
-        abi::add_immediate("%v54", abi::mfb_return(1), 8),
-        abi::move_register("%v55", line_len),
+        abi::add_immediate(&copy_dst, &old_block, 8),
+        abi::add_immediate(&copy_src, abi::mfb_return(1), 8),
+        abi::move_register(&copy_count, line_len),
         abi::label(&grow_copy),
-        abi::compare_immediate("%v55", "0"),
+        abi::compare_immediate(&copy_count, "0"),
         abi::branch_eq(&grow_copy_done),
-        abi::load_u8("%v56", "%v53", 0),
-        abi::store_u8("%v56", "%v54", 0),
-        abi::add_immediate("%v53", "%v53", 1),
-        abi::add_immediate("%v54", "%v54", 1),
-        abi::subtract_immediate("%v55", "%v55", 1),
+        abi::load_u8(&copy_byte, &copy_dst, 0),
+        abi::store_u8(&copy_byte, &copy_src, 0),
+        abi::add_immediate(&copy_dst, &copy_dst, 1),
+        abi::add_immediate(&copy_src, &copy_src, 1),
+        abi::subtract_immediate(&copy_count, &copy_count, 1),
         abi::branch(&grow_copy),
         abi::label(&grow_copy_done),
         abi::move_register(temp, abi::mfb_return(1)),
-        abi::move_register(temp_cap, "%v51"),
+        abi::move_register(temp_cap, &new_cap),
         abi::label(&fits),
         // dst = temp + 8 + line_len; copy `count` bytes from src.
-        abi::add_immediate("%v53", temp, 8),
-        abi::add_registers("%v53", "%v53", line_len),
-        abi::move_register("%v54", src),
-        abi::move_register("%v55", count),
+        abi::add_immediate(&copy_dst, temp, 8),
+        abi::add_registers(&copy_dst, &copy_dst, line_len),
+        abi::move_register(&copy_src, src),
+        abi::move_register(&copy_count, count),
         abi::label(&copy),
-        abi::compare_immediate("%v55", "0"),
+        abi::compare_immediate(&copy_count, "0"),
         abi::branch_eq(&copy_done),
-        abi::load_u8("%v56", "%v54", 0),
-        abi::store_u8("%v56", "%v53", 0),
-        abi::add_immediate("%v54", "%v54", 1),
-        abi::add_immediate("%v53", "%v53", 1),
-        abi::subtract_immediate("%v55", "%v55", 1),
+        abi::load_u8(&copy_byte, &copy_src, 0),
+        abi::store_u8(&copy_byte, &copy_dst, 0),
+        abi::add_immediate(&copy_src, &copy_src, 1),
+        abi::add_immediate(&copy_dst, &copy_dst, 1),
+        abi::subtract_immediate(&copy_count, &copy_count, 1),
         abi::branch(&copy),
         abi::label(&copy_done),
         abi::add_registers(line_len, line_len, count),
@@ -2044,6 +2099,7 @@ fn emit_append_to_line_accumulator(
 /// record vreg; internal scratch uses `%v60`..`%v62`; `tag` disambiguates labels.
 fn emit_reconcile_read_buffer(
     ctx: &mut EmitCtx,
+    vregs: &mut Vregs,
     file: &str,
     tag: &str,
     seek_error_label: &str,
@@ -2053,16 +2109,21 @@ fn emit_reconcile_read_buffer(
     let platform_imports = ctx.platform_imports;
 
     let reconciled = format!("{symbol}_reconcile_{tag}_done");
+    // Scratch minted from the caller's counter so it never collides with the vregs
+    // it holds live across this reconcile (was `%v60`..`%v62`).
+    let read_pos = vregs.next();
+    let unconsumed = vregs.next();
+    let fd = vregs.next();
     ctx.instructions.extend([
-        abi::load_u64("%v60", file, FILE_OFFSET_READ_POS),
-        abi::load_u64("%v61", file, FILE_OFFSET_READ_FILL),
-        abi::subtract_registers("%v61", "%v61", "%v60"), // unconsumed = fill - pos
-        abi::compare_immediate("%v61", "0"),
+        abi::load_u64(&read_pos, file, FILE_OFFSET_READ_POS),
+        abi::load_u64(&unconsumed, file, FILE_OFFSET_READ_FILL),
+        abi::subtract_registers(&unconsumed, &unconsumed, &read_pos), // unconsumed = fill - pos
+        abi::compare_immediate(&unconsumed, "0"),
         abi::branch_le(&reconciled),
         // lseek(fd, -(unconsumed), SEEK_CUR) to rewind the read-ahead.
-        abi::load_u64("%v62", file, FILE_OFFSET_FD),
-        abi::move_register(abi::return_register(), "%v62"),
-        abi::subtract_registers(abi::c_arg(1), abi::ZERO, "%v61"), // -unconsumed
+        abi::load_u64(&fd, file, FILE_OFFSET_FD),
+        abi::move_register(abi::return_register(), &fd),
+        abi::subtract_registers(abi::c_arg(1), abi::ZERO, &unconsumed), // -unconsumed
         abi::move_immediate(abi::c_arg(2), "Integer", "1"),        // SEEK_CUR
     ]);
     platform.emit_seek_file(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
@@ -2196,6 +2257,7 @@ pub(crate) fn lower_fs_read_line_helper(
         symbol,
         &mut instructions,
         &mut relocations,
+        &mut vregs,
         &temp,
         &temp_cap,
         &line_len,
@@ -2219,6 +2281,7 @@ pub(crate) fn lower_fs_read_line_helper(
         symbol,
         &mut instructions,
         &mut relocations,
+        &mut vregs,
         &temp,
         &temp_cap,
         &line_len,
