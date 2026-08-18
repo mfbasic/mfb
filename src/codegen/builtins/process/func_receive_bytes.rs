@@ -113,27 +113,36 @@ pub(crate) fn lower_process_receivebytes_helper_posix(
     let entry_done = format!("{symbol}_entry_done");
     let done = format!("{symbol}_done");
 
+    let mut vregs = Vregs::new();
+    let reg9 = vregs.next();
+    let reg10 = vregs.next();
+    let reg11 = vregs.next();
+    let reg12 = vregs.next();
+    let reg15 = vregs.next();
+    let reg13 = vregs.next();
+    let reg14 = vregs.next();
+
     let mut instructions = vec![
         abi::label("entry"),
-        abi::load_u64("%v9", abi::return_register(), RESOURCE_OFFSET_CLOSED),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&reg9, abi::return_register(), RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(&reg9, "0"),
         abi::branch_ne(&closed),
     ];
     if with_from {
         instructions.extend([
             abi::compare_immediate(abi::c_arg(1), "0"),
             abi::branch_ne(&use_stderr),
-            abi::load_u64("%v9", abi::return_register(), PROC_STDOUT_R),
+            abi::load_u64(&reg9, abi::return_register(), PROC_STDOUT_R),
             abi::branch(&sel_done),
             abi::label(&use_stderr),
-            abi::load_u64("%v9", abi::return_register(), PROC_STDERR_R),
+            abi::load_u64(&reg9, abi::return_register(), PROC_STDERR_R),
             abi::label(&sel_done),
         ]);
     } else {
-        instructions.push(abi::load_u64("%v9", abi::return_register(), PROC_STDOUT_R));
+        instructions.push(abi::load_u64(&reg9, abi::return_register(), PROC_STDOUT_R));
     }
     instructions.extend([
-        abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        abi::store_u64(&reg9, abi::stack_pointer(), FD_OFFSET),
         // Allocate the temporary chunk buffer.
         abi::move_immediate(abi::return_register(), "Integer", CHUNK),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
@@ -163,61 +172,61 @@ pub(crate) fn lower_process_receivebytes_helper_posix(
     ]);
     // Build a List OF Byte with N elements from BUF (mirrors net.read).
     instructions.extend([
-        abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
-        abi::move_immediate("%v11", "Integer", &byte_list_entry_stride().to_string()),
-        abi::multiply_registers("%v12", "%v10", "%v11"),
-        abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
-        abi::add_registers(abi::return_register(), "%v12", "%v10"),
+        abi::load_u64(&reg10, abi::stack_pointer(), N_OFFSET),
+        abi::move_immediate(&reg11, "Integer", &byte_list_entry_stride().to_string()),
+        abi::multiply_registers(&reg12, &reg10, &reg11),
+        abi::add_immediate(&reg12, &reg12, COLLECTION_HEADER_SIZE),
+        abi::add_registers(abi::return_register(), &reg12, &reg10),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::move_register("%v15", abi::mfb_return(1)),
-        abi::move_immediate("%v9", "Byte", &byte_list_block_kind().to_string()),
-        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),
-        abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
-        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KEY_TYPE),
-        abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_BYTE.to_string()),
-        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_VALUE_TYPE),
-        abi::move_immediate("%v9", "Byte", "1"),
-        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_FLAGS_VERSION),
-        abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
-        abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_COUNT),
-        abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_CAPACITY),
-        abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_LENGTH),
-        abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_CAPACITY),
-        abi::add_immediate("%v11", "%v15", COLLECTION_HEADER_SIZE),
-        abi::move_immediate("%v12", "Integer", &byte_list_entry_stride().to_string()),
-        abi::multiply_registers("%v13", "%v10", "%v12"),
-        abi::add_registers("%v14", "%v11", "%v13"),
-        abi::load_u64("%v15", abi::stack_pointer(), BUF_OFFSET),
-        abi::move_immediate("%v9", "Integer", "0"),
+        abi::move_register(&reg15, abi::mfb_return(1)),
+        abi::move_immediate(&reg9, "Byte", &byte_list_block_kind().to_string()),
+        abi::store_u8(&reg9, &reg15, COLLECTION_OFFSET_KIND),
+        abi::move_immediate(&reg9, "Byte", &COLLECTION_TYPE_NONE.to_string()),
+        abi::store_u8(&reg9, &reg15, COLLECTION_OFFSET_KEY_TYPE),
+        abi::move_immediate(&reg9, "Byte", &COLLECTION_TYPE_BYTE.to_string()),
+        abi::store_u8(&reg9, &reg15, COLLECTION_OFFSET_VALUE_TYPE),
+        abi::move_immediate(&reg9, "Byte", "1"),
+        abi::store_u8(&reg9, &reg15, COLLECTION_OFFSET_FLAGS_VERSION),
+        abi::load_u64(&reg10, abi::stack_pointer(), N_OFFSET),
+        abi::store_u64(&reg10, &reg15, COLLECTION_OFFSET_COUNT),
+        abi::store_u64(&reg10, &reg15, COLLECTION_OFFSET_CAPACITY),
+        abi::store_u64(&reg10, &reg15, COLLECTION_OFFSET_DATA_LENGTH),
+        abi::store_u64(&reg10, &reg15, COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_immediate(&reg11, &reg15, COLLECTION_HEADER_SIZE),
+        abi::move_immediate(&reg12, "Integer", &byte_list_entry_stride().to_string()),
+        abi::multiply_registers(&reg13, &reg10, &reg12),
+        abi::add_registers(&reg14, &reg11, &reg13),
+        abi::load_u64(&reg15, abi::stack_pointer(), BUF_OFFSET),
+        abi::move_immediate(&reg9, "Integer", "0"),
         abi::label(&entry_loop),
-        abi::compare_registers("%v9", "%v10"),
+        abi::compare_registers(&reg9, &reg10),
         abi::branch_eq(&entry_done),
     ]);
     if byte_list_entry_stride() != 0 {
         instructions.extend([
-            abi::move_immediate("%v12", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-            abi::store_u8("%v12", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
-            abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-            abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-            abi::store_u64("%v9", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-            abi::move_immediate("%v12", "Integer", "1"),
-            abi::store_u64("%v12", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+            abi::move_immediate(&reg12, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+            abi::store_u8(&reg12, &reg11, COLLECTION_ENTRY_OFFSET_FLAGS),
+            abi::store_u64(abi::ZERO, &reg11, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+            abi::store_u64(abi::ZERO, &reg11, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+            abi::store_u64(&reg9, &reg11, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+            abi::move_immediate(&reg12, "Integer", "1"),
+            abi::store_u64(&reg12, &reg11, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
         ]);
     }
     instructions.extend([
-        abi::add_registers("%v12", "%v14", "%v9"),
-        abi::load_u8("%v13", "%v15", 0),
-        abi::store_u8("%v13", "%v12", 0),
-        abi::add_immediate("%v15", "%v15", 1),
+        abi::add_registers(&reg12, &reg14, &reg9),
+        abi::load_u8(&reg13, &reg15, 0),
+        abi::store_u8(&reg13, &reg12, 0),
+        abi::add_immediate(&reg15, &reg15, 1),
     ]);
     if byte_list_entry_stride() != 0 {
-        instructions.push(abi::add_immediate("%v11", "%v11", COLLECTION_ENTRY_SIZE));
+        instructions.push(abi::add_immediate(&reg11, &reg11, COLLECTION_ENTRY_SIZE));
     }
     instructions.extend([
-        abi::add_immediate("%v9", "%v9", 1),
+        abi::add_immediate(&reg9, &reg9, 1),
         abi::branch(&entry_loop),
         abi::label(&entry_done),
         abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
@@ -227,13 +236,13 @@ pub(crate) fn lower_process_receivebytes_helper_posix(
     ]);
     platform.emit_errno(
         symbol,
-        ("%v9").into(),
+        (&reg9).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
     instructions.extend([
-        abi::compare_immediate("%v9", EINTR),
+        abi::compare_immediate(&reg9, EINTR),
         abi::branch_eq(&read_retry),
         abi::label(&closed),
     ]);

@@ -135,27 +135,33 @@ pub(crate) fn lower_process_receive_helper_posix(
     let encoding_error = format!("{symbol}_encoding_error");
     let done = format!("{symbol}_done");
 
+    let mut vregs = Vregs::new();
+    let reg9 = vregs.next();
+    let reg10 = vregs.next();
+    let reg11 = vregs.next();
+    let reg12 = vregs.next();
+
     let mut instructions = vec![
         abi::label("entry"),
-        abi::load_u64("%v9", abi::return_register(), RESOURCE_OFFSET_CLOSED),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&reg9, abi::return_register(), RESOURCE_OFFSET_CLOSED),
+        abi::compare_immediate(&reg9, "0"),
         abi::branch_ne(&closed),
     ];
     if with_from {
         instructions.extend([
             abi::compare_immediate(abi::c_arg(1), "0"),
             abi::branch_ne(&use_stderr),
-            abi::load_u64("%v9", abi::return_register(), PROC_STDOUT_R),
+            abi::load_u64(&reg9, abi::return_register(), PROC_STDOUT_R),
             abi::branch(&sel_done),
             abi::label(&use_stderr),
-            abi::load_u64("%v9", abi::return_register(), PROC_STDERR_R),
+            abi::load_u64(&reg9, abi::return_register(), PROC_STDERR_R),
             abi::label(&sel_done),
         ]);
     } else {
-        instructions.push(abi::load_u64("%v9", abi::return_register(), PROC_STDOUT_R));
+        instructions.push(abi::load_u64(&reg9, abi::return_register(), PROC_STDOUT_R));
     }
     instructions.extend([
-        abi::store_u64("%v9", abi::stack_pointer(), FD),
+        abi::store_u64(&reg9, abi::stack_pointer(), FD),
         // Accumulator buffer.
         abi::move_immediate(abi::return_register(), "Integer", &CAP.to_string()),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
@@ -168,9 +174,9 @@ pub(crate) fn lower_process_receive_helper_posix(
         // read one byte into acc[filled].
         abi::label(&read_loop),
         abi::load_u64(abi::c_arg(0), abi::stack_pointer(), FD),
-        abi::load_u64("%v9", abi::stack_pointer(), LINEP),
-        abi::load_u64("%v10", abi::stack_pointer(), N),
-        abi::add_registers(abi::c_arg(1), "%v9", "%v10"),
+        abi::load_u64(&reg9, abi::stack_pointer(), LINEP),
+        abi::load_u64(&reg10, abi::stack_pointer(), N),
+        abi::add_registers(abi::c_arg(1), &reg9, &reg10),
         abi::move_immediate(abi::c_arg(2), "Integer", "1"),
     ]);
     platform.emit_libc_call(
@@ -187,35 +193,35 @@ pub(crate) fn lower_process_receive_helper_posix(
         abi::branch_gt(&got_byte),
         // r == 0: EOF.
         abi::label(&eof_check),
-        abi::load_u64("%v10", abi::stack_pointer(), N),
-        abi::compare_immediate("%v10", "0"),
+        abi::load_u64(&reg10, abi::stack_pointer(), N),
+        abi::compare_immediate(&reg10, "0"),
         abi::branch_eq(&closed),
         abi::branch(&build),
         abi::label(&got_byte),
         // filled += 1; check the byte just read for '\n'.
-        abi::load_u64("%v9", abi::stack_pointer(), LINEP),
-        abi::load_u64("%v10", abi::stack_pointer(), N),
-        abi::add_registers("%v11", "%v9", "%v10"),
-        abi::load_u8("%v12", "%v11", 0),
-        abi::add_immediate("%v10", "%v10", 1),
-        abi::store_u64("%v10", abi::stack_pointer(), N),
-        abi::compare_immediate("%v12", "10"), // '\n'
+        abi::load_u64(&reg9, abi::stack_pointer(), LINEP),
+        abi::load_u64(&reg10, abi::stack_pointer(), N),
+        abi::add_registers(&reg11, &reg9, &reg10),
+        abi::load_u8(&reg12, &reg11, 0),
+        abi::add_immediate(&reg10, &reg10, 1),
+        abi::store_u64(&reg10, abi::stack_pointer(), N),
+        abi::compare_immediate(&reg12, "10"), // '\n'
         abi::branch_eq(&build),
-        abi::move_immediate("%v11", "Integer", &CAP.to_string()),
-        abi::compare_registers("%v10", "%v11"),
+        abi::move_immediate(&reg11, "Integer", &CAP.to_string()),
+        abi::compare_registers(&reg10, &reg11),
         abi::branch_eq(&build), // line too long -> return what we have
         abi::branch(&read_loop),
         abi::label(&read_fail),
     ]);
     platform.emit_errno(
         symbol,
-        ("%v9").into(),
+        (&reg9).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
     instructions.extend([
-        abi::compare_immediate("%v9", EINTR),
+        abi::compare_immediate(&reg9, EINTR),
         abi::branch_eq(&read_loop),
         abi::branch(&closed),
         abi::label(&build),
