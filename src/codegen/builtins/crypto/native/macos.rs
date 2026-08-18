@@ -13,7 +13,10 @@ use crate::codegen::memory::marshal::*;
 use crate::codegen::string::util::*;
 use std::collections::HashMap;
 
-use super::{call_fn, emit_build_byte_list, emit_fail, emit_read_byte_list, Curve, EcOp};
+use super::{
+    call_fn, emit_build_byte_list, emit_build_keypair_record, emit_build_pub_list, emit_fail,
+    emit_read_byte_list, Curve, EcOp, RecordBuildScratch,
+};
 use crate::target::shared::abi;
 
 impl Curve {
@@ -341,11 +344,12 @@ pub(crate) fn lower(
     op: EcOp,
     curve: Curve,
     symbol: &str,
+    keypair: Option<&TypeModel>,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
     match op {
-        EcOp::Generate => generate(curve, symbol, imports, platform),
+        EcOp::Generate => generate(curve, symbol, keypair, imports, platform),
         EcOp::Sign => sign(curve, symbol, imports, platform),
         EcOp::Verify => verify(curve, symbol, imports, platform),
     }
@@ -354,6 +358,7 @@ pub(crate) fn lower(
 fn generate(
     curve: Curve,
     symbol: &str,
+    keypair: Option<&TypeModel>,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
@@ -374,7 +379,16 @@ fn generate(
     const BYTELEN: usize = 128;
     const COLL: usize = 136;
     const SCRATCH: usize = 144;
-    const LOCAL_SIZE: usize = 160;
+    // `generateP256` (keypair mode) additionally builds the public-key list and
+    // assembles the `KeyPair` record: the public `List OF Byte` pointer, its
+    // length scratch, and the four record-marshaller scratch slots.
+    const PUBCOLL: usize = 152;
+    const PUBLEN: usize = 160;
+    const RSIZE: usize = 168;
+    const RRESULT: usize = 176;
+    const RCURSOR: usize = 184;
+    const RBLOCK: usize = 192;
+    const LOCAL_SIZE: usize = 208;
 
     let load_fail = format!("{symbol}_load_fail");
     let gen_fail = format!("{symbol}_gen_fail");
@@ -611,16 +625,47 @@ fn generate(
         &mut rel,
     )?;
 
-    cf_release(RELEASE, NUM, &mut ins);
-    cf_release(RELEASE, DICT, &mut ins);
-    cf_release(RELEASE, KEY, &mut ins);
-    cf_release(RELEASE, DATA, &mut ins);
+    // `generateP256` returns a `KeyPair`: build the public-key list from the raw
+    // buffer (`BYTEPTR` still aliases the CFData, so this must precede its
+    // release), then release the CF objects, then assemble the record — the CF
+    // releases clobber the caller-saved result registers, so the record (which
+    // sets them) is built last.
+    if let Some(type_model) = keypair {
+        emit_build_pub_list(
+            symbol, curve, BYTEPTR, PUBLEN, PUBCOLL, &alloc_fail, &mut ins, &mut rel,
+        );
+        cf_release(RELEASE, NUM, &mut ins);
+        cf_release(RELEASE, DICT, &mut ins);
+        cf_release(RELEASE, KEY, &mut ins);
+        cf_release(RELEASE, DATA, &mut ins);
+        emit_build_keypair_record(
+            symbol,
+            type_model,
+            COLL,
+            PUBCOLL,
+            &RecordBuildScratch {
+                size: RSIZE,
+                result: RRESULT,
+                cursor: RCURSOR,
+                block_size: RBLOCK,
+            },
+            &alloc_fail,
+            &mut ins,
+            &mut rel,
+        )?;
+        ins.push(abi::branch(&done));
+    } else {
+        cf_release(RELEASE, NUM, &mut ins);
+        cf_release(RELEASE, DICT, &mut ins);
+        cf_release(RELEASE, KEY, &mut ins);
+        cf_release(RELEASE, DATA, &mut ins);
 
-    ins.extend([
-        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), COLL),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::branch(&done),
-    ]);
+        ins.extend([
+            abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), COLL),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+            abi::branch(&done),
+        ]);
+    }
 
     // Every error exit releases exactly the CF objects (NUM, DICT, KEY, DATA)
     // the success path releases; the slots are zero-initialised so a release is
@@ -1287,8 +1332,10 @@ mod error_path_release_tests {
     fn generate_releases_cf_objects_on_error() {
         mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
         let imports = HashMap::new();
+        // `None` exercises the byte-return generator's shared error cleanup; the
+        // keypair-mode branch reuses the same CF-release exits.
         let (_f, ins, rel, _s) =
-            generate(Curve::P256, "g", &imports, &TestPlatform).expect("lower generate");
+            generate(Curve::P256, "g", None, &imports, &TestPlatform).expect("lower generate");
         assert!(reloc_has(&rel, "CFRelease"));
         // gen_fail null-guards each CFRelease (NUM here).
         assert!(

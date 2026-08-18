@@ -2,3 +2,5 @@
 
 pub(crate) mod byte_list;
 pub(crate) use byte_list::*;
+pub(crate) mod record;
+pub(crate) use record::*;

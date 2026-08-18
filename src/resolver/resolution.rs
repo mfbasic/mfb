@@ -1591,7 +1591,7 @@ mod tests {
     /// calls the raw generators, from injected package source.
     #[test]
     fn crypto_raw_key_generators_are_not_user_callable() {
-        for raw in ["generateP256Raw", "generateP384Raw", "generateP521Raw"] {
+        for raw in ["generateP384Raw", "generateP521Raw"] {
             assert!(
                 resolve_source_fails(&format!(
                     "IMPORT crypto\nSUB main()\n  LET k = crypto::{raw}()\nEND SUB\n"

@@ -26,7 +26,10 @@ use crate::codegen::memory::marshal::*;
 use crate::codegen::string::util::*;
 use std::collections::HashMap;
 
-use super::{call_fn, emit_build_byte_list, emit_fail, emit_read_byte_list, Curve, EcOp};
+use super::{
+    call_fn, emit_build_byte_list, emit_build_keypair_record, emit_build_pub_list, emit_fail,
+    emit_read_byte_list, Curve, EcOp, RecordBuildScratch,
+};
 use crate::target::shared::abi;
 
 const LIBCRYPTO3: &str = "libcrypto.so.3";
@@ -380,11 +383,12 @@ pub(crate) fn lower(
     op: EcOp,
     curve: Curve,
     symbol: &str,
+    keypair: Option<&TypeModel>,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
     match op {
-        EcOp::Generate => generate(curve, symbol, imports, platform),
+        EcOp::Generate => generate(curve, symbol, keypair, imports, platform),
         EcOp::Sign => sign(curve, symbol, imports, platform),
         EcOp::Verify => verify(curve, symbol, imports, platform),
     }
@@ -393,6 +397,7 @@ pub(crate) fn lower(
 fn generate(
     curve: Curve,
     symbol: &str,
+    keypair: Option<&TypeModel>,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
@@ -410,7 +415,15 @@ fn generate(
     const SPKIPTR: usize = 88;
     const SPKILEN: usize = 96;
     const SPKIPP: usize = 104;
-    const LOCAL_SIZE: usize = 128;
+    // `generateP256` (keypair mode) additionally builds the public-key list and
+    // assembles the `KeyPair` record.
+    const PUBCOLL: usize = 112;
+    const PUBLEN: usize = 120;
+    const RSIZE: usize = 128;
+    const RRESULT: usize = 136;
+    const RCURSOR: usize = 144;
+    const RBLOCK: usize = 152;
+    const LOCAL_SIZE: usize = 160;
 
     let load_fail = format!("{symbol}_load_fail");
     let gen_fail = format!("{symbol}_gen_fail");
@@ -721,6 +734,13 @@ fn generate(
         &mut ins,
         &mut rel,
     );
+    // `generateP256` returns a `KeyPair`: build the public-key list from the raw
+    // buffer before it is freed/wiped below.
+    if keypair.is_some() {
+        emit_build_pub_list(
+            symbol, curve, RAWBUF, PUBLEN, PUBCOLL, &alloc_fail, &mut ins, &mut rel,
+        );
+    }
 
     dlsym_into(
         symbol,
@@ -745,11 +765,32 @@ fn generate(
     // the output list copy has completed so the secret is not left in scratch.
     emit_zero_guarded(symbol, RAWBUF, Some(RAWLEN), 0, "rawS", &mut ins);
 
-    ins.extend([
-        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), COLL),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::branch(&done),
-    ]);
+    // Assemble the record last: `EVP_PKEY_free` above clobbers the result
+    // registers, and the record marshaller sets them.
+    if let Some(type_model) = keypair {
+        emit_build_keypair_record(
+            symbol,
+            type_model,
+            COLL,
+            PUBCOLL,
+            &RecordBuildScratch {
+                size: RSIZE,
+                result: RRESULT,
+                cursor: RCURSOR,
+                block_size: RBLOCK,
+            },
+            &alloc_fail,
+            &mut ins,
+            &mut rel,
+        )?;
+        ins.push(abi::branch(&done));
+    } else {
+        ins.extend([
+            abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), COLL),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+            abi::branch(&done),
+        ]);
+    }
     // Every error exit frees the objects (PKEY, ECKEY) the success exit frees
     // and wipes the SEC1 scratch; slots are zero-initialised so each free/wipe
     // is a no-op until it exists (bug-55).
@@ -1555,7 +1596,7 @@ mod error_path_release_tests {
         mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
         let imports = HashMap::new();
         let (_f, ins, rel, _s) =
-            generate(Curve::P256, "g", &imports, &TestPlatform).expect("lower generate");
+            generate(Curve::P256, "g", None, &imports, &TestPlatform).expect("lower generate");
         assert!(
             has_label(&ins, "g_raw_fail"),
             "generate needs a raw_fail terminal"

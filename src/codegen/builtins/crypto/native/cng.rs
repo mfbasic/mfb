@@ -22,7 +22,10 @@ use crate::codegen::memory::arena::*;
 use crate::codegen::memory::marshal::*;
 use std::collections::HashMap;
 
-use super::{emit_build_byte_list, emit_fail, emit_read_byte_list, Curve, EcOp};
+use super::{
+    emit_build_byte_list, emit_build_keypair_record, emit_build_pub_list, emit_fail,
+    emit_read_byte_list, Curve, EcOp,
+};
 use crate::target::shared::abi;
 impl Curve {
     fn field_len(self) -> usize {
@@ -181,11 +184,12 @@ pub(crate) fn lower(
     op: EcOp,
     curve: Curve,
     symbol: &str,
+    keypair: Option<&TypeModel>,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
     match op {
-        EcOp::Generate => generate(curve, symbol, imports, platform),
+        EcOp::Generate => generate(curve, symbol, keypair, imports, platform),
         EcOp::Sign => sign(curve, symbol, imports, platform),
         EcOp::Verify => verify(curve, symbol, imports, platform),
     }
@@ -197,6 +201,7 @@ pub(crate) fn lower(
 fn generate(
     curve: Curve,
     symbol: &str,
+    keypair: Option<&TypeModel>,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
@@ -209,8 +214,16 @@ fn generate(
     const RAW: usize = 32;
     const RAWLEN: usize = 40;
     const COLL: usize = 48;
+    // `generateP256` (keypair mode) additionally builds the public-key list and
+    // assembles the `KeyPair` record.
+    const PUBCOLL: usize = 56;
+    const PUBLEN: usize = 64;
+    const RSIZE: usize = 72;
+    const RRESULT: usize = 80;
+    const RCURSOR: usize = 88;
+    const RBLOCK: usize = 96;
     const BLOBCAP: usize = 8 + 3 * 66;
-    const LOCAL_SIZE: usize = 64;
+    const LOCAL_SIZE: usize = 104;
 
     let fail = format!("{symbol}_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -356,6 +369,30 @@ fn generate(
         &mut ins,
         &mut rel,
     );
+    // `generateP256` returns a `KeyPair`: the raw buffer (`RAW`) is still live,
+    // so build the public-key list and assemble the record. The record marshaller
+    // sets the result registers last (after the handle cleanup above clobbered
+    // them).
+    if let Some(type_model) = keypair {
+        emit_build_pub_list(
+            symbol, curve, RAW, PUBLEN, PUBCOLL, &alloc_fail, &mut ins, &mut rel,
+        );
+        emit_build_keypair_record(
+            symbol,
+            type_model,
+            COLL,
+            PUBCOLL,
+            &RecordBuildScratch {
+                size: RSIZE,
+                result: RRESULT,
+                cursor: RCURSOR,
+                block_size: RBLOCK,
+            },
+            &alloc_fail,
+            &mut ins,
+            &mut rel,
+        )?;
+    }
     ins.push(abi::branch(&done));
 
     ins.push(abi::label(&fail));

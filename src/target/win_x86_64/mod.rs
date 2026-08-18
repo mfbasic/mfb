@@ -186,7 +186,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "net.setWriteTimeout",
     // Crypto (plan-47-J): randomBytes over BCryptGenRandom, NIST-EC over CNG.
     "crypto.randomBytes",
-    "crypto.generateP256Raw",
+    "crypto.generateP256",
     "crypto.generateP384Raw",
     "crypto.generateP521Raw",
     "crypto.p256Sign",

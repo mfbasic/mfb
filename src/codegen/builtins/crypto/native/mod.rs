@@ -57,7 +57,11 @@ impl Curve {
 /// Map a runtime-helper call name onto (operation, curve).
 pub(crate) fn ec_call(call: &str) -> Option<(EcOp, Curve)> {
     let (op, curve) = match call {
-        "crypto.generateP256Raw" => (EcOp::Generate, Curve::P256),
+        // `generateP256` is the single public member (its raw twin was collapsed in);
+        // its native helper builds the `KeyPair` directly. `generateP384Raw` /
+        // `generateP521Raw` remain internal byte-returning generators behind the
+        // `generateP384` / `generateP521` source glue.
+        "crypto.generateP256" => (EcOp::Generate, Curve::P256),
         "crypto.generateP384Raw" => (EcOp::Generate, Curve::P384),
         "crypto.generateP521Raw" => (EcOp::Generate, Curve::P521),
         "crypto.p256Sign" => (EcOp::Sign, Curve::P256),
@@ -90,16 +94,23 @@ pub(crate) fn is_ec_symbol(symbol: &str) -> bool {
 pub(crate) fn lower_crypto_ec_helper(
     call: &str,
     symbol: &str,
+    keypair: Option<&TypeModel>,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
     let (op, curve) =
         ec_call(call).ok_or_else(|| format!("crypto EC helper: unknown call {call}"))?;
     match platform.family() {
-        PlatformFamily::MacOS => macos::lower(op, curve, symbol, platform_imports, platform),
-        PlatformFamily::Linux => openssl::lower(op, curve, symbol, platform_imports, platform),
+        PlatformFamily::MacOS => {
+            macos::lower(op, curve, symbol, keypair, platform_imports, platform)
+        }
+        PlatformFamily::Linux => {
+            openssl::lower(op, curve, symbol, keypair, platform_imports, platform)
+        }
         // The Windows EC backend is CNG/BCrypt (plan-47-J), linked through the IAT.
-        PlatformFamily::Windows => cng::lower(op, curve, symbol, platform_imports, platform),
+        PlatformFamily::Windows => {
+            cng::lower(op, curve, symbol, keypair, platform_imports, platform)
+        }
     }
 }
 
@@ -109,8 +120,13 @@ pub(crate) fn lower_crypto_ec_helper(
 // keep importing them from their parent.
 // ---------------------------------------------------------------------------
 
+pub(crate) use crate::codegen::error::constants::{
+    RESULT_OK_TAG, RESULT_TAG_REGISTER, RESULT_VALUE_REGISTER,
+};
 pub(crate) use crate::codegen::error::emission::emit_fail;
-pub(crate) use crate::codegen::memory::marshal::{emit_build_byte_list, emit_read_byte_list};
+pub(crate) use crate::codegen::memory::marshal::{
+    emit_build_byte_list, emit_build_inlined_record, emit_read_byte_list, RecordBuildScratch,
+};
 
 /// Call the function pointer stored at `fn_off` (args already in x0..). Result
 /// left in the return register. Shared by both EC backends.
@@ -119,6 +135,80 @@ pub(crate) fn call_fn(fn_off: usize, ins: &mut Vec<CodeInstruction>) {
         abi::load_u64("%v9", abi::stack_pointer(), fn_off),
         abi::branch_link_register("%v9"),
     ]);
+}
+
+/// Build the SEC1 public-key `List OF Byte` — the first `curve.point_len()` bytes
+/// of the raw `0x04||X||Y||K` buffer at `raw_ptr_slot` (`0x04||X||Y`) — into
+/// `pub_coll_slot`, using `pub_len_slot` as scratch. Called while the raw buffer
+/// is still live (on macOS it aliases the CFData, which must not yet be released).
+/// Branches to `alloc_fail` on failure.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn emit_build_pub_list(
+    symbol: &str,
+    curve: Curve,
+    raw_ptr_slot: usize,
+    pub_len_slot: usize,
+    pub_coll_slot: usize,
+    alloc_fail: &str,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) {
+    ins.extend([
+        abi::move_immediate("%v9", "Integer", &curve.point_len().to_string()),
+        abi::store_u64("%v9", abi::stack_pointer(), pub_len_slot),
+    ]);
+    emit_build_byte_list(
+        symbol,
+        &format!("{symbol}_pub_build_loop"),
+        &format!("{symbol}_pub_build_done"),
+        raw_ptr_slot,
+        pub_len_slot,
+        Some(pub_coll_slot),
+        abi::mfb_return(1),
+        alloc_fail,
+        ins,
+        rel,
+    );
+}
+
+/// Assemble the `crypto::KeyPair` record from the already-built `privateKey`
+/// (`priv_coll_slot`) and `publicKey` (`pub_coll_slot`) `List OF Byte` blocks,
+/// via the generic spec-canonical record marshaller, and leave it as the fallible
+/// success value (`RESULT_VALUE_REGISTER` = record pointer, `RESULT_TAG_REGISTER`
+/// = `RESULT_OK_TAG`). Both fields are inlined into the record's data region
+/// (`List OF Byte` is a flat composite), so the whole `KeyPair` is a single
+/// pointer-free block — byte-for-byte the image the former `KeyPair[priv, pub]`
+/// source glue produced. Set last so no later call clobbers the result registers.
+/// Branches to `alloc_fail` on failure.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn emit_build_keypair_record(
+    symbol: &str,
+    type_model: &TypeModel,
+    priv_coll_slot: usize,
+    pub_coll_slot: usize,
+    scratch: &RecordBuildScratch,
+    alloc_fail: &str,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    emit_build_inlined_record(
+        symbol,
+        "kp",
+        "KeyPair",
+        type_model,
+        &[priv_coll_slot, pub_coll_slot],
+        scratch,
+        RESULT_VALUE_REGISTER,
+        alloc_fail,
+        ins,
+        rel,
+    )?;
+    ins.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    Ok(())
 }
 
 pub(crate) mod cng;
@@ -140,16 +230,22 @@ pub(crate) fn lower_crypto_random_bytes(
     random::lower_crypto_random_bytes_helper(symbol, platform_imports, platform)
 }
 
-/// OsLower-shaped entry for the NIST-EC public-key helpers (`crypto::generateP*Raw`,
-/// `crypto::p{256,384,521}{Sign,Verify}`). `call` selects the (operation, curve);
-/// the per-backend emission (macOS `SecKey`, Linux `EVP_PKEY`, Windows CNG) is
-/// chosen by `platform.family()`. The [`OsLowerCtx`] is unused.
+/// OsLower-shaped entry for the NIST-EC public-key helpers (`crypto::generateP256`,
+/// `crypto::generateP{384,521}Raw`, `crypto::p{256,384,521}{Sign,Verify}`). `call`
+/// selects the (operation, curve); the per-backend emission (macOS `SecKey`, Linux
+/// `EVP_PKEY`, Windows CNG) is chosen by `platform.family()`.
+///
+/// `crypto::generateP256` is the one member that **returns a record**: its helper
+/// builds the `KeyPair` from the generated bytes, so it needs the record's field
+/// layout — the [`OsLowerCtx::type_model`]. Every other EC call returns a
+/// `List OF Byte` (or `Boolean`) and passes `None`.
 pub(crate) fn lower_crypto_ec(
     call: &str,
     symbol: &str,
-    _ctx: &OsLowerCtx,
+    ctx: &OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    lower_crypto_ec_helper(call, symbol, platform_imports, platform)
+    let keypair = (call == "crypto.generateP256").then_some(ctx.type_model);
+    lower_crypto_ec_helper(call, symbol, keypair, platform_imports, platform)
 }

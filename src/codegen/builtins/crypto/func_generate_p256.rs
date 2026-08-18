@@ -1,7 +1,18 @@
 //! `crypto::generateP256` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). A single-overload SOURCE member that
-//! takes no arguments and returns a `crypto::KeyPair`.
+//! A NATIVE member that takes no arguments and returns a `crypto::KeyPair`. Its
+//! `Body::native` OS-seam slots point at [`super::native::lower_crypto_ec`], the
+//! shared elliptic-curve lowering, which — for this one member — generates the
+//! P-256 key and **builds the `KeyPair` record directly** (private bytes
+//! `0x04||X||Y||K`, public point `0x04||X||Y`), via the generic spec-canonical
+//! record marshaller. This collapses the former `generateP256Raw` native helper
+//! plus its `__crypto_generateP256` source glue into a single member, proving an
+//! `OsLower` helper can return a record ([[.ai/resources-packages.md]]).
+//!
+//! Infallible surface (`errors: vec![]`): callers invoke `crypto::generateP256()`
+//! bare, exactly as before. A keygen/allocation failure still routes through the
+//! helper's fallible-ABI error tag, which an infallible caller turns into an abort
+//! — the same behavior the old source glue had when it called the raw generator.
 
 use super::{Body, Implementation, ParameterType, RegistryFunction};
 
@@ -72,7 +83,11 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![],
             return_type: ParameterType::Named("KeyPair"),
             errors: vec![],
-            body: Body::Rewrite("__crypto_generateP256"),
+            body: Body::native(
+                Some(super::native::lower_crypto_ec),
+                Some(super::native::lower_crypto_ec),
+                None,
+            ),
         }],
     });
 }
