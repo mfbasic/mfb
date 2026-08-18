@@ -61,6 +61,13 @@ pub(crate) struct OsLowerCtx<'a> {
     pub(crate) module_name: &'a str,
     pub(crate) term_state_offset: Option<usize>,
     pub(crate) presentation_mode_offset: Option<usize>,
+    /// The per-compilation type model (record field layouts, union/enum members,
+    /// resource closers). Threaded so an OS-seam emitter that **returns a record**
+    /// can drive the generic spec-canonical record marshaller
+    /// ([`crate::codegen::memory::marshal::emit_build_inlined_record`]) — the
+    /// field-inline classification (`record_field_is_inlined` / `type_is_flat`)
+    /// needs the record's declared fields. Most emitters ignore it.
+    pub(crate) type_model: &'a crate::codegen::engine::builder::TypeModel,
 }
 
 /// An OS-seam member's per-platform native emission — the

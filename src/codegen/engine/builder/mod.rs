@@ -1635,6 +1635,7 @@ pub(crate) fn lower_module_for_platform(
                 global_slots: arena_global_slots,
             },
             uses_rng,
+            &type_model,
             &platform_imports,
             platform,
         )?);
@@ -1878,6 +1879,7 @@ pub(crate) fn lower_runtime_helper(
     module_name: &str,
     arena_layout: ArenaLayout,
     uses_rng: bool,
+    type_model: &TypeModel,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {
@@ -1896,6 +1898,7 @@ pub(crate) fn lower_runtime_helper(
         module_name,
         term_state_offset: arena_layout.term_state_offset,
         presentation_mode_offset: arena_layout.presentation_mode_offset,
+        type_model,
     };
     // Every runtime helper lowers to the same CodeFunction shape — an empty
     // `params` list and the spec's return type — differing only in the
