@@ -159,12 +159,13 @@ fn shared_lowering_names_no_physical_register() {
 }
 
 /// The committed ratchet baseline: the number of hand-picked virtual-register
-/// literals (`"%vN"` / `"%fN"`) currently in `src/codegen/builtins`. These are
-/// legal but hand-allocated; the goal is 0. **This default must only ever
-/// DECREASE** — as each helper is converted to minted vregs (`temporary_vreg()`
-/// / `allocate_register()`), lower it to the new count so the progress is locked
-/// in. New hand-numbered vregs are banned outright (the count may not exceed it).
-const HAND_PICKED_VREG_BASELINE: usize = 4846;
+/// literals (`"%vN"` / `"%fN"`) currently in `src/codegen/builtins`. **The
+/// migration is complete — this is now 0.** Every native OS-seam helper mints its
+/// scratch through `Vregs::next()` (standalone helpers) or `temporary_vreg()` /
+/// `allocate_register()` (CodeBuilder value lowerings), so the allocator owns
+/// placement. The ratchet is a hard floor: any new hand-numbered `"%vN"` reopens
+/// the class and fails this test. It must never be raised above 0.
+const HAND_PICKED_VREG_BASELINE: usize = 0;
 
 /// The ratchet ceiling for this run: the `VREG` environment variable when set to
 /// a valid number (e.g. `VREG=0 cargo test` to surface the full cleanup target,
