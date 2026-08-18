@@ -509,11 +509,13 @@ impl LinuxPlan<'_> {
                 imports.push(self.libc_import("__errno_location", required_by));
                 imports
             }
-            call if crate::codegen::builtins::crypto::is_native_crypto_call(call)
-                && call != "crypto.randomBytes" =>
+            call if call == "crypto.generate"
+                || (crate::codegen::builtins::crypto::is_native_crypto_call(call)
+                    && call != "crypto.randomBytes") =>
             {
-                // The NIST-EC helpers resolve libcrypto at load time via
-                // dlopen/dlsym (no deprecated OpenSSL calls on any version).
+                // The NIST-EC helpers (and the clean-room `crypto.generate`) resolve
+                // libcrypto at load time via dlopen/dlsym (no deprecated OpenSSL
+                // calls on any version).
                 vec![
                     self.libc_import("dlopen", required_by),
                     self.libc_import("dlsym", required_by),

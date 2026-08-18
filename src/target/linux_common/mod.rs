@@ -51,6 +51,7 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "app.getMode",
     "app.setMode",
     "crypto.randomBytes",
+    "crypto.generate",
     "crypto.generateP256",
     "crypto.generateP384",
     "crypto.generateP521",
