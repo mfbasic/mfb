@@ -23,8 +23,8 @@
 //! their `DOC` descriptions on the `RegistryRecord`/`RecordProp` `description` fields.
 
 use crate::codegen::registry::{
-    Body, DefaultValue, EnumVariant, Implementation, Parameter, RecordProp, Registry,
-    RegistryEnum, RegistryFunction, RegistryPackage, RegistryRecord,
+    Body, DefaultValue, EnumVariant, Implementation, Parameter, RecordProp, Registry, RegistryEnum,
+    RegistryFunction, RegistryPackage, RegistryRecord,
 };
 use crate::types::ParameterType;
 
@@ -123,10 +123,22 @@ pub(crate) fn register(r: &mut Registry) {
         name: "Certificate",
         export: true,
         variants: vec![
-            EnumVariant { name: "P256", description: "NIST P-256 (secp256r1) ECDSA key pair." },
-            EnumVariant { name: "P384", description: "NIST P-384 (secp384r1) ECDSA key pair." },
-            EnumVariant { name: "P521", description: "NIST P-521 (secp521r1) ECDSA key pair." },
-            EnumVariant { name: "Ed25519", description: "Ed25519 EdDSA key pair." },
+            EnumVariant {
+                name: "P256",
+                description: "NIST P-256 (secp256r1) ECDSA key pair.",
+            },
+            EnumVariant {
+                name: "P384",
+                description: "NIST P-384 (secp384r1) ECDSA key pair.",
+            },
+            EnumVariant {
+                name: "P521",
+                description: "NIST P-521 (secp521r1) ECDSA key pair.",
+            },
+            EnumVariant {
+                name: "Ed25519",
+                description: "Ed25519 EdDSA key pair.",
+            },
         ],
     });
 
@@ -309,6 +321,7 @@ pub(crate) fn register(r: &mut Registry) {
     // single NATIVE member that builds the `KeyPair` record itself (its raw twin +
     // source glue were collapsed in).
     func_generate_ed25519::register(&mut pkg);
+    func_generate::register(&mut pkg);
     func_generate_p256::register(&mut pkg);
     func_generate_p384::register(&mut pkg);
     func_generate_p521::register(&mut pkg);
@@ -334,6 +347,7 @@ mod func_chacha20_poly1305_seal;
 mod func_constant_time_equal;
 mod func_ed25519_sign;
 mod func_ed25519_verify;
+pub(crate) mod func_generate;
 mod func_generate_ed25519;
 mod func_generate_p256;
 mod func_generate_p384;

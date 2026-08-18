@@ -36,6 +36,7 @@ impl NativeBackend for Backend {
                 "app.getMode",
                 "app.setMode",
                 "crypto.randomBytes",
+                "crypto.generate",
                 "crypto.generateP256",
                 "crypto.generateP384",
                 "crypto.generateP521",

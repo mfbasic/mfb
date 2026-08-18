@@ -982,6 +982,15 @@ pub(crate) fn lower_module_for_platform(
             }
         }
     }
+    // The clean-room `crypto::generate` AbiFunction references its own read-only
+    // C strings (framework paths + dlsym names), distinct from the EC helpers'.
+    if native_plan
+        .runtime_symbols
+        .iter()
+        .any(|symbol| symbol == "_mfb_rt_abi_crypto_generate")
+    {
+        data_objects.extend(crate::codegen::builtins::crypto::func_generate::data_objects());
+    }
     let type_model = TypeModel::from_module_and_packages(module, packages)?;
     // bug-377: the close thunks, by symbol. Every consumer of a resource's
     // registered close op resolves it through `resolve_closer_symbol`, so the
