@@ -37,44 +37,48 @@ pub(crate) fn lower_net_poll_helper(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
     instructions.extend([
         // plan-73-C: an OMITTED timeout is padded with the unbounded sentinel
         // (i64::MIN) → block until readable, i.e. poll() with a -1 timeout. Any
         // other negative value is rejected; a non-negative value is clamped below.
-        abi::move_immediate("%v13", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
-        abi::compare_registers(abi::c_arg(1), "%v13"),
+        abi::move_immediate(&v13, "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers(abi::c_arg(1), &v13),
         abi::branch_eq(&poll_infinite),
         // x1 = timeoutMs; reject negative timeouts.
         abi::compare_immediate(abi::c_arg(1), "0"),
         abi::branch_lt(&invalid),
-        abi::move_register("%v12", abi::c_arg(1)),
+        abi::move_register(&v12, abi::c_arg(1)),
         // Clamp timeoutMs to INT_MAX: poll() takes a C `int`, so a 64-bit value
         // with bit 31 set would be read as a negative timeout (block forever)
         // instead of a long wait (bug-239). Negatives were already rejected above.
-        abi::move_immediate("%v13", "Integer", "2147483647"),
-        abi::compare_registers("%v12", "%v13"),
+        abi::move_immediate(&v13, "Integer", "2147483647"),
+        abi::compare_registers(&v12, &v13),
         abi::branch_le(&timeout_ok),
-        abi::move_register("%v12", "%v13"),
+        abi::move_register(&v12, &v13),
         abi::branch(&timeout_ok),
         // Unbounded (omit) form: -1 makes poll() block until the socket is readable.
         abi::label(&poll_infinite),
-        abi::bitwise_not("%v12", abi::ZERO),
+        abi::bitwise_not(&v12, abi::ZERO),
         abi::label(&timeout_ok),
-        abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_CLOSED),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_CLOSED),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_ne(&closed),
-        abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_FD),
+        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_FD),
         // pollfd { int fd; short events = POLLIN; short revents; }
-        abi::store_u64("%v9", abi::stack_pointer(), POLLFD_OFFSET),
+        abi::store_u64(&v9, abi::stack_pointer(), POLLFD_OFFSET),
     ]);
-    emit_pollfd_events(platform, POLLFD_OFFSET, &mut instructions);
+    emit_pollfd_events(platform, POLLFD_OFFSET, &mut instructions, &mut vregs);
     instructions.extend([
         // poll(&pollfd, 1, timeoutMs); poll_retry re-issues the call (the pollfd is
         // already on the stack and %v12 holds the timeout) on an EINTR (bug-115).
         abi::label(&poll_retry),
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
-        abi::move_register(abi::c_arg(2), "%v12"),
+        abi::move_register(abi::c_arg(2), &v12),
     ]);
     platform.emit_libc_call(
         net_symbol(platform, NetSymbol::Poll),
@@ -105,13 +109,13 @@ pub(crate) fn lower_net_poll_helper(
     // so read the real code from errno.
     platform.emit_errno(
         symbol,
-        ("%v9").into(),
+        (&v9).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
     instructions.extend([
-        abi::compare_immediate("%v9", EINTR_ERRNO),
+        abi::compare_immediate(&v9, EINTR_ERRNO),
         abi::branch_eq(&poll_retry),
     ]);
     emit_fail(
@@ -201,96 +205,105 @@ pub(crate) fn lower_net_poll_list_helper(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v8 = vregs.next();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+    let v14 = vregs.next();
+    let v15 = vregs.next();
 
     // --- Normalize the timeout (identical policy to the scalar helper) ---
     instructions.extend([
-        abi::move_immediate("%v13", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
-        abi::compare_registers(abi::c_arg(1), "%v13"),
+        abi::move_immediate(&v13, "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers(abi::c_arg(1), &v13),
         abi::branch_eq(&poll_infinite),
         abi::compare_immediate(abi::c_arg(1), "0"),
         abi::branch_lt(&invalid),
-        abi::move_register("%v12", abi::c_arg(1)),
-        abi::move_immediate("%v13", "Integer", "2147483647"),
-        abi::compare_registers("%v12", "%v13"),
+        abi::move_register(&v12, abi::c_arg(1)),
+        abi::move_immediate(&v13, "Integer", "2147483647"),
+        abi::compare_registers(&v12, &v13),
         abi::branch_le(&timeout_ok),
-        abi::move_register("%v12", "%v13"),
+        abi::move_register(&v12, &v13),
         abi::branch(&timeout_ok),
         abi::label(&poll_infinite),
-        abi::bitwise_not("%v12", abi::ZERO), // -1 → block until readable
+        abi::bitwise_not(&v12, abi::ZERO), // -1 → block until readable
         abi::label(&timeout_ok),
-        abi::store_u64("%v12", abi::stack_pointer(), TIMEOUT_OFF),
+        abi::store_u64(&v12, abi::stack_pointer(), TIMEOUT_OFF),
         // Capture the collection pointer (x0) before any call clobbers it.
-        abi::move_register("%v9", abi::return_register()),
-        abi::store_u64("%v9", abi::stack_pointer(), COLL_OFF),
+        abi::move_register(&v9, abi::return_register()),
+        abi::store_u64(&v9, abi::stack_pointer(), COLL_OFF),
         // count = socks.count; reject the empty list.
-        abi::load_u64("%v10", "%v9", COLLECTION_OFFSET_COUNT),
-        abi::compare_immediate("%v10", "0"),
+        abi::load_u64(&v10, &v9, COLLECTION_OFFSET_COUNT),
+        abi::compare_immediate(&v10, "0"),
         abi::branch_eq(&invalid),
-        abi::store_u64("%v10", abi::stack_pointer(), COUNT_OFF),
+        abi::store_u64(&v10, abi::stack_pointer(), COUNT_OFF),
         // data_base = socks + HEADER + capacity * ENTRY_SIZE (kind-0 list; a
         // resource element is a bare pointer stored via the entry table).
-        abi::load_u64("%v11", "%v9", COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate("%v13", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers("%v11", "%v11", "%v13"),
-        abi::add_immediate("%v14", "%v9", COLLECTION_HEADER_SIZE),
-        abi::add_registers("%v14", "%v14", "%v11"),
-        abi::store_u64("%v14", abi::stack_pointer(), DATABASE_OFF),
+        abi::load_u64(&v11, &v9, COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate(&v13, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers(&v11, &v11, &v13),
+        abi::add_immediate(&v14, &v9, COLLECTION_HEADER_SIZE),
+        abi::add_registers(&v14, &v14, &v11),
+        abi::store_u64(&v14, abi::stack_pointer(), DATABASE_OFF),
         // size = count * pollfd_stride; arena_alloc(size, 8).
-        abi::move_immediate("%v13", "Integer", &pollfd_stride.to_string()),
-        abi::multiply_registers("%v15", "%v10", "%v13"),
-        abi::store_u64("%v15", abi::stack_pointer(), SIZE_OFF),
-        abi::move_register(abi::return_register(), "%v15"),
+        abi::move_immediate(&v13, "Integer", &pollfd_stride.to_string()),
+        abi::multiply_registers(&v15, &v10, &v13),
+        abi::store_u64(&v15, abi::stack_pointer(), SIZE_OFF),
+        abi::move_register(abi::return_register(), &v15),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), BUF_OFF),
         // --- Fill pollfd[i] from each socket's fd (i in a vreg; no call in loop) ---
-        abi::move_immediate("%v8", "Integer", "0"),
+        abi::move_immediate(&v8, "Integer", "0"),
         abi::label(&fill_loop),
-        abi::load_u64("%v11", abi::stack_pointer(), COUNT_OFF),
-        abi::compare_registers("%v8", "%v11"),
+        abi::load_u64(&v11, abi::stack_pointer(), COUNT_OFF),
+        abi::compare_registers(&v8, &v11),
         abi::branch_ge(&fill_done),
         // entry_ptr = socks + HEADER + i * ENTRY_SIZE
-        abi::load_u64("%v9", abi::stack_pointer(), COLL_OFF),
-        abi::move_immediate("%v13", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers("%v14", "%v8", "%v13"),
-        abi::add_immediate("%v9", "%v9", COLLECTION_HEADER_SIZE),
-        abi::add_registers("%v9", "%v9", "%v14"),
+        abi::load_u64(&v9, abi::stack_pointer(), COLL_OFF),
+        abi::move_immediate(&v13, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers(&v14, &v8, &v13),
+        abi::add_immediate(&v9, &v9, COLLECTION_HEADER_SIZE),
+        abi::add_registers(&v9, &v9, &v14),
         // value_offset → element address → socket record ptr → fd
-        abi::load_u64("%v9", "%v9", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-        abi::load_u64("%v14", abi::stack_pointer(), DATABASE_OFF),
-        abi::add_registers("%v9", "%v14", "%v9"),
-        abi::load_u64("%v9", "%v9", 0),
-        abi::load_u64("%v9", "%v9", FILE_OFFSET_FD),
+        abi::load_u64(&v9, &v9, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::load_u64(&v14, abi::stack_pointer(), DATABASE_OFF),
+        abi::add_registers(&v9, &v14, &v9),
+        abi::load_u64(&v9, &v9, 0),
+        abi::load_u64(&v9, &v9, FILE_OFFSET_FD),
         // pfd_i = buf + i * pollfd_stride
-        abi::load_u64("%v11", abi::stack_pointer(), BUF_OFF),
-        abi::move_immediate("%v13", "Integer", &pollfd_stride.to_string()),
-        abi::multiply_registers("%v14", "%v8", "%v13"),
-        abi::add_registers("%v11", "%v11", "%v14"),
+        abi::load_u64(&v11, abi::stack_pointer(), BUF_OFF),
+        abi::move_immediate(&v13, "Integer", &pollfd_stride.to_string()),
+        abi::multiply_registers(&v14, &v8, &v13),
+        abi::add_registers(&v11, &v11, &v14),
         // fd (8 bytes; upper 32 zero → also clears events/revents on POSIX).
-        abi::store_u64("%v9", "%v11", 0),
+        abi::store_u64(&v9, &v11, 0),
     ]);
     // events = POLLIN / POLLRDNORM, revents = 0, written relative to pfd_i (%v11).
     if windows {
         instructions.extend([
-            abi::store_u8(abi::ZERO, "%v11", 8),
-            abi::move_immediate("%v10", "Integer", "1"),
-            abi::store_u8("%v10", "%v11", 9), // POLLRDNORM = 0x0100
-            abi::store_u8(abi::ZERO, "%v11", 10),
-            abi::store_u8(abi::ZERO, "%v11", 11),
+            abi::store_u8(abi::ZERO, &v11, 8),
+            abi::move_immediate(&v10, "Integer", "1"),
+            abi::store_u8(&v10, &v11, 9), // POLLRDNORM = 0x0100
+            abi::store_u8(abi::ZERO, &v11, 10),
+            abi::store_u8(abi::ZERO, &v11, 11),
         ]);
     } else {
         instructions.extend([
-            abi::move_immediate("%v10", "Integer", POLLIN),
-            abi::store_u8("%v10", "%v11", 4),
-            abi::store_u8(abi::ZERO, "%v11", 5),
-            abi::store_u8(abi::ZERO, "%v11", 6),
-            abi::store_u8(abi::ZERO, "%v11", 7),
+            abi::move_immediate(&v10, "Integer", POLLIN),
+            abi::store_u8(&v10, &v11, 4),
+            abi::store_u8(abi::ZERO, &v11, 5),
+            abi::store_u8(abi::ZERO, &v11, 6),
+            abi::store_u8(abi::ZERO, &v11, 7),
         ]);
     }
     instructions.extend([
-        abi::add_immediate("%v8", "%v8", 1),
+        abi::add_immediate(&v8, &v8, 1),
         abi::branch(&fill_loop),
         abi::label(&fill_done),
         // --- poll(buf, count, timeout); EINTR-retry (bug-115) ---
@@ -313,32 +326,32 @@ pub(crate) fn lower_net_poll_list_helper(
         abi::branch_lt(&poll_fail),
         abi::branch_eq(&expiry),
         // ret > 0: at least one fd is ready. Scan revents for the first set slot.
-        abi::move_immediate("%v8", "Integer", "0"),
+        abi::move_immediate(&v8, "Integer", "0"),
         abi::label(&scan_loop),
-        abi::load_u64("%v11", abi::stack_pointer(), COUNT_OFF),
-        abi::compare_registers("%v8", "%v11"),
+        abi::load_u64(&v11, abi::stack_pointer(), COUNT_OFF),
+        abi::compare_registers(&v8, &v11),
         abi::branch_ge(&expiry), // defensive: ret>0 but no slot found → treat as expiry
-        abi::load_u64("%v9", abi::stack_pointer(), BUF_OFF),
-        abi::move_immediate("%v13", "Integer", &pollfd_stride.to_string()),
-        abi::multiply_registers("%v14", "%v8", "%v13"),
-        abi::add_registers("%v9", "%v9", "%v14"),
-        abi::load_u16("%v15", "%v9", revents_off),
-        abi::compare_immediate("%v15", "0"),
+        abi::load_u64(&v9, abi::stack_pointer(), BUF_OFF),
+        abi::move_immediate(&v13, "Integer", &pollfd_stride.to_string()),
+        abi::multiply_registers(&v14, &v8, &v13),
+        abi::add_registers(&v9, &v9, &v14),
+        abi::load_u16(&v15, &v9, revents_off),
+        abi::compare_immediate(&v15, "0"),
         abi::branch_ne(&found),
-        abi::add_immediate("%v8", "%v8", 1),
+        abi::add_immediate(&v8, &v8, 1),
         abi::branch(&scan_loop),
         abi::label(&found),
         // Recompute socks[i]'s record ptr (i in %v8) — the borrowed result value.
-        abi::load_u64("%v9", abi::stack_pointer(), COLL_OFF),
-        abi::move_immediate("%v13", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers("%v14", "%v8", "%v13"),
-        abi::add_immediate("%v9", "%v9", COLLECTION_HEADER_SIZE),
-        abi::add_registers("%v9", "%v9", "%v14"),
-        abi::load_u64("%v9", "%v9", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-        abi::load_u64("%v14", abi::stack_pointer(), DATABASE_OFF),
-        abi::add_registers("%v9", "%v14", "%v9"),
-        abi::load_u64("%v9", "%v9", 0),
-        abi::store_u64("%v9", abi::stack_pointer(), RESULT_OFF),
+        abi::load_u64(&v9, abi::stack_pointer(), COLL_OFF),
+        abi::move_immediate(&v13, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers(&v14, &v8, &v13),
+        abi::add_immediate(&v9, &v9, COLLECTION_HEADER_SIZE),
+        abi::add_registers(&v9, &v9, &v14),
+        abi::load_u64(&v9, &v9, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::load_u64(&v14, abi::stack_pointer(), DATABASE_OFF),
+        abi::add_registers(&v9, &v14, &v9),
+        abi::load_u64(&v9, &v9, 0),
+        abi::store_u64(&v9, abi::stack_pointer(), RESULT_OFF),
         // arena_free(buf, size) before returning (no leak).
         abi::load_u64(abi::return_register(), abi::stack_pointer(), BUF_OFF),
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), SIZE_OFF),
@@ -370,13 +383,13 @@ pub(crate) fn lower_net_poll_list_helper(
     instructions.push(abi::label(&poll_fail));
     platform.emit_errno(
         symbol,
-        ("%v9").into(),
+        (&v9).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
     instructions.extend([
-        abi::compare_immediate("%v9", EINTR_ERRNO),
+        abi::compare_immediate(&v9, EINTR_ERRNO),
         abi::branch_eq(&poll_retry),
         // Hard error: free the array, then report resource-closed (a stale/closed fd
         // in the set is the realistic cause), matching the scalar helper's class.
@@ -438,18 +451,25 @@ pub(crate) fn lower_net_set_timeout_helper(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+    let v14 = vregs.next();
     instructions.extend([
         // timeoutMs arrives in the incoming-arg register; copy it to an
         // allocator-placed vreg (plan-34-B Phase 3) so the tv math below is not
         // pinned to a physical register. Reject negatives.
-        abi::move_register("%v14", abi::c_arg(1)),
-        abi::compare_immediate("%v14", "0"),
+        abi::move_register(&v14, abi::c_arg(1)),
+        abi::compare_immediate(&v14, "0"),
         abi::branch_lt(&invalid),
-        abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_CLOSED),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_CLOSED),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_ne(&closed),
-        abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_FD),
-        abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_FD),
+        abi::store_u64(&v9, abi::stack_pointer(), FD_OFFSET),
     ]);
     // Winsock SO_RCVTIMEO/SO_SNDTIMEO optval is a DWORD of milliseconds, not a
     // struct timeval; store the raw ms and pass 4 bytes (plan-47-I). POSIX builds
@@ -457,34 +477,34 @@ pub(crate) fn lower_net_set_timeout_helper(
     let win_timeout = platform.family() == PlatformFamily::Windows;
     let optval_len = if win_timeout {
         instructions.extend([
-            abi::store_u64("%v14", abi::stack_pointer(), TIMEVAL_OFFSET),
+            abi::store_u64(&v14, abi::stack_pointer(), TIMEVAL_OFFSET),
             // plan-73-C: `timeoutMs == 0` now means NON-BLOCKING (immediate
             // `ErrTimeout` when not ready), not "disable". Winsock SO_*TIMEO of 0 is
             // infinite, so use the smallest expressible wait (1 ms) for the 0 case.
-            abi::compare_immediate("%v14", "0"),
+            abi::compare_immediate(&v14, "0"),
             abi::branch_ne(&nb_ok),
-            abi::move_immediate("%v13", "Integer", "1"),
-            abi::store_u64("%v13", abi::stack_pointer(), TIMEVAL_OFFSET),
+            abi::move_immediate(&v13, "Integer", "1"),
+            abi::store_u64(&v13, abi::stack_pointer(), TIMEVAL_OFFSET),
             abi::label(&nb_ok),
         ]);
         "4"
     } else {
         instructions.extend([
             // tv_sec = ms / 1000, tv_usec = (ms % 1000) * 1000
-            abi::move_immediate("%v10", "Integer", "1000"),
-            abi::unsigned_divide_registers("%v11", "%v14", "%v10"),
-            abi::multiply_subtract_registers("%v12", "%v11", "%v10", "%v14"),
-            abi::move_immediate("%v13", "Integer", "1000"),
-            abi::multiply_registers("%v12", "%v12", "%v13"),
+            abi::move_immediate(&v10, "Integer", "1000"),
+            abi::unsigned_divide_registers(&v11, &v14, &v10),
+            abi::multiply_subtract_registers(&v12, &v11, &v10, &v14),
+            abi::move_immediate(&v13, "Integer", "1000"),
+            abi::multiply_registers(&v12, &v12, &v13),
             // plan-73-C: `timeoutMs == 0` now means NON-BLOCKING, not "disable". A
             // POSIX SO_*TIMEO of {0,0} is infinite, so use the smallest wait (1 µs =
             // tv_usec 1) for the 0 case — a near-immediate `ErrTimeout` when not ready.
-            abi::compare_immediate("%v14", "0"),
+            abi::compare_immediate(&v14, "0"),
             abi::branch_ne(&nb_ok),
-            abi::move_immediate("%v12", "Integer", "1"),
+            abi::move_immediate(&v12, "Integer", "1"),
             abi::label(&nb_ok),
-            abi::store_u64("%v11", abi::stack_pointer(), TIMEVAL_OFFSET),
-            abi::store_u64("%v12", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
+            abi::store_u64(&v11, abi::stack_pointer(), TIMEVAL_OFFSET),
+            abi::store_u64(&v12, abi::stack_pointer(), TIMEVAL_OFFSET + 8),
         ]);
         "16"
     };

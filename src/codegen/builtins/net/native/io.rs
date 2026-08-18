@@ -42,15 +42,17 @@ fn emit_listener_flags_restore(
     restore_flag_offset: usize,
     listener_fd_offset: usize,
     flags_offset: usize,
+    vregs: &mut Vregs,
 ) -> Result<(), String> {
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
+    let v9 = vregs.next();
 
     let skip = format!("{symbol}_restore_skip_{tag}");
     ctx.instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), restore_flag_offset),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::stack_pointer(), restore_flag_offset),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_eq(&skip),
     ]);
     if platform.family() == PlatformFamily::Windows {
@@ -118,13 +120,17 @@ pub(crate) fn lower_net_accept_helper(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
     instructions.extend([
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT_OFFSET),
-        abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_CLOSED),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_CLOSED),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_ne(&closed),
-        abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_FD),
-        abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_FD),
+        abi::store_u64(&v9, abi::stack_pointer(), FD_OFFSET),
         // plan-73-C timeout convention. Bounded wait (bug-185): poll(POLLIN) on the
         // listener before accepting so a caller-supplied deadline is honored. The
         // OMITTED overload pads the unbounded sentinel (i64::MIN) → the plain
@@ -133,20 +139,20 @@ pub(crate) fn lower_net_accept_helper(
         // to INT_MAX, since poll takes a C `int`); any other negative =
         // `ErrInvalidArgument`.
         abi::store_u64(abi::ZERO, abi::stack_pointer(), RESTORE_FLAGS_OFFSET),
-        abi::load_u64("%v10", abi::stack_pointer(), TIMEOUT_OFFSET),
-        abi::move_immediate("%v11", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
-        abi::compare_registers("%v10", "%v11"),
+        abi::load_u64(&v10, abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::move_immediate(&v11, "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers(&v10, &v11),
         abi::branch_eq(&accept_retry),
-        abi::compare_immediate("%v10", "0"),
+        abi::compare_immediate(&v10, "0"),
         abi::branch_lt(&accept_invalid),
         // Clamp a too-large timeout to INT_MAX for the poll below, then continue on
         // the bounded path (0 → an immediate, non-blocking poll).
-        abi::move_immediate("%v11", "Integer", "2147483647"),
-        abi::compare_registers("%v10", "%v11"),
+        abi::move_immediate(&v11, "Integer", "2147483647"),
+        abi::compare_registers(&v10, &v11),
         abi::branch_le(&accept_ts_ok),
-        abi::move_register("%v10", "%v11"),
+        abi::move_register(&v10, &v11),
         abi::label(&accept_ts_ok),
-        abi::store_u64("%v10", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::store_u64(&v10, abi::stack_pointer(), TIMEOUT_OFFSET),
     ]);
     // bug-314 H2: on the BOUNDED path only, put the listener in non-blocking mode.
     // The bug-185 wait polls POLLIN and then issues a *blocking* accept, so if the
@@ -158,14 +164,14 @@ pub(crate) fn lower_net_accept_helper(
     // `timeoutMs <= 0` is the deliberate block-forever overload and must not be
     // touched -- it branches to accept_retry above, before any of this.
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
-        abi::store_u64("%v9", abi::stack_pointer(), LISTENER_FD_OFFSET),
+        abi::load_u64(&v9, abi::stack_pointer(), FD_OFFSET),
+        abi::store_u64(&v9, abi::stack_pointer(), LISTENER_FD_OFFSET),
     ]);
     if platform.family() != PlatformFamily::Windows {
         // fcntl(fd, F_GETFL, 0) — read the flags emit_set_nonblocking OR-s below.
         // Winsock's ioctlsocket(FIONBIO) is stateless, so Windows skips the read.
         instructions.extend([
-            abi::move_register(abi::return_register(), "%v9"),
+            abi::move_register(abi::return_register(), &v9),
             abi::move_immediate(abi::c_arg(1), "Integer", "3"), // F_GETFL
             abi::move_immediate(abi::c_arg(2), "Integer", "0"),
         ]);
@@ -192,15 +198,15 @@ pub(crate) fn lower_net_accept_helper(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::move_immediate("%v9", "Integer", "1"),
-        abi::store_u64("%v9", abi::stack_pointer(), RESTORE_FLAGS_OFFSET),
+        abi::move_immediate(&v9, "Integer", "1"),
+        abi::store_u64(&v9, abi::stack_pointer(), RESTORE_FLAGS_OFFSET),
         // poll(&pollfd { fd, POLLIN }, 1, timeoutMs); accept_poll_retry rebuilds the
         // pollfd and re-issues on EINTR (bug-115).
         abi::label(&accept_poll_retry),
-        abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
-        abi::store_u64("%v9", abi::stack_pointer(), POLLFD_OFFSET),
+        abi::load_u64(&v9, abi::stack_pointer(), FD_OFFSET),
+        abi::store_u64(&v9, abi::stack_pointer(), POLLFD_OFFSET),
     ]);
-    emit_pollfd_events(platform, POLLFD_OFFSET, &mut instructions);
+    emit_pollfd_events(platform, POLLFD_OFFSET, &mut instructions, &mut vregs);
     instructions.extend([
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
@@ -225,13 +231,13 @@ pub(crate) fn lower_net_accept_helper(
     // goes through libc here, so read the real code from errno (bug-115).
     platform.emit_errno(
         symbol,
-        ("%v9").into(),
+        (&v9).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
     instructions.extend([
-        abi::compare_immediate("%v9", EINTR_ERRNO),
+        abi::compare_immediate(&v9, EINTR_ERRNO),
         abi::branch_eq(&accept_poll_retry),
         abi::branch(&accept_fail),
         // accept(fd, NULL, NULL); accept_retry reloads fd from the stack so an
@@ -271,6 +277,7 @@ pub(crate) fn lower_net_accept_helper(
         RESTORE_FLAGS_OFFSET,
         LISTENER_FD_OFFSET,
         FLAGS_OFFSET,
+        &mut vregs,
     )?;
     emit_make_handle(
         symbol,
@@ -279,6 +286,7 @@ pub(crate) fn lower_net_accept_helper(
         &mut instructions,
         &mut relocations,
         &alloc_fail,
+        &mut vregs,
     );
     instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -290,13 +298,13 @@ pub(crate) fn lower_net_accept_helper(
     // through libc on every backend, so read the real code from errno.
     platform.emit_errno(
         symbol,
-        ("%v9").into(),
+        (&v9).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
     instructions.extend([
-        abi::compare_immediate("%v9", EINTR_ERRNO),
+        abi::compare_immediate(&v9, EINTR_ERRNO),
         abi::branch_eq(&accept_retry),
         // bug-314 H2: with the listener non-blocking, EAGAIN means the connection
         // poll reported vanished before accept ran (aborted, or taken by another
@@ -305,7 +313,7 @@ pub(crate) fn lower_net_accept_helper(
         // original timeout rather than the remainder, so a stream of racing aborts
         // can extend the wait; bounding the pathological case is what matters, and
         // each extension costs the peer another abort.
-        abi::compare_immediate("%v9", platform.socket_would_block_code()),
+        abi::compare_immediate(&v9, platform.socket_would_block_code()),
         abi::branch_eq(&accept_poll_retry),
     ]);
     emit_listener_flags_restore(
@@ -320,6 +328,7 @@ pub(crate) fn lower_net_accept_helper(
         RESTORE_FLAGS_OFFSET,
         LISTENER_FD_OFFSET,
         FLAGS_OFFSET,
+        &mut vregs,
     )?;
     emit_fail(
         symbol,
@@ -343,6 +352,7 @@ pub(crate) fn lower_net_accept_helper(
         RESTORE_FLAGS_OFFSET,
         LISTENER_FD_OFFSET,
         FLAGS_OFFSET,
+        &mut vregs,
     )?;
     emit_fail(
         symbol,
@@ -382,6 +392,7 @@ pub(crate) fn lower_net_accept_helper(
         RESTORE_FLAGS_OFFSET,
         LISTENER_FD_OFFSET,
         FLAGS_OFFSET,
+        &mut vregs,
     )?;
     emit_fail(
         symbol,
@@ -425,15 +436,18 @@ pub(crate) fn lower_net_address_helper(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
     instructions.extend([
-        abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_CLOSED),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_CLOSED),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_ne(&closed),
-        abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_FD),
-        abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
-        abi::move_immediate("%v10", "Integer", &SOCKADDR_STORAGE_SIZE.to_string()),
-        abi::store_u64("%v10", abi::stack_pointer(), LEN_OFFSET),
-        abi::move_register(abi::return_register(), "%v9"),
+        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_FD),
+        abi::store_u64(&v9, abi::stack_pointer(), FD_OFFSET),
+        abi::move_immediate(&v10, "Integer", &SOCKADDR_STORAGE_SIZE.to_string()),
+        abi::store_u64(&v10, abi::stack_pointer(), LEN_OFFSET),
+        abi::move_register(abi::return_register(), &v9),
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), ADDR_OFFSET),
         abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), LEN_OFFSET),
     ]);
@@ -451,8 +465,8 @@ pub(crate) fn lower_net_address_helper(
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&name_fail),
-        abi::add_immediate("%v9", abi::stack_pointer(), ADDR_OFFSET),
-        abi::store_u64("%v9", abi::stack_pointer(), SADDR_PTR_OFFSET),
+        abi::add_immediate(&v9, abi::stack_pointer(), ADDR_OFFSET),
+        abi::store_u64(&v9, abi::stack_pointer(), SADDR_PTR_OFFSET),
     ]);
     emit_address_from_sockaddr(
         &mut EmitCtx {
@@ -469,6 +483,7 @@ pub(crate) fn lower_net_address_helper(
         HOST_OFFSET,
         &alloc_fail,
         &addr_fail,
+        &mut vregs,
     )?;
     instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -557,28 +572,36 @@ pub(crate) fn lower_net_read_helper(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+    let v14 = vregs.next();
+    let v15 = vregs.next();
     instructions.extend([
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MAX_OFFSET),
-        abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_CLOSED),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_CLOSED),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_ne(&closed),
-        abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_FD),
-        abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
-        abi::load_u64("%v10", abi::stack_pointer(), MAX_OFFSET),
-        abi::compare_immediate("%v10", "0"),
+        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_FD),
+        abi::store_u64(&v9, abi::stack_pointer(), FD_OFFSET),
+        abi::load_u64(&v10, abi::stack_pointer(), MAX_OFFSET),
+        abi::compare_immediate(&v10, "0"),
         abi::branch_le(&invalid),
         // bug-261: clamp the read size to READ_CHUNK_CAP and store it back, so both
         // the temporary buffer allocation and the read() length use the bounded
         // value (never the caller's raw maxBytes). Keeps alloc proportional to what
         // a single receive can deliver.
-        abi::move_immediate("%v11", "Integer", READ_CHUNK_CAP),
-        abi::compare_registers("%v10", "%v11"),
+        abi::move_immediate(&v11, "Integer", READ_CHUNK_CAP),
+        abi::compare_registers(&v10, &v11),
         abi::branch_le(&read_size_ok),
-        abi::move_register("%v10", "%v11"),
-        abi::store_u64("%v10", abi::stack_pointer(), MAX_OFFSET),
+        abi::move_register(&v10, &v11),
+        abi::store_u64(&v10, abi::stack_pointer(), MAX_OFFSET),
         abi::label(&read_size_ok),
         // Allocate a temporary read buffer of the (capped) size.
-        abi::move_register(abi::return_register(), "%v10"),
+        abi::move_register(abi::return_register(), &v10),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
@@ -653,38 +676,38 @@ pub(crate) fn lower_net_read_helper(
         // Build a List OF Byte with N elements.
         instructions.extend([
             abi::label(&build_list),
-            abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
-            abi::move_immediate("%v11", "Integer", &byte_list_entry_stride().to_string()),
-            abi::multiply_registers("%v12", "%v10", "%v11"),
-            abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
-            abi::add_registers(abi::return_register(), "%v12", "%v10"),
+            abi::load_u64(&v10, abi::stack_pointer(), N_OFFSET),
+            abi::move_immediate(&v11, "Integer", &byte_list_entry_stride().to_string()),
+            abi::multiply_registers(&v12, &v10, &v11),
+            abi::add_immediate(&v12, &v12, COLLECTION_HEADER_SIZE),
+            abi::add_registers(abi::return_register(), &v12, &v10),
             abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         ]);
         emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
-            abi::move_register("%v15", abi::mfb_return(1)), // alloc result -> vreg base (plan-34-B Phase 3)
-            abi::move_immediate("%v9", "Byte", &byte_list_block_kind().to_string()),
-            abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),
-            abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
-            abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KEY_TYPE),
-            abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_BYTE.to_string()),
-            abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_VALUE_TYPE),
-            abi::move_immediate("%v9", "Byte", "1"),
-            abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_FLAGS_VERSION),
-            abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
-            abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_COUNT),
-            abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_CAPACITY),
-            abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_LENGTH),
-            abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_CAPACITY),
-            abi::add_immediate("%v11", "%v15", COLLECTION_HEADER_SIZE),
-            abi::move_immediate("%v12", "Integer", &byte_list_entry_stride().to_string()),
-            abi::multiply_registers("%v13", "%v10", "%v12"),
-            abi::add_registers("%v14", "%v11", "%v13"),
+            abi::move_register(&v15, abi::mfb_return(1)), // alloc result -> vreg base (plan-34-B Phase 3)
+            abi::move_immediate(&v9, "Byte", &byte_list_block_kind().to_string()),
+            abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KIND),
+            abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_NONE.to_string()),
+            abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KEY_TYPE),
+            abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_BYTE.to_string()),
+            abi::store_u8(&v9, &v15, COLLECTION_OFFSET_VALUE_TYPE),
+            abi::move_immediate(&v9, "Byte", "1"),
+            abi::store_u8(&v9, &v15, COLLECTION_OFFSET_FLAGS_VERSION),
+            abi::load_u64(&v10, abi::stack_pointer(), N_OFFSET),
+            abi::store_u64(&v10, &v15, COLLECTION_OFFSET_COUNT),
+            abi::store_u64(&v10, &v15, COLLECTION_OFFSET_CAPACITY),
+            abi::store_u64(&v10, &v15, COLLECTION_OFFSET_DATA_LENGTH),
+            abi::store_u64(&v10, &v15, COLLECTION_OFFSET_DATA_CAPACITY),
+            abi::add_immediate(&v11, &v15, COLLECTION_HEADER_SIZE),
+            abi::move_immediate(&v12, "Integer", &byte_list_entry_stride().to_string()),
+            abi::multiply_registers(&v13, &v10, &v12),
+            abi::add_registers(&v14, &v11, &v13),
             // x11 = entry cursor, x14 = data region, copy bytes into data.
-            abi::load_u64("%v15", abi::stack_pointer(), BUF_OFFSET),
-            abi::move_immediate("%v9", "Integer", "0"),
+            abi::load_u64(&v15, abi::stack_pointer(), BUF_OFFSET),
+            abi::move_immediate(&v9, "Integer", "0"),
             abi::label(&entry_loop),
-            abi::compare_registers("%v9", "%v10"),
+            abi::compare_registers(&v9, &v10),
             abi::branch_eq(&entry_done),
         ]);
         // kind 2 has no entry array (plan-57-D): with a zero stride these stores
@@ -693,27 +716,27 @@ pub(crate) fn lower_net_read_helper(
         // only thing that writes the bytes.
         if byte_list_entry_stride() != 0 {
             instructions.extend([
-                abi::move_immediate("%v12", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-                abi::store_u8("%v12", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
-                abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-                abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-                abi::store_u64("%v9", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-                abi::move_immediate("%v12", "Integer", "1"),
-                abi::store_u64("%v12", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+                abi::move_immediate(&v12, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+                abi::store_u8(&v12, &v11, COLLECTION_ENTRY_OFFSET_FLAGS),
+                abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+                abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+                abi::store_u64(&v9, &v11, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+                abi::move_immediate(&v12, "Integer", "1"),
+                abi::store_u64(&v12, &v11, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
             ]);
         }
         instructions.extend([
             // data[i] = buf[i]
-            abi::add_registers("%v12", "%v14", "%v9"),
-            abi::load_u8("%v13", "%v15", 0),
-            abi::store_u8("%v13", "%v12", 0),
-            abi::add_immediate("%v15", "%v15", 1),
+            abi::add_registers(&v12, &v14, &v9),
+            abi::load_u8(&v13, &v15, 0),
+            abi::store_u8(&v13, &v12, 0),
+            abi::add_immediate(&v15, &v15, 1),
         ]);
         if byte_list_entry_stride() != 0 {
-            instructions.push(abi::add_immediate("%v11", "%v11", COLLECTION_ENTRY_SIZE));
+            instructions.push(abi::add_immediate(&v11, &v11, COLLECTION_ENTRY_SIZE));
         }
         instructions.extend([
-            abi::add_immediate("%v9", "%v9", 1),
+            abi::add_immediate(&v9, &v9, 1),
             abi::branch(&entry_loop),
             abi::label(&entry_done),
             abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
@@ -733,26 +756,26 @@ pub(crate) fn lower_net_read_helper(
     instructions.push(abi::label(&read_fail));
     platform.emit_errno(
         symbol,
-        ("%v9").into(),
+        (&v9).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
     instructions.extend([
-        abi::compare_immediate("%v9", platform.socket_would_block_code()),
+        abi::compare_immediate(&v9, platform.socket_would_block_code()),
         abi::branch_eq(&timeout),
     ]);
     if platform.family() == PlatformFamily::Windows {
         // SO_RCVTIMEO timeout is WSAETIMEDOUT on Winsock, not EWOULDBLOCK (bug-109).
         instructions.extend([
-            abi::compare_immediate("%v9", WSAETIMEDOUT),
+            abi::compare_immediate(&v9, WSAETIMEDOUT),
             abi::branch_eq(&timeout),
         ]);
     }
     instructions.extend([
         // bug-115: a signal that interrupts the blocking read returns -1/EINTR;
         // re-issue rather than misreporting it as a closed connection.
-        abi::compare_immediate("%v9", EINTR_ERRNO),
+        abi::compare_immediate(&v9, EINTR_ERRNO),
         abi::branch_eq(&read_retry),
     ]);
     emit_fail(
@@ -826,20 +849,27 @@ pub(crate) fn lower_net_write_helper(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+    let v14 = vregs.next();
     instructions.extend([
-        abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_CLOSED),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_CLOSED),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_ne(&closed),
-        abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_FD),
-        abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_FD),
+        abi::store_u64(&v9, abi::stack_pointer(), FD_OFFSET),
     ]);
     if text {
         // x1 = String*: data at +8, length at +0.
         instructions.extend([
-            abi::load_u64("%v10", abi::c_arg(1), 0),
-            abi::store_u64("%v10", abi::stack_pointer(), REMAINING_OFFSET),
-            abi::add_immediate("%v11", abi::c_arg(1), 8),
-            abi::store_u64("%v11", abi::stack_pointer(), SRC_OFFSET),
+            abi::load_u64(&v10, abi::c_arg(1), 0),
+            abi::store_u64(&v10, abi::stack_pointer(), REMAINING_OFFSET),
+            abi::add_immediate(&v11, abi::c_arg(1), 8),
+            abi::store_u64(&v11, abi::stack_pointer(), SRC_OFFSET),
         ]);
     } else {
         // x1 = List OF Byte collection: bytes live inline in the data region,
@@ -847,28 +877,28 @@ pub(crate) fn lower_net_write_helper(
         // collection + HEADER + capacity * ENTRY_SIZE. Using count instead
         // mis-addresses an append-built list that carries spare capacity.
         instructions.extend([
-            abi::load_u64("%v10", abi::c_arg(1), COLLECTION_OFFSET_COUNT),
-            abi::store_u64("%v10", abi::stack_pointer(), REMAINING_OFFSET),
+            abi::load_u64(&v10, abi::c_arg(1), COLLECTION_OFFSET_COUNT),
+            abi::store_u64(&v10, abi::stack_pointer(), REMAINING_OFFSET),
         ]);
         push_collection_data_base_from_capacity(
             &mut instructions,
-            "%v11",
+            &v11,
             abi::c_arg(1),
-            "%v14",
-            "%v12",
-            "%v13",
+            &v14,
+            &v12,
+            &v13,
         );
-        instructions.extend([abi::store_u64("%v11", abi::stack_pointer(), SRC_OFFSET)]);
+        instructions.extend([abi::store_u64(&v11, abi::stack_pointer(), SRC_OFFSET)]);
     }
     instructions.extend([
         abi::label(&write_loop),
-        abi::load_u64("%v10", abi::stack_pointer(), REMAINING_OFFSET),
-        abi::compare_immediate("%v10", "0"),
+        abi::load_u64(&v10, abi::stack_pointer(), REMAINING_OFFSET),
+        abi::compare_immediate(&v10, "0"),
         abi::branch_eq(&write_done),
         // write(fd, src, remaining)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), SRC_OFFSET),
-        abi::move_register(abi::c_arg(2), "%v10"),
+        abi::move_register(abi::c_arg(2), &v10),
     ]);
     if platform.family() == PlatformFamily::Windows {
         // send(s, buf, len, 0). WriteFile does not work on a default (overlapped)
@@ -897,12 +927,12 @@ pub(crate) fn lower_net_write_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_le(&write_fail),
-        abi::load_u64("%v11", abi::stack_pointer(), SRC_OFFSET),
-        abi::load_u64("%v10", abi::stack_pointer(), REMAINING_OFFSET),
-        abi::add_registers("%v11", "%v11", abi::return_register()),
-        abi::subtract_registers("%v10", "%v10", abi::return_register()),
-        abi::store_u64("%v11", abi::stack_pointer(), SRC_OFFSET),
-        abi::store_u64("%v10", abi::stack_pointer(), REMAINING_OFFSET),
+        abi::load_u64(&v11, abi::stack_pointer(), SRC_OFFSET),
+        abi::load_u64(&v10, abi::stack_pointer(), REMAINING_OFFSET),
+        abi::add_registers(&v11, &v11, abi::return_register()),
+        abi::subtract_registers(&v10, &v10, abi::return_register()),
+        abi::store_u64(&v11, abi::stack_pointer(), SRC_OFFSET),
+        abi::store_u64(&v10, abi::stack_pointer(), REMAINING_OFFSET),
         abi::branch(&write_loop),
         abi::label(&write_done),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -923,13 +953,13 @@ pub(crate) fn lower_net_write_helper(
             .expect("eagain is numeric");
         let eintr = EINTR_ERRNO.parse::<usize>().expect("eintr is numeric");
         instructions.extend([
-            abi::add_immediate("%v9", abi::return_register(), eagain),
-            abi::compare_immediate("%v9", "0"),
+            abi::add_immediate(&v9, abi::return_register(), eagain),
+            abi::compare_immediate(&v9, "0"),
             abi::branch_eq(&timeout),
             // bug-115: EINTR (raw `-errno`) re-issues the write from write_loop,
             // which reloads the unchanged cursor/remaining (no bytes moved).
-            abi::add_immediate("%v9", abi::return_register(), eintr),
-            abi::compare_immediate("%v9", "0"),
+            abi::add_immediate(&v9, abi::return_register(), eintr),
+            abi::compare_immediate(&v9, "0"),
             abi::branch_eq(&write_loop),
         ]);
     } else {
@@ -937,20 +967,20 @@ pub(crate) fn lower_net_write_helper(
         // real code behind the `errno` accessor.
         platform.emit_errno(
             symbol,
-            ("%v9").into(),
+            (&v9).into(),
             platform_imports,
             &mut instructions,
             &mut relocations,
         )?;
         instructions.extend([
-            abi::compare_immediate("%v9", platform.socket_would_block_code()),
+            abi::compare_immediate(&v9, platform.socket_would_block_code()),
             abi::branch_eq(&timeout),
         ]);
         if platform.family() == PlatformFamily::Windows {
             // A blocking send that hits SO_SNDTIMEO returns WSAETIMEDOUT (10060) on
             // Winsock, not WSAEWOULDBLOCK — map it to the same write timeout (bug-109).
             instructions.extend([
-                abi::compare_immediate("%v9", WSAETIMEDOUT),
+                abi::compare_immediate(&v9, WSAETIMEDOUT),
                 abi::branch_eq(&timeout),
             ]);
         }
@@ -958,7 +988,7 @@ pub(crate) fn lower_net_write_helper(
             // bug-115: a signal that interrupts the blocking write returns
             // -1/EINTR; re-issue from write_loop rather than reporting a closed
             // connection.
-            abi::compare_immediate("%v9", EINTR_ERRNO),
+            abi::compare_immediate(&v9, EINTR_ERRNO),
             abi::branch_eq(&write_loop),
         ]);
     }
@@ -1033,11 +1063,19 @@ pub(crate) fn lower_net_lookup_helper(
     let addr_off = platform.addrinfo_addr_offset();
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+    let v14 = vregs.next();
+    let v15 = vregs.next();
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST_OFFSET),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), PORT_OFFSET),
     ]);
-    emit_hints(HINTS_OFFSET, false, SOCK_STREAM, &mut instructions);
+    emit_hints(HINTS_OFFSET, false, SOCK_STREAM, &mut instructions, &mut vregs);
     emit_cstring(
         symbol,
         "host",
@@ -1046,6 +1084,7 @@ pub(crate) fn lower_net_lookup_helper(
         &alloc_fail,
         &mut instructions,
         &mut relocations,
+        &mut vregs,
     );
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CSTR_OFFSET),
@@ -1064,79 +1103,79 @@ pub(crate) fn lower_net_lookup_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&resolve_fail),
         // Count AF_INET results.
-        abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
-        abi::store_u64("%v9", abi::stack_pointer(), NODE_OFFSET),
+        abi::load_u64(&v9, abi::stack_pointer(), RES_OFFSET),
+        abi::store_u64(&v9, abi::stack_pointer(), NODE_OFFSET),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), COUNT_OFFSET),
         abi::label(&count_loop),
-        abi::load_u64("%v9", abi::stack_pointer(), NODE_OFFSET),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::stack_pointer(), NODE_OFFSET),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_eq(&count_done),
-        abi::load_u32("%v10", "%v9", 4),
-        abi::compare_immediate("%v10", AF_INET),
+        abi::load_u32(&v10, &v9, 4),
+        abi::compare_immediate(&v10, AF_INET),
         abi::branch_ne(&count_skip),
-        abi::load_u64("%v11", abi::stack_pointer(), COUNT_OFFSET),
-        abi::add_immediate("%v11", "%v11", 1),
-        abi::store_u64("%v11", abi::stack_pointer(), COUNT_OFFSET),
+        abi::load_u64(&v11, abi::stack_pointer(), COUNT_OFFSET),
+        abi::add_immediate(&v11, &v11, 1),
+        abi::store_u64(&v11, abi::stack_pointer(), COUNT_OFFSET),
         abi::label(&count_skip),
-        abi::load_u64("%v9", abi::stack_pointer(), NODE_OFFSET),
-        abi::load_u64("%v9", "%v9", 40),
-        abi::store_u64("%v9", abi::stack_pointer(), NODE_OFFSET),
+        abi::load_u64(&v9, abi::stack_pointer(), NODE_OFFSET),
+        abi::load_u64(&v9, &v9, 40),
+        abi::store_u64(&v9, abi::stack_pointer(), NODE_OFFSET),
         abi::branch(&count_loop),
         abi::label(&count_done),
         // Allocate List OF Address: count Address records (16 bytes) inline.
-        abi::load_u64("%v10", abi::stack_pointer(), COUNT_OFFSET),
-        abi::move_immediate("%v11", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers("%v12", "%v10", "%v11"),
-        abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
-        abi::move_immediate("%v13", "Integer", "16"),
-        abi::multiply_registers("%v14", "%v10", "%v13"),
-        abi::add_registers(abi::return_register(), "%v12", "%v14"),
+        abi::load_u64(&v10, abi::stack_pointer(), COUNT_OFFSET),
+        abi::move_immediate(&v11, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers(&v12, &v10, &v11),
+        abi::add_immediate(&v12, &v12, COLLECTION_HEADER_SIZE),
+        abi::move_immediate(&v13, "Integer", "16"),
+        abi::multiply_registers(&v14, &v10, &v13),
+        abi::add_registers(abi::return_register(), &v12, &v14),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::move_register("%v15", abi::mfb_return(1)), // alloc result -> vreg base (plan-34-B Phase 3)
-        abi::store_u64("%v15", abi::stack_pointer(), LIST_OFFSET),
-        abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
-        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),
-        abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
-        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KEY_TYPE),
-        abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_OBJECT.to_string()),
-        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_VALUE_TYPE),
-        abi::move_immediate("%v9", "Byte", "1"),
-        abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_FLAGS_VERSION),
-        abi::load_u64("%v10", abi::stack_pointer(), COUNT_OFFSET),
-        abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_COUNT),
-        abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate("%v13", "Integer", "16"),
-        abi::multiply_registers("%v14", "%v10", "%v13"),
-        abi::store_u64("%v14", "%v15", COLLECTION_OFFSET_DATA_LENGTH),
-        abi::store_u64("%v14", "%v15", COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::move_register(&v15, abi::mfb_return(1)), // alloc result -> vreg base (plan-34-B Phase 3)
+        abi::store_u64(&v15, abi::stack_pointer(), LIST_OFFSET),
+        abi::move_immediate(&v9, "Byte", &COLLECTION_KIND_LIST.to_string()),
+        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KIND),
+        abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_NONE.to_string()),
+        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KEY_TYPE),
+        abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_OBJECT.to_string()),
+        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_VALUE_TYPE),
+        abi::move_immediate(&v9, "Byte", "1"),
+        abi::store_u8(&v9, &v15, COLLECTION_OFFSET_FLAGS_VERSION),
+        abi::load_u64(&v10, abi::stack_pointer(), COUNT_OFFSET),
+        abi::store_u64(&v10, &v15, COLLECTION_OFFSET_COUNT),
+        abi::store_u64(&v10, &v15, COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate(&v13, "Integer", "16"),
+        abi::multiply_registers(&v14, &v10, &v13),
+        abi::store_u64(&v14, &v15, COLLECTION_OFFSET_DATA_LENGTH),
+        abi::store_u64(&v14, &v15, COLLECTION_OFFSET_DATA_CAPACITY),
         // entry cursor and data region.
-        abi::add_immediate("%v11", "%v15", COLLECTION_HEADER_SIZE),
-        abi::store_u64("%v11", abi::stack_pointer(), ENTRY_OFFSET),
-        abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers("%v13", "%v10", "%v12"),
-        abi::add_registers("%v14", "%v11", "%v13"),
-        abi::store_u64("%v14", abi::stack_pointer(), DATA_OFFSET),
+        abi::add_immediate(&v11, &v15, COLLECTION_HEADER_SIZE),
+        abi::store_u64(&v11, abi::stack_pointer(), ENTRY_OFFSET),
+        abi::move_immediate(&v12, "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+        abi::multiply_registers(&v13, &v10, &v12),
+        abi::add_registers(&v14, &v11, &v13),
+        abi::store_u64(&v14, abi::stack_pointer(), DATA_OFFSET),
         // Iterate results again, building one Address per AF_INET node.
-        abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
-        abi::store_u64("%v9", abi::stack_pointer(), NODE_OFFSET),
+        abi::load_u64(&v9, abi::stack_pointer(), RES_OFFSET),
+        abi::store_u64(&v9, abi::stack_pointer(), NODE_OFFSET),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), INDEX_OFFSET),
         abi::label(&fill_loop),
-        abi::load_u64("%v9", abi::stack_pointer(), NODE_OFFSET),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::stack_pointer(), NODE_OFFSET),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_eq(&fill_done),
-        abi::load_u32("%v10", "%v9", 4),
-        abi::compare_immediate("%v10", AF_INET),
+        abi::load_u32(&v10, &v9, 4),
+        abi::compare_immediate(&v10, AF_INET),
         abi::branch_ne(&fill_skip),
         // node->ai_addr; force the requested port into sin_port.
-        abi::load_u64("%v12", "%v9", addr_off),
-        abi::store_u64("%v12", abi::stack_pointer(), SADDR_PTR_OFFSET),
-        abi::load_u64("%v10", abi::stack_pointer(), PORT_OFFSET),
-        abi::shift_right_immediate("%v11", "%v10", 8),
-        abi::store_u8("%v11", "%v12", 2),
-        abi::store_u8("%v10", "%v12", 3),
+        abi::load_u64(&v12, &v9, addr_off),
+        abi::store_u64(&v12, abi::stack_pointer(), SADDR_PTR_OFFSET),
+        abi::load_u64(&v10, abi::stack_pointer(), PORT_OFFSET),
+        abi::shift_right_immediate(&v11, &v10, 8),
+        abi::store_u8(&v11, &v12, 2),
+        abi::store_u8(&v10, &v12, 3),
     ]);
     emit_address_from_sockaddr(
         &mut EmitCtx {
@@ -1153,37 +1192,38 @@ pub(crate) fn lower_net_lookup_helper(
         ADDRHOST_OFFSET,
         &alloc_fail,
         &addr_fail,
+        &mut vregs,
     )?;
     // x1 = Address pointer; copy its 16 bytes into the list data region and
     // record the entry descriptor.
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), INDEX_OFFSET),
-        abi::move_immediate("%v10", "Integer", "16"),
-        abi::multiply_registers("%v11", "%v9", "%v10"),
-        abi::load_u64("%v12", abi::stack_pointer(), DATA_OFFSET),
-        abi::add_registers("%v12", "%v12", "%v11"),
-        abi::load_u64("%v13", abi::mfb_return(1), 0),
-        abi::store_u64("%v13", "%v12", 0),
-        abi::load_u64("%v13", abi::mfb_return(1), 8),
-        abi::store_u64("%v13", "%v12", 8),
+        abi::load_u64(&v9, abi::stack_pointer(), INDEX_OFFSET),
+        abi::move_immediate(&v10, "Integer", "16"),
+        abi::multiply_registers(&v11, &v9, &v10),
+        abi::load_u64(&v12, abi::stack_pointer(), DATA_OFFSET),
+        abi::add_registers(&v12, &v12, &v11),
+        abi::load_u64(&v13, abi::mfb_return(1), 0),
+        abi::store_u64(&v13, &v12, 0),
+        abi::load_u64(&v13, abi::mfb_return(1), 8),
+        abi::store_u64(&v13, &v12, 8),
         // entry descriptor at ENTRY cursor.
-        abi::load_u64("%v14", abi::stack_pointer(), ENTRY_OFFSET),
-        abi::move_immediate("%v13", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-        abi::store_u8("%v13", "%v14", COLLECTION_ENTRY_OFFSET_FLAGS),
-        abi::store_u64(abi::ZERO, "%v14", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::store_u64(abi::ZERO, "%v14", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::store_u64("%v11", "%v14", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-        abi::move_immediate("%v13", "Integer", "16"),
-        abi::store_u64("%v13", "%v14", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-        abi::add_immediate("%v14", "%v14", COLLECTION_ENTRY_SIZE),
-        abi::store_u64("%v14", abi::stack_pointer(), ENTRY_OFFSET),
-        abi::load_u64("%v9", abi::stack_pointer(), INDEX_OFFSET),
-        abi::add_immediate("%v9", "%v9", 1),
-        abi::store_u64("%v9", abi::stack_pointer(), INDEX_OFFSET),
+        abi::load_u64(&v14, abi::stack_pointer(), ENTRY_OFFSET),
+        abi::move_immediate(&v13, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+        abi::store_u8(&v13, &v14, COLLECTION_ENTRY_OFFSET_FLAGS),
+        abi::store_u64(abi::ZERO, &v14, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::store_u64(abi::ZERO, &v14, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::store_u64(&v11, &v14, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::move_immediate(&v13, "Integer", "16"),
+        abi::store_u64(&v13, &v14, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::add_immediate(&v14, &v14, COLLECTION_ENTRY_SIZE),
+        abi::store_u64(&v14, abi::stack_pointer(), ENTRY_OFFSET),
+        abi::load_u64(&v9, abi::stack_pointer(), INDEX_OFFSET),
+        abi::add_immediate(&v9, &v9, 1),
+        abi::store_u64(&v9, abi::stack_pointer(), INDEX_OFFSET),
         abi::label(&fill_skip),
-        abi::load_u64("%v9", abi::stack_pointer(), NODE_OFFSET),
-        abi::load_u64("%v9", "%v9", 40),
-        abi::store_u64("%v9", abi::stack_pointer(), NODE_OFFSET),
+        abi::load_u64(&v9, abi::stack_pointer(), NODE_OFFSET),
+        abi::load_u64(&v9, &v9, 40),
+        abi::store_u64(&v9, abi::stack_pointer(), NODE_OFFSET),
         abi::branch(&fill_loop),
         abi::label(&fill_done),
         // freeaddrinfo(res)
@@ -1285,11 +1325,15 @@ pub(crate) fn lower_net_bind_udp_helper(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST_OFFSET),
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), PORT_OFFSET),
     ]);
-    emit_hints(HINTS_OFFSET, true, SOCK_DGRAM, &mut instructions);
+    emit_hints(HINTS_OFFSET, true, SOCK_DGRAM, &mut instructions, &mut vregs);
     // Default getaddrinfo service = NULL (valid whenever the host is non-NULL).
     instructions.push(abi::store_u64(
         abi::ZERO,
@@ -1298,9 +1342,9 @@ pub(crate) fn lower_net_bind_udp_helper(
     ));
     // Empty host binds all interfaces (NULL host + AI_PASSIVE).
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), HOST_OFFSET),
-        abi::load_u64("%v9", "%v9", 0),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::stack_pointer(), HOST_OFFSET),
+        abi::load_u64(&v9, &v9, 0),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_eq(&null_host),
     ]);
     emit_cstring(
@@ -1311,6 +1355,7 @@ pub(crate) fn lower_net_bind_udp_helper(
         &alloc_fail,
         &mut instructions,
         &mut relocations,
+        &mut vregs,
     );
     instructions.push(abi::branch(&resolved));
     instructions.extend([
@@ -1319,10 +1364,10 @@ pub(crate) fn lower_net_bind_udp_helper(
         // Bind-all: node is NULL, so service must be non-NULL. Stage the C string
         // "0" and point service at it (bug-113); the real port overwrites
         // sin_port afterward.
-        abi::move_immediate("%v9", "Integer", "48"),
-        abi::store_u64("%v9", abi::stack_pointer(), SERVICE_STR_OFFSET),
-        abi::add_immediate("%v9", abi::stack_pointer(), SERVICE_STR_OFFSET),
-        abi::store_u64("%v9", abi::stack_pointer(), SERVICE_OFFSET),
+        abi::move_immediate(&v9, "Integer", "48"),
+        abi::store_u64(&v9, abi::stack_pointer(), SERVICE_STR_OFFSET),
+        abi::add_immediate(&v9, abi::stack_pointer(), SERVICE_STR_OFFSET),
+        abi::store_u64(&v9, abi::stack_pointer(), SERVICE_OFFSET),
         abi::label(&resolved),
         // getaddrinfo(host, service, &hints, &res)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CSTR_OFFSET),
@@ -1341,10 +1386,10 @@ pub(crate) fn lower_net_bind_udp_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&resolve_fail),
         // socket(ai_family, ai_socktype, ai_protocol)
-        abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
-        abi::load_u32(abi::return_register(), "%v9", 4),
-        abi::load_u32(abi::c_arg(1), "%v9", 8),
-        abi::load_u32(abi::c_arg(2), "%v9", 12),
+        abi::load_u64(&v9, abi::stack_pointer(), RES_OFFSET),
+        abi::load_u32(abi::return_register(), &v9, 4),
+        abi::load_u32(abi::c_arg(1), &v9, 8),
+        abi::load_u32(abi::c_arg(2), &v9, 12),
     ]);
     platform.emit_libc_call(
         net_symbol(platform, NetSymbol::Socket),
@@ -1361,17 +1406,17 @@ pub(crate) fn lower_net_bind_udp_helper(
         abi::branch_lt(&socket_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         // Overwrite sin_port at ai_addr + 2/3 with the requested port.
-        abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
-        abi::load_u64("%v9", "%v9", platform.addrinfo_addr_offset()),
-        abi::load_u64("%v10", abi::stack_pointer(), PORT_OFFSET),
-        abi::shift_right_immediate("%v11", "%v10", 8),
-        abi::store_u8("%v11", "%v9", 2),
-        abi::store_u8("%v10", "%v9", 3),
+        abi::load_u64(&v9, abi::stack_pointer(), RES_OFFSET),
+        abi::load_u64(&v9, &v9, platform.addrinfo_addr_offset()),
+        abi::load_u64(&v10, abi::stack_pointer(), PORT_OFFSET),
+        abi::shift_right_immediate(&v11, &v10, 8),
+        abi::store_u8(&v11, &v9, 2),
+        abi::store_u8(&v10, &v9, 3),
         // bind(fd, ai_addr, ai_addrlen)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-        abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
-        abi::load_u64(abi::c_arg(1), "%v9", platform.addrinfo_addr_offset()),
-        abi::load_u32(abi::c_arg(2), "%v9", 16),
+        abi::load_u64(&v9, abi::stack_pointer(), RES_OFFSET),
+        abi::load_u64(abi::c_arg(1), &v9, platform.addrinfo_addr_offset()),
+        abi::load_u32(abi::c_arg(2), &v9, 16),
     ]);
     platform.emit_libc_call(
         net_symbol(platform, NetSymbol::Bind),
@@ -1403,6 +1448,7 @@ pub(crate) fn lower_net_bind_udp_helper(
         &mut instructions,
         &mut relocations,
         &alloc_fail,
+        &mut vregs,
     );
     instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -1513,18 +1559,26 @@ pub(crate) fn lower_net_receive_from_helper(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+    let v14 = vregs.next();
+    let v15 = vregs.next();
     instructions.extend([
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MAX_OFFSET),
-        abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_CLOSED),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_CLOSED),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_ne(&closed),
-        abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_FD),
-        abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
-        abi::load_u64("%v10", abi::stack_pointer(), MAX_OFFSET),
-        abi::compare_immediate("%v10", "0"),
+        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_FD),
+        abi::store_u64(&v9, abi::stack_pointer(), FD_OFFSET),
+        abi::load_u64(&v10, abi::stack_pointer(), MAX_OFFSET),
+        abi::compare_immediate(&v10, "0"),
         abi::branch_le(&invalid),
         // Allocate a maxBytes + 1 buffer to detect oversized datagrams.
-        abi::add_immediate(abi::return_register(), "%v10", 1),
+        abi::add_immediate(abi::return_register(), &v10, 1),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
@@ -1535,8 +1589,8 @@ pub(crate) fn lower_net_receive_from_helper(
         // addrlen is re-initialized so the identical call is repeated (bug-115).
         abi::label(&recv_retry),
         // recvfrom(fd, buf, maxBytes + 1, 0, &addr_storage, &addrlen)
-        abi::move_immediate("%v9", "Integer", &SOCKADDR_STORAGE_SIZE.to_string()),
-        abi::store_u64("%v9", abi::stack_pointer(), ADDRLEN_OFFSET),
+        abi::move_immediate(&v9, "Integer", &SOCKADDR_STORAGE_SIZE.to_string()),
+        abi::store_u64(&v9, abi::stack_pointer(), ADDRLEN_OFFSET),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), BUF_OFFSET),
         abi::load_u64(abi::c_arg(2), abi::stack_pointer(), MAX_OFFSET),
@@ -1574,13 +1628,13 @@ pub(crate) fn lower_net_receive_from_helper(
         abi::branch_lt(&recv_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFFSET),
         // Reject truncation: n > maxBytes means the datagram did not fit.
-        abi::load_u64("%v9", abi::stack_pointer(), N_OFFSET),
-        abi::load_u64("%v10", abi::stack_pointer(), MAX_OFFSET),
-        abi::compare_registers("%v10", "%v9"),
+        abi::load_u64(&v9, abi::stack_pointer(), N_OFFSET),
+        abi::load_u64(&v10, abi::stack_pointer(), MAX_OFFSET),
+        abi::compare_registers(&v10, &v9),
         abi::branch_lt(&too_large),
         // Build the sender Address from the captured sockaddr.
-        abi::add_immediate("%v9", abi::stack_pointer(), ADDR_STORAGE_OFFSET),
-        abi::store_u64("%v9", abi::stack_pointer(), SADDR_PTR_OFFSET),
+        abi::add_immediate(&v9, abi::stack_pointer(), ADDR_STORAGE_OFFSET),
+        abi::store_u64(&v9, abi::stack_pointer(), SADDR_PTR_OFFSET),
     ]);
     emit_address_from_sockaddr(
         &mut EmitCtx {
@@ -1597,6 +1651,7 @@ pub(crate) fn lower_net_receive_from_helper(
         AHOST_OFFSET,
         &alloc_fail,
         &addr_fail,
+        &mut vregs,
     )?;
     instructions.push(abi::store_u64(
         abi::mfb_return(1),
@@ -1620,64 +1675,64 @@ pub(crate) fn lower_net_receive_from_helper(
     } else {
         // Build a List OF Byte with N elements.
         instructions.extend([
-            abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
-            abi::move_immediate("%v11", "Integer", &byte_list_entry_stride().to_string()),
-            abi::multiply_registers("%v12", "%v10", "%v11"),
-            abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
-            abi::add_registers(abi::return_register(), "%v12", "%v10"),
+            abi::load_u64(&v10, abi::stack_pointer(), N_OFFSET),
+            abi::move_immediate(&v11, "Integer", &byte_list_entry_stride().to_string()),
+            abi::multiply_registers(&v12, &v10, &v11),
+            abi::add_immediate(&v12, &v12, COLLECTION_HEADER_SIZE),
+            abi::add_registers(abi::return_register(), &v12, &v10),
             abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         ]);
         emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
-            abi::move_register("%v15", abi::mfb_return(1)), // alloc result -> vreg base (plan-34-B Phase 3)
-            abi::store_u64("%v15", abi::stack_pointer(), STR_OFFSET),
-            abi::move_immediate("%v9", "Byte", &byte_list_block_kind().to_string()),
-            abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KIND),
-            abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
-            abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_KEY_TYPE),
-            abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_BYTE.to_string()),
-            abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_VALUE_TYPE),
-            abi::move_immediate("%v9", "Byte", "1"),
-            abi::store_u8("%v9", "%v15", COLLECTION_OFFSET_FLAGS_VERSION),
-            abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
-            abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_COUNT),
-            abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_CAPACITY),
-            abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_LENGTH),
-            abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_CAPACITY),
-            abi::add_immediate("%v11", "%v15", COLLECTION_HEADER_SIZE),
-            abi::move_immediate("%v12", "Integer", &byte_list_entry_stride().to_string()),
-            abi::multiply_registers("%v13", "%v10", "%v12"),
-            abi::add_registers("%v14", "%v11", "%v13"),
-            abi::load_u64("%v15", abi::stack_pointer(), BUF_OFFSET),
-            abi::move_immediate("%v9", "Integer", "0"),
+            abi::move_register(&v15, abi::mfb_return(1)), // alloc result -> vreg base (plan-34-B Phase 3)
+            abi::store_u64(&v15, abi::stack_pointer(), STR_OFFSET),
+            abi::move_immediate(&v9, "Byte", &byte_list_block_kind().to_string()),
+            abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KIND),
+            abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_NONE.to_string()),
+            abi::store_u8(&v9, &v15, COLLECTION_OFFSET_KEY_TYPE),
+            abi::move_immediate(&v9, "Byte", &COLLECTION_TYPE_BYTE.to_string()),
+            abi::store_u8(&v9, &v15, COLLECTION_OFFSET_VALUE_TYPE),
+            abi::move_immediate(&v9, "Byte", "1"),
+            abi::store_u8(&v9, &v15, COLLECTION_OFFSET_FLAGS_VERSION),
+            abi::load_u64(&v10, abi::stack_pointer(), N_OFFSET),
+            abi::store_u64(&v10, &v15, COLLECTION_OFFSET_COUNT),
+            abi::store_u64(&v10, &v15, COLLECTION_OFFSET_CAPACITY),
+            abi::store_u64(&v10, &v15, COLLECTION_OFFSET_DATA_LENGTH),
+            abi::store_u64(&v10, &v15, COLLECTION_OFFSET_DATA_CAPACITY),
+            abi::add_immediate(&v11, &v15, COLLECTION_HEADER_SIZE),
+            abi::move_immediate(&v12, "Integer", &byte_list_entry_stride().to_string()),
+            abi::multiply_registers(&v13, &v10, &v12),
+            abi::add_registers(&v14, &v11, &v13),
+            abi::load_u64(&v15, abi::stack_pointer(), BUF_OFFSET),
+            abi::move_immediate(&v9, "Integer", "0"),
             abi::label(&entry_loop),
-            abi::compare_registers("%v9", "%v10"),
+            abi::compare_registers(&v9, &v10),
             abi::branch_eq(&entry_done),
         ]);
         // See the guard in `emit_read_body`: kind 2 has no entry array, and a
         // zero-stride cursor would rewrite one "entry" over the data region.
         if byte_list_entry_stride() != 0 {
             instructions.extend([
-                abi::move_immediate("%v12", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-                abi::store_u8("%v12", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
-                abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-                abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-                abi::store_u64("%v9", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-                abi::move_immediate("%v12", "Integer", "1"),
-                abi::store_u64("%v12", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+                abi::move_immediate(&v12, "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+                abi::store_u8(&v12, &v11, COLLECTION_ENTRY_OFFSET_FLAGS),
+                abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+                abi::store_u64(abi::ZERO, &v11, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+                abi::store_u64(&v9, &v11, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+                abi::move_immediate(&v12, "Integer", "1"),
+                abi::store_u64(&v12, &v11, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
             ]);
         }
         instructions.extend([
-            abi::add_registers("%v12", "%v14", "%v9"),
-            abi::load_u8("%v13", "%v15", 0),
-            abi::store_u8("%v13", "%v12", 0),
-            abi::add_immediate("%v15", "%v15", 1),
+            abi::add_registers(&v12, &v14, &v9),
+            abi::load_u8(&v13, &v15, 0),
+            abi::store_u8(&v13, &v12, 0),
+            abi::add_immediate(&v15, &v15, 1),
         ]);
         if byte_list_entry_stride() != 0 {
-            instructions.push(abi::add_immediate("%v11", "%v11", COLLECTION_ENTRY_SIZE));
+            instructions.push(abi::add_immediate(&v11, &v11, COLLECTION_ENTRY_SIZE));
         }
         instructions.extend([
-            abi::add_immediate("%v9", "%v9", 1),
+            abi::add_immediate(&v9, &v9, 1),
             abi::branch(&entry_loop),
             abi::label(&entry_done),
         ]);
@@ -1689,11 +1744,11 @@ pub(crate) fn lower_net_receive_from_helper(
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::move_register("%v15", abi::mfb_return(1)), // alloc result -> vreg base; x1 kept for RESULT_VALUE_REGISTER
-        abi::load_u64("%v9", abi::stack_pointer(), ADDRPTR_OFFSET),
-        abi::store_u64("%v9", "%v15", 0),
-        abi::load_u64("%v9", abi::stack_pointer(), STR_OFFSET),
-        abi::store_u64("%v9", "%v15", 8),
+        abi::move_register(&v15, abi::mfb_return(1)), // alloc result -> vreg base; x1 kept for RESULT_VALUE_REGISTER
+        abi::load_u64(&v9, abi::stack_pointer(), ADDRPTR_OFFSET),
+        abi::store_u64(&v9, &v15, 0),
+        abi::load_u64(&v9, abi::stack_pointer(), STR_OFFSET),
+        abi::store_u64(&v9, &v15, 8),
         abi::move_register(RESULT_VALUE_REGISTER, abi::mfb_return(1)),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -1703,7 +1758,7 @@ pub(crate) fn lower_net_receive_from_helper(
     instructions.push(abi::label(&recv_fail));
     platform.emit_errno(
         symbol,
-        ("%v9").into(),
+        (&v9).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
@@ -1712,9 +1767,9 @@ pub(crate) fn lower_net_receive_from_helper(
         // bug-115: a signal that interrupts the blocking recvfrom before any byte
         // moved returns -1/EINTR; re-issue rather than reporting a spurious
         // network failure.
-        abi::compare_immediate("%v9", EINTR_ERRNO),
+        abi::compare_immediate(&v9, EINTR_ERRNO),
         abi::branch_eq(&recv_retry),
-        abi::compare_immediate("%v9", platform.socket_would_block_code()),
+        abi::compare_immediate(&v9, platform.socket_would_block_code()),
         abi::branch_eq(&timeout),
     ]);
     if platform.family() == PlatformFamily::Windows {
@@ -1723,10 +1778,10 @@ pub(crate) fn lower_net_receive_from_helper(
         // count, caught by the `n > maxBytes` check above). Map it to the same
         // ErrMessageTooLarge (bug-384).
         instructions.extend([
-            abi::compare_immediate("%v9", platform.socket_message_size_code()),
+            abi::compare_immediate(&v9, platform.socket_message_size_code()),
             abi::branch_eq(&too_large),
             // SO_RCVTIMEO timeout is WSAETIMEDOUT on Winsock (bug-109).
-            abi::compare_immediate("%v9", WSAETIMEDOUT),
+            abi::compare_immediate(&v9, WSAETIMEDOUT),
             abi::branch_eq(&timeout),
         ]);
     }
@@ -1840,26 +1895,33 @@ pub(crate) fn lower_net_send_to_helper(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    let v9 = vregs.next();
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+    let v14 = vregs.next();
     instructions.extend([
         // x0 = UdpSocket record; reject if closed.
-        abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_CLOSED),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_CLOSED),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_ne(&closed),
-        abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_FD),
-        abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        abi::load_u64(&v9, abi::return_register(), FILE_OFFSET_FD),
+        abi::store_u64(&v9, abi::stack_pointer(), FD_OFFSET),
         // x1 = Address record { host String ptr @0, port @8 }.
-        abi::load_u64("%v9", abi::c_arg(1), 0),
-        abi::store_u64("%v9", abi::stack_pointer(), HOST_OFFSET),
-        abi::load_u64("%v9", abi::c_arg(1), 8),
-        abi::store_u64("%v9", abi::stack_pointer(), PORT_OFFSET),
+        abi::load_u64(&v9, abi::c_arg(1), 0),
+        abi::store_u64(&v9, abi::stack_pointer(), HOST_OFFSET),
+        abi::load_u64(&v9, abi::c_arg(1), 8),
+        abi::store_u64(&v9, abi::stack_pointer(), PORT_OFFSET),
     ]);
     if text {
         // x2 = String*: data at +8, length at +0.
         instructions.extend([
-            abi::load_u64("%v10", abi::c_arg(2), 0),
-            abi::store_u64("%v10", abi::stack_pointer(), DLEN_OFFSET),
-            abi::add_immediate("%v11", abi::c_arg(2), 8),
-            abi::store_u64("%v11", abi::stack_pointer(), DATA_OFFSET),
+            abi::load_u64(&v10, abi::c_arg(2), 0),
+            abi::store_u64(&v10, abi::stack_pointer(), DLEN_OFFSET),
+            abi::add_immediate(&v11, abi::c_arg(2), 8),
+            abi::store_u64(&v11, abi::stack_pointer(), DATA_OFFSET),
         ]);
     } else {
         // x2 = List OF Byte: bytes live inline in the data region, which begins
@@ -1867,20 +1929,20 @@ pub(crate) fn lower_net_send_to_helper(
         // collection + HEADER + capacity * ENTRY_SIZE. Using count instead
         // mis-addresses an append-built list that carries spare capacity.
         instructions.extend([
-            abi::load_u64("%v10", abi::c_arg(2), COLLECTION_OFFSET_COUNT),
-            abi::store_u64("%v10", abi::stack_pointer(), DLEN_OFFSET),
+            abi::load_u64(&v10, abi::c_arg(2), COLLECTION_OFFSET_COUNT),
+            abi::store_u64(&v10, abi::stack_pointer(), DLEN_OFFSET),
         ]);
         push_collection_data_base_from_capacity(
             &mut instructions,
-            "%v11",
+            &v11,
             abi::c_arg(2),
-            "%v14",
-            "%v12",
-            "%v13",
+            &v14,
+            &v12,
+            &v13,
         );
-        instructions.extend([abi::store_u64("%v11", abi::stack_pointer(), DATA_OFFSET)]);
+        instructions.extend([abi::store_u64(&v11, abi::stack_pointer(), DATA_OFFSET)]);
     }
-    emit_hints(HINTS_OFFSET, false, SOCK_DGRAM, &mut instructions);
+    emit_hints(HINTS_OFFSET, false, SOCK_DGRAM, &mut instructions, &mut vregs);
     emit_cstring(
         symbol,
         "host",
@@ -1889,6 +1951,7 @@ pub(crate) fn lower_net_send_to_helper(
         &alloc_fail,
         &mut instructions,
         &mut relocations,
+        &mut vregs,
     );
     instructions.extend([
         // getaddrinfo(host, NULL, &hints, &res)
@@ -1912,16 +1975,16 @@ pub(crate) fn lower_net_send_to_helper(
         // are reloaded from the stack so the identical call is repeated (bug-115).
         abi::label(&send_retry),
         // Force the requested port into sin_port at ai_addr + 2/3.
-        abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
-        abi::load_u64("%v9", "%v9", platform.addrinfo_addr_offset()),
-        abi::load_u64("%v10", abi::stack_pointer(), PORT_OFFSET),
-        abi::shift_right_immediate("%v11", "%v10", 8),
-        abi::store_u8("%v11", "%v9", 2),
-        abi::store_u8("%v10", "%v9", 3),
+        abi::load_u64(&v9, abi::stack_pointer(), RES_OFFSET),
+        abi::load_u64(&v9, &v9, platform.addrinfo_addr_offset()),
+        abi::load_u64(&v10, abi::stack_pointer(), PORT_OFFSET),
+        abi::shift_right_immediate(&v11, &v10, 8),
+        abi::store_u8(&v11, &v9, 2),
+        abi::store_u8(&v10, &v9, 3),
         // sendto(fd, data, dlen, 0, ai_addr, ai_addrlen)
-        abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
-        abi::load_u64(abi::c_arg(4), "%v9", platform.addrinfo_addr_offset()),
-        abi::load_u32(abi::c_arg(5), "%v9", 16),
+        abi::load_u64(&v9, abi::stack_pointer(), RES_OFFSET),
+        abi::load_u64(abi::c_arg(4), &v9, platform.addrinfo_addr_offset()),
+        abi::load_u32(abi::c_arg(5), &v9, 16),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), DATA_OFFSET),
         abi::load_u64(abi::c_arg(2), abi::stack_pointer(), DLEN_OFFSET),
@@ -1954,22 +2017,22 @@ pub(crate) fn lower_net_send_to_helper(
     // Capture errno before freeaddrinfo can disturb it.
     platform.emit_errno(
         symbol,
-        ("%v9").into(),
+        (&v9).into(),
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
-    instructions.push(abi::store_u64("%v9", abi::stack_pointer(), ERRNO_OFFSET));
+    instructions.push(abi::store_u64(&v9, abi::stack_pointer(), ERRNO_OFFSET));
     // bug-115: a signal that interrupts the blocking sendto before any byte is
     // sent returns -1/EINTR; re-issue the sendto (res is still live) rather than
     // reporting a spurious network failure. A datagram send is all-or-nothing, so
     // a non-negative return is a completed send and must not be retried.
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), RET_OFFSET),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::stack_pointer(), RET_OFFSET),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_ge(&send_eintr_skip),
-        abi::load_u64("%v9", abi::stack_pointer(), ERRNO_OFFSET),
-        abi::compare_immediate("%v9", EINTR_ERRNO),
+        abi::load_u64(&v9, abi::stack_pointer(), ERRNO_OFFSET),
+        abi::compare_immediate(&v9, EINTR_ERRNO),
         abi::branch_eq(&send_retry),
         abi::label(&send_eintr_skip),
     ]);
@@ -1986,8 +2049,8 @@ pub(crate) fn lower_net_send_to_helper(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), RET_OFFSET),
-        abi::compare_immediate("%v9", "0"),
+        abi::load_u64(&v9, abi::stack_pointer(), RET_OFFSET),
+        abi::compare_immediate(&v9, "0"),
         abi::branch_lt(&send_fail),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -1995,11 +2058,11 @@ pub(crate) fn lower_net_send_to_helper(
     // send_fail: classify by captured errno.
     instructions.extend([
         abi::label(&send_fail),
-        abi::load_u64("%v9", abi::stack_pointer(), ERRNO_OFFSET),
-        abi::compare_immediate("%v9", platform.socket_would_block_code()),
+        abi::load_u64(&v9, abi::stack_pointer(), ERRNO_OFFSET),
+        abi::compare_immediate(&v9, platform.socket_would_block_code()),
         abi::branch_eq(&timeout),
-        abi::load_u64("%v9", abi::stack_pointer(), ERRNO_OFFSET),
-        abi::compare_immediate("%v9", platform.socket_message_size_code()),
+        abi::load_u64(&v9, abi::stack_pointer(), ERRNO_OFFSET),
+        abi::compare_immediate(&v9, platform.socket_message_size_code()),
         abi::branch_eq(&too_large),
     ]);
     emit_fail(
