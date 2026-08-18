@@ -219,8 +219,9 @@ fn builtins_no_hand_picked_vreg() {
         count <= baseline,
         "hand-picked virtual-register literals in src/codegen/builtins: {count} \
          exceeds the ratchet baseline {baseline}. New hand-numbered \
-         `\"%vN\"` are banned — mint via temporary_vreg()/allocate_register() so the \
-         allocator owns placement. First offenders:\n{}",
+         `\"%vN\"` are banned —\n \
+         Mint via temporary_vreg()/temporary_fp_vreg()/allocate_register()/allocate_fp_register() so the \
+         allocator owns placement. See builder_registers.rs. First offenders:\n{}",
         sample.join("\n")
     );
 }
