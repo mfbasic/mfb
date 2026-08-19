@@ -15,20 +15,36 @@ use super::{
 };
 
 const INTRO: &str = r#"Decrypt an X25519 sealed box with the recipient's private key, selected by a `crypto::AsymmetricCipher`."#;
-const DESC: &str = r#"`crypto::decrypt(cipher, recipientPrivateKey, box)` recovers the plaintext of a
-box produced by `crypto::encrypt(cipher, …)`, returning it as a `List OF Byte`.
-`cipher` is the same `crypto::AsymmetricCipher` used to encrypt; `recipientPrivateKey`
-is the recipient's 32-byte Ed25519 private key (the seed from
-`crypto::generate(Certificate.Ed25519)`), converted to X25519 internally.
+const DESC: &str = r#"`crypto::decrypt(cipher, recipientPrivateKey, box)` recovers the plaintext of a box
+produced by `crypto::encrypt(cipher, …)`, returning it as a `List OF Byte`. Only the
+holder of the recipient's private key can decrypt.
 
-The box is `ephemeralPublicKey (32 bytes) ‖ ciphertext ‖ tag (16 bytes)`. Decryption
-does the ECDH against the embedded ephemeral key, re-derives the AEAD key and nonce
-with `HKDF(SHA-256)`, and verifies the tag in **constant time**, **failing closed**:
-a tampered box, a wrong recipient key, or a different `aad` than was encrypted raises
-`ErrAuthenticationFailed` and returns no plaintext. The optional `aad` must match the
-`aad` supplied to `crypto::encrypt`; it defaults to the empty list. The whole
-construction is a portable software core over the `bits` package and uses no platform
-crypto library."#;
+**Inputs.** `cipher` is the same `crypto::AsymmetricCipher` used to encrypt
+(`Ed25519_AES256GCM` or `Ed25519_CHACHA20POLY1305`). `recipientPrivateKey` is the
+recipient's 32-byte **Ed25519** private key (the seed from
+`crypto::generate(Certificate.Ed25519)`), converted to its X25519 scalar
+internally. `box` is the self-contained
+`ephemeralPublicKey (32 bytes) ‖ ciphertext ‖ tag (16 bytes)` returned by
+`crypto::encrypt`.
+
+**How it works.** The 32-byte ephemeral public key is read from the front of the
+box, an X25519 ECDH (RFC 7748) is performed against it, `HKDF-SHA256` (RFC 5869)
+re-derives the same 32-byte key and 12-byte nonce, and the inner AEAD tag is
+verified in **constant time**.
+
+**Fails closed.** A tampered or truncated box, a wrong recipient key, or a different
+`aad` than was encrypted raises `ErrAuthenticationFailed` and returns no plaintext.
+A box shorter than the 48-byte `ephemeralPublicKey ‖ tag` overhead is malformed and
+raises `ErrInvalidArgument`. The optional `aad` must match the `aad` supplied to
+`crypto::encrypt`; it defaults to the empty list. Both ends must use MFB's
+`crypto::encrypt` / `crypto::decrypt` — the box is a bespoke MFB format, not RFC
+9180 HPKE or the libsodium sealed box.
+
+**Implementation.** X25519 (RFC 7748), the Ed25519→X25519 conversion (RFC 8032 /
+RFC 7748), HKDF-SHA256 (RFC 5869), and the inner AEAD are all pure MFBASIC software
+cores computed over the `bits` package — no platform cryptographic library — so
+decryption is byte-identical on every target (macOS, Linux, Windows; aarch64,
+x86-64)."#;
 const EX: &str = r#"```
 IMPORT crypto
 

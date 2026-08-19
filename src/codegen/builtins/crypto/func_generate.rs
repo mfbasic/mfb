@@ -1489,18 +1489,70 @@ pub(crate) fn lower_generate(
 }
 
 const INTRO: &str = r#"Generate a fresh key pair of the requested certificate type."#;
-const DESC: &str = r#"`crypto::generate(type)` creates a new key pair for the NIST-EC curve, Ed25519,
-or X25519 selected by `type` (a `crypto::Certificate`), returning a
-`crypto::KeyPair`. The signing key pairs — every curve (`P256`/`P384`/`P521`) and
-`Ed25519` — are usable with `crypto::sign(type, …)` and `crypto::verify(type, …)`
-for that same `type`. `X25519` produces a Curve25519 ECDH (key-agreement) key pair
-(32-byte private and public); it is not a signing key, so `sign`/`verify` reject it
-with `ErrInvalidArgument`."#;
-const EX: &str = r#"```
+const DESC: &str = r#"`crypto::generate(type)` draws a fresh random key pair for the curve selected by
+`type` (a `crypto::Certificate`) and returns it as a `crypto::KeyPair`, whose
+`privateKey` and `publicKey` fields are each a `List OF Byte`. The signing key
+pairs — the three NIST prime curves (`P256`/`P384`/`P521`, FIPS 186-4 ECDSA over
+SEC/NIST `secp256r1`/`secp384r1`/`secp521r1`) and `Ed25519` (RFC 8032 EdDSA) —
+are usable with `crypto::sign(type, …)` and `crypto::verify(type, …)` for that
+same `type`. `X25519` produces a Curve25519 ECDH key-agreement pair (RFC 7748); it
+is **not** a signing key, so `sign`/`verify` reject it with `ErrInvalidArgument`.
+Use it with `crypto::convert` / key agreement instead.
+
+**Encodings and sizes.** Every field is raw big-endian bytes — no PEM, no
+base64, no DER wrapper on the key material itself. For the NIST curves the
+`publicKey` is one **SEC1 / X9.62 uncompressed point** `0x04‖X‖Y` (each coordinate
+`field` bytes), and the `privateKey` is that same uncompressed point immediately
+followed by the big-endian secret scalar `d` (i.e. `0x04‖X‖Y‖d`). For `Ed25519`
+the `privateKey` is the 32-byte seed and the `publicKey` is the 32-byte compressed
+point; for `X25519` both are 32-byte Curve25519 values.
+
+| `type` | Standard | Digest (sign/verify) | `publicKey` | `privateKey` |
+| --- | --- | --- | --- | --- |
+| `P256` | secp256r1, FIPS 186-4 | SHA-256 | 65 B (`0x04‖X‖Y`) | 97 B (`0x04‖X‖Y‖d`) |
+| `P384` | secp384r1, FIPS 186-4 | SHA-384 | 97 B | 145 B |
+| `P521` | secp521r1, FIPS 186-4 | SHA-512 | 133 B | 199 B |
+| `Ed25519` | RFC 8032 | SHA-512 (internal) | 32 B | 32 B (seed) |
+| `X25519` | RFC 7748 | — (not a signing key) | 32 B | 32 B |
+
+**Security.** The `privateKey` is secret key material — keep it confidential and
+never transmit or log it; only the `publicKey` is safe to share. Randomness comes
+from the platform CSPRNG (for the NIST curves) or `crypto::randomBytes` (for the
+software curves).
+
+**Implementation.** The three NIST curves are generated through the host
+platform's key API, reproduced clean-room in this member (no third-party crypto is
+bundled): on **macOS** via Security.framework `SecKey` (`SecKeyCreateRandomKey`,
+EC key type, exported with `SecKeyCopyExternalRepresentation`); on **Linux** via
+OpenSSL `libcrypto` (`EVP_EC_gen` on 3.x, else `EC_KEY_new_by_curve_name` +
+`EC_KEY_generate_key`, serialized through `i2d_PrivateKey`/`i2d_PUBKEY`); on
+**Windows** via CNG `bcrypt.dll` (`BCryptGenerateKeyPair` +
+`BCryptFinalizeKeyPair` + `BCryptExportKey`, algorithms `ECDSA_P256/384/521`,
+`ECCPRIVATEBLOB`). `Ed25519` and `X25519` are a pure in-process MFBASIC software
+core (over the `bits` package) with **no platform library**, so they are
+byte-identical on every OS. Across platforms the encodings are wire-compatible: a
+key made on one OS is accepted by `sign`/`verify` on the others."#;
+const EX: &str = r#"Generate an ECDSA P-256 pair and use both halves:
+
+```
 IMPORT crypto
+IMPORT strings
 
 SUB main()
   LET kp AS crypto::KeyPair = crypto::generate(Certificate.P256)
+  LET msg AS List OF Byte = strings::toBytes("attack at dawn")
+  LET sig AS List OF Byte = crypto::sign(Certificate.P256, kp.privateKey, msg)
+  LET ok AS Boolean = crypto::verify(Certificate.P256, kp.publicKey, msg, sig)
+END SUB
+```
+
+Ed25519 keys are byte-identical on every platform:
+
+```
+IMPORT crypto
+
+SUB main()
+  LET kp AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
 END SUB
 ```"#;
 
@@ -1521,7 +1573,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 default: crate::codegen::registry::DefaultValue::None,
             }],
             return_type: ParameterType::Named("KeyPair"),
-            errors: vec![],
+            errors: vec!["ErrOutOfMemory", "ErrUnknown"],
             body: Body::abi_function(lower_generate),
         }],
     });

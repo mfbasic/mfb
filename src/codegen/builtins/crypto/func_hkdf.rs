@@ -12,25 +12,38 @@ use super::{
 };
 
 const INTRO: &str = r#"Derive key material with HKDF (RFC 5869), selected by a `crypto::Hash`."#;
-const DESC: &str = r#"`crypto::hkdf(type, ikm, salt, info, length)` runs the HKDF Extract-then-Expand
-key-derivation function of RFC 5869 over the SHA-2 hash selected by `type` (a
-`crypto::Hash`: `SHA224`, `SHA256`, `SHA384`, or `SHA512`), turning the input
-keying material `ikm` into `length` bytes of output keying material, returned as a
-`List OF Byte`. It is the unified front door for the per-digest HKDF members
-(`hkdfSha256`/`hkdfSha512`) behind one `Hash`-selected call.
+const DESC: &str = r#"`crypto::hkdf(type, ikm, salt, info, length)` derives `length` bytes of output
+keying material from the input keying material `ikm`, using the HKDF
+Extract-then-Expand construction over the SHA-2 hash selected by `type` — a
+`crypto::Hash`: `SHA224`, `SHA256`, `SHA384`, or `SHA512`. The result is returned as
+a raw `List OF Byte` of exactly `length` bytes. This one call replaces the per-digest
+HKDF members behind a single `Hash`-selected surface.
 
-`salt` is an optional non-secret value that may be empty (an empty salt is treated
-as a string of zero bytes the length of the digest); `info` is optional
-context/application binding that may be empty. `length` must be between 1 and
-`255 * L` bytes, where `L` is the digest length of `type` (28/32/48/64 for
-`SHA224`/`SHA256`/`SHA384`/`SHA512`); a `length` outside that range raises
-`ErrInvalidArgument`.
+HKDF first *extracts* a fixed-length pseudorandom key from `ikm` and `salt` (one
+HMAC), then *expands* it under `info` into the requested output length. `salt` is an
+optional, non-secret value that strengthens the extraction; it may be empty, in which
+case it is treated as a string of `L` zero bytes, where `L` is the digest length of
+`type` (28/32/48/64 for `SHA224`/`SHA256`/`SHA384`/`SHA512`). `info` is optional
+context/application binding — a label that domain-separates independent keys derived
+from the same `ikm` (for example `"app v1 encryption"` vs `"app v1 signing"`); it may
+be empty. The derivation is deterministic in all of its inputs.
 
-The derivation is a deterministic function of its inputs alone, and is a portable
-software core computed over the `bits` package, so its output is **byte-identical
-on every target** (macOS/Linux/Windows, aarch64/x86-64) and uses no platform crypto
-library. Derived key material is raw binary, not text; stringify it with
-`encoding::hexEncode` or `encoding::base64Encode` to display or store it."#;
+`length` must be between 1 and `255 * L` bytes inclusive; a `length` of 0 or greater
+than `255 * L` raises `ErrInvalidArgument`. `ikm`, `salt`, and `info` may each be any
+length, including empty.
+
+HKDF is a key-derivation function for **already-high-entropy** input (a shared
+secret, a Diffie-Hellman result); it is **not** a password hash — stretch a
+low-entropy password with `crypto::pbkdf2` instead. Derived key material is raw
+binary, not text — stringify it with `encoding::hexEncode` or
+`encoding::base64Encode` to display or store it.
+
+**Implementation.** HKDF is specified by RFC 5869 (HMAC-based Extract-then-Expand),
+here layered over HMAC of the selected SHA-2 hash. The derivation is computed
+in-process by a portable MFBASIC software core over the `bits` package — no platform
+cryptographic library is called — so the output is **byte-identical on macOS, Linux,
+and Windows** (and across aarch64/x86-64). The core is hash-generic over the `Hash`
+enum, so a future `Hash` variant is supported without new code."#;
 const EX: &str = r#"Derive a 32-byte key from input keying material:
 
 ```
@@ -88,7 +101,8 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
                 Parameter {
                     name: "length",
-                    desc: "Number of output bytes to derive.",
+                    desc: "Number of output bytes to derive: 1 to 255*L, where L is the \
+                           digest length of `type` (28/32/48/64).",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

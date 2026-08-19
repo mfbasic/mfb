@@ -13,23 +13,39 @@ use super::{
 };
 
 const INTRO: &str =
-    r#"Derive a key from a password with PBKDF2 (RFC 2898), selected by a `crypto::Hash`."#;
-const DESC: &str = r#"`crypto::pbkdf2(type, password, salt, iterations, length)` derives `length` bytes
-of key material from `password` and `salt` using PBKDF2-HMAC (RFC 2898) with the
-SHA-2 hash selected by `type` (a `crypto::Hash`: `SHA224`, `SHA256`, `SHA384`, or
-`SHA512`), applying `iterations` rounds of the underlying HMAC. The result is
-returned as a `List OF Byte`. It is the unified front door for the per-digest
-PBKDF2 members (`pbkdf2Sha256`/`pbkdf2Sha512`) behind one `Hash`-selected call.
+    r#"Derive a key from a password with PBKDF2, selected by a `crypto::Hash`."#;
+const DESC: &str = r#"`crypto::pbkdf2(type, password, salt, iterations, length)` derives `length` bytes of
+key material from a `password` and `salt` using PBKDF2-HMAC over the SHA-2 hash
+selected by `type` — a `crypto::Hash`: `SHA224`, `SHA256`, `SHA384`, or `SHA512`. The
+result is returned as a raw `List OF Byte` of exactly `length` bytes. This one call
+replaces the per-digest PBKDF2 members behind a single `Hash`-selected surface.
 
-`iterations` and `length` must each be at least 1; otherwise `ErrInvalidArgument`
-is raised. Choose the iteration count as high as your latency budget allows — it
-is the work factor that slows brute-force guessing of the password.
+PBKDF2 applies the underlying HMAC `iterations` times per output block, chaining the
+salted password through repeated hashing so that each derived byte costs about
+`iterations` HMAC evaluations. This iteration count is the *work factor*: it
+deliberately slows the derivation to make brute-force guessing of the password
+expensive. Use a unique, random `salt` per password (16 bytes or more) to defeat
+precomputation, and set `iterations` as high as your latency budget allows —
+hundreds of thousands is a common floor for interactive logins, higher for offline
+use. The derivation is deterministic in all of its inputs.
 
-The derivation is a deterministic function of its inputs alone, and is a portable
-software core computed over the `bits` package, so its output is **byte-identical
-on every target** (macOS/Linux/Windows, aarch64/x86-64) and uses no platform crypto
-library. Derived key material is raw binary, not text; stringify it with
-`encoding::hexEncode` or `encoding::base64Encode` to display or store it."#;
+`iterations` and `length` must each be at least 1; a value below 1 for either raises
+`ErrInvalidArgument`. `password` and `salt` may be any length, including empty. There
+is no upper bound beyond available time and memory — a large `iterations` or `length`
+simply takes proportionally longer.
+
+PBKDF2 is a password-stretching KDF; to derive keys from already-high-entropy input
+use `crypto::hkdf` instead, and to authenticate a message use `crypto::hmac`. Derived
+key material is raw binary, not text — stringify it with `encoding::hexEncode` or
+`encoding::base64Encode`, and compare a stored derivation against a recomputed one
+with `crypto::constantTimeEqual`.
+
+**Implementation.** PBKDF2 is specified by RFC 8018 (PKCS#5 v2.1), here layered over
+HMAC of the selected SHA-2 hash. The derivation is computed in-process by a portable
+MFBASIC software core over the `bits` package — no platform cryptographic library is
+called — so the output is **byte-identical on macOS, Linux, and Windows** (and across
+aarch64/x86-64). The core is hash-generic over the `Hash` enum, so a future `Hash`
+variant is supported without new code."#;
 const EX: &str = r#"Derive a 32-byte key from a password:
 
 ```
@@ -77,14 +93,14 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
                 Parameter {
                     name: "iterations",
-                    desc: "PBKDF2 iteration count.",
+                    desc: "PBKDF2 iteration count (the work factor); must be at least 1.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "length",
-                    desc: "Number of output bytes to derive.",
+                    desc: "Number of output bytes to derive; must be at least 1.",
                     aliases: &[],
                     ty: ParameterType::Integer,
                     default: DefaultValue::None,

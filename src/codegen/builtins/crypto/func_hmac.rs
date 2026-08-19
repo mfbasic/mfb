@@ -17,32 +17,38 @@ use super::{
     bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
 };
 
-const INTRO: &str = r#"Compute the HMAC message authentication code (RFC 2104) of a message under a key, selected by a `crypto::Hash`."#;
-const DESC: &str = r#"`crypto::hmac(type, key, data)` computes the keyed-hash message authentication
-code of `data` under `key`, using the SHA-2 hash selected by `type` (a
-`crypto::Hash`: `SHA224`, `SHA256`, `SHA384`, or `SHA512`), as specified by
-RFC 2104. It returns the MAC as a `List OF Byte` — 28, 32, 48, or 64 bytes
-respectively. It is the unified front door for the per-digest HMAC members
-(`hmacSha256`/`hmacSha512`) behind one `Hash`-selected call.
+const INTRO: &str = r#"Compute the HMAC message authentication code of a message under a key, selected by a `crypto::Hash`."#;
+const DESC: &str = r#"`crypto::hmac(type, key, data)` computes the keyed-hash message authentication code
+(HMAC) of `data` under the secret `key`, using the SHA-2 hash selected by `type` — a
+`crypto::Hash`: `SHA224`, `SHA256`, `SHA384`, or `SHA512`. It returns the MAC as a
+raw `List OF Byte` whose length is the digest length of `type`: 28 bytes for
+`SHA224`, 32 for `SHA256`, 48 for `SHA384`, and 64 for `SHA512`. This one call
+replaces the per-digest HMAC members behind a single `Hash`-selected surface.
 
-Keys of any length are accepted. Per RFC 2104, a key longer than the hash's block
-size (64 bytes for `SHA224`/`SHA256`, 128 bytes for `SHA384`/`SHA512`) is first
-hashed down to the digest length, and a shorter key is right-padded with zero
-bytes to the block size before the inner and outer passes.
+A key of any length is accepted. Following the HMAC construction, a key longer than
+the hash's block size (64 bytes for `SHA224`/`SHA256`, 128 bytes for
+`SHA384`/`SHA512`) is first hashed down to the digest length, and a key shorter than
+the block size is right-padded with zero bytes to the block size; the padded key is
+then combined with the inner (`0x36`) and outer (`0x5c`) pads. The MAC is a
+deterministic function of `type`, `key`, and `data` alone — the same inputs always
+produce the same bytes, with no salt or randomness. Any key and message length is
+accepted, including empty; the function is **total** and never raises an error.
 
-The MAC is a deterministic function of `type`, `key`, and `data` alone: the same
-inputs always produce the same bytes, with no salting or randomness. The function
-is **total** — every combination of inputs, including empty key and empty message,
-yields a MAC and it never raises an error.
+Two overloads accept the message: the `List OF Byte` overload authenticates the raw
+bytes as given, while the `String` overload authenticates the string's UTF-8 encoding
+(equivalent to passing `strings::toBytes(s)`). The `key` is always raw bytes.
 
-The MAC is a portable software core computed over the `bits` package, so its
-output is **byte-identical on every target** (macOS/Linux/Windows, aarch64/x86-64)
-and uses no platform crypto library. A MAC is raw binary, not text; stringify it
-with `encoding::hexEncode` or `encoding::base64Encode` to display or store it. To
-compare a received MAC against a computed one, use `crypto::constantTimeEqual` so
-the comparison does not leak timing information. The `List OF Byte` overload
-authenticates the raw bytes as given; the `String` overload authenticates the
-string's UTF-8 encoding."#;
+A MAC is raw binary, not text — stringify it with `encoding::hexEncode` or
+`encoding::base64Encode` to display or store it. **Always** compare a received MAC
+against a freshly computed one with `crypto::constantTimeEqual`, never `=`, so the
+check does not leak the position of the first differing byte through timing.
+
+**Implementation.** HMAC is specified by RFC 2104 (equivalently FIPS 198-1), here
+layered over the selected SHA-2 hash. The MAC is computed in-process by a portable
+MFBASIC software core over the `bits` package — no platform cryptographic library is
+called — so the output is **byte-identical on macOS, Linux, and Windows** (and across
+aarch64/x86-64). The core is hash-generic over the `Hash` enum, so a future `Hash`
+variant is supported without new code."#;
 const EX: &str = r#"Authenticate a message under SHA-256 and print the MAC as hex:
 
 ```
@@ -59,16 +65,20 @@ SUB main()
 END SUB
 ```
 
-Authenticate a string under a different digest:
+Verify a received MAC in constant time (the `String` overload hashes the UTF-8 bytes):
 
 ```
 IMPORT crypto
-IMPORT encoding
 IMPORT io
 
 SUB main()
   LET key AS List OF Byte = crypto::randomBytes(64)
-  io::print(encoding::hexEncode(crypto::hmac(Hash.SHA512, key, "payload")))
+  LET received AS List OF Byte = crypto::hmac(Hash.SHA512, key, "payload")
+  IF crypto::constantTimeEqual(received, crypto::hmac(Hash.SHA512, key, "payload")) THEN
+    io::print("authentic")
+  ELSE
+    io::print("tampered")
+  END IF
 END SUB
 ```"#;
 

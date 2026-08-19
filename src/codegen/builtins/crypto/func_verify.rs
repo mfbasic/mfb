@@ -1530,17 +1530,42 @@ pub(crate) fn lower_verify(
 const INTRO: &str =
     r#"Verify a signature over a message with a public key of the given certificate type."#;
 const DESC: &str = r#"`crypto::verify(type, publicKey, message, signature)` checks whether `signature`
-is a valid signature over `message` under `publicKey`, for the NIST-EC curve or
-Ed25519 selected by `type` (a `crypto::Certificate`). The public key is the
-`publicKey` field of the `crypto::KeyPair` returned by `crypto::generate(type)`,
-and the signature is the output of `crypto::sign(type, …)`.
+is a valid signature over the raw bytes of `message` under `publicKey`, for the
+NIST prime curve or `Ed25519` selected by `type` (a `crypto::Certificate`), and
+returns a `Boolean`. `publicKey` is the `publicKey` field of the `crypto::KeyPair`
+from `crypto::generate(type)` — for the NIST curves one SEC1 uncompressed point
+`0x04‖X‖Y` (65/97/133 bytes for `P256`/`P384`/`P521`), for `Ed25519` the 32-byte
+compressed point — and `signature` is the output of `crypto::sign(type, …)`.
 
-It returns `TRUE` if and only if the signature verifies for that exact key and
-message, and `FALSE` otherwise — a failed verdict is a normal outcome, not an
-error. For the EC curves (`P256`/`P384`/`P521`) the signature is an ASN.1 DER
-`Ecdsa-Sig-Value`; for `Ed25519` it is the fixed 64-byte raw signature. A
-malformed public key (wrong length, or an off-curve key the platform rejects)
-raises `ErrInvalidArgument`."#;
+It returns `TRUE` **if and only if** `signature` is a valid signature of that
+exact `message` under that exact `publicKey`, and `FALSE` otherwise — a failed
+verdict (wrong message, wrong key, or a corrupt/wrong-length `signature`) is a
+normal outcome, not an error. For the NIST curves this is **FIPS 186-4 ECDSA**
+with the curve's digest (SHA-256/384/512 for `P256`/`P384`/`P521`) and the
+signature is an **ASN.1 DER** `Ecdsa-Sig-Value`; for `Ed25519` it is **RFC 8032
+PureEdDSA** over the fixed 64-byte `R‖S`, which additionally rejects a
+non-canonical scalar `S ≥ L` (returning `FALSE`) so a malleated signature cannot
+verify.
+
+**Boundary and errors.** For the NIST curves a malformed `publicKey` — wrong
+length, or a right-length off-curve point the platform import rejects — raises
+`ErrInvalidArgument` (it is a caller mistake, not a false verdict). For `Ed25519`
+a wrong-length key or signature is simply `FALSE`. `X25519` cannot verify and
+raises `ErrInvalidArgument`. A platform-library or system failure raises
+`ErrUnknown`, and an allocation failure raises `ErrOutOfMemory`. The untrusted
+`signature` bytes are fully bounds-checked before use.
+
+**Implementation.** ECDSA verification runs through the host platform key API,
+reproduced clean-room in this member (no third-party crypto is bundled): on
+**macOS** via Security.framework `SecKeyCreateWithData` + `SecKeyVerifySignature`
+(`kSecKeyAlgorithmECDSASignatureMessageX962SHA256/384/512`); on **Linux** via
+OpenSSL `libcrypto` `EVP_DigestVerifyInit` + one-shot `EVP_DigestVerify`
+(`EVP_sha256/384/512`), the SEC1 point wrapped in a fixed SPKI DER prefix and
+decoded with `d2i_PUBKEY`; on **Windows** via CNG `bcrypt.dll`
+`BCryptImportKeyPair` (`ECCPUBLICBLOB`) + `BCryptHash` + `BCryptVerifySignature`,
+the DER signature decoded here to the fixed `r‖s`. `Ed25519` is a pure in-process
+MFBASIC software core (RFC 8032) with **no platform library**, byte-identical on
+every OS. A signature or key produced on one OS verifies on the others."#;
 const EX: &str = r#"```
 IMPORT crypto
 IMPORT strings
@@ -1595,7 +1620,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Boolean,
-            errors: vec!["ErrInvalidArgument"],
+            errors: vec!["ErrInvalidArgument", "ErrOutOfMemory", "ErrUnknown"],
             body: Body::abi_function(lower_verify),
         }],
     });
