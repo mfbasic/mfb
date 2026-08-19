@@ -21,24 +21,48 @@ use super::{
 const INTRO: &str = r#"Encrypt a message to a recipient's public key with an X25519 sealed box, selected by a `crypto::AsymmetricCipher`."#;
 const DESC: &str = r#"`crypto::encrypt(cipher, recipientPublicKey, data)` encrypts `data` so that only
 the holder of the matching private key can read it, and returns a self-contained
-`List OF Byte` box. `cipher` is a `crypto::AsymmetricCipher`
-(`Ed25519_AES256GCM` or `Ed25519_CHACHA20POLY1305`) selecting the AEAD used inside
-the box; `recipientPublicKey` is the recipient's 32-byte Ed25519 public key (from
-`crypto::generate(Certificate.Ed25519)`), converted to X25519 internally.
+`List OF Byte` box. This is public-key (asymmetric) encryption: the sender needs
+only the recipient's public key.
 
-The construction is an X25519 sealed-box hybrid: a fresh ephemeral X25519 key pair
-is generated per call, an ECDH shared secret is derived against the recipient, and
-`HKDF(SHA-256)` derives the AEAD key and nonce. The returned box is
-`ephemeralPublicKey (32 bytes) ‖ ciphertext ‖ tag (16 bytes)`; it is decrypted with
-`crypto::decrypt(cipher, recipientPrivateKey, box)`. Because a random ephemeral key
-is used, the box is non-deterministic — encrypting the same message twice yields
-different boxes — but it is wire-compatible across every target.
+**Cipher suite.** `cipher` is a `crypto::AsymmetricCipher` selecting the inner
+AEAD: `Ed25519_AES256GCM` (AES-256-GCM) or `Ed25519_CHACHA20POLY1305`
+(ChaCha20-Poly1305). `recipientPublicKey` is the recipient's 32-byte **Ed25519**
+public key (from `crypto::generate(Certificate.Ed25519)`); it is converted to its
+X25519 (Curve25519) form internally, so a single Ed25519 identity serves both
+signing and encryption.
 
-The optional `aad` (additional authenticated data) is authenticated but not
-encrypted, and must be supplied identically to `crypto::decrypt`; it defaults to the
+**Construction (X25519 sealed box).** Per call:
+
+1. a fresh ephemeral X25519 key pair is generated;
+2. an X25519 ECDH (RFC 7748) shared secret is computed between the ephemeral
+   private key and the recipient's X25519 public key;
+3. `HKDF-SHA256` (RFC 5869) derives 44 bytes from that secret — salt =
+   `ephemeralPublicKey ‖ recipientX25519PublicKey`, info = `"mfb-box-v1" ‖
+   suiteOrdinal` — split into a 32-byte AEAD key and a 12-byte nonce;
+4. `data` is AEAD-sealed under that key and nonce.
+
+The returned box is `ephemeralPublicKey (32 bytes) ‖ ciphertext (= |data|) ‖ tag
+(16 bytes)`, decrypted with `crypto::decrypt(cipher, recipientPrivateKey, box)`.
+
+**Non-deterministic.** The random ephemeral key makes the box non-deterministic —
+encrypting the same message twice yields different boxes — and gives a measure of
+forward secrecy: a captured box's ephemeral secret is discarded after the call, so
+later compromise of the recipient's long-term key does not by itself reconstruct
+it. The optional `aad` (additional authenticated data) is authenticated but not
+encrypted and must be supplied identically to `crypto::decrypt`; it defaults to the
 empty list. The `List OF Byte` overload encrypts the raw bytes; the `String`
-overload encrypts the string's UTF-8 encoding. The whole construction is a portable
-software core over the `bits` package and uses no platform crypto library."#;
+overload encrypts the string's UTF-8 encoding.
+
+**Not an interoperable wire format.** This is a bespoke MFB construction (note the
+`"mfb-box-v1"` domain separation). It is NOT RFC 9180 HPKE and NOT the libsodium
+sealed-box wire format — do not expect interop with external libraries; both ends
+must use MFB's `crypto::encrypt` / `crypto::decrypt`.
+
+**Implementation.** X25519 (RFC 7748), the Ed25519→X25519 public-key conversion
+(RFC 8032 / RFC 7748), HKDF-SHA256 (RFC 5869), and the inner AEAD are all pure
+MFBASIC software cores computed over the `bits` package — no platform cryptographic
+library — so a box is byte-for-byte wire-compatible across every target (macOS,
+Linux, Windows; aarch64, x86-64)."#;
 const EX: &str = r#"```
 IMPORT crypto
 

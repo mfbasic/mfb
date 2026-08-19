@@ -12,19 +12,33 @@ use super::{Body, DefaultValue, Implementation, Parameter, ParameterType, Regist
 
 const INTRO: &str =
     r#"Convert a key pair between curve encodings, selected by a `crypto::KeyConvert`."#;
-const DESC: &str = r#"`crypto::convert(conv, keys)` converts the `crypto::KeyPair` `keys` between
-curve encodings, as selected by `conv` (a `crypto::KeyConvert`), returning the
-converted `crypto::KeyPair`.
+const DESC: &str = r#"`crypto::convert(conv, keys)` converts the `crypto::KeyPair` `keys` between curve
+encodings, as selected by `conv` (a `crypto::KeyConvert`), returning the converted
+`crypto::KeyPair`.
 
-`Ed25519ToX25519` converts an Ed25519 signing key pair to the matching X25519
-(Curve25519 ECDH) key pair: the public key is mapped through the birational
-Edwards→Montgomery map `u = (1 + y) / (1 - y)`, and the private key (the 32-byte
-Ed25519 seed) is mapped to `clamp(SHA-512(seed)[0..32])`. This mirrors libsodium's
-`crypto_sign_ed25519_pk_to_curve25519` / `crypto_sign_ed25519_sk_to_curve25519`, so
-a converted key pair performs the same ECDH as one from `generate(Certificate.X25519)`.
+**`Ed25519ToX25519`** converts an Ed25519 (RFC 8032) signing key pair to the
+matching X25519 / Curve25519 (RFC 7748) ECDH key pair:
 
-The conversion is a portable software core, so its output is **byte-identical on
-every target** and uses no platform crypto library."#;
+- **public key** — the Edwards `y` coordinate is decoded from the 32-byte point
+  and mapped to the Montgomery `u` coordinate by the standard birational map
+  `u = (1 + y) / (1 - y) mod 2^255 - 19`;
+- **private key** — the 32-byte Ed25519 seed is hashed with SHA-512 and the low 32
+  bytes are clamped: `X25519 scalar = clamp(SHA-512(seed)[0..32])`.
+
+This reproduces libsodium's `crypto_sign_ed25519_pk_to_curve25519` /
+`crypto_sign_ed25519_sk_to_curve25519`, so the converted pair performs the same
+ECDH as one from `crypto::generate(Certificate.X25519)`. It lets a single Ed25519
+identity be used for both signing (`crypto::sign`) and encryption
+(`crypto::encrypt` / `crypto::decrypt`, which perform this conversion internally).
+
+**Key reuse note.** Sharing one key pair across both signing and Diffie-Hellman is a
+deliberate, supported convenience here, but reusing key material across primitives
+is generally discouraged; prefer separate keys when your threat model allows.
+
+**Implementation.** The birational map, SHA-512, and scalar clamping are pure
+MFBASIC software cores computed over the `bits` package — no platform cryptographic
+library — so the converted key pair is byte-identical on every target (macOS, Linux,
+Windows; aarch64, x86-64)."#;
 const EX: &str = r#"```
 IMPORT crypto
 

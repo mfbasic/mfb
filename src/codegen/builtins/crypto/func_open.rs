@@ -78,23 +78,32 @@ pub(crate) fn lower_open(
 const INTRO: &str =
     r#"Verify and decrypt an AEAD-sealed message, selected by a `crypto::SymmetricCipher`."#;
 const DESC: &str = r#"`crypto::open(cipher, key, nonce, ciphertext, tag)` verifies the authentication
-`tag` and decrypts `ciphertext` with the authenticated cipher selected by `cipher`
-(a `crypto::SymmetricCipher`: `AES256GCM` or `CHACHA20POLY1305`), returning the
-recovered plaintext as a `List OF Byte`. It is the unified front door for the two
-symmetric AEAD ciphers behind one `SymmetricCipher`-selected call, the inverse of
-`crypto::seal(cipher, …)`.
+`tag` and decrypts `ciphertext` with the authenticated cipher (AEAD) selected by
+`cipher`, returning the recovered plaintext as a `List OF Byte`. It is the inverse
+of `crypto::seal(cipher, …)`.
 
-The tag is verified in **constant time** and the function **fails closed**: any
-mismatch — a corrupted ciphertext, a wrong tag, a wrong key or nonce, or a
-different `aad` than was sealed — raises `ErrAuthenticationFailed` and returns no
-plaintext. The same `key`, `nonce`, and `aad` supplied to `crypto::seal` must be
-supplied here; `aad` defaults to the empty list when omitted.
+**Ciphers.** `cipher` is a `crypto::SymmetricCipher`: `AES256GCM` (AES-256-GCM,
+NIST SP 800-38D) or `CHACHA20POLY1305` (ChaCha20-Poly1305, RFC 8439). Both take a
+32-byte key, a 12-byte nonce, and a 16-byte tag; supply the same `key`, `nonce`,
+and `aad` that were used to seal.
 
-A `crypto::Sealed` overload takes the record returned by `crypto::seal` directly
-(`crypto::open(cipher, key, nonce, sealed)`), unpacking its `ciphertext` and `tag`
-fields for you. The ciphers are portable software cores computed over the `bits`
-package, so decryption is **byte-identical on every target** (macOS/Linux/Windows,
-aarch64/x86-64) and uses no platform crypto library."#;
+**Fails closed.** The tag is recomputed over `aad` and `ciphertext` and compared to
+the supplied `tag` in **constant time**. Any mismatch — a corrupted or truncated
+ciphertext, a wrong `tag`, a wrong `key` or `nonce`, or a different `aad` than was
+sealed — raises `ErrAuthenticationFailed` and returns no plaintext; the recovered
+bytes are never revealed on a verification failure. A `tag` that is not 16 bytes
+simply fails this comparison. A `key` that is not 32 bytes or a `nonce` that is not
+12 bytes raises `ErrInvalidArgument`. `aad` defaults to the empty list when omitted.
+
+**Overloads.** The five-argument form takes the `ciphertext` and `tag` byte lists
+separately. The `crypto::Sealed` form takes the record returned by `crypto::seal`
+directly (`crypto::open(cipher, key, nonce, sealed)`), unpacking its `ciphertext`
+and `tag` fields for you.
+
+**Implementation.** Both ciphers are pure MFBASIC software cores computed over the
+`bits` package — no platform cryptographic library — so decryption and the
+constant-time tag check are byte-identical on every target (macOS, Linux, Windows;
+aarch64, x86-64)."#;
 const EX: &str = r#"Seal, then open the `Sealed` record directly:
 
 ```

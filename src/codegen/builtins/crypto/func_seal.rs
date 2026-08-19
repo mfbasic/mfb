@@ -77,28 +77,42 @@ pub(crate) fn lower_seal(
 
 const INTRO: &str = r#"Encrypt and authenticate a message with an AEAD cipher, selected by a `crypto::SymmetricCipher`."#;
 const DESC: &str = r#"`crypto::seal(cipher, key, nonce, data)` encrypts and authenticates `data` with
-the authenticated cipher selected by `cipher` (a `crypto::SymmetricCipher`:
-`AES256GCM` or `CHACHA20POLY1305`), and returns a `crypto::Sealed` record holding
-the ciphertext (the same length as `data`) and a 16-byte authentication tag. It is
-the unified front door for the two symmetric AEAD ciphers behind one
-`SymmetricCipher`-selected call, later verified and decrypted by
+the authenticated cipher (AEAD) selected by `cipher`, and returns a `crypto::Sealed`
+record holding the `ciphertext` (identical in length to `data`) and a 16-byte
+authentication `tag`. It is the unified front door for the two symmetric AEAD
+ciphers behind one `SymmetricCipher`-selected call, later verified and decrypted by
 `crypto::open(cipher, …)`.
 
-`key` must be exactly 32 bytes (a 256-bit key) and `nonce` must be exactly 12
-bytes; any other length raises `ErrInvalidArgument`. The optional `aad` (additional
-authenticated data) is authenticated but not encrypted: it is covered by the tag
-yet absent from the ciphertext, so a receiver must supply the identical `aad` to
-`crypto::open`. `aad` defaults to the empty list when omitted. `data` may be empty.
+**Ciphers.** `cipher` is a `crypto::SymmetricCipher`:
 
-The ciphers are portable software cores computed over the `bits` package, so their
-output is **byte-identical on every target** (macOS/Linux/Windows, aarch64/x86-64)
-and use no platform crypto library. The `List OF Byte` overload seals the raw bytes
-as given; the `String` overload seals the string's UTF-8 encoding.
+- `AES256GCM` — AES-256 in Galois/Counter Mode (NIST SP 800-38D). The 12-byte
+  nonce forms the initial counter block `J0 = nonce ‖ 0x00000001`; GHASH over
+  `aad` and the ciphertext yields the 128-bit tag.
+- `CHACHA20POLY1305` — the ChaCha20-Poly1305 AEAD (RFC 8439): a 256-bit ChaCha20
+  keystream authenticated by a per-message Poly1305 one-time key.
 
-Nonce uniqueness is mandatory. AEAD ciphers are catastrophically insecure if a
-`(key, nonce)` pair is ever reused — generate a fresh nonce for every message with
-`crypto::randomBytes(12)` and store or transmit it alongside the ciphertext (the
-nonce is not secret)."#;
+Both take a 32-byte (256-bit) `key` and a 12-byte (96-bit) `nonce` and emit a
+16-byte tag.
+
+**Sizes, encoding, boundaries.** `key` must be exactly 32 bytes and `nonce` exactly
+12 bytes; any other length raises `ErrInvalidArgument`. `data` may be any length,
+including the empty list (which yields an empty ciphertext and a tag over the `aad`
+alone). The optional `aad` (additional authenticated data) is authenticated but not
+encrypted — covered by the tag yet absent from the ciphertext — so a receiver must
+pass the identical `aad` to `crypto::open`; it defaults to the empty list. The
+`List OF Byte` overload seals the raw bytes as given; the `String` overload seals
+the string's UTF-8 encoding.
+
+**Nonce uniqueness is mandatory.** A `(key, nonce)` pair must NEVER be reused: both
+ciphers are catastrophically broken if it is — GCM reuse can leak the GHASH
+authentication key (enabling forgeries), and either cipher leaks the XOR of the two
+plaintexts. Generate a fresh nonce for every message with `crypto::randomBytes(12)`
+and store or transmit it alongside the ciphertext; the nonce is not secret. Sealing
+is otherwise deterministic given `(key, nonce, data, aad)`.
+
+**Implementation.** Both ciphers are pure MFBASIC software cores computed over the
+`bits` package — no platform cryptographic library — so the ciphertext and tag are
+byte-identical on every target (macOS, Linux, Windows; aarch64, x86-64)."#;
 const EX: &str = r#"Seal a message and open it back:
 
 ```
