@@ -1597,9 +1597,9 @@ using `privateKey`, for the NIST-EC curve or Ed25519 selected by `type` (a
 `crypto::KeyPair` returned by `crypto::generate(type)`.
 
 For the EC curves (`P256`/`P384`/`P521`) the result is an ASN.1 DER
-`Ecdsa-Sig-Value` signature, verifiable with the matching `p*Verify`. For
-`Ed25519` it is the fixed 64-byte raw signature (`R‖S`), verifiable with
-`ed25519Verify`. The output is returned as a `List OF Byte`."#;
+`Ecdsa-Sig-Value` signature; for `Ed25519` it is the fixed 64-byte raw signature
+(`R‖S`). Either is verifiable with `crypto::verify(type, …)` for the same `type`.
+The output is returned as a `List OF Byte`."#;
 const EX: &str = r#"```
 IMPORT crypto
 IMPORT strings
@@ -1608,7 +1608,7 @@ SUB main()
   LET kp AS crypto::KeyPair = crypto::generate(crypto::Certificate.P256)
   LET msg AS List OF Byte = strings::toBytes("attack at dawn")
   LET sig AS List OF Byte = crypto::sign(crypto::Certificate.P256, kp.privateKey, msg)
-  LET ok AS Boolean = crypto::p256Verify(kp.publicKey, msg, sig)
+  LET ok AS Boolean = crypto::verify(crypto::Certificate.P256, kp.publicKey, msg, sig)
 END SUB
 ```"#;
 

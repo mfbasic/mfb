@@ -1515,7 +1515,7 @@ mod builtins_tests {
     #[test]
     fn crypto_valid() {
         assert!(accepts(
-            "IMPORT crypto\nFUNC main AS Integer\n  LET kp = crypto::generateP256()\n  RETURN 0\nEND FUNC\n"
+            "IMPORT crypto\nFUNC main AS Integer\n  LET kp = crypto::generate(Certificate.P256)\n  RETURN 0\nEND FUNC\n"
         ));
     }
 
@@ -1811,7 +1811,7 @@ mod builtins_tests {
     #[test]
     fn crypto_rejects() {
         assert!(rejects_with(
-            "IMPORT crypto\nFUNC main AS Integer\n  LET kp = crypto::generateP256(\"extra\")\n  RETURN 0\nEND FUNC\n",
+            "IMPORT crypto\nFUNC main AS Integer\n  LET kp = crypto::generate(Certificate.P256, \"extra\")\n  RETURN 0\nEND FUNC\n",
             "TYPE_CALL_ARITY_MISMATCH"
         ));
     }
@@ -2177,9 +2177,9 @@ mod builtins_tests {
 
     #[test]
     fn crypto_sign_argument_mismatch() {
-        // p256Sign with wrong-typed arguments passes arity but fails resolve.
+        // The unified `sign` with wrong-typed arguments passes arity but fails resolve.
         assert!(rejects_with(
-            "IMPORT crypto\nFUNC main AS Integer\n  LET s = crypto::p256Sign(1, 2)\n  RETURN 0\nEND FUNC\n",
+            "IMPORT crypto\nFUNC main AS Integer\n  LET s = crypto::sign(Certificate.P256, 1, 2)\n  RETURN 0\nEND FUNC\n",
             "TYPE_CALL_ARGUMENT_MISMATCH"
         ));
     }
@@ -2390,11 +2390,11 @@ mod builtins_tests {
     #[test]
     fn crypto_arity_and_type_mismatch_rejected() {
         assert!(rejects_with(
-            &wrap_import("crypto", "  LET x = crypto::sha256()"),
+            &wrap_import("crypto", "  LET x = crypto::hash()"),
             "TYPE_CALL_ARITY_MISMATCH"
         ));
         assert!(rejects_with(
-            &wrap_import("crypto", "  LET x = crypto::sha256(TRUE)"),
+            &wrap_import("crypto", "  LET x = crypto::hash(Hash.SHA256, TRUE)"),
             "TYPE_CALL_ARGUMENT_MISMATCH"
         ));
     }

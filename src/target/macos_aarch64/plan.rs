@@ -708,12 +708,10 @@ impl plan::NativePlanPlatform for Platform {
             }
             call if call == "crypto.generate"
                 || call == "crypto.sign"
-                || call == "crypto.verify"
-                || (crate::codegen::builtins::crypto::is_native_crypto_call(call)
-                    && call != "crypto.randomBytes") =>
+                || call == "crypto.verify" =>
             {
-                // The NIST-EC helpers (and the clean-room `crypto.generate`/`sign`) resolve
-                // Security.framework + CoreFoundation (SecKey/CFDictionary/CFData)
+                // The clean-room NIST-EC `crypto.generate`/`sign`/`verify` AbiFunctions
+                // resolve Security.framework + CoreFoundation (SecKey/CFDictionary/CFData)
                 // entirely through dlopen/dlsym at load time, so only dlopen/dlsym
                 // are statically imported.
                 ["_dlopen", "_dlsym"]

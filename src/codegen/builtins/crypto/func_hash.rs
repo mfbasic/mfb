@@ -62,8 +62,8 @@ const INTRO: &str =
 const DESC: &str = r#"`crypto::hash(type, data)` computes the SHA-2 message digest of `data` for the
 algorithm selected by `type` (a `crypto::Hash`: `SHA224`, `SHA256`, `SHA384`, or
 `SHA512`), and returns it as a raw `List OF Byte` — 28, 32, 48, or 64 bytes
-respectively. It is the unified front door for the four SHA-2 hashes, subsuming
-`crypto::sha224`/`sha256`/`sha384`/`sha512` behind one `Hash`-selected call.
+respectively. It is the unified front door for the four SHA-2 hashes
+(`SHA224`/`SHA256`/`SHA384`/`SHA512`) behind one `Hash`-selected call.
 
 The digest is a deterministic function of the input alone: the same message and
 algorithm always produce the same bytes, with no keying, salting, or randomness.

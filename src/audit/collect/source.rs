@@ -678,13 +678,9 @@ fn builtin_capability(callee: &str, link_aliases: &HashSet<String>) -> Option<&'
         // Secure-randomness surface: the entropy-drawing crypto builtins (the
         // rest of `crypto` is pure computation over caller-supplied bytes).
         "crypto" => match callee {
-            "crypto.randomBytes"
-            | "crypto.randomInt"
-            | "crypto.uuid4"
-            | "crypto.generateEd25519"
-            | "crypto.generateP256"
-            | "crypto.generateP384"
-            | "crypto.generateP521" => Some("randomness"),
+            "crypto.randomBytes" | "crypto.randomInt" | "crypto.uuid4" | "crypto.generate" => {
+                Some("randomness")
+            }
             _ => None,
         },
         "os" => match callee {
@@ -780,18 +776,9 @@ fn is_fallible_builtin(callee: &str) -> bool {
             | "crypto.aes256GcmOpen"
             | "crypto.chacha20Poly1305Seal"
             | "crypto.chacha20Poly1305Open"
-            | "crypto.ed25519Sign"
-            | "crypto.ed25519Verify"
-            | "crypto.p256Sign"
-            | "crypto.p256Verify"
-            | "crypto.p384Sign"
-            | "crypto.p384Verify"
-            | "crypto.p521Sign"
-            | "crypto.p521Verify"
-            | "crypto.generateEd25519"
-            | "crypto.generateP256"
-            | "crypto.generateP384"
-            | "crypto.generateP521"
+            | "crypto.sign"
+            | "crypto.verify"
+            | "crypto.generate"
             | "crypto.hkdfSha256"
             | "crypto.hkdfSha512"
             | "crypto.pbkdf2Sha256"

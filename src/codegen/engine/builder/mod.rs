@@ -960,28 +960,6 @@ pub(crate) fn lower_module_for_platform(
     // ALSA symbol names; none on macOS). The backend owns the platform decision
     // and the symbol gate (bug-330).
     data_objects.extend(AudioBackend::select(platform).data_objects(&native_plan.runtime_symbols));
-    // NIST-EC helpers reference read-only C strings (framework paths + dlsym
-    // names) for their load-time dlopen/dlsym.
-    if native_plan
-        .runtime_symbols
-        .iter()
-        .any(|symbol| crate::codegen::builtins::crypto::native::is_ec_symbol(symbol))
-    {
-        use crate::codegen::builtins::crypto::native as crypto_ec;
-        match platform.family() {
-            PlatformFamily::MacOS => {
-                data_objects.extend(crypto_ec::macos::data_objects());
-            }
-            PlatformFamily::Linux => {
-                data_objects.extend(crypto_ec::openssl::data_objects());
-            }
-            // The Windows EC data objects are the CNG algorithm/blob id wide
-            // strings (plan-47-J).
-            PlatformFamily::Windows => {
-                data_objects.extend(crypto_ec::cng::data_objects());
-            }
-        }
-    }
     // The clean-room `Certificate`-typed AbiFunction members (`crypto::generate`,
     // `crypto::sign`, `crypto::verify`) share one unified `_mfb_crypto_cert_*` read-only
     // data-object set (framework paths + dlsym names + PKCS#8/SPKI templates + CNG wide

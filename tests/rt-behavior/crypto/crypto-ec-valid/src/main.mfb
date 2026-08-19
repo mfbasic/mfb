@@ -10,12 +10,12 @@ IMPORT collections
 SUB check(label AS String, field AS Integer)
   LET point AS Integer = 1 + 2 * field
   LET priv AS Integer = point + field
-  MUT kp AS crypto::KeyPair = crypto::generateP256()
+  MUT kp AS crypto::KeyPair = crypto::generate(Certificate.P256)
   IF field = 48 THEN
-    kp = crypto::generateP384()
+    kp = crypto::generate(Certificate.P384)
   END IF
   IF field = 66 THEN
-    kp = crypto::generateP521()
+    kp = crypto::generate(Certificate.P521)
   END IF
   io::print(label & " priv-len=" & toString(len(kp.privateKey)) & "/" & toString(priv) & " pub-len=" & toString(len(kp.publicKey)) & "/" & toString(point))
   ' public key is the leading SEC1 point of the private bytes
@@ -36,26 +36,26 @@ SUB main()
   LET tampered AS List OF Byte = encoding::utf8Encode("The quick brown Fox")
 
   ' P-256
-  LET kp256 AS crypto::KeyPair = crypto::generateP256()
-  LET s256 AS List OF Byte = crypto::p256Sign(kp256.privateKey, msg)
-  io::print("p256-good=" & toString(crypto::p256Verify(kp256.publicKey, msg, s256)))
-  io::print("p256-tamper=" & toString(crypto::p256Verify(kp256.publicKey, tampered, s256)))
+  LET kp256 AS crypto::KeyPair = crypto::generate(Certificate.P256)
+  LET s256 AS List OF Byte = crypto::sign(Certificate.P256, kp256.privateKey, msg)
+  io::print("p256-good=" & toString(crypto::verify(Certificate.P256, kp256.publicKey, msg, s256)))
+  io::print("p256-tamper=" & toString(crypto::verify(Certificate.P256, kp256.publicKey, tampered, s256)))
 
   ' P-384
-  LET kp384 AS crypto::KeyPair = crypto::generateP384()
-  LET s384 AS List OF Byte = crypto::p384Sign(kp384.privateKey, msg)
-  io::print("p384-good=" & toString(crypto::p384Verify(kp384.publicKey, msg, s384)))
-  io::print("p384-tamper=" & toString(crypto::p384Verify(kp384.publicKey, tampered, s384)))
+  LET kp384 AS crypto::KeyPair = crypto::generate(Certificate.P384)
+  LET s384 AS List OF Byte = crypto::sign(Certificate.P384, kp384.privateKey, msg)
+  io::print("p384-good=" & toString(crypto::verify(Certificate.P384, kp384.publicKey, msg, s384)))
+  io::print("p384-tamper=" & toString(crypto::verify(Certificate.P384, kp384.publicKey, tampered, s384)))
 
   ' P-521
-  LET kp521 AS crypto::KeyPair = crypto::generateP521()
-  LET s521 AS List OF Byte = crypto::p521Sign(kp521.privateKey, msg)
-  io::print("p521-good=" & toString(crypto::p521Verify(kp521.publicKey, msg, s521)))
-  io::print("p521-tamper=" & toString(crypto::p521Verify(kp521.publicKey, tampered, s521)))
+  LET kp521 AS crypto::KeyPair = crypto::generate(Certificate.P521)
+  LET s521 AS List OF Byte = crypto::sign(Certificate.P521, kp521.privateKey, msg)
+  io::print("p521-good=" & toString(crypto::verify(Certificate.P521, kp521.publicKey, msg, s521)))
+  io::print("p521-tamper=" & toString(crypto::verify(Certificate.P521, kp521.publicKey, tampered, s521)))
 
   ' cross-key rejection: a P-256 signature must not verify under a fresh key
-  LET other AS crypto::KeyPair = crypto::generateP256()
-  io::print("p256-crosskey=" & toString(crypto::p256Verify(other.publicKey, msg, s256)))
+  LET other AS crypto::KeyPair = crypto::generate(Certificate.P256)
+  io::print("p256-crosskey=" & toString(crypto::verify(Certificate.P256, other.publicKey, msg, s256)))
 
   check("p256", 32)
   check("p384", 48)

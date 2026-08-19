@@ -38,17 +38,17 @@ END FUNC
 
 FUNC main AS Integer
   ' CRY-02: genuine signature verifies; the S+L malleation does not.
-  LET kp AS crypto::KeyPair = crypto::generateEd25519()
+  LET kp AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
   LET msg AS List OF Byte = encoding::utf8Encode("canonical-S test")
-  LET sig AS List OF Byte = crypto::ed25519Sign(kp.privateKey, msg)
-  io::print("ed-good=" & toString(crypto::ed25519Verify(kp.publicKey, msg, sig)))
+  LET sig AS List OF Byte = crypto::sign(Certificate.Ed25519, kp.privateKey, msg)
+  io::print("ed-good=" & toString(crypto::verify(Certificate.Ed25519, kp.publicKey, msg, sig)))
   LET mal AS List OF Byte = malleate(sig)
-  io::print("ed-malleated=" & toString(crypto::ed25519Verify(kp.publicKey, msg, mal)))
+  io::print("ed-malleated=" & toString(crypto::verify(Certificate.Ed25519, kp.publicKey, msg, mal)))
 
   ' CRY-03: constantTimeEqual across equal, unequal-same-length, and unequal-length.
-  LET a AS List OF Byte = crypto::sha256("abc")
-  LET b AS List OF Byte = crypto::sha256("abc")
-  LET c AS List OF Byte = crypto::sha256("abd")
+  LET a AS List OF Byte = crypto::hash(Hash.SHA256, "abc")
+  LET b AS List OF Byte = crypto::hash(Hash.SHA256, "abc")
+  LET c AS List OF Byte = crypto::hash(Hash.SHA256, "abd")
   LET short AS List OF Byte = encoding::hexDecode("0102")
   io::print("cteq-equal=" & toString(crypto::constantTimeEqual(a, b)))
   io::print("cteq-diff=" & toString(crypto::constantTimeEqual(a, c)))

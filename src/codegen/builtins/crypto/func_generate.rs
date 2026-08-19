@@ -1469,8 +1469,9 @@ pub(crate) fn lower_generate(
 const INTRO: &str = r#"Generate a fresh key pair of the requested certificate type."#;
 const DESC: &str = r#"`crypto::generate(type)` creates a new key pair for the NIST-EC curve or
 Ed25519 selected by `type` (a `crypto::Certificate`), returning a
-`crypto::KeyPair`. The EC pairs (`P256`/`P384`/`P521`) are usable with the
-matching `p*Sign`/`p*Verify`; `Ed25519` with `ed25519Sign`/`ed25519Verify`."#;
+`crypto::KeyPair`. The key pair — every curve (`P256`/`P384`/`P521`) and
+`Ed25519` — is usable with `crypto::sign(type, …)` and `crypto::verify(type, …)`
+for that same `type`."#;
 const EX: &str = r#"```
 IMPORT crypto
 

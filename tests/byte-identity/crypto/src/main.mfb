@@ -11,14 +11,14 @@ FUNC main() AS Integer
   LET s = "the quick brown fox"
 
   ' Hashes — List OF Byte overload and String overload for each digest.
-  io::print(toString(len(crypto::sha224(msg))))
-  io::print(toString(len(crypto::sha224(s))))
-  io::print(toString(len(crypto::sha256(msg))))
-  io::print(toString(len(crypto::sha256(s))))
-  io::print(toString(len(crypto::sha384(msg))))
-  io::print(toString(len(crypto::sha384(s))))
-  io::print(toString(len(crypto::sha512(msg))))
-  io::print(toString(len(crypto::sha512(s))))
+  io::print(toString(len(crypto::hash(Hash.SHA224, msg))))
+  io::print(toString(len(crypto::hash(Hash.SHA224, s))))
+  io::print(toString(len(crypto::hash(Hash.SHA256, msg))))
+  io::print(toString(len(crypto::hash(Hash.SHA256, s))))
+  io::print(toString(len(crypto::hash(Hash.SHA384, msg))))
+  io::print(toString(len(crypto::hash(Hash.SHA384, s))))
+  io::print(toString(len(crypto::hash(Hash.SHA512, msg))))
+  io::print(toString(len(crypto::hash(Hash.SHA512, s))))
 
   ' HMAC — List OF Byte data overload and String data overload.
   LET macKey = crypto::randomBytes(32)
@@ -68,28 +68,28 @@ FUNC main() AS Integer
   io::print(toString(crypto::constantTimeEqual(msg, msg)))
 
   ' Ed25519 — generate, sign, verify.
-  LET edKeys = crypto::generateEd25519()
-  LET edSig = crypto::ed25519Sign(edKeys.privateKey, msg)
+  LET edKeys = crypto::generate(Certificate.Ed25519)
+  LET edSig = crypto::sign(Certificate.Ed25519, edKeys.privateKey, msg)
   io::print(toString(len(edSig)))
-  io::print(toString(crypto::ed25519Verify(edKeys.publicKey, msg, edSig)))
+  io::print(toString(crypto::verify(Certificate.Ed25519, edKeys.publicKey, msg, edSig)))
 
   ' ECDSA P-256 — generate, sign, verify.
-  LET p256Keys = crypto::generateP256()
-  LET p256Sig = crypto::p256Sign(p256Keys.privateKey, msg)
+  LET p256Keys = crypto::generate(Certificate.P256)
+  LET p256Sig = crypto::sign(Certificate.P256, p256Keys.privateKey, msg)
   io::print(toString(len(p256Sig)))
-  io::print(toString(crypto::p256Verify(p256Keys.publicKey, msg, p256Sig)))
+  io::print(toString(crypto::verify(Certificate.P256, p256Keys.publicKey, msg, p256Sig)))
 
   ' ECDSA P-384 — generate, sign, verify.
-  LET p384Keys = crypto::generateP384()
-  LET p384Sig = crypto::p384Sign(p384Keys.privateKey, msg)
+  LET p384Keys = crypto::generate(Certificate.P384)
+  LET p384Sig = crypto::sign(Certificate.P384, p384Keys.privateKey, msg)
   io::print(toString(len(p384Sig)))
-  io::print(toString(crypto::p384Verify(p384Keys.publicKey, msg, p384Sig)))
+  io::print(toString(crypto::verify(Certificate.P384, p384Keys.publicKey, msg, p384Sig)))
 
   ' ECDSA P-521 — generate, sign, verify.
-  LET p521Keys = crypto::generateP521()
-  LET p521Sig = crypto::p521Sign(p521Keys.privateKey, msg)
+  LET p521Keys = crypto::generate(Certificate.P521)
+  LET p521Sig = crypto::sign(Certificate.P521, p521Keys.privateKey, msg)
   io::print(toString(len(p521Sig)))
-  io::print(toString(crypto::p521Verify(p521Keys.publicKey, msg, p521Sig)))
+  io::print(toString(crypto::verify(Certificate.P521, p521Keys.publicKey, msg, p521Sig)))
 
   RETURN 0
 END FUNC

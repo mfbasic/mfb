@@ -190,12 +190,6 @@ const RUNTIME_CALLS: &[&str] = &[
     "crypto.sign",
     "crypto.verify",
     "crypto.hash",
-    "crypto.p256Sign",
-    "crypto.p384Sign",
-    "crypto.p521Sign",
-    "crypto.p256Verify",
-    "crypto.p384Verify",
-    "crypto.p521Verify",
     // TLS client + server over Schannel (plan-47-J).
     "tls.connect",
     "tls.read",

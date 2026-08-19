@@ -66,21 +66,15 @@ unique per key — never reuse a `(key, nonce)` pair."#;
 // is the trailing `DefaultValue::Fill` parameter, and the `_bytes`/`_text` body
 // choice is a distinct `Implementation` per argument type.
 
-/// The native (runtime-helper) `crypto::` entry points: they lower to
+/// The native (runtime-helper) `crypto::` entry point: it lowers to
 /// `_mfb_rt_crypto_*` rather than to an injected `__crypto_*` source body, so
-/// [`Body::rewrite_target`] returns `None` for them and `runtime::helper_for_call`
-/// claims them as [`crate::target::shared::runtime::RuntimeHelper::Crypto`].
+/// [`Body::rewrite_target`] returns `None` for it and `runtime::helper_for_call`
+/// claims it as [`crate::target::shared::runtime::RuntimeHelper::Crypto`]. Since the
+/// per-curve `p*Sign`/`p*Verify` members were folded into the clean-room
+/// `crypto::sign`/`verify` AbiFunctions, `crypto.randomBytes` (the OS CSPRNG) is the
+/// only native crypto call left.
 pub(crate) fn is_native_crypto_call(name: &str) -> bool {
-    matches!(
-        name,
-        "crypto.randomBytes"
-            | "crypto.p256Sign"
-            | "crypto.p256Verify"
-            | "crypto.p384Sign"
-            | "crypto.p384Verify"
-            | "crypto.p521Sign"
-            | "crypto.p521Verify"
-    )
+    name == "crypto.randomBytes"
 }
 
 /// Register the `crypto` package on the clean-room registry.
@@ -320,16 +314,10 @@ pub(crate) fn register(r: &mut Registry) {
     // then re-enters the `List OF Byte` `hash` AbiFunction (see `func_hash`).
     helper_hash_text::register(&mut pkg);
 
-    // Hashes (source, `_bytes`/`_text` overloads).
-    func_sha256::register(&mut pkg);
-    func_sha224::register(&mut pkg);
-    func_sha512::register(&mut pkg);
-    func_sha384::register(&mut pkg);
     // The unified clean-room `hash(Hash, data)` selects a SHA-2 digest by the `Hash`
     // ordinal and branch-links to the always-emitted MFB software SHA cores (the SHA
-    // math stays in MFB), mirroring `generate`/`sign`/`verify` over `Certificate`. The
-    // per-digest `sha*` members it will replace are still registered above (removed in
-    // a later step).
+    // math stays in MFB), mirroring `generate`/`sign`/`verify` over `Certificate`. It
+    // is the sole hashing surface — the per-digest `sha*` members were removed.
     func_hash::register(&mut pkg);
     // HMAC (source, `_bytes`/`_text` overloads on `data`).
     func_hmac_sha256::register(&mut pkg);
@@ -355,23 +343,14 @@ pub(crate) fn register(r: &mut Registry) {
     func_generate::register(&mut pkg);
     // The unified clean-room `sign(Certificate, privateKey, message)` covers every
     // curve (NIST-EC via CNG/SecKey/OpenSSL, Ed25519 via the software helper),
-    // mirroring `generate`. The per-curve `p*Sign`/`ed25519Sign` it will replace are
-    // still registered below (removed in a later step).
+    // mirroring `generate`. It is the sole signing surface — the per-curve
+    // `p*Sign`/`ed25519Sign` members were removed.
     func_sign::register(&mut pkg);
     // The unified clean-room `verify(Certificate, publicKey, message, signature)` covers
     // every curve (NIST-EC via CNG/SecKey/OpenSSL, Ed25519 via the software helper),
-    // mirroring `sign`. The per-curve `p*Verify`/`ed25519Verify` it will replace are
-    // still registered below (removed in a later step).
+    // mirroring `sign`. It is the sole verification surface — the per-curve
+    // `p*Verify`/`ed25519Verify` members were removed.
     func_verify::register(&mut pkg);
-    // Signatures (Ed25519 source; NIST-EC native).
-    func_ed25519_sign::register(&mut pkg);
-    func_ed25519_verify::register(&mut pkg);
-    func_p256_sign::register(&mut pkg);
-    func_p256_verify::register(&mut pkg);
-    func_p384_sign::register(&mut pkg);
-    func_p384_verify::register(&mut pkg);
-    func_p521_sign::register(&mut pkg);
-    func_p521_verify::register(&mut pkg);
     // Constant-time comparison (source).
     func_constant_time_equal::register(&mut pkg);
 
@@ -383,28 +362,16 @@ mod func_aes256_gcm_seal;
 mod func_chacha20_poly1305_open;
 mod func_chacha20_poly1305_seal;
 mod func_constant_time_equal;
-mod func_ed25519_sign;
-mod func_ed25519_verify;
 pub(crate) mod func_generate;
 pub(crate) mod func_hash;
 mod func_hkdf_sha256;
 mod func_hkdf_sha512;
 mod func_hmac_sha256;
 mod func_hmac_sha512;
-mod func_p256_sign;
-mod func_p256_verify;
-mod func_p384_sign;
-mod func_p384_verify;
-mod func_p521_sign;
-mod func_p521_verify;
 mod func_pbkdf2_sha256;
 mod func_pbkdf2_sha512;
 mod func_random_bytes;
 mod func_random_int;
-mod func_sha224;
-mod func_sha256;
-mod func_sha384;
-mod func_sha512;
 pub(crate) mod func_sign;
 mod func_uuid4;
 pub(crate) mod func_verify;
@@ -575,22 +542,17 @@ mod tests {
         let pkg = registry()
             .resolve_package("crypto")
             .expect("crypto package");
-        // 30 members: the unified clean-room `generate(Certificate)` replaced the
-        // four per-type `generateP*`/`generateEd25519` members, plus the unified
-        // clean-room `sign(Certificate, …)` and `verify(Certificate, …)` added
-        // alongside the per-curve signers/verifiers, and the unified `hash(Hash, …)`
-        // added alongside the per-digest `sha*` members (a single member with two
-        // `List OF Byte`/`String` overloads).
-        assert_eq!(pkg.functions().len(), 30);
+        // 18 members: the unified clean-room `generate(Certificate)` replaced the
+        // four per-type `generateP*`/`generateEd25519` members, the unified
+        // `sign(Certificate, …)` / `verify(Certificate, …)` replaced the eight per-curve
+        // signers/verifiers, and the unified `hash(Hash, …)` replaced the four per-digest
+        // `sha*` members (a single member with two `List OF Byte`/`String` overloads).
+        assert_eq!(pkg.functions().len(), 18);
     }
 
     #[test]
     fn membership_via_generic_registry() {
         for n in [
-            "crypto.sha256",
-            "crypto.sha224",
-            "crypto.sha512",
-            "crypto.sha384",
             "crypto.hash",
             "crypto.hmacSha256",
             "crypto.hmacSha512",
@@ -608,36 +570,46 @@ mod tests {
             "crypto.generate",
             "crypto.sign",
             "crypto.verify",
-            "crypto.ed25519Sign",
-            "crypto.ed25519Verify",
+            "crypto.constantTimeEqual",
+        ] {
+            assert_eq!(registry().owning_package(n), Some("crypto"), "{n}");
+        }
+        // The per-digest/per-curve members were folded into `hash`/`sign`/`verify`.
+        for gone in [
+            "crypto.sha224",
+            "crypto.sha256",
+            "crypto.sha384",
+            "crypto.sha512",
             "crypto.p256Sign",
             "crypto.p256Verify",
             "crypto.p384Sign",
             "crypto.p384Verify",
             "crypto.p521Sign",
             "crypto.p521Verify",
-            "crypto.constantTimeEqual",
+            "crypto.ed25519Sign",
+            "crypto.ed25519Verify",
         ] {
-            assert_eq!(registry().owning_package(n), Some("crypto"), "{n}");
+            assert!(registry().owning_package(gone).is_none(), "{gone}");
         }
         assert!(registry().owning_package("crypto.nope").is_none());
     }
 
     #[test]
     fn native_and_internal_flags() {
+        // `randomBytes` (the OS CSPRNG) is the only native crypto call left; the
+        // per-curve signers/verifiers were folded into the `sign`/`verify` AbiFunctions.
+        assert!(super::is_native_crypto_call("crypto.randomBytes"));
         for f in [
-            "crypto.randomBytes",
+            "crypto.sha256",
+            "crypto.hash",
+            "crypto.sign",
+            "crypto.verify",
             "crypto.p256Sign",
             "crypto.p256Verify",
-            "crypto.p384Sign",
-            "crypto.p384Verify",
-            "crypto.p521Sign",
-            "crypto.p521Verify",
+            "crypto.ed25519Sign",
         ] {
-            assert!(super::is_native_crypto_call(f), "{f}");
+            assert!(!super::is_native_crypto_call(f), "{f}");
         }
-        assert!(!super::is_native_crypto_call("crypto.sha256"));
-        assert!(!super::is_native_crypto_call("crypto.ed25519Sign"));
     }
 
     #[test]
@@ -658,18 +630,13 @@ mod tests {
             let types: Vec<String> = args.iter().map(|s| s.to_string()).collect();
             registry::rewrite_target(call, &types)
         };
-        // Hash: bytes arg -> `_bytes`, String arg -> `_text`.
+        // The unified `hash(Hash, data)`: the `List OF Byte` overload is a native
+        // AbiFunction (no source rewrite), the `String` overload rewrites to the
+        // `__crypto_hashText` UTF-8 shim.
+        assert_eq!(sel("crypto.hash", &["Hash", "List OF Byte"]), None);
         assert_eq!(
-            sel("crypto.sha256", &["List OF Byte"]),
-            Some("__crypto_sha256_bytes")
-        );
-        assert_eq!(
-            sel("crypto.sha256", &["String"]),
-            Some("__crypto_sha256_text")
-        );
-        assert_eq!(
-            sel("crypto.sha512", &["String"]),
-            Some("__crypto_sha512_text")
+            sel("crypto.hash", &["Hash", "String"]),
+            Some("__crypto_hashText")
         );
         // HMAC selects on `data` (arg index 1).
         assert_eq!(
@@ -697,10 +664,13 @@ mod tests {
             ),
             Some("__crypto_constantTimeEqual")
         );
-        // Native member -> no rewrite target.
+        // Native / AbiFunction member -> no rewrite target.
         assert_eq!(sel("crypto.randomBytes", &["Integer"]), None);
         assert_eq!(
-            sel("crypto.p256Sign", &["List OF Byte", "List OF Byte"]),
+            sel(
+                "crypto.sign",
+                &["Certificate", "List OF Byte", "List OF Byte"]
+            ),
             None
         );
     }
@@ -712,11 +682,14 @@ mod tests {
             registry::resolve_call(call, &types, false)
         };
         assert_eq!(
-            r("crypto.sha256", &["List OF Byte"]),
+            r("crypto.hash", &["Hash", "List OF Byte"]),
             Some("List OF Byte".into())
         );
-        assert_eq!(r("crypto.sha256", &["String"]), Some("List OF Byte".into()));
-        assert_eq!(r("crypto.sha256", &["Integer"]), None);
+        assert_eq!(
+            r("crypto.hash", &["Hash", "String"]),
+            Some("List OF Byte".into())
+        );
+        assert_eq!(r("crypto.hash", &["Hash", "Integer"]), None);
         assert_eq!(
             r(
                 "crypto.aes256GcmSeal",
@@ -747,8 +720,13 @@ mod tests {
         );
         assert_eq!(
             r(
-                "crypto.ed25519Verify",
-                &["List OF Byte", "List OF Byte", "List OF Byte"]
+                "crypto.verify",
+                &[
+                    "Certificate",
+                    "List OF Byte",
+                    "List OF Byte",
+                    "List OF Byte"
+                ]
             ),
             Some("Boolean".into())
         );
@@ -775,7 +753,7 @@ mod tests {
             0
         );
         assert_eq!(
-            registry::default_argument_padding("crypto.sha256", 1).len(),
+            registry::default_argument_padding("crypto.hash", 2).len(),
             0
         );
     }

@@ -1581,27 +1581,73 @@ mod tests {
         quiet(|| crate::resolver::resolve_project(&dir, &manifest, &ast)).is_err()
     }
 
-    /// bug-337-D9: `crypto::generateP*Raw` were the internal raw key generators
-    /// behind the public `generateP*` members. Each has since been collapsed into
-    /// its `generateP*` (now a single native member that builds the `KeyPair`
-    /// itself), so the raw names no longer exist at all — a user program naming one
-    /// must still fail to resolve, and the public members must keep resolving bare.
+    /// The unified `crypto::generate(Certificate)` replaced the per-type
+    /// `generateP256`/`generateP384`/`generateP521`/`generateEd25519` members (and
+    /// their long-gone `generateP*Raw` internals). Every removed spelling must fail
+    /// to resolve from user source, while `generate` resolves.
     #[test]
-    fn crypto_raw_key_generators_are_not_user_callable() {
-        for raw in ["generateP256Raw", "generateP384Raw", "generateP521Raw"] {
+    fn crypto_removed_key_generators_are_not_user_callable() {
+        for gone in [
+            "generateP256Raw",
+            "generateP384Raw",
+            "generateP521Raw",
+            "generateP256",
+            "generateP384",
+            "generateP521",
+            "generateEd25519",
+        ] {
             assert!(
                 resolve_source_fails(&format!(
-                    "IMPORT crypto\nSUB main()\n  LET k = crypto::{raw}()\nEND SUB\n"
+                    "IMPORT crypto\nSUB main()\n  LET k = crypto::{gone}()\nEND SUB\n"
                 )),
-                "crypto::{raw} must not resolve from user source"
+                "crypto::{gone} must not resolve from user source"
             );
         }
-        for public in ["generateP256", "generateP384", "generateP521"] {
+        assert!(
+            !resolve_source_fails(
+                "IMPORT crypto\nSUB main()\n  LET k = crypto::generate(Certificate.P256)\nEND SUB\n"
+            ),
+            "crypto::generate(Certificate) must resolve as the unified generator"
+        );
+    }
+
+    /// The unified `crypto::hash(Hash, …)`, `crypto::sign(Certificate, …)`, and
+    /// `crypto::verify(Certificate, …)` replaced the per-digest `sha*` and per-curve
+    /// `p*Sign`/`p*Verify`/`ed25519Sign`/`ed25519Verify` members. Every removed
+    /// spelling must fail to resolve from user source, while the unified members do.
+    #[test]
+    fn crypto_removed_hash_and_signature_members_are_not_user_callable() {
+        for gone in [
+            "crypto::sha224(\"x\")",
+            "crypto::sha256(\"x\")",
+            "crypto::sha384(\"x\")",
+            "crypto::sha512(\"x\")",
+            "crypto::p256Sign(crypto::randomBytes(97), crypto::randomBytes(8))",
+            "crypto::p384Sign(crypto::randomBytes(145), crypto::randomBytes(8))",
+            "crypto::p521Sign(crypto::randomBytes(199), crypto::randomBytes(8))",
+            "crypto::ed25519Sign(crypto::randomBytes(32), crypto::randomBytes(8))",
+            "crypto::p256Verify(crypto::randomBytes(65), crypto::randomBytes(8), crypto::randomBytes(72))",
+            "crypto::p384Verify(crypto::randomBytes(97), crypto::randomBytes(8), crypto::randomBytes(104))",
+            "crypto::p521Verify(crypto::randomBytes(133), crypto::randomBytes(8), crypto::randomBytes(139))",
+            "crypto::ed25519Verify(crypto::randomBytes(32), crypto::randomBytes(8), crypto::randomBytes(64))",
+        ] {
+            assert!(
+                resolve_source_fails(&format!(
+                    "IMPORT crypto\nSUB main()\n  LET k = {gone}\nEND SUB\n"
+                )),
+                "{gone} must not resolve from user source"
+            );
+        }
+        for ok in [
+            "crypto::hash(Hash.SHA256, crypto::randomBytes(4))",
+            "crypto::sign(Certificate.Ed25519, crypto::randomBytes(32), crypto::randomBytes(8))",
+            "crypto::verify(Certificate.Ed25519, crypto::randomBytes(32), crypto::randomBytes(8), crypto::randomBytes(64))",
+        ] {
             assert!(
                 !resolve_source_fails(&format!(
-                    "IMPORT crypto\nSUB main()\n  LET k = crypto::{public}()\nEND SUB\n"
+                    "IMPORT crypto\nSUB main()\n  LET k = {ok}\nEND SUB\n"
                 )),
-                "crypto::{public} must still resolve as a public native member"
+                "{ok} must resolve as a unified crypto member"
             );
         }
     }

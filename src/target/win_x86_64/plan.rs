@@ -483,9 +483,7 @@ impl NativePlanPlatform for Platform {
             // rides BCryptGenRandom in the entry floor; the EC ops pull the key/
             // hash/sign surface. Any crypto.* EC call declares the whole set; the
             // merged IAT dedups.
-            "crypto.generate" | "crypto.sign" | "crypto.verify" | "crypto.p256Sign"
-            | "crypto.p384Sign" | "crypto.p521Sign" | "crypto.p256Verify" | "crypto.p384Verify"
-            | "crypto.p521Verify" => vec![
+            "crypto.generate" | "crypto.sign" | "crypto.verify" => vec![
                 import("BCryptOpenAlgorithmProvider", BCRYPT, required_by),
                 import("BCryptCloseAlgorithmProvider", BCRYPT, required_by),
                 import("BCryptGenerateKeyPair", BCRYPT, required_by),
