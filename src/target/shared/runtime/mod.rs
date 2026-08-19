@@ -6,7 +6,6 @@ pub enum RuntimeHelper {
     Abi,
     App,
     Audio,
-    Crypto,
     Datetime,
     Fs,
     General,
@@ -34,7 +33,6 @@ impl RuntimeHelper {
             RuntimeHelper::Abi => "abi",
             RuntimeHelper::App => "app",
             RuntimeHelper::Audio => "audio",
-            RuntimeHelper::Crypto => "crypto",
             RuntimeHelper::Datetime => "datetime",
             RuntimeHelper::Fs => "fs",
             RuntimeHelper::General => "general",
@@ -58,7 +56,6 @@ impl RuntimeHelper {
             "abi" => RuntimeHelper::Abi,
             "app" => RuntimeHelper::App,
             "audio" => RuntimeHelper::Audio,
-            "crypto" => RuntimeHelper::Crypto,
             "datetime" => RuntimeHelper::Datetime,
             "fs" => RuntimeHelper::Fs,
             "general" => RuntimeHelper::General,
@@ -147,8 +144,6 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         // (The source members `audio.render`/`audio.play` are internalized before
         // reaching here.)
         Some(RuntimeHelper::Audio)
-    } else if crate::codegen::builtins::crypto::is_native_crypto_call(name) {
-        Some(RuntimeHelper::Crypto)
     } else if matches!(
         name,
         "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset"

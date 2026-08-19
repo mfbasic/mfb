@@ -17,9 +17,10 @@
 //! (macOS `SecKey`, Linux `EVP_PKEY`, Windows CNG) self-contained; the unified
 //! `hash`/`hmac`/`hkdf`/`pbkdf2`, `seal`/`open`, `convert`, and `encrypt`/`decrypt`
 //! members dispatch (via `Body::abi_function`/`Body::Rewrite`) to the MFB software
-//! cores. The one remaining [`Body::native`] OS-seam helper is the CSPRNG
-//! `randomBytes` (`getentropy` / `BCryptGenRandom`, in `native/`), dispatched
-//! generically through `registry::os_helper`.
+//! cores. The one remaining OS-seam helper is the CSPRNG `randomBytes`
+//! (`getentropy` / `BCryptGenRandom`), itself a clean-room [`Body::abi_function`]
+//! lowering (`func_random_bytes`) routed through the shared `RuntimeHelper::Abi`
+//! family — so `crypto` no longer has any [`Body::native`] members.
 //!
 //! Source injection is the registry's ([`crate::codegen::registry::augment_project`]);
 //! the `Sealed`/`KeyPair` record types are registered via `add_record`, carrying
@@ -30,8 +31,6 @@ use crate::codegen::registry::{
     RegistryFunction, RegistryPackage, RegistryRecord,
 };
 use crate::types::ParameterType;
-
-pub(crate) mod native;
 
 const MODULE_INTRO: &str = r#"Cryptographic hashes, HMAC, KDFs, authenticated encryption, a secure RNG, public-key signatures, and constant-time comparison"#;
 const MODULE_DESC: &str = r#"The `crypto` package provides cryptographic hashes, HMAC, key-derivation
@@ -68,17 +67,6 @@ unique per key — never reuse a `(key, nonce)` pair."#;
 // typing + overload selection are `RegistryFunction::select`, the AEAD `aad` default
 // is the trailing `DefaultValue::Fill` parameter, and the `_bytes`/`_text` body
 // choice is a distinct `Implementation` per argument type.
-
-/// The native (runtime-helper) `crypto::` entry point: it lowers to
-/// `_mfb_rt_crypto_*` rather than to an injected `__crypto_*` source body, so
-/// [`Body::rewrite_target`] returns `None` for it and `runtime::helper_for_call`
-/// claims it as [`crate::target::shared::runtime::RuntimeHelper::Crypto`]. Since the
-/// per-curve `p*Sign`/`p*Verify` members were folded into the clean-room
-/// `crypto::sign`/`verify` AbiFunctions, `crypto.randomBytes` (the OS CSPRNG) is the
-/// only native crypto call left.
-pub(crate) fn is_native_crypto_call(name: &str) -> bool {
-    name == "crypto.randomBytes"
-}
 
 /// Register the `crypto` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {
@@ -714,19 +702,22 @@ mod tests {
 
     #[test]
     fn native_and_internal_flags() {
-        // `randomBytes` (the OS CSPRNG) is the only native crypto call left; the
-        // per-curve signers/verifiers were folded into the `sign`/`verify` AbiFunctions.
-        assert!(super::is_native_crypto_call("crypto.randomBytes"));
+        use crate::codegen::registry::is_abi_function_call;
+        // The OS-seam CSPRNG `randomBytes` is a clean-room `AbiFunction` (like
+        // `generate`/`sign`/`verify`/`hash`/`seal`), so `crypto` has no `Body::native`
+        // members — it routes through the shared `RuntimeHelper::Abi` family.
+        assert!(is_abi_function_call("crypto.randomBytes"));
         for f in [
-            "crypto.sha256",
-            "crypto.hash",
+            "crypto.generate",
             "crypto.sign",
             "crypto.verify",
-            "crypto.p256Sign",
-            "crypto.p256Verify",
-            "crypto.ed25519Sign",
+            "crypto.hash",
         ] {
-            assert!(!super::is_native_crypto_call(f), "{f}");
+            assert!(is_abi_function_call(f), "{f}");
+        }
+        // The `Body::Rewrite` source members are NOT runtime/abi calls.
+        for f in ["crypto.hmac", "crypto.convert", "crypto.constantTimeEqual"] {
+            assert!(!is_abi_function_call(f), "{f}");
         }
     }
 

@@ -13,10 +13,11 @@ static LEGACY_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     // ops and the openInputDevice/openOutputDevice/readTimeout/pollTimeout code forms)
     // are DERIVED from the registry (`registry::runtime_specs`) and merged in by
     // `supported_helper_specs`, so no hand-written `AUDIO_*_SPEC` rows live here.
-    // `crypto` is migrated: its ten native runtime helpers (`randomBytes`, the
-    // NIST-EC `generateP*Raw` / `p{256,384,521}{Sign,Verify}`) are DERIVED from the
-    // registry (`registry::runtime_specs`) and merged in by `supported_helper_specs`,
-    // so no hand-written `CRYPTO_*_SPEC` rows live here.
+    // `crypto` is migrated: every crypto runtime call is a clean-room `AbiFunction`
+    // (`generate`/`sign`/`verify`/`hash`/`seal`, and the OS-seam `randomBytes`), so it
+    // routes through the shared `RuntimeHelper::Abi` family and is DERIVED from the
+    // registry (`registry::runtime_specs`). There is no `RuntimeHelper::Crypto` family
+    // and no hand-written `CRYPTO_*_SPEC` rows.
     // `datetime` is migrated: its three OS-seam intrinsics (`nowNanos`,
     // `monotonicNanos`, `localOffset`) are DERIVED from the registry
     // (`registry::runtime_specs`), so no hand-written `DATETIME_*_SPEC` rows here.
@@ -252,7 +253,6 @@ mod tests {
             RuntimeHelper::Abi,
             RuntimeHelper::App,
             RuntimeHelper::Audio,
-            RuntimeHelper::Crypto,
             RuntimeHelper::Datetime,
             RuntimeHelper::Fs,
             RuntimeHelper::Io,
@@ -271,6 +271,6 @@ mod tests {
                 helper.name()
             );
         }
-        assert_eq!(families.len(), 14, "unexpected extra catalogued family");
+        assert_eq!(families.len(), 13, "unexpected extra catalogued family");
     }
 }

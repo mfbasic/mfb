@@ -126,7 +126,7 @@ mod tests {
     }
 
     /// bug-71: `crypto.randomBytes` calls libc `getentropy` directly
-    /// (`lower_crypto_random_bytes_helper`), so this import stays live on x86.
+    /// (`crypto::func_random_bytes::lower_random_bytes`), so this import stays live on x86.
     #[test]
     fn crypto_random_bytes_imports_getentropy() {
         let spec = crate::target::shared::runtime::spec_for_call("crypto.randomBytes")
