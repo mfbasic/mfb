@@ -1,12 +1,28 @@
 //! `io::readChar` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). `io` is a native OS-seam package: the
-//! member registers a `Body::native_os_seam` whose per-family slots both hold the
-//! shared [`crate::codegen::builtins::io::native::lower_io_helper`] dispatcher (which branches on
-//! `platform.family()` and the runtime-call name internally).
+//! Per-member file. `io` lowers through per-function `Body::abi_function`
+//! clean-room lowerings (plan-101): this member adapter reproduces its former
+//! `lower_io_helper` `match` arm and hatches the finalized OS-seam body back.
 
-use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
+use crate::codegen::builtins::io::native::{
+    adapter_app_mode, hatch_finalized, lower_io_read_char_helper,
+};
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
+
+/// `abi_function` body for `io::readChar` — read one whole Unicode scalar value
+/// (one UTF-8 sequence) from stdin, returned as a one-character `String`.
+pub(crate) fn lower_read_char(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let body =
+        lower_io_read_char_helper(&symbol, ctx.platform_imports, ctx.platform, adapter_app_mode(ctx))?;
+    hatch_finalized(builder, body, "String", "io.readChar")
+}
 
 const INTRO: &str = r#"Read one whole Unicode scalar value from standard input"#;
 const DESC: &str = r#"`io::readChar` reads exactly one Unicode scalar value from standard input and
@@ -57,11 +73,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![],
             return_type: ParameterType::String,
             errors: vec![],
-            body: Body::native_os_seam(
-                Some(crate::codegen::builtins::io::native::lower_io_helper),
-                Some(crate::codegen::builtins::io::native::lower_io_helper),
-                &[],
-            ),
+            body: Body::abi_function(lower_read_char),
         }],
     });
 }

@@ -1,14 +1,25 @@
 //! `io::input` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). `io` is a native OS-seam package: the
-//! member registers a `Body::native_os_seam` whose per-family slots both hold the
-//! shared [`crate::codegen::builtins::io::native::lower_io_helper`] dispatcher (which branches on
-//! `platform.family()` and the runtime-call name internally).
+//! Per-member file. `io` lowers through per-function `Body::abi_function`
+//! clean-room lowerings (plan-101): this member adapter reproduces its former
+//! `lower_io_helper` `match` arm and hatches the finalized OS-seam body back.
 
+use crate::codegen::builtins::io::native::lower_read_line_family;
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::types::ParameterType;
+
+/// `abi_function` body for `io::input` — read a line from stdin after writing a
+/// prompt (with prompt).
+pub(crate) fn lower_input(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    lower_read_line_family(builder, ctx, true, "io.input")
+}
 
 const INTRO: &str =
     r#"Read one line of UTF-8 text from standard input, optionally writing a prompt first"#;
@@ -80,11 +91,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::String,
             errors: vec![],
-            body: Body::native_os_seam(
-                Some(crate::codegen::builtins::io::native::lower_io_helper),
-                Some(crate::codegen::builtins::io::native::lower_io_helper),
-                &[],
-            ),
+            body: Body::abi_function(lower_input),
         }],
     });
 }

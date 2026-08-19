@@ -1,12 +1,23 @@
 //! `io::readLine` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). `io` is a native OS-seam package: the
-//! member registers a `Body::native_os_seam` whose per-family slots both hold the
-//! shared [`crate::codegen::builtins::io::native::lower_io_helper`] dispatcher (which branches on
-//! `platform.family()` and the runtime-call name internally).
+//! Per-member file. `io` lowers through per-function `Body::abi_function`
+//! clean-room lowerings (plan-101): this member adapter reproduces its former
+//! `lower_io_helper` `match` arm and hatches the finalized OS-seam body back.
 
-use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
+use crate::codegen::builtins::io::native::lower_read_line_family;
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
+
+/// `abi_function` body for `io::readLine` — read a line from stdin with no prompt
+/// (echo/canonical mode suppressed for the read on a console tty).
+pub(crate) fn lower_read_line(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    lower_read_line_family(builder, ctx, false, "io.readLine")
+}
 
 const INTRO: &str = r#"Read one line of UTF-8 text from standard input, with no prompt"#;
 const DESC: &str = r#"`io::readLine` reads bytes from standard input up to and including the next line
@@ -68,11 +79,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![],
             return_type: ParameterType::String,
             errors: vec![],
-            body: Body::native_os_seam(
-                Some(crate::codegen::builtins::io::native::lower_io_helper),
-                Some(crate::codegen::builtins::io::native::lower_io_helper),
-                &[],
-            ),
+            body: Body::abi_function(lower_read_line),
         }],
     });
 }

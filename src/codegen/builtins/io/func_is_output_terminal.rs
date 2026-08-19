@@ -1,9 +1,8 @@
 //! `io::isOutputTerminal` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). `io` is a native OS-seam package: the
-//! member registers a `Body::native_os_seam` whose per-family slots both hold the
-//! shared [`crate::codegen::builtins::io::native::lower_io_helper`] dispatcher (which branches on
-//! `platform.family()` and the runtime-call name internally).
+//! Per-member file. `io` lowers through per-function `Body::abi_function`
+//! clean-room lowerings (plan-101): this member adapter reproduces its former
+//! `lower_io_helper` `match` arm and hatches the finalized OS-seam body back.
 
 use crate::codegen::builtins::io::native::lower_is_terminal_common;
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};

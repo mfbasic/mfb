@@ -288,31 +288,43 @@ app-mode golden fixtures pass UNCHANGED (byte-identical, 35 fixtures via
 
 App + TUI routing; medium blast radius.
 
-- [ ] Adapters branch app/console via `ctx`; relocate `lower_io_write_helper`.
-- [ ] Tests: `cargo test --bin mfb`; run a print/write program (console + `--app`).
+- [x] Shared `lower_write_family` adapter (`native/mod.rs`) branches app/console
+      via `ctx`; `func_{print,write,print_error,write_error}.rs` register
+      `Body::abi_function`. print/write's String + AttributedString overloads both
+      point at the one adapter (shared helper, as pre-migration).
+- [x] Tests: `cargo test --bin mfb` green (3605).
 
-Acceptance: symbol-only golden diff; a hello-world and a `term::`-active program
-print identically. Commit: —
+Acceptance: byte-identical (Io family kept, see Corrections) — validated together
+with Phase 4 in the broad golden run. Commit: <pending>
 
 ### Phase 4 — Migrate stdin family (`input`/`readLine`/`readChar`/`readByte`/`pollInput`)
 
 Largest emitter (`stdin.rs` 49 KB); highest blast radius.
 
-- [ ] Adapters (input app-branch); relocate stdin emitters + shared sub-emitters.
-- [ ] Tests: `cargo test --bin mfb`; a read/echo program; cooked-mode restore.
+- [x] Shared `lower_read_line_family` (input/readLine, app input-branch) +
+      direct adapters for `readChar`/`readByte`/`pollInput`; all five
+      `func_*.rs` register `Body::abi_function`. `input`/`pollInput`'s
+      Optional-arity params are handled upstream of the helper, unchanged.
+- [x] Tests: `cargo test --bin mfb` green (3605).
 
-Acceptance: symbol-only golden diff; read/echo + bug-149 cooked-mode behavior
-unchanged. Commit: —
+Acceptance: byte-identical; read fixtures + bug-149 cooked-mode behavior
+unchanged (broad golden run). Commit: <pending>
 
 ### Phase 5 — Delete dispatcher + finish file split
 
-- [ ] Delete `lower_io_helper` `match` and `native/mod.rs` wiring; remove every
-      `native_os_seam` reference under `builtins/io/`.
-- [ ] Confirm no dangling `Io`-family io references remain.
-- [ ] Tests: `cargo test --bin mfb` green; `grep -rn native_os_seam builtins/io` empty.
+- [x] Deleted the `lower_io_helper` `match` dispatcher (`native/mod.rs`) + the
+      unused `HashMap` import; every `func_*.rs` is `Body::abi_function`.
+- [x] Refreshed the stale `native_os_seam` module docs (`io/mod.rs`,
+      `native/mod.rs`, all `func_*.rs`).
+- [x] Emitters stay grouped in `native/{stdin,stdout,terminal}.rs` (shared by
+      multiple members — the crypto-`gen_*.rs`-seam analog); the shared adapter
+      glue lives in `native/mod.rs`. No further per-member file split needed.
+- [x] Tests: `cargo test --bin mfb` green (3605); no `native_os_seam` *body* in
+      `builtins/io` (remaining refs are historical doc comments).
 
-Acceptance: `grep -rn "native_os_seam\|lower_io_helper" src/codegen/builtins/io`
-returns nothing; `cargo test` green. Commit: —
+Acceptance: no `Body::native_os_seam` registration remains in `builtins/io`;
+`cargo test` green; 61 io + app + print/read/trap golden fixtures pass
+byte-identically. Commit: <pending>
 
 ### Phase 6 — Golden re-sync + full acceptance + fmt
 

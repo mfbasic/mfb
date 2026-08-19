@@ -8,13 +8,16 @@
 //! streams.
 //!
 //! Migrated onto the clean-room registry (`crate::codegen::registry`) as a native
-//! OS-seam package. Every member lowers through the shared
-//! [`native::lower_io_helper`] dispatcher, registered as both the `posix` and
-//! `win` slot of each member's `Body::native_os_seam` (the emitter branches on
-//! `platform.family()` and the runtime-call name internally). `io` owns **no**
-//! resource handle, contributes no builtin value type, and has no source
-//! companion — the registry's generic overload/return resolution answers
-//! arity/return/validation with no custom resolver.
+//! OS-seam package. Every member is a per-function `Body::abi_function` clean-room
+//! lowering (plan-101): each `func_*.rs` owns a `lower_*` adapter that branches
+//! app-vs-console off the threaded [`AbiCtx`](crate::codegen::registry::AbiCtx),
+//! calls the shared OS-seam emitter in [`native`] (console) or the platform app
+//! hook (app mode), and hands the finalized helper body back through the
+//! `abi_function` pre-finalized hatch — so `io` keeps its `Io`-family
+//! `_mfb_rt_io_io_*` symbols and the migration off `Body::native_os_seam` is
+//! byte-identical. `io` owns **no** resource handle, contributes no builtin value
+//! type, and has no source companion — the registry's generic overload/return
+//! resolution answers arity/return/validation with no custom resolver.
 
 use crate::codegen::registry::{Registry, RegistryPackage};
 

@@ -6,17 +6,21 @@
 //! OS-seam runtime helper whose body is arch-neutral `abi::` code branching only on
 //! OS family / app-vs-console mode.
 //!
-//! The 15 members share one family-generic dispatcher, [`lower_io_helper`] — the
-//! verbatim `match call` block that lived in `code/mod.rs`'s `lower_runtime_helper`.
-//! Each member's `func_*.rs` registers it in *both* the `posix` and `win` slots of a
-//! `Body::native_os_seam`; the generic OS-seam dispatch (`crate::codegen::os`)
-//! reaches it by `platform.family()`, and the emitter branches internally. `io` has
-//! no posix/win difference and no `os_aliases`.
+//! Each member is a per-function `Body::abi_function` clean-room lowering
+//! (plan-101): its `func_*.rs` `lower_*` adapter calls the matching
+//! `lower_io_*_helper` (console) or platform app hook (app mode) here and hands
+//! the finished body back through the pre-finalized hatch. This module owns the
+//! shared emitters and the small adapter glue ([`hatch_finalized`],
+//! [`adapter_app_mode`], [`app_unsupported`], [`lower_write_family`],
+//! [`lower_read_line_family`], [`lower_is_terminal_common`]); the former
+//! family-generic `lower_io_helper` `match call` dispatcher — one `Body::native_os_seam`
+//! slot per member — is retired. `io` has no posix/win difference and no `os_aliases`.
 //!
-//! `io` consumes the per-compilation [`OsLowerCtx`](crate::codegen::registry::OsLowerCtx):
-//! `ctx.build_mode.is_app()` selects the app-transcript vs console path, and
-//! `ctx.term_state_offset` carries the TUI shadow-grid routing on `io.print`/`io.write`
-//! (plan-35-B) and the cooked-mode restore on `io.readLine`/`io.input` (bug-149).
+//! `io` consumes its OS-seam context through the threaded
+//! [`AbiCtx`](crate::codegen::registry::AbiCtx): `ctx.build_mode.is_app()` selects
+//! the app-transcript vs console path, and `ctx.term_state_offset` carries the TUI
+//! shadow-grid routing on `io.print`/`io.write` (plan-35-B) and the cooked-mode
+//! restore on `io.readLine`/`io.input` (bug-149).
 //!
 //! The emitters were the hand-written `lower_io_*_helper` bodies under the former
 //! `src/codegen/io/{stdout,stdin,terminal}`; they are relocated
@@ -35,7 +39,6 @@ use crate::codegen::io::stdout::*;
 use crate::codegen::io::terminal::*;
 use crate::codegen::memory::data::*;
 use crate::codegen::os::syscall::*;
-use std::collections::HashMap;
 mod stdin;
 mod stdout;
 mod terminal;
@@ -88,6 +91,82 @@ pub(crate) fn app_unsupported(platform: &dyn CodegenPlatform) -> String {
     )
 }
 
+/// Shared `abi_function` body for the two line readers `io::input` (with a
+/// prompt) and `io::readLine` (no prompt). App-mode `io::input` writes its prompt
+/// to the transcript then reads a line (`emit_app_io_input_helper`); every other
+/// case — console input/readLine, and app-mode readLine — is the shared console
+/// reader (`lower_io_read_line_helper`), which reads fd 0 (the window input pipe
+/// in app mode). `console_term_state` is `None` in app mode (no tty) and the
+/// threaded `term_state_offset` in a console build (bug-149 cooked-mode restore).
+/// Hatched back pre-finalized.
+pub(crate) fn lower_read_line_family(
+    builder: &mut CodeBuilder,
+    ctx: &AbiCtx,
+    with_prompt: bool,
+    text: &str,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let app = adapter_app_mode(ctx);
+    let body = if app && with_prompt {
+        pad_no_slots(
+            ctx.platform
+                .emit_app_io_input_helper(&symbol)
+                .ok_or_else(|| app_unsupported(ctx.platform))??,
+        )
+    } else {
+        lower_io_read_line_helper(
+            &symbol,
+            ctx.platform_imports,
+            ctx.platform,
+            with_prompt,
+            app,
+            if app { None } else { ctx.term_state_offset },
+        )?
+    };
+    hatch_finalized(builder, body, "String", text)
+}
+
+/// Shared `abi_function` body for the four stdout writers
+/// `io::{print,write,printError,writeError}`, which differ only in target stream
+/// (`stderr`) and whether a trailing newline is appended (`newline`). Console:
+/// `lower_io_write_helper` (loops the `write(fd, …)`, TUI-shadow-grid-routed while
+/// `term::` is active). App mode: the transcript-window write hook
+/// (`emit_app_io_write_helper`). The string/attributed-string overloads share
+/// this one helper (both pass a string-object pointer in arg 0), exactly as the
+/// pre-migration `native_os_seam` slot did. Hatched back pre-finalized.
+pub(crate) fn lower_write_family(
+    builder: &mut CodeBuilder,
+    ctx: &AbiCtx,
+    stderr: bool,
+    newline: bool,
+    text: &str,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let body = if adapter_app_mode(ctx) {
+        pad_no_slots(
+            ctx.platform
+                .emit_app_io_write_helper(
+                    &symbol,
+                    stderr,
+                    newline,
+                    ctx.term_state_offset,
+                    ctx.platform_imports,
+                )
+                .ok_or_else(|| app_unsupported(ctx.platform))??,
+        )
+    } else {
+        lower_io_write_helper(
+            &symbol,
+            ctx.platform_imports,
+            ctx.platform,
+            stderr,
+            newline,
+            ctx.term_state_offset,
+        )?
+    };
+    hatch_finalized(builder, body, "Nothing", text)
+}
+
 /// Shared `abi_function` body for the three terminal predicates
 /// `io::is{Input,Output,Error}Terminal`, which differ only in the probed file
 /// descriptor (`fd`) and the result label (`text`). Console: `isatty(fd)` via
@@ -110,132 +189,4 @@ pub(crate) fn lower_is_terminal_common(
         lower_io_is_terminal_helper(&symbol, ctx.platform_imports, ctx.platform, fd)?
     };
     hatch_finalized(builder, body, "Boolean", text)
-}
-/// Family-generic OS-seam dispatcher for every `io` member — the verbatim `match
-/// call` block relocated from `src/codegen/engine/builder/mod.rs`. Registered in both
-/// the `posix` and `win` slots of each member's `Body::native_os_seam`. Derives
-/// `app_mode`/`term_state_offset` from the per-compilation
-/// [`OsLowerCtx`](crate::codegen::registry::OsLowerCtx).
-pub(crate) fn lower_io_helper(
-    call: &str,
-    symbol: &str,
-    ctx: &crate::codegen::registry::OsLowerCtx,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-) -> HelperResult {
-    let app_mode = ctx.build_mode.is_app();
-    let term_state_offset = ctx.term_state_offset;
-    Ok(match call {
-        "io.print" | "io.write" | "io.printError" | "io.writeError" => {
-            let stderr = matches!(call, "io.printError" | "io.writeError");
-            let newline = matches!(call, "io.print" | "io.printError");
-            // App mode routes io output to the AppKit transcript window
-            // (plan-04-macos-app.md §5.4) instead of a file descriptor.
-            if app_mode {
-                pad_no_slots(
-                    platform
-                        .emit_app_io_write_helper(
-                            symbol,
-                            stderr,
-                            newline,
-                            term_state_offset,
-                            platform_imports,
-                        )
-                        .ok_or_else(|| {
-                            format!(
-                                "native target '{}' does not support app-mode io helpers",
-                                platform.target()
-                            )
-                        })??,
-                )
-            } else {
-                lower_io_write_helper(
-                    symbol,
-                    platform_imports,
-                    platform,
-                    stderr,
-                    newline,
-                    term_state_offset,
-                )?
-            }
-        }
-        "io.flush" => {
-            // App-mode transcript writes are synchronous (each io write blocks on
-            // the main thread via performSelectorOnMainThread), so output is
-            // already visible; flush succeeds immediately (plan §5.4).
-            if app_mode {
-                pad_no_slots(platform.emit_app_io_flush_helper(symbol).ok_or_else(|| {
-                    format!(
-                        "native target '{}' does not support app-mode io helpers",
-                        platform.target()
-                    )
-                })??)
-            } else {
-                lower_io_flush_helper(symbol, platform_imports, platform)?
-            }
-        }
-        "io.isBuffered" => lower_io_is_buffered_helper(symbol, app_mode)?,
-        "io.setBuffered" => lower_io_set_buffered_helper(symbol, app_mode)?,
-        "io.pollInput" => lower_io_poll_input_helper(symbol, platform_imports, platform, app_mode)?,
-        "io.input" | "io.readLine" => {
-            // App-mode io.input writes its prompt to the transcript (via io.write)
-            // then reads a line (via io.readLine); io.readLine itself is the
-            // unchanged console helper, which reads fd 0 — the window input pipe
-            // in app mode (plan §5.4). All other read helpers are likewise
-            // unchanged and read the pipe.
-            if app_mode && call == "io.input" {
-                pad_no_slots(platform.emit_app_io_input_helper(symbol).ok_or_else(|| {
-                    format!(
-                        "native target '{}' does not support app-mode io helpers",
-                        platform.target()
-                    )
-                })??)
-            } else {
-                lower_io_read_line_helper(
-                    symbol,
-                    platform_imports,
-                    platform,
-                    call == "io.input",
-                    app_mode,
-                    // bug-149: only a console build that also uses `term::`
-                    // brackets the line read with a cooked-mode restore.
-                    if app_mode { None } else { term_state_offset },
-                )?
-            }
-        }
-        "io.readChar" => lower_io_read_char_helper(symbol, platform_imports, platform, app_mode)?,
-        "io.readByte" => lower_io_read_byte_helper(symbol, platform_imports, platform, app_mode)?,
-        "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
-            let fd = match call {
-                "io.isInputTerminal" => 0,
-                "io.isOutputTerminal" => 1,
-                "io.isErrorTerminal" => 2,
-                _ => unreachable!(),
-            };
-            // App mode: the window is the interactive console, so these return
-            // TRUE rather than probing a file descriptor (plan §5.4).
-            if app_mode {
-                pad_no_slots(
-                    platform
-                        .emit_app_io_is_terminal_helper(symbol)
-                        .ok_or_else(|| {
-                            format!(
-                                "native target '{}' does not support app-mode io helpers",
-                                platform.target()
-                            )
-                        })??,
-                )
-            } else {
-                lower_io_is_terminal_helper(symbol, platform_imports, platform, fd)?
-            }
-        }
-        // Defensive: unreachable — the runtime-call dispatch only routes a known
-        // io.* symbol here. Kept only because matching a `&str` is not exhaustive
-        // without a catch-all.
-        other => {
-            return Err(format!(
-                "native code plan does not emit runtime call '{other}'"
-            ));
-        }
-    })
 }

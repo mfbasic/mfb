@@ -1,15 +1,27 @@
 //! `io::print` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). `io` is a native OS-seam package: the
-//! member registers a `Body::native_os_seam` whose per-family slots both hold the
-//! shared [`crate::codegen::builtins::io::native::lower_io_helper`] dispatcher (which branches on
-//! `platform.family()` and the runtime-call name internally).
+//! Per-member file. `io` lowers through per-function `Body::abi_function`
+//! clean-room lowerings (plan-101): this member adapter reproduces its former
+//! `lower_io_helper` `match` arm and hatches the finalized OS-seam body back.
 
 // --- codegen tier imports (migration) ---
+use crate::codegen::builtins::io::native::lower_write_family;
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::types::ParameterType;
+
+/// `abi_function` body for `io::print` — write to stdout with a trailing newline.
+/// The `String` and `AttributedString` overloads share this one helper (both hand
+/// a string-object pointer to the writer).
+pub(crate) fn lower_print(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    lower_write_family(builder, ctx, false, true, "io.print")
+}
 
 const INTRO: &str = r#"Write a `String` to standard output followed by a newline"#;
 const DESC: &str = r#"`io::print` writes `value` to standard output and then appends a single line feed
@@ -75,11 +87,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 }],
                 return_type: ParameterType::Nothing,
                 errors: vec![],
-                body: Body::native_os_seam(
-                    Some(crate::codegen::builtins::io::native::lower_io_helper),
-                    Some(crate::codegen::builtins::io::native::lower_io_helper),
-                    &[],
-                ),
+                body: Body::abi_function(lower_print),
             },
             Implementation {
                 params: vec![Parameter {
@@ -91,11 +99,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 }],
                 return_type: ParameterType::Nothing,
                 errors: vec![],
-                body: Body::native_os_seam(
-                    Some(crate::codegen::builtins::io::native::lower_io_helper),
-                    Some(crate::codegen::builtins::io::native::lower_io_helper),
-                    &[],
-                ),
+                body: Body::abi_function(lower_print),
             },
         ],
     });
