@@ -1626,12 +1626,19 @@ impl CodeBuilder<'_> {
         // The migrated variable-shift `bits.` ops (`sl`/`sr`/`sra`) route their
         // out-of-range `ErrInvalidArgument` through `emit_error_register_return`,
         // whose `raw_result_capture` branch (set above) redirects to the capture
-        // point; the total `bits.` ops never reach here (they are infallible). Their
-        // `Body::Native` `common` lowering is reached through `try_native_lower`
-        // below, inside this raw-capture wrapper, like every other migrated member.
+        // point; the total `bits.` ops never reach here (they are infallible). Those
+        // shift ops are `Body::abi_inline` intrinsics, so they are reached through
+        // `try_abi_inline_lower`; other migrated members use the `common`
+        // `try_native_lower`. Both run inside this raw-capture wrapper, so a
+        // fallible body's domain error is captured rather than returned.
         let lowered = if let Some(result) = self.try_native_lower(target, args) {
             // plan-95: migrated function lowering, inside the raw-capture wrapper
             // so `raw_result_capture` still routes its domain error to the capture.
+            result
+        } else if let Some(result) = self.try_abi_inline_lower(target, args) {
+            // An `abi_inline` intrinsic (e.g. the fallible `bits.sl`/`sr`/`sra`
+            // variable shifts) trapped by an inline `TRAP`: its `raise_error_bare`
+            // routes through the `raw_result_capture` branch set above.
             result
         } else {
             match crate::builtins::native_builtin_target(target) {
