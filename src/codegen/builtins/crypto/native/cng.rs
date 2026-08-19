@@ -135,22 +135,21 @@ fn bcrypt_call(
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    if n_args > 4 {
-        let stack = n_args - 4;
-        let frame = (0x20 + stack * 8 + 15) & !15;
-        ins.push(abi::subtract_stack(frame));
-        for i in 0..stack {
-            ins.push(abi::store_u64(
-                abi::c_arg(4 + i),
-                abi::stack_pointer(),
-                0x20 + i * 8,
-            ));
-        }
-        platform.emit_external_call(symbol, from, imports, ins, rel)?;
-        ins.push(abi::add_stack(frame));
-    } else {
-        platform.emit_external_call(symbol, from, imports, ins, rel)?;
+    // Win64 requires the caller to reserve ≥32 bytes of shadow (home) space below
+    // the outgoing stack args for EVERY call — even a ≤4-arg one — or the callee
+    // clobbers the caller's `[sp..sp+0x20]` locals when it homes its register args.
+    let stack = n_args.saturating_sub(4);
+    let frame = (0x20 + stack * 8 + 15) & !15;
+    ins.push(abi::subtract_stack(frame));
+    for i in 0..stack {
+        ins.push(abi::store_u64(
+            abi::c_arg(4 + i),
+            abi::stack_pointer(),
+            0x20 + i * 8,
+        ));
     }
+    platform.emit_external_call(symbol, from, imports, ins, rel)?;
+    ins.push(abi::add_stack(frame));
     ins.push(abi::sign_extend_word(
         abi::return_register(),
         abi::return_register(),
