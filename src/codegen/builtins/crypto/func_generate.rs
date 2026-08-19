@@ -1287,6 +1287,7 @@ pub(crate) fn lower_generate(
 
     let done = format!("{symbol}_done");
     let ed25519 = format!("{symbol}_ed25519");
+    let x25519 = format!("{symbol}_x25519");
 
     match ctx.platform.family() {
         PlatformFamily::MacOS => {
@@ -1311,6 +1312,8 @@ pub(crate) fn lower_generate(
                 abi::branch_eq(&p521),
                 abi::compare_immediate(&ord, gen_cert::ORD_ED25519),
                 abi::branch_eq(&ed25519),
+                abi::compare_immediate(&ord, gen_cert::ORD_X25519),
+                abi::branch_eq(&x25519),
             ]);
             // P-256 (ordinal 0) falls through here.
             set(&mut builder.instructions, &v9, "256", "65");
@@ -1357,6 +1360,8 @@ pub(crate) fn lower_generate(
                 abi::branch_eq(&lp521),
                 abi::compare_immediate(&ord, gen_cert::ORD_ED25519),
                 abi::branch_eq(&ed25519),
+                abi::compare_immediate(&ord, gen_cert::ORD_X25519),
+                abi::branch_eq(&x25519),
             ]);
             // P-256 (ordinal 0) falls through here.
             set(
@@ -1412,6 +1417,8 @@ pub(crate) fn lower_generate(
                 abi::branch_eq(&wp521),
                 abi::compare_immediate(&ord, gen_cert::ORD_ED25519),
                 abi::branch_eq(&ed25519),
+                abi::compare_immediate(&ord, gen_cert::ORD_X25519),
+                abi::branch_eq(&x25519),
             ]);
             // P-256 (ordinal 0) falls through here.
             set(
@@ -1454,6 +1461,21 @@ pub(crate) fn lower_generate(
     if win64 {
         builder.instructions.push(abi::add_stack(0x20));
     }
+    builder.instructions.push(abi::branch(&done));
+
+    // X25519 dispatch (all platforms): call the software `__crypto_generateX25519`
+    // MFB helper (always emitted with the crypto package — scalar = clamp(randomBytes
+    // (32)); pub = X25519(scalar, basepoint u=9)). It leaves the `KeyPair` in the
+    // result registers, so fall through to `done`.
+    builder.instructions.push(abi::label(&x25519));
+    let x_symbol = crate::target::shared::nir::function_symbol("#crypto_generateX25519");
+    if win64 {
+        builder.instructions.push(abi::subtract_stack(0x20));
+    }
+    builder.emit_symbol_call(&x_symbol);
+    if win64 {
+        builder.instructions.push(abi::add_stack(0x20));
+    }
 
     builder
         .instructions
@@ -1467,11 +1489,13 @@ pub(crate) fn lower_generate(
 }
 
 const INTRO: &str = r#"Generate a fresh key pair of the requested certificate type."#;
-const DESC: &str = r#"`crypto::generate(type)` creates a new key pair for the NIST-EC curve or
-Ed25519 selected by `type` (a `crypto::Certificate`), returning a
-`crypto::KeyPair`. The key pair — every curve (`P256`/`P384`/`P521`) and
-`Ed25519` — is usable with `crypto::sign(type, …)` and `crypto::verify(type, …)`
-for that same `type`."#;
+const DESC: &str = r#"`crypto::generate(type)` creates a new key pair for the NIST-EC curve, Ed25519,
+or X25519 selected by `type` (a `crypto::Certificate`), returning a
+`crypto::KeyPair`. The signing key pairs — every curve (`P256`/`P384`/`P521`) and
+`Ed25519` — are usable with `crypto::sign(type, …)` and `crypto::verify(type, …)`
+for that same `type`. `X25519` produces a Curve25519 ECDH (key-agreement) key pair
+(32-byte private and public); it is not a signing key, so `sign`/`verify` reject it
+with `ErrInvalidArgument`."#;
 const EX: &str = r#"```
 IMPORT crypto
 

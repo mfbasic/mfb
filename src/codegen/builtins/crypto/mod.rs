@@ -108,8 +108,10 @@ pub(crate) fn register(r: &mut Registry) {
         ],
     });
     // The certificate/key type selector for `crypto::generate(type)`. Ordinals are
-    // declaration order (P256=0, P384=1, P521=2, Ed25519=3); `func_generate`'s
-    // `AbiFunction` body branches on that ordinal.
+    // declaration order (P256=0, P384=1, P521=2, Ed25519=3, X25519=4);
+    // `func_generate`'s `AbiFunction` body branches on that ordinal. `X25519` is a
+    // key-agreement (ECDH) key, not a signing key, so `sign`/`verify` reject it with
+    // `ErrInvalidArgument`.
     pkg.add_enum(RegistryEnum {
         name: "Certificate",
         export: true,
@@ -130,7 +132,22 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "Ed25519",
                 description: "Ed25519 EdDSA key pair.",
             },
+            EnumVariant {
+                name: "X25519",
+                description: "X25519 (Curve25519 ECDH) key-agreement key pair. Use with `crypto::convert` / key agreement, not `crypto::sign`.",
+            },
         ],
+    });
+    // The key-conversion selector for `crypto::convert(conv, keys)`. Ordinals are
+    // declaration order (Ed25519ToX25519=0); the pure-MFB `__crypto_convert` core
+    // branches on it.
+    pkg.add_enum(RegistryEnum {
+        name: "KeyConvert",
+        export: true,
+        variants: vec![EnumVariant {
+            name: "Ed25519ToX25519",
+            description: "Convert an Ed25519 signing key pair to the matching X25519 (Curve25519 ECDH) key pair.",
+        }],
     });
     // The hash-algorithm selector — every hash function `crypto` supports (the
     // SHA-2 family). Ordinals are declaration order (SHA224=0, SHA256=1, SHA384=2,
@@ -336,6 +353,17 @@ pub(crate) fn register(r: &mut Registry) {
     // `open` (see `func_seal`/`func_open`).
     helper_seal_text::register(&mut pkg);
     helper_open_sealed::register(&mut pkg);
+    // X25519 (Curve25519 ECDH, RFC 7748) + Ed25519↔X25519 conversion, all pure
+    // software over the shared GF(2^255-19) field ops (`__crypto_edA`/`edZ`/`edS`/
+    // `edM`/`inv25519`/`unpack25519`/`pack25519`). `__crypto_generateX25519` backs the
+    // `generate(Certificate.X25519)` ordinal branch; `__crypto_convert` backs the
+    // `convert(KeyConvert, KeyPair)` member.
+    helper_gf121665::register(&mut pkg);
+    helper_x25519::register(&mut pkg);
+    helper_generate_x25519::register(&mut pkg);
+    helper_ed25519_pub_to_x25519::register(&mut pkg);
+    helper_ed25519_priv_to_x25519::register(&mut pkg);
+    helper_convert::register(&mut pkg);
 
     // The unified clean-room `hash(Hash, data)` selects a SHA-2 digest by the `Hash`
     // ordinal and branch-links to the always-emitted MFB software SHA cores (the SHA
@@ -375,6 +403,10 @@ pub(crate) fn register(r: &mut Registry) {
     // mirroring `sign`. It is the sole verification surface — the per-curve
     // `p*Verify`/`ed25519Verify` members were removed.
     func_verify::register(&mut pkg);
+    // Key-pair conversion between curve encodings (`Ed25519ToX25519`). Pure-MFB
+    // rewrite onto `__crypto_convert` — no platform library, so (like `hmac`/`hkdf`)
+    // it is NOT in any backend's `runtime_calls`.
+    func_convert::register(&mut pkg);
     // Constant-time comparison (source).
     func_constant_time_equal::register(&mut pkg);
 
@@ -382,6 +414,7 @@ pub(crate) fn register(r: &mut Registry) {
 }
 
 mod func_constant_time_equal;
+mod func_convert;
 pub(crate) mod func_generate;
 pub(crate) mod func_hash;
 pub(crate) mod func_hkdf;
@@ -438,8 +471,11 @@ mod helper_clamp_scalar;
 mod helper_concat;
 mod helper_concat_int;
 mod helper_constant_time_equal;
+mod helper_convert;
 mod helper_copy_bytes;
 mod helper_cswap128;
+mod helper_ed25519_priv_to_x25519;
+mod helper_ed25519_pub_to_x25519;
 mod helper_ed25519_public;
 mod helper_ed25519_sign;
 mod helper_ed25519_verify;
@@ -456,8 +492,10 @@ mod helper_gcm_inc32;
 mod helper_gcm_j0;
 mod helper_gcm_tag;
 mod helper_generate_ed25519;
+mod helper_generate_x25519;
 mod helper_gf0;
 mod helper_gf1;
+mod helper_gf121665;
 mod helper_gf_at;
 mod helper_gf_d;
 mod helper_gf_d2;
@@ -542,6 +580,7 @@ mod helper_truncate;
 mod helper_unpack25519;
 mod helper_unpackneg;
 mod helper_uuid4;
+mod helper_x25519;
 mod helper_xor_bytes;
 mod helper_xor_pad;
 mod helper_xtime;
@@ -561,13 +600,13 @@ mod tests {
         let pkg = registry()
             .resolve_package("crypto")
             .expect("crypto package");
-        // 13 members: the unified clean-room `generate`/`sign`/`verify`/`hash`
-        // replaced the per-type generate/sign/verify/sha members; the hash-generic
-        // `hmac`/`hkdf`/`pbkdf2(Hash, …)` and the `SymmetricCipher`-selected
-        // `seal`/`open` are now the sole KDF/MAC and AEAD surface — the per-digest
-        // `hmacSha*`/`hkdfSha*`/`pbkdf2Sha*` and per-cipher `aes256Gcm*`/
-        // `chacha20Poly1305*` members were removed.
-        assert_eq!(pkg.functions().len(), 13);
+        // 14 members: the unified `generate`/`sign`/`verify`/`hash`, the
+        // `SymmetricCipher`-selected `seal`/`open`, the hash-generic
+        // `hmac`/`hkdf`/`pbkdf2(Hash, …)`, `convert` (Ed25519↔X25519 key conversion),
+        // plus `randomBytes`/`randomInt`/`uuid4`/`constantTimeEqual`. The per-type
+        // generate/sign/verify/sha and per-digest `*Sha*`/per-cipher AEAD members were
+        // all retired behind the unified surface.
+        assert_eq!(pkg.functions().len(), 14);
     }
 
     #[test]
@@ -585,6 +624,7 @@ mod tests {
             "crypto.generate",
             "crypto.sign",
             "crypto.verify",
+            "crypto.convert",
             "crypto.constantTimeEqual",
         ] {
             assert_eq!(registry().owning_package(n), Some("crypto"), "{n}");

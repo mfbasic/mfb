@@ -1402,8 +1402,16 @@ pub(crate) fn lower_sign(
 
     let done = format!("{symbol}_done");
     let ed25519 = format!("{symbol}_ed25519");
+    let x25519_reject = format!("{symbol}_x25519_reject");
     let imports = ctx.platform_imports;
     let platform = ctx.platform;
+
+    // X25519 is a key-agreement (ECDH) key, not a signing key: reject it up front
+    // rather than fall through to the P-256 sequence.
+    builder.instructions.extend([
+        abi::compare_immediate(&ord, gen_cert::ORD_X25519),
+        abi::branch_eq(&x25519_reject),
+    ]);
 
     match platform.family() {
         PlatformFamily::MacOS => {
@@ -1578,6 +1586,17 @@ pub(crate) fn lower_sign(
     if win64 {
         builder.instructions.push(abi::add_stack(0x20));
     }
+    builder.instructions.push(abi::branch(&done));
+
+    // X25519 keys cannot sign.
+    builder.instructions.push(abi::label(&x25519_reject));
+    emit_fail(
+        &symbol,
+        "ErrInvalidArgument",
+        &mut builder.instructions,
+        &mut builder.relocations,
+        &done,
+    );
 
     builder
         .instructions
