@@ -1,0 +1,62 @@
+{
+  "project": "crypto-decrypt-short-box-invalid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "crypto", "line": 7 },
+    { "module": "collections", "line": 8 },
+    { "module": "errorCode", "line": 9 },
+    { "module": "io", "line": 10 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "shortBoxCode",
+      "line": 14,
+      "params": [
+      { "name": "priv", "type": "List OF Byte", "default": null, "line": 14 },
+      { "name": "box", "type": "List OF Byte", "default": null, "line": 14 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "back", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.decrypt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "AsymmetricCipher" }, "member": "Ed25519_AES256GCM" }, { "kind": "identifier", "value": "priv" }, { "kind": "identifier", "value": "box" }] }, "line": 15 },
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "back" }] }, "line": 16 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 17,
+      "body": [
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "line": 18 }
+      ]
+    }
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 22,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "kp", "type": "KeyPair", "value": { "kind": "call", "callee": "crypto.generate", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Certificate" }, "member": "Ed25519" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "empty", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "box48", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.encrypt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "AsymmetricCipher" }, "member": "Ed25519_AES256GCM" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp" }, "member": "publicKey" }, { "kind": "identifier", "value": "empty" }] }, "line": 27 },
+      { "kind": "binding", "mutable": false, "name": "rt", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.decrypt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "AsymmetricCipher" }, "member": "Ed25519_AES256GCM" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp" }, "member": "privateKey" }, { "kind": "identifier", "value": "box48" }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "box48-len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "box48" }] }] } }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "roundtrip-empty-ok=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "rt" }] }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "name": "box32", "type": "List OF Byte", "value": { "kind": "call", "callee": "collections.mid", "arguments": [{ "kind": "identifier", "value": "box48" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "32" }] }, "line": 33 },
+      { "kind": "binding", "mutable": false, "name": "box47", "type": "List OF Byte", "value": { "kind": "call", "callee": "collections.mid", "arguments": [{ "kind": "identifier", "value": "box48" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "47" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "empty-invalid=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "shortBoxCode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp" }, "member": "privateKey" }, { "kind": "identifier", "value": "empty" }] }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } }] } }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "box32-invalid=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "shortBoxCode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp" }, "member": "privateKey" }, { "kind": "identifier", "value": "box32" }] }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } }] } }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "box47-invalid=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "shortBoxCode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp" }, "member": "privateKey" }, { "kind": "identifier", "value": "box47" }] }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } }] } }] }, "line": 37 }
+      ]
+    }
+    ]
+  }
+  ]
+}

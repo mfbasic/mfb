@@ -1,7 +1,11 @@
 //! `__crypto_decrypt` — shared private helper for the `crypto` package.
 //!
 //! The pure-MFB core behind `crypto::decrypt(cipher, recipientPrivateKey, box[, aad])`:
-//! the inverse of `__crypto_encrypt`. It splits the box into `ephPub(32)`,
+//! the inverse of `__crypto_encrypt`. It first rejects a box shorter than the 48-byte
+//! `ephemeralPublicKey(32) ‖ tag(16)` overhead with `ErrInvalidArgument` (code
+//! `77050002`) — without this guard the `__crypto_slice`/`collections::mid` calls below
+//! would surface `ErrIndexOutOfRange` on the negative `ctLen`, not the documented
+//! argument error. Then it splits the box into `ephPub(32)`,
 //! ciphertext, and the trailing 16-byte tag; converts the recipient's Ed25519 seed
 //! to its X25519 scalar; recovers the recipient's X25519 public key as
 //! `X25519(recipXpriv, basepoint)` (which equals `ed25519PubToX25519(recipEdPub)`,
@@ -20,6 +24,9 @@ const BODY: &str =
 r#"' X25519 sealed-box decrypt. recipientPrivateKey is a 32-byte Ed25519 seed.
 FUNC __crypto_decrypt(cipher AS AsymmetricCipher, recipientPrivateKey AS List OF Byte, box AS List OF Byte, aad AS List OF Byte) AS List OF Byte
   LET total AS Integer = len(box)
+  IF total < 48 THEN
+    FAIL error(77050002, "crypto::decrypt box shorter than the 48-byte ephemeralPublicKey||tag overhead")
+  END IF
   LET ephPub AS List OF Byte = __crypto_slice(box, 0, 32)
   LET ctLen AS Integer = total - 48
   LET ct AS List OF Byte = __crypto_slice(box, 32, 32 + ctLen)

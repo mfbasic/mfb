@@ -1,0 +1,5 @@
+box48-len=48
+roundtrip-empty-ok=TRUE
+empty-invalid=TRUE
+box32-invalid=TRUE
+box47-invalid=TRUE
