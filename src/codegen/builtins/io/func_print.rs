@@ -5,7 +5,7 @@
 //! `lower_io_helper` `match` arm and hatches the finalized OS-seam body back.
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::builtins::io::native::lower_write_family;
+use super::func_write::lower_write_family;
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,

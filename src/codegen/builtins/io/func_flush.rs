@@ -4,12 +4,16 @@
 //! clean-room lowerings (plan-101): this member adapter reproduces its former
 //! `lower_io_helper` `match` arm and hatches the finalized OS-seam body back.
 
-use crate::codegen::builtins::io::native::{
-    adapter_app_mode, app_unsupported, hatch_finalized, lower_io_flush_helper,
-};
-use crate::codegen::engine::builder::{pad_no_slots, CodeBuilder, ValueResult};
+use super::{adapter_app_mode, app_unsupported, hatch_finalized};
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::memory::data::*;
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
+use crate::target::shared::abi;
 use crate::types::ParameterType;
+use std::collections::HashMap;
 
 /// `abi_function` body for `io::flush` (no args). Console: drain the per-thread
 /// stdout buffer (`lower_io_flush_helper`). App mode: synchronous transcript
@@ -90,4 +94,57 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             body: Body::abi_function(lower_flush),
         }],
     });
+}
+
+// --- stdout flush emitter (relocated from native/) ---
+
+pub(crate) fn lower_io_flush_helper(
+    symbol: &str,
+    // Flush is now drain-only (no fsync), so it no longer needs the platform to
+    // emit a libc/syscall sequence; kept in the signature for parity with the
+    // other io helper lowerings dispatched from mod.rs.
+    _platform_imports: &HashMap<String, String>,
+    _platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    const FRAME_SIZE: usize = 16;
+
+    let output_error = format!("{symbol}_output_error");
+    let done = format!("{symbol}_done");
+
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    // io::flush() drains the per-arena MFBASIC stdout buffer via write() and
+    // reports a write failure — nothing else. It deliberately does NOT fsync:
+    // fsync's result depends on the fd *type* (EBADF only for a genuinely closed
+    // fd, benign EINVAL on pipes/char devices, 0 on a regular file), which made
+    // flush's success/failure depend on the runtime environment rather than on
+    // what the program actually wrote. The buffer drain's write() is the one
+    // portable failure signal — identical on every platform/libc. A no-op when
+    // buffering is off.
+    //
+    // There used to be a `stderr: bool` parameter gating this drain, on the
+    // reasoning that stderr is never buffered and so has nothing to flush. No
+    // caller ever passed `true` — `io::flush()` is stdout-only — so the guarded
+    // and unguarded halves were the same program (bug-326-A23).
+    instructions.push(abi::branch_link(STDOUT_DRAIN_SYMBOL));
+    relocations.push(internal_branch(symbol, STDOUT_DRAIN_SYMBOL));
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&output_error),
+    ]);
+    instructions.extend([
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&output_error),
+    ]);
+    raise_error_into(
+        symbol,
+        "ErrWriteFailed",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::label(&done));
+    instructions.push(abi::return_());
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+    Ok((frame, instructions, relocations, stack_slots))
 }

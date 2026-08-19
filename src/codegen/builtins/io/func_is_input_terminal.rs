@@ -1,13 +1,22 @@
-//! `io::isInputTerminal` — descriptor entry + authored docs.
+//! `io::isInputTerminal` — descriptor entry + authored docs, and the shared
+//! terminal-predicate emitter this file owns.
 //!
-//! Per-member file. `io` lowers through per-function `Body::abi_function`
-//! clean-room lowerings (plan-101): this member adapter reproduces its former
-//! `lower_io_helper` `match` arm and hatches the finalized OS-seam body back.
+//! `io` lowers through per-function `Body::abi_function` clean-room lowerings
+//! (plan-101). Beyond the `isInputTerminal` member itself, this file owns the
+//! shared terminal-predicate emitter (`lower_io_is_terminal_helper`) and the
+//! `lower_is_terminal_common` adapter that `io::isOutputTerminal`/`io::isErrorTerminal`
+//! also dispatch through (they
+//! `use super::func_is_input_terminal::lower_is_terminal_common`).
 
-use crate::codegen::builtins::io::native::lower_is_terminal_common;
-use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use super::{adapter_app_mode, app_unsupported, hatch_finalized};
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
+use crate::target::shared::abi;
 use crate::types::ParameterType;
+use std::collections::HashMap;
 
 /// `abi_function` body for `io::isInputTerminal` — `isatty(0)` (fd 0).
 pub(crate) fn lower_is_input_terminal(
@@ -62,4 +71,69 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             body: Body::abi_function(lower_is_input_terminal),
         }],
     });
+}
+
+// --- shared terminal-predicate emitter + adapter (relocated from native/) ---
+
+/// Shared `abi_function` body for the three terminal predicates
+/// `io::is{Input,Output,Error}Terminal`, which differ only in the probed file
+/// descriptor (`fd`) and the result label (`text`). Console: `isatty(fd)` via
+/// `lower_io_is_terminal_helper`. App mode: the window is the interactive
+/// console, so all three return `TRUE` (`emit_app_io_is_terminal_helper`).
+pub(crate) fn lower_is_terminal_common(
+    builder: &mut CodeBuilder,
+    ctx: &AbiCtx,
+    fd: u8,
+    text: &str,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let body = if adapter_app_mode(ctx) {
+        pad_no_slots(
+            ctx.platform
+                .emit_app_io_is_terminal_helper(&symbol)
+                .ok_or_else(|| app_unsupported(ctx.platform))??,
+        )
+    } else {
+        lower_io_is_terminal_helper(&symbol, ctx.platform_imports, ctx.platform, fd)?
+    };
+    hatch_finalized(builder, body, "Boolean", text)
+}
+
+pub(crate) fn lower_io_is_terminal_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    fd: u8,
+) -> HelperResult {
+    const FRAME_SIZE: usize = 16;
+    let yes = format!("{symbol}_yes");
+    let done = format!("{symbol}_done");
+
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    instructions.push(abi::move_immediate(
+        abi::return_register(),
+        "Integer",
+        &fd.to_string(),
+    ));
+    platform.emit_is_terminal(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_gt(&yes),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&yes),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::label(&done),
+    ]);
+    instructions.push(abi::return_());
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+    Ok((frame, instructions, relocations, stack_slots))
 }

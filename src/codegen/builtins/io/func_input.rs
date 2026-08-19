@@ -4,7 +4,7 @@
 //! clean-room lowerings (plan-101): this member adapter reproduces its former
 //! `lower_io_helper` `match` arm and hatches the finalized OS-seam body back.
 
-use crate::codegen::builtins::io::native::lower_read_line_family;
+use super::func_read_line::lower_read_line_family;
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,

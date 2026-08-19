@@ -2039,27 +2039,8 @@ pub(crate) fn lower_runtime_helper(
                         }
                     }
                 }
-                // Every `io.*` member carries a `Body::native_os_seam` OS-seam
-                // lowering in `codegen::builtins::io::native`; the generic
-                // registry-driven dispatch reaches its `lower_io_helper`, which reads
-                // `os_ctx.build_mode`/`os_ctx.term_state_offset` (app-vs-console + the
-                // TUI/cooked-mode routing) internally.
-                call if call.starts_with("io.") => {
-                    match crate::codegen::os::dispatch_runtime_helper(
-                        call,
-                        symbol,
-                        &os_ctx,
-                        platform_imports,
-                        platform,
-                    ) {
-                        Some(result) => result?,
-                        None => {
-                            return Err(format!(
-                                "native code plan does not emit runtime call '{call}'"
-                            ));
-                        }
-                    }
-                }
+                // (`io.*` members are `Body::abi_function` since plan-101, so they are
+                // handled by the `is_abi_function_call` branch above — no `io.` arm here.)
                 "thread.start"
                 | "thread.isRunning"
                 | "thread.waitFor"

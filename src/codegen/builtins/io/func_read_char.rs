@@ -4,12 +4,18 @@
 //! clean-room lowerings (plan-101): this member adapter reproduces its former
 //! `lower_io_helper` `match` arm and hatches the finalized OS-seam body back.
 
-use crate::codegen::builtins::io::native::{
-    adapter_app_mode, hatch_finalized, lower_io_read_char_helper,
-};
-use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use super::func_read_line::{emit_stdin_byte_read, emit_utf8_sequence_read, Utf8SeqLabels};
+use super::{adapter_app_mode, hatch_finalized};
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::io::terminal::*;
+use crate::codegen::memory::data::*;
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
+use crate::target::shared::abi;
 use crate::types::ParameterType;
+use std::collections::HashMap;
 
 /// `abi_function` body for `io::readChar` — read one whole Unicode scalar value
 /// (one UTF-8 sequence) from stdin, returned as a one-character `String`.
@@ -80,4 +86,201 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             body: Body::abi_function(lower_read_char),
         }],
     });
+}
+
+// --- stdin readChar emitter (relocated from native/) ---
+
+pub(crate) fn lower_io_read_char_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    app_mode: bool,
+) -> HelperResult {
+    const FRAME_SIZE: usize = 224;
+    const BYTES_OFFSET: usize = 8;
+    const LEN_OFFSET: usize = 16;
+    const RESULT_OFFSET: usize = 24;
+    let terminal_slots = TerminalModeSlots {
+        active: 32,
+        saved_tag: 40,
+        saved_value: 48,
+        saved_message: 56,
+        original: 64,
+        modified: 136,
+    };
+    let read_second = format!("{symbol}_read_second");
+    let read_third = format!("{symbol}_read_third");
+    let read_fourth = format!("{symbol}_read_fourth");
+    let got_len = format!("{symbol}_got_len");
+    let alloc_ok = format!("{symbol}_alloc_ok");
+    let copy_loop = format!("{symbol}_copy_loop");
+    let copy_done = format!("{symbol}_copy_done");
+    let eof = format!("{symbol}_eof");
+    let input_error = format!("{symbol}_input_error");
+    let invalid_context = format!("{symbol}_invalid_context");
+    let encoding_error = format!("{symbol}_encoding_error");
+    let alloc_error = format!("{symbol}_alloc_error");
+    let read_retry = format!("{symbol}_read_retry");
+    let read_resume = format!("{symbol}_read_resume");
+    let done = format!("{symbol}_done");
+
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+    // Drain buffered stdout before blocking on input (plan-14-A §4.3 hook 2);
+    // no-op when buffering is off, skipped in app mode (no stdout buffer).
+    if !app_mode {
+        instructions.push(abi::branch_link(STDOUT_DRAIN_SYMBOL));
+        relocations.push(internal_branch(symbol, STDOUT_DRAIN_SYMBOL));
+    }
+    if app_mode {
+        platform
+            .emit_app_raw_input_mode(symbol, &mut instructions, &mut relocations)
+            .ok_or_else(|| {
+                format!(
+                    "native target '{}' does not support app-mode raw input",
+                    platform.target()
+                )
+            })??;
+    }
+    emit_configure_stdin_terminal(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        &terminal_slots,
+        abi::stack_pointer(),
+        true,
+        true,
+        &input_error,
+    )?;
+    // plan-15: read the lead byte from the stdin broadcast log; a 0-byte return is
+    // EOF. EINTR/blocking are handled inside `_mfb_rt_stdin_next_byte`.
+    emit_stdin_byte_read(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        app_mode,
+        BYTES_OFFSET,
+        &read_retry,
+        &read_resume,
+        &input_error,
+        &invalid_context,
+    )?;
+    let three_not_e0 = format!("{symbol}_three_not_e0");
+    let three_general = format!("{symbol}_three_general");
+    let three_second_ok = format!("{symbol}_three_second_ok");
+    let four_not_f0 = format!("{symbol}_four_not_f0");
+    let four_general = format!("{symbol}_four_general");
+    let four_second_ok = format!("{symbol}_four_second_ok");
+    let seq_labels = Utf8SeqLabels {
+        eof: &eof,
+        read_second: &read_second,
+        read_third: &read_third,
+        read_fourth: &read_fourth,
+        three_not_e0: &three_not_e0,
+        three_general: &three_general,
+        three_second_ok: &three_second_ok,
+        four_not_f0: &four_not_f0,
+        four_general: &four_general,
+        four_second_ok: &four_second_ok,
+        encoding_error: &encoding_error,
+        input_error: &input_error,
+        cont: &got_len,
+    };
+    emit_utf8_sequence_read(
+        symbol,
+        platform_imports,
+        platform,
+        app_mode,
+        &seq_labels,
+        BYTES_OFFSET,
+        LEN_OFFSET,
+        None,
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    let v10 = vregs.next();
+    let v11 = vregs.next();
+    let v12 = vregs.next();
+    let v13 = vregs.next();
+    instructions.extend([
+        abi::load_u64(&v10, abi::stack_pointer(), LEN_OFFSET),
+        abi::add_immediate(abi::return_register(), &v10, 9),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+    ]);
+    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_eq(&alloc_ok),
+        abi::branch(&alloc_error),
+        abi::label(&alloc_ok),
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RESULT_OFFSET),
+        abi::load_u64(&v10, abi::stack_pointer(), LEN_OFFSET),
+        abi::store_u64(&v10, abi::mfb_return(1), 0),
+        abi::add_immediate(&v11, abi::mfb_return(1), 8),
+        abi::add_immediate(&v12, abi::stack_pointer(), BYTES_OFFSET),
+        abi::label(&copy_loop),
+        abi::compare_immediate(&v10, "0"),
+        abi::branch_eq(&copy_done),
+        abi::load_u8(&v13, &v12, 0),
+        abi::store_u8(&v13, &v11, 0),
+        abi::add_immediate(&v11, &v11, 1),
+        abi::add_immediate(&v12, &v12, 1),
+        abi::subtract_immediate(&v10, &v10, 1),
+        abi::branch(&copy_loop),
+        abi::label(&copy_done),
+        abi::store_u8(abi::ZERO, &v11, 0),
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), RESULT_OFFSET),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&eof),
+    ]);
+    raise_error_into(symbol, "ErrEndOfFile", &mut instructions, &mut relocations);
+    instructions.extend([abi::branch(&done), abi::label(&input_error)]);
+    raise_error_into(
+        symbol,
+        "ErrInputFailed",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&encoding_error)]);
+    raise_error_into(symbol, "ErrEncoding", &mut instructions, &mut relocations);
+    instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::branch(&done), abi::label(&invalid_context)]);
+    raise_error_into(
+        symbol,
+        "ErrInvalidContext",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.push(abi::label(&done));
+    emit_restore_stdin_terminal(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        &terminal_slots,
+    )?;
+    instructions.push(abi::return_());
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+    Ok((frame, instructions, relocations, stack_slots))
 }
