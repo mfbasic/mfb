@@ -2553,15 +2553,28 @@ pub(crate) fn expected_arguments(qualified: &str) -> Option<&'static str> {
     Some(Box::leak(rendered.into_boxed_str()))
 }
 
-/// Whether a function's overloads disagree on their **position-0** parameter name
-/// — the front-dropping/variadic-from-the-left shape (datetime's
-/// `instant`/`duration`/`fixedOffset`) where a merged per-position table would
-/// misbind a named argument (bug-349/bug-94). Such members carry no merged
-/// [`call_param_names`] table (it returns `None`) and are normalized through the
-/// per-overload [`call_param_name_overloads`] table instead. A single-overload
-/// member, or overloads that all name position 0 the same (collections `get`'s
-/// `value`/`collection`, encoding `utf8Decode`'s `value`), agree here and merge.
+/// Whether a function's overloads disagree on their parameter-name **layout** —
+/// i.e. a merged per-position table (`[name, alias…]` unioned across overloads at
+/// each index) would place the same parameter *name* at two different positions
+/// and therefore misbind a named argument (bug-349/bug-94). Two shapes trip this:
+///
+/// * a front-dropping/variadic-from-the-left constructor (datetime's
+///   `instant`/`duration`/`fixedOffset`), where the same name (`seconds`) slides
+///   across indices as leading parameters are added; and
+/// * overloads of differing arity that share a **trailing** optional name
+///   (`crypto::open`'s `aad`, at index 5 on the 6-param overload and index 4 on
+///   the 5-param one).
+///
+/// Both are detected uniformly: build the flat position table and return true if
+/// any name lands at more than one index. The position-0 disagreement is kept as
+/// an explicit disjunct so this stays a strict superset of the historical check.
+/// Members that trip this carry no merged [`call_param_names`] table (it returns
+/// `None`) and are normalized through the per-overload
+/// [`call_param_name_overloads`] table instead. A single-overload member, or
+/// overloads that name every shared parameter at a consistent index (collections
+/// `get`'s `value`/`collection`, encoding `utf8Decode`'s `value`), agree and merge.
 fn overloads_disagree_on_layout(function: &RegistryFunction) -> bool {
+    // Position-0 disagreement (historical check — kept as a strict superset guard).
     let mut first_name: Option<&str> = None;
     for implementation in &function.implementations {
         let name = implementation.params.first().map(|param| param.name);
@@ -2569,6 +2582,21 @@ fn overloads_disagree_on_layout(function: &RegistryFunction) -> bool {
             (None, _) => first_name = name,
             (Some(seen), Some(name)) if seen == name => {}
             (Some(_), _) => return true,
+        }
+    }
+    // Any name (or alias) that a merged per-position table would place at two
+    // different indices across overloads.
+    let mut seen_index: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for implementation in &function.implementations {
+        for (index, param) in implementation.params.iter().enumerate() {
+            for name in std::iter::once(param.name).chain(param.aliases.iter().copied()) {
+                match seen_index.get(name) {
+                    Some(&prior) if prior != index => return true,
+                    _ => {
+                        seen_index.entry(name).or_insert(index);
+                    }
+                }
+            }
         }
     }
     false
