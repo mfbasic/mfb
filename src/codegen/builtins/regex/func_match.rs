@@ -98,7 +98,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Boolean,
-            errors: vec![],
+            errors: vec!["ErrInvalidFormat"],
             body: Body::mfb(FUNC_BODY, "__regex_match"),
         }],
     });

@@ -145,7 +145,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Integer,
-            errors: vec![],
+            errors: vec!["ErrInvalidFormat", "ErrIndexOutOfRange"],
             body: Body::mfb(FUNC_BODY, "__regex_find"),
         }],
     });
