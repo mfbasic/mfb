@@ -1,95 +1,322 @@
 IMPORT bits
 IMPORT errorCode
 
+' =============================================================================
+' Full acceptance + security suite for the `bits` import.
+'
+' Every member is exercised with multiple cases covering ordinary values, the
+' full-width edge cases (i64 MIN/MAX, the sign bit, all-ones), and — for the only
+' fallible members (the variable shifts `sl`/`sr`/`sra`) — every documented error
+' path (out-of-range `count` -> ErrInvalidArgument) plus the in-range boundaries.
+'
+' Every expected value is computed independently against a two's-complement i64
+' reference (Python), not harvested from mfb. MIN is written as the decimal
+' literal -9223372036854775808 (the hex 0x8000000000000000 overflows the literal
+' parser); MAX is 9223372036854775807. The width-specific ops (rl32/rr32 use the
+' low 32 bits and zero-extend; bswap16/bswap32 clear the high bits) are probed
+' with -1 so a positive result proves the high bits were dropped.
+' =============================================================================
+
 TESTING
   TGROUP "Builtin: bits"
-    TGROUP "bitwise"
-      TCASE "band masks the overlapping bits"
+
+    ' -----------------------------------------------------------------------
+    TGROUP "band — bitwise AND"
+      TCASE "masks overlapping bits"
         expectInteger(bits::band(65280, 4080), 3840)
         expectInteger(bits::band(255, 15), 15)
+        expectInteger(bits::band(0xF0F0, 0x0FF0), 0x00F0)
       END TCASE
-      TCASE "bor sets the union of bits"
-        expectInteger(bits::bor(255, 65280), 65535)
-        expectInteger(bits::bor(0, 0), 0)
+      TCASE "identities: all-ones and zero"
+        expectInteger(bits::band(-1, 12345), 12345)
+        expectInteger(bits::band(0, -1), 0)
+        expectInteger(bits::band(-1, -1), -1)
+        expectInteger(bits::band(987654321, 987654321), 987654321)
       END TCASE
-      TCASE "bxor toggles differing bits"
-        expectInteger(bits::bxor(65535, 3855), 61680)
-        expectInteger(bits::bxor(10, 10), 0)
-      END TCASE
-      TCASE "bnot inverts every bit"
-        expectInteger(bits::bnot(0), -1)
-        expectInteger(bits::bnot(-1), 0)
+      TCASE "sign-bit / full-width edges"
+        expectInteger(bits::band(-9223372036854775808, 9223372036854775807), 0)
+        expectInteger(bits::band(-1, -9223372036854775808), -9223372036854775808)
       END TCASE
     END TGROUP
 
-    TGROUP "shifts"
-      TCASE "sl shifts left"
+    ' -----------------------------------------------------------------------
+    TGROUP "bor — bitwise OR"
+      TCASE "sets the union of bits"
+        expectInteger(bits::bor(255, 65280), 65535)
+        expectInteger(bits::bor(0, 0), 0)
+        expectInteger(bits::bor(0x1000, 0x0001), 0x1001)
+      END TCASE
+      TCASE "identities: all-ones and zero"
+        expectInteger(bits::bor(-1, 0), -1)
+        expectInteger(bits::bor(0, 42), 42)
+        expectInteger(bits::bor(42, 42), 42)
+      END TCASE
+      TCASE "MAX | MIN sets every bit"
+        expectInteger(bits::bor(9223372036854775807, -9223372036854775808), -1)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "bxor — bitwise XOR"
+      TCASE "toggles differing bits"
+        expectInteger(bits::bxor(65535, 3855), 61680)
+        expectInteger(bits::bxor(10, 10), 0)
+      END TCASE
+      TCASE "xor with all-ones inverts; self-inverse"
+        expectInteger(bits::bxor(-1, 0), -1)
+        expectInteger(bits::bxor(-1, -1), 0)
+        expectInteger(bits::bxor(bits::bxor(123456, 789), 789), 123456)
+      END TCASE
+      TCASE "MAX ^ MIN sets every bit"
+        expectInteger(bits::bxor(9223372036854775807, -9223372036854775808), -1)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "bnot — bitwise NOT"
+      TCASE "inverts every bit"
+        expectInteger(bits::bnot(0), -1)
+        expectInteger(bits::bnot(-1), 0)
+        expectInteger(bits::bnot(5), -6)
+      END TCASE
+      TCASE "MAX <-> MIN"
+        expectInteger(bits::bnot(9223372036854775807), -9223372036854775808)
+        expectInteger(bits::bnot(-9223372036854775808), 9223372036854775807)
+      END TCASE
+      TCASE "double negation is identity"
+        expectInteger(bits::bnot(bits::bnot(4242)), 4242)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "sl — logical left shift (fallible: count 0..63)"
+      TCASE "basic shifts"
         expectInteger(bits::sl(1, 4), 16)
         expectInteger(bits::sl(255, 8), 65280)
         expectInteger(bits::sl(1, 0), 1)
       END TCASE
-      TCASE "sr shifts right (logical, zero-fill)"
+      TCASE "edge counts and overflow discard"
+        expectInteger(bits::sl(1, 62), 4611686018427387904)
+        expectInteger(bits::sl(1, 63), -9223372036854775808)
+        expectInteger(bits::sl(-1, 1), -2)
+        expectInteger(bits::sl(9223372036854775807, 1), -2)
+      END TCASE
+      TCASE "in-range counts never trap"
+        expectNTrap(bits::sl(1, 0))
+        expectNTrap(bits::sl(1, 63))
+      END TCASE
+      TCASE "security: out-of-range count -> ErrInvalidArgument"
+        expectTrap(bits::sl(1, 64), errorCode::ErrInvalidArgument)
+        expectTrap(bits::sl(1, 65), errorCode::ErrInvalidArgument)
+        expectTrap(bits::sl(1, 100), errorCode::ErrInvalidArgument)
+        expectTrap(bits::sl(1, -1), errorCode::ErrInvalidArgument)
+        expectTrap(bits::sl(1, -64), errorCode::ErrInvalidArgument)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "sr — logical right shift (fallible: count 0..63)"
+      TCASE "zero-fills the vacated high bits"
         expectInteger(bits::sr(256, 4), 16)
+        expectInteger(bits::sr(255, 4), 15)
         expectInteger(bits::sr(-1, 1), 9223372036854775807)
       END TCASE
-      TCASE "sra shifts right (arithmetic, sign-fill)"
+      TCASE "edge counts (sign bit is not replicated)"
+        expectInteger(bits::sr(-9223372036854775808, 63), 1)
+        expectInteger(bits::sr(9223372036854775807, 63), 0)
+        expectInteger(bits::sr(-1, 63), 1)
+        expectInteger(bits::sr(42, 0), 42)
+      END TCASE
+      TCASE "in-range counts never trap"
+        expectNTrap(bits::sr(1, 0))
+        expectNTrap(bits::sr(1, 63))
+      END TCASE
+      TCASE "security: out-of-range count -> ErrInvalidArgument"
+        expectTrap(bits::sr(1, 64), errorCode::ErrInvalidArgument)
+        expectTrap(bits::sr(1, -1), errorCode::ErrInvalidArgument)
+        expectTrap(bits::sr(255, 200), errorCode::ErrInvalidArgument)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "sra — arithmetic right shift (fallible: count 0..63)"
+      TCASE "sign-fills; rounds toward negative infinity"
         expectInteger(bits::sra(-8, 1), -4)
         expectInteger(bits::sra(8, 1), 4)
+        expectInteger(bits::sra(-1, 1), -1)
+        expectInteger(bits::sra(-3, 1), -2)
       END TCASE
-      TCASE "sl traps on an out-of-range count"
-        expectTrap(bits::sl(1, 64), errorCode::ErrInvalidArgument)
-        expectTrap(bits::sl(1, -1), errorCode::ErrInvalidArgument)
+      TCASE "edge counts collapse to 0 or -1"
+        expectInteger(bits::sra(-9223372036854775808, 63), -1)
+        expectInteger(bits::sra(9223372036854775807, 63), 0)
+        expectInteger(bits::sra(-1, 63), -1)
+        expectInteger(bits::sra(42, 0), 42)
       END TCASE
-      TCASE "sl does not trap on an in-range count"
-        expectNTrap(bits::sl(1, 4))
+      TCASE "in-range counts never trap"
+        expectNTrap(bits::sra(-8, 0))
+        expectNTrap(bits::sra(-8, 63))
+      END TCASE
+      TCASE "security: out-of-range count -> ErrInvalidArgument"
+        expectTrap(bits::sra(1, 64), errorCode::ErrInvalidArgument)
+        expectTrap(bits::sra(-1, -1), errorCode::ErrInvalidArgument)
       END TCASE
     END TGROUP
 
-    TGROUP "rotations"
-      TCASE "rl32 rotates a 32-bit value left"
+    ' -----------------------------------------------------------------------
+    TGROUP "rl32 — rotate low 32 bits left (count mod 32, total)"
+      TCASE "basic and wrap-around rotations"
         expectInteger(bits::rl32(2147483648, 1), 1)
         expectInteger(bits::rl32(1, 32), 1)
+        expectInteger(bits::rl32(1, 4), 16)
+        expectInteger(bits::rl32(305419896, 8), 878082066)
       END TCASE
-      TCASE "rl64 rotates a 64-bit value left"
-        expectInteger(bits::rl64(1, 1), 2)
-        expectInteger(bits::rl64(1, 64), 1)
+      TCASE "count reduced mod 32, including negative"
+        expectInteger(bits::rl32(1, 0), 1)
+        expectInteger(bits::rl32(1, -1), 2147483648)
       END TCASE
-      TCASE "rr32 rotates a 32-bit value right"
+      TCASE "high 32 bits ignored; result zero-extended"
+        expectInteger(bits::rl32(-1, 5), 4294967295)
+        expectInteger(bits::rl32(-1, 0), 4294967295)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "rr32 — rotate low 32 bits right (count mod 32, total)"
+      TCASE "basic and wrap-around rotations"
         expectInteger(bits::rr32(1, 1), 2147483648)
         expectInteger(bits::rr32(1, 33), 2147483648)
+        expectInteger(bits::rr32(2, 1), 1)
+        expectInteger(bits::rr32(305419896, 8), 2014458966)
       END TCASE
-      TCASE "rr64 rotates a 64-bit value right"
+      TCASE "high 32 bits ignored; result zero-extended"
+        expectInteger(bits::rr32(-1, 3), 4294967295)
+        expectInteger(bits::rr32(-1, 0), 4294967295)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "rl64 — rotate 64 bits left (count mod 64, total)"
+      TCASE "basic and wrap-around rotations"
+        expectInteger(bits::rl64(1, 1), 2)
+        expectInteger(bits::rl64(1, 64), 1)
+        expectInteger(bits::rl64(-9223372036854775808, 1), 1)
+        expectInteger(bits::rl64(1, 63), -9223372036854775808)
+      END TCASE
+      TCASE "count reduced mod 64, including negative"
+        expectInteger(bits::rl64(1, 0), 1)
+        expectInteger(bits::rl64(1, -1), -9223372036854775808)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "rr64 — rotate 64 bits right (count mod 64, total)"
+      TCASE "basic and wrap-around rotations"
         expectInteger(bits::rr64(2, 1), 1)
         expectInteger(bits::rr64(1, 64), 1)
+        expectInteger(bits::rr64(1, 1), -9223372036854775808)
+        expectInteger(bits::rr64(-9223372036854775808, 63), 1)
       END TCASE
     END TGROUP
 
-    TGROUP "byte swaps"
-      TCASE "bswap16 reverses two bytes"
+    ' -----------------------------------------------------------------------
+    TGROUP "bswap16 — reverse low two bytes (clears high bits, total)"
+      TCASE "byte reversal"
         expectInteger(bits::bswap16(4660), 13330)
+        expectInteger(bits::bswap16(255), 65280)
+        expectInteger(bits::bswap16(65280), 255)
+        expectInteger(bits::bswap16(0), 0)
+        expectInteger(bits::bswap16(65535), 65535)
       END TCASE
-      TCASE "bswap32 reverses four bytes"
-        expectInteger(bits::bswap32(305419896), 2018915346)
-      END TCASE
-      TCASE "bswap64 reverses eight bytes"
-        expectInteger(bits::bswap64(72623859790382856), 578437695752307201)
+      TCASE "high bits above bit 15 are cleared"
+        expectInteger(bits::bswap16(-1), 65535)
+        expectInteger(bits::bswap16(bits::bor(bits::sl(305419896, 16), 4660)), 13330)
       END TCASE
     END TGROUP
 
-    TGROUP "bit counts"
-      TCASE "clz counts leading zeros"
+    ' -----------------------------------------------------------------------
+    TGROUP "bswap32 — reverse low four bytes (clears high bits, total)"
+      TCASE "byte reversal"
+        expectInteger(bits::bswap32(305419896), 2018915346)
+        expectInteger(bits::bswap32(255), 4278190080)
+        expectInteger(bits::bswap32(0), 0)
+      END TCASE
+      TCASE "high bits above bit 31 are cleared"
+        expectInteger(bits::bswap32(-1), 4294967295)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "bswap64 — reverse all eight bytes (total)"
+      TCASE "full-width byte reversal"
+        expectInteger(bits::bswap64(72623859790382856), 578437695752307201)
+        expectInteger(bits::bswap64(0), 0)
+        expectInteger(bits::bswap64(1), 72057594037927936)
+        expectInteger(bits::bswap64(255), -72057594037927936)
+      END TCASE
+      TCASE "double swap is identity"
+        expectInteger(bits::bswap64(bits::bswap64(1234567890123456789)), 1234567890123456789)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "clz — count leading zeros (total)"
+      TCASE "ordinary and boundary inputs"
         expectInteger(bits::clz(1), 63)
         expectInteger(bits::clz(0), 64)
+        expectInteger(bits::clz(255), 56)
+        expectInteger(bits::clz(9223372036854775807), 1)
       END TCASE
-      TCASE "ctz counts trailing zeros"
-        expectInteger(bits::ctz(8), 3)
-        expectInteger(bits::ctz(0), 64)
-      END TCASE
-      TCASE "popCount counts set bits"
-        expectInteger(bits::popCount(255), 8)
-        expectInteger(bits::popCount(0), 0)
-        expectInteger(bits::popCount(-1), 64)
+      TCASE "sign bit set -> zero leading zeros"
+        expectInteger(bits::clz(-1), 0)
+        expectInteger(bits::clz(-9223372036854775808), 0)
       END TCASE
     END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "ctz — count trailing zeros (total)"
+      TCASE "ordinary and boundary inputs"
+        expectInteger(bits::ctz(8), 3)
+        expectInteger(bits::ctz(0), 64)
+        expectInteger(bits::ctz(1), 0)
+        expectInteger(bits::ctz(2), 1)
+        expectInteger(bits::ctz(256), 8)
+      END TCASE
+      TCASE "sign bit only -> 63; odd value -> 0"
+        expectInteger(bits::ctz(-9223372036854775808), 63)
+        expectInteger(bits::ctz(-1), 0)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "popCount — count set bits (total)"
+      TCASE "ordinary inputs"
+        expectInteger(bits::popCount(255), 8)
+        expectInteger(bits::popCount(0), 0)
+        expectInteger(bits::popCount(61680), 8)
+        expectInteger(bits::popCount(1), 1)
+      END TCASE
+      TCASE "full-width edges"
+        expectInteger(bits::popCount(-1), 64)
+        expectInteger(bits::popCount(9223372036854775807), 63)
+        expectInteger(bits::popCount(-9223372036854775808), 1)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "identities — cross-function relationships"
+      TCASE "sl/sr are inverse for values that fit"
+        expectInteger(bits::sr(bits::sl(1, 20), 20), 1)
+      END TCASE
+      TCASE "rl64 then rr64 by same count is identity"
+        expectInteger(bits::rr64(bits::rl64(12345, 17), 17), 12345)
+      END TCASE
+      TCASE "popCount(x) + popCount(bnot(x)) == 64"
+        expectInteger(bits::popCount(123456789) + bits::popCount(bits::bnot(123456789)), 64)
+      END TCASE
+      TCASE "clz(x) + used bits: single-bit value clz+ctz == 63"
+        expectInteger(bits::clz(1024) + bits::ctz(1024), 63)
+      END TCASE
+    END TGROUP
+
   END TGROUP
 END TESTING
