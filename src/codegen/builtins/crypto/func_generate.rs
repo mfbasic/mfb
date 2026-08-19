@@ -1886,16 +1886,21 @@ pub(crate) fn lower_generate(
         }
     }
 
-    // Ed25519 dispatch (all platforms). TODO: route to the software
-    // `__crypto_generateEd25519` helper; a trappable error for now.
+    // Ed25519 dispatch (all platforms): call the software
+    // `__crypto_generateEd25519` MFB helper (always emitted with the crypto
+    // package — seed = randomBytes(32); pub = ed25519Public(seed)). It leaves the
+    // `KeyPair` in the result registers, so fall through to `done`.
     builder.instructions.push(abi::label(&ed25519));
-    emit_fail(
-        &symbol,
-        "ErrUnknown",
-        &mut builder.instructions,
-        &mut builder.relocations,
-        &done,
-    );
+    let ed_symbol = crate::target::shared::nir::function_symbol("#crypto_generateEd25519");
+    // Win64 mandates 32 bytes of caller-reserved shadow space around every call.
+    let win64 = matches!(ctx.platform.family(), PlatformFamily::Windows);
+    if win64 {
+        builder.instructions.push(abi::subtract_stack(0x20));
+    }
+    builder.emit_symbol_call(&ed_symbol);
+    if win64 {
+        builder.instructions.push(abi::add_stack(0x20));
+    }
 
     builder
         .instructions
