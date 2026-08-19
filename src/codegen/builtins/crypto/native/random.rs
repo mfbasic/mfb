@@ -118,6 +118,21 @@ pub(crate) fn lower_crypto_random_bytes_helper(
             &mut instructions,
             &mut relocations,
         )?;
+        // bug-447: a Win64 external call leaves its NTSTATUS in the C-return
+        // register (`rax` = `c_return(0)`), and — unlike `emit_linux_c_call` on
+        // linux-x86_64 — the Win64 `emit_external_call` does NOT stage it into
+        // the aligned MFB result bank. On Win64 `return_register()`
+        // (`mfb_return(0)`) is `rcx`, a distinct caller-saved register the call
+        // clobbers, so the shared `compare_immediate(return_register(), 0)`
+        // check below would read garbage and spuriously fail (ErrUnknown).
+        // Sign-extend the 32-bit NTSTATUS from `c_return(0)` into
+        // `return_register()`, matching the CNG `bcrypt_call` staging: this both
+        // moves the status into the register the check reads and clears any
+        // upper-32-bit garbage, so STATUS_SUCCESS (0) tests equal to 0.
+        instructions.push(abi::sign_extend_word(
+            abi::return_register(),
+            abi::c_return(0),
+        ));
     } else {
         platform.emit_external_call(
             "getentropy",
