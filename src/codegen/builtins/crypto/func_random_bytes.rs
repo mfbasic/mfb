@@ -9,28 +9,40 @@ use super::{
     bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
 };
 
-const INTRO: &str = r#"Return cryptographically secure random bytes drawn from the OS CSPRNG."#;
-const DESC: &str = r#"`crypto::randomBytes` returns `count` fresh bytes drawn from the operating
-system's cryptographically secure pseudo-random number generator (CSPRNG). The
-bytes are produced by `getentropy` (or `BCryptGenRandom` on Windows), a
-non-deprecated OS entropy source, so the output is suitable for keys, nonces,
-salts, tokens, and any other use where unpredictability is a security requirement.
+const INTRO: &str =
+    r#"Return `count` cryptographically secure random bytes drawn from the OS CSPRNG."#;
+const DESC: &str = r#"`crypto::randomBytes` returns a fresh `List OF Byte` of length `count`, filled
+from the operating system's cryptographically secure pseudo-random number
+generator (CSPRNG). The output is unpredictable to an adversary and is the
+correct source for keys, nonces, initialization vectors, salts, tokens, and any
+other value whose secrecy or unguessability is a security requirement.
 
-Unlike the portable software cores in this package (the hashes, HMAC, HKDF,
-PBKDF2, and the AEADs), `randomBytes` is a **native runtime helper** rather than
-source: it reads OS entropy directly, so its output is inherently non-reproducible
-and platform-provided rather than byte-identical across targets.
+**Range and boundaries.** `count` is validated **before** any allocation and
+must satisfy `0 <= count <= 16777216` (16 MiB, the `RANDOM_BYTES_MAX_COUNT`
+cap). A `count` of `0` returns an empty list; a negative `count` or one above
+the 16 MiB cap raises `ErrInvalidArgument` and allocates nothing. The cap also
+keeps the internal collection-size arithmetic well below integer overflow.
 
-This generator is cryptographically secure and, by design, **not** seedable:
-there is no way to fix or replay its output. That is the deliberate contrast with
-`math::rand`, a fast, seedable PCG64 generator that is **not** cryptographically
-secure and must never be used for keys, tokens, or nonces.
+**Security caveats.** This generator is cryptographically secure and, by design,
+**not** seedable — there is no way to fix, seed, or replay its output, and each
+call draws fresh entropy, so results are never reproducible across runs. That is
+the deliberate contrast with `math::rand`, a fast, seedable PCG64 generator that
+is **not** cryptographically secure and must never be used for keys, tokens, or
+nonces. After the returned list is built, the internal entropy scratch buffer is
+zeroed, so no later allocation in the same program can observe the generated
+bytes. When you later compare secret material derived from these bytes (a MAC, a
+token, an API key), never use the ordinary `=` operator — it short-circuits and
+leaks timing; use `crypto::constantTimeEqual`.
 
-Each call draws fresh entropy, so results are not reproducible across runs.
-`count` must be in the range `0` to `16777216` (16 MiB) inclusive: a `count` of 0
-returns an empty list, while a negative `count` or one above the 16 MiB cap raises
-`ErrInvalidArgument`. Internally the fill runs in chunks of at most 256 bytes (the
-per-call `getentropy` limit), transparent to the caller."#;
+**Implementation.** Unlike the portable software cores in this package (the
+hashes, HMAC, HKDF, PBKDF2, and the AEADs), `randomBytes` is the one member here
+that is a **native runtime helper reading OS entropy directly**, not MFBASIC
+source. On **macOS and Linux** (glibc and musl) it uses `getentropy(2)`, filling
+the buffer in chunks of at most 256 bytes (the per-call `getentropy` limit),
+transparent to the caller. On **Windows** it uses `BCryptGenRandom` with the
+`BCRYPT_USE_SYSTEM_PREFERRED_RNG` flag. Because the bytes come from OS entropy,
+the output is inherently non-reproducible and platform-provided rather than
+byte-identical across targets."#;
 const EX: &str = r#"Generate a 32-byte key and a 12-byte AEAD nonce:
 
 ```
