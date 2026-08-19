@@ -74,9 +74,6 @@ pub(crate) fn is_native_crypto_call(name: &str) -> bool {
     matches!(
         name,
         "crypto.randomBytes"
-            | "crypto.generateP256"
-            | "crypto.generateP384"
-            | "crypto.generateP521"
             | "crypto.p256Sign"
             | "crypto.p256Verify"
             | "crypto.p384Sign"
@@ -317,14 +314,16 @@ pub(crate) fn register(r: &mut Registry) {
     func_random_bytes::register(&mut pkg);
     func_random_int::register(&mut pkg);
     func_uuid4::register(&mut pkg);
-    // Public-key key generation. Ed25519 source; each NIST-EC `generateP*` is a
-    // single NATIVE member that builds the `KeyPair` record itself (its raw twin +
-    // source glue were collapsed in).
-    func_generate_ed25519::register(&mut pkg);
+    // Public-key key generation. The unified clean-room `generate(Certificate)`
+    // covers every curve (NIST-EC via CNG/SecKey/OpenSSL, Ed25519 via the software
+    // helper); the per-type `generateP*`/`generateEd25519` members it replaced were
+    // removed.
     func_generate::register(&mut pkg);
-    func_generate_p256::register(&mut pkg);
-    func_generate_p384::register(&mut pkg);
-    func_generate_p521::register(&mut pkg);
+    // The unified clean-room `sign(Certificate, privateKey, message)` covers every
+    // curve (NIST-EC via CNG/SecKey/OpenSSL, Ed25519 via the software helper),
+    // mirroring `generate`. The per-curve `p*Sign`/`ed25519Sign` it will replace are
+    // still registered below (removed in a later step).
+    func_sign::register(&mut pkg);
     // Signatures (Ed25519 source; NIST-EC native).
     func_ed25519_sign::register(&mut pkg);
     func_ed25519_verify::register(&mut pkg);
@@ -348,10 +347,6 @@ mod func_constant_time_equal;
 mod func_ed25519_sign;
 mod func_ed25519_verify;
 pub(crate) mod func_generate;
-mod func_generate_ed25519;
-mod func_generate_p256;
-mod func_generate_p384;
-mod func_generate_p521;
 mod func_hkdf_sha256;
 mod func_hkdf_sha512;
 mod func_hmac_sha256;
@@ -370,6 +365,7 @@ mod func_sha224;
 mod func_sha256;
 mod func_sha384;
 mod func_sha512;
+pub(crate) mod func_sign;
 mod func_uuid4;
 
 mod helper_add32;
@@ -535,9 +531,10 @@ mod tests {
         let pkg = registry()
             .resolve_package("crypto")
             .expect("crypto package");
-        // 31 members: the 30 legacy members (each generateP*Raw collapsed into its
-        // native generateP*) plus the clean-room `generate(Certificate)`.
-        assert_eq!(pkg.functions().len(), 31);
+        // 28 members: the unified clean-room `generate(Certificate)` replaced the
+        // four per-type `generateP*`/`generateEd25519` members, plus the unified
+        // clean-room `sign(Certificate, …)` added alongside the per-curve signers.
+        assert_eq!(pkg.functions().len(), 28);
     }
 
     #[test]
@@ -560,10 +557,8 @@ mod tests {
             "crypto.randomBytes",
             "crypto.randomInt",
             "crypto.uuid4",
-            "crypto.generateEd25519",
-            "crypto.generateP256",
-            "crypto.generateP384",
-            "crypto.generateP521",
+            "crypto.generate",
+            "crypto.sign",
             "crypto.ed25519Sign",
             "crypto.ed25519Verify",
             "crypto.p256Sign",
@@ -583,9 +578,6 @@ mod tests {
     fn native_and_internal_flags() {
         for f in [
             "crypto.randomBytes",
-            "crypto.generateP256",
-            "crypto.generateP384",
-            "crypto.generateP521",
             "crypto.p256Sign",
             "crypto.p256Verify",
             "crypto.p384Sign",
@@ -696,7 +688,6 @@ mod tests {
             Some("Sealed".into())
         );
         assert_eq!(r("crypto.uuid4", &[]), Some("String".into()));
-        assert_eq!(r("crypto.generateEd25519", &[]), Some("KeyPair".into()));
         assert_eq!(
             r("crypto.randomBytes", &["Integer"]),
             Some("List OF Byte".into())

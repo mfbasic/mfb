@@ -187,9 +187,7 @@ const RUNTIME_CALLS: &[&str] = &[
     // Crypto (plan-47-J): randomBytes over BCryptGenRandom, NIST-EC over CNG.
     "crypto.randomBytes",
     "crypto.generate",
-    "crypto.generateP256",
-    "crypto.generateP384",
-    "crypto.generateP521",
+    "crypto.sign",
     "crypto.p256Sign",
     "crypto.p384Sign",
     "crypto.p521Sign",

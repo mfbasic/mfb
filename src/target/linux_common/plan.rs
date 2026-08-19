@@ -510,10 +510,11 @@ impl LinuxPlan<'_> {
                 imports
             }
             call if call == "crypto.generate"
+                || call == "crypto.sign"
                 || (crate::codegen::builtins::crypto::is_native_crypto_call(call)
                     && call != "crypto.randomBytes") =>
             {
-                // The NIST-EC helpers (and the clean-room `crypto.generate`) resolve
+                // The NIST-EC helpers (and the clean-room `crypto.generate`/`sign`) resolve
                 // libcrypto at load time via dlopen/dlsym (no deprecated OpenSSL
                 // calls on any version).
                 vec![
