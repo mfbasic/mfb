@@ -1623,7 +1623,12 @@ For the NIST curves this is **FIPS 186-4 ECDSA** with the curve's mandated diges
 whole message, and the result is an **ASN.1 DER** `Ecdsa-Sig-Value` (a `SEQUENCE {
 INTEGER r, INTEGER s }`, X9.62); its length is variable (roughly 70–72 bytes for
 `P256`) because `r`/`s` are minimally encoded. ECDSA is randomized, so signing the
-same message twice yields different (both valid) signatures. For `Ed25519` this is
+same message twice yields different (both valid) signatures. ECDSA signatures are
+also **malleable**: from one valid `(r, s)` a third party can derive another
+signature that verifies for the same message and key (e.g. `(r, n − s)`), and the
+DER can be re-serialized — this implementation does not enforce a canonical low-S
+form. Never treat a signature's bytes (or a hash of them) as a unique identifier,
+and never use them for replay protection or deduplication. For `Ed25519` this is
 **RFC 8032 PureEdDSA** (deterministic; the message is hashed with SHA-512
 internally) and the result is the fixed **64-byte** raw `R‖S`. Either is
 verifiable with `crypto::verify(type, …)` for the same `type`.

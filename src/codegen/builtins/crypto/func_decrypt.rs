@@ -40,6 +40,12 @@ raises `ErrInvalidArgument`. The optional `aad` must match the `aad` supplied to
 `crypto::encrypt` / `crypto::decrypt` — the box is a bespoke MFB format, not RFC
 9180 HPKE or the libsodium sealed box.
 
+**A successful decrypt does not authenticate the sender.** A valid tag proves the
+box was not modified, not *who* created it — a sealed box is anonymous, and anyone
+holding your public key can send one. When you need to know who sent a message,
+have the sender sign it with `crypto::sign` and check the signature with
+`crypto::verify` in addition to decrypting.
+
 **Implementation.** X25519 (RFC 7748), the Ed25519→X25519 conversion (RFC 8032 /
 RFC 7748), HKDF-SHA256 (RFC 5869), and the inner AEAD are all pure MFBASIC software
 cores computed over the `bits` package — no platform cryptographic library — so

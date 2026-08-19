@@ -1497,7 +1497,10 @@ SEC/NIST `secp256r1`/`secp384r1`/`secp521r1`) and `Ed25519` (RFC 8032 EdDSA) —
 are usable with `crypto::sign(type, …)` and `crypto::verify(type, …)` for that
 same `type`. `X25519` produces a Curve25519 ECDH key-agreement pair (RFC 7748); it
 is **not** a signing key, so `sign`/`verify` reject it with `ErrInvalidArgument`.
-Use it with `crypto::convert` / key agreement instead.
+Note that `crypto::encrypt`/`crypto::decrypt` take **Ed25519** keys (converting them
+to X25519 internally, as `crypto::convert` does), so a directly generated `X25519`
+pair is a raw ECDH building block for a protocol you construct yourself rather than a
+direct input to any other current `crypto` member.
 
 **Encodings and sizes.** Every field is raw big-endian bytes — no PEM, no
 base64, no DER wrapper on the key material itself. For the NIST curves the

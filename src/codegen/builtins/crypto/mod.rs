@@ -95,7 +95,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_record(RegistryRecord {
         name: "Sealed",
         export: true,
-        description: "The result of an AEAD seal operation: the encrypted `ciphertext` bytes paired with the authentication `tag` that binds them.",
+        description: "The result of an AEAD seal operation: the encrypted `ciphertext` bytes paired with the 16-byte authentication `tag` that binds them. The 12-byte nonce is NOT part of this record — store or transmit it separately (it is not secret) and pass it back to `crypto::open`.",
         props: vec![
             RecordProp { name: "ciphertext", ty: ParameterType::list_of(ParameterType::Byte), description: "The encrypted message bytes." },
             RecordProp { name: "tag", ty: ParameterType::list_of(ParameterType::Byte), description: "The authentication tag produced by the AEAD cipher, verified on open." },
@@ -137,7 +137,7 @@ pub(crate) fn register(r: &mut Registry) {
             },
             EnumVariant {
                 name: "X25519",
-                description: "X25519 (Curve25519 ECDH) key-agreement key pair. Use with `crypto::convert` / key agreement, not `crypto::sign`.",
+                description: "X25519 (Curve25519 ECDH) key-agreement key pair — not a signing key. `crypto::encrypt`/`crypto::decrypt` take Ed25519 keys (converted internally), so a raw X25519 pair is an ECDH building block, not a direct input to another `crypto` member.",
             },
         ],
     });

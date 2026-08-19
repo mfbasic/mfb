@@ -45,13 +45,30 @@ The returned box is `ephemeralPublicKey (32 bytes) ‖ ciphertext (= |data|) ‖
 (16 bytes)`, decrypted with `crypto::decrypt(cipher, recipientPrivateKey, box)`.
 
 **Non-deterministic.** The random ephemeral key makes the box non-deterministic —
-encrypting the same message twice yields different boxes — and gives a measure of
-forward secrecy: a captured box's ephemeral secret is discarded after the call, so
-later compromise of the recipient's long-term key does not by itself reconstruct
-it. The optional `aad` (additional authenticated data) is authenticated but not
-encrypted and must be supplied identically to `crypto::decrypt`; it defaults to the
-empty list. The `List OF Byte` overload encrypts the raw bytes; the `String`
-overload encrypts the string's UTF-8 encoding.
+encrypting the same message twice yields different boxes. The optional `aad`
+(additional authenticated data) is authenticated but not encrypted and must be
+supplied identically to `crypto::decrypt`; it defaults to the empty list. The
+`List OF Byte` overload encrypts the raw bytes; the `String` overload encrypts the
+string's UTF-8 encoding.
+
+**Security properties — read before relying on it.** The box provides
+*confidentiality* and *integrity*, but deliberately **not** two properties
+developers often assume:
+
+- **No forward secrecy.** The shared secret is `ECDH(ephemeral, recipient)`, and the
+  ephemeral public key travels inside the box, so the recipient's long-term private
+  key decrypts *every* box ever sent to it. An attacker who records boxes and later
+  obtains that private key can read all of them. The fresh ephemeral key only means
+  the *sender* retains no long-term secret; it does not protect past messages once
+  the recipient's key leaks. True forward secrecy needs an interactive protocol with
+  fresh ephemeral keys on **both** sides.
+- **No sender authentication.** Anyone holding the recipient's public key can produce
+  a valid box; the AEAD tag proves the box was not modified, not *who* created it. A
+  raw sealed box is anonymous — if the recipient must know the sender, also sign the
+  message with `crypto::sign`.
+
+Because one Ed25519 identity here serves both signing and encryption, see the
+key-reuse note on `crypto::convert` before sharing a single key pair across both.
 
 **Not an interoperable wire format.** This is a bespoke MFB construction (note the
 `"mfb-box-v1"` domain separation). It is NOT RFC 9180 HPKE and NOT the libsodium

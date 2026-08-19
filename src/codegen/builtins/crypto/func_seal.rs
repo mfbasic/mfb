@@ -107,8 +107,16 @@ the string's UTF-8 encoding.
 ciphers are catastrophically broken if it is — GCM reuse can leak the GHASH
 authentication key (enabling forgeries), and either cipher leaks the XOR of the two
 plaintexts. Generate a fresh nonce for every message with `crypto::randomBytes(12)`
-and store or transmit it alongside the ciphertext; the nonce is not secret. Sealing
-is otherwise deterministic given `(key, nonce, data, aad)`.
+and store or transmit it alongside the ciphertext; the nonce is not secret. Note the
+birthday bound: with **random** 12-byte nonces the chance of an accidental collision
+grows with the message count, so rotate the key well before roughly **2³²** messages
+(or drive the nonce from a per-key counter). Sealing is otherwise deterministic
+given `(key, nonce, data, aad)`.
+
+**Key quality.** The 32-byte `key` must be uniformly random — draw it from
+`crypto::randomBytes(32)`, a key-agreement result, or a KDF (`crypto::hkdf` /
+`crypto::pbkdf2`). Never seal directly under a password, passphrase, or other
+low-entropy value.
 
 **Implementation.** Both ciphers are pure MFBASIC software cores computed over the
 `bits` package — no platform cryptographic library — so the ciphertext and tag are

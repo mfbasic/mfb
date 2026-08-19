@@ -80,7 +80,11 @@ display or store it, and compare a received digest with `crypto::constantTimeEqu
 `hash` is a general-purpose digest and message-integrity primitive; it is **not** a
 password hash. Stretch a low-entropy password into key material with the deliberately
 slow, salted `crypto::pbkdf2`, and authenticate a message under a shared secret key
-with `crypto::hmac` — a bare hash provides no authentication.
+with `crypto::hmac` — a bare hash provides no authentication. In particular, do
+**not** build a MAC as `hash(type, key ‖ message)`: `SHA256` and `SHA512` are
+vulnerable to length-extension (the truncated `SHA224`/`SHA384` resist it), which
+lets an attacker who never saw `key` append data and forge a valid digest. Use
+`crypto::hmac` for keyed authentication.
 
 **Implementation.** SHA-2 is specified by FIPS 180-4 (SHA-224/256/384/512). The
 digest is computed in-process by a portable MFBASIC software core over the `bits`

@@ -1542,10 +1542,13 @@ exact `message` under that exact `publicKey`, and `FALSE` otherwise — a failed
 verdict (wrong message, wrong key, or a corrupt/wrong-length `signature`) is a
 normal outcome, not an error. For the NIST curves this is **FIPS 186-4 ECDSA**
 with the curve's digest (SHA-256/384/512 for `P256`/`P384`/`P521`) and the
-signature is an **ASN.1 DER** `Ecdsa-Sig-Value`; for `Ed25519` it is **RFC 8032
+signature is an **ASN.1 DER** `Ecdsa-Sig-Value`. ECDSA signatures are **malleable**
+and are not constrained here to a canonical low-S form, so a single message/key can
+have more than one distinct `signature` that verifies `TRUE`; never use signature
+bytes as a unique identifier (see `crypto::sign`). For `Ed25519` it is **RFC 8032
 PureEdDSA** over the fixed 64-byte `R‖S`, which additionally rejects a
-non-canonical scalar `S ≥ L` (returning `FALSE`) so a malleated signature cannot
-verify.
+non-canonical scalar `S ≥ L` (returning `FALSE`) so a malleated `Ed25519` signature
+cannot verify.
 
 **Boundary and errors.** For the NIST curves a malformed `publicKey` — wrong
 length, or a right-length off-curve point the platform import rejects — raises

@@ -31,6 +31,12 @@ ECDH as one from `crypto::generate(Certificate.X25519)`. It lets a single Ed2551
 identity be used for both signing (`crypto::sign`) and encryption
 (`crypto::encrypt` / `crypto::decrypt`, which perform this conversion internally).
 
+**No type checking.** A `crypto::KeyPair` carries no tag identifying its curve, so
+`convert` cannot detect a mismatched input — it assumes `keys` is a 32-byte Ed25519
+pair from `crypto::generate(Certificate.Ed25519)` and simply applies the map.
+Passing any other pair produces an incorrect X25519 result rather than an error, so
+make sure `keys` really is an Ed25519 key pair.
+
 **Key reuse note.** Sharing one key pair across both signing and Diffie-Hellman is a
 deliberate, supported convenience here, but reusing key material across primitives
 is generally discouraged; prefer separate keys when your threat model allows.

@@ -12,8 +12,7 @@ use super::{
     bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,
 };
 
-const INTRO: &str =
-    r#"Derive a key from a password with PBKDF2, selected by a `crypto::Hash`."#;
+const INTRO: &str = r#"Derive a key from a password with PBKDF2, selected by a `crypto::Hash`."#;
 const DESC: &str = r#"`crypto::pbkdf2(type, password, salt, iterations, length)` derives `length` bytes of
 key material from a `password` and `salt` using PBKDF2-HMAC over the SHA-2 hash
 selected by `type` — a `crypto::Hash`: `SHA224`, `SHA256`, `SHA384`, or `SHA512`. The
@@ -25,9 +24,16 @@ salted password through repeated hashing so that each derived byte costs about
 `iterations` HMAC evaluations. This iteration count is the *work factor*: it
 deliberately slows the derivation to make brute-force guessing of the password
 expensive. Use a unique, random `salt` per password (16 bytes or more) to defeat
-precomputation, and set `iterations` as high as your latency budget allows —
-hundreds of thousands is a common floor for interactive logins, higher for offline
-use. The derivation is deterministic in all of its inputs.
+precomputation, and set `iterations` as high as your latency budget allows — for
+PBKDF2-HMAC-SHA256 current guidance (OWASP, 2023) is on the order of **600,000**
+iterations, scaled down for the larger SHA-384/512 blocks and up for offline use.
+The derivation is deterministic in all of its inputs.
+
+**PBKDF2 is not memory-hard.** It is CPU-only and cheap to parallelize on GPUs and
+ASICs, so an attacker's per-guess cost is far lower than yours. For *storing*
+passwords, prefer a memory-hard function (Argon2id, scrypt, or bcrypt) where one is
+available; reach for PBKDF2 mainly to derive a key from a passphrase or for
+compatibility with an existing PBKDF2 deployment.
 
 `iterations` and `length` must each be at least 1; a value below 1 for either raises
 `ErrInvalidArgument`. `password` and `salt` may be any length, including empty. There
@@ -56,7 +62,7 @@ IMPORT io
 SUB main()
   LET password AS List OF Byte = strings::toBytes("correct horse")
   LET salt AS List OF Byte = crypto::randomBytes(16)
-  LET key AS List OF Byte = crypto::pbkdf2(Hash.SHA256, password, salt, 100000, 32)
+  LET key AS List OF Byte = crypto::pbkdf2(Hash.SHA256, password, salt, 600000, 32)
 END SUB
 ```"#;
 
