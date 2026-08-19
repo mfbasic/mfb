@@ -30,7 +30,7 @@ The optional `delimiter`, `quote`, and `newline` arguments select a dialect:
 used to wrap and escape, and `newline` replaces the LF written between rows. Each
 defaults to the RFC-4180 value (`,`, `"`, and LF) when omitted, so the
 one-argument form is unchanged. `delimiter` and `quote` must each be a non-empty
-single character.
+single character; an empty `delimiter` or `quote` raises `ErrInvalidFormat`.
 
 An empty outer list stringifies to the empty String. An empty row stringifies to
 an empty line, so a two-element outer list containing two empty rows produces a
@@ -69,6 +69,8 @@ END SUB
 #[rustfmt::skip]
 const FUNC_BODY: &str =
 r#"FUNC __csv_stringify(value AS List OF List OF String, delimiter AS String, quote AS String, newline AS String) AS String
+  LET checkDelimiter AS Integer = __csv_firstCode(delimiter)
+  LET checkQuote AS Integer = __csv_firstCode(quote)
   MUT out AS String = ""
   MUT firstRow AS Boolean = TRUE
   FOR EACH row IN value
@@ -131,7 +133,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::String,
-            errors: vec![],
+            errors: vec!["ErrInvalidFormat"],
             body: Body::mfb(FUNC_BODY, "__csv_stringify"),
         }],
     });

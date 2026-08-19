@@ -20,8 +20,9 @@ materialized. The rows a `parseStream`/`readRow` loop yields are identical to
 `csv::parse(value)`.
 
 The optional `delimiter` and `quote` select the input dialect exactly as for
-`csv::parse` (defaults `,` and `"`); each must be a non-empty single character.
-The output-only dialect option (`newline`) does not apply to reading.
+`csv::parse` (defaults `,` and `"`); each must be a non-empty single character —
+an empty `delimiter` or `quote` raises `ErrInvalidFormat` when the reader is
+opened. The output-only dialect option (`newline`) does not apply to reading.
 
 The argument may also be supplied by the name `text`. `csv::parseStream` does not
 mutate `value` and has no side effects."#;
@@ -88,7 +89,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 },
             ],
             return_type: ParameterType::Named("CsvReader"),
-            errors: vec![],
+            errors: vec!["ErrInvalidFormat"],
             body: Body::mfb(FUNC_BODY, "__csv_parseStream"),
         }],
     });

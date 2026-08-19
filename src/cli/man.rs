@@ -565,9 +565,11 @@ mod tests {
 
     #[test]
     fn a_member_with_no_declared_errors_omits_the_errors_section() {
-        let package = registry().resolve_package("csv").unwrap();
-        // stringify declares no errors.
-        let md = render_function_markdown(package, package.function("stringify").unwrap());
+        // Every `csv` member is now fallible (dialect validation raises
+        // ErrInvalidFormat), so use a total `bits` op instead: `band` declares no
+        // errors.
+        let package = registry().resolve_package("bits").unwrap();
+        let md = render_function_markdown(package, package.function("band").unwrap());
         assert!(!md.contains("## Errors"));
     }
 
