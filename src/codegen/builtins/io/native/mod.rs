@@ -40,9 +40,77 @@ mod stdin;
 mod stdout;
 mod terminal;
 
-use stdin::*;
-use stdout::*;
-use terminal::*;
+// `pub(crate)` re-export so each `func_*.rs` abi_function adapter (plan-101) can
+// reach its emitter as `super::native::lower_io_*_helper`.
+pub(crate) use stdin::*;
+pub(crate) use stdout::*;
+pub(crate) use terminal::*;
+
+use crate::codegen::engine::operand::Operand;
+use crate::codegen::registry::AbiCtx;
+
+/// Hand an already-finalized OS-seam helper body back to `lower_abi_function_helper`
+/// through the plan-101 pre-finalized hatch: place the finished stream in
+/// `builder.instructions`/`relocations`, stash `(frame, slots)` in
+/// `builder.abi_prefinalized`, and return the `void`-location `ValueResult` an
+/// abi_function body signals completion with. Shared by every migrated `io`
+/// abi_function adapter — the body an emitter (or an app-mode `AppHookBody`)
+/// produced is byte-identical to what `lower_io_helper` returned pre-migration.
+pub(crate) fn hatch_finalized(
+    builder: &mut CodeBuilder,
+    body: HelperBody,
+    return_type: &str,
+    text: &str,
+) -> Result<ValueResult, String> {
+    let (frame, instructions, relocations, stack_slots) = body;
+    builder.instructions = instructions;
+    builder.relocations = relocations;
+    builder.abi_prefinalized = Some((frame, stack_slots));
+    Ok(ValueResult {
+        type_: return_type.to_string(),
+        location: Operand::from("void"),
+        text: text.to_string(),
+    })
+}
+
+/// The app-vs-console mode an io abi_function adapter branches on, read from the
+/// `AbiCtx` the plan-101 dispatch threads in.
+pub(crate) fn adapter_app_mode(ctx: &AbiCtx) -> bool {
+    ctx.build_mode.is_app()
+}
+
+/// The error a migrated io abi_function adapter raises when the target lacks an
+/// app-mode io hook — the verbatim message the former `lower_io_helper` produced.
+pub(crate) fn app_unsupported(platform: &dyn CodegenPlatform) -> String {
+    format!(
+        "native target '{}' does not support app-mode io helpers",
+        platform.target()
+    )
+}
+
+/// Shared `abi_function` body for the three terminal predicates
+/// `io::is{Input,Output,Error}Terminal`, which differ only in the probed file
+/// descriptor (`fd`) and the result label (`text`). Console: `isatty(fd)` via
+/// `lower_io_is_terminal_helper`. App mode: the window is the interactive
+/// console, so all three return `TRUE` (`emit_app_io_is_terminal_helper`).
+pub(crate) fn lower_is_terminal_common(
+    builder: &mut CodeBuilder,
+    ctx: &AbiCtx,
+    fd: u8,
+    text: &str,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let body = if adapter_app_mode(ctx) {
+        pad_no_slots(
+            ctx.platform
+                .emit_app_io_is_terminal_helper(&symbol)
+                .ok_or_else(|| app_unsupported(ctx.platform))??,
+        )
+    } else {
+        lower_io_is_terminal_helper(&symbol, ctx.platform_imports, ctx.platform, fd)?
+    };
+    hatch_finalized(builder, body, "Boolean", text)
+}
 /// Family-generic OS-seam dispatcher for every `io` member — the verbatim `match
 /// call` block relocated from `src/codegen/engine/builder/mod.rs`. Registered in both
 /// the `posix` and `win` slots of each member's `Body::native_os_seam`. Derives

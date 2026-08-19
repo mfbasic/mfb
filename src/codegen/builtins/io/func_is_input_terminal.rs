@@ -5,8 +5,19 @@
 //! shared [`crate::codegen::builtins::io::native::lower_io_helper`] dispatcher (which branches on
 //! `platform.family()` and the runtime-call name internally).
 
-use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
+use crate::codegen::builtins::io::native::lower_is_terminal_common;
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
+
+/// `abi_function` body for `io::isInputTerminal` — `isatty(0)` (fd 0).
+pub(crate) fn lower_is_input_terminal(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    lower_is_terminal_common(builder, ctx, 0, "io.isInputTerminal")
+}
 
 const INTRO: &str = r#"Report whether standard input is an interactive terminal"#;
 const DESC: &str = r#"`io::isInputTerminal` returns `TRUE` when standard input is connected to a
@@ -49,11 +60,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![],
             return_type: ParameterType::Boolean,
             errors: vec![],
-            body: Body::native_os_seam(
-                Some(crate::codegen::builtins::io::native::lower_io_helper),
-                Some(crate::codegen::builtins::io::native::lower_io_helper),
-                &[],
-            ),
+            body: Body::abi_function(lower_is_input_terminal),
         }],
     });
 }

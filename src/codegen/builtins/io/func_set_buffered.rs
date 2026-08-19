@@ -5,10 +5,28 @@
 //! shared [`crate::codegen::builtins::io::native::lower_io_helper`] dispatcher (which branches on
 //! `platform.family()` and the runtime-call name internally).
 
+use crate::codegen::builtins::io::native::{
+    adapter_app_mode, hatch_finalized, lower_io_set_buffered_helper,
+};
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::types::ParameterType;
+
+/// `abi_function` body for `io::setBuffered(enabled)`. The `enabled` flag arrives
+/// in argument register 0 (which the emitter reads as `return_register`); the
+/// emitter toggles the thread stdout buffering flag (draining on disable), or is
+/// a no-op in app mode. Hatched back pre-finalized.
+pub(crate) fn lower_set_buffered(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let body = lower_io_set_buffered_helper(&symbol, adapter_app_mode(ctx))?;
+    hatch_finalized(builder, body, "Nothing", "io.setBuffered")
+}
 
 const INTRO: &str = r#"Enable or disable opt-in standard-output buffering for this thread"#;
 const DESC: &str = r#"`io::setBuffered` turns standard-output buffering on or off for the calling
@@ -70,11 +88,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Nothing,
             errors: vec![],
-            body: Body::native_os_seam(
-                Some(crate::codegen::builtins::io::native::lower_io_helper),
-                Some(crate::codegen::builtins::io::native::lower_io_helper),
-                &[],
-            ),
+            body: Body::abi_function(lower_set_buffered),
         }],
     });
 }

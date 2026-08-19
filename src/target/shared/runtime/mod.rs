@@ -128,12 +128,27 @@ pub(crate) use usage::{is_native_direct_call, required_helpers};
 use perf_specs::*;
 use thread_specs::*;
 
+/// The runtime-helper family an `abi_function` member's symbol/spec belong to: its
+/// owning package's family when that package has a dedicated one (plan-101 — `io`
+/// keeps the `Io` family, so its `_mfb_rt_io_io_*` symbols are unchanged by the
+/// migration off `native_os_seam`), else the shared `Abi` family (a package with
+/// no `RuntimeHelper` variant, e.g. `crypto`). Shared by [`helper_for_call`] and
+/// the catalog's spec derivation so a member's symbol and its catalogued spec
+/// always agree.
+pub(crate) fn abi_function_family(name: &str) -> RuntimeHelper {
+    name.split_once('.')
+        .and_then(|(pkg, _)| RuntimeHelper::from_package_name(pkg))
+        .unwrap_or(RuntimeHelper::Abi)
+}
+
 pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
     if crate::codegen::registry::is_abi_function_call(name) {
         // The experimental `abi::` `AbiFunction` members route through the shared
         // runtime-helper pipeline; their `abi_inline` siblings are NOT runtime calls
-        // (they stay `NirValue::Call` and lower inline), so gate on the slot.
-        Some(RuntimeHelper::Abi)
+        // (they stay `NirValue::Call` and lower inline), so gate on the slot. An
+        // `abi_function` member keeps its owning package's family when it has one
+        // (plan-101: `io` stays `Io`), else the shared `Abi` family (crypto).
+        Some(abi_function_family(name))
     } else if crate::codegen::registry::registry().owning_package(name) == Some("app") {
         Some(RuntimeHelper::App)
     } else if name.starts_with("audio.") {

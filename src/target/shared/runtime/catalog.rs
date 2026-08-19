@@ -94,11 +94,12 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
                     .split_once('.')
                     .expect("derived runtime call is package-qualified")
                     .0;
-                // An `AbiFunction` member routes through the `Abi` family regardless
-                // of its owning package (matching `helper_for_call`), so its symbol
-                // and catalog spec agree.
+                // An `AbiFunction` member keeps its owning package's family when it
+                // has one (plan-101: `io` stays `Io`), else the shared `Abi` family
+                // (crypto) — via the same `abi_function_family` `helper_for_call`
+                // uses, so its symbol and catalog spec agree.
                 let helper = if crate::codegen::registry::is_abi_function_call(call.name) {
-                    RuntimeHelper::Abi
+                    super::abi_function_family(call.name)
                 } else {
                     RuntimeHelper::from_package_name(pkg)
                         .unwrap_or_else(|| panic!("no RuntimeHelper for package `{pkg}`"))

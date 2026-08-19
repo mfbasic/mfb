@@ -268,13 +268,21 @@ paths unchanged. Commit: <pending>
 Lowest-blast-radius members first (`isBuffered`, `setBuffered`, `flush`,
 `isInputTerminal`/`isOutputTerminal`/`isErrorTerminal`).
 
-- [ ] Add `lower_io_<member>` adapters; switch each `func_*.rs` to
-      `Body::abi_function`.
-- [ ] Relocate their emitters out of `native/terminal.rs`/`native/stdout.rs`.
-- [ ] Tests: `cargo test --bin mfb`.
+- [x] Add `abi_function_family` so io keeps the `Io` family (see Corrections) —
+      migration is byte-identical, not a symbol rename.
+- [x] Add shared `hatch_finalized` / `adapter_app_mode` / `app_unsupported` /
+      `lower_is_terminal_common` adapters (`io/native/mod.rs`); `pub(crate)`
+      re-export the emitters.
+- [x] `lower_*` adapters + `Body::abi_function` in `func_is_buffered.rs`,
+      `func_set_buffered.rs`, `func_flush.rs`,
+      `func_is_{input,output,error}_terminal.rs`.
+- [x] Emitters stay in `native/{stdout,terminal}.rs` for now (file relocation is
+      Phase 5); the dead `lower_io_helper` match arms are removed in Phase 5.
+- [x] Tests: `cargo test --bin mfb` green (3605 passed).
 
-Acceptance: these members classify `is_abi_function_call == true`; golden re-sync
-for them shows ONLY the symbol rename; `cargo test` green. Commit: —
+Acceptance: these members classify `is_abi_function_call == true`; the io +
+app-mode golden fixtures pass UNCHANGED (byte-identical, 35 fixtures via
+`test-accept.sh`); `cargo test` green. Commit: <pending>
 
 ### Phase 3 — Migrate stdout family (`print`/`write`/`printError`/`writeError`)
 
@@ -340,7 +348,25 @@ renames. Commit: —
 
 ## Corrections
 
-<filled during execution>
+- **Symbol family — plan said Io→Abi rename + mass golden churn; actual: io keeps
+  the `Io` family, byte-identical, zero churn.** The plan's §3 / Compatibility
+  sections assumed `catalog.rs:100` forcing every `abi_function` member to the
+  `Abi` family was immovable, so it budgeted a golden re-sync of `_mfb_rt_io_io_*`
+  → `_mfb_rt_abi_*` renames plus updates to ~10 files hardcoding the io symbols
+  (`builder/mod.rs` drain/broadcast gates, the app worker-shim `IO_WRITE_SYMBOL`
+  constants, `operand.rs` label classification, the spec docs, and backend test
+  expectations). Actual: the `abi_function`→family routing was the wrong thing to
+  hardcode. Introduced `abi_function_family(name)` (`target/shared/runtime/mod.rs`)
+  — an `abi_function` member keeps its owning package's `RuntimeHelper` family when
+  it has one (`io`→`Io`), falling back to `Abi` only for a package with no variant
+  (`crypto`). `helper_for_call` and the catalog derivation both use it. Result: io
+  members keep their exact `_mfb_rt_io_io_*` symbols, so the migration is
+  **byte-identical** — all 35 io + app-mode + hello-world golden fixtures pass
+  UNCHANGED (`test-accept.sh … 'func_io_*' 'io-*' 'macos-app-mode-io' …` → 35
+  passed). crypto stays on `Abi`, unchanged. The Non-goal "only intended delta is
+  the symbol rename" is thus strengthened to "**no delta at all**"; the Phase 6
+  golden re-sync is now a no-op verification, not a re-baseline. This voids the
+  per-member gate/symbol-flip work Phases 3–5 anticipated.
 
 ## Summary
 

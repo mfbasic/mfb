@@ -5,8 +5,36 @@
 //! shared [`crate::codegen::builtins::io::native::lower_io_helper`] dispatcher (which branches on
 //! `platform.family()` and the runtime-call name internally).
 
-use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
+use crate::codegen::builtins::io::native::{
+    adapter_app_mode, app_unsupported, hatch_finalized, lower_io_flush_helper,
+};
+use crate::codegen::engine::builder::{pad_no_slots, CodeBuilder, ValueResult};
+use crate::codegen::registry::{
+    AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage,
+};
 use crate::types::ParameterType;
+
+/// `abi_function` body for `io::flush` (no args). Console: drain the per-thread
+/// stdout buffer (`lower_io_flush_helper`). App mode: synchronous transcript
+/// writes make flush an immediate success (`emit_app_io_flush_helper`). Hatched
+/// back pre-finalized.
+pub(crate) fn lower_flush(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let body = if adapter_app_mode(ctx) {
+        pad_no_slots(
+            ctx.platform
+                .emit_app_io_flush_helper(&symbol)
+                .ok_or_else(|| app_unsupported(ctx.platform))??,
+        )
+    } else {
+        lower_io_flush_helper(&symbol, ctx.platform_imports, ctx.platform)?
+    };
+    hatch_finalized(builder, body, "Nothing", "io.flush")
+}
 
 const INTRO: &str = r#"Drain the per-thread standard-output buffer"#;
 const DESC: &str = r#"`io::flush` writes out any bytes currently held in this thread's MFBASIC
@@ -62,11 +90,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![],
             return_type: ParameterType::Nothing,
             errors: vec![],
-            body: Body::native_os_seam(
-                Some(crate::codegen::builtins::io::native::lower_io_helper),
-                Some(crate::codegen::builtins::io::native::lower_io_helper),
-                &[],
-            ),
+            body: Body::abi_function(lower_flush),
         }],
     });
 }
