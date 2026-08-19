@@ -1733,6 +1733,17 @@ impl CodeBuilder<'_> {
                 text: format!("typeName({type_name})"),
             });
         }
+        // An infallible `abi_inline` intrinsic (the total `bits::*` ops — the
+        // rotates `rl*`/`rr*`, `popCount`, `clz`/`ctz`, the byte swaps, and
+        // `band`/`bor`/`bxor`/`bnot`) trapped by an inline TRAP: lower it inline
+        // exactly as the non-trapped path would. It cannot fail, so — unlike the
+        // fallible variable shifts handled by `lower_inline_builtin_raw` — there is
+        // no error exit to capture. The fallible raw path grew a `try_abi_inline_lower`
+        // arm when `bits` migrated onto `Body::abi_inline`; this infallible path was
+        // overlooked, so an inline TRAP on a total `bits` op failed to lower.
+        if let Some(result) = self.try_abi_inline_lower(target, args) {
+            return result;
+        }
         match crate::builtins::native_builtin_target(target) {
             Some("replace") if args.len() == 3 => self.lower_replace(args),
             other => Err(format!(
