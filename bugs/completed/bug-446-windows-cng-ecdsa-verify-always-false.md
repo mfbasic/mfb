@@ -5,10 +5,58 @@ Effort: medium (2h–4h)
 Severity: HIGH
 Class: Correctness (valid signature rejected on one platform)
 
-Status: Open
-Regression Test: tests/rt-behavior/crypto/crypto-ec-valid (needs a windows-x86_64
-`.run` golden — today it has ncodesum goldens only for linux/macos, so this bug
-is invisible to the harness)
+Status: FIXED (root cause found; the clean-room `crypto::verify` reads the status
+from the correct register). The old native `p*Verify` still carry the latent
+defect, but they are slated for removal by the `crypto::verify` migration; the
+clean-room replacement verifies TRUE on Windows 2230 for P-256/384/521.
+Regression Test: verified manually on Windows 2230 via the clean-room
+`crypto::verify` (`/tmp/vtest`: P256/P384/P521 `valid=TRUE tampered=FALSE`). The
+`crypto-ec-valid` fixture still lacks a windows-x86_64 `.run` golden, so the
+harness remains blind to the native `p*Verify` regression until the migration
+retires them.
+
+## ROOT CAUSE (found)
+
+The CNG verify read the `BCryptVerifySignature` NTSTATUS from the WRONG register.
+
+`bcrypt_call` (in `native/cng.rs` / `gen_cert.rs`) makes a C-ABI call and then
+`sign_extend_word(return_register(), return_register())`. But on Win64 (plan-85
+aligned ABI) `return_register()` = `%retMFB0` realizes to the **aligned MFB result
+bank** = `rcx` (`CALL_ARGS_WIN64[0]`), NOT the C-return `rax`. A C function returns
+its value in `rax` (= `c_return(0)`), and `platform.emit_external_call` on Win64
+does **not** stage `rax` into the aligned bank (it routes through
+`emit_linux_c_call("windows-x86_64", …)`, which skips the `%retC`→aligned move). So
+after `bcrypt_call`, `return_register()` (`rcx`) still holds the call's **first
+argument** — for `BCryptVerifySignature` that is `hKey`, a non-NULL key handle.
+
+The old cng `verify` did `move_register(sc.v7, return_register())` then
+`status == 0 ? TRUE : FALSE`. `rcx` = `hKey` is never 0, so the verdict was
+**always FALSE** for every signature, valid or not.
+
+`sign`/`generate` used the same broken `bcrypt_call` return but survived by
+accident: their check is `branch_lt` (status `< 0`), and the stale `rcx` (a key
+handle / positive arg) is never negative, so the check falls through and the
+operation — which had already written its output buffer regardless of the status —
+returns correct bytes. Only `verify`, whose verdict IS the status, exposed it.
+
+## FIX
+
+The clean-room `crypto::verify` (`func_verify.rs::emit_windows_verify`) reads the
+status from `c_return(0)` (`rax`) — where the ABI actually places it — and
+sign-extends the 32-bit `LONG` out of it into a callee-saved vreg before the
+cleanup calls clobber `rax`:
+
+```
+gen_cert::bcrypt_call(symbol, "BCryptVerifySignature", 7, …)?;
+ins.push(abi::sign_extend_word(&sc.v7, abi::c_return(0))); // rax = NTSTATUS
+win_cleanup(…)?;                                           // clobbers rax
+// sc.v7 == 0 → valid; else FALSE
+```
+
+The old native `p*Verify` are left as-is (removed by the `crypto::verify`
+migration); the surgical fix lives entirely in the clean-room verify, so
+`sign`/`generate`'s (harmless) reliance on the old `bcrypt_call` shape is
+untouched.
 
 `crypto::p256Verify` / `p384Verify` / `p521Verify` return **FALSE for a signature
 that is provably valid** on the Windows (CNG/BCrypt) backend. macOS (SecKey) and

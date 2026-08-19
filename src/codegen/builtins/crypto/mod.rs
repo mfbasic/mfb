@@ -324,6 +324,11 @@ pub(crate) fn register(r: &mut Registry) {
     // mirroring `generate`. The per-curve `p*Sign`/`ed25519Sign` it will replace are
     // still registered below (removed in a later step).
     func_sign::register(&mut pkg);
+    // The unified clean-room `verify(Certificate, publicKey, message, signature)` covers
+    // every curve (NIST-EC via CNG/SecKey/OpenSSL, Ed25519 via the software helper),
+    // mirroring `sign`. The per-curve `p*Verify`/`ed25519Verify` it will replace are
+    // still registered below (removed in a later step).
+    func_verify::register(&mut pkg);
     // Signatures (Ed25519 source; NIST-EC native).
     func_ed25519_sign::register(&mut pkg);
     func_ed25519_verify::register(&mut pkg);
@@ -367,6 +372,7 @@ mod func_sha384;
 mod func_sha512;
 pub(crate) mod func_sign;
 mod func_uuid4;
+pub(crate) mod func_verify;
 pub(crate) mod gen_cert;
 
 mod helper_add32;
@@ -532,10 +538,11 @@ mod tests {
         let pkg = registry()
             .resolve_package("crypto")
             .expect("crypto package");
-        // 28 members: the unified clean-room `generate(Certificate)` replaced the
+        // 29 members: the unified clean-room `generate(Certificate)` replaced the
         // four per-type `generateP*`/`generateEd25519` members, plus the unified
-        // clean-room `sign(Certificate, …)` added alongside the per-curve signers.
-        assert_eq!(pkg.functions().len(), 28);
+        // clean-room `sign(Certificate, …)` and `verify(Certificate, …)` added
+        // alongside the per-curve signers/verifiers.
+        assert_eq!(pkg.functions().len(), 29);
     }
 
     #[test]
@@ -560,6 +567,7 @@ mod tests {
             "crypto.uuid4",
             "crypto.generate",
             "crypto.sign",
+            "crypto.verify",
             "crypto.ed25519Sign",
             "crypto.ed25519Verify",
             "crypto.p256Sign",

@@ -708,6 +708,7 @@ impl plan::NativePlanPlatform for Platform {
             }
             call if call == "crypto.generate"
                 || call == "crypto.sign"
+                || call == "crypto.verify"
                 || (crate::codegen::builtins::crypto::is_native_crypto_call(call)
                     && call != "crypto.randomBytes") =>
             {

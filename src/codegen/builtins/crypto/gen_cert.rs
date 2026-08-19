@@ -1,5 +1,5 @@
 //! Shared clean-room codegen seam for the `Certificate`-typed `AbiFunction` crypto
-//! members (`crypto::generate`, `crypto::sign`, and — next — `crypto::verify`).
+//! members (`crypto::generate`, `crypto::sign`, and `crypto::verify`).
 //!
 //! These members reproduce the platform key sequences (macOS `SecKey`/CoreFoundation,
 //! Linux OpenSSL `libcrypto`, Windows CNG/BCrypt) *from scratch* rather than calling
@@ -9,8 +9,8 @@
 //!
 //! Data objects (framework paths, dlsym names, PKCS#8 templates, CNG wide ids) are
 //! owned here too, under a single `_mfb_crypto_cert_*` symbol space (the union of every
-//! name generate/sign reference). The driver gate in `engine/builder/mod.rs` emits
-//! [`data_objects`] once when either member is in the plan.
+//! name generate/sign/verify reference). The driver gate in `engine/builder/mod.rs`
+//! emits [`data_objects`] once when any of those members is in the plan.
 
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
@@ -44,7 +44,8 @@ pub(crate) const SECPATH_SYMBOL: &str = "_mfb_crypto_cert_secpath";
 pub(crate) const CFPATH_SYMBOL: &str = "_mfb_crypto_cert_cfpath";
 pub(crate) const CF_NUMBER_INT_TYPE: &str = "9"; // kCFNumberIntType
 
-/// Union of every macOS dlsym name `crypto::generate`/`crypto::sign` reference.
+/// Union of every macOS dlsym name `crypto::generate`/`crypto::sign`/`crypto::verify`
+/// reference.
 const MAC_SYMBOLS: &[&str] = &[
     "CFNumberCreate",
     "CFDictionaryCreate",
@@ -61,8 +62,10 @@ const MAC_SYMBOLS: &[&str] = &[
     "CFDataCreate",
     "SecKeyCreateWithData",
     "SecKeyCreateSignature",
+    "SecKeyVerifySignature",
     "kSecAttrKeyClass",
     "kSecAttrKeyClassPrivate",
+    "kSecAttrKeyClassPublic",
     "kSecKeyAlgorithmECDSASignatureMessageX962SHA256",
     "kSecKeyAlgorithmECDSASignatureMessageX962SHA384",
     "kSecKeyAlgorithmECDSASignatureMessageX962SHA512",
@@ -81,10 +84,11 @@ pub(crate) const EVP_PKEY_EC: &str = "408";
 const LIB3_SYMBOL: &str = "_mfb_crypto_cert_lib3";
 const LIB11_SYMBOL: &str = "_mfb_crypto_cert_lib11";
 
-/// Union of every OpenSSL dlsym name generate/sign reference.
+/// Union of every OpenSSL dlsym name generate/sign/verify reference.
 const OSSL_SYMBOLS: &[&str] = &[
     "i2d_PrivateKey",
     "i2d_PUBKEY",
+    "d2i_PUBKEY",
     "EVP_PKEY_free",
     "EVP_PKEY_new",
     "EVP_PKEY_assign",
@@ -100,6 +104,8 @@ const OSSL_SYMBOLS: &[&str] = &[
     "EVP_sha512",
     "EVP_DigestSignInit",
     "EVP_DigestSign",
+    "EVP_DigestVerifyInit",
+    "EVP_DigestVerify",
 ];
 
 /// The NIST curve names (used for both the OpenSSL curve-name C strings that
@@ -112,6 +118,14 @@ const PKCS8_TEMPLATES: &[&str] = &[
     "308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b02010104200000000000000000000000000000000000000000000000000000000000000000a1440342000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
     "3081b6020100301006072a8648ce3d020106052b8104002204819e30819b0201010430000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a16403620000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
     "3081ee020100301006072a8648ce3d020106052b810400230481d63081d30201010442000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a181890381860000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+];
+
+/// OpenSSL SubjectPublicKeyInfo (SPKI) DER prefixes, indexed by [`CURVE_NAMES`]. The
+/// public key is `prefix || SEC1-point`, decoded via `d2i_PUBKEY` by `crypto::verify`.
+const SPKI_PREFIXES: &[&str] = &[
+    "3059301306072a8648ce3d020106082a8648ce3d030107034200",
+    "3076301006072a8648ce3d020106052b81040022036200",
+    "30819b301006072a8648ce3d020106052b8104002303818600",
 ];
 
 fn cert_ossl_sym(name: &str) -> String {
@@ -128,6 +142,18 @@ pub(crate) fn tmpl_sym(name: &str) -> String {
     format!("_mfb_crypto_cert_tmpl_{name}")
 }
 
+/// The SPKI DER prefix for `name` (a [`CURVE_NAMES`] entry); prepended to the raw
+/// SEC1 point to form the DER public key `crypto::verify` feeds to `d2i_PUBKEY`.
+pub(crate) fn spki_sym(name: &str) -> String {
+    format!("_mfb_crypto_cert_spki_{name}")
+}
+
+/// The byte length of the SPKI DER prefix for `name` (a [`CURVE_NAMES`] entry).
+pub(crate) fn spki_prefix_len(name: &str) -> usize {
+    let i = CURVE_NAMES.iter().position(|c| *c == name).expect("curve");
+    SPKI_PREFIXES[i].len() / 2
+}
+
 // ---------------------------------------------------------------------------
 // Windows CNG/BCrypt clean-room seam. The `BCrypt*` entry points link through the
 // import table (Win64 ABI); only the wide (UTF-16LE) `LPCWSTR` algorithm/hash/blob
@@ -135,12 +161,13 @@ pub(crate) fn tmpl_sym(name: &str) -> String {
 // ---------------------------------------------------------------------------
 pub(crate) const BLOBCAP: usize = 8 + 3 * 66; // header + X‖Y‖d for the widest curve (P-521)
 
-/// Union of every CNG wide id generate/sign reference.
+/// Union of every CNG wide id generate/sign/verify reference.
 const WIN_WIDE_IDS: &[&str] = &[
     "ECDSA_P256",
     "ECDSA_P384",
     "ECDSA_P521",
     "ECCPRIVATEBLOB",
+    "ECCPUBLICBLOB",
     "SHA256",
     "SHA384",
     "SHA512",
@@ -225,6 +252,9 @@ pub(crate) fn data_objects(family: PlatformFamily) -> Vec<CodeDataObject> {
             }
             for (i, name) in CURVE_NAMES.iter().enumerate() {
                 objects.push(raw_data(&tmpl_sym(name), PKCS8_TEMPLATES[i]));
+            }
+            for (i, name) in CURVE_NAMES.iter().enumerate() {
+                objects.push(raw_data(&spki_sym(name), SPKI_PREFIXES[i]));
             }
             objects
         }
@@ -809,7 +839,9 @@ pub(crate) fn bcrypt_call(
 pub(crate) struct Sc {
     pub(crate) v4: String,
     pub(crate) v5: String,
+    pub(crate) v6: String,
     pub(crate) v7: String,
+    pub(crate) v8: String,
     pub(crate) v9: String,
     pub(crate) v10: String,
     pub(crate) v11: String,
@@ -822,12 +854,14 @@ pub(crate) struct Sc {
 impl Sc {
     pub(crate) fn new(vregs: &mut Vregs) -> Self {
         // Order preserved from the CNG reference (v4..v15) so the copy scratch
-        // (v4/v5) stays distinct from the caller-used registers.
+        // (v4/v5) stays distinct from the caller-used registers. `v6`/`v8` are the
+        // `crypto::verify` DER-decode scratch (an RS destination pointer and a
+        // buffer-end bound); `crypto::sign` simply never reads them.
         let v4 = vregs.next();
         let v5 = vregs.next();
-        let _v6 = vregs.next();
+        let v6 = vregs.next();
         let v7 = vregs.next();
-        let _v8 = vregs.next();
+        let v8 = vregs.next();
         let v9 = vregs.next();
         let v10 = vregs.next();
         let v11 = vregs.next();
@@ -838,7 +872,9 @@ impl Sc {
         Sc {
             v4,
             v5,
+            v6,
             v7,
+            v8,
             v9,
             v10,
             v11,

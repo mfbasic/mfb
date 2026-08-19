@@ -188,6 +188,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "crypto.randomBytes",
     "crypto.generate",
     "crypto.sign",
+    "crypto.verify",
     "crypto.p256Sign",
     "crypto.p384Sign",
     "crypto.p521Sign",

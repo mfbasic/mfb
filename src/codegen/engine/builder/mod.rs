@@ -983,11 +983,14 @@ pub(crate) fn lower_module_for_platform(
         }
     }
     // The clean-room `Certificate`-typed AbiFunction members (`crypto::generate`,
-    // `crypto::sign`) share one unified `_mfb_crypto_cert_*` read-only data-object set
-    // (framework paths + dlsym names + PKCS#8 templates + CNG wide ids), distinct from
-    // the EC helpers' `_mfb_crypto_ec_*`. Emit it once if either member is in the plan.
+    // `crypto::sign`, `crypto::verify`) share one unified `_mfb_crypto_cert_*` read-only
+    // data-object set (framework paths + dlsym names + PKCS#8/SPKI templates + CNG wide
+    // ids), distinct from the EC helpers' `_mfb_crypto_ec_*`. Emit it once if any of
+    // those members is in the plan.
     if native_plan.runtime_symbols.iter().any(|symbol| {
-        symbol == "_mfb_rt_abi_crypto_generate" || symbol == "_mfb_rt_abi_crypto_sign"
+        symbol == "_mfb_rt_abi_crypto_generate"
+            || symbol == "_mfb_rt_abi_crypto_sign"
+            || symbol == "_mfb_rt_abi_crypto_verify"
     }) {
         data_objects.extend(crate::codegen::builtins::crypto::gen_cert::data_objects(
             platform.family(),
