@@ -249,6 +249,16 @@ pub(crate) fn register(r: &mut Registry) {
     helper_pbkdf2_sha256_text::register(&mut pkg);
     helper_pbkdf2_sha512_bytes::register(&mut pkg);
     helper_pbkdf2_sha512_text::register(&mut pkg);
+    // Hash-generic keyed-hash dispatch + constructions (work over ALL `Hash`
+    // variants; a future variant is one new arm in each of the three `sha*`
+    // dispatch helpers). See `func_hmac`/`func_hkdf`/`func_pbkdf2`.
+    helper_sha_digest::register(&mut pkg);
+    helper_sha_block_size::register(&mut pkg);
+    helper_sha_output_len::register(&mut pkg);
+    helper_hmac::register(&mut pkg);
+    helper_hmac_text::register(&mut pkg);
+    helper_hkdf::register(&mut pkg);
+    helper_pbkdf2::register(&mut pkg);
     helper_le_word::register(&mut pkg);
     helper_append_le_word::register(&mut pkg);
     helper_chacha_qr::register(&mut pkg);
@@ -342,6 +352,13 @@ pub(crate) fn register(r: &mut Registry) {
     // math stays in MFB), mirroring `generate`/`sign`/`verify` over `Certificate`. It
     // is the sole hashing surface — the per-digest `sha*` members were removed.
     func_hash::register(&mut pkg);
+    // Unified hash-generic keyed-hash members: one `Hash`-selected surface each,
+    // working over ALL `Hash` variants via the `__crypto_sha*` dispatch. The
+    // per-digest `hmacSha*`/`hkdfSha*`/`pbkdf2Sha*` members below are retired by a
+    // later sweep.
+    func_hmac::register(&mut pkg);
+    func_hkdf::register(&mut pkg);
+    func_pbkdf2::register(&mut pkg);
     // HMAC (source, `_bytes`/`_text` overloads on `data`).
     func_hmac_sha256::register(&mut pkg);
     func_hmac_sha512::register(&mut pkg);
@@ -394,11 +411,14 @@ mod func_chacha20_poly1305_seal;
 mod func_constant_time_equal;
 pub(crate) mod func_generate;
 pub(crate) mod func_hash;
+pub(crate) mod func_hkdf;
 mod func_hkdf_sha256;
 mod func_hkdf_sha512;
+pub(crate) mod func_hmac;
 mod func_hmac_sha256;
 mod func_hmac_sha512;
 pub(crate) mod func_open;
+pub(crate) mod func_pbkdf2;
 mod func_pbkdf2_sha256;
 mod func_pbkdf2_sha512;
 mod func_random_bytes;
@@ -481,13 +501,16 @@ mod helper_ghash;
 mod helper_ghash_mul;
 mod helper_gmul8;
 mod helper_hash_text;
+mod helper_hkdf;
 mod helper_hkdf_expand;
 mod helper_hkdf_sha256;
 mod helper_hkdf_sha512;
+mod helper_hmac;
 mod helper_hmac_sha256_bytes;
 mod helper_hmac_sha256_text;
 mod helper_hmac_sha512_bytes;
 mod helper_hmac_sha512_text;
+mod helper_hmac_text;
 mod helper_inv25519;
 mod helper_iv224;
 mod helper_iv256;
@@ -511,6 +534,7 @@ mod helper_pad1024;
 mod helper_pad16;
 mod helper_pad512;
 mod helper_par25519;
+mod helper_pbkdf2;
 mod helper_pbkdf2_block;
 mod helper_pbkdf2_sha256_bytes;
 mod helper_pbkdf2_sha256_text;
@@ -548,6 +572,9 @@ mod helper_sha512_iv;
 mod helper_sha512_ktable;
 mod helper_sha512_schedule;
 mod helper_sha512_text;
+mod helper_sha_block_size;
+mod helper_sha_digest;
+mod helper_sha_output_len;
 mod helper_shr32;
 mod helper_slice;
 mod helper_ssig0;
@@ -577,19 +604,21 @@ mod tests {
         let pkg = registry()
             .resolve_package("crypto")
             .expect("crypto package");
-        // 20 members: the unified clean-room `generate(Certificate)` replaced the
-        // four per-type `generateP*`/`generateEd25519` members, the unified
-        // `sign(Certificate, …)` / `verify(Certificate, …)` replaced the eight per-curve
-        // signers/verifiers, the unified `hash(Hash, …)` replaced the four per-digest
-        // `sha*` members, and the unified `seal`/`open` over `SymmetricCipher` were added
-        // (each a single member with two overloads).
-        assert_eq!(pkg.functions().len(), 20);
+        // 23 members: the unified clean-room `generate`/`sign`/`verify`/`hash`
+        // replaced the per-type generate/sign/verify/sha members; `seal`/`open` over
+        // `SymmetricCipher` were added (each one member with two overloads); and the
+        // hash-generic `hmac`/`hkdf`/`pbkdf2(Hash, …)` add three more alongside the
+        // (not-yet-retired) per-digest `hmacSha*`/`hkdfSha*`/`pbkdf2Sha*`.
+        assert_eq!(pkg.functions().len(), 23);
     }
 
     #[test]
     fn membership_via_generic_registry() {
         for n in [
             "crypto.hash",
+            "crypto.hmac",
+            "crypto.hkdf",
+            "crypto.pbkdf2",
             "crypto.hmacSha256",
             "crypto.hmacSha512",
             "crypto.hkdfSha256",
