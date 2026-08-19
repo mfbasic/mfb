@@ -31,6 +31,7 @@ pub(crate) const ORD_P256: &str = "0";
 pub(crate) const ORD_P384: &str = "1";
 pub(crate) const ORD_P521: &str = "2";
 pub(crate) const ORD_ED25519: &str = "3";
+pub(crate) const ORD_X25519: &str = "4";
 
 const RTLD_NOW: &str = "2";
 
