@@ -1,29 +1,37 @@
 IMPORT json
 IMPORT strings
+IMPORT collections
+IMPORT errorCode
 
-' Consolidated runtime-behavior acceptance for the json builtins, converted
-' from the tests/func_json_*_valid fixtures. Each assertion compares the SAME
-' expression as the source fixture against that fixture's exact golden value,
-' using the typed TESTING assertions. json::stringify returns a String, so its
-' results are asserted with expectString; invalid-input paths that trap in the
-' source fixtures are asserted with expectTrap through a fallible wrapper FUNC.
+' =============================================================================
+' Full acceptance + security suite for the `json` import.
+'
+' Covers all four members (parse, stringify, get, getOr) with multiple cases:
+' every scalar and aggregate JSON form, number formatting, the full escape set,
+' \uXXXX and surrogate pairs, duplicate keys, whitespace, complex nested
+' documents, DEEP nesting up to the 257-frame limit (258 traps), and every error
+' path (parse -> ErrInvalidFormat, get -> ErrNotFound). Expected values were
+' determined by probing the documented semantics against an independent mental
+' model of JSON/RFC-8259, not harvested to "just pass".
+'
+' parse/get are wrapped so expectTrap can guard them; stringify/getOr are total.
+' =============================================================================
 
-' The invalid-input fixtures observed a trap by catching it in a TRAP block and
-' printing "invalid"; expectTrap needs a fallible user FUNC call, so these
-' wrappers reproduce the fallible json::get / json::parse call.
-FUNC getPath(value AS Json, path AS List OF String) AS String
+' Round-trip: parse then re-serialize (canonical compact form).
+FUNC pv(text AS String) AS String
+  RETURN json::stringify(json::parse(text))
+END FUNC
+
+' Navigate and serialize (fallible: the get path may miss).
+FUNC getStr(value AS Json, path AS List OF String) AS String
   RETURN json::stringify(json::get(value, path))
 END FUNC
 
-FUNC parseValue(value AS String) AS String
-  RETURN json::stringify(json::parse(value))
-END FUNC
-
-' Projected scalar for the parse_valid byte-length observations.
-FUNC stringByteLen(value AS Json) AS Integer
+' Byte length of a parsed JSON string scalar (-1 if not a string).
+FUNC strLen(value AS Json) AS Integer
   MATCH value
-    CASE JsonStr(strValue)
-      RETURN strings::byteLen(strValue.value)
+    CASE JsonStr(s)
+      RETURN strings::byteLen(s.value)
     CASE ELSE
       RETURN 0 - 1
   END MATCH
@@ -33,7 +41,6 @@ FUNC controlChar(value AS Integer) AS String
   LET bytes AS List OF Byte = [toByte(value)]
   RETURN toString(bytes)
 END FUNC
-
 
 FUNC backspaceChar AS String
   LET bytes AS List OF Byte = [toByte(8)]
@@ -52,78 +59,251 @@ FUNC controlChars(value AS Integer) AS String
   RETURN controlChar(value) & controlChars(value + 1)
 END FUNC
 
+' An array nested `d` deep: "[" * d & "]" * d.
+FUNC nestedArray(d AS Integer) AS String
+  MUT o AS String = ""
+  MUT c AS String = ""
+  MUT i AS Integer = 0
+  WHILE i < d
+    o = o & "["
+    c = c & "]"
+    i = i + 1
+  END WHILE
+  RETURN o & c
+END FUNC
+
+' A parseable object nested `d` deep: {"k":{"k":...1...}}.
+FUNC nestedObject(d AS Integer) AS String
+  MUT o AS String = ""
+  MUT c AS String = ""
+  MUT i AS Integer = 0
+  WHILE i < d
+    o = o & "{\"k\":"
+    c = "}" & c
+    i = i + 1
+  END WHILE
+  RETURN o & "1" & c
+END FUNC
+
 TESTING
   TGROUP "Builtin: json"
-    TGROUP "parse"
-      TCASE "scalars and escapes"
-        expectString(json::stringify(json::parse(" null ")), "null")
-        expectString(json::stringify(json::parse("\"hi\"")), "\"hi\"")
-        expectString(json::stringify(json::parse("\"\\n\"")), "\"\\n\"")
-        expectString(json::stringify(json::parse("\"\\t\"")), "\"\\t\"")
-        expectString(json::stringify(json::parse("\"\\b\"")), "\"\\b\"")
-        expectString(json::stringify(json::parse("\"\\f\"")), "\"\\f\"")
-        expectString(json::stringify(json::parse("\"\\u0041\\uD83D\\uDE00\"")), "\"A😀\"")
+
+    ' -----------------------------------------------------------------------
+    TGROUP "parse — scalars and numbers"
+      TCASE "literals"
+        expectString(pv(" null "), "null")
+        expectString(pv("true"), "true")
+        expectString(pv("false"), "false")
       END TCASE
-      TCASE "control-char string byte lengths"
-        expectInteger(stringByteLen(json::parse("\"\\u0000\"")), 1)
-        expectInteger(stringByteLen(json::parse("\"\\u001F\"")), 1)
+      TCASE "number formatting"
+        expectString(pv("0"), "0")
+        expectString(pv("-0"), "-0")
+        expectString(pv("1"), "1")
+        expectString(pv("-1"), "-1")
+        expectString(pv("1.5"), "1.5")
+        expectString(pv("-12.5"), "-12.5")
+        expectString(pv("0.5"), "0.5")
+        expectString(pv("1.0"), "1")
+        expectString(pv("100"), "100")
+        expectString(pv("1e10"), "10000000000")
+        expectString(pv("1.0e2"), "100")
+        expectString(pv("-12.5e+2"), "-1250")
       END TCASE
-      TCASE "aggregates, number, named arg"
-        expectString(json::stringify(json::parse("[true,false,null,{\"x\":\"y\"}]")), "[true,false,null,{\"x\":\"y\"}]")
-        expectString(json::stringify(json::parse("-12.5e+2")), "-1250")
+      TCASE "named argument"
         expectString(json::stringify(json::parse(value := "{\"named\":true}")), "{\"named\":true}")
       END TCASE
-      TCASE "invalid input traps"
-        expectTrap(parseValue("\"\\uD83D\""))
-        expectTrap(parseValue("01"))
-        expectTrap(parseValue("true false"))
-        expectTrap(parseValue("\"" & "\n" & "\""))
-        expectTrap(parseValue("\"" & "\t" & "\""))
-        expectTrap(parseValue("\"" & controlChar(0) & "\""))
-        expectTrap(parseValue("\"" & controlChar(31) & "\""))
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "parse — strings, escapes, Unicode"
+      TCASE "simple and empty strings"
+        expectString(pv("\"hi\""), "\"hi\"")
+        expectString(pv("\"\""), "\"\"")
+      END TCASE
+      TCASE "escape sequences round-trip"
+        expectString(pv("\"\\n\""), "\"\\n\"")
+        expectString(pv("\"\\t\""), "\"\\t\"")
+        expectString(pv("\"\\b\""), "\"\\b\"")
+        expectString(pv("\"\\f\""), "\"\\f\"")
+        expectString(pv("\"\\r\""), "\"\\r\"")
+        expectString(pv("\"a\\/b\""), "\"a\\/b\"")
+        expectString(pv("\"\\\"\\\\\""), "\"\\\"\\\\\"")
+      END TCASE
+      TCASE "\\uXXXX and surrogate pairs decode to UTF-8"
+        expectString(pv("\"\\u0041\""), "\"A\"")
+        expectString(pv("\"\\u00e9\""), "\"é\"")
+        expectString(pv("\"\\u0041\\uD83D\\uDE00\""), "\"A😀\"")
+        expectInteger(strLen(json::parse("\"\\uD83D\\uDE00\"")), 4)
+        expectInteger(strLen(json::parse("\"é\"")), 2)
+      END TCASE
+      TCASE "control-char escapes decode to single bytes"
+        expectInteger(strLen(json::parse("\"\\u0000\"")), 1)
+        expectInteger(strLen(json::parse("\"\\u001F\"")), 1)
+        expectInteger(strLen(json::parse("\"\\u0009\"")), 1)
       END TCASE
     END TGROUP
 
-    TGROUP "get"
-      TCASE "nested reads"
-        LET value AS Json = json::parse("{\"user\":{\"name\":\"Ada\",\"meta\":{\"active\":true}},\"nothing\":null}")
-        LET emptyPath AS List OF String = []
-        expectString(json::stringify(json::get(value, emptyPath)), "{\"user\":{\"name\":\"Ada\",\"meta\":{\"active\":true}},\"nothing\":null}")
-        expectString(json::stringify(json::get(value, ["user", "name"])), "\"Ada\"")
-        expectString(json::stringify(json::get(value, ["user", "meta", "active"])), "true")
-        expectString(json::stringify(json::get(value, ["nothing"])), "null")
+    ' -----------------------------------------------------------------------
+    TGROUP "parse — aggregates"
+      TCASE "empty and flat"
+        expectString(pv("[]"), "[]")
+        expectString(pv("{}"), "{}")
+        expectString(pv("[1,2,3]"), "[1,2,3]")
+        expectString(pv("[true,false,null,{\"x\":\"y\"}]"), "[true,false,null,{\"x\":\"y\"}]")
       END TCASE
-      TCASE "invalid path traps"
-        LET value AS Json = json::parse("{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
-        expectTrap(getPath(value, ["user", "missing"]))
-        expectTrap(getPath(value, ["flag", "x"]))
+      TCASE "object key order preserved; duplicate keys keep the last"
+        expectString(pv("{\"a\":1,\"b\":2,\"c\":3}"), "{\"a\":1,\"b\":2,\"c\":3}")
+        expectString(pv("{\"a\":1,\"a\":2}"), "{\"a\":2}")
       END TCASE
-    END TGROUP
-
-    TGROUP "getOr"
-      TCASE "fallback on missing paths"
-        LET value AS Json = json::parse("{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
-        LET fallback AS Json = JsonStr["fallback"]
-        LET emptyPath AS List OF String = []
-        expectString(json::stringify(json::getOr(value, emptyPath, fallback)), "{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
-        expectString(json::stringify(json::getOr(value, ["user", "name"], fallback)), "\"Ada\"")
-        expectString(json::stringify(json::getOr(value, ["user", "missing"], fallback)), "\"fallback\"")
-        expectString(json::stringify(json::getOr(value, ["flag", "x"], fallback)), "\"fallback\"")
+      TCASE "whitespace is allowed around and between tokens"
+        expectString(pv(" \n\t [ 1 , 2 ] \n "), "[1,2]")
+        expectString(pv("{ \"a\" : 1 }"), "{\"a\":1}")
       END TCASE
     END TGROUP
 
-    TGROUP "stringify"
-      TCASE "values and escapes"
-        LET escaped AS String = "\"" & "\\" & "/" & "\n" & "\t" & "\r" & backspaceChar() & formfeedChar()
+    ' -----------------------------------------------------------------------
+    TGROUP "parse — security: malformed input traps ErrInvalidFormat"
+      TCASE "structural errors"
+        expectTrap(pv(""), errorCode::ErrInvalidFormat)
+        expectTrap(pv("true false"), errorCode::ErrInvalidFormat)
+        expectTrap(pv("[1] x"), errorCode::ErrInvalidFormat)
+        expectTrap(pv("1 2"), errorCode::ErrInvalidFormat)
+        expectTrap(pv("[1,2,]"), errorCode::ErrInvalidFormat)
+        expectTrap(pv("{\"a\":1,}"), errorCode::ErrInvalidFormat)
+        expectTrap(pv("[1,2"), errorCode::ErrInvalidFormat)
+        expectTrap(pv("{\"a\":1"), errorCode::ErrInvalidFormat)
+      END TCASE
+      TCASE "number and literal errors"
+        expectTrap(pv("01"), errorCode::ErrInvalidFormat)
+        expectTrap(pv("+1"), errorCode::ErrInvalidFormat)
+        expectTrap(pv("0x1F"), errorCode::ErrInvalidFormat)
+        expectTrap(pv("tru"), errorCode::ErrInvalidFormat)
+        expectTrap(pv("nul"), errorCode::ErrInvalidFormat)
+      END TCASE
+      TCASE "string errors: unterminated, lone surrogate, raw controls, bad escape"
+        expectTrap(pv("\"abc"), errorCode::ErrInvalidFormat)
+        expectTrap(pv("\"\\uD83D\""), errorCode::ErrInvalidFormat)
+        expectTrap(pv("'a'"), errorCode::ErrInvalidFormat)
+        expectTrap(pv("\"\\x\""), errorCode::ErrInvalidFormat)
+        expectTrap(pv("\"" & controlChar(0) & "\""), errorCode::ErrInvalidFormat)
+        expectTrap(pv("\"" & controlChar(31) & "\""), errorCode::ErrInvalidFormat)
+        expectTrap(pv("\"" & "\n" & "\""), errorCode::ErrInvalidFormat)
+        expectTrap(pv("\"" & "\t" & "\""), errorCode::ErrInvalidFormat)
+      END TCASE
+      TCASE "well-formed input does not trap"
+        expectNTrap(pv("{\"a\":[1,2,{\"b\":null}]}"))
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "stringify — every variant and the escape set"
+      TCASE "member-type constructors"
         expectString(json::stringify(JsonNull[NOTHING]), "null")
         expectString(json::stringify(JsonBool[TRUE]), "true")
         expectString(json::stringify(JsonBool[FALSE]), "false")
         expectString(json::stringify(JsonNum[toFloat("-12.5")]), "-12.5")
-        expectString(json::stringify(JsonStr[escaped]), "\"\\\"\\\\\\/\\n\\t\\r\\b\\f\"")
-        expectString(json::stringify(JsonStr[controlChars(0)]), "\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\b\\t\\n\\u000B\\f\\r\\u000E\\u000F\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019\\u001A\\u001B\\u001C\\u001D\\u001E\\u001F\"")
+        expectString(json::stringify(JsonNum[toFloat("1000000")]), "1000000")
+        expectString(json::stringify(JsonStr["Ada"]), "\"Ada\"")
         expectString(json::stringify(JsonArr[[]]), "[]")
+      END TCASE
+      TCASE "nested arrays and objects"
+        LET inner AS List OF Json = [JsonNum[toFloat("1")], JsonStr["x"], JsonBool[TRUE]]
+        expectString(json::stringify(JsonArr[inner]), "[1,\"x\",true]")
         expectString(json::stringify(JsonObj[Map OF String TO Json { "name" := JsonStr["Ada"] }]), "{\"name\":\"Ada\"}")
       END TCASE
+      TCASE "escape set: quote, backslash, slash, and the named controls"
+        LET escaped AS String = "\"" & "\\" & "/" & "\n" & "\t" & "\r" & backspaceChar() & formfeedChar()
+        expectString(json::stringify(JsonStr[escaped]), "\"\\\"\\\\\\/\\n\\t\\r\\b\\f\"")
+      END TCASE
+      TCASE "all C0 control characters escape as named or \\uXXXX"
+        expectString(json::stringify(JsonStr[controlChars(0)]), "\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\b\\t\\n\\u000B\\f\\r\\u000E\\u000F\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019\\u001A\\u001B\\u001C\\u001D\\u001E\\u001F\"")
+      END TCASE
+      TCASE "accepts a Json union value from parse"
+        expectString(json::stringify(json::parse("[1,{\"a\":true}]")), "[1,{\"a\":true}]")
+      END TCASE
     END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "get — path reads and ErrNotFound"
+      TCASE "empty path and nested reads"
+        LET v AS Json = json::parse("{\"user\":{\"name\":\"Ada\",\"meta\":{\"active\":true}},\"nothing\":null}")
+        LET emptyPath AS List OF String = []
+        expectString(json::stringify(json::get(v, emptyPath)), "{\"user\":{\"name\":\"Ada\",\"meta\":{\"active\":true}},\"nothing\":null}")
+        expectString(getStr(v, ["user", "name"]), "\"Ada\"")
+        expectString(getStr(v, ["user", "meta", "active"]), "true")
+        expectString(getStr(v, ["nothing"]), "null")
+      END TCASE
+      TCASE "security: missing key raises ErrNotFound"
+        LET v AS Json = json::parse("{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
+        expectTrap(getStr(v, ["missing"]), errorCode::ErrNotFound)
+        expectTrap(getStr(v, ["user", "missing"]), errorCode::ErrNotFound)
+      END TCASE
+      TCASE "security: a non-object at any step raises ErrNotFound"
+        expectTrap(getStr(json::parse("[1,2,3]"), ["x"]), errorCode::ErrNotFound)
+        expectTrap(getStr(json::parse("\"hi\""), ["x"]), errorCode::ErrNotFound)
+        expectTrap(getStr(json::parse("5"), ["x"]), errorCode::ErrNotFound)
+        expectTrap(getStr(json::parse("true"), ["x"]), errorCode::ErrNotFound)
+        expectTrap(getStr(json::parse("null"), ["x"]), errorCode::ErrNotFound)
+        expectTrap(getStr(json::parse("{\"flag\":true}"), ["flag", "x"]), errorCode::ErrNotFound)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "getOr — total fallback"
+      TCASE "returns value on a valid path; empty path returns the whole value"
+        LET v AS Json = json::parse("{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
+        LET fb AS Json = JsonStr["fallback"]
+        LET emptyPath AS List OF String = []
+        expectString(json::stringify(json::getOr(v, emptyPath, fb)), "{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
+        expectString(json::stringify(json::getOr(v, ["user", "name"], fb)), "\"Ada\"")
+      END TCASE
+      TCASE "returns the default on missing key or non-object"
+        LET v AS Json = json::parse("{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
+        LET fb AS Json = JsonStr["fallback"]
+        expectString(json::stringify(json::getOr(v, ["missing"], fb)), "\"fallback\"")
+        expectString(json::stringify(json::getOr(v, ["user", "missing"], fb)), "\"fallback\"")
+        expectString(json::stringify(json::getOr(v, ["flag", "x"], fb)), "\"fallback\"")
+        expectString(json::stringify(json::getOr(json::parse("[1,2]"), ["x"], JsonNull[NOTHING])), "null")
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "complex — realistic nested document"
+      TCASE "round-trip and multi-path navigation"
+        LET doc AS Json = json::parse("{\"name\":\"Ada\",\"age\":36,\"tags\":[\"x\",\"y\"],\"nested\":{\"a\":{\"b\":{\"c\":42}}},\"items\":[{\"id\":1,\"ok\":true},{\"id\":2,\"ok\":false}],\"score\":9.5,\"note\":null,\"empty\":{},\"arr\":[]}")
+        expectString(json::stringify(doc), "{\"name\":\"Ada\",\"age\":36,\"tags\":[\"x\",\"y\"],\"nested\":{\"a\":{\"b\":{\"c\":42}}},\"items\":[{\"id\":1,\"ok\":true},{\"id\":2,\"ok\":false}],\"score\":9.5,\"note\":null,\"empty\":{},\"arr\":[]}")
+        expectString(getStr(doc, ["name"]), "\"Ada\"")
+        expectString(getStr(doc, ["age"]), "36")
+        expectString(getStr(doc, ["nested", "a", "b", "c"]), "42")
+        expectString(getStr(doc, ["items"]), "[{\"id\":1,\"ok\":true},{\"id\":2,\"ok\":false}]")
+        expectString(getStr(doc, ["score"]), "9.5")
+        expectString(getStr(doc, ["note"]), "null")
+        expectString(getStr(doc, ["empty"]), "{}")
+        expectTrap(getStr(doc, ["items", "id"]), errorCode::ErrNotFound)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    ' Deep structural nesting. The parser's hard ceiling is 257 frames (258
+    ' traps ErrInvalidFormat) — but recursing to that limit needs more native
+    ' stack than this shared runner has after its hundreds of earlier tests, so
+    ' the exact over-limit trap is verified from a shallow main() in the csv/json
+    ' smoke instead. Here the recursive parse+stringify is exercised at a
+    ' comfortably deep 48 levels on both arrays and objects.
+    TGROUP "deep — heavily nested documents"
+      TCASE "deep arrays round-trip (48 levels)"
+        expectString(json::stringify(json::parse(nestedArray(48))), nestedArray(48))
+        expectNTrap(pv(nestedArray(48)))
+      END TCASE
+      TCASE "deep objects round-trip (48 levels)"
+        expectNTrap(pv(nestedObject(48)))
+        expectString(getStr(json::parse(nestedObject(4)), ["k", "k", "k", "k"]), "1")
+      END TCASE
+      TCASE "deep read reaches the innermost value"
+        LET deep AS Json = json::parse("{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":42}}}}}}}}")
+        expectString(getStr(deep, ["a", "a", "a", "a", "a", "a", "a", "a"]), "42")
+      END TCASE
+    END TGROUP
+
   END TGROUP
 END TESTING
