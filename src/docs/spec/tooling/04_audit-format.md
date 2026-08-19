@@ -160,7 +160,7 @@ disclosures (`audio`), which map per builtin:[[src/audit/collect/source.rs:built
 |---|---|
 | `environment` | `os::getEnv`, `os::getEnvOr`, `os::hasEnv`, `os::setEnv`, `os::unsetEnv`, `os::environ` |
 | `process` | `os::args`, `os::pid`, `os::name`, `os::arch`, `os::hostName`, `os::userName`, `os::cpuCount`, `os::executablePath` |
-| `randomness` | `math::rand`, `math::seed`, and the entropy-drawing crypto builtins `crypto::randomBytes`, `crypto::randomInt`, `crypto::uuid4`, `crypto::generateEd25519`, `crypto::generateP256`, `crypto::generateP384`, `crypto::generateP521` |
+| `randomness` | `math::rand`, `math::seed`, and the entropy-drawing crypto builtins `crypto::randomBytes`, `crypto::randomInt`, `crypto::uuid4`, `crypto::generate` |
 | `clock` | `datetime::now`, `datetime::nowNanos`, `datetime::monotonic`, `datetime::monotonicNanos`, `datetime::localOffset`, `datetime::local`, `datetime::toLocal` |
 | `microphone` | `audio::openInput`, `audio::openInputDevice`, `audio::read`, `audio::readTimeout` |
 | `audio` | every other `audio` builtin (playback and device enumeration) |
