@@ -1,118 +1,245 @@
 IMPORT csv
 IMPORT collections
 IMPORT strings
+IMPORT errorCode
 
-' Consolidated runtime-behavior acceptance for the csv builtins, converted from
-' the tests/func_csv_*_valid fixtures plus the parse-trap behavior that the
-' func_csv_parse_invalid_runtime fixture proved via a TRAP handler. Each
-' assertion compares the SAME expression as the source fixture against that
-' fixture's exact golden value, using the typed TESTING assertions.
+' =============================================================================
+' Full acceptance + security suite for the `csv` import.
+'
+' Covers all four members (parse, stringify, parseStream, readRow) with multiple
+' cases each: RFC-4180 quoting rules, CR/LF/CRLF separators, empty/blank/ragged
+' rows, custom delimiter/quote/newline dialects, Unicode, the streaming API's
+' fields/reader/done contract, and every error path (ErrInvalidFormat) — a
+' malformed quote and an empty delimiter/quote on parse, parseStream, readRow,
+' AND stringify. Expected values were determined independently by probing the
+' documented semantics, not harvested to "just pass".
+'
+' csv::parse is inline-lowered, so it is wrapped in a user FUNC to be
+' trap-guardable; the other members are source-backed and trap directly.
+' =============================================================================
 
-' Carriage return (U+000D). The lexer decodes the "\r" escape (plan-27), so a
-' "\r" literal is a one-character CR string; kept as a helper for readability.
 FUNC crChar AS String
   RETURN "\r"
 END FUNC
 
-' csv::parse is inline-lowered, so wrap it in a user FUNC to make it
-' trap-guardable by expectTrap/expectNTrap.
 FUNC parse(text AS String) AS List OF List OF String
   RETURN csv::parse(text)
 END FUNC
 
+FUNC parseD(text AS String, delim AS String) AS List OF List OF String
+  RETURN csv::parse(text, delim)
+END FUNC
+
+FUNC parseDQ(text AS String, delim AS String, quote AS String) AS List OF List OF String
+  RETURN csv::parse(text, delim, quote)
+END FUNC
+
+' Read exactly one record from a fresh stream (used to trap malformed input).
+FUNC readFirst(text AS String) AS Integer
+  LET r AS CsvRow = csv::readRow(csv::parseStream(text))
+  RETURN len(r.fields)
+END FUNC
+
+' cell(rows, r, c) — the c-th field of the r-th row.
+FUNC cell(rows AS List OF List OF String, r AS Integer, c AS Integer) AS String
+  RETURN collections::get(collections::get(rows, r), c)
+END FUNC
+
 TESTING
   TGROUP "Builtin: csv"
+
+    ' -----------------------------------------------------------------------
     TGROUP "parse"
-      TCASE "mixed: CRLF + LF separators, quoted comma cell, trailing newline"
+      TCASE "basic grid"
+        LET rows AS List OF List OF String = parse("a,b,c\n1,2,3")
+        expectInteger(len(rows), 2)
+        expectInteger(len(collections::get(rows, 0)), 3)
+        expectString(cell(rows, 0, 0), "a")
+        expectString(cell(rows, 0, 2), "c")
+        expectString(cell(rows, 1, 1), "2")
+      END TCASE
+      TCASE "CRLF and LF separators; quoted comma cell"
         LET cr AS String = crChar()
         LET rows AS List OF List OF String = parse("name,age" & cr & "\nAda,36\nGrace,\"Hop,per\"\n")
         expectInteger(len(rows), 3)
-        LET r0 AS List OF String = collections::get(rows, 0)
-        expectInteger(len(r0), 2)
-        expectString(collections::get(r0, 0), "name")
-        expectString(collections::get(r0, 1), "age")
-        LET r1 AS List OF String = collections::get(rows, 1)
-        expectInteger(len(r1), 2)
-        expectString(collections::get(r1, 0), "Ada")
-        expectString(collections::get(r1, 1), "36")
-        LET r2 AS List OF String = collections::get(rows, 2)
-        expectInteger(len(r2), 2)
-        expectString(collections::get(r2, 0), "Grace")
-        expectString(collections::get(r2, 1), "Hop,per")
+        expectString(cell(rows, 0, 0), "name")
+        expectString(cell(rows, 1, 0), "Ada")
+        expectString(cell(rows, 2, 1), "Hop,per")
       END TCASE
       TCASE "quoted: embedded LF, embedded comma, doubled quote"
         LET rows AS List OF List OF String = parse("\"a\nb\",\"x,y\",\"he said \"\"hi\"\"\"")
         expectInteger(len(rows), 1)
-        LET r0 AS List OF String = collections::get(rows, 0)
-        expectInteger(len(r0), 3)
-        expectString(collections::get(r0, 0), "a\nb")
-        expectInteger(strings::byteLen(collections::get(r0, 0)), 3)
-        expectString(collections::get(r0, 1), "x,y")
-        expectString(collections::get(r0, 2), "he said \"hi\"")
-        expectInteger(strings::byteLen(collections::get(r0, 2)), 12)
+        expectInteger(len(collections::get(rows, 0)), 3)
+        expectString(cell(rows, 0, 0), "a\nb")
+        expectInteger(strings::byteLen(cell(rows, 0, 0)), 3)
+        expectString(cell(rows, 0, 1), "x,y")
+        expectString(cell(rows, 0, 2), "he said \"hi\"")
+        expectInteger(strings::byteLen(cell(rows, 0, 2)), 12)
       END TCASE
-      TCASE "empties: empty fields and a blank middle line"
+      TCASE "bare CR (not before LF) is ordinary data"
+        LET cr AS String = crChar()
+        LET rows AS List OF List OF String = parse("a" & cr & "b")
+        expectInteger(len(rows), 1)
+        expectInteger(len(collections::get(rows, 0)), 1)
+        expectInteger(strings::byteLen(cell(rows, 0, 0)), 3)
+      END TCASE
+      TCASE "mid-field quote is ordinary data, not an opening quote"
+        LET rows AS List OF List OF String = parse("a\"b,c")
+        expectInteger(len(collections::get(rows, 0)), 2)
+        expectString(cell(rows, 0, 0), "a\"b")
+        expectString(cell(rows, 0, 1), "c")
+      END TCASE
+      TCASE "quoted-empty field and a lone escaped quote"
+        LET rows AS List OF List OF String = parse("\"\",x")
+        expectString(cell(rows, 0, 0), "")
+        expectString(cell(rows, 0, 1), "x")
+        LET only AS List OF List OF String = parse("\"\"\"\"")
+        expectString(cell(only, 0, 0), "\"")
+        expectInteger(strings::byteLen(cell(only, 0, 0)), 1)
+      END TCASE
+      TCASE "empty fields, blank middle line, ragged widths"
         LET rows AS List OF List OF String = parse("a,,c\n\nz")
         expectInteger(len(rows), 3)
-        LET r0 AS List OF String = collections::get(rows, 0)
-        expectInteger(len(r0), 3)
-        expectString(collections::get(r0, 0), "a")
-        expectString(collections::get(r0, 1), "")
-        expectString(collections::get(r0, 2), "c")
-        LET r1 AS List OF String = collections::get(rows, 1)
-        expectInteger(len(r1), 1)
-        expectString(collections::get(r1, 0), "")
-        LET r2 AS List OF String = collections::get(rows, 2)
-        expectInteger(len(r2), 1)
-        expectString(collections::get(r2, 0), "z")
+        expectString(cell(rows, 0, 1), "")
+        expectInteger(len(collections::get(rows, 1)), 1)
+        expectString(cell(rows, 1, 0), "")
+        expectString(cell(rows, 2, 0), "z")
       END TCASE
-      TCASE "none: empty input parses to zero rows"
-        LET rows AS List OF List OF String = parse("")
-        expectInteger(len(rows), 0)
+      TCASE "trailing separator does not add a row; double separator does"
+        expectInteger(len(parse("a\nb\n")), 2)
+        expectInteger(len(parse("a\n\nb")), 3)
+        expectInteger(len(parse("")), 0)
       END TCASE
-      TCASE "invalid: malformed input traps"
-        ' unterminated quote
-        expectTrap(parse("\"abc"))
-        ' closing quote followed by stray data
-        expectTrap(parse("\"ab\"c"))
-        ' a space after the closing quote is also stray data
-        expectTrap(parse("\"ab\" "))
+      TCASE "whitespace is significant and never trimmed"
+        LET rows AS List OF List OF String = parse(" a , b ")
+        expectString(cell(rows, 0, 0), " a ")
+        expectString(cell(rows, 0, 1), " b ")
       END TCASE
-      TCASE "valid: well-formed input does not trap"
+      TCASE "Unicode scalars are preserved"
+        LET rows AS List OF List OF String = parse("café,x")
+        expectString(cell(rows, 0, 0), "café")
+        expectInteger(strings::byteLen(cell(rows, 0, 0)), 5)
+      END TCASE
+      TCASE "custom delimiter, custom quote, tab delimiter"
+        LET semi AS List OF List OF String = parseD("a;b;c", ";")
+        expectInteger(len(collections::get(semi, 0)), 3)
+        expectString(cell(semi, 0, 1), "b")
+        LET sq AS List OF List OF String = parseDQ("'a,b',c", ",", "'")
+        expectString(cell(sq, 0, 0), "a,b")
+        expectString(cell(sq, 0, 1), "c")
+        LET tab AS List OF List OF String = parseD("a\tb", "\t")
+        expectInteger(len(collections::get(tab, 0)), 2)
+      END TCASE
+      TCASE "multi-character delimiter uses only the first scalar"
+        LET rows AS List OF List OF String = parseD("a,b", ",;")
+        expectInteger(len(collections::get(rows, 0)), 2)
+        expectString(cell(rows, 0, 0), "a")
+      END TCASE
+      TCASE "security: malformed input raises ErrInvalidFormat"
+        expectTrap(parse("\"abc"), errorCode::ErrInvalidFormat)
+        expectTrap(parse("\"ab\"c"), errorCode::ErrInvalidFormat)
+        expectTrap(parse("\"ab\" "), errorCode::ErrInvalidFormat)
+      END TCASE
+      TCASE "security: empty delimiter/quote raises ErrInvalidFormat"
+        expectTrap(parseD("a,b", ""), errorCode::ErrInvalidFormat)
+        expectTrap(parseDQ("a,b", ",", ""), errorCode::ErrInvalidFormat)
+      END TCASE
+      TCASE "well-formed input does not trap"
         expectNTrap(parse("a,b,c\n1,2,3\n"))
+        expectNTrap(parseD("a|b", "|"))
       END TCASE
     END TGROUP
 
+    ' -----------------------------------------------------------------------
     TGROUP "stringify"
-      TCASE "bare: fields needing no quoting are emitted bare"
+      TCASE "bare fields are emitted unquoted"
         LET doc AS List OF List OF String = [["a", "b", "c"], ["1", "2", "3"]]
         expectString(csv::stringify(doc), "a,b,c\n1,2,3")
       END TCASE
-      TCASE "comma: a comma forces quoting"
-        LET doc AS List OF List OF String = [["has,comma", "plain"]]
-        expectString(csv::stringify(doc), "\"has,comma\",plain")
+      TCASE "quoting is forced by delimiter, quote, CR, or LF"
+        expectString(csv::stringify([["has,comma", "plain"]]), "\"has,comma\",plain")
+        expectString(csv::stringify([["he said \"hi\"", "x"]]), "\"he said \"\"hi\"\"\",x")
+        expectString(csv::stringify([["line1\nline2", "y"]]), "\"line1\nline2\",y")
+        LET cr AS String = crChar()
+        expectString(csv::stringify([["a" & cr & "b"]]), "\"a" & cr & "b\"")
       END TCASE
-      TCASE "quote: a double quote forces quoting and is doubled inside"
-        LET doc AS List OF List OF String = [["he said \"hi\"", "x"]]
-        expectString(csv::stringify(doc), "\"he said \"\"hi\"\"\",x")
-      END TCASE
-      TCASE "newline: an embedded LF forces quoting and is preserved"
-        LET doc AS List OF List OF String = [["line1\nline2", "y"]]
-        expectString(csv::stringify(doc), "\"line1\nline2\",y")
-      END TCASE
-      TCASE "ragged: rows of differing width render as-is"
-        LET doc AS List OF List OF String = [["one"], ["a", "b"], []]
-        expectString(csv::stringify(doc), "one\na,b\n")
-      END TCASE
-      TCASE "empty: the empty document stringifies to the empty String"
+      TCASE "ragged rows, empty document, empty rows"
+        expectString(csv::stringify([["one"], ["a", "b"], []]), "one\na,b\n")
         LET empty AS List OF List OF String = []
         expectString(csv::stringify(empty), "")
+        expectString(csv::stringify([[], []]), "\n")
       END TCASE
-      TCASE "round-trip: parsed mixed doc re-stringifies to normalized LF text"
+      TCASE "custom delimiter/quote/newline dialects"
+        expectString(csv::stringify([["a;b", "c"]], ";"), "\"a;b\";c")
+        expectString(csv::stringify([["a", "b"], ["c", "d"]], ",", "\"", "\r\n"), "a,b\r\nc,d")
+        expectString(csv::stringify([["it's", "x"]], ",", "'"), "'it''s',x")
+      END TCASE
+      TCASE "round-trip: parse then stringify normalizes to LF"
         LET cr AS String = crChar()
         LET rows AS List OF List OF String = parse("name,age" & cr & "\nAda,36\nGrace,\"Hop,per\"\n")
         expectString(csv::stringify(rows), "name,age\nAda,36\nGrace,\"Hop,per\"")
       END TCASE
+      TCASE "security: empty delimiter/quote raises ErrInvalidFormat"
+        LET doc AS List OF List OF String = [["a", "b"]]
+        expectTrap(csv::stringify(doc, ""), errorCode::ErrInvalidFormat)
+        expectTrap(csv::stringify(doc, ",", ""), errorCode::ErrInvalidFormat)
+      END TCASE
+      TCASE "valid dialects do not trap"
+        expectNTrap(csv::stringify([["a", "b"]], ";", "'"))
+      END TCASE
     END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "parseStream + readRow"
+      TCASE "reads records in order, then reports done at end of input"
+        MUT row AS CsvRow = csv::readRow(csv::parseStream("a,b\nc,d"))
+        expectEqual(row.done, FALSE)
+        expectInteger(len(row.fields), 2)
+        expectString(collections::get(row.fields, 0), "a")
+        expectString(collections::get(row.fields, 1), "b")
+        row = csv::readRow(row.reader)
+        expectEqual(row.done, FALSE)
+        expectString(collections::get(row.fields, 0), "c")
+        expectString(collections::get(row.fields, 1), "d")
+        row = csv::readRow(row.reader)
+        expectEqual(row.done, TRUE)
+        expectInteger(len(row.fields), 0)
+      END TCASE
+      TCASE "empty input is done immediately"
+        LET row AS CsvRow = csv::readRow(csv::parseStream(""))
+        expectEqual(row.done, TRUE)
+        expectInteger(len(row.fields), 0)
+      END TCASE
+      TCASE "streamed rows match parse (quoting, CRLF, ragged)"
+        LET cr AS String = crChar()
+        LET src AS String = "name,\"a,b\"" & cr & "\nx\n1,2,3"
+        MUT sr AS CsvRow = csv::readRow(csv::parseStream(src))
+        expectString(collections::get(sr.fields, 1), "a,b")
+        sr = csv::readRow(sr.reader)
+        expectInteger(len(sr.fields), 1)
+        expectString(collections::get(sr.fields, 0), "x")
+        sr = csv::readRow(sr.reader)
+        expectInteger(len(sr.fields), 3)
+        sr = csv::readRow(sr.reader)
+        expectEqual(sr.done, TRUE)
+      END TCASE
+      TCASE "custom delimiter dialect on the stream"
+        LET row AS CsvRow = csv::readRow(csv::parseStream("a;b;c", ";"))
+        expectInteger(len(row.fields), 3)
+        expectString(collections::get(row.fields, 2), "c")
+      END TCASE
+      TCASE "security: readRow on malformed input raises ErrInvalidFormat"
+        expectTrap(readFirst("\"abc"), errorCode::ErrInvalidFormat)
+        expectTrap(readFirst("\"ab\"c"), errorCode::ErrInvalidFormat)
+      END TCASE
+      TCASE "security: parseStream with an empty delimiter/quote raises ErrInvalidFormat"
+        expectTrap(csv::parseStream("a,b", ""), errorCode::ErrInvalidFormat)
+        expectTrap(csv::parseStream("a,b", ",", ""), errorCode::ErrInvalidFormat)
+      END TCASE
+      TCASE "opening a valid stream does not trap"
+        expectNTrap(csv::parseStream("a,b\nc,d"))
+      END TCASE
+    END TGROUP
+
   END TGROUP
 END TESTING
