@@ -22,10 +22,7 @@ use crate::codegen::memory::arena::*;
 use crate::codegen::memory::marshal::*;
 use std::collections::HashMap;
 
-use super::{
-    emit_build_byte_list, emit_build_keypair_record, emit_build_pub_list, emit_fail,
-    emit_read_byte_list, Curve, EcOp,
-};
+use super::{emit_build_byte_list, emit_fail, emit_read_byte_list, Curve, EcOp};
 use crate::target::shared::abi;
 impl Curve {
     fn field_len(self) -> usize {
@@ -150,9 +147,18 @@ fn bcrypt_call(
     }
     platform.emit_external_call(symbol, from, imports, ins, rel)?;
     ins.push(abi::add_stack(frame));
+    // bug-446/bug-447: a Win64 external call returns its NTSTATUS in `rax`
+    // (`c_return(0)`), and Win64 `emit_external_call` does NOT stage it into the
+    // aligned MFB result bank — on Win64 `return_register()` (`mfb_return(0)`) is
+    // `rcx`, which still holds the call's first argument (e.g. the `hKey` handle).
+    // Sign-extend the 32-bit status from `c_return(0)` INTO `return_register()` so
+    // every caller's `status < 0` / `status == 0` check reads the real NTSTATUS.
+    // (`p*Sign`/`generate` only survived the old `rcx`-reading bug by accident: a
+    // positive stale pointer is never `< 0`; `p*Verify`'s `== 0` check always
+    // failed, which was bug-446.)
     ins.push(abi::sign_extend_word(
         abi::return_register(),
-        abi::return_register(),
+        abi::c_return(0),
     ));
     Ok(())
 }
@@ -231,251 +237,13 @@ pub(crate) fn lower(
     op: EcOp,
     curve: Curve,
     symbol: &str,
-    keypair: Option<&TypeModel>,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
     match op {
-        EcOp::Generate => generate(curve, symbol, keypair, imports, platform),
         EcOp::Sign => sign(curve, symbol, imports, platform),
         EcOp::Verify => verify(curve, symbol, imports, platform),
     }
-}
-
-// ---------------------------------------------------------------------------
-// generate
-// ---------------------------------------------------------------------------
-fn generate(
-    curve: Curve,
-    symbol: &str,
-    keypair: Option<&TypeModel>,
-    imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-) -> HelperResult {
-    let field = curve.field_len();
-    let raw_len = 1 + 3 * field;
-    const HALG: usize = 0;
-    const HKEY: usize = 8;
-    const BLOB: usize = 16;
-    const CBRES: usize = 24;
-    const RAW: usize = 32;
-    const RAWLEN: usize = 40;
-    const COLL: usize = 48;
-    // `generateP256` (keypair mode) additionally builds the public-key list and
-    // assembles the `KeyPair` record.
-    const PUBCOLL: usize = 56;
-    const PUBLEN: usize = 64;
-    const RSIZE: usize = 72;
-    const RRESULT: usize = 80;
-    const RCURSOR: usize = 88;
-    const RBLOCK: usize = 96;
-    const BLOBCAP: usize = 8 + 3 * 66;
-    const LOCAL_SIZE: usize = 104;
-
-    let fail = format!("{symbol}_fail");
-    let alloc_fail = format!("{symbol}_alloc_fail");
-    let done = format!("{symbol}_done");
-    let cleanup = format!("{symbol}_cleanup");
-
-    let mut ins = vec![abi::label("entry")];
-    let mut rel = Vec::new();
-    // Minted scratch palette threaded into copy_bytes/emit_build_pub_list and used
-    // directly by the body (this helper touches %v4/%v5 and %v9..%v13).
-    let mut vregs = Vregs::new();
-    let sc = Sc::new(&mut vregs);
-    ins.extend([
-        abi::store_u64(abi::ZERO, abi::stack_pointer(), HALG),
-        abi::store_u64(abi::ZERO, abi::stack_pointer(), HKEY),
-        abi::store_u64(abi::ZERO, abi::stack_pointer(), BLOB),
-    ]);
-
-    ins.push(abi::add_immediate(
-        abi::return_register(),
-        abi::stack_pointer(),
-        HALG,
-    ));
-    wide_addr(symbol, abi::c_arg(1), curve.algo_id(), &mut ins, &mut rel);
-    ins.extend([
-        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
-        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
-    ]);
-    bcrypt_call(
-        symbol,
-        "BCryptOpenAlgorithmProvider",
-        4,
-        imports,
-        platform,
-        &mut ins,
-        &mut rel,
-    )?;
-    ins.push(abi::branch_lt(&fail));
-
-    ins.extend([
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), HALG),
-        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), HKEY),
-        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
-        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
-    ]);
-    bcrypt_call(
-        symbol,
-        "BCryptGenerateKeyPair",
-        4,
-        imports,
-        platform,
-        &mut ins,
-        &mut rel,
-    )?;
-    ins.push(abi::branch_lt(&fail));
-
-    ins.extend([
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), HKEY),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
-    ]);
-    bcrypt_call(
-        symbol,
-        "BCryptFinalizeKeyPair",
-        2,
-        imports,
-        platform,
-        &mut ins,
-        &mut rel,
-    )?;
-    ins.push(abi::branch_lt(&fail));
-
-    // Allocate blob buffer + raw-key output buffer.
-    ins.extend([
-        abi::move_immediate(abi::return_register(), "Integer", &BLOBCAP.to_string()),
-        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
-    ]);
-    emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.push(abi::store_u64(
-        abi::mfb_return(1),
-        abi::stack_pointer(),
-        BLOB,
-    ));
-    ins.extend([
-        abi::move_immediate(abi::return_register(), "Integer", &raw_len.to_string()),
-        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
-    ]);
-    emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
-    ins.extend([
-        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), RAW),
-        abi::move_immediate(&sc.v9, "Integer", &raw_len.to_string()),
-        abi::store_u64(&sc.v9, abi::stack_pointer(), RAWLEN),
-    ]);
-
-    // BCryptExportKey(hKey, NULL, L"ECCPRIVATEBLOB", blob, BLOBCAP, &cbResult, 0)
-    ins.extend([
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), HKEY),
-        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
-    ]);
-    wide_addr(symbol, abi::c_arg(2), "ECCPRIVATEBLOB", &mut ins, &mut rel);
-    ins.extend([
-        abi::load_u64(abi::c_arg(3), abi::stack_pointer(), BLOB),
-        abi::move_immediate(abi::c_arg(4), "Integer", &BLOBCAP.to_string()),
-        abi::add_immediate(abi::c_arg(5), abi::stack_pointer(), CBRES),
-        abi::move_immediate(abi::c_arg(6), "Integer", "0"),
-    ]);
-    bcrypt_call(
-        symbol,
-        "BCryptExportKey",
-        7,
-        imports,
-        platform,
-        &mut ins,
-        &mut rel,
-    )?;
-    ins.push(abi::branch_lt(&fail));
-    let _ = CBRES;
-
-    // raw = 0x04 ‖ (blob body X‖Y‖d). Blob body starts at header +8.
-    ins.extend([
-        abi::load_u64(&sc.v10, abi::stack_pointer(), RAW),
-        abi::move_immediate(&sc.v9, "Byte", "4"),
-        abi::store_u8(&sc.v9, &sc.v10, 0),
-        abi::load_u64(&sc.v11, abi::stack_pointer(), BLOB),
-        abi::add_immediate(&sc.v11, &sc.v11, 8),
-        abi::add_immediate(&sc.v12, &sc.v10, 1),
-        abi::move_immediate(&sc.v13, "Integer", &(3 * field).to_string()),
-    ]);
-    copy_bytes(
-        &sc,
-        &sc.v11,
-        &sc.v12,
-        &sc.v13,
-        &format!("{symbol}_gk"),
-        &mut ins,
-    );
-
-    // Clean up the CNG handles and wipe the private blob BEFORE building the
-    // result — the cleanup calls clobber the caller-saved result registers, and
-    // `emit_build_byte_list` sets them last. `emit_cleanup` nulls the handle slots
-    // so the shared error labels below can reuse it idempotently.
-    emit_cleanup(
-        symbol, "c1", HKEY, HALG, imports, platform, &mut ins, &mut rel,
-    )?;
-    emit_zero_guarded(symbol, BLOB, None, BLOBCAP, "blobz", &mut ins);
-    emit_build_byte_list(
-        symbol,
-        &format!("{symbol}_out_loop"),
-        &format!("{symbol}_out_done"),
-        RAW,
-        RAWLEN,
-        Some(COLL),
-        abi::mfb_return(1),
-        &alloc_fail,
-        &mut ins,
-        &mut rel,
-    );
-    // `generateP256` returns a `KeyPair`: the raw buffer (`RAW`) is still live,
-    // so build the public-key list and assemble the record. The record marshaller
-    // sets the result registers last (after the handle cleanup above clobbered
-    // them).
-    if let Some(type_model) = keypair {
-        emit_build_pub_list(
-            symbol,
-            curve,
-            RAW,
-            PUBLEN,
-            PUBCOLL,
-            &alloc_fail,
-            &sc.v9,
-            &mut ins,
-            &mut rel,
-        );
-        emit_build_keypair_record(
-            symbol,
-            type_model,
-            COLL,
-            PUBCOLL,
-            &RecordBuildScratch {
-                size: RSIZE,
-                result: RRESULT,
-                cursor: RCURSOR,
-                block_size: RBLOCK,
-            },
-            &alloc_fail,
-            &mut ins,
-            &mut rel,
-        )?;
-    }
-    ins.push(abi::branch(&done));
-
-    ins.push(abi::label(&fail));
-    emit_cleanup(
-        symbol, "c2", HKEY, HALG, imports, platform, &mut ins, &mut rel,
-    )?;
-    emit_fail(symbol, "ErrUnknown", &mut ins, &mut rel, &done);
-    ins.push(abi::label(&alloc_fail));
-    emit_cleanup(
-        symbol, "c3", HKEY, HALG, imports, platform, &mut ins, &mut rel,
-    )?;
-    emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
-
-    let _ = cleanup;
-    ins.extend([abi::label(&done), abi::return_()]);
-    let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], LOCAL_SIZE);
-    Ok((frame, ins, rel, slots))
 }
 
 /// Destroy `hKey` (at `hkey_off`) and close `hAlg` (at `halg_off`), each null-guarded.
