@@ -2592,11 +2592,11 @@ mod lower_tests {
 
     #[test]
     fn crypto_aead_pads_aad_as_empty_list() {
-        // crypto::aes256GcmSeal(key, nonce, plaintext) pads the optional `aad`
-        // with an empty byte list (ListLiteral, not a scalar Const).
+        // crypto::seal(SymmetricCipher.AES256GCM, key, nonce, plaintext) pads the
+        // optional `aad` with an empty byte list (ListLiteral, not a scalar Const).
         let src = "IMPORT crypto\n\
              FUNC run(key AS List OF Byte, nonce AS List OF Byte, pt AS List OF Byte) AS crypto::Sealed\n\
-               RETURN crypto::aes256GcmSeal(key, nonce, pt)\n\
+               RETURN crypto::seal(SymmetricCipher.AES256GCM, key, nonce, pt)\n\
              END FUNC\n\
              SUB main\nEND SUB\n";
         let ir = try_lower_src(src).expect("crypto AEAD program should lower");

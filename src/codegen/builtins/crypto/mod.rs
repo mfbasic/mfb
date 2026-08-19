@@ -235,20 +235,10 @@ pub(crate) fn register(r: &mut Registry) {
     helper_xor_pad::register(&mut pkg);
     helper_zero_pad::register(&mut pkg);
     helper_concat::register(&mut pkg);
-    helper_hmac_sha256_bytes::register(&mut pkg);
-    helper_hmac_sha256_text::register(&mut pkg);
-    helper_hmac_sha512_bytes::register(&mut pkg);
-    helper_hmac_sha512_text::register(&mut pkg);
-    helper_hkdf_sha256::register(&mut pkg);
     helper_hkdf_expand::register(&mut pkg);
-    helper_hkdf_sha512::register(&mut pkg);
     helper_be32::register(&mut pkg);
     helper_xor_bytes::register(&mut pkg);
     helper_pbkdf2_block::register(&mut pkg);
-    helper_pbkdf2_sha256_bytes::register(&mut pkg);
-    helper_pbkdf2_sha256_text::register(&mut pkg);
-    helper_pbkdf2_sha512_bytes::register(&mut pkg);
-    helper_pbkdf2_sha512_text::register(&mut pkg);
     // Hash-generic keyed-hash dispatch + constructions (work over ALL `Hash`
     // variants; a future variant is one new arm in each of the three `sha*`
     // dispatch helpers). See `func_hmac`/`func_hkdf`/`func_pbkdf2`.
@@ -353,25 +343,12 @@ pub(crate) fn register(r: &mut Registry) {
     // is the sole hashing surface — the per-digest `sha*` members were removed.
     func_hash::register(&mut pkg);
     // Unified hash-generic keyed-hash members: one `Hash`-selected surface each,
-    // working over ALL `Hash` variants via the `__crypto_sha*` dispatch. The
-    // per-digest `hmacSha*`/`hkdfSha*`/`pbkdf2Sha*` members below are retired by a
-    // later sweep.
+    // working over ALL `Hash` variants via the `__crypto_sha*` dispatch. They are the
+    // sole HMAC/HKDF/PBKDF2 surface — the per-digest `hmacSha*`/`hkdfSha*`/`pbkdf2Sha*`
+    // members were removed.
     func_hmac::register(&mut pkg);
     func_hkdf::register(&mut pkg);
     func_pbkdf2::register(&mut pkg);
-    // HMAC (source, `_bytes`/`_text` overloads on `data`).
-    func_hmac_sha256::register(&mut pkg);
-    func_hmac_sha512::register(&mut pkg);
-    // KDF (source).
-    func_hkdf_sha256::register(&mut pkg);
-    func_hkdf_sha512::register(&mut pkg);
-    func_pbkdf2_sha256::register(&mut pkg);
-    func_pbkdf2_sha512::register(&mut pkg);
-    // AEAD (source; `aad` defaults to the empty byte list).
-    func_aes256_gcm_seal::register(&mut pkg);
-    func_aes256_gcm_open::register(&mut pkg);
-    func_chacha20_poly1305_seal::register(&mut pkg);
-    func_chacha20_poly1305_open::register(&mut pkg);
     // The unified clean-room AEAD `seal`/`open` select a symmetric cipher by the
     // `SymmetricCipher` ordinal and branch-link to the always-emitted MFB software AEAD
     // cores (the AEAD math stays in MFB), mirroring `hash` over `Hash`. `seal` carries a
@@ -404,23 +381,13 @@ pub(crate) fn register(r: &mut Registry) {
     r.add_package(pkg);
 }
 
-mod func_aes256_gcm_open;
-mod func_aes256_gcm_seal;
-mod func_chacha20_poly1305_open;
-mod func_chacha20_poly1305_seal;
 mod func_constant_time_equal;
 pub(crate) mod func_generate;
 pub(crate) mod func_hash;
 pub(crate) mod func_hkdf;
-mod func_hkdf_sha256;
-mod func_hkdf_sha512;
 pub(crate) mod func_hmac;
-mod func_hmac_sha256;
-mod func_hmac_sha512;
 pub(crate) mod func_open;
 pub(crate) mod func_pbkdf2;
-mod func_pbkdf2_sha256;
-mod func_pbkdf2_sha512;
 mod func_random_bytes;
 mod func_random_int;
 pub(crate) mod func_seal;
@@ -503,13 +470,7 @@ mod helper_gmul8;
 mod helper_hash_text;
 mod helper_hkdf;
 mod helper_hkdf_expand;
-mod helper_hkdf_sha256;
-mod helper_hkdf_sha512;
 mod helper_hmac;
-mod helper_hmac_sha256_bytes;
-mod helper_hmac_sha256_text;
-mod helper_hmac_sha512_bytes;
-mod helper_hmac_sha512_text;
 mod helper_hmac_text;
 mod helper_inv25519;
 mod helper_iv224;
@@ -536,10 +497,6 @@ mod helper_pad512;
 mod helper_par25519;
 mod helper_pbkdf2;
 mod helper_pbkdf2_block;
-mod helper_pbkdf2_sha256_bytes;
-mod helper_pbkdf2_sha256_text;
-mod helper_pbkdf2_sha512_bytes;
-mod helper_pbkdf2_sha512_text;
 mod helper_point4;
 mod helper_poly1305;
 mod helper_poly_finish;
@@ -604,12 +561,13 @@ mod tests {
         let pkg = registry()
             .resolve_package("crypto")
             .expect("crypto package");
-        // 23 members: the unified clean-room `generate`/`sign`/`verify`/`hash`
-        // replaced the per-type generate/sign/verify/sha members; `seal`/`open` over
-        // `SymmetricCipher` were added (each one member with two overloads); and the
-        // hash-generic `hmac`/`hkdf`/`pbkdf2(Hash, …)` add three more alongside the
-        // (not-yet-retired) per-digest `hmacSha*`/`hkdfSha*`/`pbkdf2Sha*`.
-        assert_eq!(pkg.functions().len(), 23);
+        // 13 members: the unified clean-room `generate`/`sign`/`verify`/`hash`
+        // replaced the per-type generate/sign/verify/sha members; the hash-generic
+        // `hmac`/`hkdf`/`pbkdf2(Hash, …)` and the `SymmetricCipher`-selected
+        // `seal`/`open` are now the sole KDF/MAC and AEAD surface — the per-digest
+        // `hmacSha*`/`hkdfSha*`/`pbkdf2Sha*` and per-cipher `aes256Gcm*`/
+        // `chacha20Poly1305*` members were removed.
+        assert_eq!(pkg.functions().len(), 13);
     }
 
     #[test]
@@ -619,16 +577,6 @@ mod tests {
             "crypto.hmac",
             "crypto.hkdf",
             "crypto.pbkdf2",
-            "crypto.hmacSha256",
-            "crypto.hmacSha512",
-            "crypto.hkdfSha256",
-            "crypto.hkdfSha512",
-            "crypto.pbkdf2Sha256",
-            "crypto.pbkdf2Sha512",
-            "crypto.aes256GcmSeal",
-            "crypto.aes256GcmOpen",
-            "crypto.chacha20Poly1305Seal",
-            "crypto.chacha20Poly1305Open",
             "crypto.seal",
             "crypto.open",
             "crypto.randomBytes",
@@ -641,7 +589,10 @@ mod tests {
         ] {
             assert_eq!(registry().owning_package(n), Some("crypto"), "{n}");
         }
-        // The per-digest/per-curve members were folded into `hash`/`sign`/`verify`.
+        // The per-digest/per-curve members were folded into `hash`/`sign`/`verify`;
+        // the per-digest KDF/MAC and per-cipher AEAD members were retired behind the
+        // `Hash`-generic `hmac`/`hkdf`/`pbkdf2` and `SymmetricCipher`-selected
+        // `seal`/`open`.
         for gone in [
             "crypto.sha224",
             "crypto.sha256",
@@ -655,6 +606,16 @@ mod tests {
             "crypto.p521Verify",
             "crypto.ed25519Sign",
             "crypto.ed25519Verify",
+            "crypto.hmacSha256",
+            "crypto.hmacSha512",
+            "crypto.hkdfSha256",
+            "crypto.hkdfSha512",
+            "crypto.pbkdf2Sha256",
+            "crypto.pbkdf2Sha512",
+            "crypto.aes256GcmSeal",
+            "crypto.aes256GcmOpen",
+            "crypto.chacha20Poly1305Seal",
+            "crypto.chacha20Poly1305Open",
         ] {
             assert!(registry().owning_package(gone).is_none(), "{gone}");
         }
@@ -705,22 +666,25 @@ mod tests {
             sel("crypto.hash", &["Hash", "String"]),
             Some("__crypto_hashText")
         );
-        // HMAC selects on `data` (arg index 1).
+        // The unified `hmac(Hash, key, data)` selects on `data` (arg index 2): the
+        // `String` form rewrites to the `__crypto_hmacText` UTF-8 shim, the
+        // `List OF Byte` form to the hash-generic `__crypto_hmac` core.
         assert_eq!(
-            sel("crypto.hmacSha256", &["List OF Byte", "String"]),
-            Some("__crypto_hmacSha256_text")
+            sel("crypto.hmac", &["Hash", "List OF Byte", "String"]),
+            Some("__crypto_hmacText")
         );
         assert_eq!(
-            sel("crypto.hmacSha512", &["List OF Byte", "List OF Byte"]),
-            Some("__crypto_hmacSha512_bytes")
+            sel("crypto.hmac", &["Hash", "List OF Byte", "List OF Byte"]),
+            Some("__crypto_hmac")
         );
-        // PBKDF2 selects on `password` (arg index 0).
+        // The unified `pbkdf2(Hash, password, …)` has a single `List OF Byte`
+        // overload rewriting to the hash-generic `__crypto_pbkdf2` core.
         assert_eq!(
             sel(
-                "crypto.pbkdf2Sha256",
-                &["String", "List OF Byte", "Integer", "Integer"]
+                "crypto.pbkdf2",
+                &["Hash", "List OF Byte", "List OF Byte", "Integer", "Integer"]
             ),
-            Some("__crypto_pbkdf2Sha256_text")
+            Some("__crypto_pbkdf2")
         );
         // Single-body source member.
         assert_eq!(sel("crypto.uuid4", &[]), Some("__crypto_uuid4"));
@@ -759,15 +723,21 @@ mod tests {
         assert_eq!(r("crypto.hash", &["Hash", "Integer"]), None);
         assert_eq!(
             r(
-                "crypto.aes256GcmSeal",
-                &["List OF Byte", "List OF Byte", "List OF Byte"]
+                "crypto.seal",
+                &[
+                    "SymmetricCipher",
+                    "List OF Byte",
+                    "List OF Byte",
+                    "List OF Byte"
+                ]
             ),
             Some("Sealed".into())
         );
         assert_eq!(
             r(
-                "crypto.aes256GcmSeal",
+                "crypto.seal",
                 &[
+                    "SymmetricCipher",
                     "List OF Byte",
                     "List OF Byte",
                     "List OF Byte",
@@ -801,22 +771,24 @@ mod tests {
 
     #[test]
     fn aead_aad_default_padding() {
-        // AEAD `seal` pads one trailing `aad` when omitted (3 provided -> 1), none at 4.
+        // AEAD `seal(cipher, key, nonce, data, [aad])` pads one trailing `aad` when
+        // omitted (4 provided -> 1), none at 5.
         assert_eq!(
-            registry::default_argument_padding("crypto.aes256GcmSeal", 3).len(),
+            registry::default_argument_padding("crypto.seal", 4).len(),
             1
         );
         assert_eq!(
-            registry::default_argument_padding("crypto.aes256GcmSeal", 4).len(),
+            registry::default_argument_padding("crypto.seal", 5).len(),
             0
         );
-        // `open` pads one trailing `aad` when omitted (4 provided -> 1), none at 5.
+        // `open(cipher, key, nonce, ciphertext, tag, [aad])` pads one trailing `aad`
+        // when omitted (5 provided -> 1), none at 6.
         assert_eq!(
-            registry::default_argument_padding("crypto.chacha20Poly1305Open", 4).len(),
+            registry::default_argument_padding("crypto.open", 5).len(),
             1
         );
         assert_eq!(
-            registry::default_argument_padding("crypto.chacha20Poly1305Open", 5).len(),
+            registry::default_argument_padding("crypto.open", 6).len(),
             0
         );
         assert_eq!(
