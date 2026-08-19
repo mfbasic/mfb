@@ -60,26 +60,34 @@ pub(crate) fn lower_hash(
 const INTRO: &str =
     r#"Compute a SHA-2 cryptographic hash of a message, selected by a `crypto::Hash`."#;
 const DESC: &str = r#"`crypto::hash(type, data)` computes the SHA-2 message digest of `data` for the
-algorithm selected by `type` (a `crypto::Hash`: `SHA224`, `SHA256`, `SHA384`, or
-`SHA512`), and returns it as a raw `List OF Byte` — 28, 32, 48, or 64 bytes
-respectively. It is the unified front door for the four SHA-2 hashes
-(`SHA224`/`SHA256`/`SHA384`/`SHA512`) behind one `Hash`-selected call.
+algorithm selected by `type` — a `crypto::Hash`: `SHA224`, `SHA256`, `SHA384`, or
+`SHA512` — and returns it as a raw `List OF Byte`. The digest length is fixed by the
+algorithm: 28 bytes for `SHA224`, 32 for `SHA256`, 48 for `SHA384`, and 64 for
+`SHA512`. This one call replaces four per-digest members behind a single
+`Hash`-selected surface.
 
-The digest is a deterministic function of the input alone: the same message and
-algorithm always produce the same bytes, with no keying, salting, or randomness.
-The function is **total** — every input, including the empty message, yields a
-digest and it never raises an error.
+The digest is a deterministic, one-way function of the message alone: the same
+`type` and `data` always produce the same bytes, with no key, salt, or randomness.
+Any input length is accepted, including the empty message. The function is **total**
+— it never raises an error.
 
-The hashes are portable software cores computed over the `bits` package, so their
-output is **byte-identical on every target** (macOS/Linux/Windows, aarch64/x86-64)
-and use no platform crypto library. A digest is raw binary, not text; stringify it
-with `encoding::hexEncode` or `encoding::base64Encode` to display or store it.
+Two overloads accept the message. The `List OF Byte` overload hashes the raw bytes
+exactly as given; the `String` overload hashes the UTF-8 encoding of the string
+(equivalent to `crypto::hash(type, strings::toBytes(s))`). A digest is raw binary,
+not text — stringify it with `encoding::hexEncode` or `encoding::base64Encode` to
+display or store it, and compare a received digest with `crypto::constantTimeEqual`.
 
-`hash` is a general-purpose digest and message-integrity primitive. It is **not** a
-password hash on its own; derive password material with `crypto::pbkdf2Sha256`, and
-authenticate messages under a shared key with `crypto::hmacSha256`. The
-`List OF Byte` overload hashes the raw bytes as given; the `String` overload hashes
-the string's UTF-8 encoding."#;
+`hash` is a general-purpose digest and message-integrity primitive; it is **not** a
+password hash. Stretch a low-entropy password into key material with the deliberately
+slow, salted `crypto::pbkdf2`, and authenticate a message under a shared secret key
+with `crypto::hmac` — a bare hash provides no authentication.
+
+**Implementation.** SHA-2 is specified by FIPS 180-4 (SHA-224/256/384/512). The
+digest is computed in-process by a portable MFBASIC software core over the `bits`
+package — no platform cryptographic library is called — so the output is
+**byte-identical on macOS, Linux, and Windows** (and across aarch64/x86-64). The core
+is hash-generic over the `Hash` enum, so a future `Hash` variant is supported without
+new code."#;
 const EX: &str = r#"Hash a byte list and print it as hex:
 
 ```
