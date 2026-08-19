@@ -90,7 +90,7 @@ IMPORT io
 
 SUB main()
   LET raw AS List OF Byte = strings::toBytes("hello")
-  LET digest AS List OF Byte = crypto::hash(crypto::Hash.SHA256, raw)
+  LET digest AS List OF Byte = crypto::hash(Hash.SHA256, raw)
   io::print(encoding::hexEncode(digest))
 END SUB
 ```
@@ -103,7 +103,7 @@ IMPORT encoding
 IMPORT io
 
 SUB main()
-  io::print(encoding::hexEncode(crypto::hash(crypto::Hash.SHA512, "hello")))
+  io::print(encoding::hexEncode(crypto::hash(Hash.SHA512, "hello")))
 END SUB
 ```"#;
 

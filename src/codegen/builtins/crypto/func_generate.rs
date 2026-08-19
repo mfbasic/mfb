@@ -1500,7 +1500,7 @@ const EX: &str = r#"```
 IMPORT crypto
 
 SUB main()
-  LET kp AS crypto::KeyPair = crypto::generate(crypto::Certificate.P256)
+  LET kp AS crypto::KeyPair = crypto::generate(Certificate.P256)
 END SUB
 ```"#;
 

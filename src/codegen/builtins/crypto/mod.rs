@@ -10,13 +10,16 @@
 //! carry a `List OF Byte` **and** a `String` overload, modeled as two
 //! `Implementation`s whose distinct parameter types make `select` pick the
 //! `_bytes`/`_text` body — no resolver, no `implementation_name` hook (the legacy
-//! `CryptoResolver` idiom the clean-room `select()` subsumes). The only native
-//! members are the OS-entropy CSPRNG (`randomBytes`) and the NIST-EC public-key
-//! operations (`generateP*Raw`, `p{256,384,521}{Sign,Verify}`); they are
-//! [`Body::native`] OS-seam helpers whose per-backend emission (macOS `SecKey`,
-//! Linux `EVP_PKEY`, Windows CNG, `getentropy`/`BCryptGenRandom`) lives in
-//! `native/`, dispatched generically through `registry::os_helper` and their runtime
-//! specs DERIVED by `registry::runtime_specs`.
+//! `CryptoResolver` idiom the clean-room `select()` subsumes). The unified
+//! public-key members — `generate`/`sign`/`verify` over the `Certificate` enum —
+//! are clean-room [`Body::abi_function`] lowerings (`func_generate`/`func_sign`/
+//! `func_verify` + the shared `gen_cert` seam) that bind the platform key APIs
+//! (macOS `SecKey`, Linux `EVP_PKEY`, Windows CNG) self-contained; the unified
+//! `hash`/`hmac`/`hkdf`/`pbkdf2`, `seal`/`open`, `convert`, and `encrypt`/`decrypt`
+//! members dispatch (via `Body::abi_function`/`Body::Rewrite`) to the MFB software
+//! cores. The one remaining [`Body::native`] OS-seam helper is the CSPRNG
+//! `randomBytes` (`getentropy` / `BCryptGenRandom`, in `native/`), dispatched
+//! generically through `registry::os_helper`.
 //!
 //! Source injection is the registry's ([`crate::codegen::registry::augment_project`]);
 //! the `Sealed`/`KeyPair` record types are registered via `add_record`, carrying

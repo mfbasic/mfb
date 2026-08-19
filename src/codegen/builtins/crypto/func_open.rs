@@ -104,8 +104,8 @@ IMPORT strings
 SUB main()
   LET secret AS List OF Byte = crypto::randomBytes(32)
   LET nonce AS List OF Byte = crypto::randomBytes(12)
-  LET box AS crypto::Sealed = crypto::seal(crypto::SymmetricCipher.AES256GCM, secret, nonce, "attack at dawn")
-  LET clear AS List OF Byte = crypto::open(crypto::SymmetricCipher.AES256GCM, secret, nonce, box)
+  LET box AS crypto::Sealed = crypto::seal(SymmetricCipher.AES256GCM, secret, nonce, "attack at dawn")
+  LET clear AS List OF Byte = crypto::open(SymmetricCipher.AES256GCM, secret, nonce, box)
 END SUB
 ```
 
@@ -119,8 +119,8 @@ SUB main()
   LET secret AS List OF Byte = crypto::randomBytes(32)
   LET nonce AS List OF Byte = crypto::randomBytes(12)
   LET header AS List OF Byte = strings::toBytes("v1;msg-42")
-  LET box AS crypto::Sealed = crypto::seal(crypto::SymmetricCipher.CHACHA20POLY1305, secret, nonce, "attack at dawn", header)
-  LET clear AS List OF Byte = crypto::open(crypto::SymmetricCipher.CHACHA20POLY1305, secret, nonce, box.ciphertext, box.tag, header)
+  LET box AS crypto::Sealed = crypto::seal(SymmetricCipher.CHACHA20POLY1305, secret, nonce, "attack at dawn", header)
+  LET clear AS List OF Byte = crypto::open(SymmetricCipher.CHACHA20POLY1305, secret, nonce, box.ciphertext, box.tag, header)
 END SUB
 ```"#;
 

@@ -24,7 +24,7 @@ the holder of the matching private key can read it, and returns a self-contained
 `List OF Byte` box. `cipher` is a `crypto::AsymmetricCipher`
 (`Ed25519_AES256GCM` or `Ed25519_CHACHA20POLY1305`) selecting the AEAD used inside
 the box; `recipientPublicKey` is the recipient's 32-byte Ed25519 public key (from
-`crypto::generate(crypto::Certificate.Ed25519)`), converted to X25519 internally.
+`crypto::generate(Certificate.Ed25519)`), converted to X25519 internally.
 
 The construction is an X25519 sealed-box hybrid: a fresh ephemeral X25519 key pair
 is generated per call, an ECDH shared secret is derived against the recipient, and
@@ -43,9 +43,9 @@ const EX: &str = r#"```
 IMPORT crypto
 
 SUB main()
-  LET recip AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed25519)
-  LET box AS List OF Byte = crypto::encrypt(crypto::AsymmetricCipher.Ed25519_AES256GCM, recip.publicKey, "attack at dawn")
-  LET clear AS List OF Byte = crypto::decrypt(crypto::AsymmetricCipher.Ed25519_AES256GCM, recip.privateKey, box)
+  LET recip AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+  LET box AS List OF Byte = crypto::encrypt(AsymmetricCipher.Ed25519_AES256GCM, recip.publicKey, "attack at dawn")
+  LET clear AS List OF Byte = crypto::decrypt(AsymmetricCipher.Ed25519_AES256GCM, recip.privateKey, box)
 END SUB
 ```"#;
 

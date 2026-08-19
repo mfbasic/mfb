@@ -19,7 +19,7 @@ const DESC: &str = r#"`crypto::decrypt(cipher, recipientPrivateKey, box)` recove
 box produced by `crypto::encrypt(cipher, …)`, returning it as a `List OF Byte`.
 `cipher` is the same `crypto::AsymmetricCipher` used to encrypt; `recipientPrivateKey`
 is the recipient's 32-byte Ed25519 private key (the seed from
-`crypto::generate(crypto::Certificate.Ed25519)`), converted to X25519 internally.
+`crypto::generate(Certificate.Ed25519)`), converted to X25519 internally.
 
 The box is `ephemeralPublicKey (32 bytes) ‖ ciphertext ‖ tag (16 bytes)`. Decryption
 does the ECDH against the embedded ephemeral key, re-derives the AEAD key and nonce
@@ -33,9 +33,9 @@ const EX: &str = r#"```
 IMPORT crypto
 
 SUB main()
-  LET recip AS crypto::KeyPair = crypto::generate(crypto::Certificate.Ed25519)
-  LET box AS List OF Byte = crypto::encrypt(crypto::AsymmetricCipher.Ed25519_CHACHA20POLY1305, recip.publicKey, "attack at dawn")
-  LET clear AS List OF Byte = crypto::decrypt(crypto::AsymmetricCipher.Ed25519_CHACHA20POLY1305, recip.privateKey, box)
+  LET recip AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+  LET box AS List OF Byte = crypto::encrypt(AsymmetricCipher.Ed25519_CHACHA20POLY1305, recip.publicKey, "attack at dawn")
+  LET clear AS List OF Byte = crypto::decrypt(AsymmetricCipher.Ed25519_CHACHA20POLY1305, recip.privateKey, box)
 END SUB
 ```"#;
 
