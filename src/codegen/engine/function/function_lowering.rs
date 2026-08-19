@@ -847,6 +847,7 @@ pub(crate) fn lower_function(
         instructions: vec![abi::label("entry")],
         relocations: Vec::new(),
         stack_slots: Vec::new(),
+        abi_prefinalized: None,
         used_callee_saved: Vec::new(),
         stack_size: 0,
         next_register: 8,
@@ -1130,6 +1131,7 @@ pub(crate) fn lower_builtin_function_wrapper(
         instructions: vec![abi::label("entry")],
         relocations: Vec::new(),
         stack_slots: Vec::new(),
+        abi_prefinalized: None,
         used_callee_saved: Vec::new(),
         stack_size: 0,
         next_register: 8,
@@ -1252,6 +1254,7 @@ pub(crate) fn lower_builtin_function_wrapper(
 /// into the `(frame, instructions, relocations, stack_slots)` tuple every runtime
 /// helper produces. Reached from `lower_runtime_helper`'s `abi.*` arm. The demo
 /// `abi::funcAddTwo` member routes here.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_abi_function_helper(
     call: &str,
     symbol: &str,
@@ -1259,6 +1262,8 @@ pub(crate) fn lower_abi_function_helper(
     type_model: &TypeModel,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
+    term_state_offset: Option<usize>,
+    presentation_mode_offset: Option<usize>,
 ) -> Result<
     (
         CodeFrame,
@@ -1296,6 +1301,7 @@ pub(crate) fn lower_abi_function_helper(
         instructions: vec![abi::label("entry")],
         relocations: Vec::new(),
         stack_slots: Vec::new(),
+        abi_prefinalized: None,
         used_callee_saved: Vec::new(),
         stack_size: 0,
         next_register: 8,
@@ -1366,8 +1372,22 @@ pub(crate) fn lower_abi_function_helper(
         platform_imports,
         platform,
         build_mode,
+        term_state_offset,
+        presentation_mode_offset,
     };
     let result = lower(&mut builder, &args, &ctx)?;
+
+    // Pre-finalized escape hatch (plan-101): an OS-seam abi body (the migrated
+    // `io` members) that already holds a fully finalized helper body — a vreg body
+    // an emitter finalized itself, or a hand-written app-mode `AppHookBody` of
+    // physical registers with its own frame — placed that stream in
+    // `instructions`/`relocations` and set `abi_prefinalized = Some((frame,
+    // slots))`. It must bypass BOTH the void-epilogue (it emitted its own return)
+    // and `finalize_vreg_body_*` (which would panic on the app body's physical
+    // registers). Return the finished body verbatim.
+    if let Some((frame, stack_slots)) = builder.abi_prefinalized.take() {
+        return Ok((frame, builder.instructions, builder.relocations, stack_slots));
+    }
 
     // A body that returns a `void`-location `ValueResult` has emitted its OWN
     // fallible ABI — the success value in `RESULT_VALUE_REGISTER` + `RESULT_OK_TAG`,
@@ -1435,6 +1455,7 @@ pub(crate) fn lower_thread_copy_function(
         instructions: vec![abi::label("entry")],
         relocations: Vec::new(),
         stack_slots: Vec::new(),
+        abi_prefinalized: None,
         used_callee_saved: Vec::new(),
         stack_size: 0,
         next_register: 8,

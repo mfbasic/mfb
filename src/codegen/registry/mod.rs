@@ -102,6 +102,18 @@ pub(crate) struct AbiCtx<'a> {
     pub(crate) platform_imports: &'a std::collections::HashMap<String, String>,
     pub(crate) platform: &'a dyn crate::codegen::engine::types::CodegenPlatform,
     pub(crate) build_mode: crate::target::NativeBuildMode,
+    /// The arena offset of the TUI term-state slot, or `None` when the program
+    /// uses no `term::` — the plan-35-B shadow-grid routing on `io.print`/`io.write`
+    /// and the bug-149 cooked-mode restore on `io.readLine`/`io.input` consume it.
+    /// Threaded from the dispatch's [`OsLowerCtx`] so an `abi_function` OS-seam body
+    /// (the migrated `io` members, plan-101) reaches the same context an `OsLower`
+    /// emitter did. Carries the legacy `ArenaLayout` value byte-for-byte
+    /// (`Option<usize>`). Most abi bodies (crypto/bits) ignore it.
+    pub(crate) term_state_offset: Option<usize>,
+    /// The arena offset of the app presentation-mode slot, or `None` when the
+    /// program is not an `--app` build. Threaded alongside `term_state_offset` for
+    /// the same reason; the migrated `io` app-mode routing consults it.
+    pub(crate) presentation_mode_offset: Option<usize>,
 }
 
 /// A builder-driven **inline** lowering (the unified successor to [`NativeLower`]):

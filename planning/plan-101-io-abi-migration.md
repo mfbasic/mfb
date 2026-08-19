@@ -245,19 +245,23 @@ once every member owns its emitter.
 Delivers the mechanism with ZERO member migrated, so crypto stays byte-identical
 and the hatch/ctx fields are exercised only once io moves.
 
-- [ ] Add `term_state_offset`/`presentation_mode_offset` to `AbiCtx`
+- [x] Add `term_state_offset`/`presentation_mode_offset` to `AbiCtx`
       (`registry/mod.rs`).
-- [ ] Add `abi_prefinalized: Option<(CodeFrame, Vec<CodeStackSlot>)>` to
-      `CodeBuilder` (`builder/mod.rs`), default `None` at all literals.
-- [ ] Thread the two offsets into `lower_abi_function_helper` and honor
+- [x] Add `abi_prefinalized: Option<(CodeFrame, Vec<CodeStackSlot>)>` to
+      `CodeBuilder` (`builder/mod.rs`), default `None` at all 4 literals in
+      `function_lowering.rs`.
+- [x] Thread the two offsets into `lower_abi_function_helper` and honor
       `abi_prefinalized` (skip void-epilogue + finalize when `Some`)
-      (`function_lowering.rs`); pass them from `builder/mod.rs:1919`.
-- [ ] Confirm `src/target/*/plan.rs` + `validate` already accept `Abi`-family
-      symbols generically (crypto proves it) — record the grep.
-- [ ] Tests: `cargo test --bin mfb crypto` still green (hatch unused path).
+      (`function_lowering.rs`); pass them from `builder/mod.rs` + the
+      `try_abi_inline_lower` site (`builder_values.rs`, `None`/`None`).
+- [x] Confirm gates accept `Abi`-family symbols generically: `catalog.rs:18` +
+      `supported_helper_specs` DERIVE all `Abi`-family specs from the registry
+      globally (no per-backend allow-list); crypto already routes through it.
+- [x] Tests: `cargo test --bin mfb` green (3605 passed).
 
-Acceptance: `cargo build` + `cargo test --bin mfb` green; crypto `.ncode`
-goldens unchanged (hatch defaulted `None` is a no-op). Commit: —
+Acceptance: `cargo build` + `cargo test --bin mfb` green (3605 passed); no io
+member migrated yet so the hatch/ctx fields are inert (`None`) — crypto/bits
+paths unchanged. Commit: <pending>
 
 ### Phase 2 — Migrate trivial + terminal-predicate + flush members
 

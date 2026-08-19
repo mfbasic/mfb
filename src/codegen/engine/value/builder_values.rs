@@ -1551,6 +1551,12 @@ impl CodeBuilder<'_> {
             platform_imports: self.platform_imports,
             platform: self.platform,
             build_mode: self.build_mode,
+            // The arena OS-seam offsets are a runtime-helper (`abi_function`)
+            // concern threaded from the dispatch's `OsLowerCtx`. The inline path
+            // lowers at a call site with no such context, and no `abi_inline`
+            // member (bits) consults them — so `None` here is correct.
+            term_state_offset: None,
+            presentation_mode_offset: None,
         };
         Some(lower(self, &arg_values, &ctx))
     }

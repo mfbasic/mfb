@@ -145,6 +145,17 @@ pub(crate) struct CodeBuilder<'a> {
     pub(crate) instructions: Vec<CodeInstruction>,
     pub(crate) relocations: Vec<CodeRelocation>,
     pub(crate) stack_slots: Vec<CodeStackSlot>,
+    /// The pre-finalized-body escape hatch for a `Body::abi_function` lowering
+    /// (plan-101). An abi body that already holds a fully finalized helper body
+    /// — one built by an OS-seam emitter or a hand-written app-mode `AppHookBody`
+    /// (physical registers, own `CodeFrame`) that cannot pass through the
+    /// wrapper's vreg finalizer — sets this to `Some((frame, slots))` after
+    /// placing the finished stream in `instructions`/`relocations`, and returns a
+    /// `void` `ValueResult`. `lower_abi_function_helper` then returns that body
+    /// verbatim, skipping both the void-epilogue and `finalize_vreg_body_*`.
+    /// `None` (the default, and every crypto/bits abi body) keeps the original
+    /// vreg-finalize behavior. Migrated `io` members are the only current setters.
+    pub(crate) abi_prefinalized: Option<(CodeFrame, Vec<CodeStackSlot>)>,
     pub(crate) used_callee_saved: Vec<String>,
     pub(crate) stack_size: usize,
     pub(crate) next_register: usize,
@@ -1923,6 +1934,8 @@ pub(crate) fn lower_runtime_helper(
                 type_model,
                 platform_imports,
                 platform,
+                os_ctx.term_state_offset,
+                os_ctx.presentation_mode_offset,
             )?
         } else if crate::codegen::registry::registry().owning_package(spec.call) == Some("term") {
             // Every `term.*` member carries a `Body::native_os_seam` OS-seam lowering
