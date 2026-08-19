@@ -1610,15 +1610,43 @@ pub(crate) fn lower_sign(
 }
 
 const INTRO: &str = r#"Sign a message with a private key of the given certificate type."#;
-const DESC: &str = r#"`crypto::sign(type, privateKey, message)` produces a signature over `message`
-using `privateKey`, for the NIST-EC curve or Ed25519 selected by `type` (a
-`crypto::Certificate`). The private key is the `privateKey` field of the
-`crypto::KeyPair` returned by `crypto::generate(type)`.
+const DESC: &str = r#"`crypto::sign(type, privateKey, message)` produces a digital signature over the
+raw bytes of `message` using `privateKey`, for the NIST prime curve or `Ed25519`
+selected by `type` (a `crypto::Certificate`), and returns it as a `List OF Byte`.
+`privateKey` is the exact `privateKey` field of the `crypto::KeyPair` that
+`crypto::generate(type)` returned for the same `type` — for the NIST curves the
+SEC1 uncompressed point followed by the secret scalar (`0x04‖X‖Y‖d`, 97/145/199
+bytes for `P256`/`P384`/`P521`), and for `Ed25519` the 32-byte seed.
 
-For the EC curves (`P256`/`P384`/`P521`) the result is an ASN.1 DER
-`Ecdsa-Sig-Value` signature; for `Ed25519` it is the fixed 64-byte raw signature
-(`R‖S`). Either is verifiable with `crypto::verify(type, …)` for the same `type`.
-The output is returned as a `List OF Byte`."#;
+For the NIST curves this is **FIPS 186-4 ECDSA** with the curve's mandated digest
+(**SHA-256** for `P256`, **SHA-384** for `P384`, **SHA-512** for `P521`) over the
+whole message, and the result is an **ASN.1 DER** `Ecdsa-Sig-Value` (a `SEQUENCE {
+INTEGER r, INTEGER s }`, X9.62); its length is variable (roughly 70–72 bytes for
+`P256`) because `r`/`s` are minimally encoded. ECDSA is randomized, so signing the
+same message twice yields different (both valid) signatures. For `Ed25519` this is
+**RFC 8032 PureEdDSA** (deterministic; the message is hashed with SHA-512
+internally) and the result is the fixed **64-byte** raw `R‖S`. Either is
+verifiable with `crypto::verify(type, …)` for the same `type`.
+
+**Boundary and errors.** A `privateKey` whose length is not the exact SEC1 size
+for the chosen curve, or an `Ed25519` key that is not 32 bytes, or an otherwise
+malformed key the platform import rejects, raises `ErrInvalidArgument`; `message`
+may be any length, including empty. `X25519` is a key-agreement key and cannot
+sign — it raises `ErrInvalidArgument`. A platform-library or system failure raises
+`ErrUnknown`, and an allocation failure raises `ErrOutOfMemory`. The private key
+material is zeroed from the working buffers before return.
+
+**Implementation.** ECDSA signing runs through the host platform key API,
+reproduced clean-room in this member (no third-party crypto is bundled): on
+**macOS** via Security.framework `SecKeyCreateWithData` + `SecKeyCreateSignature`
+with `kSecKeyAlgorithmECDSASignatureMessageX962SHA256/384/512`; on **Linux** via
+OpenSSL `libcrypto` `EVP_DigestSignInit` + one-shot `EVP_DigestSign`
+(`EVP_sha256/384/512`), the SEC1 key spliced into a PKCS#8 template and decoded
+with `d2i_AutoPrivateKey`; on **Windows** via CNG `bcrypt.dll`
+`BCryptImportKeyPair` (`ECCPRIVATEBLOB`) + `BCryptHash` + `BCryptSignHash`, whose
+fixed `r‖s` output is re-encoded to ASN.1 DER here. `Ed25519` is a pure in-process
+MFBASIC software core (RFC 8032) with **no platform library**, so it is
+byte-identical on every OS. Signatures are wire-compatible across platforms."#;
 const EX: &str = r#"```
 IMPORT crypto
 IMPORT strings
@@ -1664,7 +1692,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 },
             ],
             return_type: bytes(),
-            errors: vec!["ErrInvalidArgument"],
+            errors: vec!["ErrInvalidArgument", "ErrOutOfMemory", "ErrUnknown"],
             body: Body::abi_function(lower_sign),
         }],
     });
