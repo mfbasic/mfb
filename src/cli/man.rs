@@ -84,7 +84,8 @@ fn man_rule() -> String {
 }
 
 /// `mfb man --all`: the whole registry manual — every package overview followed by
-/// all of its function pages, in registration order, as one document.
+/// all of its function pages and its `types` page, in registration order, as one
+/// document.
 fn render_all_markdown() -> String {
     let mut md = String::new();
     // `unqualified_global` packages (`testing`, and later `general`) are bare-name
@@ -103,13 +104,20 @@ fn render_all_markdown() -> String {
     md
 }
 
-/// `mfb man <package> --all`: the package overview followed by the full page for
-/// every function it documents, each separated by a full-width rule.
+/// `mfb man <package> --all`: the package overview, the full page for every
+/// function it documents, and — when the package exposes public types — its
+/// consolidated `types` page, each separated by a full-width rule.
 fn render_package_all_markdown(package: &RegistryPackage) -> String {
     let mut md = render_package_markdown(package);
     for function in package.functions() {
         md.push_str(&man_rule());
         md.push_str(&render_function_markdown(package, function));
+    }
+    // The consolidated `mfb man <pkg> types` page, appended so `--all` is a complete
+    // rendering of the package's public surface (functions AND types).
+    if has_public_types(package) {
+        md.push_str(&man_rule());
+        md.push_str(&render_types_markdown(package));
     }
     md
 }
