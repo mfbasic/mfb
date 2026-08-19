@@ -8,7 +8,7 @@ Cleaned up codegen
 [-] audio
 [@] bits
 [-] collections
-[-] crypto
+[@] crypto
 [@] csv
 [-] datetime
 [-] encoding
