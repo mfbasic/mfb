@@ -54,6 +54,7 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "crypto.generate",
     "crypto.sign",
     "crypto.verify",
+    "crypto.hash",
     "crypto.p256Sign",
     "crypto.p384Sign",
     "crypto.p521Sign",

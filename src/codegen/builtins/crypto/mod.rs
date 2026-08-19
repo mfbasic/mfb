@@ -138,6 +138,31 @@ pub(crate) fn register(r: &mut Registry) {
             },
         ],
     });
+    // The hash-algorithm selector — every hash function `crypto` supports (the
+    // SHA-2 family). Ordinals are declaration order (SHA224=0, SHA256=1, SHA384=2,
+    // SHA512=3).
+    pkg.add_enum(RegistryEnum {
+        name: "Hash",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "SHA224",
+                description: "SHA-224 (SHA-2 family, 224-bit digest).",
+            },
+            EnumVariant {
+                name: "SHA256",
+                description: "SHA-256 (SHA-2 family, 256-bit digest).",
+            },
+            EnumVariant {
+                name: "SHA384",
+                description: "SHA-384 (SHA-2 family, 384-bit digest).",
+            },
+            EnumVariant {
+                name: "SHA512",
+                description: "SHA-512 (SHA-2 family, 512-bit digest).",
+            },
+        ],
+    });
 
     // The shared private `__crypto_*` helpers (module globals + every `__crypto_*`
     // body). Each lives in its own `helper_*.rs` and registers via `add_helper`;
@@ -291,12 +316,21 @@ pub(crate) fn register(r: &mut Registry) {
     helper_ed25519_sign::register(&mut pkg);
     helper_scalar_below_l::register(&mut pkg);
     helper_ed25519_verify::register(&mut pkg);
+    // The `String`-overload shim for the unified `hash(Hash, data)` member: UTF-8-encodes
+    // then re-enters the `List OF Byte` `hash` AbiFunction (see `func_hash`).
+    helper_hash_text::register(&mut pkg);
 
     // Hashes (source, `_bytes`/`_text` overloads).
     func_sha256::register(&mut pkg);
     func_sha224::register(&mut pkg);
     func_sha512::register(&mut pkg);
     func_sha384::register(&mut pkg);
+    // The unified clean-room `hash(Hash, data)` selects a SHA-2 digest by the `Hash`
+    // ordinal and branch-links to the always-emitted MFB software SHA cores (the SHA
+    // math stays in MFB), mirroring `generate`/`sign`/`verify` over `Certificate`. The
+    // per-digest `sha*` members it will replace are still registered above (removed in
+    // a later step).
+    func_hash::register(&mut pkg);
     // HMAC (source, `_bytes`/`_text` overloads on `data`).
     func_hmac_sha256::register(&mut pkg);
     func_hmac_sha512::register(&mut pkg);
@@ -352,6 +386,7 @@ mod func_constant_time_equal;
 mod func_ed25519_sign;
 mod func_ed25519_verify;
 pub(crate) mod func_generate;
+pub(crate) mod func_hash;
 mod func_hkdf_sha256;
 mod func_hkdf_sha512;
 mod func_hmac_sha256;
@@ -374,6 +409,7 @@ pub(crate) mod func_sign;
 mod func_uuid4;
 pub(crate) mod func_verify;
 pub(crate) mod gen_cert;
+pub(crate) mod gen_hash;
 
 mod helper_add32;
 mod helper_add64;
@@ -444,6 +480,7 @@ mod helper_gf_y;
 mod helper_ghash;
 mod helper_ghash_mul;
 mod helper_gmul8;
+mod helper_hash_text;
 mod helper_hkdf_expand;
 mod helper_hkdf_sha256;
 mod helper_hkdf_sha512;
@@ -538,11 +575,13 @@ mod tests {
         let pkg = registry()
             .resolve_package("crypto")
             .expect("crypto package");
-        // 29 members: the unified clean-room `generate(Certificate)` replaced the
+        // 30 members: the unified clean-room `generate(Certificate)` replaced the
         // four per-type `generateP*`/`generateEd25519` members, plus the unified
         // clean-room `sign(Certificate, …)` and `verify(Certificate, …)` added
-        // alongside the per-curve signers/verifiers.
-        assert_eq!(pkg.functions().len(), 29);
+        // alongside the per-curve signers/verifiers, and the unified `hash(Hash, …)`
+        // added alongside the per-digest `sha*` members (a single member with two
+        // `List OF Byte`/`String` overloads).
+        assert_eq!(pkg.functions().len(), 30);
     }
 
     #[test]
@@ -552,6 +591,7 @@ mod tests {
             "crypto.sha224",
             "crypto.sha512",
             "crypto.sha384",
+            "crypto.hash",
             "crypto.hmacSha256",
             "crypto.hmacSha512",
             "crypto.hkdfSha256",
