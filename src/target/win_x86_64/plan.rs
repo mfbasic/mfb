@@ -483,7 +483,8 @@ impl NativePlanPlatform for Platform {
             // rides BCryptGenRandom in the entry floor; the EC ops pull the key/
             // hash/sign surface. Any crypto.* EC call declares the whole set; the
             // merged IAT dedups.
-            "crypto.generateP256"
+            "crypto.generate"
+            | "crypto.generateP256"
             | "crypto.generateP384"
             | "crypto.generateP521"
             | "crypto.p256Sign"

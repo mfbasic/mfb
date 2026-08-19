@@ -989,8 +989,9 @@ pub(crate) fn lower_module_for_platform(
         .iter()
         .any(|symbol| symbol == "_mfb_rt_abi_crypto_generate")
     {
-        data_objects
-            .extend(crate::codegen::builtins::crypto::func_generate::data_objects(platform.family()));
+        data_objects.extend(
+            crate::codegen::builtins::crypto::func_generate::data_objects(platform.family()),
+        );
     }
     let type_model = TypeModel::from_module_and_packages(module, packages)?;
     // bug-377: the close thunks, by symbol. Every consumer of a resource's

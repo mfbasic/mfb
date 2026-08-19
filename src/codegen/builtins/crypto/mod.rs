@@ -535,8 +535,9 @@ mod tests {
         let pkg = registry()
             .resolve_package("crypto")
             .expect("crypto package");
-        // 30 members: each generateP*Raw was collapsed into its native generateP*.
-        assert_eq!(pkg.functions().len(), 30);
+        // 31 members: the 30 legacy members (each generateP*Raw collapsed into its
+        // native generateP*) plus the clean-room `generate(Certificate)`.
+        assert_eq!(pkg.functions().len(), 31);
     }
 
     #[test]

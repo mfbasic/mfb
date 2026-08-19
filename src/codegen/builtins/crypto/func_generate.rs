@@ -114,9 +114,30 @@ struct OsslCurve {
     spki_prefix_len: usize,
 }
 const OSSL_CURVES: &[OsslCurve] = &[
-    OsslCurve { name: "P-256", nid: "415", point_len: 65, field_len: 32, sec1_scalar_off: 7, spki_prefix_len: 26 },
-    OsslCurve { name: "P-384", nid: "715", point_len: 97, field_len: 48, sec1_scalar_off: 8, spki_prefix_len: 23 },
-    OsslCurve { name: "P-521", nid: "716", point_len: 133, field_len: 66, sec1_scalar_off: 8, spki_prefix_len: 25 },
+    OsslCurve {
+        name: "P-256",
+        nid: "415",
+        point_len: 65,
+        field_len: 32,
+        sec1_scalar_off: 7,
+        spki_prefix_len: 26,
+    },
+    OsslCurve {
+        name: "P-384",
+        nid: "715",
+        point_len: 97,
+        field_len: 48,
+        sec1_scalar_off: 8,
+        spki_prefix_len: 23,
+    },
+    OsslCurve {
+        name: "P-521",
+        nid: "716",
+        point_len: 133,
+        field_len: 66,
+        sec1_scalar_off: 8,
+        spki_prefix_len: 25,
+    },
 ];
 
 fn ossl_sym(name: &str) -> String {
@@ -125,6 +146,67 @@ fn ossl_sym(name: &str) -> String {
 
 fn ossl_name_sym(name: &str) -> String {
     format!("_mfb_crypto_generate_ossl_name_{name}")
+}
+
+// ---------------------------------------------------------------------------
+// Windows CNG/BCrypt clean-room seam. The `BCrypt*` entry points link through
+// the import table (Win64 ABI); only the wide (UTF-16LE) `LPCWSTR` algorithm and
+// blob-type identifiers need data objects. Own symbol names (distinct from
+// `crypto/native/cng`'s `_mfb_crypto_ec_w_*`).
+// ---------------------------------------------------------------------------
+const BLOBCAP: usize = 8 + 3 * 66; // header + X‖Y‖d for the widest curve (P-521)
+
+const WIN_WIDE_IDS: &[&str] = &["ECDSA_P256", "ECDSA_P384", "ECDSA_P521", "ECCPRIVATEBLOB"];
+
+// Per-curve CNG parameters (ordinal-indexed): (algo-id, field_len). The raw
+// (`1+3·field`) and public (`1+2·field`) lengths are derived at runtime.
+struct WinCurve {
+    algo: &'static str,
+    field_len: usize,
+    bits: &'static str,
+}
+const WIN_CURVES: &[WinCurve] = &[
+    WinCurve {
+        algo: "ECDSA_P256",
+        field_len: 32,
+        bits: "256",
+    },
+    WinCurve {
+        algo: "ECDSA_P384",
+        field_len: 48,
+        bits: "384",
+    },
+    WinCurve {
+        algo: "ECDSA_P521",
+        field_len: 66,
+        bits: "521",
+    },
+];
+
+fn win_sym(name: &str) -> String {
+    format!("_mfb_crypto_generate_w_{name}")
+}
+
+/// UTF-16LE, NUL-terminated hex for a CNG `LPCWSTR` (ASCII input only).
+fn utf16z_hex(text: &str) -> String {
+    let mut hex = String::new();
+    for ch in text.chars() {
+        let cp = ch as u32;
+        hex.push_str(&format!("{:02x}{:02x}", cp & 0xff, (cp >> 8) & 0xff));
+    }
+    hex.push_str("0000");
+    hex
+}
+
+fn wide_cstr(symbol: &str, text: &str) -> CodeDataObject {
+    CodeDataObject {
+        symbol: symbol.to_string(),
+        kind: "raw".to_string(),
+        layout: "UTF-16LE string (NUL-terminated)".to_string(),
+        align: 2,
+        size: (text.len() + 1) * 2,
+        value: utf16z_hex(text),
+    }
 }
 
 /// Read-only C strings this member references, for the target family. Emitted by
@@ -154,7 +236,10 @@ pub(crate) fn data_objects(family: PlatformFamily) -> Vec<CodeDataObject> {
             }
             objects
         }
-        PlatformFamily::Windows => Vec::new(),
+        PlatformFamily::Windows => WIN_WIDE_IDS
+            .iter()
+            .map(|id| wide_cstr(&win_sym(id), id))
+            .collect(),
     }
 }
 
@@ -887,17 +972,38 @@ fn emit_linux_ec(
     )?;
     // Resolve the free functions up front so the error cleanup can always run.
     ossl_dlsym_into(
-        symbol, L_HANDLE, "EVP_PKEY_free", L_FREEPKEY, &load_fail, imports, platform, ins,
+        symbol,
+        L_HANDLE,
+        "EVP_PKEY_free",
+        L_FREEPKEY,
+        &load_fail,
+        imports,
+        platform,
+        ins,
         &mut builder.relocations,
     )?;
     ossl_dlsym_into(
-        symbol, L_HANDLE, "EC_KEY_free", L_FREEECKEY, &load_fail, imports, platform, ins,
+        symbol,
+        L_HANDLE,
+        "EC_KEY_free",
+        L_FREEECKEY,
+        &load_fail,
+        imports,
+        platform,
+        ins,
         &mut builder.relocations,
     )?;
 
     // OpenSSL 3.x: pkey = EVP_EC_gen(name).
     ossl_dlsym_probe(
-        symbol, L_HANDLE, "EVP_EC_gen", L_FN, &eckey_path, imports, platform, ins,
+        symbol,
+        L_HANDLE,
+        "EVP_EC_gen",
+        L_FN,
+        &eckey_path,
+        imports,
+        platform,
+        ins,
         &mut builder.relocations,
     )?;
     ins.extend([
@@ -911,7 +1017,14 @@ fn emit_linux_ec(
     // OpenSSL 1.1: EC_KEY_new_by_curve_name(nid) + generate + EVP_PKEY_assign.
     ins.push(abi::label(&eckey_path));
     ossl_dlsym_into(
-        symbol, L_HANDLE, "EC_KEY_new_by_curve_name", L_FN, &load_fail, imports, platform, ins,
+        symbol,
+        L_HANDLE,
+        "EC_KEY_new_by_curve_name",
+        L_FN,
+        &load_fail,
+        imports,
+        platform,
+        ins,
         &mut builder.relocations,
     )?;
     ins.extend([
@@ -923,7 +1036,14 @@ fn emit_linux_ec(
         abi::branch_eq(&gen_fail),
     ]);
     ossl_dlsym_into(
-        symbol, L_HANDLE, "EC_KEY_generate_key", L_FN, &load_fail, imports, platform, ins,
+        symbol,
+        L_HANDLE,
+        "EC_KEY_generate_key",
+        L_FN,
+        &load_fail,
+        imports,
+        platform,
+        ins,
         &mut builder.relocations,
     )?;
     ins.extend([
@@ -934,7 +1054,14 @@ fn emit_linux_ec(
         abi::branch_ne(&gen_fail),
     ]);
     ossl_dlsym_into(
-        symbol, L_HANDLE, "EVP_PKEY_new", L_FN, &load_fail, imports, platform, ins,
+        symbol,
+        L_HANDLE,
+        "EVP_PKEY_new",
+        L_FN,
+        &load_fail,
+        imports,
+        platform,
+        ins,
         &mut builder.relocations,
     )?;
     ins.extend([
@@ -945,7 +1072,14 @@ fn emit_linux_ec(
         abi::branch_eq(&gen_fail),
     ]);
     ossl_dlsym_into(
-        symbol, L_HANDLE, "EVP_PKEY_assign", L_FN, &load_fail, imports, platform, ins,
+        symbol,
+        L_HANDLE,
+        "EVP_PKEY_assign",
+        L_FN,
+        &load_fail,
+        imports,
+        platform,
+        ins,
         &mut builder.relocations,
     )?;
     ins.extend([
@@ -969,7 +1103,14 @@ fn emit_linux_ec(
 
     // SEC1 = i2d_PrivateKey(pkey)
     ossl_dlsym_into(
-        symbol, L_HANDLE, "i2d_PrivateKey", L_FN, &load_fail, imports, platform, ins,
+        symbol,
+        L_HANDLE,
+        "i2d_PrivateKey",
+        L_FN,
+        &load_fail,
+        imports,
+        platform,
+        ins,
         &mut builder.relocations,
     )?;
     ins.extend([
@@ -997,7 +1138,14 @@ fn emit_linux_ec(
 
     // SPKI = i2d_PUBKEY(pkey)
     ossl_dlsym_into(
-        symbol, L_HANDLE, "i2d_PUBKEY", L_FN, &load_fail, imports, platform, ins,
+        symbol,
+        L_HANDLE,
+        "i2d_PUBKEY",
+        L_FN,
+        &load_fail,
+        imports,
+        platform,
+        ins,
         &mut builder.relocations,
     )?;
     ins.extend([
@@ -1049,8 +1197,19 @@ fn emit_linux_ec(
         abi::branch_lo(&gen_fail),
     ]);
     emit_copy_runtime(
-        symbol, "pt", L_SPKIPTR, Some(L_SPKIPREFIX), L_RAWBUF, None, L_POINTLEN, v9, v10, v11, v12,
-        v13, ins,
+        symbol,
+        "pt",
+        L_SPKIPTR,
+        Some(L_SPKIPREFIX),
+        L_RAWBUF,
+        None,
+        L_POINTLEN,
+        v9,
+        v10,
+        v11,
+        v12,
+        v13,
+        ins,
     );
     // scalar = SEC1[sec1_off..][field_len]; guard SEC1LEN >= sec1_off + field_len.
     ins.extend([
@@ -1153,7 +1312,14 @@ fn emit_linux_ec(
             abi::branch_link_register(v9),
             abi::label(&skip_ec),
         ]);
-        emit_zero_guarded(symbol, L_SEC1PTR, Some(L_SEC1LEN), 0, &format!("{tag}w"), ins);
+        emit_zero_guarded(
+            symbol,
+            L_SEC1PTR,
+            Some(L_SEC1LEN),
+            0,
+            &format!("{tag}w"),
+            ins,
+        );
     };
     builder.instructions.push(abi::label(&load_fail));
     cleanup(&mut builder.instructions, "lf", v9);
@@ -1175,6 +1341,365 @@ fn emit_linux_ec(
     );
     builder.instructions.push(abi::label(&alloc_fail));
     cleanup(&mut builder.instructions, "af", v9);
+    emit_fail(
+        symbol,
+        "ErrOutOfMemory",
+        &mut builder.instructions,
+        &mut builder.relocations,
+        done,
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Windows CNG clean-room emit helpers (reproduced; not calls into
+// `crypto/native/*`).
+// ---------------------------------------------------------------------------
+
+/// Emit a Win64 external `BCrypt*` call: args 0..=3 preloaded in
+/// `return_register`/`ARG[1..3]`, args 4.. spilled to the stack tail above the
+/// shadow space. Sign-extends the NTSTATUS return (`< 0` fails).
+fn bcrypt_call(
+    from: &str,
+    name: &str,
+    n_args: usize,
+    imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    // Win64 requires the caller to reserve ≥32 bytes of shadow (home) space below
+    // the outgoing stack args for EVERY call — even a ≤4-arg one — or the callee
+    // clobbers the caller's `[sp..sp+0x20]` locals when it homes its register args.
+    let stack = n_args.saturating_sub(4);
+    let frame = (0x20 + stack * 8 + 15) & !15;
+    ins.push(abi::subtract_stack(frame));
+    for i in 0..stack {
+        ins.push(abi::store_u64(
+            abi::c_arg(4 + i),
+            abi::stack_pointer(),
+            0x20 + i * 8,
+        ));
+    }
+    platform.emit_external_call(name, from, imports, ins, rel)?;
+    ins.push(abi::add_stack(frame));
+    ins.push(abi::sign_extend_word(
+        abi::return_register(),
+        abi::return_register(),
+    ));
+    Ok(())
+}
+
+// Windows stack layout (sp-relative).
+const W_HALG: usize = 0;
+const W_HKEY: usize = 8;
+const W_BLOB: usize = 16;
+const W_CBRES: usize = 24;
+const W_RAW: usize = 32;
+const W_RAWLEN: usize = 40;
+const W_COLL: usize = 48;
+const W_PUBCOLL: usize = 56;
+const W_POINTLEN: usize = 64;
+const W_RSIZE: usize = 72;
+const W_RRESULT: usize = 80;
+const W_RCURSOR: usize = 88;
+const W_RBLOCK: usize = 96;
+const W_FIELD: usize = 104;
+const W_ALGOPTR: usize = 112;
+const W_BITS: usize = 120;
+
+/// Destroy `hKey` (`W_HKEY`) and close `hAlg` (`W_HALG`), each null-guarded, then
+/// null the slots so the shared error labels can reuse this idempotently.
+fn win_cleanup(
+    symbol: &str,
+    tag: &str,
+    imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let no_key = format!("{symbol}_wnokey_{tag}");
+    let no_alg = format!("{symbol}_wnoalg_{tag}");
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), W_HKEY),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&no_key),
+    ]);
+    bcrypt_call(symbol, "BCryptDestroyKey", 1, imports, platform, ins, rel)?;
+    ins.extend([
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), W_HKEY),
+        abi::label(&no_key),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), W_HALG),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&no_alg),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+    ]);
+    bcrypt_call(
+        symbol,
+        "BCryptCloseAlgorithmProvider",
+        2,
+        imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    ins.extend([
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), W_HALG),
+        abi::label(&no_alg),
+    ]);
+    Ok(())
+}
+
+/// Emit the Windows CNG EC keygen for the runtime curve params staged in
+/// `W_FIELD` (field length) and `W_ALGOPTR` (the `LPCWSTR` algorithm id).
+/// Self-managed fallible ABI; jumps `done`.
+#[allow(clippy::too_many_arguments)]
+fn emit_windows_ec(
+    builder: &mut CodeBuilder,
+    ctx: &AbiCtx,
+    symbol: &str,
+    v9: &str,
+    v10: &str,
+    v11: &str,
+    v12: &str,
+    v13: &str,
+    done: &str,
+) -> Result<(), String> {
+    let imports = ctx.platform_imports;
+    let platform = ctx.platform;
+    let fail = format!("{symbol}_wfail");
+    let alloc_fail = format!("{symbol}_walloc_fail");
+    let cpy = format!("{symbol}_wcpy");
+    let cpy_end = format!("{symbol}_wcpyend");
+    let ins = &mut builder.instructions;
+
+    ins.extend([
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), W_HALG),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), W_HKEY),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), W_BLOB),
+    ]);
+    // raw_len = 1 + 3·field; point_len = 1 + 2·field.
+    ins.extend([
+        abi::load_u64(v9, abi::stack_pointer(), W_FIELD),
+        abi::add_registers(v10, v9, v9),
+        abi::add_registers(v10, v10, v9),
+        abi::add_immediate(v10, v10, 1),
+        abi::store_u64(v10, abi::stack_pointer(), W_RAWLEN),
+        abi::add_registers(v11, v9, v9),
+        abi::add_immediate(v11, v11, 1),
+        abi::store_u64(v11, abi::stack_pointer(), W_POINTLEN),
+    ]);
+
+    // BCryptOpenAlgorithmProvider(&hAlg, algo, NULL, 0)
+    ins.push(abi::add_immediate(
+        abi::return_register(),
+        abi::stack_pointer(),
+        W_HALG,
+    ));
+    ins.extend([
+        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), W_ALGOPTR),
+        abi::move_immediate(abi::c_arg(2), "Integer", "0"),
+        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
+    ]);
+    bcrypt_call(
+        symbol,
+        "BCryptOpenAlgorithmProvider",
+        4,
+        imports,
+        platform,
+        ins,
+        &mut builder.relocations,
+    )?;
+    ins.push(abi::branch_lt(&fail));
+
+    // BCryptGenerateKeyPair(hAlg, &hKey, bits, 0)
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), W_HALG),
+        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), W_HKEY),
+        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), W_BITS),
+        abi::move_immediate(abi::c_arg(3), "Integer", "0"),
+    ]);
+    bcrypt_call(
+        symbol,
+        "BCryptGenerateKeyPair",
+        4,
+        imports,
+        platform,
+        ins,
+        &mut builder.relocations,
+    )?;
+    ins.push(abi::branch_lt(&fail));
+
+    // BCryptFinalizeKeyPair(hKey, 0)
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), W_HKEY),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+    ]);
+    bcrypt_call(
+        symbol,
+        "BCryptFinalizeKeyPair",
+        2,
+        imports,
+        platform,
+        ins,
+        &mut builder.relocations,
+    )?;
+    ins.push(abi::branch_lt(&fail));
+
+    // blob buffer (fixed cap, align 8) and raw output buffer (raw_len, align 1).
+    ins.extend([
+        abi::move_immediate(abi::return_register(), "Integer", &BLOBCAP.to_string()),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+    ]);
+    emit_alloc(symbol, ins, &mut builder.relocations, &alloc_fail);
+    ins.extend([
+        abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), W_BLOB),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), W_RAWLEN),
+        abi::move_immediate(abi::c_arg(1), "Integer", "1"),
+    ]);
+    emit_alloc(symbol, ins, &mut builder.relocations, &alloc_fail);
+    ins.push(abi::store_u64(
+        abi::mfb_return(1),
+        abi::stack_pointer(),
+        W_RAW,
+    ));
+
+    // BCryptExportKey(hKey, NULL, L"ECCPRIVATEBLOB", blob, BLOBCAP, &cbResult, 0)
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), W_HKEY),
+        abi::move_immediate(abi::c_arg(1), "Integer", "0"),
+    ]);
+    emit_data_address(
+        symbol,
+        abi::c_arg(2),
+        &win_sym("ECCPRIVATEBLOB"),
+        ins,
+        &mut builder.relocations,
+    );
+    ins.extend([
+        abi::load_u64(abi::c_arg(3), abi::stack_pointer(), W_BLOB),
+        abi::move_immediate(abi::c_arg(4), "Integer", &BLOBCAP.to_string()),
+        abi::add_immediate(abi::c_arg(5), abi::stack_pointer(), W_CBRES),
+        abi::move_immediate(abi::c_arg(6), "Integer", "0"),
+    ]);
+    bcrypt_call(
+        symbol,
+        "BCryptExportKey",
+        7,
+        imports,
+        platform,
+        ins,
+        &mut builder.relocations,
+    )?;
+    ins.push(abi::branch_lt(&fail));
+
+    // raw = 0x04 ‖ (blob body X‖Y‖d). Body starts at blob+8, length = raw_len-1.
+    ins.extend([
+        abi::load_u64(v10, abi::stack_pointer(), W_RAW),
+        abi::move_immediate(v9, "Byte", "4"),
+        abi::store_u8(v9, v10, 0),
+        abi::load_u64(v11, abi::stack_pointer(), W_BLOB),
+        abi::add_immediate(v11, v11, 8),
+        abi::add_immediate(v12, v10, 1),
+        abi::load_u64(v13, abi::stack_pointer(), W_RAWLEN),
+        abi::subtract_immediate(v13, v13, 1),
+        abi::label(&cpy),
+        abi::compare_immediate(v13, "0"),
+        abi::branch_eq(&cpy_end),
+        abi::load_u8(v9, v11, 0),
+        abi::store_u8(v9, v12, 0),
+        abi::add_immediate(v11, v11, 1),
+        abi::add_immediate(v12, v12, 1),
+        abi::subtract_immediate(v13, v13, 1),
+        abi::branch(&cpy),
+        abi::label(&cpy_end),
+    ]);
+
+    // Clean up the handles and wipe the private blob before assembling the result
+    // (the cleanup calls clobber the caller-saved result registers).
+    win_cleanup(
+        symbol,
+        "c1",
+        imports,
+        platform,
+        ins,
+        &mut builder.relocations,
+    )?;
+    emit_zero_guarded(symbol, W_BLOB, None, BLOBCAP, "wblobz", ins);
+
+    emit_build_byte_list(
+        symbol,
+        &format!("{symbol}_wpriv_loop"),
+        &format!("{symbol}_wpriv_done"),
+        W_RAW,
+        W_RAWLEN,
+        Some(W_COLL),
+        abi::mfb_return(1),
+        &alloc_fail,
+        ins,
+        &mut builder.relocations,
+    );
+    emit_build_byte_list(
+        symbol,
+        &format!("{symbol}_wpub_loop"),
+        &format!("{symbol}_wpub_done"),
+        W_RAW,
+        W_POINTLEN,
+        Some(W_PUBCOLL),
+        abi::mfb_return(1),
+        &alloc_fail,
+        ins,
+        &mut builder.relocations,
+    );
+
+    let scratch = RecordBuildScratch {
+        size: W_RSIZE,
+        result: W_RRESULT,
+        cursor: W_RCURSOR,
+        block_size: W_RBLOCK,
+    };
+    emit_build_inlined_record(
+        symbol,
+        "wkp",
+        "KeyPair",
+        &builder.type_model,
+        &[W_COLL, W_PUBCOLL],
+        &scratch,
+        RESULT_VALUE_REGISTER,
+        &alloc_fail,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )?;
+    builder.instructions.extend([
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(done),
+    ]);
+
+    builder.instructions.push(abi::label(&fail));
+    win_cleanup(
+        symbol,
+        "c2",
+        imports,
+        platform,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )?;
+    emit_fail(
+        symbol,
+        "ErrUnknown",
+        &mut builder.instructions,
+        &mut builder.relocations,
+        done,
+    );
+    builder.instructions.push(abi::label(&alloc_fail));
+    win_cleanup(
+        symbol,
+        "c3",
+        imports,
+        platform,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    )?;
     emit_fail(
         symbol,
         "ErrOutOfMemory",
@@ -1305,9 +1830,59 @@ pub(crate) fn lower_generate(
             emit_linux_ec(builder, ctx, &symbol, &v9, &v10, &v11, &v12, &v13, &done)?;
         }
         PlatformFamily::Windows => {
-            return Err(
-                "crypto::generate: clean-room Windows (CNG) keygen not yet implemented".into(),
+            // Select the runtime CNG curve params (field length, algorithm-id
+            // pointer) from the ordinal, then run the BCrypt sequence.
+            let wp384 = format!("{symbol}_wp384");
+            let wp521 = format!("{symbol}_wp521");
+            let have = format!("{symbol}_whave");
+            let sym_owned = symbol.clone();
+            let set = |ins: &mut Vec<CodeInstruction>,
+                       rel: &mut Vec<CodeRelocation>,
+                       v9: &str,
+                       c: &WinCurve| {
+                ins.extend([
+                    abi::move_immediate(v9, "Integer", &c.field_len.to_string()),
+                    abi::store_u64(v9, abi::stack_pointer(), W_FIELD),
+                    abi::move_immediate(v9, "Integer", c.bits),
+                    abi::store_u64(v9, abi::stack_pointer(), W_BITS),
+                ]);
+                emit_data_address(&sym_owned, v9, &win_sym(c.algo), ins, rel);
+                ins.extend([
+                    abi::store_u64(v9, abi::stack_pointer(), W_ALGOPTR),
+                    abi::branch(&have),
+                ]);
+            };
+            builder.instructions.extend([
+                abi::compare_immediate(&ord, ORD_P384),
+                abi::branch_eq(&wp384),
+                abi::compare_immediate(&ord, ORD_P521),
+                abi::branch_eq(&wp521),
+                abi::compare_immediate(&ord, ORD_ED25519),
+                abi::branch_eq(&ed25519),
+            ]);
+            // P-256 (ordinal 0) falls through here.
+            set(
+                &mut builder.instructions,
+                &mut builder.relocations,
+                &v9,
+                &WIN_CURVES[0],
             );
+            builder.instructions.push(abi::label(&wp384));
+            set(
+                &mut builder.instructions,
+                &mut builder.relocations,
+                &v9,
+                &WIN_CURVES[1],
+            );
+            builder.instructions.push(abi::label(&wp521));
+            set(
+                &mut builder.instructions,
+                &mut builder.relocations,
+                &v9,
+                &WIN_CURVES[2],
+            );
+            builder.instructions.push(abi::label(&have));
+            emit_windows_ec(builder, ctx, &symbol, &v9, &v10, &v11, &v12, &v13, &done)?;
         }
     }
 

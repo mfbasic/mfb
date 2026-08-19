@@ -248,6 +248,8 @@ mod tests {
         // is ever emitted for them). A variant missing here with no catalogued
         // spec is the dead-catalog situation bug-326 removed for `strings`.
         for helper in [
+            // The clean-room `AbiFunction` family (e.g. `crypto.generate`).
+            RuntimeHelper::Abi,
             RuntimeHelper::App,
             RuntimeHelper::Audio,
             RuntimeHelper::Crypto,
@@ -269,6 +271,6 @@ mod tests {
                 helper.name()
             );
         }
-        assert_eq!(families.len(), 13, "unexpected extra catalogued family");
+        assert_eq!(families.len(), 14, "unexpected extra catalogued family");
     }
 }
