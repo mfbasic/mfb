@@ -1386,7 +1386,12 @@ pub(crate) fn lower_abi_function_helper(
     // and `finalize_vreg_body_*` (which would panic on the app body's physical
     // registers). Return the finished body verbatim.
     if let Some((frame, stack_slots)) = builder.abi_prefinalized.take() {
-        return Ok((frame, builder.instructions, builder.relocations, stack_slots));
+        return Ok((
+            frame,
+            builder.instructions,
+            builder.relocations,
+            stack_slots,
+        ));
     }
 
     // A body that returns a `void`-location `ValueResult` has emitted its OWN

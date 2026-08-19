@@ -8,9 +8,7 @@ use crate::codegen::builtins::io::native::{
     adapter_app_mode, app_unsupported, hatch_finalized, lower_io_flush_helper,
 };
 use crate::codegen::engine::builder::{pad_no_slots, CodeBuilder, ValueResult};
-use crate::codegen::registry::{
-    AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage,
-};
+use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
 /// `abi_function` body for `io::flush` (no args). Console: drain the per-thread

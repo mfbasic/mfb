@@ -19,8 +19,12 @@ pub(crate) fn lower_read_char(
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let body =
-        lower_io_read_char_helper(&symbol, ctx.platform_imports, ctx.platform, adapter_app_mode(ctx))?;
+    let body = lower_io_read_char_helper(
+        &symbol,
+        ctx.platform_imports,
+        ctx.platform,
+        adapter_app_mode(ctx),
+    )?;
     hatch_finalized(builder, body, "String", "io.readChar")
 }
 
