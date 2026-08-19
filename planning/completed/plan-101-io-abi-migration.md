@@ -261,7 +261,7 @@ and the hatch/ctx fields are exercised only once io moves.
 
 Acceptance: `cargo build` + `cargo test --bin mfb` green (3605 passed); no io
 member migrated yet so the hatch/ctx fields are inert (`None`) — crypto/bits
-paths unchanged. Commit: <pending>
+paths unchanged. Commit: fd6ab70b3
 
 ### Phase 2 — Migrate trivial + terminal-predicate + flush members
 
@@ -282,7 +282,7 @@ Lowest-blast-radius members first (`isBuffered`, `setBuffered`, `flush`,
 
 Acceptance: these members classify `is_abi_function_call == true`; the io +
 app-mode golden fixtures pass UNCHANGED (byte-identical, 35 fixtures via
-`test-accept.sh`); `cargo test` green. Commit: <pending>
+`test-accept.sh`); `cargo test` green. Commit: 7024cf8d4
 
 ### Phase 3 — Migrate stdout family (`print`/`write`/`printError`/`writeError`)
 
@@ -295,7 +295,7 @@ App + TUI routing; medium blast radius.
 - [x] Tests: `cargo test --bin mfb` green (3605).
 
 Acceptance: byte-identical (Io family kept, see Corrections) — validated together
-with Phase 4 in the broad golden run. Commit: <pending>
+with Phase 4 in the broad golden run. Commit: 03025c926
 
 ### Phase 4 — Migrate stdin family (`input`/`readLine`/`readChar`/`readByte`/`pollInput`)
 
@@ -308,7 +308,7 @@ Largest emitter (`stdin.rs` 49 KB); highest blast radius.
 - [x] Tests: `cargo test --bin mfb` green (3605).
 
 Acceptance: byte-identical; read fixtures + bug-149 cooked-mode behavior
-unchanged (broad golden run). Commit: <pending>
+unchanged (broad golden run). Commit: 03025c926
 
 ### Phase 5 — Delete dispatcher + finish file split
 
@@ -324,17 +324,20 @@ unchanged (broad golden run). Commit: <pending>
 
 Acceptance: no `Body::native_os_seam` registration remains in `builtins/io`;
 `cargo test` green; 61 io + app + print/read/trap golden fixtures pass
-byte-identically. Commit: <pending>
+byte-identically. Commit: 03025c926
 
 ### Phase 6 — Golden re-sync + full acceptance + fmt
 
-- [ ] Re-sync goldens (`scripts/sync-goldens.sh` per memory; NOT `cargo test`);
-      inspect the diff is symbol-rename-only.
-- [ ] `test-accept.sh` (scratch dir `/tmp/accept-out`, never a real dir).
-- [ ] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
+- [x] No golden re-sync needed — io kept its `Io` family, so every io golden is
+      unchanged (verified: `test-accept.sh` full run, 1264 tests).
+- [x] `rustfmt` (root `--all` + `repository`); committed `223e96b6e`.
+- [x] Full `test-accept.sh` surfaced ONE unrelated pre-existing failure
+      (`inline-trap-infallible-builtin-valid`, `bits::rl64`), root-caused and
+      fixed in `cbc175a64` (see Corrections); re-run clean.
 
-Acceptance: full acceptance suite passes; golden diff is exclusively symbol
-renames. Commit: —
+Acceptance: full acceptance suite passes with ZERO io golden changes; the one
+mismatch was a pre-existing inline-TRAP bug fixed in place. Commit: 223e96b6e (fmt),
+cbc175a64 (bug fix).
 
 ## Validation Plan
 
@@ -379,11 +382,38 @@ renames. Commit: —
   the symbol rename" is thus strengthened to "**no delta at all**"; the Phase 6
   golden re-sync is now a no-op verification, not a re-baseline. This voids the
   per-member gate/symbol-flip work Phases 3–5 anticipated.
+- **Pre-existing inline-TRAP bug found by the full acceptance run (fixed).** The
+  Phase 6 full run surfaced one mismatch — `inline-trap-infallible-builtin-valid`
+  — unrelated to io: `lower_infallible_member` (`builder_values.rs`) lowered an
+  inline TRAP on an *infallible* inline builtin via only `try_native_lower` (the
+  `common` slot) + the len/toString ladder, never `try_abi_inline_lower`. When
+  `bits` migrated onto `Body::abi_inline`, the *fallible* inline path
+  (`lower_inline_builtin_raw`) gained a `try_abi_inline_lower` arm but this
+  infallible path was overlooked, so an inline TRAP on a total `bits` op
+  (`rl64`/`rr*`/`popCount`/`clz`/`ctz`/`bswap*`/`band`/`bor`/`bxor`/`bnot`) failed
+  to lower. Verified pre-existing at branch base `67dabec0c` (both `bits.rl64`
+  already `abi_inline` and the missing arm already absent) — NOT a plan-101
+  regression; the migration merely ran the full suite that exposes it. Fixed by
+  adding the missing `try_abi_inline_lower` arm (no capture — the op cannot fail);
+  the existing fixture is the guard and passes against its unchanged golden.
+  Commit `cbc175a64`.
 
 ## Summary
 
-Real risk concentrates in Phase 4 (the stdin family) and the golden re-sync
-(Phase 6) — the only place a non-symbol diff would surface a mistake. The
-enabling Phase 1 (AbiCtx + hatch) is small and de-risks everything after it by
-keeping every emitted body byte-identical: the migration is a Body-variant +
-symbol-family change, not a codegen rewrite.
+**Complete.** All 15 `io::` members are per-function `Body::abi_function`
+lowerings; the central `lower_io_helper` `match` dispatcher is gone. The enabling
+insight (`abi_function_family`) let io keep its `Io`-family symbols, so the whole
+migration is **byte-identical** — the full acceptance suite (1264 tests) passes
+with ZERO io golden changes, and `cargo test` is green (3605). The one enabling
+mechanism added — the `CodeBuilder.abi_prefinalized` hatch + the two `AbiCtx`
+OS-seam offsets — is inert for every non-io abi body (`None` default), so crypto
+and bits are untouched.
+
+What was left untouched: the io OS-seam emitter *bodies* (relocated only in
+concept — they stay in `native/{stdin,stdout,terminal}.rs` as shared helpers, the
+crypto-`gen_*.rs`-seam analog); the public `io::` surface, docs, and symbols. The
+one bug this work surfaced (an inline TRAP on an infallible `abi_inline` `bits`
+op) was pre-existing and is fixed in `cbc175a64`.
+
+Ledger: Phase 1 `fd6ab70b3` · Phase 2 `7024cf8d4` · Phases 3–5 `03025c926` ·
+inline-TRAP fix `cbc175a64` · fmt `223e96b6e`.
