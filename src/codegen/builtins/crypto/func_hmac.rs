@@ -4,14 +4,14 @@
 //! member rewrites onto the hash-generic `__crypto_hmac` MFB core (registered by
 //! [`super::helper_hmac`]), which computes RFC 2104 HMAC over the `__crypto_shaDigest` /
 //! `__crypto_shaBlockSize` dispatch — so every `Hash` variant, present and future, is
-//! authenticated by one construction. It is the unified front door for the per-digest
-//! `hmacSha256`/`hmacSha512` members (mirroring `hash` over `Hash`).
+//! authenticated by one construction. It is the single HMAC surface (it replaced the
+//! former per-digest `hmacSha256`/`hmacSha512` members), mirroring `hash` over `Hash`.
 //!
-//! Two overloads mirror the `hash`/`hmacSha*` members. The `List OF Byte` `data` form
-//! rewrites to `__crypto_hmac`; the `String` form rewrites to the `__crypto_hmacText`
-//! shim (registered by [`super::helper_hmac_text`]) which UTF-8-encodes the string and
-//! re-enters the bytes path — a `String` and a `List OF Byte` are not ABI-interchangeable,
-//! so the two overloads rewrite to distinct MFB bodies, exactly as `hmacSha256` does.
+//! Two overloads mirror `hash`. The `List OF Byte` `data` form rewrites to
+//! `__crypto_hmac`; the `String` form rewrites to the `__crypto_hmacText` shim
+//! (registered by [`super::helper_hmac_text`]) which UTF-8-encodes the string and
+//! re-enters the bytes path — a `String` and a `List OF Byte` are not
+//! ABI-interchangeable, so the two overloads rewrite to distinct MFB bodies.
 
 use super::{
     bytes, Body, DefaultValue, Implementation, Parameter, ParameterType, RegistryFunction,

@@ -1,16 +1,16 @@
 //! `crypto::generate(type)` — a clean-room `AbiFunction` key-pair generator.
 //!
-//! Selected by a [`crypto::Certificate`] enum (`P256`/`P384`/`P521`/`Ed25519`),
-//! this member's `Body::abi_function` body branches on the enum ordinal and, for
-//! the three NIST-EC curves, generates the key pair **from scratch** here — it does
-//! not call into `crypto/native/*` (the migrated per-curve `generateP*`). It is
-//! *modeled on* those (macOS `SecKey`, Linux `EVP_PKEY`, Windows CNG) but reproduces
-//! the platform sequence in this file, self-contained, driving the general
-//! marshallers for the `List OF Byte`/`KeyPair` output. `Ed25519` dispatches to
-//! [`super::helper_generate_ed25519`].
+//! Selected by a [`crypto::Certificate`] enum (`P256`/`P384`/`P521`/`Ed25519`/
+//! `X25519`), this member's `Body::abi_function` body branches on the enum ordinal.
+//! For the three NIST-EC curves it generates the key pair **from scratch** here — it
+//! does not call into `crypto/native/*` — reproducing the platform key sequence
+//! (macOS `SecKey`, Linux OpenSSL `EVP_PKEY`, Windows CNG) self-contained on each
+//! target, driving the general marshallers for the `List OF Byte`/`KeyPair` output.
+//! `Ed25519` dispatches to [`super::helper_generate_ed25519`] and `X25519` to
+//! [`super::helper_generate_x25519`] — both pure MFBASIC software cores.
 //!
-//! Status: macOS (SecKey) is implemented; Linux/Windows raise a codegen error until
-//! their clean-room sequences land (per-platform-verified rollout).
+//! All three platforms are implemented and per-platform verified (macOS host, Linux
+//! aarch64, Windows x86-64).
 
 use super::gen_cert::{self, CopyLen};
 use super::{Body, Implementation, Parameter, ParameterType, RegistryFunction};
