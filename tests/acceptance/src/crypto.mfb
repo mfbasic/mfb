@@ -1,0 +1,550 @@
+IMPORT crypto
+IMPORT encoding
+IMPORT strings
+IMPORT collections
+IMPORT errorCode
+
+' =============================================================================
+' Full acceptance + security suite for the `crypto` import.
+'
+' Every member is exercised with multiple cases: standard known-answer vectors
+' (FIPS 180-4, RFC 4231/5869/7914/8439, RFC 8032, McGrew AES-GCM), edge cases,
+' every documented error path (TRAP + exact code), and end-to-end crypto flows
+' (generate->sign->verify, KDF->seal->open, encrypt/decrypt, MAC->constantTime).
+'
+' `encoding::utf8Encode` is return-type-overloaded (List OF Byte / List OF
+' Integer), so it cannot be resolved inline in a crypto argument; `cxBytes` binds
+' the List OF Byte overload once via its declared return type. Fixed byte inputs
+' use `encoding::hexDecode` (single return type). Results are compared as hex.
+' =============================================================================
+
+FUNC cxBytes(s AS String) AS List OF Byte
+  RETURN encoding::utf8Encode(s)
+END FUNC
+
+FUNC cxZeros(n AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    out = collections::append(out, toByte(0))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' Flip one byte of a list (for tamper tests).
+FUNC cxFlip(data AS List OF Byte, idx AS Integer) AS List OF Byte
+  LET orig AS Integer = toInt(collections::get(data, idx))
+  RETURN collections::set(data, idx, toByte((orig + 1) MOD 256))
+END FUNC
+
+' Truncate a list to the first n bytes.
+FUNC cxTrunc(data AS List OF Byte, n AS Integer) AS List OF Byte
+  RETURN collections::mid(data, 0, n)
+END FUNC
+
+TESTING
+  TGROUP "Builtin: crypto"
+
+    ' -----------------------------------------------------------------------
+    TGROUP "hash — SHA-2 (FIPS 180-4)"
+      TCASE "SHA-256 known-answer"
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA256, "abc")), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA256, "")), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+      END TCASE
+      TCASE "SHA-224 known-answer"
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA224, "abc")), "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7")
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA224, "")), "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f")
+      END TCASE
+      TCASE "SHA-384 known-answer"
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA384, "abc")), "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7")
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA384, "")), "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b")
+      END TCASE
+      TCASE "SHA-512 known-answer"
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA512, "abc")), "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f")
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA512, "")), "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e")
+      END TCASE
+      TCASE "String and List OF Byte overloads agree"
+        LET raw AS List OF Byte = cxBytes("abc")
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA256, raw)), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        LET empty AS List OF Byte = []
+        expectString(encoding::hexEncode(crypto::hash(Hash.SHA256, empty)), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+      END TCASE
+      TCASE "digest lengths are fixed by algorithm"
+        expectInteger(len(crypto::hash(Hash.SHA224, "x")), 28)
+        expectInteger(len(crypto::hash(Hash.SHA256, "x")), 32)
+        expectInteger(len(crypto::hash(Hash.SHA384, "x")), 48)
+        expectInteger(len(crypto::hash(Hash.SHA512, "x")), 64)
+      END TCASE
+      TCASE "deterministic; distinct inputs differ"
+        expectEqual(crypto::constantTimeEqual(crypto::hash(Hash.SHA256, "abc"), crypto::hash(Hash.SHA256, "abc")), TRUE)
+        expectEqual(crypto::constantTimeEqual(crypto::hash(Hash.SHA256, "abc"), crypto::hash(Hash.SHA256, "abd")), FALSE)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "hmac — RFC 4231"
+      TCASE "test case 1 (20-byte 0x0b key, 'Hi There')"
+        LET k AS List OF Byte = encoding::hexDecode("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b")
+        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA224, k, "Hi There")), "896fb1128abbdf196832107cd49df33f47b4b1169912ba4f53684b22")
+        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA256, k, "Hi There")), "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7")
+        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA384, k, "Hi There")), "afd03944d84895626b0825f4ab46907f15f9dadbe4101ec682aa034c7cebc59cfaea9ea9076ede7f4af152e8b2fa9cb6")
+        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA512, k, "Hi There")), "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854")
+      END TCASE
+      TCASE "test case 2 (key 'Jefe')"
+        LET jefe AS List OF Byte = cxBytes("Jefe")
+        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA256, jefe, "what do ya want for nothing?")), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")
+        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA512, jefe, "what do ya want for nothing?")), "164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737")
+      END TCASE
+      TCASE "String and List OF Byte data overloads agree"
+        LET jefe AS List OF Byte = cxBytes("Jefe")
+        LET msg AS List OF Byte = cxBytes("what do ya want for nothing?")
+        expectString(encoding::hexEncode(crypto::hmac(Hash.SHA256, jefe, msg)), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")
+      END TCASE
+      TCASE "MAC length equals digest length; total (empty inputs ok)"
+        LET e AS List OF Byte = []
+        expectInteger(len(crypto::hmac(Hash.SHA256, e, "")), 32)
+        expectInteger(len(crypto::hmac(Hash.SHA512, e, "")), 64)
+      END TCASE
+      TCASE "distinct key yields distinct MAC"
+        LET k1 AS List OF Byte = cxBytes("key-one")
+        LET k2 AS List OF Byte = cxBytes("key-two")
+        expectEqual(crypto::constantTimeEqual(crypto::hmac(Hash.SHA256, k1, "m"), crypto::hmac(Hash.SHA256, k2, "m")), FALSE)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "hkdf — RFC 5869"
+      TCASE "test case 1 (SHA-256, salt+info)"
+        LET ikm AS List OF Byte = encoding::hexDecode("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b")
+        LET salt AS List OF Byte = encoding::hexDecode("000102030405060708090a0b0c")
+        LET info AS List OF Byte = encoding::hexDecode("f0f1f2f3f4f5f6f7f8f9")
+        expectString(encoding::hexEncode(crypto::hkdf(Hash.SHA256, ikm, salt, info, 42)), "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865")
+      END TCASE
+      TCASE "test case 3 (SHA-256, empty salt and info)"
+        LET ikm AS List OF Byte = encoding::hexDecode("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b")
+        LET e AS List OF Byte = []
+        expectString(encoding::hexEncode(crypto::hkdf(Hash.SHA256, ikm, e, e, 42)), "8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d9d201395faa4b61a96c8")
+      END TCASE
+      TCASE "length boundaries"
+        LET ikm AS List OF Byte = cxBytes("input key material")
+        LET e AS List OF Byte = []
+        expectInteger(len(crypto::hkdf(Hash.SHA256, ikm, e, e, 1)), 1)
+        expectInteger(len(crypto::hkdf(Hash.SHA256, ikm, e, e, 8160)), 8160)
+      END TCASE
+      TCASE "error: length out of range -> ErrInvalidArgument"
+        LET ikm AS List OF Byte = cxBytes("ikm")
+        LET e AS List OF Byte = []
+        expectTrap(crypto::hkdf(Hash.SHA256, ikm, e, e, 0), errorCode::ErrInvalidArgument)
+        expectTrap(crypto::hkdf(Hash.SHA256, ikm, e, e, 8161), errorCode::ErrInvalidArgument)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "pbkdf2 — RFC 7914"
+      TCASE "SHA-256/512 known-answer (passwd/salt, 1 iteration)"
+        LET pw AS List OF Byte = cxBytes("passwd")
+        LET sa AS List OF Byte = cxBytes("salt")
+        expectString(encoding::hexEncode(crypto::pbkdf2(Hash.SHA256, pw, sa, 1, 64)), "55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc49ca9cccf179b645991664b39d77ef317c71b845b1e30bd509112041d3a19783")
+        expectString(encoding::hexEncode(crypto::pbkdf2(Hash.SHA512, pw, sa, 1, 64)), "c74319d99499fc3e9013acff597c23c5baf0a0bec5634c46b8352b793e324723d55caa76b2b25c43402dcfdc06cdcf66f95b7d0429420b39520006749c51a04e")
+      END TCASE
+      TCASE "deterministic; salt separation"
+        LET pw AS List OF Byte = cxBytes("password")
+        LET s1 AS List OF Byte = cxBytes("salt-a")
+        LET s2 AS List OF Byte = cxBytes("salt-b")
+        expectEqual(crypto::constantTimeEqual(crypto::pbkdf2(Hash.SHA256, pw, s1, 4, 32), crypto::pbkdf2(Hash.SHA256, pw, s1, 4, 32)), TRUE)
+        expectEqual(crypto::constantTimeEqual(crypto::pbkdf2(Hash.SHA256, pw, s1, 4, 32), crypto::pbkdf2(Hash.SHA256, pw, s2, 4, 32)), FALSE)
+      END TCASE
+      TCASE "error: iterations/length below 1 -> ErrInvalidArgument"
+        LET pw AS List OF Byte = cxBytes("pw")
+        LET sa AS List OF Byte = cxBytes("salt")
+        expectTrap(crypto::pbkdf2(Hash.SHA256, pw, sa, 0, 32), errorCode::ErrInvalidArgument)
+        expectTrap(crypto::pbkdf2(Hash.SHA256, pw, sa, 1, 0), errorCode::ErrInvalidArgument)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "seal / open — AEAD"
+      TCASE "AES-256-GCM known-answer (McGrew case 16)"
+        LET k AS List OF Byte = encoding::hexDecode("feffe9928665731c6d6a8f9467308308feffe9928665731c6d6a8f9467308308")
+        LET n AS List OF Byte = encoding::hexDecode("cafebabefacedbaddecaf888")
+        LET aad AS List OF Byte = encoding::hexDecode("feedfacedeadbeeffeedfacedeadbeefabaddad2")
+        LET pt AS List OF Byte = encoding::hexDecode("d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a721c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b39")
+        LET box AS crypto::Sealed = crypto::seal(SymmetricCipher.AES256GCM, k, n, pt, aad)
+        expectString(encoding::hexEncode(box.ciphertext), "522dc1f099567d07f47f37a32a84427d643a8cdcbfe5c0c97598a2bd2555d1aa8cb08e48590dbb3da7b08b1056828838c5f61e6393ba7a0abcc9f662")
+        expectString(encoding::hexEncode(box.tag), "76fc6ece0f4e1768cddf8853bb2d551b")
+        LET back AS List OF Byte = crypto::open(SymmetricCipher.AES256GCM, k, n, box.ciphertext, box.tag, aad)
+        expectString(encoding::hexEncode(back), "d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a721c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b39")
+      END TCASE
+      TCASE "ChaCha20-Poly1305 known-answer (RFC 8439 2.8.2)"
+        LET k AS List OF Byte = encoding::hexDecode("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f")
+        LET n AS List OF Byte = encoding::hexDecode("070000004041424344454647")
+        LET aad AS List OF Byte = encoding::hexDecode("50515253c0c1c2c3c4c5c6c7")
+        LET pt AS List OF Byte = cxBytes("Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.")
+        LET box AS crypto::Sealed = crypto::seal(SymmetricCipher.CHACHA20POLY1305, k, n, pt, aad)
+        expectString(encoding::hexEncode(box.ciphertext), "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d63dbea45e8ca9671282fafb69da92728b1a71de0a9e060b2905d6a5b67ecd3b3692ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc3ff4def08e4b7a9de576d26586cec64b6116")
+        expectString(encoding::hexEncode(box.tag), "1ae10b594f09e26a7e902ecbd0600691")
+      END TCASE
+      TCASE "round-trip both ciphers via Sealed overload"
+        LET k AS List OF Byte = encoding::hexDecode("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+        LET n AS List OF Byte = encoding::hexDecode("000000000000000000000001")
+        LET pt AS List OF Byte = cxBytes("attack at dawn")
+        LET gbox AS crypto::Sealed = crypto::seal(SymmetricCipher.AES256GCM, k, n, pt)
+        expectString(encoding::hexEncode(crypto::open(SymmetricCipher.AES256GCM, k, n, gbox)), encoding::hexEncode(pt))
+        LET cbox AS crypto::Sealed = crypto::seal(SymmetricCipher.CHACHA20POLY1305, k, n, pt)
+        expectString(encoding::hexEncode(crypto::open(SymmetricCipher.CHACHA20POLY1305, k, n, cbox)), encoding::hexEncode(pt))
+      END TCASE
+      TCASE "empty plaintext seals and opens"
+        LET k AS List OF Byte = cxZeros(32)
+        LET n AS List OF Byte = cxZeros(12)
+        LET e AS List OF Byte = []
+        LET box AS crypto::Sealed = crypto::seal(SymmetricCipher.AES256GCM, k, n, e)
+        expectInteger(len(box.ciphertext), 0)
+        expectInteger(len(box.tag), 16)
+        expectInteger(len(crypto::open(SymmetricCipher.AES256GCM, k, n, box.ciphertext, box.tag)), 0)
+      END TCASE
+      TCASE "String data overload"
+        LET k AS List OF Byte = cxZeros(32)
+        LET n AS List OF Byte = cxZeros(12)
+        LET box AS crypto::Sealed = crypto::seal(SymmetricCipher.CHACHA20POLY1305, k, n, "hello")
+        expectString(encoding::hexEncode(crypto::open(SymmetricCipher.CHACHA20POLY1305, k, n, box)), encoding::hexEncode(cxBytes("hello")))
+      END TCASE
+      TCASE "security: tampered tag/ciphertext -> ErrAuthenticationFailed"
+        LET k AS List OF Byte = cxZeros(32)
+        LET n AS List OF Byte = cxZeros(12)
+        LET pt AS List OF Byte = cxBytes("secret payload")
+        LET box AS crypto::Sealed = crypto::seal(SymmetricCipher.AES256GCM, k, n, pt)
+        LET badTag AS List OF Byte = cxFlip(box.tag, 0)
+        LET badCt AS List OF Byte = cxFlip(box.ciphertext, 0)
+        expectTrap(crypto::open(SymmetricCipher.AES256GCM, k, n, box.ciphertext, badTag), errorCode::ErrAuthenticationFailed)
+        expectTrap(crypto::open(SymmetricCipher.AES256GCM, k, n, badCt, box.tag), errorCode::ErrAuthenticationFailed)
+      END TCASE
+      TCASE "security: aad mismatch -> ErrAuthenticationFailed"
+        LET k AS List OF Byte = cxZeros(32)
+        LET n AS List OF Byte = cxZeros(12)
+        LET pt AS List OF Byte = cxBytes("msg")
+        LET aad AS List OF Byte = cxBytes("header-v1")
+        LET wrong AS List OF Byte = cxBytes("header-v2")
+        LET box AS crypto::Sealed = crypto::seal(SymmetricCipher.CHACHA20POLY1305, k, n, pt, aad)
+        expectString(encoding::hexEncode(crypto::open(SymmetricCipher.CHACHA20POLY1305, k, n, box.ciphertext, box.tag, aad)), encoding::hexEncode(pt))
+        expectTrap(crypto::open(SymmetricCipher.CHACHA20POLY1305, k, n, box.ciphertext, box.tag, wrong), errorCode::ErrAuthenticationFailed)
+      END TCASE
+      TCASE "error: wrong key/nonce sizes -> ErrInvalidArgument"
+        LET good AS List OF Byte = cxZeros(32)
+        LET n AS List OF Byte = cxZeros(12)
+        LET shortKey AS List OF Byte = cxZeros(16)
+        LET shortNonce AS List OF Byte = cxZeros(8)
+        LET pt AS List OF Byte = cxBytes("x")
+        expectTrap(crypto::seal(SymmetricCipher.AES256GCM, shortKey, n, pt), errorCode::ErrInvalidArgument)
+        expectTrap(crypto::seal(SymmetricCipher.AES256GCM, good, shortNonce, pt), errorCode::ErrInvalidArgument)
+        expectTrap(crypto::open(SymmetricCipher.AES256GCM, shortKey, n, pt, cxZeros(16)), errorCode::ErrInvalidArgument)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "generate — key pairs"
+      TCASE "key material sizes per certificate type"
+        LET p256 AS crypto::KeyPair = crypto::generate(Certificate.P256)
+        expectInteger(len(p256.publicKey), 65)
+        expectInteger(len(p256.privateKey), 97)
+        LET p384 AS crypto::KeyPair = crypto::generate(Certificate.P384)
+        expectInteger(len(p384.publicKey), 97)
+        expectInteger(len(p384.privateKey), 145)
+        LET p521 AS crypto::KeyPair = crypto::generate(Certificate.P521)
+        expectInteger(len(p521.publicKey), 133)
+        expectInteger(len(p521.privateKey), 199)
+        LET ed AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+        expectInteger(len(ed.publicKey), 32)
+        expectInteger(len(ed.privateKey), 32)
+        LET x AS crypto::KeyPair = crypto::generate(Certificate.X25519)
+        expectInteger(len(x.publicKey), 32)
+        expectInteger(len(x.privateKey), 32)
+      END TCASE
+      TCASE "NIST public key is an uncompressed SEC1 point (0x04 prefix)"
+        LET p256 AS crypto::KeyPair = crypto::generate(Certificate.P256)
+        expectEqual(collections::get(p256.publicKey, 0), toByte(4))
+      END TCASE
+      TCASE "randomness: two key pairs differ"
+        LET a AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+        LET b AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+        expectEqual(crypto::constantTimeEqual(a.privateKey, b.privateKey), FALSE)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "sign / verify"
+      TCASE "Ed25519 reference known-answer + public-key cross-check"
+        ' Vectors independently computed with Python `cryptography` (Ed25519):
+        ' seed 9d61b1.. -> public f04e4998.. -> sig("test message") 448d58e2..
+        LET seed AS List OF Byte = encoding::hexDecode("9d61b19deffbbcc0f5dcb4a5eb28efbcccca7ab3b7a3c6ee5ce3af5b7cba5327")
+        LET pub AS List OF Byte = encoding::hexDecode("f04e4998bf926818bc2610beefbb0abb219f2157e005ca2a69b5333dbe915772")
+        LET msg AS List OF Byte = cxBytes("test message")
+        LET sig AS List OF Byte = crypto::sign(Certificate.Ed25519, seed, msg)
+        expectString(encoding::hexEncode(sig), "448d58e2c2134ebb846a49d15a880d58a42c51b67e37c751a20c59a137fb42d9ddb460e110e746ca2854d83ce2ba9f25b1ad0eb4ba9e6923b26e169516686b0e")
+        expectInteger(len(sig), 64)
+        ' The independently-derived public key accepts mfb's signature (interop proof).
+        expectEqual(crypto::verify(Certificate.Ed25519, pub, msg, sig), TRUE)
+        ' Empty-message vector, also reference-computed.
+        LET e AS List OF Byte = []
+        LET sig0 AS List OF Byte = crypto::sign(Certificate.Ed25519, seed, e)
+        expectString(encoding::hexEncode(sig0), "91938f7fb21f3393abb98aeb8b429939f0d0a55764af1da63e3e9372e32074bbf5a298ccefaa3f2d910e1ebca34d72a09f3c9d22825e772858a05b1cf532d107")
+        expectEqual(crypto::verify(Certificate.Ed25519, pub, e, sig0), TRUE)
+      END TCASE
+      TCASE "Ed25519 is deterministic (same seed+msg -> same signature)"
+        LET seed AS List OF Byte = encoding::hexDecode("9d61b19deffbbcc0f5dcb4a5eb28efbcccca7ab3b7a3c6ee5ce3af5b7cba5327")
+        LET msg AS List OF Byte = cxBytes("determinism")
+        expectString(encoding::hexEncode(crypto::sign(Certificate.Ed25519, seed, msg)), encoding::hexEncode(crypto::sign(Certificate.Ed25519, seed, msg)))
+      END TCASE
+      TCASE "P-256 generate->sign->verify round-trip; DER shape"
+        LET kp AS crypto::KeyPair = crypto::generate(Certificate.P256)
+        LET msg AS List OF Byte = cxBytes("attack at dawn")
+        LET sig AS List OF Byte = crypto::sign(Certificate.P256, kp.privateKey, msg)
+        expectEqual(collections::get(sig, 0), toByte(48))
+        expectEqual(crypto::verify(Certificate.P256, kp.publicKey, msg, sig), TRUE)
+      END TCASE
+      TCASE "P-384 / P-521 round-trip"
+        LET k384 AS crypto::KeyPair = crypto::generate(Certificate.P384)
+        LET m AS List OF Byte = cxBytes("msg-384")
+        expectEqual(crypto::verify(Certificate.P384, k384.publicKey, m, crypto::sign(Certificate.P384, k384.privateKey, m)), TRUE)
+        LET k521 AS crypto::KeyPair = crypto::generate(Certificate.P521)
+        LET m2 AS List OF Byte = cxBytes("msg-521")
+        expectEqual(crypto::verify(Certificate.P521, k521.publicKey, m2, crypto::sign(Certificate.P521, k521.privateKey, m2)), TRUE)
+      END TCASE
+      TCASE "ECDSA is randomized (two signatures differ, both verify)"
+        LET kp AS crypto::KeyPair = crypto::generate(Certificate.P256)
+        LET msg AS List OF Byte = cxBytes("randomized")
+        LET s1 AS List OF Byte = crypto::sign(Certificate.P256, kp.privateKey, msg)
+        LET s2 AS List OF Byte = crypto::sign(Certificate.P256, kp.privateKey, msg)
+        expectEqual(crypto::constantTimeEqual(s1, s2), FALSE)
+        expectEqual(crypto::verify(Certificate.P256, kp.publicKey, msg, s1), TRUE)
+        expectEqual(crypto::verify(Certificate.P256, kp.publicKey, msg, s2), TRUE)
+      END TCASE
+      TCASE "verify rejects tampered message, signature, and wrong key (FALSE, not error)"
+        LET kp AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+        LET other AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+        LET msg AS List OF Byte = cxBytes("message")
+        LET sig AS List OF Byte = crypto::sign(Certificate.Ed25519, kp.privateKey, msg)
+        expectEqual(crypto::verify(Certificate.Ed25519, kp.publicKey, cxBytes("Message"), sig), FALSE)
+        expectEqual(crypto::verify(Certificate.Ed25519, kp.publicKey, msg, cxFlip(sig, 10)), FALSE)
+        expectEqual(crypto::verify(Certificate.Ed25519, other.publicKey, msg, sig), FALSE)
+      END TCASE
+      TCASE "error: X25519 cannot sign or verify -> ErrInvalidArgument"
+        LET x AS crypto::KeyPair = crypto::generate(Certificate.X25519)
+        LET msg AS List OF Byte = cxBytes("m")
+        expectTrap(crypto::sign(Certificate.X25519, x.privateKey, msg), errorCode::ErrInvalidArgument)
+        LET edKp AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+        LET sig AS List OF Byte = crypto::sign(Certificate.Ed25519, edKp.privateKey, msg)
+        expectTrap(crypto::verify(Certificate.X25519, x.publicKey, msg, sig), errorCode::ErrInvalidArgument)
+      END TCASE
+      TCASE "error: malformed key length -> ErrInvalidArgument"
+        LET msg AS List OF Byte = cxBytes("m")
+        LET shortEd AS List OF Byte = cxZeros(16)
+        expectTrap(crypto::sign(Certificate.Ed25519, shortEd, msg), errorCode::ErrInvalidArgument)
+        LET shortP256 AS List OF Byte = cxZeros(10)
+        LET sig AS List OF Byte = cxZeros(70)
+        expectTrap(crypto::verify(Certificate.P256, shortP256, msg, sig), errorCode::ErrInvalidArgument)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "convert — key encoding"
+      TCASE "Ed25519 -> X25519 sizes and determinism"
+        LET ed AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+        LET x AS crypto::KeyPair = crypto::convert(KeyConvert.Ed25519ToX25519, ed)
+        expectInteger(len(x.publicKey), 32)
+        expectInteger(len(x.privateKey), 32)
+        LET x2 AS crypto::KeyPair = crypto::convert(KeyConvert.Ed25519ToX25519, ed)
+        expectEqual(crypto::constantTimeEqual(x.publicKey, x2.publicKey), TRUE)
+        expectEqual(crypto::constantTimeEqual(x.privateKey, x2.privateKey), TRUE)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "encrypt / decrypt — asymmetric sealed box"
+      TCASE "round-trip both suites (Ed25519 keys)"
+        LET recip AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+        LET pt AS List OF Byte = cxBytes("attack at dawn")
+        LET boxG AS List OF Byte = crypto::encrypt(AsymmetricCipher.Ed25519_AES256GCM, recip.publicKey, pt)
+        expectString(encoding::hexEncode(crypto::decrypt(AsymmetricCipher.Ed25519_AES256GCM, recip.privateKey, boxG)), encoding::hexEncode(pt))
+        LET boxC AS List OF Byte = crypto::encrypt(AsymmetricCipher.Ed25519_CHACHA20POLY1305, recip.publicKey, pt)
+        expectString(encoding::hexEncode(crypto::decrypt(AsymmetricCipher.Ed25519_CHACHA20POLY1305, recip.privateKey, boxC)), encoding::hexEncode(pt))
+      END TCASE
+      TCASE "box layout: 32 (ephemeral) + |pt| + 16 (tag)"
+        LET recip AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+        LET pt AS List OF Byte = cxBytes("0123456789")
+        LET box AS List OF Byte = crypto::encrypt(AsymmetricCipher.Ed25519_AES256GCM, recip.publicKey, pt)
+        expectInteger(len(box), 58)
+        LET e AS List OF Byte = []
+        LET emptyBox AS List OF Byte = crypto::encrypt(AsymmetricCipher.Ed25519_AES256GCM, recip.publicKey, e)
+        expectInteger(len(emptyBox), 48)
+        expectInteger(len(crypto::decrypt(AsymmetricCipher.Ed25519_AES256GCM, recip.privateKey, emptyBox)), 0)
+      END TCASE
+      TCASE "non-deterministic (fresh ephemeral key each call)"
+        LET recip AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+        LET pt AS List OF Byte = cxBytes("same message")
+        LET b1 AS List OF Byte = crypto::encrypt(AsymmetricCipher.Ed25519_AES256GCM, recip.publicKey, pt)
+        LET b2 AS List OF Byte = crypto::encrypt(AsymmetricCipher.Ed25519_AES256GCM, recip.publicKey, pt)
+        expectEqual(crypto::constantTimeEqual(b1, b2), FALSE)
+      END TCASE
+      TCASE "String overload; aad round-trip and mismatch"
+        LET recip AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+        LET aad AS List OF Byte = cxBytes("context")
+        LET wrong AS List OF Byte = cxBytes("ctx")
+        LET box AS List OF Byte = crypto::encrypt(AsymmetricCipher.Ed25519_CHACHA20POLY1305, recip.publicKey, "hi", aad)
+        expectString(encoding::hexEncode(crypto::decrypt(AsymmetricCipher.Ed25519_CHACHA20POLY1305, recip.privateKey, box, aad)), encoding::hexEncode(cxBytes("hi")))
+        expectTrap(crypto::decrypt(AsymmetricCipher.Ed25519_CHACHA20POLY1305, recip.privateKey, box, wrong), errorCode::ErrAuthenticationFailed)
+      END TCASE
+      TCASE "security: tamper and wrong recipient -> ErrAuthenticationFailed"
+        LET recip AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+        LET other AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+        LET pt AS List OF Byte = cxBytes("classified")
+        LET box AS List OF Byte = crypto::encrypt(AsymmetricCipher.Ed25519_AES256GCM, recip.publicKey, pt)
+        expectTrap(crypto::decrypt(AsymmetricCipher.Ed25519_AES256GCM, recip.privateKey, cxFlip(box, 40)), errorCode::ErrAuthenticationFailed)
+        expectTrap(crypto::decrypt(AsymmetricCipher.Ed25519_AES256GCM, other.privateKey, box), errorCode::ErrAuthenticationFailed)
+      END TCASE
+      TCASE "error: short box (< 48-byte overhead) -> ErrInvalidArgument"
+        LET recip AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+        LET e AS List OF Byte = []
+        LET box AS List OF Byte = crypto::encrypt(AsymmetricCipher.Ed25519_AES256GCM, recip.publicKey, e)
+        expectTrap(crypto::decrypt(AsymmetricCipher.Ed25519_AES256GCM, recip.privateKey, e), errorCode::ErrInvalidArgument)
+        expectTrap(crypto::decrypt(AsymmetricCipher.Ed25519_AES256GCM, recip.privateKey, cxTrunc(box, 32)), errorCode::ErrInvalidArgument)
+        expectTrap(crypto::decrypt(AsymmetricCipher.Ed25519_AES256GCM, recip.privateKey, cxTrunc(box, 47)), errorCode::ErrInvalidArgument)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "randomBytes — CSPRNG"
+      TCASE "length matches request; zero is empty"
+        expectInteger(len(crypto::randomBytes(0)), 0)
+        expectInteger(len(crypto::randomBytes(1)), 1)
+        expectInteger(len(crypto::randomBytes(32)), 32)
+        expectInteger(len(crypto::randomBytes(1000)), 1000)
+      END TCASE
+      TCASE "successive draws differ"
+        expectEqual(crypto::constantTimeEqual(crypto::randomBytes(32), crypto::randomBytes(32)), FALSE)
+      END TCASE
+      TCASE "error: negative or above 16 MiB -> ErrInvalidArgument"
+        expectTrap(crypto::randomBytes(-1), errorCode::ErrInvalidArgument)
+        expectTrap(crypto::randomBytes(16777217), errorCode::ErrInvalidArgument)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "randomInt — bounded CSPRNG"
+      TCASE "degenerate range returns the bound"
+        expectInteger(crypto::randomInt(7, 7), 7)
+        expectInteger(crypto::randomInt(-3, -3), -3)
+      END TCASE
+      TCASE "result stays within [min, max]"
+        MUT i AS Integer = 0
+        WHILE i < 64
+          LET r AS Integer = crypto::randomInt(10, 20)
+          expectEqual(r >= 10 AND r <= 20, TRUE)
+          i = i + 1
+        END WHILE
+      END TCASE
+      TCASE "error: min > max -> ErrInvalidArgument"
+        expectTrap(crypto::randomInt(5, 4), errorCode::ErrInvalidArgument)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "uuid4 — RFC 4122"
+      TCASE "format, version, variant, hyphens"
+        LET u AS String = crypto::uuid4()
+        expectInteger(strings::byteLen(u), 36)
+        expectString(strings::mid(u, 14, 1), "4")
+        expectString(strings::mid(u, 8, 1), "-")
+        expectString(strings::mid(u, 13, 1), "-")
+        expectString(strings::mid(u, 18, 1), "-")
+        expectString(strings::mid(u, 23, 1), "-")
+      END TCASE
+      TCASE "successive UUIDs differ"
+        expectEqual(crypto::uuid4() = crypto::uuid4(), FALSE)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "constantTimeEqual"
+      TCASE "equality and inequality"
+        LET a AS List OF Byte = encoding::hexDecode("00112233445566778899aabbccddeeff")
+        LET b AS List OF Byte = encoding::hexDecode("00112233445566778899aabbccddeeff")
+        LET c AS List OF Byte = encoding::hexDecode("00112233445566778899aabbccddeef0")
+        expectEqual(crypto::constantTimeEqual(a, b), TRUE)
+        expectEqual(crypto::constantTimeEqual(a, c), FALSE)
+      END TCASE
+      TCASE "length mismatch and empties"
+        LET a AS List OF Byte = encoding::hexDecode("0011")
+        LET longer AS List OF Byte = encoding::hexDecode("001122")
+        LET e AS List OF Byte = []
+        expectEqual(crypto::constantTimeEqual(a, longer), FALSE)
+        expectEqual(crypto::constantTimeEqual(e, e), TRUE)
+        expectEqual(crypto::constantTimeEqual(a, e), FALSE)
+      END TCASE
+    END TGROUP
+
+    ' -----------------------------------------------------------------------
+    TGROUP "flows — end-to-end"
+      TCASE "flow: generate -> sign -> verify -> tamper"
+        LET kp AS crypto::KeyPair = crypto::generate(Certificate.P256)
+        LET doc AS List OF Byte = cxBytes("transfer $100 to alice")
+        LET sig AS List OF Byte = crypto::sign(Certificate.P256, kp.privateKey, doc)
+        expectEqual(crypto::verify(Certificate.P256, kp.publicKey, doc, sig), TRUE)
+        expectEqual(crypto::verify(Certificate.P256, kp.publicKey, cxBytes("transfer $900 to alice"), sig), FALSE)
+      END TCASE
+      TCASE "flow: single Ed25519 identity signs and (via convert) receives encryption"
+        LET id AS crypto::KeyPair = crypto::generate(Certificate.Ed25519)
+        LET msg AS List OF Byte = cxBytes("authenticated + confidential")
+        ' signing with the identity
+        LET sig AS List OF Byte = crypto::sign(Certificate.Ed25519, id.privateKey, msg)
+        expectEqual(crypto::verify(Certificate.Ed25519, id.publicKey, msg, sig), TRUE)
+        ' the same identity converts to X25519 and receives a sealed box
+        LET xk AS crypto::KeyPair = crypto::convert(KeyConvert.Ed25519ToX25519, id)
+        expectInteger(len(xk.privateKey), 32)
+        LET box AS List OF Byte = crypto::encrypt(AsymmetricCipher.Ed25519_AES256GCM, id.publicKey, msg)
+        expectString(encoding::hexEncode(crypto::decrypt(AsymmetricCipher.Ed25519_AES256GCM, id.privateKey, box)), encoding::hexEncode(msg))
+      END TCASE
+      TCASE "flow: pbkdf2 password -> AES-GCM seal/open"
+        LET pw AS List OF Byte = cxBytes("correct horse battery staple")
+        LET salt AS List OF Byte = crypto::randomBytes(16)
+        LET key AS List OF Byte = crypto::pbkdf2(Hash.SHA256, pw, salt, 1000, 32)
+        expectInteger(len(key), 32)
+        LET nonce AS List OF Byte = crypto::randomBytes(12)
+        LET pt AS List OF Byte = cxBytes("vault contents")
+        LET box AS crypto::Sealed = crypto::seal(SymmetricCipher.AES256GCM, key, nonce, pt)
+        LET key2 AS List OF Byte = crypto::pbkdf2(Hash.SHA256, pw, salt, 1000, 32)
+        expectString(encoding::hexEncode(crypto::open(SymmetricCipher.AES256GCM, key2, nonce, box)), encoding::hexEncode(pt))
+      END TCASE
+      TCASE "flow: hkdf-derived key+nonce -> ChaCha20-Poly1305 seal/open"
+        LET shared AS List OF Byte = crypto::randomBytes(32)
+        LET okm AS List OF Byte = crypto::hkdf(Hash.SHA256, shared, cxBytes("session-salt"), cxBytes("aead-key-nonce"), 44)
+        LET key AS List OF Byte = collections::mid(okm, 0, 32)
+        LET nonce AS List OF Byte = collections::mid(okm, 32, 12)
+        LET pt AS List OF Byte = cxBytes("streamed record")
+        LET box AS crypto::Sealed = crypto::seal(SymmetricCipher.CHACHA20POLY1305, key, nonce, pt)
+        expectString(encoding::hexEncode(crypto::open(SymmetricCipher.CHACHA20POLY1305, key, nonce, box)), encoding::hexEncode(pt))
+      END TCASE
+      TCASE "flow: HMAC token issue -> verify in constant time"
+        LET macKey AS List OF Byte = crypto::randomBytes(32)
+        LET token AS List OF Byte = cxBytes("user=alice;exp=1893456000")
+        LET tag AS List OF Byte = crypto::hmac(Hash.SHA256, macKey, token)
+        ' receiver recomputes and compares
+        LET recomputed AS List OF Byte = crypto::hmac(Hash.SHA256, macKey, token)
+        expectEqual(crypto::constantTimeEqual(tag, recomputed), TRUE)
+        ' a forged token fails
+        LET forged AS List OF Byte = crypto::hmac(Hash.SHA256, macKey, cxBytes("user=admin;exp=1893456000"))
+        expectEqual(crypto::constantTimeEqual(tag, forged), FALSE)
+      END TCASE
+      TCASE "flow: randomBytes key -> GCM seal/open with aad header"
+        LET key AS List OF Byte = crypto::randomBytes(32)
+        LET nonce AS List OF Byte = crypto::randomBytes(12)
+        LET header AS List OF Byte = cxBytes("v1;type=note")
+        LET pt AS List OF Byte = cxBytes("body")
+        LET box AS crypto::Sealed = crypto::seal(SymmetricCipher.AES256GCM, key, nonce, pt, header)
+        expectString(encoding::hexEncode(crypto::open(SymmetricCipher.AES256GCM, key, nonce, box.ciphertext, box.tag, header)), encoding::hexEncode(pt))
+        expectTrap(crypto::open(SymmetricCipher.AES256GCM, key, nonce, box.ciphertext, box.tag, cxBytes("v2;type=note")), errorCode::ErrAuthenticationFailed)
+      END TCASE
+    END TGROUP
+
+  END TGROUP
+END TESTING
