@@ -191,6 +191,27 @@ pub(crate) fn register(r: &mut Registry) {
             },
         ],
     });
+    // The asymmetric-cipher suite selector for `crypto::encrypt`/`crypto::decrypt`.
+    // Ordinals are declaration order (Ed25519_AES256GCM=0,
+    // Ed25519_CHACHA20POLY1305=1); the pure-MFB `__crypto_encrypt`/`__crypto_decrypt`
+    // cores branch on it (via `__crypto_asymAead`/`__crypto_asymInfo`) to pick the
+    // inner AEAD. Both are X25519-KEM sealed boxes that take Ed25519 keys (converted
+    // to X25519 internally). No P* (NIST-EC ECDH) variants — EC-ECDH isn't built.
+    pkg.add_enum(RegistryEnum {
+        name: "AsymmetricCipher",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "Ed25519_AES256GCM",
+                description: "X25519 sealed box (Ed25519 keys) with an AES-256-GCM inner AEAD.",
+            },
+            EnumVariant {
+                name: "Ed25519_CHACHA20POLY1305",
+                description:
+                    "X25519 sealed box (Ed25519 keys) with a ChaCha20-Poly1305 inner AEAD.",
+            },
+        ],
+    });
 
     // The shared private `__crypto_*` helpers (module globals + every `__crypto_*`
     // body). Each lives in its own `helper_*.rs` and registers via `add_helper`;
@@ -364,6 +385,16 @@ pub(crate) fn register(r: &mut Registry) {
     helper_ed25519_pub_to_x25519::register(&mut pkg);
     helper_ed25519_priv_to_x25519::register(&mut pkg);
     helper_convert::register(&mut pkg);
+    // Asymmetric public-key encryption (X25519 sealed box over Ed25519 keys). Pure
+    // software over the X25519 ladder, the Ed25519→X25519 conversion helpers,
+    // `__crypto_hkdf`, and the unified `seal`/`open`; the suite→AEAD/info dispatch is
+    // `__crypto_asymAead`/`__crypto_asymInfo`. `__crypto_encrypt`/`__crypto_decrypt`
+    // back the `encrypt`/`decrypt` members; `__crypto_encryptText` is the String shim.
+    helper_asym_aead::register(&mut pkg);
+    helper_asym_info::register(&mut pkg);
+    helper_encrypt::register(&mut pkg);
+    helper_decrypt::register(&mut pkg);
+    helper_encrypt_text::register(&mut pkg);
 
     // The unified clean-room `hash(Hash, data)` selects a SHA-2 digest by the `Hash`
     // ordinal and branch-links to the always-emitted MFB software SHA cores (the SHA
@@ -407,6 +438,12 @@ pub(crate) fn register(r: &mut Registry) {
     // rewrite onto `__crypto_convert` — no platform library, so (like `hmac`/`hkdf`)
     // it is NOT in any backend's `runtime_calls`.
     func_convert::register(&mut pkg);
+    // Asymmetric public-key encryption. `encrypt`/`decrypt` are X25519 sealed boxes
+    // over Ed25519 recipient keys, selected by `AsymmetricCipher`. Pure-MFB rewrites
+    // onto `__crypto_encrypt`/`__crypto_decrypt` — no platform library, so (like
+    // `hmac`/`hkdf`/`convert`) they are NOT in any backend's `runtime_calls`.
+    func_encrypt::register(&mut pkg);
+    func_decrypt::register(&mut pkg);
     // Constant-time comparison (source).
     func_constant_time_equal::register(&mut pkg);
 
@@ -415,6 +452,8 @@ pub(crate) fn register(r: &mut Registry) {
 
 mod func_constant_time_equal;
 mod func_convert;
+mod func_decrypt;
+mod func_encrypt;
 pub(crate) mod func_generate;
 pub(crate) mod func_hash;
 pub(crate) mod func_hkdf;
@@ -448,6 +487,8 @@ mod helper_aes_sub_bytes;
 mod helper_append_be_word;
 mod helper_append_be_word64;
 mod helper_append_le_word;
+mod helper_asym_aead;
+mod helper_asym_info;
 mod helper_be32;
 mod helper_be64;
 mod helper_be_word;
@@ -474,6 +515,7 @@ mod helper_constant_time_equal;
 mod helper_convert;
 mod helper_copy_bytes;
 mod helper_cswap128;
+mod helper_decrypt;
 mod helper_ed25519_priv_to_x25519;
 mod helper_ed25519_pub_to_x25519;
 mod helper_ed25519_public;
@@ -485,6 +527,8 @@ mod helper_ed_l;
 mod helper_ed_m;
 mod helper_ed_s;
 mod helper_ed_z;
+mod helper_encrypt;
+mod helper_encrypt_text;
 mod helper_first64;
 mod helper_gcm_gctr;
 mod helper_gcm_ghash_data;
@@ -600,13 +644,14 @@ mod tests {
         let pkg = registry()
             .resolve_package("crypto")
             .expect("crypto package");
-        // 14 members: the unified `generate`/`sign`/`verify`/`hash`, the
+        // 16 members: the unified `generate`/`sign`/`verify`/`hash`, the
         // `SymmetricCipher`-selected `seal`/`open`, the hash-generic
         // `hmac`/`hkdf`/`pbkdf2(Hash, …)`, `convert` (Ed25519↔X25519 key conversion),
+        // the `AsymmetricCipher`-selected `encrypt`/`decrypt` (X25519 sealed box),
         // plus `randomBytes`/`randomInt`/`uuid4`/`constantTimeEqual`. The per-type
         // generate/sign/verify/sha and per-digest `*Sha*`/per-cipher AEAD members were
         // all retired behind the unified surface.
-        assert_eq!(pkg.functions().len(), 14);
+        assert_eq!(pkg.functions().len(), 16);
     }
 
     #[test]
@@ -625,6 +670,8 @@ mod tests {
             "crypto.sign",
             "crypto.verify",
             "crypto.convert",
+            "crypto.encrypt",
+            "crypto.decrypt",
             "crypto.constantTimeEqual",
         ] {
             assert_eq!(registry().owning_package(n), Some("crypto"), "{n}");
