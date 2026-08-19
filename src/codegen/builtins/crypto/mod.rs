@@ -367,6 +367,7 @@ mod func_sha384;
 mod func_sha512;
 pub(crate) mod func_sign;
 mod func_uuid4;
+pub(crate) mod gen_cert;
 
 mod helper_add32;
 mod helper_add64;

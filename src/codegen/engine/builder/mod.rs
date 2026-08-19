@@ -982,26 +982,14 @@ pub(crate) fn lower_module_for_platform(
             }
         }
     }
-    // The clean-room `crypto::generate` AbiFunction references its own read-only
-    // C strings (framework paths + dlsym names), distinct from the EC helpers'.
-    if native_plan
-        .runtime_symbols
-        .iter()
-        .any(|symbol| symbol == "_mfb_rt_abi_crypto_generate")
-    {
-        data_objects.extend(
-            crate::codegen::builtins::crypto::func_generate::data_objects(platform.family()),
-        );
-    }
-    // The clean-room `crypto::sign` AbiFunction references its own read-only C
-    // strings (framework paths + dlsym names + PKCS#8 templates), distinct from
-    // both the EC helpers' and `crypto::generate`'s.
-    if native_plan
-        .runtime_symbols
-        .iter()
-        .any(|symbol| symbol == "_mfb_rt_abi_crypto_sign")
-    {
-        data_objects.extend(crate::codegen::builtins::crypto::func_sign::data_objects(
+    // The clean-room `Certificate`-typed AbiFunction members (`crypto::generate`,
+    // `crypto::sign`) share one unified `_mfb_crypto_cert_*` read-only data-object set
+    // (framework paths + dlsym names + PKCS#8 templates + CNG wide ids), distinct from
+    // the EC helpers' `_mfb_crypto_ec_*`. Emit it once if either member is in the plan.
+    if native_plan.runtime_symbols.iter().any(|symbol| {
+        symbol == "_mfb_rt_abi_crypto_generate" || symbol == "_mfb_rt_abi_crypto_sign"
+    }) {
+        data_objects.extend(crate::codegen::builtins::crypto::gen_cert::data_objects(
             platform.family(),
         ));
     }

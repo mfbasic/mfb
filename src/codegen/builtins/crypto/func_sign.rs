@@ -20,6 +20,7 @@
 //! Output encoding is identical to the per-curve signers: ECDSA is ASN.1 DER
 //! `Ecdsa-Sig-Value`; Ed25519 is the 64-byte raw `R‖S`.
 
+use super::gen_cert::{self, CopyLen, Sc};
 use super::{bytes, Body, Implementation, Parameter, ParameterType, RegistryFunction};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
@@ -32,22 +33,13 @@ use crate::codegen::memory::marshal::{
     emit_build_byte_list, emit_read_byte_list, emit_zero_guarded,
 };
 use crate::codegen::registry::AbiCtx;
-use crate::codegen::string::util::hex_encode_cstring;
 use crate::target::shared::abi;
 use std::collections::HashMap;
 
-// ---------------------------------------------------------------------------
-// Certificate ordinals (must match the `Certificate` enum declaration order in
-// `crypto/mod.rs`).
-// ---------------------------------------------------------------------------
-// P-256 is the fall-through ordinal (never compared), but named for the contract.
-#[allow(dead_code)]
-const ORD_P256: &str = "0";
-const ORD_P384: &str = "1";
-const ORD_P521: &str = "2";
-const ORD_ED25519: &str = "3";
-
-const RTLD_NOW: &str = "2";
+// The `Certificate` ordinals, framework/library paths, dlsym-name and PKCS#8-template
+// data objects, and the shared platform seam (dlopen/dlsym/CoreFoundation/BCrypt) live
+// in [`super::gen_cert`]. This file keeps only the `crypto::sign`-specific per-curve
+// selector and the three platform signing sequences.
 
 /// The NIST curves this signer covers. A compile-time selector: the ordinal branch
 /// in `lower_sign` picks the curve, then emits its full sequence.
@@ -110,13 +102,6 @@ impl SignCurve {
             SignCurve::P521 => "P-521",
         }
     }
-    fn tmpl_hex(self) -> &'static str {
-        match self {
-            SignCurve::P256 => P256_PKCS8_TMPL,
-            SignCurve::P384 => P384_PKCS8_TMPL,
-            SignCurve::P521 => P521_PKCS8_TMPL,
-        }
-    }
     fn digest(self) -> &'static str {
         match self {
             SignCurve::P256 => "EVP_sha256",
@@ -153,526 +138,6 @@ impl SignCurve {
             SignCurve::P521 => "911426373", // 0x36534345 'ECS6'
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// macOS SecKey / CoreFoundation clean-room seam. Own symbol names (distinct from
-// `crypto/native/macos`'s `_mfb_crypto_ec_*` and `func_generate`'s
-// `_mfb_crypto_generate_*`) so the data-object sets never collide in one plan.
-// ---------------------------------------------------------------------------
-const MACSEC: &str = "/System/Library/Frameworks/Security.framework/Security";
-const MACCF: &str = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
-const MAC_SECPATH_SYMBOL: &str = "_mfb_crypto_sign_secpath";
-const MAC_CFPATH_SYMBOL: &str = "_mfb_crypto_sign_cfpath";
-
-const MAC_SYMBOLS: &[&str] = &[
-    "CFDataCreate",
-    "CFDataGetBytePtr",
-    "CFDataGetLength",
-    "CFRelease",
-    "CFDictionaryCreate",
-    "SecKeyCreateWithData",
-    "SecKeyCreateSignature",
-    "kSecAttrKeyType",
-    "kSecAttrKeyTypeECSECPrimeRandom",
-    "kSecAttrKeyClass",
-    "kSecAttrKeyClassPrivate",
-    "kCFTypeDictionaryKeyCallBacks",
-    "kCFTypeDictionaryValueCallBacks",
-    "kSecKeyAlgorithmECDSASignatureMessageX962SHA256",
-    "kSecKeyAlgorithmECDSASignatureMessageX962SHA384",
-    "kSecKeyAlgorithmECDSASignatureMessageX962SHA512",
-];
-
-fn mac_sym(name: &str) -> String {
-    format!("_mfb_crypto_sign_sym_{name}")
-}
-
-// ---------------------------------------------------------------------------
-// Linux OpenSSL (libcrypto) clean-room seam. Own symbol names.
-// ---------------------------------------------------------------------------
-const LIBCRYPTO3: &str = "libcrypto.so.3";
-const LIBCRYPTO11: &str = "libcrypto.so.1.1";
-const LX_LIB3_SYMBOL: &str = "_mfb_crypto_sign_lib3";
-const LX_LIB11_SYMBOL: &str = "_mfb_crypto_sign_lib11";
-
-const OSSL_SYMBOLS: &[&str] = &[
-    "d2i_AutoPrivateKey",
-    "EVP_PKEY_free",
-    "EVP_MD_CTX_new",
-    "EVP_MD_CTX_free",
-    "EVP_sha256",
-    "EVP_sha384",
-    "EVP_sha512",
-    "EVP_DigestSignInit",
-    "EVP_DigestSign",
-];
-
-const P256_PKCS8_TMPL: &str = "308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b02010104200000000000000000000000000000000000000000000000000000000000000000a1440342000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
-const P384_PKCS8_TMPL: &str = "3081b6020100301006072a8648ce3d020106052b8104002204819e30819b0201010430000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a16403620000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
-const P521_PKCS8_TMPL: &str = "3081ee020100301006072a8648ce3d020106052b810400230481d63081d30201010442000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a181890381860000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
-
-fn lx_sym(name: &str) -> String {
-    format!("_mfb_crypto_sign_ossl_{name}")
-}
-
-fn lx_tmpl_sym(name: &str) -> String {
-    format!("_mfb_crypto_sign_tmpl_{name}")
-}
-
-// ---------------------------------------------------------------------------
-// Windows CNG/BCrypt clean-room seam. The `BCrypt*` entry points link through the
-// import table (Win64 ABI); only the wide (UTF-16LE) `LPCWSTR` algorithm/hash/blob
-// identifiers need data objects. Own symbol names.
-// ---------------------------------------------------------------------------
-const WIN_WIDE_IDS: &[&str] = &[
-    "ECDSA_P256",
-    "ECDSA_P384",
-    "ECDSA_P521",
-    "SHA256",
-    "SHA384",
-    "SHA512",
-    "ECCPRIVATEBLOB",
-];
-
-fn win_sym(name: &str) -> String {
-    format!("_mfb_crypto_sign_w_{name}")
-}
-
-// ---------------------------------------------------------------------------
-// Data-object constructors (clean-room; distinct symbol names).
-// ---------------------------------------------------------------------------
-fn raw_cstr(symbol: &str, text: &str) -> CodeDataObject {
-    CodeDataObject {
-        symbol: symbol.to_string(),
-        kind: "raw".to_string(),
-        layout: "C string (NUL-terminated)".to_string(),
-        align: 1,
-        size: text.len() + 1,
-        value: hex_encode_cstring(text),
-    }
-}
-
-fn raw_data(symbol: &str, hex: &str) -> CodeDataObject {
-    CodeDataObject {
-        symbol: symbol.to_string(),
-        kind: "raw".to_string(),
-        layout: "raw bytes".to_string(),
-        align: 1,
-        size: hex.len() / 2,
-        value: hex.to_string(),
-    }
-}
-
-/// UTF-16LE, NUL-terminated hex for a CNG `LPCWSTR` (ASCII input only).
-fn utf16z_hex(text: &str) -> String {
-    let mut hex = String::new();
-    for ch in text.chars() {
-        let cp = ch as u32;
-        hex.push_str(&format!("{:02x}{:02x}", cp & 0xff, (cp >> 8) & 0xff));
-    }
-    hex.push_str("0000");
-    hex
-}
-
-fn wide_cstr(symbol: &str, text: &str) -> CodeDataObject {
-    CodeDataObject {
-        symbol: symbol.to_string(),
-        kind: "raw".to_string(),
-        layout: "UTF-16LE string (NUL-terminated)".to_string(),
-        align: 2,
-        size: (text.len() + 1) * 2,
-        value: utf16z_hex(text),
-    }
-}
-
-/// Read-only data objects this member references, for the target family. Emitted
-/// by the driver gate when `crypto.sign` is in the plan.
-pub(crate) fn data_objects(family: PlatformFamily) -> Vec<CodeDataObject> {
-    match family {
-        PlatformFamily::MacOS => {
-            let mut objects = vec![
-                raw_cstr(MAC_SECPATH_SYMBOL, MACSEC),
-                raw_cstr(MAC_CFPATH_SYMBOL, MACCF),
-            ];
-            for name in MAC_SYMBOLS {
-                objects.push(raw_cstr(&mac_sym(name), name));
-            }
-            objects
-        }
-        PlatformFamily::Linux => {
-            let mut objects = vec![
-                raw_cstr(LX_LIB3_SYMBOL, LIBCRYPTO3),
-                raw_cstr(LX_LIB11_SYMBOL, LIBCRYPTO11),
-            ];
-            for name in OSSL_SYMBOLS {
-                objects.push(raw_cstr(&lx_sym(name), name));
-            }
-            for c in [SignCurve::P256, SignCurve::P384, SignCurve::P521] {
-                objects.push(raw_data(&lx_tmpl_sym(c.name()), c.tmpl_hex()));
-            }
-            objects
-        }
-        PlatformFamily::Windows => WIN_WIDE_IDS
-            .iter()
-            .map(|id| wide_cstr(&win_sym(id), id))
-            .collect(),
-    }
-}
-
-/// Call the function pointer stored at `fn_off` (args already staged). `scratch` is
-/// a minted vreg the pointer is loaded into. Shared by macOS/Linux seams.
-fn call_fn(fn_off: usize, scratch: &str, ins: &mut Vec<CodeInstruction>) {
-    ins.extend([
-        abi::load_u64(scratch, abi::stack_pointer(), fn_off),
-        abi::branch_link_register(scratch),
-    ]);
-}
-
-// ===========================================================================
-// macOS SecKey clean-room emit helpers (reproduced; not calls into native).
-// ===========================================================================
-
-#[allow(clippy::too_many_arguments)]
-fn mac_dlopen_one(
-    symbol: &str,
-    path_symbol: &str,
-    handle_off: usize,
-    fail: &str,
-    imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
-    emit_data_address(symbol, abi::return_register(), path_symbol, ins, rel);
-    ins.push(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
-    platform.emit_external_call("dlopen", symbol, imports, ins, rel)?;
-    ins.extend([
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), handle_off),
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_eq(fail),
-    ]);
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn mac_dlsym_into(
-    symbol: &str,
-    handle_off: usize,
-    name: &str,
-    dst_off: usize,
-    fail: &str,
-    imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
-    ins.push(abi::load_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        handle_off,
-    ));
-    emit_data_address(symbol, abi::c_arg(1), &mac_sym(name), ins, rel);
-    platform.emit_external_call("dlsym", symbol, imports, ins, rel)?;
-    ins.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_eq(fail),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), dst_off),
-    ]);
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn mac_load_cf_const(
-    symbol: &str,
-    handle_off: usize,
-    name: &str,
-    dst_off: usize,
-    scratch_off: usize,
-    fail: &str,
-    imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    scratch: &str,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
-    mac_dlsym_into(
-        symbol,
-        handle_off,
-        name,
-        scratch_off,
-        fail,
-        imports,
-        platform,
-        ins,
-        rel,
-    )?;
-    ins.extend([
-        abi::load_u64(scratch, abi::stack_pointer(), scratch_off),
-        abi::load_u64(scratch, scratch, 0),
-        abi::store_u64(scratch, abi::stack_pointer(), dst_off),
-    ]);
-    Ok(())
-}
-
-/// Build a 2-entry CFDictionary of CFString constants into `dict_off`. Uses six
-/// contiguous scratch slots at `scratch_off` (keys[0,8], vals[16,24],
-/// callbacks[32,40]) plus `const_scratch` for the per-constant address.
-#[allow(clippy::too_many_arguments)]
-fn mac_build_dict2(
-    symbol: &str,
-    sec_off: usize,
-    cf_off: usize,
-    fn_off: usize,
-    k0: &str,
-    k1: &str,
-    v0: &str,
-    v1: &str,
-    scratch_off: usize,
-    const_scratch: usize,
-    dict_off: usize,
-    fail: &str,
-    imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    scratch: &str,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
-    mac_load_cf_const(
-        symbol,
-        sec_off,
-        k0,
-        scratch_off,
-        const_scratch,
-        fail,
-        imports,
-        platform,
-        scratch,
-        ins,
-        rel,
-    )?;
-    mac_load_cf_const(
-        symbol,
-        sec_off,
-        k1,
-        scratch_off + 8,
-        const_scratch,
-        fail,
-        imports,
-        platform,
-        scratch,
-        ins,
-        rel,
-    )?;
-    mac_load_cf_const(
-        symbol,
-        sec_off,
-        v0,
-        scratch_off + 16,
-        const_scratch,
-        fail,
-        imports,
-        platform,
-        scratch,
-        ins,
-        rel,
-    )?;
-    mac_load_cf_const(
-        symbol,
-        sec_off,
-        v1,
-        scratch_off + 24,
-        const_scratch,
-        fail,
-        imports,
-        platform,
-        scratch,
-        ins,
-        rel,
-    )?;
-    mac_dlsym_into(
-        symbol,
-        cf_off,
-        "kCFTypeDictionaryKeyCallBacks",
-        scratch_off + 32,
-        fail,
-        imports,
-        platform,
-        ins,
-        rel,
-    )?;
-    mac_dlsym_into(
-        symbol,
-        cf_off,
-        "kCFTypeDictionaryValueCallBacks",
-        scratch_off + 40,
-        fail,
-        imports,
-        platform,
-        ins,
-        rel,
-    )?;
-    mac_dlsym_into(
-        symbol,
-        cf_off,
-        "CFDictionaryCreate",
-        fn_off,
-        fail,
-        imports,
-        platform,
-        ins,
-        rel,
-    )?;
-    ins.extend([
-        abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), scratch_off),
-        abi::add_immediate(abi::c_arg(2), abi::stack_pointer(), scratch_off + 16),
-        abi::move_immediate(abi::c_arg(3), "Integer", "2"),
-        abi::load_u64(abi::c_arg(4), abi::stack_pointer(), scratch_off + 32),
-        abi::load_u64(abi::c_arg(5), abi::stack_pointer(), scratch_off + 40),
-    ]);
-    call_fn(fn_off, scratch, ins);
-    ins.push(abi::store_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        dict_off,
-    ));
-    Ok(())
-}
-
-/// `CFRelease(*obj_off)` using the CFRelease pointer at `release_off`.
-fn mac_cf_release(
-    release_off: usize,
-    obj_off: usize,
-    scratch: &str,
-    ins: &mut Vec<CodeInstruction>,
-) {
-    ins.push(abi::load_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        obj_off,
-    ));
-    call_fn(release_off, scratch, ins);
-}
-
-/// `CFRelease(*obj_off)` only when the slot is non-NULL (error-exit cleanup).
-fn mac_cf_release_guarded(
-    symbol: &str,
-    release_off: usize,
-    obj_off: usize,
-    tag: &str,
-    scratch: &str,
-    ins: &mut Vec<CodeInstruction>,
-) {
-    let skip = format!("{symbol}_{tag}_norel");
-    ins.extend([
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), obj_off),
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_eq(&skip),
-    ]);
-    call_fn(release_off, scratch, ins);
-    ins.push(abi::label(&skip));
-}
-
-/// `dst = CFDataCreate(NULL, *buf_off, *len_off)` (CFDataCreate pointer at fn_off).
-fn mac_cfdata_create(
-    fn_off: usize,
-    buf_off: usize,
-    len_off: usize,
-    dst_off: usize,
-    scratch: &str,
-    ins: &mut Vec<CodeInstruction>,
-) {
-    ins.extend([
-        abi::move_immediate(abi::return_register(), "Integer", "0"),
-        abi::load_u64(abi::c_arg(1), abi::stack_pointer(), buf_off),
-        abi::load_u64(abi::c_arg(2), abi::stack_pointer(), len_off),
-    ]);
-    call_fn(fn_off, scratch, ins);
-    ins.push(abi::store_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        dst_off,
-    ));
-}
-
-/// Extract the bytes of the CFData at `data_off` into a fresh `List OF Byte` at
-/// `coll_off` (via CFDataGetBytePtr/CFDataGetLength).
-#[allow(clippy::too_many_arguments)]
-fn mac_cfdata_to_list(
-    symbol: &str,
-    tag: &str,
-    cf_off: usize,
-    data_off: usize,
-    fn_off: usize,
-    byteptr_off: usize,
-    bytelen_off: usize,
-    coll_off: usize,
-    load_fail: &str,
-    alloc_fail: &str,
-    imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    scratch: &str,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
-    mac_dlsym_into(
-        symbol,
-        cf_off,
-        "CFDataGetBytePtr",
-        fn_off,
-        load_fail,
-        imports,
-        platform,
-        ins,
-        rel,
-    )?;
-    ins.push(abi::load_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        data_off,
-    ));
-    call_fn(fn_off, scratch, ins);
-    ins.push(abi::store_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        byteptr_off,
-    ));
-    mac_dlsym_into(
-        symbol,
-        cf_off,
-        "CFDataGetLength",
-        fn_off,
-        load_fail,
-        imports,
-        platform,
-        ins,
-        rel,
-    )?;
-    ins.push(abi::load_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        data_off,
-    ));
-    call_fn(fn_off, scratch, ins);
-    ins.push(abi::store_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        bytelen_off,
-    ));
-    emit_build_byte_list(
-        symbol,
-        &format!("{symbol}_{tag}_out_build_loop"),
-        &format!("{symbol}_{tag}_out_build_done"),
-        byteptr_off,
-        bytelen_off,
-        Some(coll_off),
-        abi::mfb_return(1),
-        alloc_fail,
-        ins,
-        rel,
-    );
-    Ok(())
 }
 
 /// Emit the macOS SecKey ECDSA sign sequence for `curve`, self-contained. The two
@@ -758,9 +223,9 @@ fn emit_macos_sign(
         rel,
     );
 
-    mac_dlopen_one(
+    gen_cert::dlopen_one(
         symbol,
-        MAC_SECPATH_SYMBOL,
+        gen_cert::SECPATH_SYMBOL,
         SEC,
         &load_fail,
         imports,
@@ -768,9 +233,9 @@ fn emit_macos_sign(
         ins,
         rel,
     )?;
-    mac_dlopen_one(
+    gen_cert::dlopen_one(
         symbol,
-        MAC_CFPATH_SYMBOL,
+        gen_cert::CFPATH_SYMBOL,
         CF,
         &load_fail,
         imports,
@@ -778,7 +243,7 @@ fn emit_macos_sign(
         ins,
         rel,
     )?;
-    mac_dlsym_into(
+    gen_cert::dlsym_into(
         symbol,
         CF,
         "CFRelease",
@@ -791,7 +256,7 @@ fn emit_macos_sign(
     )?;
 
     // privData = CFDataCreate(NULL, privBuf, privLen); msgData = CFDataCreate(...)
-    mac_dlsym_into(
+    gen_cert::dlsym_into(
         symbol,
         CF,
         "CFDataCreate",
@@ -802,10 +267,10 @@ fn emit_macos_sign(
         ins,
         rel,
     )?;
-    mac_cfdata_create(FN, PRIVBUF, PRIVLEN, PRIVDATA, &v9, ins);
-    mac_cfdata_create(FN, MSGBUF, MSGLEN, MSGDATA, &v9, ins);
+    gen_cert::cfdata_create(FN, PRIVBUF, PRIVLEN, PRIVDATA, &v9, ins);
+    gen_cert::cfdata_create(FN, MSGBUF, MSGLEN, MSGDATA, &v9, ins);
 
-    mac_build_dict2(
+    gen_cert::build_dict2(
         symbol,
         SEC,
         CF,
@@ -826,7 +291,7 @@ fn emit_macos_sign(
     )?;
 
     // key = SecKeyCreateWithData(privData, dict, NULL)
-    mac_dlsym_into(
+    gen_cert::dlsym_into(
         symbol,
         SEC,
         "SecKeyCreateWithData",
@@ -842,14 +307,14 @@ fn emit_macos_sign(
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), DICT),
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
     ]);
-    call_fn(FN, &v9, ins);
+    gen_cert::call_fn(FN, &v9, ins);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), KEY),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&invalid_fail),
     ]);
 
-    mac_load_cf_const(
+    gen_cert::load_cf_const(
         symbol,
         SEC,
         curve.macos_algorithm(),
@@ -864,7 +329,7 @@ fn emit_macos_sign(
     )?;
 
     // sigData = SecKeyCreateSignature(key, algo, msgData, NULL)
-    mac_dlsym_into(
+    gen_cert::dlsym_into(
         symbol,
         SEC,
         "SecKeyCreateSignature",
@@ -881,14 +346,14 @@ fn emit_macos_sign(
         abi::load_u64(abi::c_arg(2), abi::stack_pointer(), MSGDATA),
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
-    call_fn(FN, &v9, ins);
+    gen_cert::call_fn(FN, &v9, ins);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), SIGDATA),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&sign_fail),
     ]);
 
-    mac_cfdata_to_list(
+    gen_cert::cfdata_to_list(
         symbol,
         tag,
         CF,
@@ -906,11 +371,11 @@ fn emit_macos_sign(
         rel,
     )?;
 
-    mac_cf_release(RELEASE, PRIVDATA, &v9, ins);
-    mac_cf_release(RELEASE, MSGDATA, &v9, ins);
-    mac_cf_release(RELEASE, DICT, &v9, ins);
-    mac_cf_release(RELEASE, KEY, &v9, ins);
-    mac_cf_release(RELEASE, SIGDATA, &v9, ins);
+    gen_cert::cf_release(RELEASE, PRIVDATA, &v9, ins);
+    gen_cert::cf_release(RELEASE, MSGDATA, &v9, ins);
+    gen_cert::cf_release(RELEASE, DICT, &v9, ins);
+    gen_cert::cf_release(RELEASE, KEY, &v9, ins);
+    gen_cert::cf_release(RELEASE, SIGDATA, &v9, ins);
     emit_zero_guarded(
         symbol,
         PRIVBUF,
@@ -927,11 +392,11 @@ fn emit_macos_sign(
     ]);
 
     let cleanup = |ins: &mut Vec<CodeInstruction>, ctag: &str| {
-        mac_cf_release_guarded(symbol, RELEASE, PRIVDATA, &format!("{ctag}p"), &v9, ins);
-        mac_cf_release_guarded(symbol, RELEASE, MSGDATA, &format!("{ctag}m"), &v9, ins);
-        mac_cf_release_guarded(symbol, RELEASE, DICT, &format!("{ctag}d"), &v9, ins);
-        mac_cf_release_guarded(symbol, RELEASE, KEY, &format!("{ctag}k"), &v9, ins);
-        mac_cf_release_guarded(symbol, RELEASE, SIGDATA, &format!("{ctag}s"), &v9, ins);
+        gen_cert::cf_release_guarded(symbol, RELEASE, PRIVDATA, &format!("{ctag}p"), &v9, ins);
+        gen_cert::cf_release_guarded(symbol, RELEASE, MSGDATA, &format!("{ctag}m"), &v9, ins);
+        gen_cert::cf_release_guarded(symbol, RELEASE, DICT, &format!("{ctag}d"), &v9, ins);
+        gen_cert::cf_release_guarded(symbol, RELEASE, KEY, &format!("{ctag}k"), &v9, ins);
+        gen_cert::cf_release_guarded(symbol, RELEASE, SIGDATA, &format!("{ctag}s"), &v9, ins);
         emit_zero_guarded(symbol, PRIVBUF, Some(PRIVLEN), 0, &format!("{ctag}z"), ins);
     };
     ins.push(abi::label(&load_fail));
@@ -952,115 +417,6 @@ fn emit_macos_sign(
 // ===========================================================================
 // Linux OpenSSL clean-room emit helpers (reproduced; not calls into native).
 // ===========================================================================
-
-fn lx_dlopen_libcrypto(
-    symbol: &str,
-    tag: &str,
-    handle_off: usize,
-    fail: &str,
-    imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
-    let loaded = format!("{symbol}_{tag}_libc_loaded");
-    emit_data_address(symbol, abi::return_register(), LX_LIB3_SYMBOL, ins, rel);
-    ins.push(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
-    platform.emit_external_call("dlopen", symbol, imports, ins, rel)?;
-    ins.extend([
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), handle_off),
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_ne(&loaded),
-    ]);
-    emit_data_address(symbol, abi::return_register(), LX_LIB11_SYMBOL, ins, rel);
-    ins.push(abi::move_immediate(abi::c_arg(1), "Integer", RTLD_NOW));
-    platform.emit_external_call("dlopen", symbol, imports, ins, rel)?;
-    ins.extend([
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), handle_off),
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_eq(fail),
-        abi::label(&loaded),
-    ]);
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn lx_dlsym_into(
-    symbol: &str,
-    handle_off: usize,
-    name: &str,
-    dst_off: usize,
-    fail: &str,
-    imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
-    ins.push(abi::load_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        handle_off,
-    ));
-    emit_data_address(symbol, abi::c_arg(1), &lx_sym(name), ins, rel);
-    platform.emit_external_call("dlsym", symbol, imports, ins, rel)?;
-    ins.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_eq(fail),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), dst_off),
-    ]);
-    Ok(())
-}
-
-/// Copy `n` bytes from `[src_ptr_off] + src_const + [src_runtime_off]` to
-/// `[dst_ptr_off] + dst_const`. Call-free (vreg scratch only).
-#[allow(clippy::too_many_arguments)]
-fn lx_copy(
-    symbol: &str,
-    tag: &str,
-    src_ptr_off: usize,
-    src_const: usize,
-    src_runtime_off: Option<usize>,
-    dst_ptr_off: usize,
-    dst_const: usize,
-    n: usize,
-    v9: &str,
-    v10: &str,
-    v11: &str,
-    v12: &str,
-    v13: &str,
-    ins: &mut Vec<CodeInstruction>,
-) {
-    let loop_l = format!("{symbol}_{tag}_cpy");
-    let done_l = format!("{symbol}_{tag}_cpyend");
-    ins.push(abi::load_u64(v9, abi::stack_pointer(), src_ptr_off));
-    if src_const > 0 {
-        ins.push(abi::add_immediate(v9, v9, src_const));
-    }
-    if let Some(off) = src_runtime_off {
-        ins.extend([
-            abi::load_u64(v12, abi::stack_pointer(), off),
-            abi::add_registers(v9, v9, v12),
-        ]);
-    }
-    ins.push(abi::load_u64(v10, abi::stack_pointer(), dst_ptr_off));
-    if dst_const > 0 {
-        ins.push(abi::add_immediate(v10, v10, dst_const));
-    }
-    ins.extend([
-        abi::move_immediate(v11, "Integer", "0"),
-        abi::move_immediate(v13, "Integer", &n.to_string()),
-        abi::label(&loop_l),
-        abi::compare_registers(v11, v13),
-        abi::branch_eq(&done_l),
-        abi::load_u8(v12, v9, 0),
-        abi::store_u8(v12, v10, 0),
-        abi::add_immediate(v9, v9, 1),
-        abi::add_immediate(v10, v10, 1),
-        abi::add_immediate(v11, v11, 1),
-        abi::branch(&loop_l),
-        abi::label(&done_l),
-    ]);
-}
 
 /// Free the object at `obj_off` via `free_name` only when the slot is non-NULL.
 #[allow(clippy::too_many_arguments)]
@@ -1084,7 +440,7 @@ fn lx_free_guarded(
         abi::compare_immediate(scratch, "0"),
         abi::branch_eq(&skip),
     ]);
-    lx_dlsym_into(
+    gen_cert::ossl_dlsym_into(
         symbol, handle_off, free_name, fn_off, raw_fail, imports, platform, ins, rel,
     )?;
     ins.push(abi::load_u64(
@@ -1092,7 +448,7 @@ fn lx_free_guarded(
         abi::stack_pointer(),
         obj_off,
     ));
-    call_fn(fn_off, scratch, ins);
+    gen_cert::call_fn(fn_off, scratch, ins);
     ins.push(abi::label(&skip));
     Ok(())
 }
@@ -1187,7 +543,7 @@ fn emit_linux_sign(
         abi::branch_ne(&invalid_fail),
     ]);
 
-    lx_dlopen_libcrypto(symbol, tag, HANDLE, &load_fail, imports, platform, ins, rel)?;
+    gen_cert::dlopen_libcrypto(symbol, tag, HANDLE, &load_fail, imports, platform, ins, rel)?;
 
     // privDer = template with point/scalar spliced from the raw key bytes.
     ins.extend([
@@ -1199,9 +555,9 @@ fn emit_linux_sign(
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), DERBUF),
         abi::store_u64(abi::mfb_return(1), abi::stack_pointer(), DERPP),
     ]);
-    emit_data_address(symbol, &v9, &lx_tmpl_sym(curve.name()), ins, rel);
+    emit_data_address(symbol, &v9, &gen_cert::tmpl_sym(curve.name()), ins, rel);
     ins.push(abi::store_u64(&v9, abi::stack_pointer(), TMPLPTR));
-    lx_copy(
+    gen_cert::copy_bytes(
         symbol,
         &format!("{tag}tmpl"),
         TMPLPTR,
@@ -1209,7 +565,8 @@ fn emit_linux_sign(
         None,
         DERBUF,
         0,
-        pkcs8_len,
+        None,
+        CopyLen::Const(pkcs8_len),
         &v9,
         &v10,
         &v11,
@@ -1218,7 +575,7 @@ fn emit_linux_sign(
         ins,
     );
     // raw key = 0x04||X||Y||K = point(point_len) || scalar(field_len)
-    lx_copy(
+    gen_cert::copy_bytes(
         symbol,
         &format!("{tag}pt"),
         PRIVBUF,
@@ -1226,7 +583,8 @@ fn emit_linux_sign(
         None,
         DERBUF,
         p8_point_off,
-        point_len,
+        None,
+        CopyLen::Const(point_len),
         &v9,
         &v10,
         &v11,
@@ -1234,7 +592,7 @@ fn emit_linux_sign(
         &v13,
         ins,
     );
-    lx_copy(
+    gen_cert::copy_bytes(
         symbol,
         &format!("{tag}sc"),
         PRIVBUF,
@@ -1242,7 +600,8 @@ fn emit_linux_sign(
         None,
         DERBUF,
         p8_scalar_off,
-        field_len,
+        None,
+        CopyLen::Const(field_len),
         &v9,
         &v10,
         &v11,
@@ -1252,7 +611,7 @@ fn emit_linux_sign(
     );
 
     // pkey = d2i_AutoPrivateKey(NULL, &pp, len)
-    lx_dlsym_into(
+    gen_cert::ossl_dlsym_into(
         symbol,
         HANDLE,
         "d2i_AutoPrivateKey",
@@ -1268,14 +627,14 @@ fn emit_linux_sign(
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), DERPP),
         abi::move_immediate(abi::c_arg(2), "Integer", &pkcs8_len.to_string()),
     ]);
-    call_fn(FN, &v9, ins);
+    gen_cert::call_fn(FN, &v9, ins);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PKEY),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&invalid_fail),
     ]);
 
-    lx_dlsym_into(
+    gen_cert::ossl_dlsym_into(
         symbol,
         HANDLE,
         "EVP_MD_CTX_new",
@@ -1286,13 +645,13 @@ fn emit_linux_sign(
         ins,
         rel,
     )?;
-    call_fn(FN, &v9, ins);
+    gen_cert::call_fn(FN, &v9, ins);
     ins.push(abi::store_u64(
         abi::return_register(),
         abi::stack_pointer(),
         MDCTX,
     ));
-    lx_dlsym_into(
+    gen_cert::ossl_dlsym_into(
         symbol,
         HANDLE,
         curve.digest(),
@@ -1303,7 +662,7 @@ fn emit_linux_sign(
         ins,
         rel,
     )?;
-    call_fn(FN, &v9, ins);
+    gen_cert::call_fn(FN, &v9, ins);
     ins.push(abi::store_u64(
         abi::return_register(),
         abi::stack_pointer(),
@@ -1318,7 +677,7 @@ fn emit_linux_sign(
     ]);
 
     // EVP_DigestSignInit(ctx, NULL, md, NULL, pkey)
-    lx_dlsym_into(
+    gen_cert::ossl_dlsym_into(
         symbol,
         HANDLE,
         "EVP_DigestSignInit",
@@ -1336,14 +695,14 @@ fn emit_linux_sign(
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
         abi::load_u64(abi::c_arg(4), abi::stack_pointer(), PKEY),
     ]);
-    call_fn(FN, &v9, ins);
+    gen_cert::call_fn(FN, &v9, ins);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "1"),
         abi::branch_ne(&sign_fail),
     ]);
 
     // siglen probe: EVP_DigestSign(ctx, NULL, &siglen, msg, msglen)
-    lx_dlsym_into(
+    gen_cert::ossl_dlsym_into(
         symbol,
         HANDLE,
         "EVP_DigestSign",
@@ -1361,7 +720,7 @@ fn emit_linux_sign(
         abi::load_u64(abi::c_arg(3), abi::stack_pointer(), MSGBUF),
         abi::load_u64(abi::c_arg(4), abi::stack_pointer(), MSGLEN),
     ]);
-    call_fn(FN, &v9, ins);
+    gen_cert::call_fn(FN, &v9, ins);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "1"),
         abi::branch_ne(&sign_fail),
@@ -1384,7 +743,7 @@ fn emit_linux_sign(
         abi::load_u64(abi::c_arg(3), abi::stack_pointer(), MSGBUF),
         abi::load_u64(abi::c_arg(4), abi::stack_pointer(), MSGLEN),
     ]);
-    call_fn(FN, &v9, ins);
+    gen_cert::call_fn(FN, &v9, ins);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "1"),
         abi::branch_ne(&sign_fail),
@@ -1403,7 +762,7 @@ fn emit_linux_sign(
         rel,
     );
 
-    lx_dlsym_into(
+    gen_cert::ossl_dlsym_into(
         symbol,
         HANDLE,
         "EVP_MD_CTX_free",
@@ -1419,8 +778,8 @@ fn emit_linux_sign(
         abi::stack_pointer(),
         MDCTX,
     ));
-    call_fn(FN, &v9, ins);
-    lx_dlsym_into(
+    gen_cert::call_fn(FN, &v9, ins);
+    gen_cert::ossl_dlsym_into(
         symbol,
         HANDLE,
         "EVP_PKEY_free",
@@ -1436,7 +795,7 @@ fn emit_linux_sign(
         abi::stack_pointer(),
         PKEY,
     ));
-    call_fn(FN, &v9, ins);
+    gen_cert::call_fn(FN, &v9, ins);
     // Wipe the raw private scalar and the spliced PKCS#8 DER (both hold the key).
     emit_zero_guarded(
         symbol,
@@ -1511,119 +870,6 @@ fn emit_linux_sign(
 // Windows CNG clean-room emit helpers (reproduced; not calls into native).
 // ===========================================================================
 
-/// Emit a Win64 external `BCrypt*` call with the mandatory ≥32-byte shadow-space
-/// reservation for EVERY call (even a ≤4-arg one). Sign-extends the NTSTATUS.
-fn bcrypt_call(
-    from: &str,
-    name: &str,
-    n_args: usize,
-    imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
-) -> Result<(), String> {
-    let stack = n_args.saturating_sub(4);
-    let frame = (0x20 + stack * 8 + 15) & !15;
-    ins.push(abi::subtract_stack(frame));
-    for i in 0..stack {
-        ins.push(abi::store_u64(
-            abi::c_arg(4 + i),
-            abi::stack_pointer(),
-            0x20 + i * 8,
-        ));
-    }
-    platform.emit_external_call(name, from, imports, ins, rel)?;
-    ins.push(abi::add_stack(frame));
-    ins.push(abi::sign_extend_word(
-        abi::return_register(),
-        abi::return_register(),
-    ));
-    Ok(())
-}
-
-/// Minted scratch-vreg palette for one emitted CNG sequence (threaded into every
-/// emitter contributing to it so all uses of one hand-picked number map to one vreg).
-struct Sc {
-    v4: String,
-    v5: String,
-    v7: String,
-    v9: String,
-    v10: String,
-    v11: String,
-    v12: String,
-    v13: String,
-    v14: String,
-    v15: String,
-}
-
-impl Sc {
-    fn new(vregs: &mut Vregs) -> Self {
-        // Order preserved from the CNG reference (v4..v15) so the copy scratch
-        // (v4/v5) stays distinct from the caller-used registers.
-        let v4 = vregs.next();
-        let v5 = vregs.next();
-        let _v6 = vregs.next();
-        let v7 = vregs.next();
-        let _v8 = vregs.next();
-        let v9 = vregs.next();
-        let v10 = vregs.next();
-        let v11 = vregs.next();
-        let v12 = vregs.next();
-        let v13 = vregs.next();
-        let v14 = vregs.next();
-        let v15 = vregs.next();
-        Sc {
-            v4,
-            v5,
-            v7,
-            v9,
-            v10,
-            v11,
-            v12,
-            v13,
-            v14,
-            v15,
-        }
-    }
-}
-
-fn win_wide_addr(
-    from: &str,
-    dst: impl Into<Operand>,
-    id: &str,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
-) {
-    emit_data_address(from, dst, &win_sym(id), ins, rel);
-}
-
-/// A copy loop: `count` bytes from `[src]` to `[dst]` (both register operands,
-/// consumed). Uses `sc.v4`/`sc.v5` scratch named by `tag`.
-fn win_copy_bytes(
-    sc: &Sc,
-    src: &str,
-    dst: &str,
-    count: &str,
-    tag: &str,
-    ins: &mut Vec<CodeInstruction>,
-) {
-    let loop_l = format!("{tag}_cp");
-    let done_l = format!("{tag}_cpd");
-    ins.extend([
-        abi::move_immediate(&sc.v4, "Integer", "0"),
-        abi::label(&loop_l),
-        abi::compare_registers(&sc.v4, count),
-        abi::branch_eq(&done_l),
-        abi::load_u8(&sc.v5, src, 0),
-        abi::store_u8(&sc.v5, dst, 0),
-        abi::add_immediate(src, src, 1),
-        abi::add_immediate(dst, dst, 1),
-        abi::add_immediate(&sc.v4, &sc.v4, 1),
-        abi::branch(&loop_l),
-        abi::label(&done_l),
-    ]);
-}
-
 /// Encode one big-endian `field`-wide integer at `[src]` as an ASN.1 INTEGER into
 /// `[dst]`, advancing `dst` past the written bytes.
 fn win_der_encode_int(
@@ -1666,7 +912,7 @@ fn win_der_encode_int(
         abi::add_immediate(dst, dst, 1),
         abi::label(&no_pad),
     ]);
-    win_copy_bytes(sc, &sc.v9, dst, &sc.v13, tag, ins);
+    gen_cert::win_copy_bytes(sc, &sc.v9, dst, &sc.v13, tag, ins);
 }
 
 /// Open the ECDSA provider at `halg_off` and import the SEC1 private key at
@@ -1697,12 +943,12 @@ fn win_import_private_key(
         abi::stack_pointer(),
         halg_off,
     ));
-    win_wide_addr(symbol, abi::c_arg(1), curve.algo_id(), ins, rel);
+    gen_cert::win_wide_addr(symbol, abi::c_arg(1), curve.algo_id(), ins, rel);
     ins.extend([
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
-    bcrypt_call(
+    gen_cert::bcrypt_call(
         symbol,
         "BCryptOpenAlgorithmProvider",
         4,
@@ -1724,7 +970,7 @@ fn win_import_private_key(
         abi::add_immediate(&sc.v12, &sc.v10, 8),
         abi::move_immediate(&sc.v13, "Integer", &body_len.to_string()),
     ]);
-    win_copy_bytes(
+    gen_cert::win_copy_bytes(
         sc,
         &sc.v11,
         &sc.v12,
@@ -1737,14 +983,14 @@ fn win_import_private_key(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), halg_off),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
-    win_wide_addr(symbol, abi::c_arg(2), "ECCPRIVATEBLOB", ins, rel);
+    gen_cert::win_wide_addr(symbol, abi::c_arg(2), "ECCPRIVATEBLOB", ins, rel);
     ins.extend([
         abi::add_immediate(abi::c_arg(3), abi::stack_pointer(), hkey_off),
         abi::load_u64(abi::c_arg(4), abi::stack_pointer(), blob_off),
         abi::move_immediate(abi::c_arg(5), "Integer", &blob_len.to_string()),
         abi::move_immediate(abi::c_arg(6), "Integer", "0"),
     ]);
-    bcrypt_call(
+    gen_cert::bcrypt_call(
         symbol,
         "BCryptImportKeyPair",
         7,
@@ -1779,12 +1025,12 @@ fn win_hash_message(
         abi::stack_pointer(),
         hashalg_off,
     ));
-    win_wide_addr(symbol, abi::c_arg(1), curve.hash_id(), ins, rel);
+    gen_cert::win_wide_addr(symbol, abi::c_arg(1), curve.hash_id(), ins, rel);
     ins.extend([
         abi::move_immediate(abi::c_arg(2), "Integer", "0"),
         abi::move_immediate(abi::c_arg(3), "Integer", "0"),
     ]);
-    bcrypt_call(
+    gen_cert::bcrypt_call(
         symbol,
         "BCryptOpenAlgorithmProvider",
         4,
@@ -1806,14 +1052,14 @@ fn win_hash_message(
     ]);
     let hash_fail = format!("{symbol}_{tag}_hashfail");
     let hash_ok = format!("{symbol}_{tag}_hashok");
-    bcrypt_call(symbol, "BCryptHash", 7, imports, platform, ins, rel)?;
+    gen_cert::bcrypt_call(symbol, "BCryptHash", 7, imports, platform, ins, rel)?;
     ins.push(abi::branch_lt(&hash_fail));
     // Close the hash provider (success path).
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), hashalg_off),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
-    bcrypt_call(
+    gen_cert::bcrypt_call(
         symbol,
         "BCryptCloseAlgorithmProvider",
         2,
@@ -1829,7 +1075,7 @@ fn win_hash_message(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), hashalg_off),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
-    bcrypt_call(
+    gen_cert::bcrypt_call(
         symbol,
         "BCryptCloseAlgorithmProvider",
         2,
@@ -1862,7 +1108,7 @@ fn win_cleanup(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&no_key),
     ]);
-    bcrypt_call(symbol, "BCryptDestroyKey", 1, imports, platform, ins, rel)?;
+    gen_cert::bcrypt_call(symbol, "BCryptDestroyKey", 1, imports, platform, ins, rel)?;
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), hkey_off));
     ins.push(abi::label(&no_key));
     ins.extend([
@@ -1871,7 +1117,7 @@ fn win_cleanup(
         abi::branch_eq(&no_alg),
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
     ]);
-    bcrypt_call(
+    gen_cert::bcrypt_call(
         symbol,
         "BCryptCloseAlgorithmProvider",
         2,
@@ -1920,7 +1166,7 @@ fn emit_windows_sign(
     const DERSTART: usize = 120;
     const COLL: usize = 128;
     const HASHINLINE: usize = 136; // 64-byte inline hash scratch
-    const BLOBCAP: usize = 8 + 3 * 66;
+    let blobcap = gen_cert::BLOBCAP;
 
     let fail = format!("{symbol}_{tag}_fail");
     let invalid = format!("{symbol}_{tag}_invalid");
@@ -1964,7 +1210,7 @@ fn emit_windows_sign(
         abi::branch_ne(&invalid),
     ]);
     // Allocate the CNG blob + rs + der buffers.
-    for (cap, slot) in [(BLOBCAP, BLOB), (2 * 66, RS), (16 + 4 * 66, DERBUF)] {
+    for (cap, slot) in [(blobcap, BLOB), (2 * 66, RS), (16 + 4 * 66, DERBUF)] {
         ins.extend([
             abi::move_immediate(abi::return_register(), "Integer", &cap.to_string()),
             abi::move_immediate(abi::c_arg(1), "Integer", "8"),
@@ -1995,7 +1241,7 @@ fn emit_windows_sign(
         abi::add_immediate(abi::c_arg(6), abi::stack_pointer(), CBRES),
         abi::move_immediate(abi::c_arg(7), "Integer", "0"),
     ]);
-    bcrypt_call(symbol, "BCryptSignHash", 8, imports, platform, ins, rel)?;
+    gen_cert::bcrypt_call(symbol, "BCryptSignHash", 8, imports, platform, ins, rel)?;
     ins.push(abi::branch_lt(&fail));
 
     // DER-encode: body at DERBUF+3; r at rs+0, s at rs+field.
@@ -2129,7 +1375,7 @@ fn emit_windows_sign(
         &format!("{tag}privz"),
         ins,
     );
-    emit_zero_guarded(symbol, BLOB, None, BLOBCAP, &format!("{tag}blobz"), ins);
+    emit_zero_guarded(symbol, BLOB, None, blobcap, &format!("{tag}blobz"), ins);
     ins.push(abi::branch(done));
     Ok(())
 }
@@ -2164,11 +1410,11 @@ pub(crate) fn lower_sign(
             let p384 = format!("{symbol}_mp384");
             let p521 = format!("{symbol}_mp521");
             builder.instructions.extend([
-                abi::compare_immediate(&ord, ORD_P384),
+                abi::compare_immediate(&ord, gen_cert::ORD_P384),
                 abi::branch_eq(&p384),
-                abi::compare_immediate(&ord, ORD_P521),
+                abi::compare_immediate(&ord, gen_cert::ORD_P521),
                 abi::branch_eq(&p521),
-                abi::compare_immediate(&ord, ORD_ED25519),
+                abi::compare_immediate(&ord, gen_cert::ORD_ED25519),
                 abi::branch_eq(&ed25519),
             ]);
             // P-256 (ordinal 0) falls through here.
@@ -2215,11 +1461,11 @@ pub(crate) fn lower_sign(
             let p384 = format!("{symbol}_lp384");
             let p521 = format!("{symbol}_lp521");
             builder.instructions.extend([
-                abi::compare_immediate(&ord, ORD_P384),
+                abi::compare_immediate(&ord, gen_cert::ORD_P384),
                 abi::branch_eq(&p384),
-                abi::compare_immediate(&ord, ORD_P521),
+                abi::compare_immediate(&ord, gen_cert::ORD_P521),
                 abi::branch_eq(&p521),
-                abi::compare_immediate(&ord, ORD_ED25519),
+                abi::compare_immediate(&ord, gen_cert::ORD_ED25519),
                 abi::branch_eq(&ed25519),
             ]);
             emit_linux_sign(
@@ -2265,11 +1511,11 @@ pub(crate) fn lower_sign(
             let p384 = format!("{symbol}_wp384");
             let p521 = format!("{symbol}_wp521");
             builder.instructions.extend([
-                abi::compare_immediate(&ord, ORD_P384),
+                abi::compare_immediate(&ord, gen_cert::ORD_P384),
                 abi::branch_eq(&p384),
-                abi::compare_immediate(&ord, ORD_P521),
+                abi::compare_immediate(&ord, gen_cert::ORD_P521),
                 abi::branch_eq(&p521),
-                abi::compare_immediate(&ord, ORD_ED25519),
+                abi::compare_immediate(&ord, gen_cert::ORD_ED25519),
                 abi::branch_eq(&ed25519),
             ]);
             emit_windows_sign(
