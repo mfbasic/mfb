@@ -55,6 +55,8 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "crypto.sign",
     "crypto.verify",
     "crypto.hash",
+    "crypto.seal",
+    "crypto.open",
     "datetime.nowNanos",
     "datetime.monotonicNanos",
     "datetime.localOffset",

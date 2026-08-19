@@ -157,6 +157,23 @@ pub(crate) fn register(r: &mut Registry) {
             },
         ],
     });
+    // The symmetric-AEAD cipher selector for `crypto::seal`/`crypto::open`. Ordinals are
+    // declaration order (AES256GCM=0, CHACHA20POLY1305=1); `func_seal`/`func_open`'s
+    // `AbiFunction` bodies branch on that ordinal.
+    pkg.add_enum(RegistryEnum {
+        name: "SymmetricCipher",
+        export: true,
+        variants: vec![
+            EnumVariant {
+                name: "AES256GCM",
+                description: "AES-256 in Galois/Counter Mode (NIST SP 800-38D).",
+            },
+            EnumVariant {
+                name: "CHACHA20POLY1305",
+                description: "ChaCha20-Poly1305 AEAD (RFC 8439).",
+            },
+        ],
+    });
 
     // The shared private `__crypto_*` helpers (module globals + every `__crypto_*`
     // body). Each lives in its own `helper_*.rs` and registers via `add_helper`;
@@ -313,6 +330,12 @@ pub(crate) fn register(r: &mut Registry) {
     // The `String`-overload shim for the unified `hash(Hash, data)` member: UTF-8-encodes
     // then re-enters the `List OF Byte` `hash` AbiFunction (see `func_hash`).
     helper_hash_text::register(&mut pkg);
+    // The overload shims for the unified AEAD `seal`/`open` members: `__crypto_sealText`
+    // UTF-8-encodes a `String` `data` and re-enters the `List OF Byte` `seal`; and
+    // `__crypto_openSealed` unpacks a `crypto::Sealed` and re-enters the five-argument
+    // `open` (see `func_seal`/`func_open`).
+    helper_seal_text::register(&mut pkg);
+    helper_open_sealed::register(&mut pkg);
 
     // The unified clean-room `hash(Hash, data)` selects a SHA-2 digest by the `Hash`
     // ordinal and branch-links to the always-emitted MFB software SHA cores (the SHA
@@ -332,6 +355,13 @@ pub(crate) fn register(r: &mut Registry) {
     func_aes256_gcm_open::register(&mut pkg);
     func_chacha20_poly1305_seal::register(&mut pkg);
     func_chacha20_poly1305_open::register(&mut pkg);
+    // The unified clean-room AEAD `seal`/`open` select a symmetric cipher by the
+    // `SymmetricCipher` ordinal and branch-link to the always-emitted MFB software AEAD
+    // cores (the AEAD math stays in MFB), mirroring `hash` over `Hash`. `seal` carries a
+    // `List OF Byte` and a `String` `data` overload; `open` an explicit
+    // `ciphertext`/`tag` and a `crypto::Sealed` overload. `aad` fills to the empty list.
+    func_seal::register(&mut pkg);
+    func_open::register(&mut pkg);
     // Secure random (`randomBytes` native; `randomInt`/`uuid4` source glue).
     func_random_bytes::register(&mut pkg);
     func_random_int::register(&mut pkg);
@@ -368,14 +398,17 @@ mod func_hkdf_sha256;
 mod func_hkdf_sha512;
 mod func_hmac_sha256;
 mod func_hmac_sha512;
+pub(crate) mod func_open;
 mod func_pbkdf2_sha256;
 mod func_pbkdf2_sha512;
 mod func_random_bytes;
 mod func_random_int;
+pub(crate) mod func_seal;
 pub(crate) mod func_sign;
 mod func_uuid4;
 pub(crate) mod func_verify;
 pub(crate) mod gen_cert;
+pub(crate) mod gen_cipher;
 pub(crate) mod gen_hash;
 
 mod helper_add32;
@@ -471,6 +504,7 @@ mod helper_maj64;
 mod helper_mod_l;
 mod helper_neq25519;
 mod helper_not32;
+mod helper_open_sealed;
 mod helper_pack25519;
 mod helper_pack_point;
 mod helper_pad1024;
@@ -495,6 +529,7 @@ mod helper_rotr32;
 mod helper_scalar_below_l;
 mod helper_scalarbase;
 mod helper_scalarmult;
+mod helper_seal_text;
 mod helper_sha224_bytes;
 mod helper_sha224_iv;
 mod helper_sha224_text;
@@ -542,12 +577,13 @@ mod tests {
         let pkg = registry()
             .resolve_package("crypto")
             .expect("crypto package");
-        // 18 members: the unified clean-room `generate(Certificate)` replaced the
+        // 20 members: the unified clean-room `generate(Certificate)` replaced the
         // four per-type `generateP*`/`generateEd25519` members, the unified
         // `sign(Certificate, …)` / `verify(Certificate, …)` replaced the eight per-curve
-        // signers/verifiers, and the unified `hash(Hash, …)` replaced the four per-digest
-        // `sha*` members (a single member with two `List OF Byte`/`String` overloads).
-        assert_eq!(pkg.functions().len(), 18);
+        // signers/verifiers, the unified `hash(Hash, …)` replaced the four per-digest
+        // `sha*` members, and the unified `seal`/`open` over `SymmetricCipher` were added
+        // (each a single member with two overloads).
+        assert_eq!(pkg.functions().len(), 20);
     }
 
     #[test]
@@ -564,6 +600,8 @@ mod tests {
             "crypto.aes256GcmOpen",
             "crypto.chacha20Poly1305Seal",
             "crypto.chacha20Poly1305Open",
+            "crypto.seal",
+            "crypto.open",
             "crypto.randomBytes",
             "crypto.randomInt",
             "crypto.uuid4",
