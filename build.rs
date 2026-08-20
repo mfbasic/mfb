@@ -25,6 +25,20 @@ fn main() {
         "SPEC_PACKAGES",
         &out_dir.join("spec_generated.rs"),
     );
+
+    // `mfb man <topic>` guide pages use the same tree-discovery model: any
+    // directory under `src/docs/man` holding a `package.md` overview is a
+    // documentation topic named after the directory, with its `*.md` siblings as
+    // sub-pages (a leading `<digits>_` ordering prefix is stripped from the
+    // page name). These are prose guides — the built-in `mfb man <package>`
+    // pages are still rendered from the descriptor registry, not this tree.
+    generate_doc_table(
+        &manifest_dir.join("src/docs/man"),
+        &["package.md"],
+        &["md"],
+        "MAN_TOPICS",
+        &out_dir.join("man_generated.rs"),
+    );
 }
 
 /// Stamp the `mfb --version` block's build metadata into the binary (plan-42

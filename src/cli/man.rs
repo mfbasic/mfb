@@ -19,6 +19,7 @@ use crate::cli::spec::detect_terminal_width;
 use crate::codegen::registry::{
     self, registry, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
+use crate::docs::man::{self, ManTopic};
 use crate::docs::render;
 
 pub(crate) fn show_man(args: &[String]) -> Result<(), String> {
@@ -43,36 +44,60 @@ pub(crate) fn show_man(args: &[String]) -> Result<(), String> {
                 Err("Usage: mfb man <package> [function] [--all]".to_string())
             }
         }
-        [package] => {
-            let package = lookup_package(package)?;
-            if all {
-                print_markdown(&render_package_all_markdown(package));
+        [name] => {
+            // A real built-in package wins; otherwise fall back to the prose guide
+            // topics (`errors`, `flow`, `types`, ...), so existing `mfb man <package>`
+            // behavior is untouched and the topics only fill names no package claims.
+            if let Some(package) = registry().resolve_package(name) {
+                if all {
+                    print_markdown(&render_package_all_markdown(package));
+                } else {
+                    print_markdown(&render_package_markdown(package));
+                }
+                Ok(())
+            } else if let Some(topic) = man::topic(name) {
+                if all {
+                    print_markdown(&render_topic_all_markdown(topic));
+                } else {
+                    print_markdown(topic.overview);
+                }
+                Ok(())
             } else {
-                print_markdown(&render_package_markdown(package));
+                Err(unknown_topic_error(name))
             }
-            Ok(())
         }
-        [package, function_name] => {
+        [name, page_name] => {
             if all {
                 return Err("mfb man --all cannot be combined with a function".to_string());
             }
-            let package = lookup_package(package)?;
-            // `types` is a reserved page name (matching the old `mfb man <pkg> types`),
-            // intercepted only for packages that actually declare a public record or
-            // union; otherwise it falls through to the normal function lookup below.
-            if *function_name == "types" && has_public_types(package) {
-                print_markdown(&render_types_markdown(package));
-                return Ok(());
+            if let Some(package) = registry().resolve_package(name) {
+                // `types` is a reserved page name (matching the old `mfb man <pkg> types`),
+                // intercepted only for packages that actually declare a public record or
+                // union; otherwise it falls through to the normal function lookup below.
+                if *page_name == "types" && has_public_types(package) {
+                    print_markdown(&render_types_markdown(package));
+                    return Ok(());
+                }
+                let function = package.function(page_name).ok_or_else(|| {
+                    format!(
+                        "unknown {} function `{page_name}`\n\nRun `mfb man {}` to list functions.",
+                        package.import_name(),
+                        package.import_name(),
+                    )
+                })?;
+                print_markdown(&render_function_markdown(package, function));
+                Ok(())
+            } else if let Some(topic) = man::topic(name) {
+                let page = man::page(topic, page_name).ok_or_else(|| {
+                    format!(
+                        "unknown {name} topic page `{page_name}`\n\nRun `mfb man {name}` to list pages.",
+                    )
+                })?;
+                print_markdown(page.page);
+                Ok(())
+            } else {
+                Err(unknown_topic_error(name))
             }
-            let function = package.function(function_name).ok_or_else(|| {
-                format!(
-                    "unknown {} function `{function_name}`\n\nRun `mfb man {}` to list functions.",
-                    package.import_name(),
-                    package.import_name(),
-                )
-            })?;
-            print_markdown(&render_function_markdown(package, function));
-            Ok(())
         }
         [_, _, _, ..] => Err("Usage: mfb man <package> [function] [--all]".to_string()),
     }
@@ -122,11 +147,22 @@ fn render_package_all_markdown(package: &RegistryPackage) -> String {
     md
 }
 
-/// Resolve a package name to its clean-room descriptor, or a user-facing error.
-fn lookup_package(package: &str) -> Result<&'static RegistryPackage, String> {
-    registry()
-        .resolve_package(package)
-        .ok_or_else(|| format!("mfb man: unknown package `{package}`"))
+/// The error for a first positional that names neither a built-in package nor a
+/// guide topic. Phrased around "unknown package" since that is the common case.
+fn unknown_topic_error(name: &str) -> String {
+    format!("mfb man: unknown package `{name}`")
+}
+
+/// `mfb man <topic> --all`: a guide topic's overview followed by every one of its
+/// sub-pages, each separated by a full-width rule — the topic analogue of
+/// `mfb man <package> --all`.
+fn render_topic_all_markdown(topic: &ManTopic) -> String {
+    let mut md = topic.overview.to_string();
+    for page in &topic.pages {
+        md.push_str(&man_rule());
+        md.push_str(page.page);
+    }
+    md
 }
 
 /// The union of every error any of a function's implementations declares, in first-
@@ -697,6 +733,34 @@ mod tests {
     fn rejects_unknown_package() {
         let err = show_man(&s(&["definitely-not-a-package"])).unwrap_err();
         assert!(err.contains("unknown package"));
+    }
+
+    #[test]
+    fn renders_a_guide_topic_overview() {
+        // A first positional that is not a package falls back to a guide topic,
+        // rendering its `package.md` overview.
+        assert!(show_man(&s(&["errors"])).is_ok());
+        assert!(show_man(&s(&["flow"])).is_ok());
+        assert!(show_man(&s(&["types"])).is_ok());
+    }
+
+    #[test]
+    fn renders_a_guide_topic_sub_page() {
+        // A second positional under a guide topic selects one of its sub-pages
+        // (`flow/for.md`, `tour/01_c.md` -> `c`).
+        assert!(show_man(&s(&["flow", "for"])).is_ok());
+        assert!(show_man(&s(&["tour", "c"])).is_ok());
+    }
+
+    #[test]
+    fn rejects_unknown_topic_sub_page() {
+        let err = show_man(&s(&["flow", "definitely-not-a-page"])).unwrap_err();
+        assert!(err.contains("unknown flow topic page"));
+    }
+
+    #[test]
+    fn topic_all_renders_the_overview_and_every_sub_page() {
+        assert!(show_man(&s(&["flow", "--all"])).is_ok());
     }
 
     #[test]
