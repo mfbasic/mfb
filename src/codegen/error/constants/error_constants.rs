@@ -613,18 +613,6 @@ pub(crate) const OUT_BUFFER_CAPACITY: u64 = 4096;
 /// would otherwise be lost or misordered.
 pub(crate) const STDOUT_DRAIN_SYMBOL: &str = "_mfb_rt_io_stdout_drain";
 
-// App-mode io hook symbols (plan-101). In an `--app` build the hand-written GUI
-// bodies for these members are emitted as their own internal runtime helpers
-// (like `STDOUT_DRAIN_SYMBOL`), and each member's `abi_function` body `bl`s to its
-// symbol in app mode instead of splicing a pre-finalized body through a hatch.
-// The helper bodies keep their raw physical-register objc/GTK/Win32 sequences —
-// they are standalone functions, never run through the vreg finalizer.
-pub(crate) const IO_APP_INPUT_SYMBOL: &str = "_mfb_rt_io_app_input";
-pub(crate) const IO_APP_PRINT_SYMBOL: &str = "_mfb_rt_io_app_print";
-pub(crate) const IO_APP_WRITE_SYMBOL: &str = "_mfb_rt_io_app_write";
-pub(crate) const IO_APP_PRINT_ERROR_SYMBOL: &str = "_mfb_rt_io_app_print_error";
-pub(crate) const IO_APP_WRITE_ERROR_SYMBOL: &str = "_mfb_rt_io_app_write_error";
-
 // ===========================================================================
 // PCG64 random-number generation
 // ===========================================================================

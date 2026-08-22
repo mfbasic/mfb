@@ -562,7 +562,7 @@ is `CreateFontW` for **Consolas** at `DEFAULT_CHARSET`, so GDI font-linking
 supplies CJK from the system fallback (replacing the glyph-less
 `SYSTEM_FIXED_FONT`).
 
-The write path (`emit_app_io_write_helper`) converts UTF-8→UTF-16 once
+The write path (`emit_app_io_write`) converts UTF-8→UTF-16 once
 (`MultiByteToWideChar`), then iterates UTF-16 units: it decodes an astral
 surrogate pair (drawn as its 2-unit pair = one glyph), computes display width via a
 compact East-Asian-Wide **range check** (`emit_win_wide_width` — the Win64 backend
@@ -570,7 +570,7 @@ has no SCRATCH pool, so utf8proc's two-stage trie is impractical, and a range te
 also keeps the ~1.5 MB table out of every Windows app), reserves a trailing column
 for a wide glyph, wraps at the edge, advances `col += width`, and folds trailing
 combining marks (U+0300..U+036F) plus ZWJ sequences into one `TextOutW` so GDI
-composes them. [[src/target/win_x86_64/app/mod.rs:emit_app_io_write_helper]]
+composes them. [[src/target/win_x86_64/app/mod.rs:emit_app_io_write]]
 [[src/target/win_x86_64/app/mod.rs:emit_win_wide_width]]
 
 The six positioned draw helpers (`drawHLine`/`drawVLine`/`drawBox`/`fillRect`/

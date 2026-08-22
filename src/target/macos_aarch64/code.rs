@@ -174,29 +174,25 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         app::app_mode_reconcile_data_objects()
     }
 
-    fn emit_app_io_write_helper(
+    fn emit_app_io_write(
         &self,
         symbol: &str,
         stderr: bool,
         newline: bool,
         term_state_offset: Option<usize>,
         _platform_imports: &HashMap<String, String>,
-    ) -> Option<
-        Result<
-            (
-                crate::codegen::engine::types::CodeFrame,
-                Vec<CodeInstruction>,
-                Vec<CodeRelocation>,
-            ),
-            String,
-        >,
-    > {
-        Some(Ok(app::emit_app_io_write_helper(
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        app::emit_app_io_write(
             symbol,
             stderr,
             newline,
             term_state_offset,
-        )))
+            instructions,
+            relocations,
+        );
+        Some(Ok(()))
     }
 
     fn emit_app_io_flush(
@@ -209,20 +205,14 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         Some(Ok(()))
     }
 
-    fn emit_app_io_input_helper(
+    fn emit_app_io_input(
         &self,
         symbol: &str,
-    ) -> Option<
-        Result<
-            (
-                crate::codegen::engine::types::CodeFrame,
-                Vec<CodeInstruction>,
-                Vec<CodeRelocation>,
-            ),
-            String,
-        >,
-    > {
-        Some(Ok(app::emit_app_io_input_helper(symbol)))
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        app::emit_app_io_input(symbol, instructions, relocations);
+        Some(Ok(()))
     }
 
     fn emit_app_raw_input_mode(

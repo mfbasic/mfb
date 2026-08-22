@@ -290,9 +290,9 @@ run on the worker thread). [[src/target/linux_gtk/app_io.rs:emit_app_term_helper
 
 ## io:: redirection
 
-`emit_app_io_write_helper` (print/write/printError/writeError) takes the MFB
+`emit_app_io_write` (print/write/printError/writeError) takes the MFB
 string in `x0` (`[x0]`=len, `x0+8`=UTF-8 bytes). Three paths, in order:
-[[src/target/linux_gtk/app_io.rs:emit_app_io_write_helper]]
+[[src/target/linux_gtk/app_io.rs:emit_app_io_write]]
 
 1. `ST_TERM_ACTIVE` set → `_mfb_gtkapp_term_write` (grid render); return OK.
 2. else `ST_TEXT_BUFFER` non-nil → transcript path: copy the bytes (plus a
@@ -303,21 +303,21 @@ string in `x0` (`[x0]`=len, `x0+8`=UTF-8 bytes). Three paths, in order:
 
 `_mfb_gtkapp_append_idle` (main thread) calls `_mfb_gtkapp_append` (insert at the
 end iter + auto-scroll via a temporary mark) and frees the chunk.
-`emit_app_io_input_helper` sets `MODE_LINE_ECHO`, writes the prompt via the io
+`emit_app_io_input` sets `MODE_LINE_ECHO`, writes the prompt via the io
 write helper, then reads a committed line via `_mfb_rt_io_io_readLine` (which reads
 fd 0). The app-mode `io` flush helper branches on TUI state: while `term::` mode
 is **on** it presents the frame, posting `g_idle_add(_mfb_gtkapp_term_redraw_idle)`;
 only with TUI **off** does it return OK immediately without a marshaled
 drain. The three `is*Terminal` helpers return `OK(TRUE)`.
 `emit_set_raw_input_mode` (inlined into readChar/readByte) sets `MODE_RAW`.
-[[src/target/linux_gtk/app_io.rs:emit_app_io_input_helper]]
+[[src/target/linux_gtk/app_io.rs:emit_app_io_input]]
 [[src/target/linux_gtk/app_io.rs:emit_set_raw_input_mode]]
 
 ## Documented divergences from macOS
 
 These are the observable behaviors of the Linux app backend that differ from the
 macOS app runtime:
-[[src/target/linux_gtk/app_io.rs:emit_app_io_write_helper]]
+[[src/target/linux_gtk/app_io.rs:emit_app_io_write]]
 
 - **The fd fallback** writes to stdout/stderr, and is the path taken headless or
   before the window exists. Once a `GtkTextBuffer` is attached, the transcript

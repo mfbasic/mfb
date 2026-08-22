@@ -1,11 +1,12 @@
 //! `io::readChar` — descriptor entry + authored docs.
 //!
 //! Per-member file. `io` lowers through per-function `Body::abi_function`
-//! clean-room lowerings (plan-101): [`lower_read_char`] splices its vreg body
-//! (from `emit_read_char_body`) into the builder — the wrapper finalizes it
-//! (crypto's shape). No adapter, no pre-finalized hatch.
+//! clean-room lowerings (plan-101): [`lower_read_char`] emits its vreg body
+//! directly into the builder — the wrapper finalizes it (crypto's shape). The
+//! shared UTF-8 sequence reader lives in [`super::gen_read_family`]. No adapter, no
+//! pre-finalized hatch.
 
-use super::func_read_line::{emit_stdin_byte_read, emit_utf8_sequence_read, Utf8SeqLabels};
+use super::gen_read_family::{emit_stdin_byte_read, emit_utf8_sequence_read, Utf8SeqLabels};
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
@@ -16,31 +17,6 @@ use crate::codegen::memory::data::*;
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::target::shared::abi;
 use crate::types::ParameterType;
-use std::collections::HashMap;
-
-/// `abi_function` body for `io::readChar` — read one whole Unicode scalar value
-/// (one UTF-8 sequence) from stdin, returned as a one-character `String`.
-pub(crate) fn lower_read_char(
-    builder: &mut CodeBuilder,
-    _args: &[ValueResult],
-    ctx: &AbiCtx,
-) -> Result<ValueResult, String> {
-    let symbol = builder.current_symbol.clone();
-    let (instructions, relocations, frame_size) = emit_read_char_body(
-        &symbol,
-        ctx.platform_imports,
-        ctx.platform,
-        ctx.build_mode.is_app(),
-    )?;
-    builder.instructions.extend(instructions);
-    builder.relocations.extend(relocations);
-    builder.stack_size = frame_size;
-    Ok(ValueResult {
-        type_: "String".to_string(),
-        location: Operand::from("void"),
-        text: "io.readChar".to_string(),
-    })
-}
 
 const INTRO: &str = r#"Read one whole Unicode scalar value from standard input"#;
 const DESC: &str = r#"`io::readChar` reads exactly one Unicode scalar value from standard input and
@@ -96,16 +72,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     });
 }
 
-// --- stdin readChar emitter (relocated from native/) ---
+// --- stdin readChar lowering (relocated from native/) ---
 
-/// Emit the readChar vreg body (pre-finalization): `(instructions, relocations,
-/// frame_size)` for [`lower_read_char`] to splice in; the wrapper finalizes.
-fn emit_read_char_body(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    app_mode: bool,
-) -> Result<(Vec<CodeInstruction>, Vec<CodeRelocation>, usize), String> {
+/// `abi_function` body for `io::readChar` — read one whole Unicode scalar value
+/// (one UTF-8 sequence) from stdin, returned as a one-character `String`. Emits
+/// its vreg body directly into the builder; the wrapper finalizes.
+pub(crate) fn lower_read_char(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol_owned = builder.current_symbol.clone();
+    let symbol: &str = &symbol_owned;
+    let platform_imports = ctx.platform_imports;
+    let platform = ctx.platform;
+    let app_mode = ctx.build_mode.is_app();
     const FRAME_SIZE: usize = 224;
     const BYTES_OFFSET: usize = 8;
     const LEN_OFFSET: usize = 16;
@@ -291,5 +272,12 @@ fn emit_read_char_body(
         &terminal_slots,
     )?;
     instructions.push(abi::return_());
-    Ok((instructions, relocations, FRAME_SIZE))
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = FRAME_SIZE;
+    Ok(ValueResult {
+        type_: "String".to_string(),
+        location: Operand::from("void"),
+        text: "io.readChar".to_string(),
+    })
 }

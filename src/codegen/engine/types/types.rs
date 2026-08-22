@@ -1017,19 +1017,22 @@ pub(crate) trait CodegenPlatform {
         Vec::new()
     }
 
-    /// App-mode body for `io.print`/`io.write`/`io.printError`/`io.writeError`
+    /// App-mode append for `io.print`/`io.write`/`io.printError`/`io.writeError`
     /// (plan-04-macos-app.md §5.4): append the string to the AppKit transcript,
     /// falling back to the file descriptor when no window is attached (headless).
-    /// `None` for targets without app mode.
-    #[allow(clippy::type_complexity)]
-    fn emit_app_io_write_helper(
+    /// Appends its vreg stream into the caller's `abi_function` body; the wrapper
+    /// finalizes (plan-101 append shape). `None` for targets without app mode.
+    #[allow(clippy::too_many_arguments)]
+    fn emit_app_io_write(
         &self,
         _symbol: &str,
         _stderr: bool,
         _newline: bool,
         _term_state_offset: Option<usize>,
         _platform_imports: &HashMap<String, String>,
-    ) -> Option<Result<AppHookBody, String>> {
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
         None
     }
 
@@ -1045,11 +1048,16 @@ pub(crate) trait CodegenPlatform {
         None
     }
 
-    /// App-mode body for `io.input` (plan §5.4): write the prompt to the
-    /// transcript, then read a line from the window input pipe. `None` for
-    /// targets without app mode.
-    #[allow(clippy::type_complexity)]
-    fn emit_app_io_input_helper(&self, _symbol: &str) -> Option<Result<AppHookBody, String>> {
+    /// App-mode append for `io.input` (plan §5.4): write the prompt to the
+    /// transcript, then read a line from the window input pipe. Appends its vreg
+    /// stream into the caller's `abi_function` body; the wrapper finalizes
+    /// (plan-101 append shape). `None` for targets without app mode.
+    fn emit_app_io_input(
+        &self,
+        _symbol: &str,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
         None
     }
 

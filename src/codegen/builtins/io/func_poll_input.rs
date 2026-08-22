@@ -1,9 +1,9 @@
 //! `io::pollInput` — descriptor entry + authored docs.
 //!
 //! Per-member file. `io` lowers through per-function `Body::abi_function`
-//! clean-room lowerings (plan-101): [`lower_poll_input`] emits its vreg body into
-//! the builder (via `emit_poll_input_body`) — the wrapper finalizes it (crypto's
-//! shape). No adapter, no pre-finalized hatch.
+//! clean-room lowerings (plan-101): [`lower_poll_input`] emits its vreg body
+//! directly into the builder — the wrapper finalizes it (crypto's shape). No
+//! adapter, no pre-finalized hatch.
 
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
@@ -18,120 +18,25 @@ use crate::codegen::registry::{
 };
 use crate::target::shared::abi;
 use crate::types::ParameterType;
-use std::collections::HashMap;
 
 /// `abi_function` body for `io::pollInput` — test whether stdin has input ready
 /// (optionally waiting up to a timeout), returned as a `Boolean`, consuming none.
+/// Emits its vreg body directly into the builder; the wrapper finalizes.
 pub(crate) fn lower_poll_input(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let symbol = builder.current_symbol.clone();
-    let (instructions, relocations, frame_size) = emit_poll_input_body(
-        &symbol,
-        ctx.platform_imports,
-        ctx.platform,
-        ctx.build_mode.is_app(),
-    )?;
-    builder.instructions.extend(instructions);
-    builder.relocations.extend(relocations);
-    builder.stack_size = frame_size;
-    Ok(ValueResult {
-        type_: "Boolean".to_string(),
-        location: Operand::from("void"),
-        text: "io.pollInput".to_string(),
-    })
-}
-
-const INTRO: &str =
-    r#"Test whether standard input is ready to read, optionally waiting up to a timeout"#;
-const DESC: &str = r#"`io::pollInput` reports whether a following read of standard input can proceed
-without blocking. It returns `TRUE` when input is ready and `FALSE` when the wait
-elapses first, and it **consumes nothing** — the bytes are still there for
-`io::readLine`, `io::readChar`, `io::readByte`, or `io::input`.
-
-`timeoutMs` bounds the wait, in milliseconds, following the language timeout
-convention. When it is **omitted, `pollInput` blocks** until standard input
-becomes ready and then returns `TRUE` (omit = unbounded). `0` is a non-blocking
-check that returns immediately with the current readiness. A positive value waits
-up to that long. A negative `timeoutMs` is rejected with `ErrInvalidArgument`.
-Because the host `poll` takes a C `int`, a value above `2147483647` is clamped to
-that, which is roughly 24 days.
-
-Readiness is answered in two stages: a byte already staged in the per-thread
-broadcast log reports `TRUE` at once with no system call, and only when the log
-holds nothing for this thread does the call `poll` file descriptor 0. A thread
-that has not subscribed simply defers to that `poll`; unlike the read calls,
-`io::pollInput` does not raise `ErrInvalidContext`. **End of input counts as
-ready**, so `io::pollInput` returns `TRUE` and the following read then raises
-`ErrEof`; a `TRUE` result promises that the next read will not block, not that it
-will succeed. A signal delivered while blocked is not an error: the `poll` is
-re-armed and retried."#;
-const EX: &str = r#"Read a line only when one is already pending (pass `0` for the immediate check —
-omitting the timeout would instead block until input is ready):
-
-```
-IMPORT io
-
-SUB main()
-  IF io::pollInput(0) THEN
-    io::print(io::readLine())
-  END IF
-END SUB
-```
-
-Wait up to a second for a keypress:
-
-```
-IMPORT io
-
-SUB main()
-  IF io::pollInput(1000) THEN
-    io::print(io::readChar())
-  ELSE
-    io::print("timeout")
-  END IF
-END SUB
-```"#;
-
-pub(crate) fn register(pkg: &mut RegistryPackage) {
-    pkg.add_function(RegistryFunction {
-        name: "pollInput",
-        intro: INTRO,
-        desc: DESC,
-        example: EX,
-        expected_arguments: Some("Integer"),
-        internal_only: false,
-        implementations: vec![Implementation {
-            params: vec![Parameter {
-                name: "timeoutMs",
-                desc: "Optional. Omit to block until standard input is ready; `0` is an immediate non-blocking check; a positive value waits up to that many milliseconds, clamped to `2147483647`. Must not be negative.",
-                aliases: &[],
-                ty: ParameterType::Integer,
-                default: DefaultValue::Optional,
-            }],
-            return_type: ParameterType::Boolean,
-            errors: vec![],
-            body: Body::abi_function(lower_poll_input),
-        }],
-    });
-}
-
-// --- stdin pollInput emitter (relocated from native/) ---
-/// Emit the pollInput vreg body (pre-finalization): returns
-/// `(instructions, relocations, frame_size)` for [`lower_poll_input`] to splice
-/// into the builder; the `abi_function` wrapper finalizes.
-fn emit_poll_input_body(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    app_mode: bool,
-) -> Result<(Vec<CodeInstruction>, Vec<CodeRelocation>, usize), String> {
     const POLLIN_PACKED_FD0: &str = "4294967296";
     const FRAME_SIZE: usize = 48;
     const POLLFD_OFFSET: usize = 8;
     const TIMEOUT_OFFSET: usize = 32;
+
+    let symbol_owned = builder.current_symbol.clone();
+    let symbol: &str = &symbol_owned;
+    let platform_imports = ctx.platform_imports;
+    let platform = ctx.platform;
+    let app_mode = ctx.build_mode.is_app();
 
     let poll_error = format!("{symbol}_poll_error");
     let poll_invalid = format!("{symbol}_poll_invalid");
@@ -272,5 +177,86 @@ fn emit_poll_input_body(
     );
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
-    Ok((instructions, relocations, FRAME_SIZE))
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = FRAME_SIZE;
+    Ok(ValueResult {
+        type_: "Boolean".to_string(),
+        location: Operand::from("void"),
+        text: "io.pollInput".to_string(),
+    })
+}
+
+const INTRO: &str =
+    r#"Test whether standard input is ready to read, optionally waiting up to a timeout"#;
+const DESC: &str = r#"`io::pollInput` reports whether a following read of standard input can proceed
+without blocking. It returns `TRUE` when input is ready and `FALSE` when the wait
+elapses first, and it **consumes nothing** — the bytes are still there for
+`io::readLine`, `io::readChar`, `io::readByte`, or `io::input`.
+
+`timeoutMs` bounds the wait, in milliseconds, following the language timeout
+convention. When it is **omitted, `pollInput` blocks** until standard input
+becomes ready and then returns `TRUE` (omit = unbounded). `0` is a non-blocking
+check that returns immediately with the current readiness. A positive value waits
+up to that long. A negative `timeoutMs` is rejected with `ErrInvalidArgument`.
+Because the host `poll` takes a C `int`, a value above `2147483647` is clamped to
+that, which is roughly 24 days.
+
+Readiness is answered in two stages: a byte already staged in the per-thread
+broadcast log reports `TRUE` at once with no system call, and only when the log
+holds nothing for this thread does the call `poll` file descriptor 0. A thread
+that has not subscribed simply defers to that `poll`; unlike the read calls,
+`io::pollInput` does not raise `ErrInvalidContext`. **End of input counts as
+ready**, so `io::pollInput` returns `TRUE` and the following read then raises
+`ErrEof`; a `TRUE` result promises that the next read will not block, not that it
+will succeed. A signal delivered while blocked is not an error: the `poll` is
+re-armed and retried."#;
+const EX: &str = r#"Read a line only when one is already pending (pass `0` for the immediate check —
+omitting the timeout would instead block until input is ready):
+
+```
+IMPORT io
+
+SUB main()
+  IF io::pollInput(0) THEN
+    io::print(io::readLine())
+  END IF
+END SUB
+```
+
+Wait up to a second for a keypress:
+
+```
+IMPORT io
+
+SUB main()
+  IF io::pollInput(1000) THEN
+    io::print(io::readChar())
+  ELSE
+    io::print("timeout")
+  END IF
+END SUB
+```"#;
+
+pub(crate) fn register(pkg: &mut RegistryPackage) {
+    pkg.add_function(RegistryFunction {
+        name: "pollInput",
+        intro: INTRO,
+        desc: DESC,
+        example: EX,
+        expected_arguments: Some("Integer"),
+        internal_only: false,
+        implementations: vec![Implementation {
+            params: vec![Parameter {
+                name: "timeoutMs",
+                desc: "Optional. Omit to block until standard input is ready; `0` is an immediate non-blocking check; a positive value waits up to that many milliseconds, clamped to `2147483647`. Must not be negative.",
+                aliases: &[],
+                ty: ParameterType::Integer,
+                default: DefaultValue::Optional,
+            }],
+            return_type: ParameterType::Boolean,
+            errors: vec![],
+            body: Body::abi_function(lower_poll_input),
+        }],
+    });
 }

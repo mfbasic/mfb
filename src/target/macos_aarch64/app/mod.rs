@@ -749,6 +749,27 @@ fn build_nsstring_from_cstring(asm: &mut Asm, class_tmp: &str, cstr_symbol: &str
     asm.call_external("_objc_msgSend", LIB_OBJC);
 }
 
+/// Vreg-body twin of [`build_nsstring_from_cstring`] (plan-101): the same
+/// `[NSString stringWithUTF8String:<cstr>]` sequence with the result in
+/// `mfb_return(0)`, spelled with role tokens so a vreg-finalized `abi_function`
+/// body (io's `write`) can append it — raw `x0`/`x2` would trip the plan-34-D
+/// stream guard. `class_tmp` is a scratch register the caller supplies (dead after
+/// the call). The raw-register form stays for the standalone app bodies
+/// (bootstrap / term_view / term-setter helpers), whose native goldens it keeps
+/// byte-identical.
+fn build_nsstring_from_cstring_vreg(
+    asm: &mut Asm,
+    class_tmp: impl Into<Operand>,
+    cstr_symbol: &str,
+) {
+    let class_tmp = class_tmp.into();
+    asm.external_data(&class_tmp, CLASS_NS_STRING, LIB_FOUNDATION);
+    asm.load_selector(SEL_STRING_WITH_UTF8.0);
+    asm.local_address(abi::mfb_arg(2), cstr_symbol);
+    asm.push(abi::move_register(abi::mfb_arg(0), &class_tmp));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+}
+
 /// Materialize a small non-negative integer as a double in `dst` (an FP
 /// register): `movz` the value into a scratch GPR, then `scvtf`.
 fn emit_double_immediate(asm: &mut Asm, dst: &str, value: u32) {
@@ -982,8 +1003,16 @@ mod release_tests {
     fn write_helper_releases_owned_nsstring_in_both_arms() {
         // term_state_offset = Some => both the GUI transcript arm and the TUI
         // surface arm are emitted; each must release its owned NSString.
-        let (_frame, _ins, rel) =
-            emit_app_io_write_helper("_mfb_rt_io_io_print", false, true, Some(4096));
+        let mut ins = Vec::new();
+        let mut rel = Vec::new();
+        emit_app_io_write(
+            "_mfb_rt_io_io_print",
+            false,
+            true,
+            Some(4096),
+            &mut ins,
+            &mut rel,
+        );
         assert_eq!(
             release_send_count(&rel),
             2,
@@ -992,8 +1021,16 @@ mod release_tests {
         );
 
         // No term:: => only the GUI transcript arm is emitted => one release.
-        let (_frame, _ins, rel_no_term) =
-            emit_app_io_write_helper("_mfb_rt_io_io_print", false, true, None);
+        let mut ins_no_term = Vec::new();
+        let mut rel_no_term = Vec::new();
+        emit_app_io_write(
+            "_mfb_rt_io_io_print",
+            false,
+            true,
+            None,
+            &mut ins_no_term,
+            &mut rel_no_term,
+        );
         assert_eq!(
             release_send_count(&rel_no_term),
             1,

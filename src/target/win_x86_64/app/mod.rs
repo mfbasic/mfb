@@ -1044,18 +1044,23 @@ fn emit_finish() -> CodeFunction {
 /// &written, NULL)`. A GUI-subsystem `.exe` launched from a console inherits its
 /// standard handles, so the box run observes the output. Returns `RESULT_OK_TAG`.
 /// (J-3 routes this to the GDI transcript when a window is attached.)
-pub(super) fn emit_app_io_write_helper(
+pub(super) fn emit_app_io_write(
     symbol: &str,
     stderr: bool,
     newline: bool,
     term_state_offset: Option<usize>,
-) -> AppHookBody {
-    // FRAME ≡ 8 (mod 16): entered at sp%16==8 (post-call), so this realigns to 16
-    // before the SendMessageW/GDI calls (which use aligned SSE and fault otherwise).
-    // plan-70-F grew this from 0x88: the TUI grid path now decodes UTF-16 (WCCOUNT,
-    // CPSLOT, UCOUNT, WIDTHSLOT). Still ≡ 8 (mod 16) so a call realigns to 16.
-    const FRAME: usize = 0x98;
-    const OVERLAPPED: usize = 0x20; // WriteFile 5th arg / MultiByteToWideChar staging
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame. The `abi_function` vreg finalizer
+    // builds the frame, reserves the Win64 shadow space + call padding, keeps the
+    // stack 16-aligned at every call site, and reserves the local scratch the
+    // member requested (`APP_WRITE_SCRATCH`, sized for the slots below). Local
+    // scratch is addressed at `sp+<slot>`; outgoing 5th/6th Win64 stack arguments
+    // go through the `outgoing_stack_arg_store` sentinel, which the finalizer sizes
+    // and resolves to the frame bottom above the shadow — the body no longer
+    // hardcodes `sp+0x20`/`sp+0x28`. The lowest slot is `NL_BYTE = 0x30`, leaving
+    // `[0,0x30)` unused in the reserved region (harmless).
     const NL_BYTE: usize = 0x30;
     const STR: usize = 0x38;
     const WRITTEN: usize = 0x40;
@@ -1077,8 +1082,6 @@ pub(super) fn emit_app_io_write_helper(
     };
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
-    ins.push(abi::label("entry"));
-    ins.push(abi::subtract_stack(FRAME));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), STR));
     // plan-66-J-5: while TUI mode is active, render into the GDI grid instead of the
     // transcript EDIT (the grid is what the window shows in TUI mode).
@@ -1112,9 +1115,9 @@ pub(super) fn emit_app_io_write_helper(
     // args (5th/6th) through ARG[2] before it becomes lpMultiByteStr (the SCRATCH
     // pool must not be used on Win64 — see emit_marshal_path).
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
-    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20)); // lpWideCharStr (5th)
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(2), 0)); // lpWideCharStr (5th)
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "32767"));
-    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28)); // cchWideChar (6th)
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(2), 1)); // cchWideChar (6th)
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", CP_UTF8));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0"));
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), STR)); // str ptr
@@ -1211,7 +1214,6 @@ pub(super) fn emit_app_io_write_helper(
         "Integer",
         RESULT_OK_TAG,
     ));
-    ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
 
     // --- headless / no-window path: write to the inherited standard handle ---
@@ -1231,7 +1233,7 @@ pub(super) fn emit_app_io_write_helper(
     ));
     // WriteFile(handle, str+8, str[0], &written, NULL)
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), WRITTEN));
-    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), OVERLAPPED));
+    ins.push(abi::outgoing_stack_arg_store(abi::ZERO, 0)); // lpOverlapped = NULL (5th)
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), HANDLE));
     ins.push(abi::load_u64(abi::mfb_arg(1), abi::stack_pointer(), STR)); // str ptr
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::mfb_arg(1), 0)); // len = str[0]
@@ -1250,7 +1252,7 @@ pub(super) fn emit_app_io_write_helper(
             NL_BYTE,
         ));
         ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), WRITTEN));
-        ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), OVERLAPPED));
+        ins.push(abi::outgoing_stack_arg_store(abi::ZERO, 0)); // lpOverlapped = NULL (5th)
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), HANDLE));
         ins.push(abi::add_immediate(
             abi::mfb_arg(1),
@@ -1270,7 +1272,6 @@ pub(super) fn emit_app_io_write_helper(
         "Integer",
         RESULT_OK_TAG,
     ));
-    ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
 
     // --- plan-66-J-5 TUI grid path: draw the string cell-by-cell into the memory DC.
@@ -1315,9 +1316,9 @@ pub(super) fn emit_app_io_write_helper(
             WBUF,
         ));
         ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
-        ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20)); // 5th lpWideCharStr
+        ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(2), 0)); // 5th lpWideCharStr
         ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "32767"));
-        ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28)); // 6th cchWideChar
+        ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(2), 1)); // 6th cchWideChar
         ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", CP_UTF8));
         ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0"));
         ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), STR));
@@ -1584,7 +1585,7 @@ pub(super) fn emit_app_io_write_helper(
         ins.push(abi::label("term_edge_ok"));
         // TextOutW(memDC, col*8, row*16, &wbuf[i], unitCount)
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
-        ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20)); // 5th arg c
+        ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(0), 0)); // 5th arg c (unit count)
         ins.push(abi::load_u64(abi::mfb_arg(3), abi::stack_pointer(), WBUF));
         ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
         ins.push(abi::shift_left_immediate(
@@ -1670,17 +1671,10 @@ pub(super) fn emit_app_io_write_helper(
             "Integer",
             RESULT_OK_TAG,
         ));
-        ins.push(abi::add_stack(FRAME));
         ins.push(abi::return_());
     }
-    (
-        CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        ins,
-        rel,
-    )
+    instructions.extend(ins);
+    relocations.extend(rel);
 }
 
 /// App-mode `io.input` body (plan-66-J-4): render the prompt to the transcript
@@ -1689,27 +1683,22 @@ pub(super) fn emit_app_io_write_helper(
 /// pipe — via the shared `io.readLine` helper. The prompt string arrives in
 /// `ARG[0]` and is consumed by `io.write`; `io.readLine` needs no argument and
 /// leaves its `String` Result in the Result registers, which this tail returns.
-/// Mirrors macOS `emit_app_io_input_helper`; on Win64 the return address is on the
+/// Mirrors macOS `emit_app_io_input`; on Win64 the return address is on the
 /// stack (no link register), so the frame only reserves shadow space for the calls.
-pub(super) fn emit_app_io_input_helper(symbol: &str) -> AppHookBody {
-    // Entered at sp%16==8 (post-call); 0x28 (shadow 0x20 + 8) realigns to 16.
+pub(super) fn emit_app_io_input(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the `abi_function` vreg finalizer
+    // builds it and, because the body makes calls, reserves the Win64 shadow space
+    // and realigns the stack (see `finalize_frame`). The prompt is already in
+    // `ARG[0]` on entry and nothing is live across the two internal calls, so no
+    // vregs are needed.
     let from = symbol;
-    let mut ins: Vec<CodeInstruction> = Vec::new();
-    let mut rel: Vec<CodeRelocation> = Vec::new();
-    ins.push(abi::label("entry"));
-    ins.push(abi::subtract_stack(0x28));
-    call_internal(from, IO_WRITE_SYMBOL, &mut ins, &mut rel); // ARG[0] = prompt
-    call_internal(from, IO_READ_LINE_SYMBOL, &mut ins, &mut rel); // result in Result regs
-    ins.push(abi::add_stack(0x28));
-    ins.push(abi::return_());
-    (
-        CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        ins,
-        rel,
-    )
+    call_internal(from, IO_WRITE_SYMBOL, instructions, relocations); // ARG[0] = prompt
+    call_internal(from, IO_READ_LINE_SYMBOL, instructions, relocations); // result in Result regs
+    instructions.push(abi::return_());
 }
 
 /// App-mode setup for immediate, no-echo key reads (`io.readChar`/`readByte`).
@@ -1994,7 +1983,6 @@ fn emit_term_draw_glyph_at(symbol: &str, tso: usize) -> AppHookBody {
         "Integer",
         RESULT_OK_TAG,
     ));
-    ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     term_body(ins, rel)
 }
@@ -2056,7 +2044,6 @@ fn emit_term_draw_line(symbol: &str, tso: usize, horizontal: bool) -> AppHookBod
         "Integer",
         RESULT_OK_TAG,
     ));
-    ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     term_body(ins, rel)
 }
@@ -2149,7 +2136,6 @@ fn emit_term_draw_box(symbol: &str, tso: usize) -> AppHookBody {
         "Integer",
         RESULT_OK_TAG,
     ));
-    ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     term_body(ins, rel)
 }
@@ -2220,7 +2206,6 @@ fn emit_term_fill_rect(symbol: &str, tso: usize) -> AppHookBody {
         "Integer",
         RESULT_OK_TAG,
     ));
-    ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     term_body(ins, rel)
 }
@@ -2455,7 +2440,6 @@ fn emit_term_draw_text_at(symbol: &str, tso: usize) -> AppHookBody {
         "Integer",
         RESULT_OK_TAG,
     ));
-    ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     term_body(ins, rel)
 }
@@ -2607,7 +2591,6 @@ fn emit_term_on(symbol: &str, tso: usize) -> AppHookBody {
         "Integer",
         RESULT_OK_TAG,
     ));
-    ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     term_body(ins, rel)
 }
@@ -2635,7 +2618,6 @@ fn emit_term_off(symbol: &str, tso: usize) -> AppHookBody {
         "Integer",
         RESULT_OK_TAG,
     ));
-    ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     term_body(ins, rel)
 }
@@ -2677,7 +2659,6 @@ fn emit_term_clear(symbol: &str) -> AppHookBody {
         "Integer",
         RESULT_OK_TAG,
     ));
-    ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     term_body(ins, rel)
 }
@@ -2795,7 +2776,6 @@ fn emit_term_sync(symbol: &str) -> AppHookBody {
         "Integer",
         RESULT_OK_TAG,
     ));
-    ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     term_body(ins, rel)
 }
@@ -3019,7 +2999,9 @@ mod tests {
 
     #[test]
     fn io_write_newline_variant_writes_twice() {
-        let (_frame, ins, rel) = emit_app_io_write_helper("_test_io", false, true, None);
+        let mut ins = Vec::new();
+        let mut rel = Vec::new();
+        emit_app_io_write("_test_io", false, true, None, &mut ins, &mut rel);
         let writes = rel.iter().filter(|r| r.to == "WriteFile").count();
         assert_eq!(
             writes, 2,
@@ -3034,7 +3016,9 @@ mod tests {
         // plan-66-J-3: io_write routes to the EDIT control (transcript) when the
         // edit-hwnd global is set — MultiByteToWideChar the print text, then append
         // via EM_REPLACESEL SendMessageW — and falls back to the std handle otherwise.
-        let (_frame, _ins, rel) = emit_app_io_write_helper("_test_io", false, true, None);
+        let mut _ins = Vec::new();
+        let mut rel = Vec::new();
+        emit_app_io_write("_test_io", false, true, None, &mut _ins, &mut rel);
         assert!(
             rel.iter().any(|r| r.to == EDIT_HWND_SYM),
             "reads the transcript EDIT-hwnd global to choose the path"
@@ -3128,7 +3112,9 @@ mod tests {
     fn input_helper_writes_prompt_then_reads_line() {
         // io.input renders the prompt (io.write) then reads a line (io.readLine),
         // which drains fd 0 — the window input pipe.
-        let (_frame, _ins, rel) = emit_app_io_input_helper("_test_input");
+        let mut _ins = Vec::new();
+        let mut rel = Vec::new();
+        emit_app_io_input("_test_input", &mut _ins, &mut rel);
         let targets: Vec<&str> = rel.iter().map(|r| r.to.as_str()).collect();
         assert!(
             targets.contains(&IO_WRITE_SYMBOL),
@@ -3226,10 +3212,14 @@ mod tests {
     fn io_write_routes_to_grid_when_term_active() {
         // With a term-state offset, io.write gains the TUI grid branch (TextOutW +
         // SetTextColor); without it (None), the body is the J-3 transcript path only.
-        let (_f, _i, rel_term) = emit_app_io_write_helper("_t", false, true, Some(0));
+        let mut _i = Vec::new();
+        let mut rel_term = Vec::new();
+        emit_app_io_write("_t", false, true, Some(0), &mut _i, &mut rel_term);
         let t: Vec<&str> = rel_term.iter().map(|r| r.to.as_str()).collect();
         assert!(t.contains(&"TextOutW") && t.contains(&"SetTextColor"));
-        let (_f2, _i2, rel_plain) = emit_app_io_write_helper("_t", false, true, None);
+        let mut _i2 = Vec::new();
+        let mut rel_plain = Vec::new();
+        emit_app_io_write("_t", false, true, None, &mut _i2, &mut rel_plain);
         assert!(
             !rel_plain.iter().any(|r| r.to == "TextOutW"),
             "no grid path without term state"
@@ -3250,7 +3240,9 @@ mod tests {
         // store (the unique `str_u16` of the zero register) must be preceded by a
         // `cmp_imm rhs=32767` clamp. The raw `str[0]*2` form has no such clamp — only
         // `cmp_imm rhs=0` guards (the path selectors), never a 32767 bound.
-        let (_frame, ins, _rel) = emit_app_io_write_helper("_test_io", false, false, None);
+        let mut ins = Vec::new();
+        let mut _rel = Vec::new();
+        emit_app_io_write("_test_io", false, false, None, &mut ins, &mut _rel);
         let nul_idx = ins
             .iter()
             .position(|i| i.op == CodeOp::StrU16 && i.get("src").as_deref() == Some(abi::ZERO))

@@ -33,7 +33,7 @@ helpers that read fd 0. The only thing that makes them window-aware is the pipe
 
 `io::write`/`flush`/`input`/`isTerminal` are dispatched to the platform
 `emit_app_*` bodies only when `app_mode` is set; otherwise the normal console
-lowering is used. [[src/target/macos_aarch64/app/app_io.rs:emit_app_io_write_helper]]
+lowering is used. [[src/target/macos_aarch64/app/app_io.rs:emit_app_io_write]]
 
 ### Result ABI
 
@@ -72,7 +72,7 @@ helper reaches them without register preservation:
 
 When no window is attached (the macOS `MFB_MACAPP_HEADLESS` test path, or before
 the window exists) there is no transcript/buffer and the write helpers fall back
-to `write()` on fd 1/2 directly; reads still come from fd 0. [[src/target/macos_aarch64/app/app_io.rs:emit_app_io_write_helper]]
+to `write()` on fd 1/2 directly; reads still come from fd 0. [[src/target/macos_aarch64/app/app_io.rs:emit_app_io_write]]
 
 ## The key handler that feeds the pipe
 
@@ -147,7 +147,7 @@ triggers the transcript echo. [[src/target/macos_aarch64/app/mod.rs:INPUT_MODE_K
 ### Mode toggles
 
 - `io::input` sets line-echo, renders the prompt, then calls `io::readLine`.
-  [[src/target/macos_aarch64/app/app_io.rs:emit_app_io_input_helper]]
+  [[src/target/macos_aarch64/app/app_io.rs:emit_app_io_input]]
 - `io::readChar` / `io::readByte` set raw mode via `emit_set_raw_input_mode`,
   injected at the *start* of the console read-char/read-byte helper bodies in app
   mode, before the fd-0 read. [[src/target/macos_aarch64/app/app_io.rs:emit_set_raw_input_mode]] [[src/codegen/builtins/io/func_read_byte.rs:lower_io_read_byte_helper]]

@@ -411,22 +411,34 @@ impl Asm {
     }
 
     /// Materialize the address of a runtime-state field/array at `offset` into
-    /// `dst` (clobbers `x9` for large offsets past the 12-bit add immediate).
+    /// `dst` (clobbers the first scratch-pool register, realized `x9`, for large
+    /// offsets past the 12-bit add immediate). Spelled with the neutral scratch
+    /// token — not raw `x9` — so a caller injected into a vreg-finalized
+    /// `abi_function` body (plan-101 append shape) does not trip the plan-34-D
+    /// zero-physical-register guard; realized to the same `x9` in a standalone body.
     fn state_array(&mut self, dst: impl Into<Operand>, offset: usize) {
         let dst = dst.into();
         self.local_address(dst.clone(), STATE_SYMBOL);
         if offset < 4096 {
             self.push(abi::add_immediate(dst.clone(), dst, offset));
         } else {
-            self.push(abi::move_immediate("x9", "Integer", &offset.to_string()));
-            self.push(abi::add_registers(dst.clone(), dst, "x9"));
+            self.push(abi::move_immediate(
+                abi::SCRATCH[0],
+                "Integer",
+                &offset.to_string(),
+            ));
+            self.push(abi::add_registers(dst.clone(), dst, abi::SCRATCH[0]));
         }
     }
 
-    /// Load runtime-state field `offset` into `dst` (clobbers `x9`).
+    /// Load runtime-state field `offset` into `dst` (clobbers the first
+    /// scratch-pool register, realized `x9`). Spelled with the neutral scratch
+    /// token — not raw `x9` — so a caller injected into a vreg-finalized
+    /// `abi_function` body (plan-101 append shape) does not trip the plan-34-D
+    /// zero-physical-register guard; realized to the same `x9` in a standalone body.
     fn load_state(&mut self, dst: impl Into<Operand>, offset: usize) {
-        self.local_address("x9", STATE_SYMBOL);
-        self.push(abi::load_u64(dst, "x9", offset));
+        self.local_address(abi::SCRATCH[0], STATE_SYMBOL);
+        self.push(abi::load_u64(dst, abi::SCRATCH[0], offset));
     }
 
     /// Store `src` into runtime-state field `offset` (clobbers the first

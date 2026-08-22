@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::codegen::engine::builder::AppHookBody;
+use crate::codegen::engine::util::Vregs;
 
 /// App-mode `term::*` dispatcher. Returns the helper body for the calls the GTK
 /// surface implements; the rest fall back to the console backend (no-op while the
@@ -77,11 +78,15 @@ fn emit_app_term_sync(symbol: &str) -> AppHookBody {
 /// The plan-01-term §4.2.1 no-op gate: branch to `inactive` when TUI mode is off
 /// (app-state `ST_TERM_ACTIVE == 0`), so every GTK term setter is a no-op while
 /// inactive, matching macOS app-mode and the console backend (bug-111). Reads via
-/// `load_state` (clobbers only x9), so argument registers are preserved for the
-/// active path.
+/// `load_state` (clobbers only the first scratch register, realized `x9`), so
+/// argument registers are preserved for the active path. Spelled with the neutral
+/// scratch token — not raw `x9` — because `io::flush`'s app body appends this gate
+/// into a vreg-finalized `abi_function` body (plan-101), where a physical register
+/// would trip the plan-34-D guard; it realizes to the same `x9` in the standalone
+/// `term::` bodies, keeping their native goldens byte-identical.
 fn emit_gtk_term_active_gate(asm: &mut Asm, inactive: &str) {
-    asm.load_state("x9", ST_TERM_ACTIVE);
-    asm.push(abi::compare_immediate("x9", "0"));
+    asm.load_state(abi::SCRATCH[0], ST_TERM_ACTIVE);
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_eq(inactive));
 }
 
@@ -265,7 +270,7 @@ fn emit_app_term_on(symbol: &str, tso: usize) -> AppHookBody {
     // delivery (MODE_RAW) once, so the key-press handler routes each keystroke
     // straight to the input pipe from the moment `term::on` runs instead of
     // buffering until Return. `io::input`/`io::readLine` still switch to
-    // MODE_LINE_ECHO for their own read (emit_app_io_input_helper).
+    // MODE_LINE_ECHO for their own read (emit_app_io_input).
     asm.push(abi::move_immediate("x10", "Integer", MODE_RAW));
     asm.store_state("x10", ST_INPUT_MODE);
     asm.local_address(abi::c_arg(0), TERM_SHOW_IDLE_SYMBOL);
@@ -440,45 +445,52 @@ fn term_frame() -> CodeFrame {
 
 // --- io::* app-mode helper bodies ------------------------------------------
 
-/// App-mode `io.print`/`io.write`/`io.printError`/`io.writeError`. The MFB string
-/// object is in `x0` (`[x0]` = length, `x0+8` = UTF-8 bytes). When a transcript
-/// buffer is attached, append to it; otherwise fall back to the stdout/stderr file
-/// descriptor (the only path verified in headless runs). Returns `OK` (x0 = 0).
-pub(crate) fn emit_app_io_write_helper(symbol: &str, stderr: bool, newline: bool) -> AppHookBody {
+/// App-mode append for `io.print`/`io.write`/`io.printError`/`io.writeError`
+/// (plan-101 append shape). The MFB string object is in the first arg register
+/// (`[arg0]` = length, `arg0+8` = UTF-8 bytes). When a transcript buffer is
+/// attached, append to it; otherwise fall back to the stdout/stderr file
+/// descriptor (the only path verified in headless runs). Returns `OK`
+/// (`mfb_return(0)` = 0).
+///
+/// Appends its vreg stream into the caller's `abi_function` body; the wrapper
+/// builds the frame and saves the callee-saved vregs held across the C calls (the
+/// old standalone helper managed its own frame + raw x19-x21 spills, which cannot
+/// appear in a vreg-finalized body, plan-34-D). The fd-fallback newline byte lives
+/// in the member-reserved local scratch at `sp+0` (see `lower_write_family`).
+pub(crate) fn emit_app_io_write(
+    symbol: &str,
+    stderr: bool,
+    newline: bool,
+    _term_state_offset: Option<usize>,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
     let fd = if stderr { "2" } else { "1" };
     let mut asm = Asm::new(symbol);
-    // lr@0, x19(string)@8, x20(len)@16, x21(heap chunk)@24, newline byte@32.
-    let frame = 48;
-    asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(
-        abi::link_register(),
-        abi::stack_pointer(),
-        0,
-    ));
-    asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
-    asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
-    asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
-    asm.push(abi::move_register("x19", abi::c_arg(0))); // preserve string object
+    let mut vregs = Vregs::new();
+    let v_str = vregs.next(); // string object (the arg), live to the end
+    let v_len = vregs.next(); // text length
+    let v_chunk = vregs.next(); // heap chunk marshaled to the main loop
+    asm.push(abi::move_register(&v_str, abi::c_arg(0))); // preserve string object
 
     // term:: active -> render into the TUI grid instead of the transcript.
-    asm.load_state("x9", ST_TERM_ACTIVE);
-    asm.push(abi::compare_immediate("x9", "0"));
+    asm.load_state(abi::SCRATCH[1], ST_TERM_ACTIVE);
+    asm.push(abi::compare_immediate(abi::SCRATCH[1], "0"));
     asm.push(abi::branch_eq("not_term"));
-    asm.push(abi::move_register(abi::c_arg(0), "x19")); // string obj
+    asm.push(abi::move_register(abi::c_arg(0), &v_str)); // string obj
     asm.push(abi::move_immediate(
         abi::c_arg(1),
         "Integer",
         if newline { "1" } else { "0" },
     ));
     asm.call_internal(TERM_WRITE_SYMBOL);
-    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::move_immediate(abi::mfb_return(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::branch("done"));
     asm.push(abi::label("not_term"));
 
     // buffer = state.text_buffer; nil => fd fallback (headless / pre-window).
-    asm.load_state("x10", ST_TEXT_BUFFER);
-    asm.push(abi::compare_immediate("x10", "0"));
+    asm.load_state(abi::SCRATCH[1], ST_TEXT_BUFFER);
+    asm.push(abi::compare_immediate(abi::SCRATCH[1], "0"));
     asm.push(abi::branch_eq("fd_path"));
 
     // --- transcript path: marshal to the GTK main thread (plan-05 §6.4) ---
@@ -488,17 +500,17 @@ pub(crate) fn emit_app_io_write_helper(symbol: &str, stderr: bool, newline: bool
     // "[stderr] " (matching macOS) so error output is visually distinguished.
     let prefix_len = if stderr { STR_STDERR_PREFIX.1.len() } else { 0 };
     let extra = prefix_len + if newline { 1 } else { 0 };
-    asm.push(abi::load_u64("x20", "x19", 0)); // text len
-    asm.push(abi::add_immediate(abi::c_arg(0), "x20", prefix_len + 17)); // 16 hdr + prefix + text + nl
+    asm.push(abi::load_u64(&v_len, &v_str, 0)); // text len
+    asm.push(abi::add_immediate(abi::c_arg(0), &v_len, prefix_len + 17)); // 16 hdr + prefix + text + nl
     asm.call_external("malloc");
-    asm.push(abi::move_register("x21", abi::c_return(0))); // heap chunk
-                                                           // On allocation failure the memcpy below would fault on the worker thread
-                                                           // (bug-240). Degrade to the fd path instead: it needs no allocation, so the
-                                                           // output still reaches the user rather than killing the program.
-    asm.push(abi::compare_immediate("x21", "0"));
+    asm.push(abi::move_register(&v_chunk, abi::c_return(0))); // heap chunk
+                                                              // On allocation failure the memcpy below would fault on the worker thread
+                                                              // (bug-240). Degrade to the fd path instead: it needs no allocation, so the
+                                                              // output still reaches the user rather than killing the program.
+    asm.push(abi::compare_immediate(&v_chunk, "0"));
     asm.push(abi::branch_eq("fd_path"));
     if stderr {
-        asm.push(abi::add_immediate(abi::c_arg(0), "x21", 16)); // memcpy(chunk+16, "[stderr] ", 9)
+        asm.push(abi::add_immediate(abi::c_arg(0), &v_chunk, 16)); // memcpy(chunk+16, "[stderr] ", 9)
         asm.local_address(abi::c_arg(1), STR_STDERR_PREFIX.0);
         asm.push(abi::move_immediate(
             abi::c_arg(2),
@@ -507,55 +519,50 @@ pub(crate) fn emit_app_io_write_helper(symbol: &str, stderr: bool, newline: bool
         ));
         asm.call_external("memcpy");
     }
-    asm.push(abi::add_immediate(abi::c_arg(0), "x21", 16 + prefix_len)); // memcpy(dst=chunk+16+prefix,
-    asm.push(abi::add_immediate(abi::c_arg(1), "x19", 8)); //                     src=text bytes,
-    asm.push(abi::move_register(abi::c_arg(2), "x20")); //                       n=text len)
+    asm.push(abi::add_immediate(abi::c_arg(0), &v_chunk, 16 + prefix_len)); // memcpy(dst=chunk+16+prefix,
+    asm.push(abi::add_immediate(abi::c_arg(1), &v_str, 8)); //                     src=text bytes,
+    asm.push(abi::move_register(abi::c_arg(2), &v_len)); //                       n=text len)
     asm.call_external("memcpy");
     if newline {
-        asm.push(abi::add_immediate("x9", "x21", 16 + prefix_len));
-        asm.push(abi::add_registers("x9", "x9", "x20")); // &chunk[16+prefix+len]
-        asm.push(abi::move_immediate("x10", "Integer", "10"));
-        asm.push(abi::store_u8("x10", "x9", 0)); // '\n'
+        asm.push(abi::add_immediate(
+            abi::SCRATCH[1],
+            &v_chunk,
+            16 + prefix_len,
+        ));
+        asm.push(abi::add_registers(abi::SCRATCH[1], abi::SCRATCH[1], &v_len)); // &chunk[16+prefix+len]
+        asm.push(abi::move_immediate(abi::SCRATCH[2], "Integer", "10"));
+        asm.push(abi::store_u8(abi::SCRATCH[2], abi::SCRATCH[1], 0)); // '\n'
     }
-    asm.push(abi::add_immediate("x9", "x20", extra)); // chunk len = text + prefix + nl
-    asm.push(abi::store_u64("x9", "x21", 0));
+    asm.push(abi::add_immediate(abi::SCRATCH[1], &v_len, extra)); // chunk len = text + prefix + nl
+    asm.push(abi::store_u64(abi::SCRATCH[1], &v_chunk, 0));
     asm.local_address(abi::c_arg(0), APPEND_IDLE_SYMBOL);
-    asm.push(abi::move_register(abi::c_arg(1), "x21")); // user_data = chunk
+    asm.push(abi::move_register(abi::c_arg(1), &v_chunk)); // user_data = chunk
     asm.call_external("g_idle_add");
-    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::move_immediate(abi::mfb_return(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::branch("done"));
 
     // --- fd fallback path ---
     asm.push(abi::label("fd_path"));
     asm.push(abi::move_immediate(abi::c_arg(0), "Integer", fd));
-    asm.push(abi::add_immediate(abi::c_arg(1), "x19", 8));
-    asm.push(abi::load_u64(abi::c_arg(2), "x19", 0));
+    asm.push(abi::add_immediate(abi::c_arg(1), &v_str, 8));
+    asm.push(abi::load_u64(abi::c_arg(2), &v_str, 0));
     asm.call_external("write");
     if newline {
-        asm.push(abi::move_immediate("x9", "Integer", "10"));
-        asm.push(abi::store_u8("x9", abi::stack_pointer(), 32));
+        // '\n' lives in the member-reserved local scratch (sp+0); the fd path needs
+        // no writable data object.
+        asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "10"));
+        asm.push(abi::store_u8(abi::SCRATCH[1], abi::stack_pointer(), 0));
         asm.push(abi::move_immediate(abi::c_arg(0), "Integer", fd));
-        asm.push(abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), 32));
+        asm.push(abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), 0));
         asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
         asm.call_external("write");
     }
-    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::move_immediate(abi::mfb_return(0), "Integer", "0")); // RESULT_OK_TAG
 
     asm.push(abi::label("done"));
-    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::load_u64("x19", abi::stack_pointer(), 8));
-    asm.push(abi::load_u64("x20", abi::stack_pointer(), 16));
-    asm.push(abi::load_u64("x21", abi::stack_pointer(), 24));
-    asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
-    (
-        CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        asm.ins,
-        asm.rel,
-    )
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 /// App-mode `io.flush` (plan-35-E): while TUI mode is active, flushing drives the
@@ -582,36 +589,34 @@ pub(crate) fn emit_app_io_flush(
     relocations.extend(asm.rel);
 }
 
-/// App-mode `io.input` (plan-05 §5.4): switch the transcript to echo mode (so the
-/// user sees what they type, like the macOS `io::input` path), render the prompt
-/// via the `io.write` helper, then read a committed line via the `io.readLine`
-/// helper (which reads fd 0 — the window-input pipe). Prompt string is in `x0`.
-pub(crate) fn emit_app_io_input_helper(symbol: &str) -> AppHookBody {
+/// App-mode append for `io.input` (plan-05 §5.4, plan-101 append shape): switch
+/// the transcript to echo mode (so the user sees what they type, like the macOS
+/// `io::input` path), render the prompt via the `io.write` helper, then read a
+/// committed line via the `io.readLine` helper (which reads fd 0 — the window-input
+/// pipe). The prompt string is already in the first arg register on entry, held in
+/// a callee-saved vreg across the set-input-mode sequence; the `abi_function`
+/// wrapper builds the frame and saves lr.
+pub(crate) fn emit_app_io_input(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
     let mut asm = Asm::new(symbol);
-    asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(
-        abi::link_register(),
-        abi::stack_pointer(),
-        0,
+    let mut vregs = Vregs::new();
+    let v_prompt = vregs.next();
+    asm.push(abi::move_register(&v_prompt, abi::mfb_arg(0))); // preserve prompt
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        MODE_LINE_ECHO,
     ));
-    asm.push(abi::store_u64(abi::c_arg(0), abi::stack_pointer(), 8)); // preserve prompt
-    asm.push(abi::move_immediate("x10", "Integer", MODE_LINE_ECHO));
-    asm.store_state("x10", ST_INPUT_MODE);
-    asm.push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 8)); // prompt
-    asm.call_internal(IO_WRITE_SYMBOL); // x0 = prompt; result ignored
-    asm.call_internal(IO_READ_LINE_SYMBOL); // result in x0/x1/x2
-    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::add_stack(16));
+    asm.store_state(abi::SCRATCH[1], ST_INPUT_MODE);
+    asm.push(abi::move_register(abi::mfb_arg(0), &v_prompt)); // prompt
+    asm.call_internal(IO_WRITE_SYMBOL); // arg0 = prompt; result ignored
+    asm.call_internal(IO_READ_LINE_SYMBOL); // result in the return registers
     asm.push(abi::return_());
-    (
-        CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        asm.ins,
-        asm.rel,
-    )
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 /// App-mode `io.isInputTerminal`/`io.isOutputTerminal`/`io.isErrorTerminal`

@@ -1,10 +1,10 @@
 //! `io::isErrorTerminal` — descriptor entry + authored docs.
 //!
 //! Per-member file. `io` lowers through per-function `Body::abi_function`
-//! clean-room lowerings (plan-101): `lower_*` emits a vreg body into the builder
-//! (app-mode members `bl` a standalone GUI helper); the wrapper finalizes. No hatch.
+//! clean-room lowerings (plan-101); the shared terminal-predicate seam lives in
+//! [`super::gen_is_terminal`].
 
-use super::func_is_input_terminal::lower_is_terminal_common;
+use super::gen_is_terminal::lower_is_terminal;
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
@@ -15,7 +15,7 @@ pub(crate) fn lower_is_error_terminal(
     _args: &[ValueResult],
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    lower_is_terminal_common(builder, ctx, 2, "io.isErrorTerminal")
+    lower_is_terminal(builder, ctx, 2, "io.isErrorTerminal")
 }
 
 const INTRO: &str = r#"Report whether standard error is an interactive terminal"#;

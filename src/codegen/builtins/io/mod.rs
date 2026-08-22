@@ -40,6 +40,10 @@ mod func_read_line;
 mod func_set_buffered;
 mod func_write;
 mod func_write_error;
+mod gen_is_terminal;
+mod gen_read_family;
+mod gen_read_line_family;
+mod gen_write_family;
 
 const MODULE_INTRO: &str = r#"Standard stream input/output and terminal inspection"#;
 const MODULE_DESC: &str = r#"The `io` package provides access to the three standard streams — standard

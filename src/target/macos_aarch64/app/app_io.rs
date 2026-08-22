@@ -5,207 +5,201 @@ use super::*;
 use crate::codegen::engine::builder::AppHookBody;
 use crate::codegen::engine::util::Vregs;
 
-/// App-mode body for `io.print`/`io.write`/`io.printError`/`io.writeError`. The
-/// runtime helper receives the MFBASIC string object in `x0` (`{u64 len; bytes}`)
-/// and returns a `Result` (tag in `x0`). When TUI mode is active the text is
-/// written into the TermView surface (plan-01-term.md §4.8); otherwise, when a
-/// transcript view is attached (GUI), append to it; else (headless) write to fd.
-/// `term_state_offset` is the writable term-state slot base (None when the
-/// program never uses `term::`).
-pub(crate) fn emit_app_io_write_helper(
+/// App-mode append for `io.print`/`io.write`/`io.printError`/`io.writeError`
+/// (plan-101 append shape). The `abi_function` member receives the MFBASIC string
+/// object in the first arg register (`{u64 len; bytes}`) and returns a `Result`
+/// (tag in `mfb_return(0)`). When TUI mode is active the text is written into the
+/// TermView surface (plan-01-term.md §4.8); otherwise, when a transcript view is
+/// attached (GUI), append to it; else (headless) write to the file descriptor.
+/// `term_state_offset` is the writable term-state slot base (None when the program
+/// never uses `term::`), read off the pinned arena-state register (`abi::ARENA`).
+///
+/// Appends its vreg stream into the caller's stream; the `abi_function` wrapper
+/// builds the frame and saves the callee-saved vregs held across the objc calls
+/// (the old standalone helper managed its own frame + raw x19-x22 spills — those
+/// physical registers cannot appear in a vreg-finalized body, plan-34-D). The
+/// values live in allocator-managed vregs so the finalizer both colors them to
+/// callee-saved registers and saves them; objc args go via `mfb_arg`, results via
+/// `mfb_return`, each caller-saved and consumed at its call.
+pub(crate) fn emit_app_io_write(
     symbol: &str,
     stderr: bool,
     newline: bool,
     term_state_offset: Option<usize>,
-) -> AppHookBody {
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
     let mut asm = Asm::new(symbol);
+    let mut vregs = Vregs::new();
     let fd = if stderr { "2" } else { "1" };
-    // lr@0, x19(string)@8, x20(view)@16, x21(scratch)@24, nl byte@32, x22(sel)@40,
-    // autorelease-pool token@48, string arg@56.
-    let frame = 64;
-    asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(
-        abi::link_register(),
-        abi::stack_pointer(),
-        0,
-    ));
-    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
-    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
-    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
-    asm.push(abi::store_u64(abi::LOCAL[3], abi::stack_pointer(), 40));
+    let v_str = vregs.next(); // MFBASIC string object (the arg), live to the end
+    let v_view = vregs.next(); // transcript view / termview
+    let v_tmp = vregs.next(); // class temp / allocated NSString
+    let v_owned = vregs.next(); // owned NSString / marshaled SEL (held across calls)
+    let v_pool = vregs.next(); // autorelease-pool token
+
     // Per-write autorelease pool. The worker's process-lifetime pool
-    // (emit_worker_shim) is never drained, so the autoreleased NSStrings this
-    // helper builds for the "[stderr] " prefix and the trailing newline would
-    // accumulate for the process lifetime (bug-112). Save the string arg first
-    // (poolPush clobbers x0); `objc_autoreleasePoolPush` preserves x19-x28, so
-    // the pinned arena-state base in x19 survives for the TUI-active check below.
-    asm.push(abi::store_u64("x0", abi::stack_pointer(), 56)); // string arg
+    // (emit_worker_shim) is never drained, so the autoreleased NSStrings this body
+    // builds for the "[stderr] " prefix and the trailing newline would accumulate
+    // for the process lifetime (bug-112). Save the string arg first (poolPush
+    // clobbers the arg/return registers); it survives every call in a callee-saved
+    // vreg.
+    asm.push(abi::move_register(&v_str, abi::mfb_arg(0))); // string object
     asm.call_external("_objc_autoreleasePoolPush", LIB_OBJC);
-    asm.push(abi::store_u64("x0", abi::stack_pointer(), 48)); // pool token
-                                                              // While TUI mode is active, route to the TermView surface (x19 is the pinned
-                                                              // arena-state base on entry, before it is reused for the string object).
+    asm.push(abi::move_register(&v_pool, abi::mfb_return(0))); // pool token
+
+    // While TUI mode is active, route to the TermView surface. The term-state
+    // global is reached off the pinned arena-state base (`abi::ARENA`), not a
+    // repurposed callee-saved register.
     if let Some(off) = term_state_offset {
         asm.push(abi::load_u64(
             abi::SCRATCH[0],
-            TERM_ARENA_STATE_REG,
+            abi::ARENA,
             off + crate::codegen::error::constants::TERM_STATE_ACTIVE_OFFSET,
         ));
-        asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 56)); // string object
         asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
         asm.push(abi::branch_ne("term_surface_path"));
-    } else {
-        asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 56)); // string object
     }
 
     // app = [NSApplication sharedApplication]; view = objc_getAssociatedObject(app, &KEY)
-    asm.external_data(abi::LOCAL[1], CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.external_data(&v_view, CLASS_NS_APPLICATION, LIB_APPKIT);
     asm.load_selector(SEL_SHARED_APPLICATION.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.push(abi::move_register(abi::mfb_arg(0), &v_view));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.local_address("x1", ASSOC_KEY);
+    asm.local_address(abi::mfb_arg(1), ASSOC_KEY);
     asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[1], "x0")); // transcript view or nil
-    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::move_register(&v_view, abi::mfb_return(0))); // transcript view or nil
+    asm.push(abi::compare_immediate(&v_view, "0"));
     asm.push(abi::branch_eq("fd_path"));
 
     // --- GUI transcript path ---
     if stderr {
         // Visually distinguish stderr with a "[stderr] " marker (plan §5.4).
-        build_nsstring_from_cstring(&mut asm, abi::LOCAL[2], STR_STDERR_PREFIX.0);
-        asm.push(abi::move_register("x1", "x0"));
-        asm.push(abi::move_register("x0", abi::LOCAL[1]));
+        build_nsstring_from_cstring_vreg(&mut asm, &v_tmp, STR_STDERR_PREFIX.0);
+        asm.push(abi::move_register(abi::mfb_arg(1), abi::mfb_return(0)));
+        asm.push(abi::move_register(abi::mfb_arg(0), &v_view));
         asm.call_internal(APPEND_SYMBOL);
     }
     // text = [[NSString alloc] initWithBytes:(str+8) length:str[0] encoding:UTF8]
-    asm.external_data(abi::LOCAL[2], CLASS_NS_STRING, LIB_FOUNDATION);
+    asm.external_data(&v_tmp, CLASS_NS_STRING, LIB_FOUNDATION);
     asm.load_selector(SEL_ALLOC.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[2]));
+    asm.push(abi::move_register(abi::mfb_arg(0), &v_tmp));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[2], "x0")); // allocated NSString
+    asm.push(abi::move_register(&v_tmp, abi::mfb_return(0))); // allocated NSString
     asm.load_selector(SEL_INIT_WITH_BYTES.0);
-    asm.push(abi::add_immediate("x2", abi::LOCAL[0], 8)); // bytes
-    asm.push(abi::load_u64("x3", abi::LOCAL[0], 0)); // length
-    asm.push(abi::move_immediate("x4", "Integer", NS_UTF8_ENCODING));
-    asm.push(abi::move_register("x0", abi::LOCAL[2]));
+    asm.push(abi::add_immediate(abi::mfb_arg(2), &v_str, 8)); // bytes
+    asm.push(abi::load_u64(abi::mfb_arg(3), &v_str, 0)); // length
+    asm.push(abi::move_immediate(
+        abi::mfb_arg(4),
+        "Integer",
+        NS_UTF8_ENCODING,
+    ));
+    asm.push(abi::move_register(abi::mfb_arg(0), &v_tmp));
     asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[3], "x0")); // owned NSString (save across append)
-    asm.push(abi::move_register("x1", "x0")); // text nsstring
-    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.push(abi::move_register(&v_owned, abi::mfb_return(0))); // owned NSString (across append)
+    asm.push(abi::move_register(abi::mfb_arg(1), abi::mfb_return(0))); // text nsstring
+    asm.push(abi::move_register(abi::mfb_arg(0), &v_view));
     asm.call_internal(APPEND_SYMBOL);
     // [text release] — the NSString was created owned (alloc +
-    // initWithBytes:length:encoding:, retain count 1) and _mfb_macapp_append
-    // copies it into the text storage, so we hold the sole reference (bug-53).
-    // x22 is callee-saved and preserved by _mfb_macapp_append (it saves x19-x22).
+    // initWithBytes:length:encoding:, retain count 1) and _mfb_macapp_append copies
+    // it into the text storage, so we hold the sole reference (bug-53).
     asm.load_selector(SEL_RELEASE.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[3]));
+    asm.push(abi::move_register(abi::mfb_arg(0), &v_owned));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     if newline {
-        build_nsstring_from_cstring(&mut asm, abi::LOCAL[2], STR_NEWLINE.0);
-        asm.push(abi::move_register("x1", "x0"));
-        asm.push(abi::move_register("x0", abi::LOCAL[1]));
+        build_nsstring_from_cstring_vreg(&mut asm, &v_tmp, STR_NEWLINE.0);
+        asm.push(abi::move_register(abi::mfb_arg(1), abi::mfb_return(0)));
+        asm.push(abi::move_register(abi::mfb_arg(0), &v_view));
         asm.call_internal(APPEND_SYMBOL);
     }
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::branch("done"));
 
     // --- headless / no-window path: write to the file descriptor ---
     asm.push(abi::label("fd_path"));
-    asm.push(abi::move_immediate("x0", "Integer", fd));
-    asm.push(abi::add_immediate("x1", abi::LOCAL[0], 8));
-    asm.push(abi::load_u64("x2", abi::LOCAL[0], 0));
+    asm.push(abi::move_immediate(abi::mfb_arg(0), "Integer", fd));
+    asm.push(abi::add_immediate(abi::mfb_arg(1), &v_str, 8));
+    asm.push(abi::load_u64(abi::mfb_arg(2), &v_str, 0));
     asm.call_external("_write", LIB_SYSTEM);
     if newline {
-        asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "10")); // '\n'
-        asm.push(abi::store_u8(abi::SCRATCH[0], abi::stack_pointer(), 32));
-        asm.push(abi::move_immediate("x0", "Integer", fd));
-        asm.push(abi::add_immediate("x1", abi::stack_pointer(), 32));
-        asm.push(abi::move_immediate("x2", "Integer", "1"));
+        // The trailing LF comes from the shared read-only "\n" data object, so the
+        // fd path needs no writable stack scratch (the finalizer keeps stack_size
+        // at 0 — the body is frame-only for lr + the callee-saved vregs).
+        asm.push(abi::move_immediate(abi::mfb_arg(0), "Integer", fd));
+        asm.local_address(abi::mfb_arg(1), STR_NEWLINE.0);
+        asm.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "1"));
         asm.call_external("_write", LIB_SYSTEM);
     }
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::branch("done"));
 
     // --- TUI surface path: write into the TermView grid on the main thread ---
     if term_state_offset.is_some() {
         asm.push(abi::label("term_surface_path"));
         // tv = objc_getAssociatedObject([NSApplication sharedApplication], &TERMVIEW_KEY)
-        asm.external_data(abi::LOCAL[1], CLASS_NS_APPLICATION, LIB_APPKIT);
+        asm.external_data(&v_view, CLASS_NS_APPLICATION, LIB_APPKIT);
         asm.load_selector(SEL_SHARED_APPLICATION.0);
-        asm.push(abi::move_register("x0", abi::LOCAL[1]));
+        asm.push(abi::move_register(abi::mfb_arg(0), &v_view));
         asm.call_external("_objc_msgSend", LIB_OBJC);
-        asm.local_address("x1", TERMVIEW_ASSOC_KEY);
+        asm.local_address(abi::mfb_arg(1), TERMVIEW_ASSOC_KEY);
         asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
-        asm.push(abi::move_register(abi::LOCAL[1], "x0")); // termview or nil
-        asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+        asm.push(abi::move_register(&v_view, abi::mfb_return(0))); // termview or nil
+        asm.push(abi::compare_immediate(&v_view, "0"));
         asm.push(abi::branch_eq("fd_path")); // headless: no surface -> fd
                                              // text = [[NSString alloc] initWithBytes:(str+8) length:str[0] encoding:UTF8]
-        asm.external_data(abi::LOCAL[2], CLASS_NS_STRING, LIB_FOUNDATION);
+        asm.external_data(&v_tmp, CLASS_NS_STRING, LIB_FOUNDATION);
         asm.load_selector(SEL_ALLOC.0);
-        asm.push(abi::move_register("x0", abi::LOCAL[2]));
+        asm.push(abi::move_register(abi::mfb_arg(0), &v_tmp));
         asm.call_external("_objc_msgSend", LIB_OBJC);
-        asm.push(abi::move_register(abi::LOCAL[2], "x0"));
+        asm.push(abi::move_register(&v_tmp, abi::mfb_return(0)));
         asm.load_selector(SEL_INIT_WITH_BYTES.0);
-        asm.push(abi::add_immediate("x2", abi::LOCAL[0], 8));
-        asm.push(abi::load_u64("x3", abi::LOCAL[0], 0));
-        asm.push(abi::move_immediate("x4", "Integer", NS_UTF8_ENCODING));
-        asm.push(abi::move_register("x0", abi::LOCAL[2]));
+        asm.push(abi::add_immediate(abi::mfb_arg(2), &v_str, 8));
+        asm.push(abi::load_u64(abi::mfb_arg(3), &v_str, 0));
+        asm.push(abi::move_immediate(
+            abi::mfb_arg(4),
+            "Integer",
+            NS_UTF8_ENCODING,
+        ));
+        asm.push(abi::move_register(abi::mfb_arg(0), &v_tmp));
         asm.call_external("_objc_msgSend", LIB_OBJC);
-        asm.push(abi::move_register(abi::LOCAL[2], "x0")); // text nsstring
-                                                           // [tv performSelectorOnMainThread:@selector(mfbWriteString:) withObject:text waitUntilDone:YES]
+        asm.push(abi::move_register(&v_tmp, abi::mfb_return(0))); // text nsstring
+                                                                  // [tv performSelectorOnMainThread:@selector(mfbWriteString:) withObject:text waitUntilDone:YES]
         asm.load_selector(SEL_MFB_WRITE_STRING.0);
-        asm.push(abi::move_register(abi::LOCAL[3], "x1")); // mfbWriteString: sel
+        asm.push(abi::move_register(&v_owned, abi::mfb_arg(1))); // mfbWriteString: sel
         asm.load_selector(SEL_PERFORM_ON_MAIN.0);
-        asm.push(abi::move_register("x2", abi::LOCAL[3]));
-        asm.push(abi::move_register("x3", abi::LOCAL[2]));
-        asm.push(abi::move_immediate("x4", "Integer", "1")); // waitUntilDone: YES
-        asm.push(abi::move_register("x0", abi::LOCAL[1]));
+        asm.push(abi::move_register(abi::mfb_arg(2), &v_owned));
+        asm.push(abi::move_register(abi::mfb_arg(3), &v_tmp));
+        asm.push(abi::move_immediate(abi::mfb_arg(4), "Integer", "1")); // waitUntilDone: YES
+        asm.push(abi::move_register(abi::mfb_arg(0), &v_view));
         asm.call_external("_objc_msgSend", LIB_OBJC);
-        // [text release] — the NSString was created owned (alloc +
-        // initWithBytes:length:encoding:); mfbWriteString: only reads its glyphs
+        // [text release] — created owned; mfbWriteString: only reads its glyphs
         // (synchronous, waitUntilDone:YES) and does not retain it, so we hold the
-        // sole reference and must release it (bug-53). x21 is callee-saved and
-        // survives the performSelectorOnMainThread: msgSend above.
+        // sole reference and must release it (bug-53).
         asm.load_selector(SEL_RELEASE.0);
-        asm.push(abi::move_register("x0", abi::LOCAL[2]));
+        asm.push(abi::move_register(abi::mfb_arg(0), &v_tmp));
         asm.call_external("_objc_msgSend", LIB_OBJC);
         if newline {
-            build_nsstring_from_cstring(&mut asm, abi::LOCAL[2], STR_NEWLINE.0);
-            asm.push(abi::move_register(abi::LOCAL[2], "x0")); // "\n" nsstring
+            build_nsstring_from_cstring_vreg(&mut asm, &v_tmp, STR_NEWLINE.0);
+            asm.push(abi::move_register(&v_tmp, abi::mfb_return(0))); // "\n" nsstring
             asm.load_selector(SEL_MFB_WRITE_STRING.0);
-            asm.push(abi::move_register(abi::LOCAL[3], "x1"));
+            asm.push(abi::move_register(&v_owned, abi::mfb_arg(1)));
             asm.load_selector(SEL_PERFORM_ON_MAIN.0);
-            asm.push(abi::move_register("x2", abi::LOCAL[3]));
-            asm.push(abi::move_register("x3", abi::LOCAL[2]));
-            asm.push(abi::move_immediate("x4", "Integer", "1"));
-            asm.push(abi::move_register("x0", abi::LOCAL[1]));
+            asm.push(abi::move_register(abi::mfb_arg(2), &v_owned));
+            asm.push(abi::move_register(abi::mfb_arg(3), &v_tmp));
+            asm.push(abi::move_immediate(abi::mfb_arg(4), "Integer", "1"));
+            asm.push(abi::move_register(abi::mfb_arg(0), &v_view));
             asm.call_external("_objc_msgSend", LIB_OBJC);
         }
-        asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
     }
 
     asm.push(abi::label("done"));
-    // Drain this write's autoreleased NSStrings, then re-establish the OK result
-    // (poolPop clobbers x0). Every path here returns RESULT_OK_TAG.
-    asm.push(abi::load_u64("x0", abi::stack_pointer(), 48)); // pool token
+    // Drain this write's autoreleased NSStrings, then return OK (poolPop clobbers
+    // the arg/return registers). Every path here returns RESULT_OK_TAG.
+    asm.push(abi::move_register(abi::mfb_arg(0), &v_pool)); // pool token
     asm.call_external("_objc_autoreleasePoolPop", LIB_OBJC);
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
-    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
-    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
-    asm.push(abi::load_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
-    asm.push(abi::load_u64(abi::LOCAL[3], abi::stack_pointer(), 40));
-    asm.push(abi::add_stack(frame));
+    asm.push(abi::move_immediate(abi::mfb_return(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::return_());
 
-    (
-        CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        asm.ins,
-        asm.rel,
-    )
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 /// App-mode body for `io.flush`. Transcript writes are already synchronous (see
@@ -231,34 +225,25 @@ pub(crate) fn emit_app_io_flush(
     relocations.extend(asm.rel);
 }
 
-/// App-mode body for `io.input` (plan §5.4): render the prompt to the transcript
-/// via the `io.write` helper, then read a committed line via the `io.readLine`
-/// helper (which reads fd 0 — the window input pipe in app mode). The prompt
-/// string is passed in `x0`; `io.readLine` takes no arguments, so its result
-/// (`x0`/`x1`/`x2`) becomes this helper's result.
-pub(crate) fn emit_app_io_input_helper(symbol: &str) -> AppHookBody {
+/// App-mode append for `io.input` (plan §5.4, plan-101 append shape): render the
+/// prompt to the transcript via the `io.write` helper, then read a committed line
+/// via the `io.readLine` helper (which reads fd 0 — the window input pipe in app
+/// mode). The prompt string is already in the first arg register on entry;
+/// `io.readLine` takes no arguments, so its result becomes this body's result.
+/// Nothing is live across the two internal calls, so no vregs are needed — the
+/// `abi_function` wrapper builds the frame and saves lr.
+pub(crate) fn emit_app_io_input(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
     let mut asm = Asm::new(symbol);
-    asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(
-        abi::link_register(),
-        abi::stack_pointer(),
-        0,
-    ));
-    asm.call_internal(IO_WRITE_SYMBOL); // x0 = prompt; renders it, result ignored
+    asm.call_internal(IO_WRITE_SYMBOL); // arg0 = prompt; renders it, result ignored
     emit_set_input_mode_instructions(&mut asm, INPUT_MODE_LINE_ECHO);
-    asm.call_internal(IO_READ_LINE_SYMBOL); // result in x0/x1/x2
-    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::add_stack(16));
+    asm.call_internal(IO_READ_LINE_SYMBOL); // result in the return registers
     asm.push(abi::return_());
-    (
-        CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        asm.ins,
-        asm.rel,
-    )
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 pub(crate) fn emit_set_raw_input_mode(
@@ -384,7 +369,7 @@ pub(crate) fn emit_app_term_on_helper(symbol: &str, term_state_offset: usize) ->
     // `_mfb_macapp_term_keyDown`) route each keystroke straight to the input pipe
     // instead of buffering until Return. The initial mode is nil (0) at startup;
     // this is the one-time flip. `io::input`/`io::readLine` still switch to
-    // LINE_ECHO for their own read (emit_app_io_input_helper).
+    // LINE_ECHO for their own read (emit_app_io_input).
     emit_set_input_mode_instructions(&mut asm, INPUT_MODE_RAW_NO_ECHO);
 
     // app = [NSApplication sharedApplication]

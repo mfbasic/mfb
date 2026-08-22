@@ -4,7 +4,7 @@
 //! clean-room lowerings (plan-101): `lower_*` emits a vreg body into the builder
 //! (app-mode members `bl` a standalone GUI helper); the wrapper finalizes. No hatch.
 
-use super::func_read_line::lower_read_line_family;
+use super::gen_read_line_family::lower_read_line_family;
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,

@@ -1,11 +1,12 @@
 //! `io::readByte` — descriptor entry + authored docs.
 //!
 //! Per-member file. `io` lowers through per-function `Body::abi_function`
-//! clean-room lowerings (plan-101): [`lower_read_byte`] splices its vreg body
-//! (from `emit_read_byte_body`) into the builder — the wrapper finalizes it
-//! (crypto's shape). No adapter, no pre-finalized hatch.
+//! clean-room lowerings (plan-101): [`lower_read_byte`] emits its vreg body
+//! directly into the builder — the wrapper finalizes it (crypto's shape). The
+//! shared stdin byte reader lives in [`super::gen_read_family`]. No adapter, no
+//! pre-finalized hatch.
 
-use super::func_read_line::emit_stdin_byte_read;
+use super::gen_read_family::emit_stdin_byte_read;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
@@ -15,31 +16,6 @@ use crate::codegen::memory::data::*;
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::target::shared::abi;
 use crate::types::ParameterType;
-use std::collections::HashMap;
-
-/// `abi_function` body for `io::readByte` — read one raw byte from stdin (no
-/// UTF-8 decoding), returned as a `Byte`.
-pub(crate) fn lower_read_byte(
-    builder: &mut CodeBuilder,
-    _args: &[ValueResult],
-    ctx: &AbiCtx,
-) -> Result<ValueResult, String> {
-    let symbol = builder.current_symbol.clone();
-    let (instructions, relocations, frame_size) = emit_read_byte_body(
-        &symbol,
-        ctx.platform_imports,
-        ctx.platform,
-        ctx.build_mode.is_app(),
-    )?;
-    builder.instructions.extend(instructions);
-    builder.relocations.extend(relocations);
-    builder.stack_size = frame_size;
-    Ok(ValueResult {
-        type_: "Byte".to_string(),
-        location: Operand::from("void"),
-        text: "io.readByte".to_string(),
-    })
-}
 
 const INTRO: &str = r#"Read one raw byte from standard input"#;
 const DESC: &str = r#"`io::readByte` reads exactly one byte from standard input and returns it as a
@@ -95,16 +71,21 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     });
 }
 
-// --- stdin readByte emitter (relocated from native/) ---
+// --- stdin readByte lowering (relocated from native/) ---
 
-/// Emit the readByte vreg body (pre-finalization): `(instructions, relocations,
-/// frame_size)` for [`lower_read_byte`] to splice in; the wrapper finalizes.
-fn emit_read_byte_body(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    app_mode: bool,
-) -> Result<(Vec<CodeInstruction>, Vec<CodeRelocation>, usize), String> {
+/// `abi_function` body for `io::readByte` — read one raw byte from stdin (no
+/// UTF-8 decoding), returned as a `Byte`. Emits its vreg body directly into the
+/// builder; the wrapper finalizes.
+pub(crate) fn lower_read_byte(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol_owned = builder.current_symbol.clone();
+    let symbol: &str = &symbol_owned;
+    let platform_imports = ctx.platform_imports;
+    let platform = ctx.platform;
+    let app_mode = ctx.build_mode.is_app();
     const FRAME_SIZE: usize = 208;
     const BYTE_OFFSET: usize = 8;
     let terminal_slots = TerminalModeSlots {
@@ -205,5 +186,12 @@ fn emit_read_byte_body(
         &terminal_slots,
     )?;
     instructions.push(abi::return_());
-    Ok((instructions, relocations, FRAME_SIZE))
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = FRAME_SIZE;
+    Ok(ValueResult {
+        type_: "Byte".to_string(),
+        location: Operand::from("void"),
+        text: "io.readByte".to_string(),
+    })
 }

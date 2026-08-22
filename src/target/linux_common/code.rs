@@ -541,19 +541,30 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         Some(Ok(()))
     }
 
-    fn emit_app_io_write_helper(
+    fn emit_app_io_write(
         &self,
         symbol: &str,
         stderr: bool,
         newline: bool,
-        _term_state_offset: Option<usize>,
+        term_state_offset: Option<usize>,
         _platform_imports: &HashMap<String, String>,
-    ) -> Option<Result<AppHookBody, String>> {
-        let sysv = self.arch.app().require_gtk();
-        Some(Ok(AppSupport::wrap(
-            sysv,
-            gtk::emit_app_io_write_helper(symbol, stderr, newline),
-        )))
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        // Hard-stop an unported ISA; the former `AppSupport::wrap` SysV
+        // callee-saved bracket is gone — this appends a vreg stream into the
+        // caller's `abi_function` body and the shared finalizer builds the frame
+        // (plan-101 append shape).
+        let _ = self.arch.app().require_gtk();
+        gtk::emit_app_io_write(
+            symbol,
+            stderr,
+            newline,
+            term_state_offset,
+            instructions,
+            relocations,
+        );
+        Some(Ok(()))
     }
 
     fn emit_app_io_flush(
@@ -567,12 +578,15 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         Some(Ok(()))
     }
 
-    fn emit_app_io_input_helper(&self, symbol: &str) -> Option<Result<AppHookBody, String>> {
-        let sysv = self.arch.app().require_gtk();
-        Some(Ok(AppSupport::wrap(
-            sysv,
-            gtk::emit_app_io_input_helper(symbol),
-        )))
+    fn emit_app_io_input(
+        &self,
+        symbol: &str,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        let _ = self.arch.app().require_gtk();
+        gtk::emit_app_io_input(symbol, instructions, relocations);
+        Some(Ok(()))
     }
 
     fn emit_app_raw_input_mode(
@@ -1584,19 +1598,27 @@ mod tests {
         #[test]
         #[should_panic(expected = "rv64 app mode not ported")]
         fn io_write_helper() {
-            let _ = riscv64().emit_app_io_write_helper("s", false, false, None, &HashMap::new());
+            let _ = riscv64().emit_app_io_write(
+                "s",
+                false,
+                false,
+                None,
+                &HashMap::new(),
+                &mut Vec::new(),
+                &mut Vec::new(),
+            );
         }
 
         #[test]
         #[should_panic(expected = "rv64 app mode not ported")]
         fn io_flush_helper() {
-            let _ = riscv64().emit_app_io_flush_helper("s");
+            let _ = riscv64().emit_app_io_flush("s", &mut Vec::new(), &mut Vec::new());
         }
 
         #[test]
         #[should_panic(expected = "rv64 app mode not ported")]
         fn io_input_helper() {
-            let _ = riscv64().emit_app_io_input_helper("s");
+            let _ = riscv64().emit_app_io_input("s", &mut Vec::new(), &mut Vec::new());
         }
 
         #[test]
