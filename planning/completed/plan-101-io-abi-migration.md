@@ -417,3 +417,30 @@ op) was pre-existing and is fixed in `cbc175a64`.
 
 Ledger: Phase 1 `fd6ab70b3` · Phase 2 `7024cf8d4` · Phases 3–5 `03025c926` ·
 inline-TRAP fix `cbc175a64` · fmt `223e96b6e`.
+
+## Follow-on: remove the hatch, decouple the app hooks (plan-101 completion)
+
+The initial migration above kept the `native/` split conceptually and used a
+`hatch_finalized`/`abi_prefinalized` bridge for app-mode. A later pass (this same
+plan, per the user's directive "no more hatch_finalized wrapper crud") finished it:
+
+- **Flattened `native/`** into per-function `func_*.rs` (deleted the dir).
+- **Every io member is now a true vreg `abi_function` body** with no adapter/hatch.
+  Console/terminal members emit their vreg stream directly (byte-identical). The
+  7 app-touching members (`flush`, `print`/`write`/`printError`/`writeError`,
+  `input`/`readLine`) `bl` a **standalone decoupled GUI helper**
+  (`_mfb_rt_io_app_*`, emitted in `builder/mod.rs` like `STDOUT_DRAIN`) in app mode.
+- **Why decouple, not append:** the app-mode GUI bodies are hand-written raw
+  physical-register objc/GTK/Win32 sequences (the `Asm` layer), shared with `term`
+  (`emit_term_ok_return`). Appending them into the vreg finalizer would require
+  rewriting that foundational GUI-ABI codegen — unverifiable on GTK/Windows here
+  and rippling into `term`. Decoupling keeps those bodies **byte-identical**
+  (standalone functions, never vreg-finalized); only a `bl` indirection is added,
+  which the golden suite fully captures. `emit_app_io_is_terminal` (trivial body)
+  was instead reshaped to the append shape.
+- **Hatch deleted:** `hatch_finalized`, `adapter_app_mode`, and
+  `CodeBuilder.abi_prefinalized` (field + inits + wrapper branch) are gone.
+- **Result:** not byte-identical (2 app-mode goldens re-synced — members now `bl`
+  the `app_*` helpers); functionally identical. `cargo test` 3611; full acceptance
+  suite 1264 passed. Commits `8524fe4cd` (buffered), `9b54ee456` (readers),
+  `90208997d` (is_terminal reshape), `855566d19` (app decouple + hatch delete).
