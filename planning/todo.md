@@ -16,7 +16,7 @@ Cleaned up codegen
 [-] errorcode
 [-] fs
 [-] http
-[+] io
+[@] io
 [@] json
 [-] math
 [-] money
