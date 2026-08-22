@@ -1,24 +1,29 @@
-//! `strings::lower` — descriptor + native-lowering wrapper.
-//!
-//! The native lowering stays SHARED in `src/codegen/builtins/strings/builder_strings*`
-//! (the string codegen carrier, kept in place like `vector`'s SIMD carrier); this
-//! thin wrapper points the registry's `Body::Native` `common` slot at the shared
-//! dispatcher `CodeBuilder::lower_strings_package_call`.
+//! `strings.lower` — descriptor + clean-room native lowering.
 
 // --- codegen tier imports (migration) ---
+use super::gen_case_map;
+use crate::codegen::builtins::strings::UnicodeCaseMap;
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-/// Target-generic native lowering for `strings.lower` (registry `Body::Native`
-/// `common` slot), delegating to the shared string codegen carrier
-/// (`CodeBuilder::lower_strings_package_call` in `src/target/shared/code`).
+
 pub(crate) fn lower(builder: &mut CodeBuilder, args: &[NirValue]) -> Result<ValueResult, String> {
-    builder
-        .lower_strings_package_call("strings.lower", args)?
-        .ok_or_else(|| "strings.lower: no native lowering for these arguments".to_string())
+    if let Some(value) = builder.static_strings_package_string("strings.lower", args)? {
+        let register = builder.load_string_constant(&value)?;
+        return Ok(ValueResult {
+            type_: "String".to_string(),
+            location: Operand::from(register.render()),
+            text: "strings.lower".to_string(),
+        });
+    }
+    if args.len() != 1 {
+        return Err("strings.lower: no native lowering for these arguments".to_string());
+    }
+    gen_case_map::lower_strings_case_map(builder, &args[0], UnicodeCaseMap::Lower)
 }
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

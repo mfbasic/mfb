@@ -1,24 +1,31 @@
-//! `strings::byteLen` — descriptor + native-lowering wrapper.
-//!
-//! The native lowering stays SHARED in `src/codegen/builtins/strings/builder_strings*`
-//! (the string codegen carrier, kept in place like `vector`'s SIMD carrier); this
-//! thin wrapper points the registry's `Body::Native` `common` slot at the shared
-//! dispatcher `CodeBuilder::lower_strings_package_call`.
+//! `strings::byteLen` — descriptor + clean-room native lowering.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
+use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
+
 /// Target-generic native lowering for `strings.byteLen` (registry `Body::Native`
-/// `common` slot), delegating to the shared string codegen carrier
-/// (`CodeBuilder::lower_strings_package_call` in `src/target/shared/code`).
+/// `common` slot): the byte length is the leading `u64` count word of the string
+/// block, so a single load yields it.
 pub(crate) fn lower(builder: &mut CodeBuilder, args: &[NirValue]) -> Result<ValueResult, String> {
-    builder
-        .lower_strings_package_call("strings.byteLen", args)?
-        .ok_or_else(|| "strings.byteLen: no native lowering for these arguments".to_string())
+    if args.len() != 1 {
+        return Err("strings.byteLen: no native lowering for these arguments".to_string());
+    }
+    let value = builder.lower_value(&args[0])?;
+    builder.require_string("strings.byteLen value", &value)?;
+    let register = builder.allocate_register()?;
+    builder.emit(abi::load_u64(&register, &value.location, 0));
+    Ok(ValueResult {
+        type_: "Integer".to_string(),
+        location: Operand::from(register.render()),
+        text: format!("strings.byteLen({})", value.text),
+    })
 }
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

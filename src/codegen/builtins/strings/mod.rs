@@ -1,10 +1,14 @@
 //! The built-in `strings` package (clean-room registry migration, plan-99 PART B).
 //!
 //! `strings` is a large, mostly-**native** package: 29 members
-//! (`trim`/`upper`/`split`/`join`/`padLeft`/…) lower through the shared string
-//! codegen carrier in `src/codegen/builtins/strings/builder_strings*` (kept in place like
-//! `vector`'s SIMD carrier), reached by the registry's `Body::Native` `common`
-//! slot; three (`find`/`mid`/`replace`) are `Body::Intrinsic`, sharing their bare
+//! (`trim`/`upper`/`split`/`join`/`padLeft`/…) each lower in their own
+//! `func_<name>.rs` (registry `Body::Native` `common` slot) — a single-use body is
+//! inlined there, and logic shared by several members lives in a `gen_<area>.rs`
+//! seam (`gen_case_map`/`gen_graphemes`/`gen_trim`/`gen_with_any`/`gen_strip`/
+//! `gen_left_right`/`gen_pad`), with the shared string primitives + `UnicodeCaseMap`
+//! + the static-fold helper in `gen_strings_support.rs` (the clean-room shape that
+//! replaced the old `builder_strings_*` carrier). Three (`find`/`mid`/`replace`) are
+//! `Body::Intrinsic`, sharing their bare
 //! native lowering with the `collections::` `List` overloads through
 //! `builtins::native_builtin_target`; and seven — the Unicode scalar seam
 //! (`toScalars`/`fromScalars`) and the five classification predicates
@@ -66,6 +70,15 @@ mod func_trim_chars;
 mod func_trim_end;
 mod func_trim_start;
 mod func_upper;
+mod gen_case_map;
+mod gen_graphemes;
+mod gen_left_right;
+mod gen_pad;
+mod gen_strings_support;
+mod gen_strip;
+mod gen_trim;
+mod gen_with_any;
+pub(crate) use gen_strings_support::*;
 
 /// One-line package intro (was `BuiltinModule::doc_intro`, historically empty).
 const INTRO: &str = "";
@@ -88,7 +101,7 @@ const SEAM_SOURCE: &str = include_str!("seam.mfb");
 pub(crate) fn register(r: &mut Registry) {
     let mut pkg = RegistryPackage::new("strings", INTRO, DESC);
 
-    // Native members (shared codegen carrier).
+    // Native members (per-member `func_*` lowerings + shared `gen_*` seams).
     func_trim::register(&mut pkg);
     func_trim_start::register(&mut pkg);
     func_trim_end::register(&mut pkg);
@@ -308,7 +321,3 @@ pub(crate) fn tier_b_transform_impl(name: &str) -> Option<&'static str> {
     };
     Some(symbol)
 }
-
-pub(crate) mod builder_strings_builtins;
-pub(crate) mod builder_strings_package;
-pub(crate) use builder_strings_package::*;

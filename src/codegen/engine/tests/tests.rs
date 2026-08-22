@@ -283,9 +283,11 @@ fn variable_width_element_types_are_not_fixed_width() {
 /// correct idiom is `emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, …)`, which
 /// materializes the code into a fresh register first.
 ///
-/// This scans the builder source directly (over every current and future
-/// `builder_*.rs`) so a fourth mis-wired site is a compile-time-suite failure, not
-/// a silently-garbage error payload nobody can reach to observe.
+/// This scans the codegen lowering source directly (over every current and future
+/// `builder_*.rs` legacy carrier plus the clean-room `func_*.rs`/`gen_*.rs` member
+/// lowerings the migration produces) so a fourth mis-wired site is a
+/// compile-time-suite failure, not a silently-garbage error payload nobody can
+/// reach to observe.
 #[test]
 fn no_overflow_label_returns_through_the_result_tag_register() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/codegen");
@@ -293,8 +295,10 @@ fn no_overflow_label_returns_through_the_result_tag_register() {
     let mut checked_files = 0usize;
     let mut overflow_labels = 0usize;
 
-    // The `builder_*.rs` corpus is scattered across the codegen tiers after the
-    // plan-95 migration, so walk recursively rather than reading a flat dir.
+    // The lowering corpus is scattered across the codegen tiers after the plan-95
+    // migration, so walk recursively rather than reading a flat dir. It spans the
+    // legacy `builder_*.rs` carriers and the clean-room `func_*.rs`/`gen_*.rs`
+    // member lowerings that supersede them (crypto/io/strings migrations).
     fn collect_builder_sources(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
         for entry in std::fs::read_dir(dir)
             .expect("read codegen dir")
@@ -303,11 +307,12 @@ fn no_overflow_label_returns_through_the_result_tag_register() {
             let path = entry.path();
             if path.is_dir() {
                 collect_builder_sources(&path, out);
-            } else if path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with("builder_") && n.ends_with(".rs"))
-            {
+            } else if path.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                n.ends_with(".rs")
+                    && (n.starts_with("builder_")
+                        || n.starts_with("func_")
+                        || n.starts_with("gen_"))
+            }) {
                 out.push(path);
             }
         }

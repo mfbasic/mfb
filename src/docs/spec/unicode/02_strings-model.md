@@ -140,19 +140,19 @@ space `U+3000`, among others. [[src/codegen/string/unicode_props.rs:emit_unicode
 Trimming operates scalar by scalar from the end(s); it is not grapheme-aware (it
 cannot strip a whitespace scalar buried inside a cluster, but no standard cluster
 begins with a `White_Space` scalar). Zero-width characters (e.g. ZWSP `U+200B`,
-ZWJ) are **not** `White_Space` and are never trimmed. [[src/codegen/builtins/strings/builder_strings_builtins.rs:lower_strings_trim]]
+ZWJ) are **not** `White_Space` and are never trimmed. [[src/codegen/builtins/strings/gen_trim.rs:lower_strings_trim]]
 
 ## `split` and the empty-delimiter error
 
 `split(value, delimiter)` splits on a **byte-exact** delimiter substring and
 returns the parts. An empty `delimiter` is rejected (raising `ErrInvalidArgument`
-before scanning) — there is no per-scalar or per-grapheme split mode. [[src/codegen/builtins/strings/builder_strings_builtins.rs:lower_strings_split]]
+before scanning) — there is no per-scalar or per-grapheme split mode. [[src/codegen/builtins/strings/func_split.rs:lower]]
 
 Splitting delegates to `str::split`, so it follows Rust semantics: a leading or
 trailing delimiter yields an empty leading/trailing part, and N non-overlapping
 matches produce N+1 parts. The delimiter match is on raw UTF-8 bytes with no
 normalization. The inverse `join(parts, delimiter)` concatenates with the
-delimiter between parts and never errors. [[src/codegen/builtins/strings/builder_strings_builtins.rs:lower_strings_join]]
+delimiter between parts and never errors. [[src/codegen/builtins/strings/func_join.rs:lower]]
 
 ## See Also
 

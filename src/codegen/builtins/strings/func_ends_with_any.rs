@@ -1,24 +1,19 @@
-//! `strings::endsWithAny` — descriptor + native-lowering wrapper.
-//!
-//! The native lowering stays SHARED in `src/codegen/builtins/strings/builder_strings*`
-//! (the string codegen carrier, kept in place like `vector`'s SIMD carrier); this
-//! thin wrapper points the registry's `Body::Native` `common` slot at the shared
-//! dispatcher `CodeBuilder::lower_strings_package_call`.
+//! `strings.endsWithAny` — descriptor + clean-room native lowering.
 
 // --- codegen tier imports (migration) ---
+use super::gen_with_any;
 use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-/// Target-generic native lowering for `strings.endsWithAny` (registry `Body::Native`
-/// `common` slot), delegating to the shared string codegen carrier
-/// (`CodeBuilder::lower_strings_package_call` in `src/target/shared/code`).
+
 pub(crate) fn lower(builder: &mut CodeBuilder, args: &[NirValue]) -> Result<ValueResult, String> {
-    builder
-        .lower_strings_package_call("strings.endsWithAny", args)?
-        .ok_or_else(|| "strings.endsWithAny: no native lowering for these arguments".to_string())
+    if args.len() != 2 {
+        return Err("strings.endsWithAny: no native lowering for these arguments".to_string());
+    }
+    gen_with_any::lower_strings_with_any(builder, &args[0], &args[1], true)
 }
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

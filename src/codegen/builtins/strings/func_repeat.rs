@@ -1,24 +1,136 @@
-//! `strings::repeat` — descriptor + native-lowering wrapper.
-//!
-//! The native lowering stays SHARED in `src/codegen/builtins/strings/builder_strings*`
-//! (the string codegen carrier, kept in place like `vector`'s SIMD carrier); this
-//! thin wrapper points the registry's `Body::Native` `common` slot at the shared
-//! dispatcher `CodeBuilder::lower_strings_package_call`.
+//! `strings.repeat` — descriptor + clean-room native lowering.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::nir::NirValue;
+use crate::target::shared::abi;
+use crate::target::shared::nir::*;
 use crate::types::ParameterType;
-/// Target-generic native lowering for `strings.repeat` (registry `Body::Native`
-/// `common` slot), delegating to the shared string codegen carrier
-/// (`CodeBuilder::lower_strings_package_call` in `src/target/shared/code`).
+
 pub(crate) fn lower(builder: &mut CodeBuilder, args: &[NirValue]) -> Result<ValueResult, String> {
-    builder
-        .lower_strings_package_call("strings.repeat", args)?
-        .ok_or_else(|| "strings.repeat: no native lowering for these arguments".to_string())
+    if args.len() != 2 {
+        return Err("strings.repeat: no native lowering for these arguments".to_string());
+    }
+    let value = &args[0];
+    let times = &args[1];
+
+    let value = builder.lower_value(value)?;
+    builder.require_string("strings.repeat value", &value)?;
+    let value_slot = builder.spill_to_slot("strings_repeat_value", &value.location);
+    let times = builder.lower_value(times)?;
+    if times.type_ != "Integer" {
+        return Err(format!(
+            "strings.repeat times must be Integer, got {}",
+            times.type_
+        ));
+    }
+    let times_slot = builder.spill_to_slot("strings_repeat_times", &times.location);
+    let total_slot = builder.allocate_stack_object("strings_repeat_total", 8);
+    let result_slot = builder.allocate_stack_object("strings_repeat_result", 8);
+
+    let invalid = builder.label("strings_repeat_invalid");
+    let alloc_ok = builder.label("strings_repeat_alloc_ok");
+    let outer = builder.label("strings_repeat_outer");
+    let inner = builder.label("strings_repeat_inner");
+    let inner_done = builder.label("strings_repeat_inner_done");
+    let outer_done = builder.label("strings_repeat_outer_done");
+
+    // Scratch as vregs. The arena_alloc ABI arg/result register stays
+    // physical only across that call; the allocation pointer is then carried
+    // in a neutral vreg across the copy loops, since a held physical result
+    // register is fragile on ISAs whose result/argument registers differ
+    // (x86-64).
+    let val_ptr_v = builder.temporary_vreg();
+    let times_rem_v = builder.temporary_vreg();
+    let len_v = builder.temporary_vreg();
+    let total_v = builder.temporary_vreg();
+    let dst_v = builder.temporary_vreg();
+    let src_base_v = builder.temporary_vreg();
+    let inner_src_v = builder.temporary_vreg();
+    let inner_cnt_v = builder.temporary_vreg();
+    let byte_v = builder.temporary_vreg();
+    let val_ptr = &val_ptr_v;
+    let times_rem = &times_rem_v;
+    let len = &len_v;
+    let total = &total_v;
+    let dst = &dst_v;
+    let src_base = &src_base_v;
+    let inner_src = &inner_src_v;
+    let inner_cnt = &inner_cnt_v;
+    let byte = &byte_v;
+
+    builder.emit(abi::load_u64(val_ptr, abi::stack_pointer(), value_slot));
+    builder.emit(abi::load_u64(times_rem, abi::stack_pointer(), times_slot));
+    builder.emit(abi::compare_immediate(times_rem, "0"));
+    builder.emit(abi::branch_lt(&invalid));
+    builder.emit(abi::load_u64(len, val_ptr, 0));
+    // total = len * times, rejecting products (and the +9 header below) that
+    // do not fit in 64 bits: an unchecked wrap here allocated small while the
+    // copy loop wrote the full len*times bytes (audit-unicode #1, heap
+    // overflow). Unrepresentable sizes raise the same catchable 77050002 as
+    // the other argument rejections.
+    builder.emit_checked_size_multiply(total, len, times_rem, &invalid);
+    builder.emit(abi::store_u64(total, abi::stack_pointer(), total_slot));
+    // allocate total + 9.
+    builder.emit_checked_size_add_immediate(abi::return_register(), total, 9, &invalid);
+    builder.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
+    builder.emit_arena_alloc_call();
+    builder.emit(abi::branch_eq(&alloc_ok));
+    builder.raise_error_bare("ErrOutOfMemory")?;
+    builder.emit(abi::label(&alloc_ok));
+    // Capture the allocation result while x1 is unambiguously the call result.
+    let result_ptr = builder.allocate_register()?;
+    builder.emit(abi::move_register(&result_ptr, abi::mfb_return(1)));
+    builder.emit(abi::store_u64(
+        &result_ptr,
+        abi::stack_pointer(),
+        result_slot,
+    ));
+    builder.emit(abi::load_u64(total, abi::stack_pointer(), total_slot));
+    builder.emit(abi::store_u64(total, &result_ptr, 0));
+
+    // Copy loop: times_rem outer counter, dst cursor, src_base, len.
+    builder.emit(abi::load_u64(val_ptr, abi::stack_pointer(), value_slot));
+    builder.emit(abi::load_u64(times_rem, abi::stack_pointer(), times_slot));
+    builder.emit(abi::load_u64(len, val_ptr, 0));
+    builder.emit(abi::add_immediate(src_base, val_ptr, 8));
+    builder.emit(abi::add_immediate(dst, &result_ptr, 8));
+    builder.emit(abi::label(&outer));
+    builder.emit(abi::compare_immediate(times_rem, "0"));
+    builder.emit(abi::branch_eq(&outer_done));
+    // inner: copy len bytes from src_base to dst.
+    builder.emit(abi::move_register(inner_src, src_base));
+    builder.emit(abi::move_register(inner_cnt, len));
+    builder.emit(abi::label(&inner));
+    builder.emit(abi::compare_immediate(inner_cnt, "0"));
+    builder.emit(abi::branch_eq(&inner_done));
+    builder.emit(abi::load_u8(byte, inner_src, 0));
+    builder.emit(abi::store_u8(byte, dst, 0));
+    builder.emit(abi::add_immediate(inner_src, inner_src, 1));
+    builder.emit(abi::add_immediate(dst, dst, 1));
+    builder.emit(abi::subtract_immediate(inner_cnt, inner_cnt, 1));
+    builder.emit(abi::branch(&inner));
+    builder.emit(abi::label(&inner_done));
+    builder.emit(abi::subtract_immediate(times_rem, times_rem, 1));
+    builder.emit(abi::branch(&outer));
+    builder.emit(abi::label(&outer_done));
+    builder.emit(abi::move_immediate(byte, "Integer", "0"));
+    builder.emit(abi::store_u8(byte, dst, 0));
+    let result = builder.allocate_register()?;
+    builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+    let after = builder.label("strings_repeat_after");
+    builder.emit(abi::branch(&after));
+    builder.emit(abi::label(&invalid));
+    builder.raise_error("strings.repeat", "ErrInvalidArgument")?;
+    builder.emit(abi::label(&after));
+    Ok(ValueResult {
+        type_: "String".to_string(),
+        location: Operand::from(result.render()),
+        text: "strings.repeat".to_string(),
+    })
 }
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

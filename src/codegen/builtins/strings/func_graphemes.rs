@@ -1,24 +1,31 @@
-//! `strings::graphemes` — descriptor + native-lowering wrapper.
-//!
-//! The native lowering stays SHARED in `src/codegen/builtins/strings/builder_strings*`
-//! (the string codegen carrier, kept in place like `vector`'s SIMD carrier); this
-//! thin wrapper points the registry's `Body::Native` `common` slot at the shared
-//! dispatcher `CodeBuilder::lower_strings_package_call`.
+//! `strings.graphemes` — descriptor + clean-room native lowering.
 
 // --- codegen tier imports (migration) ---
+use super::gen_graphemes;
 use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-/// Target-generic native lowering for `strings.graphemes` (registry `Body::Native`
-/// `common` slot), delegating to the shared string codegen carrier
-/// (`CodeBuilder::lower_strings_package_call` in `src/target/shared/code`).
+
 pub(crate) fn lower(builder: &mut CodeBuilder, args: &[NirValue]) -> Result<ValueResult, String> {
-    builder
-        .lower_strings_package_call("strings.graphemes", args)?
-        .ok_or_else(|| "strings.graphemes: no native lowering for these arguments".to_string())
+    if args.len() == 1 {
+        if let Some(value) = builder.static_string_value(&args[0]) {
+            let values = crate::unicode::backend::graphemes(&value)
+                .into_iter()
+                .map(|value| NirValue::Const {
+                    type_: "String".to_string(),
+                    value,
+                })
+                .collect::<Vec<_>>();
+            return builder.lower_list_literal("List OF String", &values);
+        }
+    }
+    if args.len() != 1 {
+        return Err("strings.graphemes: no native lowering for these arguments".to_string());
+    }
+    gen_graphemes::lower_strings_graphemes(builder, &args[0])
 }
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

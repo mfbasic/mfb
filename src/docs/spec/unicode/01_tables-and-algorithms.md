@@ -14,7 +14,7 @@ There are two distinct table consumers, which must not be confused:
   string argument, the compiler evaluates it in-process using the Rust crates
   `unicode_segmentation`, `unicode_normalization`, and `unicode_casefold`, and
   the result is baked in as a literal. No table lookup happens at runtime.
-  [[src/codegen/builtins/strings/builder_strings_package.rs:static_strings_package_string]]
+  [[src/codegen/builtins/strings/gen_strings_support.rs:static_strings_package_string]]
   [[src/unicode/backend.rs:graphemes]]
 - **Runtime tables.** When the argument is dynamic, the compiler emits code that
   performs a two-stage property lookup and the algorithms below against the
@@ -238,7 +238,7 @@ maintaining a two-field state machine — `state_bc` (boundclass) and `state_icb
 (Indic conjunct break) — and for each new scalar looks up `boundclass` and
 `indic_conjunct_break` from the property record, then asks two helpers: whether
 to break before this scalar, and how to fold it into the running state.
-[[src/codegen/builtins/strings/builder_strings_builtins.rs:lower_strings_graphemes]]
+[[src/codegen/builtins/strings/gen_graphemes.rs:lower_strings_graphemes]]
 
 `emit_grapheme_break_branch` is the boundary decision, encoding the UAX #29 rules
 in order: GB3 (CR×LF no-break), GB4/GB5 (control boundaries), GB6/GB7/GB8 (Hangul
@@ -263,7 +263,7 @@ ZWJ=14, EXTENDED_PICTOGRAPHIC=19, E_ZWG=20) and conjunct-break values
 
 `strings::normalizeNfc` performs full NFD-then-recompose in five passes over a
 scalar buffer. NFD on its own is the first three passes.
-[[src/codegen/builtins/strings/builder_strings_builtins.rs:lower_strings_normalize_nfc]]
+[[src/codegen/builtins/strings/func_normalize_nfc.rs:lower]]
 
 1. **Count + allocate.** Decode each scalar, look it up in the NFD mapping table,
    and sum the decomposed lengths (or 1 for scalars with no entry) to size a
@@ -287,7 +287,7 @@ scalar buffer. NFD on its own is the first three passes.
 
 NFC composition therefore reads `combining_class`, `comb_index`, `comb_length`,
 and the `COMB_IS_SECOND` flag from property records, plus the two combinations
-tables and the NFD mapping tables. [[src/codegen/builtins/strings/builder_strings_builtins.rs:lower_strings_normalize_nfc]]
+tables and the NFD mapping tables. [[src/codegen/builtins/strings/func_normalize_nfc.rs:lower]]
 
 ## Runtime algorithm: case folding and upper/lower casing
 
@@ -298,8 +298,8 @@ the output (summing the encoded widths of each scalar's mapped sequence, or the
 scalar's own width when there is no mapping entry), then arena-allocates the
 result and a writing pass that re-decodes, re-looks-up, and UTF-8-encodes either
 the mapped sequence or the original scalar. A zero-length lookup result means
-"identity" (no mapping). [[src/codegen/builtins/strings/builder_strings_builtins.rs:lower_strings_case_map]]
-[[src/codegen/builtins/strings/builder_strings_package.rs:UnicodeCaseMap]]
+"identity" (no mapping). [[src/codegen/builtins/strings/gen_case_map.rs:lower_strings_case_map]]
+[[src/codegen/builtins/strings/gen_strings_support.rs:UnicodeCaseMap]]
 
 All three maps are full (sequence-valued), so multi-scalar expansions like
 `ß → ss` (uppercase) and Turkish-dotted-I lowering are handled by the flattened
