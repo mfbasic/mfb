@@ -1,11 +1,12 @@
 //! `io::setBuffered` — descriptor entry + authored docs.
 //!
 //! Per-member file. `io` lowers through per-function `Body::abi_function`
-//! clean-room lowerings (plan-101): this member adapter reproduces its former
-//! `lower_io_helper` `match` arm and hatches the finalized OS-seam body back.
+//! clean-room lowerings (plan-101): [`lower_set_buffered`] emits its vreg body
+//! directly into the builder — the wrapper finalizes it (crypto's shape). No
+//! separate emitter, no adapter, no pre-finalized hatch.
 
-use super::{adapter_app_mode, hatch_finalized};
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
@@ -14,18 +15,49 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-/// `abi_function` body for `io::setBuffered(enabled)`. The `enabled` flag arrives
-/// in argument register 0 (which the emitter reads as `return_register`); the
-/// emitter toggles the thread stdout buffering flag (draining on disable), or is
-/// a no-op in app mode. Hatched back pre-finalized.
+/// `abi_function` body for `io::setBuffered(enabled)`: the `enabled` flag arrives
+/// in argument register 0; toggle the thread stdout buffering flag (draining on
+/// disable), or no-op in app mode. Emits its vreg stream into `builder`; the
+/// wrapper finalizes.
 pub(crate) fn lower_set_buffered(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
+    const FRAME_SIZE: usize = 16;
     let symbol = builder.current_symbol.clone();
-    let body = lower_io_set_buffered_helper(&symbol, adapter_app_mode(ctx))?;
-    hatch_finalized(builder, body, "Nothing", "io.setBuffered")
+    let enable = format!("{symbol}_enable");
+    let done = format!("{symbol}_done");
+    if !ctx.build_mode.is_app() {
+        let mut vregs = Vregs::new();
+        let v0 = vregs.next();
+        builder.instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(&enable),
+            abi::branch_link(STDOUT_DRAIN_SYMBOL),
+        ]);
+        builder
+            .relocations
+            .push(internal_branch(&symbol, STDOUT_DRAIN_SYMBOL));
+        builder.instructions.extend([
+            abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
+            abi::branch(&done),
+            abi::label(&enable),
+            abi::move_immediate(&v0, "Integer", "1"),
+            abi::store_u64(&v0, ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
+            abi::label(&done),
+        ]);
+    }
+    builder.instructions.extend([
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::return_(),
+    ]);
+    builder.stack_size = FRAME_SIZE;
+    Ok(ValueResult {
+        type_: "Nothing".to_string(),
+        location: Operand::from("void"),
+        text: "io.setBuffered".to_string(),
+    })
 }
 
 const INTRO: &str = r#"Enable or disable opt-in standard-output buffering for this thread"#;
@@ -91,47 +123,4 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             body: Body::abi_function(lower_set_buffered),
         }],
     });
-}
-
-// --- stdout setBuffered emitter (relocated from native/) ---
-
-/// `io::setBuffered(enabled)` (plan-14-A §4.2): turn opt-in stdout buffering on or
-/// off for this thread. Enabling just sets `OUT_ENABLED = 1` (the 4 KiB buffer is
-/// allocated lazily on the first buffered write). Disabling **drains the buffer
-/// first** (so pending bytes are never stranded on the off transition) and then
-/// clears `OUT_ENABLED`. Returns `Nothing`. In app mode buffering is inert, so it
-/// is a no-op returning OK.
-pub(crate) fn lower_io_set_buffered_helper(symbol: &str, app_mode: bool) -> HelperResult {
-    const FRAME_SIZE: usize = 16;
-    let enable = format!("{symbol}_enable");
-    let done = format!("{symbol}_done");
-    let mut instructions = vec![abi::label("entry")];
-    let mut relocations = Vec::new();
-    if !app_mode {
-        let mut vregs = Vregs::new();
-        let v0 = vregs.next();
-        instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
-            abi::branch_ne(&enable),
-            // Disable: drain any pending bytes first, then clear the flag. The drain
-            // result is best-effort here (setBuffered returns Nothing); a real write
-            // failure still surfaces on the next io::flush / buffered write.
-            abi::branch_link(STDOUT_DRAIN_SYMBOL),
-        ]);
-        relocations.push(internal_branch(symbol, STDOUT_DRAIN_SYMBOL));
-        instructions.extend([
-            abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
-            abi::branch(&done),
-            abi::label(&enable),
-            abi::move_immediate(&v0, "Integer", "1"),
-            abi::store_u64(&v0, ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
-            abi::label(&done),
-        ]);
-    }
-    instructions.extend([
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::return_(),
-    ]);
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
 }

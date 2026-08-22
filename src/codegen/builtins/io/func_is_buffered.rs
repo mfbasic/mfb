@@ -1,30 +1,59 @@
 //! `io::isBuffered` — descriptor entry + authored docs.
 //!
 //! Per-member file. `io` lowers through per-function `Body::abi_function`
-//! clean-room lowerings (plan-101): [`lower_is_buffered`] reproduces this
-//! member's former `lower_io_helper` `match` arm — branch app-vs-console on the
-//! threaded `AbiCtx`, call the OS-seam emitter, and hand the finalized body back
-//! through the pre-finalized hatch.
+//! clean-room lowerings (plan-101): [`lower_is_buffered`] emits its vreg body
+//! directly into the builder — the wrapper finalizes it (crypto's shape). No
+//! separate emitter, no adapter, no pre-finalized hatch.
 
-use super::{adapter_app_mode, hatch_finalized};
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-/// `abi_function` body for `io::isBuffered` (no args). Reads the thread stdout
-/// buffering flag (or, in app mode, always `FALSE`) via
-/// `lower_io_is_buffered_helper`, hatched back pre-finalized.
+/// `abi_function` body for `io::isBuffered` (no args): report the thread stdout
+/// buffering flag (`OUT_ENABLED != 0`), or `FALSE` in app mode where the buffer is
+/// inert. Emits its vreg stream into `builder`; the wrapper finalizes.
 pub(crate) fn lower_is_buffered(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
+    const FRAME_SIZE: usize = 16;
     let symbol = builder.current_symbol.clone();
-    let body = lower_io_is_buffered_helper(&symbol, adapter_app_mode(ctx))?;
-    hatch_finalized(builder, body, "Boolean", "io.isBuffered")
+    let yes = format!("{symbol}_yes");
+    let done = format!("{symbol}_done");
+    if ctx.build_mode.is_app() {
+        builder
+            .instructions
+            .push(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
+    } else {
+        let mut vregs = Vregs::new();
+        let v0 = vregs.next();
+        builder.instructions.extend([
+            abi::load_u64(&v0, ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
+            abi::compare_immediate(&v0, "0"),
+            abi::branch_ne(&yes),
+            abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+            abi::branch(&done),
+            abi::label(&yes),
+            abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
+        ]);
+    }
+    builder.instructions.extend([
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::label(&done),
+        abi::return_(),
+    ]);
+    builder.stack_size = FRAME_SIZE;
+    Ok(ValueResult {
+        type_: "Boolean".to_string(),
+        location: Operand::from("void"),
+        text: "io.isBuffered".to_string(),
+    })
 }
 
 const INTRO: &str = r#"Report whether standard-output buffering is enabled for this thread"#;
@@ -86,39 +115,4 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             body: Body::abi_function(lower_is_buffered),
         }],
     });
-}
-
-// --- stdout isBuffered emitter (relocated from native/) ---
-
-/// `io::isBuffered()` (plan-14-A §4.2): report whether opt-in stdout buffering is
-/// on for this thread — `OUT_ENABLED != 0`. In app mode the buffer is inert, so it
-/// always reports FALSE.
-pub(crate) fn lower_io_is_buffered_helper(symbol: &str, app_mode: bool) -> HelperResult {
-    const FRAME_SIZE: usize = 16;
-    let yes = format!("{symbol}_yes");
-    let done = format!("{symbol}_done");
-    let mut instructions = vec![abi::label("entry")];
-    if app_mode {
-        instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"));
-    } else {
-        let mut vregs = Vregs::new();
-        let v0 = vregs.next();
-        instructions.extend([
-            abi::load_u64(&v0, ARENA_STATE_REGISTER, ARENA_OUT_ENABLED_OFFSET),
-            abi::compare_immediate(&v0, "0"),
-            abi::branch_ne(&yes),
-            abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-            abi::branch(&done),
-            abi::label(&yes),
-            abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
-        ]);
-    }
-    instructions.extend([
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::label(&done),
-        abi::return_(),
-    ]);
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, Vec::new(), stack_slots))
 }
