@@ -1033,9 +1033,15 @@ pub(crate) trait CodegenPlatform {
         None
     }
 
-    /// App-mode body for `io.flush`. `None` for non-app targets.
-    #[allow(clippy::type_complexity)]
-    fn emit_app_io_flush_helper(&self, _symbol: &str) -> Option<Result<AppHookBody, String>> {
+    /// App-mode append for `io.flush` (present-on-flush). Appends its vreg stream
+    /// into the caller's `abi_function` body; the wrapper finalizes. `None` for
+    /// non-app targets.
+    fn emit_app_io_flush(
+        &self,
+        _symbol: &str,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
         None
     }
 

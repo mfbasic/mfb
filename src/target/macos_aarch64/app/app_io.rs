@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::codegen::engine::builder::AppHookBody;
+use crate::codegen::engine::util::Vregs;
 
 /// App-mode body for `io.print`/`io.write`/`io.printError`/`io.writeError`. The
 /// runtime helper receives the MFBASIC string object in `x0` (`{u64 len; bytes}`)
@@ -212,29 +213,22 @@ pub(crate) fn emit_app_io_write_helper(
 /// presented on demand, so `io::flush` drives the same coalesced present as
 /// `term::sync` — a marshaled `setNeedsDisplay:` on the TermView (plan-35-D §3).
 /// Headless / no-surface runs skip the present and return OK.
-pub(crate) fn emit_app_io_flush_helper(symbol: &str) -> AppHookBody {
+pub(crate) fn emit_app_io_flush(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the `abi_function` vreg finalizer
+    // builds the frame and saves the `LOCAL` callee-saved regs held across the
+    // objc calls in `emit_present_needs_display`. io epilogue returns OK.
     let mut asm = Asm::new(symbol);
-    let frame = 32; // lr@0, x20(termView)@8, x21(sel)@16
-    asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(
-        abi::link_register(),
-        abi::stack_pointer(),
-        0,
-    ));
-    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
-    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 16));
-    emit_present_needs_display(&mut asm, "flush_done");
+    let mut vregs = Vregs::new();
+    emit_present_needs_display_vreg(&mut asm, &mut vregs, "flush_done");
     asm.push(abi::label("flush_done"));
-    emit_term_ok_return(&mut asm, frame, &[(abi::LOCAL[1], 8), (abi::LOCAL[2], 16)]);
-    (
-        CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        asm.ins,
-        asm.rel,
-    )
+    asm.push(abi::move_immediate(abi::mfb_return(0), "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::return_());
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 /// App-mode body for `io.input` (plan §5.4): render the prompt to the transcript
@@ -729,8 +723,11 @@ fn emit_app_term_sync(symbol: &str, term_state_offset: usize) -> AppHookBody {
 /// spilled. Does not touch `x19` (the pinned arena-state base). The present is
 /// marshaled `waitUntilDone:YES` the same way grid writes are, so a `sync` cannot
 /// race ahead of the writes it should show (plan-35-D §3).
+/// Marshal a coalesced `setNeedsDisplay:` onto the TermView. Used by the
+/// standalone `term::sync` app body (NOT vreg-finalized), so survivors live in
+/// `LOCAL` (which that body saves manually) and objc args are raw x0–x4. io's
+/// `flush` uses the vreg twin below instead.
 fn emit_present_needs_display(asm: &mut Asm, done: &str) {
-    // tv = objc_getAssociatedObject([NSApplication sharedApplication], &TERMVIEW_KEY)
     asm.external_data(abi::LOCAL[1], CLASS_NS_APPLICATION, LIB_APPKIT);
     asm.load_selector(SEL_SHARED_APPLICATION.0);
     asm.push(abi::move_register("x0", abi::LOCAL[1]));
@@ -740,8 +737,6 @@ fn emit_present_needs_display(asm: &mut Asm, done: &str) {
     asm.push(abi::move_register(abi::LOCAL[1], "x0")); // termView or nil
     asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
     asm.push(abi::branch_eq(done));
-    // [tv performSelectorOnMainThread:@selector(setNeedsDisplay:) withObject:tv
-    //  waitUntilDone:YES] — any non-nil withObject reads as BOOL YES.
     asm.load_selector(SEL_SET_NEEDS_DISPLAY.0);
     asm.push(abi::move_register(abi::LOCAL[2], "x1"));
     asm.load_selector(SEL_PERFORM_ON_MAIN.0);
@@ -749,6 +744,43 @@ fn emit_present_needs_display(asm: &mut Asm, done: &str) {
     asm.push(abi::move_register("x3", abi::LOCAL[1]));
     asm.push(abi::move_immediate("x4", "Integer", "1")); // waitUntilDone: YES
     asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+}
+
+/// Vreg-based present (plan-101): the append-shape twin of
+/// [`emit_present_needs_display`] for io's `abi_function` `flush` body. Identical
+/// objc sequence, but the values held across the objc calls live in
+/// allocator-managed vregs so the finalizer saves them (the `LOCAL` form is not
+/// saved by the vreg finalizer). The `LOCAL` version stays for the standalone
+/// `term::sync` app body.
+fn emit_present_needs_display_vreg(asm: &mut Asm, vregs: &mut Vregs, done: &str) {
+    // tv = objc_getAssociatedObject([NSApplication sharedApplication], &TERMVIEW_KEY)
+    // Values held across the objc calls (termView, the setNeedsDisplay SEL) go in
+    // ALLOCATOR-MANAGED vregs — the `abi_function` finalizer colors them to
+    // callee-saved registers AND saves them in the frame. (Raw `LOCAL` tokens are
+    // NOT saved by the finalizer, so they'd be clobbered across the call — the
+    // plan-101 append correctness fix.) objc args via `mfb_arg`, returns via
+    // `mfb_return`; both caller-saved and consumed at each call.
+    let tv = vregs.next();
+    let sel = vregs.next();
+    asm.external_data(&tv, CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::move_register(abi::mfb_arg(0), &tv));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.local_address(abi::mfb_arg(1), TERMVIEW_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(&tv, abi::mfb_return(0))); // termView or nil
+    asm.push(abi::compare_immediate(&tv, "0"));
+    asm.push(abi::branch_eq(done));
+    // [tv performSelectorOnMainThread:@selector(setNeedsDisplay:) withObject:tv
+    //  waitUntilDone:YES] — any non-nil withObject reads as BOOL YES.
+    asm.load_selector(SEL_SET_NEEDS_DISPLAY.0);
+    asm.push(abi::move_register(&sel, abi::mfb_arg(1)));
+    asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+    asm.push(abi::move_register(abi::mfb_arg(2), &sel));
+    asm.push(abi::move_register(abi::mfb_arg(3), &tv));
+    asm.push(abi::move_immediate(abi::mfb_arg(4), "Integer", "1")); // waitUntilDone: YES
+    asm.push(abi::move_register(abi::mfb_arg(0), &tv));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 }
 

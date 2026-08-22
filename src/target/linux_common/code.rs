@@ -556,12 +556,15 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         )))
     }
 
-    fn emit_app_io_flush_helper(&self, symbol: &str) -> Option<Result<AppHookBody, String>> {
-        let sysv = self.arch.app().require_gtk();
-        Some(Ok(AppSupport::wrap(
-            sysv,
-            gtk::emit_app_io_flush_helper(symbol),
-        )))
+    fn emit_app_io_flush(
+        &self,
+        symbol: &str,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        let _ = self.arch.app().require_gtk();
+        gtk::emit_app_io_flush(symbol, instructions, relocations);
+        Some(Ok(()))
     }
 
     fn emit_app_io_input_helper(&self, symbol: &str) -> Option<Result<AppHookBody, String>> {

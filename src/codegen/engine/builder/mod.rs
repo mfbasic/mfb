@@ -1417,8 +1417,8 @@ pub(crate) fn lower_module_for_platform(
     // standalone functions, never run through the vreg finalizer.
     if module.build_mode.is_app() {
         use crate::codegen::error::constants::{
-            IO_APP_FLUSH_SYMBOL, IO_APP_INPUT_SYMBOL, IO_APP_PRINT_ERROR_SYMBOL,
-            IO_APP_PRINT_SYMBOL, IO_APP_WRITE_ERROR_SYMBOL, IO_APP_WRITE_SYMBOL,
+            IO_APP_INPUT_SYMBOL, IO_APP_PRINT_ERROR_SYMBOL, IO_APP_PRINT_SYMBOL,
+            IO_APP_WRITE_ERROR_SYMBOL, IO_APP_WRITE_SYMBOL,
         };
         let used = |sym: &str| runtime_symbols.iter().any(|s| s == sym);
         let mut push_app = |symbol: &str,
@@ -1442,14 +1442,6 @@ pub(crate) fn lower_module_for_platform(
             Ok(())
         };
         let tso = term_state_offset;
-        if used("_mfb_rt_io_io_flush") {
-            push_app(
-                IO_APP_FLUSH_SYMBOL,
-                "runtime.io.app_flush",
-                "Nothing",
-                platform.emit_app_io_flush_helper(IO_APP_FLUSH_SYMBOL),
-            )?;
-        }
         if used("_mfb_rt_io_io_input") {
             push_app(
                 IO_APP_INPUT_SYMBOL,

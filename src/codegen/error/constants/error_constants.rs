@@ -619,7 +619,6 @@ pub(crate) const STDOUT_DRAIN_SYMBOL: &str = "_mfb_rt_io_stdout_drain";
 // symbol in app mode instead of splicing a pre-finalized body through a hatch.
 // The helper bodies keep their raw physical-register objc/GTK/Win32 sequences —
 // they are standalone functions, never run through the vreg finalizer.
-pub(crate) const IO_APP_FLUSH_SYMBOL: &str = "_mfb_rt_io_app_flush";
 pub(crate) const IO_APP_INPUT_SYMBOL: &str = "_mfb_rt_io_app_input";
 pub(crate) const IO_APP_PRINT_SYMBOL: &str = "_mfb_rt_io_app_print";
 pub(crate) const IO_APP_WRITE_SYMBOL: &str = "_mfb_rt_io_app_write";

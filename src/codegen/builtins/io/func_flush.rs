@@ -3,9 +3,10 @@
 //! Per-member file. `io` lowers through per-function `Body::abi_function`
 //! clean-room lowerings (plan-101): [`lower_flush`] emits a vreg body into the
 //! builder — the wrapper finalizes. Console drains the per-thread stdout buffer
-//! inline; app mode `bl`s the standalone GUI flush helper (`IO_APP_FLUSH_SYMBOL`,
-//! emitted in `builder/mod.rs`). No adapter, no pre-finalized hatch.
+//! inline; app mode appends the platform's present-on-flush GUI sequence
+//! (`emit_app_io_flush`). No adapter, no pre-finalized hatch.
 
+use super::app_unsupported;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
@@ -15,8 +16,8 @@ use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, R
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-/// `abi_function` body for `io::flush` (no args). App mode: `bl` the standalone
-/// GUI flush helper. Console: the stdout-drain vreg body, spliced in; the wrapper
+/// `abi_function` body for `io::flush` (no args). App mode: append the platform
+/// present-on-flush sequence. Console: the stdout-drain vreg body. The wrapper
 /// finalizes.
 pub(crate) fn lower_flush(
     builder: &mut CodeBuilder,
@@ -25,13 +26,9 @@ pub(crate) fn lower_flush(
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
     if ctx.build_mode.is_app() {
-        builder
-            .instructions
-            .push(abi::branch_link(IO_APP_FLUSH_SYMBOL));
-        builder
-            .relocations
-            .push(internal_branch(&symbol, IO_APP_FLUSH_SYMBOL));
-        builder.instructions.push(abi::return_());
+        ctx.platform
+            .emit_app_io_flush(&symbol, &mut builder.instructions, &mut builder.relocations)
+            .ok_or_else(|| app_unsupported(ctx.platform))??;
     } else {
         let (instructions, relocations, frame_size) = emit_flush_body(&symbol);
         builder.instructions.extend(instructions);

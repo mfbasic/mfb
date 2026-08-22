@@ -562,32 +562,24 @@ pub(crate) fn emit_app_io_write_helper(symbol: &str, stderr: bool, newline: bool
 /// same coalesced present as `term::sync` — one main-loop present via the redraw-idle
 /// (snapshot the live grid, then `queue_draw`). While TUI is off it is a no-op
 /// (transcript writes are already marshaled synchronously), returning `OK`.
-pub(crate) fn emit_app_io_flush_helper(symbol: &str) -> AppHookBody {
+pub(crate) fn emit_app_io_flush(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the `abi_function` vreg finalizer
+    // builds it. `g_idle_add` args in `c_arg`; the OK tag in the result register
+    // `mfb_return(0)` (not `c_arg(0)`).
     let mut asm = Asm::new(symbol);
-    asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(
-        abi::link_register(),
-        abi::stack_pointer(),
-        0,
-    ));
     emit_gtk_term_active_gate(&mut asm, "flush_inactive"); // present only while TUI on
     asm.local_address(abi::c_arg(0), TERM_REDRAW_IDLE_SYMBOL);
     asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.call_external("g_idle_add");
     asm.push(abi::label("flush_inactive"));
-    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
-    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::add_stack(16));
+    asm.push(abi::move_immediate(abi::mfb_return(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::return_());
-    (
-        CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        asm.ins,
-        asm.rel,
-    )
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 /// App-mode `io.input` (plan-05 §5.4): switch the transcript to echo mode (so the
