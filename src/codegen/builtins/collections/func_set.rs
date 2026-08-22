@@ -5,7 +5,7 @@ use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::{list_element_type, map_type_parts};
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -127,7 +127,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Arg(0),
                 errors: vec!["ErrIndexOutOfRange"],
-                body: Body::native(None, None, Some(lower_set)),
+                body: Body::abi_inline_self(lower_set),
             },
             Implementation {
                 params: vec![
@@ -155,7 +155,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Arg(0),
                 errors: vec!["ErrIndexOutOfRange"],
-                body: Body::native(None, None, Some(lower_set)),
+                body: Body::abi_inline_self(lower_set),
             },
         ],
     });
@@ -167,6 +167,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 pub(crate) fn lower_set(
     builder: &mut CodeBuilder,
     args: &[NirValue],
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let collection = builder.lower_value(&args[0])?;
     if let Some(element_type) = list_element_type(&collection.type_) {

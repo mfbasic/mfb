@@ -6,13 +6,17 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 
-pub(crate) fn lower(builder: &mut CodeBuilder, args: &[NirValue]) -> Result<ValueResult, String> {
+pub(crate) fn lower(
+    builder: &mut CodeBuilder,
+    args: &[NirValue],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
     if args.len() != 2 {
         return Err("strings.graphemeAt: no native lowering for these arguments".to_string());
     }
@@ -123,7 +127,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::String,
             errors: vec!["ErrIndexOutOfRange"],
-            body: Body::native(None, None, Some(lower)),
+            body: Body::abi_inline_self(lower),
         }],
     });
 }

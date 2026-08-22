@@ -63,9 +63,11 @@ impl CodeBuilder<'_> {
             .ok_or_else(|| "groupBy: key layout".to_string())?;
         let v_layout = CollectionTypeLayout::from_type(&list_v)
             .ok_or_else(|| "groupBy: value layout".to_string())?;
+        let ctx = self.inline_abi_ctx();
         let keys = crate::codegen::builtins::collections::func_transform::lower_transform(
             self,
             &[args[0].clone(), args[1].clone()],
+            &ctx,
         )?;
         let keys_slot = self.allocate_stack_object("gb_keys", 8);
         self.emit(abi::store_u64(
@@ -76,6 +78,7 @@ impl CodeBuilder<'_> {
         let vals = crate::codegen::builtins::collections::func_transform::lower_transform(
             self,
             &[args[0].clone(), args[2].clone()],
+            &ctx,
         )?;
         let vals_slot = self.allocate_stack_object("gb_vals", 8);
         self.emit(abi::store_u64(

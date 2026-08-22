@@ -4,7 +4,7 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::set_element_type;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -83,7 +83,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Arg(0),
             errors: vec![],
-            body: Body::native(None, None, Some(lower_remove)),
+            body: Body::abi_inline_self(lower_remove),
         }],
     });
 }
@@ -93,6 +93,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 pub(crate) fn lower_remove(
     builder: &mut CodeBuilder,
     args: &[NirValue],
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let set = builder.lower_value(&args[0])?;
     let Some(element_type) = set_element_type(&set.type_) else {

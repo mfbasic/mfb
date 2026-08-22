@@ -6,7 +6,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::{callable_return_type, list_element_type};
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -125,7 +125,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::list_of(ParameterType::Var("U")),
             errors: vec![],
-            body: Body::native(None, None, Some(lower_transform)),
+            body: Body::abi_inline_self(lower_transform),
         }],
     });
 }
@@ -135,6 +135,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 pub(crate) fn lower_transform(
     builder: &mut CodeBuilder,
     args: &[NirValue],
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let scratch9 = builder.temporary_vreg();
     let scratch17 = builder.temporary_vreg();

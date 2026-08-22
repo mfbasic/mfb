@@ -10,6 +10,24 @@ use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::target::shared::runtime;
+
+impl<'a> CodeBuilder<'a> {
+    /// Build an [`AbiCtx`] from the builder's own platform/imports/build-mode for an
+    /// inline (`abi_inline`/`abi_inline_self`) lowering. The fields are `&'a`/`Copy`,
+    /// so the returned `AbiCtx` borrows the underlying build data, not `self` — leaving
+    /// `self` free to pass mutably to the lowering. The inline path has no OS-seam arena
+    /// offsets (that is an `abi_function` concern), so both are `None`.
+    pub(crate) fn inline_abi_ctx(&self) -> crate::codegen::registry::AbiCtx<'a> {
+        crate::codegen::registry::AbiCtx {
+            platform_imports: self.platform_imports,
+            platform: self.platform,
+            build_mode: self.build_mode,
+            term_state_offset: None,
+            presentation_mode_offset: None,
+        }
+    }
+}
+
 impl CodeBuilder<'_> {
     pub(crate) fn lower_value(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         // Track the source location of the node being lowered so that any error
@@ -734,6 +752,9 @@ impl CodeBuilder<'_> {
                 // plan-95: prefer a migrated function's own lowering
                 // (`Implementation::Native`) over the legacy ladder below.
                 if let Some(result) = self.try_abi_inline_lower(target, args) {
+                    return result;
+                }
+                if let Some(result) = self.try_abi_inline_self_lower(target, args) {
                     return result;
                 }
                 if let Some(result) = self.try_native_lower(target, args) {
@@ -1547,20 +1568,21 @@ impl CodeBuilder<'_> {
             Ok(values) => values,
             Err(err) => return Some(Err(err)),
         };
-        // Copy the `&'a` reference fields out of `self` so `AbiCtx` borrows the
-        // underlying build data, not `self` — leaving `self` free to pass mutably.
-        let ctx = crate::codegen::registry::AbiCtx {
-            platform_imports: self.platform_imports,
-            platform: self.platform,
-            build_mode: self.build_mode,
-            // The arena OS-seam offsets are a runtime-helper (`abi_function`)
-            // concern threaded from the dispatch's `OsLowerCtx`. The inline path
-            // lowers at a call site with no such context, and no `abi_inline`
-            // member (bits) consults them — so `None` here is correct.
-            term_state_offset: None,
-            presentation_mode_offset: None,
-        };
+        let ctx = self.inline_abi_ctx();
         Some(lower(self, &arg_values, &ctx))
+    }
+
+    /// The self-lowering `abi_inline` mode: the body receives the call's **raw**
+    /// `NirValue` args (no arg pre-lowering) and lowers them itself, as its former
+    /// `common` body did. The collections/strings native members use this mode.
+    fn try_abi_inline_self_lower(
+        &mut self,
+        target: &str,
+        args: &[NirValue],
+    ) -> Option<Result<ValueResult, String>> {
+        let lower = crate::codegen::registry::abi_inline_self_lower(target)?;
+        let ctx = self.inline_abi_ctx();
+        Some(lower(self, args, &ctx))
     }
 
     /// Pre-lower each `NirValue` arg to a `ValueResult` for an `AbiInline` body
@@ -1643,6 +1665,11 @@ impl CodeBuilder<'_> {
             // plan-95: migrated function lowering, inside the raw-capture wrapper
             // so `raw_result_capture` still routes its domain error to the capture.
             result
+        } else if let Some(result) = self.try_abi_inline_self_lower(target, args) {
+            // A self-lowering `abi_inline` member (the migrated collections/strings
+            // natives, e.g. fallible `get`/`set`/`insert`) trapped by an inline `TRAP`:
+            // its domain error routes through the `raw_result_capture` branch above.
+            result
         } else if let Some(result) = self.try_abi_inline_lower(target, args) {
             // An `abi_inline` intrinsic (e.g. the fallible `bits.sl`/`sr`/`sra`
             // variable shifts) trapped by an inline `TRAP`: its `raise_error_bare`
@@ -1716,6 +1743,9 @@ impl CodeBuilder<'_> {
         // plan-95/96: prefer a migrated member's own lowering (Implementation::Native)
         // over the infallible-inline ladder below (the third dispatch site).
         if let Some(result) = self.try_native_lower(target, args) {
+            return result;
+        }
+        if let Some(result) = self.try_abi_inline_self_lower(target, args) {
             return result;
         }
         if target == "len" && args.len() == 1 {

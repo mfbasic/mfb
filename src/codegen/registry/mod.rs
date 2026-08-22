@@ -128,6 +128,24 @@ pub(crate) type AbiInline =
         &AbiCtx<'a>,
     ) -> Result<crate::codegen::engine::builder::ValueResult, String>;
 
+/// A builder-driven **self-lowering** inline lowering — the second `AbiInline` mode.
+/// Where [`AbiInline`] hands the body its args **pre-lowered** (the dispatch owns arg
+/// acquisition — the `bits` register-only shape), an `AbiInlineSelf` body receives the
+/// call's **raw `NirValue` args** and lowers them itself, exactly as a [`NativeLower`]
+/// `common` body did, plus the [`AbiCtx`]. This is the mode a member needs when its
+/// argument handling is type-aware (a `d`-native float map key stores via `str d`, not
+/// a generic `str x`) or NIR-dependent (constant-folding a literal, or bounds-check
+/// elision off the raw index expression) — things a generic pre-lowering pass cannot
+/// reproduce. Making `abi_inline` carry both modes is what lets it be the true unified
+/// successor to `NativeLower` (which is self-lowering) without pessimizing a member
+/// that lowers its own args. Byte-identical to the `common` body it replaces.
+pub(crate) type AbiInlineSelf =
+    for<'a> fn(
+        &mut crate::codegen::engine::builder::CodeBuilder<'a>,
+        &[crate::target::shared::nir::NirValue],
+        &AbiCtx<'a>,
+    ) -> Result<crate::codegen::engine::builder::ValueResult, String>;
+
 /// A builder-driven **shared-function** lowering (the unified successor to
 /// [`OsLower`]): the *same body shape* as [`AbiInline`], but the wrapper binds its
 /// args to the incoming ABI param registers and emits it once as a shared
@@ -231,9 +249,14 @@ pub(crate) enum Body {
         common: Option<NativeLower>,
         /// Experimental unified lowerings (see [`AbiInline`]/[`AbiFunction`]). A
         /// member sets exactly one: `abi_inline` lowers the call inline at each call
-        /// site (like `common`); `abi_function` is wrapped once into a shared
-        /// `_mfb_rt_*` helper (like `posix`/`win`) and `bl`'d from every call site.
+        /// site with **pre-lowered** args (like `common`, the `bits` shape);
+        /// `abi_inline_self` also lowers inline but receives the **raw `NirValue`**
+        /// args and lowers them itself (the self-lowering `AbiInline` mode a type-aware
+        /// or NIR-dependent member needs — byte-identical to its old `common` body);
+        /// `abi_function` is wrapped once into a shared `_mfb_rt_*` helper (like
+        /// `posix`/`win`) and `bl`'d from every call site.
         abi_inline: Option<AbiInline>,
+        abi_inline_self: Option<AbiInlineSelf>,
         abi_function: Option<AbiFunction>,
         /// Auxiliary runtime-call member names this OS-seam member also emits for —
         /// the `builder_values` overload-split code forms (`spawnEnv`, `sendTimeout`,
@@ -312,20 +335,39 @@ impl Body {
             win,
             common,
             abi_inline: None,
+            abi_inline_self: None,
             abi_function: None,
             os_aliases: &[],
         }
     }
 
     /// An experimental [`AbiInline`] lowering — a builder-driven inline call-site
-    /// lowering (the unified successor to a `common`/[`NativeLower`] member). Lowers
-    /// on all targets; the call is emitted inline at each site.
+    /// lowering with **pre-lowered** args (the `bits` register-only shape). Lowers on
+    /// all targets; the call is emitted inline at each site.
     pub(crate) fn abi_inline(lower: AbiInline) -> Self {
         Body::Native {
             posix: None,
             win: None,
             common: None,
             abi_inline: Some(lower),
+            abi_inline_self: None,
+            abi_function: None,
+            os_aliases: &[],
+        }
+    }
+
+    /// The **self-lowering** [`AbiInlineSelf`] mode of `abi_inline`: the body receives
+    /// the call's raw `NirValue` args (plus [`AbiCtx`]) and lowers them itself, exactly
+    /// as its former `common`/[`NativeLower`] body did. Use it for a member whose
+    /// argument handling is type-aware or NIR-dependent, so a generic arg pre-lowering
+    /// pass would be wrong or lossy. Byte-identical to the `common` body it replaces.
+    pub(crate) fn abi_inline_self(lower: AbiInlineSelf) -> Self {
+        Body::Native {
+            posix: None,
+            win: None,
+            common: None,
+            abi_inline: None,
+            abi_inline_self: Some(lower),
             abi_function: None,
             os_aliases: &[],
         }
@@ -340,6 +382,7 @@ impl Body {
             win: None,
             common: None,
             abi_inline: None,
+            abi_inline_self: None,
             abi_function: Some(lower),
             os_aliases: &[],
         }
@@ -364,6 +407,7 @@ impl Body {
             win,
             common: None,
             abi_inline: None,
+            abi_inline_self: None,
             abi_function: None,
             os_aliases,
         }
@@ -2299,6 +2343,21 @@ pub(crate) fn abi_inline_lower(qualified: &str) -> Option<AbiInline> {
     None
 }
 
+/// The **self-lowering** [`AbiInlineSelf`] lowering for `qualified`, or `None`. The
+/// dispatch calls this body with the raw `NirValue` args (no arg pre-lowering).
+pub(crate) fn abi_inline_self_lower(qualified: &str) -> Option<AbiInlineSelf> {
+    for implementation in &registry().resolve_func(qualified)?.function.implementations {
+        if let Body::Native {
+            abi_inline_self: Some(lower),
+            ..
+        } = &implementation.body
+        {
+            return Some(*lower);
+        }
+    }
+    None
+}
+
 /// The experimental [`AbiFunction`] lowering for `qualified`, plus the member's
 /// parameter count (so the runtime-helper wrapper can bind that many incoming ABI
 /// argument registers). `None` when `qualified` is not an `abi_function` member.
@@ -2333,10 +2392,10 @@ pub(crate) fn is_abi_function_call(qualified: &str) -> bool {
 /// name predicate (`is_bits_shift`).
 pub(crate) fn native_member_declares_error(qualified: &str) -> Option<bool> {
     let function = registry().resolve_func(qualified)?.function;
-    // An inline call-site lowering is either the legacy `common` slot or the
-    // migrated `abi_inline` slot (bits); both feed the same inline-`TRAP`
-    // fallibility census, so a fallible `abi_inline` member (bits' variable shifts)
-    // is recognized exactly like a fallible `common` one.
+    // An inline call-site lowering is the legacy `common` slot or either migrated
+    // `abi_inline` mode (pre-lowered `bits`, or self-lowering collections/strings);
+    // all feed the same inline-`TRAP` fallibility census, so a fallible migrated
+    // member is recognized exactly like a fallible `common` one.
     let mut inline_native = false;
     let mut declares = false;
     for implementation in &function.implementations {
@@ -2347,6 +2406,9 @@ pub(crate) fn native_member_declares_error(qualified: &str) -> Option<bool> {
                 ..
             } | Body::Native {
                 abi_inline: Some(_),
+                ..
+            } | Body::Native {
+                abi_inline_self: Some(_),
                 ..
             }
         ) {
@@ -2393,16 +2455,20 @@ pub(crate) fn mfb_fast_path(target: &str) -> Option<MfbFastPath> {
 pub(crate) fn native_bare_target(qualified: &str) -> Option<&'static str> {
     let function = registry().resolve_func(qualified)?.function;
     for implementation in &function.implementations {
-        // A native inline call-site lowering is either the legacy `common`
-        // (`NativeLower`) slot or its unified successor `abi_inline` — both dequalify
-        // to the same bare native name. `abi_function` (a `bl`'d runtime helper) is
-        // NOT an inline call-site lowering, so it is excluded.
+        // A native inline call-site lowering is the legacy `common` (`NativeLower`)
+        // slot or either `abi_inline` mode (pre-lowered or self-lowering) — all
+        // dequalify to the same bare native name. `abi_function` (a `bl`'d runtime
+        // helper) is NOT an inline call-site lowering, so it is excluded.
         if matches!(
             implementation.body,
             Body::Native {
-                common: Some(_), ..
+                common: Some(_),
+                ..
             } | Body::Native {
                 abi_inline: Some(_),
+                ..
+            } | Body::Native {
+                abi_inline_self: Some(_),
                 ..
             }
         ) {

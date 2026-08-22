@@ -106,8 +106,10 @@ impl CodeBuilder<'_> {
             // n*8). itemsB/keysB/items are then reserved FROM keys_slot (n*8), never
             // the String source. `transform` re-lowers args[0]/args[1]; the dispatch
             // gate only routes String sortBy here when both are re-eval-safe.
-            let keys =
-                crate::codegen::builtins::collections::func_transform::lower_transform(self, args)?;
+            let ctx = self.inline_abi_ctx();
+            let keys = crate::codegen::builtins::collections::func_transform::lower_transform(
+                self, args, &ctx,
+            )?;
             let keys_slot = self.allocate_stack_object("sortby_keys", 8);
             self.emit(abi::store_u64(
                 &keys.location,

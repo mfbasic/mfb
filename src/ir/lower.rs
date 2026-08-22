@@ -2049,6 +2049,7 @@ fn expression_type(
             }
             if crate::codegen::registry::native_lower(&canonical_callee).is_some()
                 || crate::codegen::registry::abi_inline_lower(&canonical_callee).is_some()
+                || crate::codegen::registry::abi_inline_self_lower(&canonical_callee).is_some()
             {
                 let normalized =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);

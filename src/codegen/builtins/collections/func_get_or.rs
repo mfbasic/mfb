@@ -4,7 +4,7 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::{list_element_type, map_type_parts};
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -119,7 +119,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Var("T"),
                 errors: vec![],
-                body: Body::native(None, None, Some(lower_get_or)),
+                body: Body::abi_inline_self(lower_get_or),
             },
             Implementation {
                 params: vec![
@@ -147,7 +147,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Var("V"),
                 errors: vec![],
-                body: Body::native(None, None, Some(lower_get_or)),
+                body: Body::abi_inline_self(lower_get_or),
             },
         ],
     });
@@ -158,6 +158,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 pub(crate) fn lower_get_or(
     builder: &mut CodeBuilder,
     args: &[NirValue],
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let collection = builder.lower_value(&args[0])?;
     let collection_slot = builder.allocate_stack_object("get_or_collection", 8);
