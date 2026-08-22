@@ -11,7 +11,7 @@
 //!
 //! It stays an `impl CodeBuilder` method (call sites unchanged); only the
 //! defining module moved. It delegates to the map probe/scan helpers now in
-//! [`super::map`] and the shared payload-compare branch in `src/target`.
+//! [`super::gen_map`] and the shared payload-compare branch in `src/target`.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;

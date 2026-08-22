@@ -54,7 +54,7 @@ types — `Integer`, `Float`, `Fixed`, `Byte`, `Boolean`, and `String` — and a
 linear scan over the live entries for any other element type. The hash index is
 rebuilt lazily on first use, and the bucket region is shared with the `Map`
 layout. [[src/target/shared/code/type_utils.rs:collection_has_buckets]]
-[[src/codegen/builtins/collections/common/set.rs:emit_key_membership]]
+[[src/codegen/builtins/collections/gen_set.rs:emit_key_membership]]
 
 ## Copying
 

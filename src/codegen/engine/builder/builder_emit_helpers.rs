@@ -23,7 +23,7 @@ impl CodeBuilder<'_> {
     /// The inline-`TRAP` raw-result capture label, when the current lowering sits
     /// inside an inline `TRAP` on a raw-supported builtin. Read by the collections
     /// callback members' failure exit (`emit_callback_failure_exit`, now in
-    /// `codegen::builtins::collections::common::flow`) without exposing the field.
+    /// `codegen::builtins::collections::gen_flow`) without exposing the field.
     pub(crate) fn raw_result_capture_label(&self) -> Option<String> {
         self.raw_result_capture.clone()
     }
@@ -40,7 +40,7 @@ impl CodeBuilder<'_> {
     /// Record an internal (`binding: "internal"`, no library) call relocation from
     /// the current function to `to`, without emitting the branch itself. Extracted
     /// verbatim from `emit_map_probe`'s open-coded push so that helper can live in
-    /// `codegen::builtins::collections::common` without reaching `CodeBuilder`'s
+    /// `codegen::builtins::collections` without reaching `CodeBuilder`'s
     /// private `relocations`/`current_symbol` fields. Byte-identical to the inline
     /// push it replaces (the caller still emits its own `branch_link`).
     pub(crate) fn push_internal_call_relocation(&mut self, to: &str) {

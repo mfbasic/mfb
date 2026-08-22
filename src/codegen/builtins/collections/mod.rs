@@ -2,7 +2,6 @@
 use crate::ast::AstProject;
 use crate::codegen::registry::{Registry, RegistryPackage};
 use std::path::Path;
-pub(crate) mod common;
 mod func_add;
 mod func_all;
 mod func_any;
@@ -54,6 +53,20 @@ mod func_zip;
 // groupBy) reuse `lower_transform` directly until they too migrate (plan-96).
 pub(crate) mod func_transform;
 mod func_values;
+// Shared, collections-package-only codegen seams (the plan-96 "A1" tier): target-
+// generic `impl CodeBuilder` primitives whose only callers are collection-domain
+// lowerings (the `func_*.rs` entries and their sibling collection code in
+// `src/target`). They stay `impl CodeBuilder` methods — only the defining module
+// moved — so call sites (`builder.lower_list_get(..)`) are unchanged. `gen_memory`
+// and `gen_mutate` also use the shared memory/error layer and carry a wider
+// `codegen -> target` import surface until `src/codegen/memory` exists.
+mod gen_flow;
+mod gen_list;
+mod gen_map;
+mod gen_memory;
+mod gen_mutate;
+mod gen_set;
+mod gen_slice;
 
 /// Path of the compiler-owned `collections` package source injected into every
 /// project that imports it. This is the `AstFile.path` (see `augmented_project`), so

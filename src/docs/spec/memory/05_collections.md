@@ -471,7 +471,7 @@ first use — then reads the matching entry's payload at `Data + valueOffset`;
 missing keys fail with `ErrNotFound`. The probe covers every scalar key type
 (`String`, `Integer`, `Float`, `Fixed`, `Byte`, `Boolean`, i.e. all valid map key
 types); any other key type falls back to a generic linear scan over the live
-lookup entries. [[src/codegen/builtins/collections/common/map.rs:lower_map_get]]
+lookup entries. [[src/codegen/builtins/collections/gen_map.rs:lower_map_get]]
 
 ### `append`
 
