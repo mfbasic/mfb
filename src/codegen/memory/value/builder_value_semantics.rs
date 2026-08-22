@@ -695,7 +695,7 @@ impl CodeBuilder<'_> {
                 Some(format!("{left}{right}"))
             }
             // The unicode case/normalization builtins fold a static-string argument
-            // to a static result (`lower_strings_package_call` /
+            // to a static result (each `strings::` `func_*` lowering consults
             // `static_strings_package_string`). This resolver MUST recognize the
             // same folds: `value_needs_owning_copy` consults it to decide whether a
             // bound value is a rodata constant needing a deep copy. If it misses the

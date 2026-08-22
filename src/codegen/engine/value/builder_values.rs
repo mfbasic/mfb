@@ -720,9 +720,11 @@ impl CodeBuilder<'_> {
                 }
                 // `strings::`/`astrings::` native members migrated to the clean-room
                 // registry (`Body::Native` `common`), reached below through
-                // `try_native_lower` (plan-99 PART B/C). Their shared codegen carriers
-                // (`lower_strings_package_call`/`lower_astrings_package_call`) are
-                // unchanged; only the dispatch seam moved off these per-package calls.
+                // `try_native_lower` (plan-99 PART B/C). `strings::` now lowers per
+                // member in its own `func_*.rs` (the `builder_strings_*` carrier +
+                // `lower_strings_package_call` dispatcher were collapsed to the
+                // func_/gen_ shape); `astrings::` still routes through its shared
+                // `lower_astrings_package_call` carrier until it migrates.
                 // Migrated `collections::`/`strings::` members arrive with their
                 // qualified, dot-containing target (`collections.get`,
                 // `strings.find`, ...). `native_builtin_target` maps these to the
