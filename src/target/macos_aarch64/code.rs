@@ -241,20 +241,14 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         Some(Ok(()))
     }
 
-    fn emit_app_io_is_terminal_helper(
+    fn emit_app_io_is_terminal(
         &self,
         symbol: &str,
-    ) -> Option<
-        Result<
-            (
-                crate::codegen::engine::types::CodeFrame,
-                Vec<CodeInstruction>,
-                Vec<CodeRelocation>,
-            ),
-            String,
-        >,
-    > {
-        Some(Ok(app::emit_app_io_is_terminal_helper(symbol)))
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        app::emit_app_io_is_terminal(symbol, instructions, relocations);
+        Some(Ok(()))
     }
 
     fn emit_app_term_helper(

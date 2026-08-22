@@ -625,20 +625,18 @@ pub(crate) fn emit_app_io_input_helper(symbol: &str) -> AppHookBody {
 /// App-mode `io.isInputTerminal`/`io.isOutputTerminal`/`io.isErrorTerminal`
 /// (plan-05 §5.4): the window is the interactive console, so all three return
 /// `OK(TRUE)`. Result ABI: x0 = tag (0 = ok), x1 = value.
-pub(crate) fn emit_app_io_is_terminal_helper(symbol: &str) -> AppHookBody {
-    let mut asm = Asm::new(symbol);
-    asm.push(abi::label("entry"));
-    asm.push(abi::move_immediate(abi::c_arg(1), "Boolean", "1")); // value = TRUE
-    asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // tag = OK
-    asm.push(abi::return_());
-    (
-        CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        asm.ins,
-        asm.rel,
-    )
+pub(crate) fn emit_app_io_is_terminal(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
+) {
+    let _ = symbol;
+    // Result registers via the abstract ABI tokens (`mfb_return(1)` = value,
+    // `mfb_return(0)` = tag), so the `abi_function` vreg finalizer accepts the
+    // appended stream (plan-101).
+    instructions.push(abi::move_immediate(abi::mfb_return(1), "Boolean", "1")); // value = TRUE
+    instructions.push(abi::move_immediate(abi::mfb_return(0), "Integer", "0")); // tag = OK
+    instructions.push(abi::return_());
 }
 
 /// App-mode raw key input (plan-05 §5.4): set the transcript to RAW mode so each

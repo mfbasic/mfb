@@ -583,12 +583,19 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         Some(Ok(()))
     }
 
-    fn emit_app_io_is_terminal_helper(&self, symbol: &str) -> Option<Result<AppHookBody, String>> {
-        let sysv = self.arch.app().require_gtk();
-        Some(Ok(AppSupport::wrap(
-            sysv,
-            gtk::emit_app_io_is_terminal_helper(symbol),
-        )))
+    fn emit_app_io_is_terminal(
+        &self,
+        symbol: &str,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        // Hard-stop an unported ISA. The former `AppSupport::wrap` SysV
+        // callee-saved bracket is gone: this appends a vreg stream into the
+        // caller's `abi_function` body and the shared finalizer builds the frame
+        // (plan-101 append shape).
+        let _ = self.arch.app().require_gtk();
+        gtk::emit_app_io_is_terminal(symbol, instructions, relocations);
+        Some(Ok(()))
     }
 
     fn emit_app_term_helper(
@@ -1598,7 +1605,7 @@ mod tests {
         #[test]
         #[should_panic(expected = "rv64 app mode not ported")]
         fn io_is_terminal_helper() {
-            let _ = riscv64().emit_app_io_is_terminal_helper("s");
+            let _ = riscv64().emit_app_io_is_terminal("s", &mut Vec::new(), &mut Vec::new());
         }
 
         #[test]

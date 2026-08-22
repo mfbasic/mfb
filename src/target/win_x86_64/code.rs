@@ -3236,8 +3236,14 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         Some(app::emit_app_raw_input_mode())
     }
 
-    fn emit_app_io_is_terminal_helper(&self, symbol: &str) -> Option<Result<AppHookBody, String>> {
-        Some(Ok(app::emit_app_io_is_terminal_helper(symbol)))
+    fn emit_app_io_is_terminal(
+        &self,
+        symbol: &str,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        app::emit_app_io_is_terminal(symbol, instructions, relocations);
+        Some(Ok(()))
     }
 
     fn emit_app_term_helper(

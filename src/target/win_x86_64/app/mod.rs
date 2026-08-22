@@ -1746,24 +1746,18 @@ pub(super) fn emit_app_io_flush_helper(_symbol: &str) -> AppHookBody {
 /// App-mode `io.isInputTerminal`/`isOutputTerminal`/`isErrorTerminal` body: the
 /// window (or its inherited console) IS the terminal, so all three return
 /// `OK(TRUE)` — `RESULT_OK_TAG` in the tag register, `1` in the value register.
-pub(super) fn emit_app_io_is_terminal_helper(_symbol: &str) -> AppHookBody {
-    let mut ins: Vec<CodeInstruction> = Vec::new();
-    ins.push(abi::label("entry"));
-    ins.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "1"));
-    ins.push(abi::move_immediate(
+pub(super) fn emit_app_io_is_terminal(
+    _symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "1"));
+    instructions.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
         "Integer",
         RESULT_OK_TAG,
     ));
-    ins.push(abi::return_());
-    (
-        CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        ins,
-        Vec::new(),
-    )
+    instructions.push(abi::return_());
 }
 
 /// Wrap a raw instruction/relocation stream as a standalone app-hook body (its

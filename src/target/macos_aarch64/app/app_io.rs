@@ -296,20 +296,21 @@ fn emit_set_input_mode_instructions(asm: &mut Asm, mode: &str) {
 /// App-mode body for `io.isInputTerminal`/`io.isOutputTerminal`/
 /// `io.isErrorTerminal` (plan §5.4): the window is the interactive console, so
 /// all three return `OK(TRUE)`. Result ABI: x0 = tag (0 = ok), x1 = value.
-pub(crate) fn emit_app_io_is_terminal_helper(symbol: &str) -> AppHookBody {
-    let mut asm = Asm::new(symbol);
-    asm.push(abi::label("entry"));
-    asm.push(abi::move_immediate("x1", "Boolean", "1")); // value = TRUE
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // tag = OK
-    asm.push(abi::return_());
-    (
-        CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        asm.ins,
-        asm.rel,
-    )
+/// App-mode `io.is*Terminal`: the window is the interactive console, so return
+/// TRUE. Appends into the caller's vreg stream (plan-101 append shape); the
+/// `abi_function` wrapper finalizes.
+pub(crate) fn emit_app_io_is_terminal(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
+) {
+    let _ = symbol;
+    // Result registers via the abstract ABI tokens (`mfb_return(1)` = value,
+    // `mfb_return(0)` = tag) — NOT raw `x1`/`x0`, so the `abi_function` vreg
+    // finalizer accepts the appended stream (plan-101).
+    instructions.push(abi::move_immediate(abi::mfb_return(1), "Boolean", "1")); // value = TRUE
+    instructions.push(abi::move_immediate(abi::mfb_return(0), "Integer", "0")); // tag = OK
+    instructions.push(abi::return_());
 }
 
 /// Store an immediate into a term-state-global slot reached off the pinned

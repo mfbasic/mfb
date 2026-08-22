@@ -1,6 +1,7 @@
 Cleaned up codegen
 
 - = Not reviewed
++ = Started
 @ = Reviewed
 
 [-] app
@@ -15,7 +16,7 @@ Cleaned up codegen
 [-] errorcode
 [-] fs
 [-] http
-[-] io
+[+] io
 [@] json
 [-] math
 [-] money

@@ -41,7 +41,7 @@ Every app-mode io helper obeys the standard fallible-call result ABI: tag in
 `x0` (`0` = `RESULT_OK_TAG`), value in `x1`. The write/flush helpers return
 `OK` with no value; `isTerminal` returns `OK(TRUE)`; `io::input` forwards the
 `x0`/`x1`/`x2` result of the underlying `io::readLine` helper unchanged.
-[[src/target/macos_aarch64/app/app_io.rs:emit_app_io_is_terminal_helper]]
+[[src/target/macos_aarch64/app/app_io.rs:emit_app_io_is_terminal]]
 
 ## The input pipe (fd 0 redirection)
 

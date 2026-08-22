@@ -1058,11 +1058,17 @@ pub(crate) trait CodegenPlatform {
         None
     }
 
-    /// App-mode body for `io.isInputTerminal`/`io.isOutputTerminal`/
-    /// `io.isErrorTerminal` (plan §5.4): the window is the interactive console,
-    /// so all three return TRUE. `None` for targets without app mode.
-    #[allow(clippy::type_complexity)]
-    fn emit_app_io_is_terminal_helper(&self, _symbol: &str) -> Option<Result<AppHookBody, String>> {
+    /// App-mode append for `io.isInputTerminal`/`io.isOutputTerminal`/
+    /// `io.isErrorTerminal` (plan §5.4): the window is the interactive console, so
+    /// all three return TRUE. Appends its vreg instructions into the caller's
+    /// stream (the `abi_function` wrapper finalizes) — the `emit_is_terminal`
+    /// shape. `None` for targets without app mode.
+    fn emit_app_io_is_terminal(
+        &self,
+        _symbol: &str,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
         None
     }
 

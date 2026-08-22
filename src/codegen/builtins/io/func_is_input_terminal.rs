@@ -3,15 +3,15 @@
 //!
 //! `io` lowers through per-function `Body::abi_function` clean-room lowerings
 //! (plan-101). Beyond the `isInputTerminal` member itself, this file owns the
-//! shared terminal-predicate emitter (`lower_io_is_terminal_helper`) and the
+//! shared terminal-predicate emitter (`emit_is_terminal_body`) and the
 //! `lower_is_terminal_common` adapter that `io::isOutputTerminal`/`io::isErrorTerminal`
 //! also dispatch through (they
 //! `use super::func_is_input_terminal::lower_is_terminal_common`).
 
-use super::{adapter_app_mode, app_unsupported, hatch_finalized};
+use super::app_unsupported;
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
-use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::target::shared::abi;
@@ -78,8 +78,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// Shared `abi_function` body for the three terminal predicates
 /// `io::is{Input,Output,Error}Terminal`, which differ only in the probed file
 /// descriptor (`fd`) and the result label (`text`). Console: `isatty(fd)` via
-/// `lower_io_is_terminal_helper`. App mode: the window is the interactive
-/// console, so all three return `TRUE` (`emit_app_io_is_terminal_helper`).
+/// `emit_is_terminal_body`. App mode: the window is the interactive
+/// console, so all three return `TRUE` (`emit_app_io_is_terminal`).
 pub(crate) fn lower_is_terminal_common(
     builder: &mut CodeBuilder,
     ctx: &AbiCtx,
@@ -87,29 +87,41 @@ pub(crate) fn lower_is_terminal_common(
     text: &str,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let body = if adapter_app_mode(ctx) {
-        pad_no_slots(
-            ctx.platform
-                .emit_app_io_is_terminal_helper(&symbol)
-                .ok_or_else(|| app_unsupported(ctx.platform))??,
-        )
+    if ctx.build_mode.is_app() {
+        // App mode: the window is the interactive console — the platform hook
+        // appends `RESULT = TRUE/OK` directly into the builder's vreg stream.
+        ctx.platform
+            .emit_app_io_is_terminal(&symbol, &mut builder.instructions, &mut builder.relocations)
+            .ok_or_else(|| app_unsupported(ctx.platform))??;
     } else {
-        lower_io_is_terminal_helper(&symbol, ctx.platform_imports, ctx.platform, fd)?
-    };
-    hatch_finalized(builder, body, "Boolean", text)
+        // Console: `isatty(fd)` vreg body spliced in; the wrapper finalizes.
+        let (instructions, relocations, frame_size) =
+            emit_is_terminal_body(&symbol, ctx.platform_imports, ctx.platform, fd)?;
+        builder.instructions.extend(instructions);
+        builder.relocations.extend(relocations);
+        builder.stack_size = frame_size;
+    }
+    Ok(ValueResult {
+        type_: "Boolean".to_string(),
+        location: Operand::from("void"),
+        text: text.to_string(),
+    })
 }
 
-pub(crate) fn lower_io_is_terminal_helper(
+/// Emit the console `isatty(fd)` vreg body (pre-finalization): returns
+/// `(instructions, relocations, frame_size)`; the caller splices it into the
+/// builder and the `abi_function` wrapper finalizes.
+fn emit_is_terminal_body(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     fd: u8,
-) -> HelperResult {
+) -> Result<(Vec<CodeInstruction>, Vec<CodeRelocation>, usize), String> {
     const FRAME_SIZE: usize = 16;
     let yes = format!("{symbol}_yes");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     instructions.push(abi::move_immediate(
         abi::return_register(),
@@ -134,6 +146,5 @@ pub(crate) fn lower_io_is_terminal_helper(
         abi::label(&done),
     ]);
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME_SIZE))
 }
