@@ -115,6 +115,16 @@ TESTING
     END TGROUP
 
     ' -----------------------------------------------------------------------
+    TCASE "sl, sr, sra - security: extreme count bounds trap"
+      expectTrap(bits::sl(1, 9223372036854775807), errorCode::ErrInvalidArgument)
+      expectTrap(bits::sl(1, -9223372036854775808), errorCode::ErrInvalidArgument)
+      expectTrap(bits::sr(1, 9223372036854775807), errorCode::ErrInvalidArgument)
+      expectTrap(bits::sr(1, -9223372036854775808), errorCode::ErrInvalidArgument)
+      expectTrap(bits::sra(1, 9223372036854775807), errorCode::ErrInvalidArgument)
+      expectTrap(bits::sra(1, -9223372036854775808), errorCode::ErrInvalidArgument)
+    END TCASE
+
+    ' -----------------------------------------------------------------------
     TGROUP "sr — logical right shift (fallible: count 0..63)"
       TCASE "zero-fills the vacated high bits"
         expectInteger(bits::sr(256, 4), 16)
@@ -181,6 +191,32 @@ TESTING
     END TGROUP
 
     ' -----------------------------------------------------------------------
+    TCASE "rr32 - high 32 bits do not bleed into rotation"
+      ' Bit 32 is set; low 32 bits are 0. Result must be 0.
+      expectInteger(bits::rl32(4294967296, 1), 0)
+      expectInteger(bits::rr32(4294967296, 1), 0)
+
+      ' High bits set, low bits are 1 -> rotating left by 1 should be 2, not 3
+      expectInteger(bits::rl32(-9223372036854775807, 1), 2)
+    END TCASE
+
+    ' -----------------------------------------------------------------------
+    TCASE "rr32, rl64, rr64 - negative and large shift counts in rotates"
+      ' In rr32:
+      expectInteger(bits::rr32(1, -1), 2)          ' rotate right by -1 == rotate left by 1
+      expectInteger(bits::rr32(1, -33), 2)
+
+      ' In rl64:
+      expectInteger(bits::rl64(1, 65), 2)
+      expectInteger(bits::rl64(1, -65), -9223372036854775808)
+
+      ' In rr64:
+      expectInteger(bits::rr64(1, -1), 2)          ' rotate right by -1 == rotate left by 1
+      expectInteger(bits::rr64(1, 65), -9223372036854775808)
+      expectInteger(bits::rr64(1, -65), 2)
+    END TCASE
+
+    ' -----------------------------------------------------------------------
     TGROUP "rr32 — rotate low 32 bits right (count mod 32, total)"
       TCASE "basic and wrap-around rotations"
         expectInteger(bits::rr32(1, 1), 2147483648)
@@ -243,6 +279,10 @@ TESTING
       TCASE "high bits above bit 31 are cleared"
         expectInteger(bits::bswap32(-1), 4294967295)
       END TCASE
+      TCASE "zero-extension verification"
+        expectInteger(bits::bswap32(4294967296), 0)  ' only bit 32 set -> returns 0
+        expectInteger(bits::bswap32(-9223372036854775808), 0)
+      END TCASE
     END TGROUP
 
     ' -----------------------------------------------------------------------
@@ -270,6 +310,10 @@ TESTING
         expectInteger(bits::clz(-1), 0)
         expectInteger(bits::clz(-9223372036854775808), 0)
       END TCASE
+      TCASE "32-bit to 64-bit boundary"
+        expectInteger(bits::clz(2147483648), 32)     ' bit 31 set -> 32 leading zeros
+        expectInteger(bits::clz(4294967296), 31)     ' bit 32 set -> 31 leading zeros
+      END TCASE
     END TGROUP
 
     ' -----------------------------------------------------------------------
@@ -285,6 +329,10 @@ TESTING
         expectInteger(bits::ctz(-9223372036854775808), 63)
         expectInteger(bits::ctz(-1), 0)
       END TCASE
+      TCASE "32-bit to 64-bit boundary"
+        expectInteger(bits::ctz(2147483648), 31)     ' bit 31 set -> 31 trailing zeros
+        expectInteger(bits::ctz(4294967296), 32)     ' bit 32 set -> 32 trailing zeros
+      END TCASE
     END TGROUP
 
     ' -----------------------------------------------------------------------
@@ -299,6 +347,10 @@ TESTING
         expectInteger(bits::popCount(-1), 64)
         expectInteger(bits::popCount(9223372036854775807), 63)
         expectInteger(bits::popCount(-9223372036854775808), 1)
+      END TCASE
+      TCASE "32-bit to 64-bit boundary"
+        expectInteger(bits::popCount(6148914691236517205), 32)  ' 0x5555555555555555
+        expectInteger(bits::popCount(-6148914691236517206), 32) ' 0xAAAAAAAAAAAAAAAA
       END TCASE
     END TGROUP
 
