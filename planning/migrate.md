@@ -23,9 +23,14 @@ Per member `<name>`:
   body directly into `builder.instructions` / `builder.relocations` and sets
   `builder.stack_size`; the `abi_function` wrapper finalizes it.
 - No `lower_<name>` + `emit_<name>_body` split. One function.
-- Shared-by-multiple-members logic lives in `gen_<something>.rs`
-  (multi-member lowering seams) or `helper_<something>.rs` (leaf helpers), **never**
-  imported `func_ -> func_`.
+- Two kinds of shared file — pick by *what the code is*, **never** import `func_ -> func_`:
+  - `gen_<something>.rs` = shared **code generation**: `emit_*`/`lower_*` functions that
+    emit instructions into a builder (a multi-member lowering seam, or the primitives
+    several members emit). No `register()`. (crypto `gen_hash`/`gen_cert`/`gen_cipher`;
+    io `gen_write_family`/`gen_read_family`/`gen_read_line_family`/`gen_is_terminal`.)
+  - `helper_<something>.rs` = a shared **helper function registered into the package**
+    (has `register()`; an MFB-implemented or intrinsic member that other members call —
+    *not* code generation). See crypto/bits/json/csv `helper_*`.
 - App mode appends the platform sequence in place (`ctx.platform.emit_app_<pkg>_<op>(…)`),
   no standalone helper, no `bl` hop, no `native_os_seam`, no `hatch_finalized`.
 
@@ -155,19 +160,22 @@ than retyping, then fix only the signature + tail with `Edit`.
 
 ---
 
-## 5. Shared seams → `gen_*` / `helper_*`
+## 5. Shared seams → `gen_*` (code gen) / `helper_*` (registered helper)
 
 If two or more `func_*` members import the same item, it must **not** live in a
-`func_*` file. Move it:
+`func_*` file. Move it by what it *is* (see §0):
 
-- A shared **member lowering** (e.g. one body serving `print`/`write`/`printError`/
-  `writeError`, selected by flags) → `gen_<family>.rs`, `pub(crate)`.
-- Shared **primitives** (e.g. the stdin byte/UTF-8 readers used by
-  readByte/readChar/readLine) → `gen_<area>.rs` or `helper_<x>.rs`.
+- Anything that **emits instructions** — a shared member lowering (one body serving
+  `print`/`write`/`printError`/`writeError` by flags) OR shared emit primitives (the
+  stdin byte/UTF-8 readers `emit_stdin_byte_read`/`emit_utf8_sequence_read` several
+  read members emit) → `gen_<area>.rs`, `pub(crate)`. Code generation is always `gen_`.
+- A shared **registered helper member** (`register()`; an MFB/intrinsic function the
+  members call, no instruction emission) → `helper_<x>.rs`.
 
-`io` ended with `gen_is_terminal`, `gen_write_family`, `gen_read_family`
-(primitives), `gen_read_line_family`. Moving code between files is pure motion →
-byte-identical; the acceptance gate proves it.
+`io` ended with `gen_is_terminal`, `gen_write_family`, `gen_read_family` (the shared
+stdin emit primitives), `gen_read_line_family` — all code generation, so all `gen_`;
+it needed no `helper_`. Moving code between files is pure motion → byte-identical;
+the acceptance gate proves it.
 
 ---
 
