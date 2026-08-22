@@ -1,11 +1,12 @@
 //! `io::pollInput` — descriptor entry + authored docs.
 //!
 //! Per-member file. `io` lowers through per-function `Body::abi_function`
-//! clean-room lowerings (plan-101): this member adapter reproduces its former
-//! `lower_io_helper` `match` arm and hatches the finalized OS-seam body back.
+//! clean-room lowerings (plan-101): [`lower_poll_input`] emits its vreg body into
+//! the builder (via `emit_poll_input_body`) — the wrapper finalizes it (crypto's
+//! shape). No adapter, no pre-finalized hatch.
 
-use super::{adapter_app_mode, hatch_finalized};
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -27,13 +28,20 @@ pub(crate) fn lower_poll_input(
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let body = lower_io_poll_input_helper(
+    let (instructions, relocations, frame_size) = emit_poll_input_body(
         &symbol,
         ctx.platform_imports,
         ctx.platform,
-        adapter_app_mode(ctx),
+        ctx.build_mode.is_app(),
     )?;
-    hatch_finalized(builder, body, "Boolean", "io.pollInput")
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = frame_size;
+    Ok(ValueResult {
+        type_: "Boolean".to_string(),
+        location: Operand::from("void"),
+        text: "io.pollInput".to_string(),
+    })
 }
 
 const INTRO: &str =
@@ -111,12 +119,15 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 }
 
 // --- stdin pollInput emitter (relocated from native/) ---
-pub(crate) fn lower_io_poll_input_helper(
+/// Emit the pollInput vreg body (pre-finalization): returns
+/// `(instructions, relocations, frame_size)` for [`lower_poll_input`] to splice
+/// into the builder; the `abi_function` wrapper finalizes.
+fn emit_poll_input_body(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     app_mode: bool,
-) -> HelperResult {
+) -> Result<(Vec<CodeInstruction>, Vec<CodeRelocation>, usize), String> {
     const POLLIN_PACKED_FD0: &str = "4294967296";
     const FRAME_SIZE: usize = 48;
     const POLLFD_OFFSET: usize = 8;
@@ -131,7 +142,7 @@ pub(crate) fn lower_io_poll_input_helper(
     let os_poll = format!("{symbol}_os_poll");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     // Save the caller's timeout before the log-ready check clobbers x0.
@@ -261,6 +272,5 @@ pub(crate) fn lower_io_poll_input_helper(
     );
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME_SIZE))
 }

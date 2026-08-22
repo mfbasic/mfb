@@ -1,14 +1,14 @@
 //! `io::readByte` — descriptor entry + authored docs.
 //!
 //! Per-member file. `io` lowers through per-function `Body::abi_function`
-//! clean-room lowerings (plan-101): this member adapter reproduces its former
-//! `lower_io_helper` `match` arm and hatches the finalized OS-seam body back.
+//! clean-room lowerings (plan-101): [`lower_read_byte`] splices its vreg body
+//! (from `emit_read_byte_body`) into the builder — the wrapper finalizes it
+//! (crypto's shape). No adapter, no pre-finalized hatch.
 
 use super::func_read_line::emit_stdin_byte_read;
-use super::{adapter_app_mode, hatch_finalized};
+use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
-use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::io::terminal::*;
 use crate::codegen::memory::data::*;
@@ -25,13 +25,20 @@ pub(crate) fn lower_read_byte(
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let body = lower_io_read_byte_helper(
+    let (instructions, relocations, frame_size) = emit_read_byte_body(
         &symbol,
         ctx.platform_imports,
         ctx.platform,
-        adapter_app_mode(ctx),
+        ctx.build_mode.is_app(),
     )?;
-    hatch_finalized(builder, body, "Byte", "io.readByte")
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = frame_size;
+    Ok(ValueResult {
+        type_: "Byte".to_string(),
+        location: Operand::from("void"),
+        text: "io.readByte".to_string(),
+    })
 }
 
 const INTRO: &str = r#"Read one raw byte from standard input"#;
@@ -90,12 +97,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 
 // --- stdin readByte emitter (relocated from native/) ---
 
-pub(crate) fn lower_io_read_byte_helper(
+/// Emit the readByte vreg body (pre-finalization): `(instructions, relocations,
+/// frame_size)` for [`lower_read_byte`] to splice in; the wrapper finalizes.
+fn emit_read_byte_body(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     app_mode: bool,
-) -> HelperResult {
+) -> Result<(Vec<CodeInstruction>, Vec<CodeRelocation>, usize), String> {
     const FRAME_SIZE: usize = 208;
     const BYTE_OFFSET: usize = 8;
     let terminal_slots = TerminalModeSlots {
@@ -113,7 +122,7 @@ pub(crate) fn lower_io_read_byte_helper(
     let read_resume = format!("{symbol}_read_resume");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     // Drain buffered stdout before blocking on input (plan-14-A §4.3 hook 2);
     // no-op when buffering is off, skipped in app mode (no stdout buffer).
@@ -196,6 +205,5 @@ pub(crate) fn lower_io_read_byte_helper(
         &terminal_slots,
     )?;
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME_SIZE))
 }
