@@ -8,7 +8,7 @@ Cleaned up codegen
 [-] astrings
 [-] audio
 [@] bits
-[-] collections
+[+] collections
 [@] crypto
 [@] csv
 [-] datetime
@@ -24,7 +24,7 @@ Cleaned up codegen
 [-] os
 [-] process
 [@] regex
-[-] strings
+[+] strings
 [-] term
 [-] thread
 [-] tls
