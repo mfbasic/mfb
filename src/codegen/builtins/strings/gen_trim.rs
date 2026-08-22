@@ -4,11 +4,11 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
-use crate::target::shared::nir::*;
 
+/// `value` is the pre-lowered text argument (the `abi_inline` dispatch lowers it).
 pub(crate) fn lower_strings_trim(
     builder: &mut CodeBuilder,
-    value: &NirValue,
+    value: &ValueResult,
     trim_start: bool,
     trim_end: bool,
 ) -> Result<ValueResult, String> {
@@ -20,8 +20,7 @@ pub(crate) fn lower_strings_trim(
     let scratch13 = builder.temporary_vreg();
     let scratch14 = builder.temporary_vreg();
     let scratch15 = builder.temporary_vreg();
-    let value = builder.lower_value(value)?;
-    builder.require_string("strings.trim value", &value)?;
+    builder.require_string("strings.trim value", value)?;
     let value_slot = builder.spill_to_slot("strings_trim_value", &value.location);
     let start_slot = builder.allocate_stack_object("strings_trim_start", 8);
     let end_slot = builder.allocate_stack_object("strings_trim_end", 8);

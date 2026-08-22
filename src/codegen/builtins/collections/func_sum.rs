@@ -7,10 +7,9 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::list_element_type;
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTO_SUM: &str = "Add up the elements of an Integer, Float, or Fixed list";
 const DESC_SUM: &str = r#"`collections::sum` walks `value` from the first element to the last and adds
@@ -108,7 +107,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 }],
                 return_type: ParameterType::Integer,
                 errors: vec!["ErrOverflow"],
-                body: Body::native(None, None, Some(lower_sum)),
+                body: Body::abi_inline(lower_sum),
             },
             Implementation {
                 params: vec![Parameter {
@@ -120,7 +119,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 }],
                 return_type: ParameterType::Float,
                 errors: vec!["ErrOverflow"],
-                body: Body::native(None, None, Some(lower_sum)),
+                body: Body::abi_inline(lower_sum),
             },
             Implementation {
                 params: vec![Parameter {
@@ -132,7 +131,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 }],
                 return_type: ParameterType::Fixed,
                 errors: vec!["ErrOverflow"],
-                body: Body::native(None, None, Some(lower_sum)),
+                body: Body::abi_inline(lower_sum),
             },
         ],
     });
@@ -142,7 +141,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// Integer/Fixed paths use checked addition (`ErrOverflow`), Float uses IEEE-754.
 pub(crate) fn lower_sum(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let scratch8 = builder.temporary_vreg();
     let scratch9 = builder.temporary_vreg();
@@ -152,7 +152,7 @@ pub(crate) fn lower_sum(
     let scratch14 = builder.temporary_vreg();
     let scratch15 = builder.temporary_vreg();
     let scratch16 = builder.temporary_vreg();
-    let collection = builder.lower_value(&args[0])?;
+    let collection = &args[0];
     let Some(element_type) = list_element_type(&collection.type_) else {
         return Err(format!(
             "native collection sum does not accept {}",

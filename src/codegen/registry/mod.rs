@@ -2393,10 +2393,16 @@ pub(crate) fn mfb_fast_path(target: &str) -> Option<MfbFastPath> {
 pub(crate) fn native_bare_target(qualified: &str) -> Option<&'static str> {
     let function = registry().resolve_func(qualified)?.function;
     for implementation in &function.implementations {
+        // A native inline call-site lowering is either the legacy `common`
+        // (`NativeLower`) slot or its unified successor `abi_inline` — both dequalify
+        // to the same bare native name. `abi_function` (a `bl`'d runtime helper) is
+        // NOT an inline call-site lowering, so it is excluded.
         if matches!(
             implementation.body,
             Body::Native {
-                common: Some(_),
+                common: Some(_), ..
+            } | Body::Native {
+                abi_inline: Some(_),
                 ..
             }
         ) {
