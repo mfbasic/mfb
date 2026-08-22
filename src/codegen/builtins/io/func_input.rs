@@ -1,8 +1,8 @@
 //! `io::input` — descriptor entry + authored docs.
 //!
 //! Per-member file. `io` lowers through per-function `Body::abi_function`
-//! clean-room lowerings (plan-101): this member adapter reproduces its former
-//! `lower_io_helper` `match` arm and hatches the finalized OS-seam body back.
+//! clean-room lowerings (plan-101): `lower_*` emits a vreg body into the builder
+//! (app-mode members `bl` a standalone GUI helper); the wrapper finalizes. No hatch.
 
 use super::func_read_line::lower_read_line_family;
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};

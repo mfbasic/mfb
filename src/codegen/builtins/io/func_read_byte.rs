@@ -6,8 +6,8 @@
 //! (crypto's shape). No adapter, no pre-finalized hatch.
 
 use super::func_read_line::emit_stdin_byte_read;
-use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::io::terminal::*;

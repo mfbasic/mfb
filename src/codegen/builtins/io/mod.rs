@@ -22,10 +22,8 @@
 //! type, and has no source companion — the registry's generic overload/return
 //! resolution answers arity/return/validation with no custom resolver.
 
-use crate::codegen::engine::builder::{CodeBuilder, HelperBody, ValueResult};
-use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::CodegenPlatform;
-use crate::codegen::registry::{AbiCtx, Registry, RegistryPackage};
+use crate::codegen::registry::{Registry, RegistryPackage};
 
 mod func_flush;
 mod func_input;
@@ -119,40 +117,10 @@ pub(crate) fn register(r: &mut Registry) {
     r.add_package(pkg);
 }
 
-// --- shared abi_function adapter glue (plan-101; relocated from the retired native/ dir) ---
+// --- shared io abi_function glue (plan-101) ---
 
-/// Hand an already-finalized OS-seam helper body back to `lower_abi_function_helper`
-/// through the plan-101 pre-finalized hatch: place the finished stream in
-/// `builder.instructions`/`relocations`, stash `(frame, slots)` in
-/// `builder.abi_prefinalized`, and return the `void`-location `ValueResult` an
-/// abi_function body signals completion with. Shared by every migrated `io`
-/// abi_function adapter — the body an emitter (or an app-mode `AppHookBody`)
-/// produced is byte-identical to what `lower_io_helper` returned pre-migration.
-pub(crate) fn hatch_finalized(
-    builder: &mut CodeBuilder,
-    body: HelperBody,
-    return_type: &str,
-    text: &str,
-) -> Result<ValueResult, String> {
-    let (frame, instructions, relocations, stack_slots) = body;
-    builder.instructions = instructions;
-    builder.relocations = relocations;
-    builder.abi_prefinalized = Some((frame, stack_slots));
-    Ok(ValueResult {
-        type_: return_type.to_string(),
-        location: Operand::from("void"),
-        text: text.to_string(),
-    })
-}
-
-/// The app-vs-console mode an io abi_function adapter branches on, read from the
-/// `AbiCtx` the plan-101 dispatch threads in.
-pub(crate) fn adapter_app_mode(ctx: &AbiCtx) -> bool {
-    ctx.build_mode.is_app()
-}
-
-/// The error a migrated io abi_function adapter raises when the target lacks an
-/// app-mode io hook — the verbatim message the former `lower_io_helper` produced.
+/// The error a migrated io abi_function body raises when the target lacks an
+/// app-mode io hook (e.g. `io::is*Terminal` on a target with no app backend).
 pub(crate) fn app_unsupported(platform: &dyn CodegenPlatform) -> String {
     format!(
         "native target '{}' does not support app-mode io helpers",

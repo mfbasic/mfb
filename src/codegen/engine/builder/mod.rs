@@ -145,17 +145,6 @@ pub(crate) struct CodeBuilder<'a> {
     pub(crate) instructions: Vec<CodeInstruction>,
     pub(crate) relocations: Vec<CodeRelocation>,
     pub(crate) stack_slots: Vec<CodeStackSlot>,
-    /// The pre-finalized-body escape hatch for a `Body::abi_function` lowering
-    /// (plan-101). An abi body that already holds a fully finalized helper body
-    /// — one built by an OS-seam emitter or a hand-written app-mode `AppHookBody`
-    /// (physical registers, own `CodeFrame`) that cannot pass through the
-    /// wrapper's vreg finalizer — sets this to `Some((frame, slots))` after
-    /// placing the finished stream in `instructions`/`relocations`, and returns a
-    /// `void` `ValueResult`. `lower_abi_function_helper` then returns that body
-    /// verbatim, skipping both the void-epilogue and `finalize_vreg_body_*`.
-    /// `None` (the default, and every crypto/bits abi body) keeps the original
-    /// vreg-finalize behavior. Migrated `io` members are the only current setters.
-    pub(crate) abi_prefinalized: Option<(CodeFrame, Vec<CodeStackSlot>)>,
     pub(crate) used_callee_saved: Vec<String>,
     pub(crate) stack_size: usize,
     pub(crate) next_register: usize,
@@ -1418,6 +1407,113 @@ pub(crate) fn lower_module_for_platform(
         )?);
         code_functions.push(lower_stdin_subscribe(&platform_imports, platform)?);
         code_functions.push(lower_stdin_unsubscribe(&platform_imports, platform)?);
+    }
+    // App-mode io hooks (plan-101): in an `--app` build each io member whose
+    // app-mode behavior is a hand-written GUI body (transcript write, prompt+read,
+    // present-on-flush) is emitted here as its own internal helper — like the
+    // stdout drain — and the member's `abi_function` body `bl`s to its symbol in
+    // app mode (instead of splicing a pre-finalized body through a hatch). The GUI
+    // bodies keep their raw physical-register objc/GTK/Win32 sequences: they are
+    // standalone functions, never run through the vreg finalizer.
+    if module.build_mode.is_app() {
+        use crate::codegen::error::constants::{
+            IO_APP_FLUSH_SYMBOL, IO_APP_INPUT_SYMBOL, IO_APP_PRINT_ERROR_SYMBOL,
+            IO_APP_PRINT_SYMBOL, IO_APP_WRITE_ERROR_SYMBOL, IO_APP_WRITE_SYMBOL,
+        };
+        let used = |sym: &str| runtime_symbols.iter().any(|s| s == sym);
+        let mut push_app = |symbol: &str,
+                            name: &str,
+                            returns: &str,
+                            body: Option<Result<AppHookBody, String>>|
+         -> Result<(), String> {
+            if let Some(res) = body {
+                let (frame, instructions, relocations) = res?;
+                code_functions.push(CodeFunction {
+                    name: name.to_string(),
+                    symbol: symbol.to_string(),
+                    params: Vec::new(),
+                    returns: returns.to_string(),
+                    frame,
+                    instructions,
+                    relocations,
+                    stack_slots: Vec::new(),
+                });
+            }
+            Ok(())
+        };
+        let tso = term_state_offset;
+        if used("_mfb_rt_io_io_flush") {
+            push_app(
+                IO_APP_FLUSH_SYMBOL,
+                "runtime.io.app_flush",
+                "Nothing",
+                platform.emit_app_io_flush_helper(IO_APP_FLUSH_SYMBOL),
+            )?;
+        }
+        if used("_mfb_rt_io_io_input") {
+            push_app(
+                IO_APP_INPUT_SYMBOL,
+                "runtime.io.app_input",
+                "String",
+                platform.emit_app_io_input_helper(IO_APP_INPUT_SYMBOL),
+            )?;
+        }
+        if used("_mfb_rt_io_io_print") {
+            push_app(
+                IO_APP_PRINT_SYMBOL,
+                "runtime.io.app_print",
+                "Nothing",
+                platform.emit_app_io_write_helper(
+                    IO_APP_PRINT_SYMBOL,
+                    false,
+                    true,
+                    tso,
+                    &platform_imports,
+                ),
+            )?;
+        }
+        if used("_mfb_rt_io_io_write") {
+            push_app(
+                IO_APP_WRITE_SYMBOL,
+                "runtime.io.app_write",
+                "Nothing",
+                platform.emit_app_io_write_helper(
+                    IO_APP_WRITE_SYMBOL,
+                    false,
+                    false,
+                    tso,
+                    &platform_imports,
+                ),
+            )?;
+        }
+        if used("_mfb_rt_io_io_printError") {
+            push_app(
+                IO_APP_PRINT_ERROR_SYMBOL,
+                "runtime.io.app_print_error",
+                "Nothing",
+                platform.emit_app_io_write_helper(
+                    IO_APP_PRINT_ERROR_SYMBOL,
+                    true,
+                    true,
+                    tso,
+                    &platform_imports,
+                ),
+            )?;
+        }
+        if used("_mfb_rt_io_io_writeError") {
+            push_app(
+                IO_APP_WRITE_ERROR_SYMBOL,
+                "runtime.io.app_write_error",
+                "Nothing",
+                platform.emit_app_io_write_helper(
+                    IO_APP_WRITE_ERROR_SYMBOL,
+                    true,
+                    false,
+                    tso,
+                    &platform_imports,
+                ),
+            )?;
+        }
     }
     // Per-File output buffering (plan-14-B): the shared `_mfb_rt_fs_file_drain`
     // helper is referenced by fs.close (mandatory flush-on-close), the buffered

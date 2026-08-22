@@ -10,8 +10,8 @@
 //! which `io::input`, `io::readChar`, and `io::readByte` reuse via
 //! `use super::func_read_line::…`.
 
-use super::{adapter_app_mode, app_unsupported, hatch_finalized};
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -108,7 +108,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// reader (`lower_io_read_line_helper`), which reads fd 0 (the window input pipe
 /// in app mode). `console_term_state` is `None` in app mode (no tty) and the
 /// threaded `term_state_offset` in a console build (bug-149 cooked-mode restore).
-/// Hatched back pre-finalized.
+///
 pub(crate) fn lower_read_line_family(
     builder: &mut CodeBuilder,
     ctx: &AbiCtx,
@@ -116,24 +116,36 @@ pub(crate) fn lower_read_line_family(
     text: &str,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let app = adapter_app_mode(ctx);
-    let body = if app && with_prompt {
-        pad_no_slots(
-            ctx.platform
-                .emit_app_io_input_helper(&symbol)
-                .ok_or_else(|| app_unsupported(ctx.platform))??,
-        )
+    let app = ctx.build_mode.is_app();
+    if app && with_prompt {
+        // App-mode `io::input`: `bl` the standalone GUI prompt+read helper.
+        builder
+            .instructions
+            .push(abi::branch_link(IO_APP_INPUT_SYMBOL));
+        builder
+            .relocations
+            .push(internal_branch(&symbol, IO_APP_INPUT_SYMBOL));
+        builder.instructions.push(abi::return_());
     } else {
-        lower_io_read_line_helper(
+        // Console input/readLine, and app-mode readLine (reads the window pipe):
+        // the shared console line-reader vreg body, spliced in; wrapper finalizes.
+        let (instructions, relocations, frame_size) = emit_read_line_body(
             &symbol,
             ctx.platform_imports,
             ctx.platform,
             with_prompt,
             app,
             if app { None } else { ctx.term_state_offset },
-        )?
-    };
-    hatch_finalized(builder, body, "String", text)
+        )?;
+        builder.instructions.extend(instructions);
+        builder.relocations.extend(relocations);
+        builder.stack_size = frame_size;
+    }
+    Ok(ValueResult {
+        type_: "String".to_string(),
+        location: Operand::from("void"),
+        text: text.to_string(),
+    })
 }
 
 /// The label set for the shared UTF-8 lead-byte decoder (bug-331 §F). The two
@@ -486,7 +498,10 @@ pub(crate) fn emit_utf8_sequence_read(
     Ok(())
 }
 
-pub(crate) fn lower_io_read_line_helper(
+/// Emit the console line-reader vreg body (pre-finalization): returns
+/// `(instructions, relocations, frame_size)`; the caller splices it in and the
+/// `abi_function` wrapper finalizes.
+fn emit_read_line_body(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -497,7 +512,7 @@ pub(crate) fn lower_io_read_line_helper(
     // cooked-mode restore while TUI single-key mode is active. `None` in app
     // mode (no tty) or when the program never uses `term::`.
     console_term_state: Option<usize>,
-) -> HelperResult {
+) -> Result<(Vec<CodeInstruction>, Vec<CodeRelocation>, usize), String> {
     const FRAME_SIZE: usize = 256;
     const BUFFER_OFFSET: usize = 8;
     const CAPACITY_OFFSET: usize = 16;
@@ -541,7 +556,7 @@ pub(crate) fn lower_io_read_line_helper(
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     // Drain any buffered stdout before blocking on input (plan-14-A §4.3 hook 2)
@@ -927,6 +942,5 @@ pub(crate) fn lower_io_read_line_helper(
         )?;
     }
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME_SIZE))
 }

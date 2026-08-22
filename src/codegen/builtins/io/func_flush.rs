@@ -1,40 +1,48 @@
 //! `io::flush` — descriptor entry + authored docs.
 //!
 //! Per-member file. `io` lowers through per-function `Body::abi_function`
-//! clean-room lowerings (plan-101): this member adapter reproduces its former
-//! `lower_io_helper` `match` arm and hatches the finalized OS-seam body back.
+//! clean-room lowerings (plan-101): [`lower_flush`] emits a vreg body into the
+//! builder — the wrapper finalizes. Console drains the per-thread stdout buffer
+//! inline; app mode `bl`s the standalone GUI flush helper (`IO_APP_FLUSH_SYMBOL`,
+//! emitted in `builder/mod.rs`). No adapter, no pre-finalized hatch.
 
-use super::{adapter_app_mode, app_unsupported, hatch_finalized};
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
-use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::target::shared::abi;
 use crate::types::ParameterType;
-use std::collections::HashMap;
 
-/// `abi_function` body for `io::flush` (no args). Console: drain the per-thread
-/// stdout buffer (`lower_io_flush_helper`). App mode: synchronous transcript
-/// writes make flush an immediate success (`emit_app_io_flush_helper`). Hatched
-/// back pre-finalized.
+/// `abi_function` body for `io::flush` (no args). App mode: `bl` the standalone
+/// GUI flush helper. Console: the stdout-drain vreg body, spliced in; the wrapper
+/// finalizes.
 pub(crate) fn lower_flush(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let body = if adapter_app_mode(ctx) {
-        pad_no_slots(
-            ctx.platform
-                .emit_app_io_flush_helper(&symbol)
-                .ok_or_else(|| app_unsupported(ctx.platform))??,
-        )
+    if ctx.build_mode.is_app() {
+        builder
+            .instructions
+            .push(abi::branch_link(IO_APP_FLUSH_SYMBOL));
+        builder
+            .relocations
+            .push(internal_branch(&symbol, IO_APP_FLUSH_SYMBOL));
+        builder.instructions.push(abi::return_());
     } else {
-        lower_io_flush_helper(&symbol, ctx.platform_imports, ctx.platform)?
-    };
-    hatch_finalized(builder, body, "Nothing", "io.flush")
+        let (instructions, relocations, frame_size) = emit_flush_body(&symbol);
+        builder.instructions.extend(instructions);
+        builder.relocations.extend(relocations);
+        builder.stack_size = frame_size;
+    }
+    Ok(ValueResult {
+        type_: "Nothing".to_string(),
+        location: Operand::from("void"),
+        text: "io.flush".to_string(),
+    })
 }
 
 const INTRO: &str = r#"Drain the per-thread standard-output buffer"#;
@@ -98,20 +106,17 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 
 // --- stdout flush emitter (relocated from native/) ---
 
-pub(crate) fn lower_io_flush_helper(
-    symbol: &str,
-    // Flush is now drain-only (no fsync), so it no longer needs the platform to
-    // emit a libc/syscall sequence; kept in the signature for parity with the
-    // other io helper lowerings dispatched from mod.rs.
-    _platform_imports: &HashMap<String, String>,
-    _platform: &dyn CodegenPlatform,
-) -> HelperResult {
+/// Emit the console stdout-drain vreg body for `io::flush` (pre-finalization):
+/// returns `(instructions, relocations, frame_size)`; the caller splices it in and
+/// the `abi_function` wrapper finalizes. Flush is drain-only (no fsync), so it
+/// needs no platform sequence.
+fn emit_flush_body(symbol: &str) -> (Vec<CodeInstruction>, Vec<CodeRelocation>, usize) {
     const FRAME_SIZE: usize = 16;
 
     let output_error = format!("{symbol}_output_error");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     // io::flush() drains the per-arena MFBASIC stdout buffer via write() and
     // reports a write failure — nothing else. It deliberately does NOT fsync:
@@ -145,6 +150,5 @@ pub(crate) fn lower_io_flush_helper(
     );
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    (instructions, relocations, FRAME_SIZE)
 }

@@ -1,12 +1,13 @@
 //! `io::printError` — descriptor entry + authored docs.
 //!
 //! Per-member file. `io` lowers through per-function `Body::abi_function`
-//! clean-room lowerings (plan-101): this member adapter reproduces its former
-//! `lower_io_helper` `match` arm and hatches the finalized OS-seam body back.
+//! clean-room lowerings (plan-101): `lower_*` emits a vreg body into the builder
+//! (app-mode members `bl` a standalone GUI helper); the wrapper finalizes. No hatch.
 
 // --- codegen tier imports (migration) ---
 use super::func_write::lower_write_family;
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::error::constants::IO_APP_PRINT_ERROR_SYMBOL;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -18,7 +19,14 @@ pub(crate) fn lower_print_error(
     _args: &[ValueResult],
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    lower_write_family(builder, ctx, true, true, "io.printError")
+    lower_write_family(
+        builder,
+        ctx,
+        true,
+        true,
+        IO_APP_PRINT_ERROR_SYMBOL,
+        "io.printError",
+    )
 }
 
 const INTRO: &str = r#"Write a `String` to standard error followed by a newline"#;

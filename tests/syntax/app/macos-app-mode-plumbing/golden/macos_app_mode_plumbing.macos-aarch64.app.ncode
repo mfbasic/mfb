@@ -6445,45 +6445,8 @@
     ]
   },
   {
-    "name": "runtime.shutdown",
-    "symbol": "_mfb_shutdown",
-    "returns": "Nothing",
-    "frame": { "stackSize": 32, "calleeSaved": ["lr"] },
-    "params": [
-    ],
-    "stackSlots": [
-    { "name": "spill_0", "type": "spill", "offset": 16 }
-    ],
-    "instructions": [
-    { "op": "label", "name": "entry" },
-    { "op": "sub_sp", "imm": "32" },
-    { "op": "str_u64", "src": "lr", "base": "sp", "offset": "0" },
-    { "op": "mov", "dst": "x8", "src": "x19" },
-    { "op": "str_u64", "src": "x8", "base": "sp", "offset": "16" },
-    { "op": "adrp", "dst": "x8", "symbol": "_mfb_rt_main_arena" },
-    { "op": "add_pageoff", "dst": "x8", "src": "x8", "symbol": "_mfb_rt_main_arena" },
-    { "op": "ldr_u64", "dst": "x9", "base": "x8", "offset": "0" },
-    { "op": "str_u64", "src": "xzr", "base": "x8", "offset": "0" },
-    { "op": "cmp_imm", "lhs": "x9", "rhs": "0" },
-    { "op": "b.eq", "target": "shutdown_done" },
-    { "op": "mov", "dst": "x19", "src": "x9" },
-    { "op": "bl", "target": "_mfb_arena_destroy" },
-    { "op": "label", "name": "shutdown_done" },
-    { "op": "ldr_u64", "dst": "x8", "base": "sp", "offset": "16" },
-    { "op": "mov", "dst": "x19", "src": "x8" },
-    { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "0" },
-    { "op": "add_sp", "imm": "32" },
-    { "op": "ret" }
-    ],
-    "relocations": [
-    { "from": "_mfb_shutdown", "to": "_mfb_rt_main_arena", "kind": "page21", "binding": "data", "library": null },
-    { "from": "_mfb_shutdown", "to": "_mfb_rt_main_arena", "kind": "pageoff12", "binding": "data", "library": null },
-    { "from": "_mfb_shutdown", "to": "_mfb_arena_destroy", "kind": "branch26", "binding": "internal", "library": null }
-    ]
-  },
-  {
-    "name": "runtime.io.print",
-    "symbol": "_mfb_rt_io_io_print",
+    "name": "runtime.io.app_print",
+    "symbol": "_mfb_rt_io_app_print",
     "returns": "Nothing",
     "frame": { "stackSize": 0, "calleeSaved": [] },
     "params": [
@@ -6588,43 +6551,102 @@
     { "op": "ret" }
     ],
     "relocations": [
-    { "from": "_mfb_rt_io_io_print", "to": "_objc_autoreleasePoolPush", "kind": "branch26", "binding": "external", "library": "libobjc" },
-    { "from": "_mfb_rt_io_io_print", "to": "_OBJC_CLASS_$_NSApplication", "kind": "page21", "binding": "external", "library": "AppKit" },
-    { "from": "_mfb_rt_io_io_print", "to": "_OBJC_CLASS_$_NSApplication", "kind": "pageoff12", "binding": "external", "library": "AppKit" },
-    { "from": "_mfb_rt_io_io_print", "to": "_mfb_macapp_sel_sharedApplication", "kind": "page21", "binding": "data", "library": null },
-    { "from": "_mfb_rt_io_io_print", "to": "_mfb_macapp_sel_sharedApplication", "kind": "pageoff12", "binding": "data", "library": null },
-    { "from": "_mfb_rt_io_io_print", "to": "_sel_registerName", "kind": "branch26", "binding": "external", "library": "libobjc" },
-    { "from": "_mfb_rt_io_io_print", "to": "_objc_msgSend", "kind": "branch26", "binding": "external", "library": "libobjc" },
-    { "from": "_mfb_rt_io_io_print", "to": "_mfb_macapp_textview_key", "kind": "page21", "binding": "data", "library": null },
-    { "from": "_mfb_rt_io_io_print", "to": "_mfb_macapp_textview_key", "kind": "pageoff12", "binding": "data", "library": null },
-    { "from": "_mfb_rt_io_io_print", "to": "_objc_getAssociatedObject", "kind": "branch26", "binding": "external", "library": "libobjc" },
-    { "from": "_mfb_rt_io_io_print", "to": "_OBJC_CLASS_$_NSString", "kind": "page21", "binding": "external", "library": "Foundation" },
-    { "from": "_mfb_rt_io_io_print", "to": "_OBJC_CLASS_$_NSString", "kind": "pageoff12", "binding": "external", "library": "Foundation" },
-    { "from": "_mfb_rt_io_io_print", "to": "_mfb_macapp_sel_alloc", "kind": "page21", "binding": "data", "library": null },
-    { "from": "_mfb_rt_io_io_print", "to": "_mfb_macapp_sel_alloc", "kind": "pageoff12", "binding": "data", "library": null },
-    { "from": "_mfb_rt_io_io_print", "to": "_sel_registerName", "kind": "branch26", "binding": "external", "library": "libobjc" },
-    { "from": "_mfb_rt_io_io_print", "to": "_objc_msgSend", "kind": "branch26", "binding": "external", "library": "libobjc" },
-    { "from": "_mfb_rt_io_io_print", "to": "_mfb_macapp_sel_initWithBytes", "kind": "page21", "binding": "data", "library": null },
-    { "from": "_mfb_rt_io_io_print", "to": "_mfb_macapp_sel_initWithBytes", "kind": "pageoff12", "binding": "data", "library": null },
-    { "from": "_mfb_rt_io_io_print", "to": "_sel_registerName", "kind": "branch26", "binding": "external", "library": "libobjc" },
-    { "from": "_mfb_rt_io_io_print", "to": "_objc_msgSend", "kind": "branch26", "binding": "external", "library": "libobjc" },
-    { "from": "_mfb_rt_io_io_print", "to": "_mfb_macapp_append", "kind": "branch26", "binding": "internal", "library": null },
-    { "from": "_mfb_rt_io_io_print", "to": "_mfb_macapp_sel_release", "kind": "page21", "binding": "data", "library": null },
-    { "from": "_mfb_rt_io_io_print", "to": "_mfb_macapp_sel_release", "kind": "pageoff12", "binding": "data", "library": null },
-    { "from": "_mfb_rt_io_io_print", "to": "_sel_registerName", "kind": "branch26", "binding": "external", "library": "libobjc" },
-    { "from": "_mfb_rt_io_io_print", "to": "_objc_msgSend", "kind": "branch26", "binding": "external", "library": "libobjc" },
-    { "from": "_mfb_rt_io_io_print", "to": "_OBJC_CLASS_$_NSString", "kind": "page21", "binding": "external", "library": "Foundation" },
-    { "from": "_mfb_rt_io_io_print", "to": "_OBJC_CLASS_$_NSString", "kind": "pageoff12", "binding": "external", "library": "Foundation" },
-    { "from": "_mfb_rt_io_io_print", "to": "_mfb_macapp_sel_stringWithUTF8String", "kind": "page21", "binding": "data", "library": null },
-    { "from": "_mfb_rt_io_io_print", "to": "_mfb_macapp_sel_stringWithUTF8String", "kind": "pageoff12", "binding": "data", "library": null },
-    { "from": "_mfb_rt_io_io_print", "to": "_sel_registerName", "kind": "branch26", "binding": "external", "library": "libobjc" },
-    { "from": "_mfb_rt_io_io_print", "to": "_mfb_macapp_str_newline", "kind": "page21", "binding": "data", "library": null },
-    { "from": "_mfb_rt_io_io_print", "to": "_mfb_macapp_str_newline", "kind": "pageoff12", "binding": "data", "library": null },
-    { "from": "_mfb_rt_io_io_print", "to": "_objc_msgSend", "kind": "branch26", "binding": "external", "library": "libobjc" },
-    { "from": "_mfb_rt_io_io_print", "to": "_mfb_macapp_append", "kind": "branch26", "binding": "internal", "library": null },
-    { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "branch26", "binding": "external", "library": "libSystem" },
-    { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "branch26", "binding": "external", "library": "libSystem" },
-    { "from": "_mfb_rt_io_io_print", "to": "_objc_autoreleasePoolPop", "kind": "branch26", "binding": "external", "library": "libobjc" }
+    { "from": "_mfb_rt_io_app_print", "to": "_objc_autoreleasePoolPush", "kind": "branch26", "binding": "external", "library": "libobjc" },
+    { "from": "_mfb_rt_io_app_print", "to": "_OBJC_CLASS_$_NSApplication", "kind": "page21", "binding": "external", "library": "AppKit" },
+    { "from": "_mfb_rt_io_app_print", "to": "_OBJC_CLASS_$_NSApplication", "kind": "pageoff12", "binding": "external", "library": "AppKit" },
+    { "from": "_mfb_rt_io_app_print", "to": "_mfb_macapp_sel_sharedApplication", "kind": "page21", "binding": "data", "library": null },
+    { "from": "_mfb_rt_io_app_print", "to": "_mfb_macapp_sel_sharedApplication", "kind": "pageoff12", "binding": "data", "library": null },
+    { "from": "_mfb_rt_io_app_print", "to": "_sel_registerName", "kind": "branch26", "binding": "external", "library": "libobjc" },
+    { "from": "_mfb_rt_io_app_print", "to": "_objc_msgSend", "kind": "branch26", "binding": "external", "library": "libobjc" },
+    { "from": "_mfb_rt_io_app_print", "to": "_mfb_macapp_textview_key", "kind": "page21", "binding": "data", "library": null },
+    { "from": "_mfb_rt_io_app_print", "to": "_mfb_macapp_textview_key", "kind": "pageoff12", "binding": "data", "library": null },
+    { "from": "_mfb_rt_io_app_print", "to": "_objc_getAssociatedObject", "kind": "branch26", "binding": "external", "library": "libobjc" },
+    { "from": "_mfb_rt_io_app_print", "to": "_OBJC_CLASS_$_NSString", "kind": "page21", "binding": "external", "library": "Foundation" },
+    { "from": "_mfb_rt_io_app_print", "to": "_OBJC_CLASS_$_NSString", "kind": "pageoff12", "binding": "external", "library": "Foundation" },
+    { "from": "_mfb_rt_io_app_print", "to": "_mfb_macapp_sel_alloc", "kind": "page21", "binding": "data", "library": null },
+    { "from": "_mfb_rt_io_app_print", "to": "_mfb_macapp_sel_alloc", "kind": "pageoff12", "binding": "data", "library": null },
+    { "from": "_mfb_rt_io_app_print", "to": "_sel_registerName", "kind": "branch26", "binding": "external", "library": "libobjc" },
+    { "from": "_mfb_rt_io_app_print", "to": "_objc_msgSend", "kind": "branch26", "binding": "external", "library": "libobjc" },
+    { "from": "_mfb_rt_io_app_print", "to": "_mfb_macapp_sel_initWithBytes", "kind": "page21", "binding": "data", "library": null },
+    { "from": "_mfb_rt_io_app_print", "to": "_mfb_macapp_sel_initWithBytes", "kind": "pageoff12", "binding": "data", "library": null },
+    { "from": "_mfb_rt_io_app_print", "to": "_sel_registerName", "kind": "branch26", "binding": "external", "library": "libobjc" },
+    { "from": "_mfb_rt_io_app_print", "to": "_objc_msgSend", "kind": "branch26", "binding": "external", "library": "libobjc" },
+    { "from": "_mfb_rt_io_app_print", "to": "_mfb_macapp_append", "kind": "branch26", "binding": "internal", "library": null },
+    { "from": "_mfb_rt_io_app_print", "to": "_mfb_macapp_sel_release", "kind": "page21", "binding": "data", "library": null },
+    { "from": "_mfb_rt_io_app_print", "to": "_mfb_macapp_sel_release", "kind": "pageoff12", "binding": "data", "library": null },
+    { "from": "_mfb_rt_io_app_print", "to": "_sel_registerName", "kind": "branch26", "binding": "external", "library": "libobjc" },
+    { "from": "_mfb_rt_io_app_print", "to": "_objc_msgSend", "kind": "branch26", "binding": "external", "library": "libobjc" },
+    { "from": "_mfb_rt_io_app_print", "to": "_OBJC_CLASS_$_NSString", "kind": "page21", "binding": "external", "library": "Foundation" },
+    { "from": "_mfb_rt_io_app_print", "to": "_OBJC_CLASS_$_NSString", "kind": "pageoff12", "binding": "external", "library": "Foundation" },
+    { "from": "_mfb_rt_io_app_print", "to": "_mfb_macapp_sel_stringWithUTF8String", "kind": "page21", "binding": "data", "library": null },
+    { "from": "_mfb_rt_io_app_print", "to": "_mfb_macapp_sel_stringWithUTF8String", "kind": "pageoff12", "binding": "data", "library": null },
+    { "from": "_mfb_rt_io_app_print", "to": "_sel_registerName", "kind": "branch26", "binding": "external", "library": "libobjc" },
+    { "from": "_mfb_rt_io_app_print", "to": "_mfb_macapp_str_newline", "kind": "page21", "binding": "data", "library": null },
+    { "from": "_mfb_rt_io_app_print", "to": "_mfb_macapp_str_newline", "kind": "pageoff12", "binding": "data", "library": null },
+    { "from": "_mfb_rt_io_app_print", "to": "_objc_msgSend", "kind": "branch26", "binding": "external", "library": "libobjc" },
+    { "from": "_mfb_rt_io_app_print", "to": "_mfb_macapp_append", "kind": "branch26", "binding": "internal", "library": null },
+    { "from": "_mfb_rt_io_app_print", "to": "_write", "kind": "branch26", "binding": "external", "library": "libSystem" },
+    { "from": "_mfb_rt_io_app_print", "to": "_write", "kind": "branch26", "binding": "external", "library": "libSystem" },
+    { "from": "_mfb_rt_io_app_print", "to": "_objc_autoreleasePoolPop", "kind": "branch26", "binding": "external", "library": "libobjc" }
+    ]
+  },
+  {
+    "name": "runtime.shutdown",
+    "symbol": "_mfb_shutdown",
+    "returns": "Nothing",
+    "frame": { "stackSize": 32, "calleeSaved": ["lr"] },
+    "params": [
+    ],
+    "stackSlots": [
+    { "name": "spill_0", "type": "spill", "offset": 16 }
+    ],
+    "instructions": [
+    { "op": "label", "name": "entry" },
+    { "op": "sub_sp", "imm": "32" },
+    { "op": "str_u64", "src": "lr", "base": "sp", "offset": "0" },
+    { "op": "mov", "dst": "x8", "src": "x19" },
+    { "op": "str_u64", "src": "x8", "base": "sp", "offset": "16" },
+    { "op": "adrp", "dst": "x8", "symbol": "_mfb_rt_main_arena" },
+    { "op": "add_pageoff", "dst": "x8", "src": "x8", "symbol": "_mfb_rt_main_arena" },
+    { "op": "ldr_u64", "dst": "x9", "base": "x8", "offset": "0" },
+    { "op": "str_u64", "src": "xzr", "base": "x8", "offset": "0" },
+    { "op": "cmp_imm", "lhs": "x9", "rhs": "0" },
+    { "op": "b.eq", "target": "shutdown_done" },
+    { "op": "mov", "dst": "x19", "src": "x9" },
+    { "op": "bl", "target": "_mfb_arena_destroy" },
+    { "op": "label", "name": "shutdown_done" },
+    { "op": "ldr_u64", "dst": "x8", "base": "sp", "offset": "16" },
+    { "op": "mov", "dst": "x19", "src": "x8" },
+    { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "0" },
+    { "op": "add_sp", "imm": "32" },
+    { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_mfb_shutdown", "to": "_mfb_rt_main_arena", "kind": "page21", "binding": "data", "library": null },
+    { "from": "_mfb_shutdown", "to": "_mfb_rt_main_arena", "kind": "pageoff12", "binding": "data", "library": null },
+    { "from": "_mfb_shutdown", "to": "_mfb_arena_destroy", "kind": "branch26", "binding": "internal", "library": null }
+    ]
+  },
+  {
+    "name": "runtime.io.print",
+    "symbol": "_mfb_rt_io_io_print",
+    "returns": "Nothing",
+    "frame": { "stackSize": 16, "calleeSaved": ["lr"] },
+    "params": [
+    ],
+    "stackSlots": [
+    ],
+    "instructions": [
+    { "op": "label", "name": "entry" },
+    { "op": "sub_sp", "imm": "16" },
+    { "op": "str_u64", "src": "lr", "base": "sp", "offset": "0" },
+    { "op": "bl", "target": "_mfb_rt_io_app_print" },
+    { "op": "ldr_u64", "dst": "lr", "base": "sp", "offset": "0" },
+    { "op": "add_sp", "imm": "16" },
+    { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_mfb_rt_io_io_print", "to": "_mfb_rt_io_app_print", "kind": "branch26", "binding": "internal", "library": null }
     ]
   }
   ]

@@ -9,8 +9,8 @@
 //! `use super::func_write::lower_write_family`).
 
 // --- codegen tier imports (migration) ---
-use super::{adapter_app_mode, app_unsupported, hatch_finalized};
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -32,7 +32,7 @@ pub(crate) fn lower_write(
     _args: &[ValueResult],
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    lower_write_family(builder, ctx, false, false, "io.write")
+    lower_write_family(builder, ctx, false, false, IO_APP_WRITE_SYMBOL, "io.write")
 }
 
 const INTRO: &str = r#"Write a `String` to standard output with no trailing newline"#;
@@ -129,38 +129,42 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// `term::` is active). App mode: the transcript-window write hook
 /// (`emit_app_io_write_helper`). The string/attributed-string overloads share
 /// this one helper (both pass a string-object pointer in arg 0), exactly as the
-/// pre-migration `native_os_seam` slot did. Hatched back pre-finalized.
+/// pre-migration `native_os_seam` slot did.
 pub(crate) fn lower_write_family(
     builder: &mut CodeBuilder,
     ctx: &AbiCtx,
     stderr: bool,
     newline: bool,
+    app_symbol: &str,
     text: &str,
 ) -> Result<ValueResult, String> {
     let symbol = builder.current_symbol.clone();
-    let body = if adapter_app_mode(ctx) {
-        pad_no_slots(
-            ctx.platform
-                .emit_app_io_write_helper(
-                    &symbol,
-                    stderr,
-                    newline,
-                    ctx.term_state_offset,
-                    ctx.platform_imports,
-                )
-                .ok_or_else(|| app_unsupported(ctx.platform))??,
-        )
+    if ctx.build_mode.is_app() {
+        // App mode: `bl` the standalone transcript-write GUI helper (emitted in
+        // `builder/mod.rs` with this member's stderr/newline baked in).
+        builder.instructions.push(abi::branch_link(app_symbol));
+        builder
+            .relocations
+            .push(internal_branch(&symbol, app_symbol));
+        builder.instructions.push(abi::return_());
     } else {
-        lower_io_write_helper(
+        let (instructions, relocations, frame_size) = emit_write_body(
             &symbol,
             ctx.platform_imports,
             ctx.platform,
             stderr,
             newline,
             ctx.term_state_offset,
-        )?
-    };
-    hatch_finalized(builder, body, "Nothing", text)
+        )?;
+        builder.instructions.extend(instructions);
+        builder.relocations.extend(relocations);
+        builder.stack_size = frame_size;
+    }
+    Ok(ValueResult {
+        type_: "Nothing".to_string(),
+        location: Operand::from("void"),
+        text: text.to_string(),
+    })
 }
 
 fn emit_append_to_stdout_buffer(
@@ -205,15 +209,18 @@ fn emit_append_to_stdout_buffer(
     emit_append_to_buffer(ctx, src, len, tag, write_error, &sink)
 }
 
-pub(crate) fn lower_io_write_helper(
+/// Emit the console stdout/stderr write vreg body (pre-finalization): returns
+/// `(instructions, relocations, frame_size)`; the caller splices it in and the
+/// `abi_function` wrapper finalizes.
+fn emit_write_body(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     stderr: bool,
     append_newline: bool,
     term_state_offset: Option<usize>,
-) -> HelperResult {
-    let mut instructions = vec![abi::label("entry")];
+) -> Result<(Vec<CodeInstruction>, Vec<CodeRelocation>, usize), String> {
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     // plan-35-B: while TUI mode is on, stdout writes mutate the shadow grid's back
@@ -426,6 +433,5 @@ pub(crate) fn lower_io_write_helper(
     }
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 16);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 16))
 }
