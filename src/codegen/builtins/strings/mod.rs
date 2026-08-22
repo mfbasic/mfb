@@ -2,7 +2,8 @@
 //!
 //! `strings` is a large, mostly-**native** package: 29 members
 //! (`trim`/`upper`/`split`/`join`/`padLeft`/…) each lower in their own
-//! `func_<name>.rs` (registry `Body::Native` `common` slot) — a single-use body is
+//! `func_<name>.rs` (registry `Body::abi_inline`/`abi_inline_self` — the self-lowering
+//! mode for the type-aware/static-fold members) — a single-use body is
 //! inlined there, and logic shared by several members lives in a `gen_<area>.rs`
 //! seam (`gen_case_map`/`gen_graphemes`/`gen_trim`/`gen_with_any`/`gen_strip`/
 //! `gen_left_right`/`gen_pad`), with the shared string primitives + `UnicodeCaseMap`
