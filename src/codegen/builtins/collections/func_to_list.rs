@@ -4,9 +4,8 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::set_element_type;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTO_TO_LIST: &str = "Return the elements of a set as a list, in insertion order";
 const DESC_TO_LIST: &str = r#"`collections::toList` returns a new `List OF T` holding every element of the set
@@ -66,7 +65,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::list_of(ParameterType::Var("T")),
             errors: vec![],
-            body: Body::native(None, None, Some(lower_to_list)),
+            body: Body::abi_inline(lower_to_list),
         }],
     });
 }
@@ -76,14 +75,15 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// are its keys).
 pub(crate) fn lower_to_list(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let set = builder.lower_value(&args[0])?;
+    let set = &args[0];
     let Some(element_type) = set_element_type(&set.type_) else {
         return Err(format!(
             "native collection toList does not accept {}",
             set.type_
         ));
     };
-    builder.lower_map_projection(&set, &element_type, true)
+    builder.lower_map_projection(set, &element_type, true)
 }

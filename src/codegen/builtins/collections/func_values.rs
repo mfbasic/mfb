@@ -4,9 +4,8 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::map_type_parts;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTO_VALUES: &str = "Return a map's values as a list.";
 const DESC_VALUES: &str = r#"`collections::values` builds a new `List OF V` holding the value of every entry
@@ -94,7 +93,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::list_of(ParameterType::Var("V")),
             errors: vec![],
-            body: Body::native(None, None, Some(lower_values)),
+            body: Body::abi_inline(lower_values),
         }],
     });
 }
@@ -102,14 +101,15 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// `collections::values(Map OF K TO V) AS List OF V`: project each entry's value.
 pub(crate) fn lower_values(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let collection = builder.lower_value(&args[0])?;
+    let collection = &args[0];
     let Some((_, value_type)) = map_type_parts(&collection.type_) else {
         return Err(format!(
             "native collection values does not accept {}",
             collection.type_
         ));
     };
-    builder.lower_map_projection(&collection, &value_type, false)
+    builder.lower_map_projection(collection, &value_type, false)
 }
