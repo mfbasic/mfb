@@ -1935,6 +1935,7 @@ pub(crate) fn lower_runtime_helper(
                 spec.call,
                 symbol,
                 build_mode,
+                module_name,
                 type_model,
                 platform_imports,
                 platform,

@@ -1,11 +1,17 @@
 // --- codegen tier imports (migration) ---
-use super::*;
+use super::gen_env::*;
+use super::gen_os_seam::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
 /// `os::name` / `os::arch` — return a fixed, target-selected `String` constant,
 /// materialized directly into a fresh arena `String` (length header + bytes +
 /// NUL) so the result is an ordinary owned value.
-pub(crate) fn lower_const_string(symbol: &str, value: &str) -> HelperResult {
+pub(crate) fn lower_const_string(symbol: &str, value: &str) -> Result<OsBodyParts, String> {
     let alloc_ok = format!("{symbol}_ok");
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
@@ -16,7 +22,6 @@ pub(crate) fn lower_const_string(symbol: &str, value: &str) -> HelperResult {
     let block = vregs.next();
     let byte = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_immediate(abi::return_register(), "Integer", &(len + 9).to_string()),
         abi::move_immediate(abi::c_arg(1), "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
@@ -46,8 +51,7 @@ pub(crate) fn lower_const_string(symbol: &str, value: &str) -> HelperResult {
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
 
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 /// `os::pid` — `getpid()` as an `Integer` (a small positive value; the int
@@ -56,8 +60,8 @@ pub(crate) fn lower_pid(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
-    let mut instructions = vec![abi::label("entry")];
+) -> Result<OsBodyParts, String> {
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     // Windows has no `getpid`; GetCurrentProcessId is the drop-in (no args, DWORD
     // in the return register). plan-66-B.
@@ -79,8 +83,7 @@ pub(crate) fn lower_pid(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::return_(),
     ]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 /// `os::cpuCount` — `sysconf(_SC_NPROCESSORS_ONLN)` as an `Integer`, clamped to
@@ -89,7 +92,7 @@ pub(crate) fn lower_cpu_count(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<OsBodyParts, String> {
     if platform.family() == PlatformFamily::Windows {
         // Windows has no sysconf; GetSystemInfo(&si) fills a SYSTEM_INFO whose
         // `dwNumberOfProcessors` (DWORD) sits at offset 0x20. It is always >= 1,
@@ -100,7 +103,6 @@ pub(crate) fn lower_cpu_count(
         let mut vregs = Vregs::new();
         let count = vregs.next();
         let mut instructions = vec![
-            abi::label("entry"),
             abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 0), // &SYSTEM_INFO
         ];
         let mut relocations = Vec::new();
@@ -121,9 +123,7 @@ pub(crate) fn lower_cpu_count(
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
             abi::return_(),
         ]);
-        let (frame, stack_slots) =
-            finalize_vreg_body_with_locals(&mut instructions, &[], SYSTEM_INFO_SIZE);
-        return Ok((frame, instructions, relocations, stack_slots));
+        return Ok((instructions, relocations, SYSTEM_INFO_SIZE));
     }
     let sc_nprocessors_onln = match platform.family() {
         PlatformFamily::MacOS => "58",
@@ -136,10 +136,11 @@ pub(crate) fn lower_cpu_count(
     let positive = format!("{symbol}_positive");
     let mut vregs = Vregs::new();
     let count = vregs.next();
-    let mut instructions = vec![
-        abi::label("entry"),
-        abi::move_immediate(abi::c_arg(0), "Integer", sc_nprocessors_onln),
-    ];
+    let mut instructions = vec![abi::move_immediate(
+        abi::c_arg(0),
+        "Integer",
+        sc_nprocessors_onln,
+    )];
     let mut relocations = Vec::new();
     platform.emit_external_call(
         "sysconf",
@@ -162,8 +163,7 @@ pub(crate) fn lower_cpu_count(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::return_(),
     ]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 /// `os::hostName` — `gethostname(buf, 256)` into an on-frame buffer, then a
@@ -179,13 +179,13 @@ pub(crate) fn lower_os_wide_string_windows(
     which: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<OsBodyParts, String> {
     let fail = format!("{symbol}_fail");
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
     let mut vregs = Vregs::new();
     let value = vregs.next();
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     platform.emit_os_wide_string(
         which,
@@ -218,15 +218,14 @@ pub(crate) fn lower_os_wide_string_windows(
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_host_name(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<OsBodyParts, String> {
     if platform.family() == PlatformFamily::Windows {
         return lower_os_wide_string_windows(symbol, "hostName", platform_imports, platform);
     }
@@ -238,7 +237,6 @@ pub(crate) fn lower_host_name(
     let mut vregs = Vregs::new();
     let buf = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 0),
         abi::move_immediate(abi::c_arg(1), "Integer", &BUF.to_string()),
     ];
@@ -279,8 +277,7 @@ pub(crate) fn lower_host_name(
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], BUF);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, BUF))
 }
 
 /// `os::userName` — `getpwuid(getuid())->pw_name` (`pw_name` is the first field
@@ -290,7 +287,7 @@ pub(crate) fn lower_user_name(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<OsBodyParts, String> {
     if platform.family() == PlatformFamily::Windows {
         // Windows has no getpwuid; GetUserNameW is self-contained (writes a caller
         // buffer, no shared static), so it needs no env/pwd lock (plan-66-B).
@@ -303,7 +300,7 @@ pub(crate) fn lower_user_name(
     let done = format!("{symbol}_done");
     let mut vregs = Vregs::new();
     let pwname = vregs.next();
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     // Hold the lock across `getpwuid` and the copy of its static `passwd`/`pw_name`
     // buffer, so a concurrent `getpwuid`/`getpwnam` cannot overwrite it mid-copy.
@@ -369,14 +366,13 @@ pub(crate) fn lower_user_name(
         },
         &mut vregs,
     )?;
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 /// `os::args` — build a `List OF String` from the entry-captured `argv`,
 /// excluding `argv[0]` (the program name; D1). Reads the `_mfb_rt_os_argc` /
 /// `_mfb_rt_os_argv` globals the program entry fills at startup.
-pub(crate) fn lower_args(symbol: &str) -> HelperResult {
+pub(crate) fn lower_args(symbol: &str) -> Result<OsBodyParts, String> {
     let count_loop = format!("{symbol}_count_loop");
     let count_done = format!("{symbol}_count_done");
     let count_str = format!("{symbol}_count_str");
@@ -408,7 +404,7 @@ pub(crate) fn lower_args(symbol: &str) -> HelperResult {
     let scratch = vregs.next();
     let src = vregs.next();
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     push_symbol_address(
         symbol,
@@ -537,6 +533,5 @@ pub(crate) fn lower_args(symbol: &str) -> HelperResult {
     ]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }

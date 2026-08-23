@@ -102,6 +102,11 @@ pub(crate) struct AbiCtx<'a> {
     pub(crate) platform_imports: &'a std::collections::HashMap<String, String>,
     pub(crate) platform: &'a dyn crate::codegen::engine::types::CodegenPlatform,
     pub(crate) build_mode: crate::target::NativeBuildMode,
+    /// The module (project) name — the build identity `os.resourcePath` bakes into
+    /// its bundle/AppDir resource-base path. Threaded from the dispatch's
+    /// [`OsLowerCtx`]; empty (`""`) on the inline (`abi_inline`) path, which no
+    /// resource-path member takes. Most abi bodies ignore it.
+    pub(crate) module_name: &'a str,
     /// The runtime-call name being lowered (`audio.openInputDevice`,
     /// `datetime.nowNanos`) for an `abi_function` member — the shared successor to the
     /// `call` argument an [`OsLower`] body received. A member serving several IR-level

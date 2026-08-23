@@ -1,11 +1,12 @@
 //! `os::resourcePath` — descriptor entry + authored docs.
 //!
 //! Per-member file (planning/migrate.md). **This is the one `os` member that
-//! consumes per-compilation build context**: the shared [`crate::codegen::builtins::os::native::lower_os_helper`]
-//! dispatcher threads the real `build_mode`/`module_name` (the strip/suffix
-//! selection baked into the resource-base offset) into its `os.resourcePath` arm
-//! (`native::lower_resource_path`), exactly as the legacy `os::lower_os_helper`
-//! did. Every other `os` member accepts and ignores that context. Docs migrated
+//! consumes per-compilation build context**: the shared
+//! [`crate::codegen::builtins::os::gen_os_seam::lower_os_os_seam`] `abi_function`
+//! body threads the real `build_mode`/`module_name` (both carried on the `AbiCtx`;
+//! the strip/suffix selection baked into the resource-base offset) into
+//! `lower_os_helper`'s `os.resourcePath` arm (`gen_paths::lower_resource_path`).
+//! Every other `os` member accepts and ignores that context. Docs migrated
 //! from `src/docs/man/builtins/os/resourcePath.md`.
 
 use crate::codegen::registry::{
@@ -72,11 +73,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::String,
             errors: vec![],
-            body: Body::native(
-                Some(crate::codegen::builtins::os::native::lower_os_helper),
-                Some(crate::codegen::builtins::os::native::lower_os_helper),
-                None,
-            ),
+            body: Body::abi_function(crate::codegen::builtins::os::gen_os_seam::lower_os_os_seam),
         }],
     });
 }

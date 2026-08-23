@@ -1,5 +1,10 @@
 // --- codegen tier imports (migration) ---
-use super::*;
+use super::gen_os_seam::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
 /// Emit the platform acquisition of the running executable's absolute path into
@@ -106,10 +111,10 @@ pub(crate) fn lower_executable_path(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<OsBodyParts, String> {
     if platform.family() == PlatformFamily::Windows {
         // GetModuleFileNameW(NULL, …) + UTF-16→UTF-8 marshal (plan-66-B).
-        return super::introspect::lower_os_wide_string_windows(
+        return super::gen_introspect::lower_os_wide_string_windows(
             symbol,
             "executablePath",
             platform_imports,
@@ -120,7 +125,7 @@ pub(crate) fn lower_executable_path(
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
     let mut vregs = Vregs::new();
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
 
     let (buf, count) = emit_executable_path_into(
@@ -167,9 +172,7 @@ pub(crate) fn lower_executable_path(
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) =
-        finalize_vreg_body_with_locals(&mut instructions, &[], EXE_PATH_FRAME_LOCALS);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, EXE_PATH_FRAME_LOCALS))
 }
 
 /// The `(components-to-strip, suffix-to-append)` base offset for
@@ -211,7 +214,7 @@ pub(crate) fn lower_resource_path(
     module_name: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<OsBodyParts, String> {
     let (strip, suffix) = resource_base_offset(build_mode, module_name);
     let suffix_bytes = suffix.into_bytes();
 
@@ -228,7 +231,6 @@ pub(crate) fn lower_resource_path(
     let arg_len = vregs.next();
     let arg_data = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&arg_ptr, abi::c_arg(0)),
         abi::load_u64(&arg_len, &arg_ptr, 0),
         abi::add_immediate(&arg_data, &arg_ptr, 8),
@@ -460,9 +462,7 @@ pub(crate) fn lower_resource_path(
     instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
     push_alloc_error(symbol, &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) =
-        finalize_vreg_body_with_locals(&mut instructions, &[], EXE_PATH_FRAME_LOCALS);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, EXE_PATH_FRAME_LOCALS))
 }
 
 /// Branch to `bad_arg` when the just-ended path component is exactly `.` or `..`

@@ -24,7 +24,6 @@
 // `setenv`/`unsetenv` set `errno` on failure; ENOMEM/EINVAL are identical on
 // Linux and macOS.
 // --- codegen tier imports (migration) ---
-use crate::codegen::engine::analysis::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
@@ -32,11 +31,11 @@ use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
-const ERRNO_ENOMEM: &str = "12";
+pub(crate) const ERRNO_ENOMEM: &str = "12";
 pub(crate) const OS_ARGC_GLOBAL_SYMBOL: &str = "_mfb_rt_os_argc";
 pub(crate) const OS_ARGV_GLOBAL_SYMBOL: &str = "_mfb_rt_os_argv";
-const EXE_PATH_BUF: usize = 4096;
-const EXE_PATH_FRAME_LOCALS: usize = EXE_PATH_BUF + 16;
+pub(crate) const EXE_PATH_BUF: usize = 4096;
+pub(crate) const EXE_PATH_FRAME_LOCALS: usize = EXE_PATH_BUF + 16;
 
 /// Process-global mutex serializing `os::` env/pwd access against a concurrent
 /// `os::setEnv`/`os::unsetEnv` from another MFBASIC thread (bug-64). The env
@@ -57,7 +56,7 @@ pub(crate) const OS_ENV_LOCK_SIZE: usize = 64;
 /// The frontend `os::` calls whose lowering takes the env/pwd lock. Kept in sync
 /// with the plan-layer import gate (`module_uses_os_env_lock` in
 /// `target::shared::plan::symbols`).
-const OS_ENV_LOCK_CALLS: &[&str] = &[
+pub(crate) const OS_ENV_LOCK_CALLS: &[&str] = &[
     "os.getEnv",
     "os.getEnvOr",
     "os.hasEnv",
@@ -67,18 +66,59 @@ const OS_ENV_LOCK_CALLS: &[&str] = &[
     "os.unsetEnv",
 ];
 
-/// The generic OS-seam entry point for every `os::` runtime helper — registered
-/// as both the `posix` and `win` slot of each member's `Body::native`. It
-/// dispatches on the runtime-call name; the per-member lowering handles the OS
-/// family internally. `os.resourcePath` is the one arm that consumes the
-/// per-compilation `build_mode`/`module_name`; every other arm ignores them.
+/// The `(instructions, relocations, stack_size)` an `os` OS-seam body emits before
+/// the `abi_function` wrapper finalizes it — the successor to the finalized
+/// `HelperResult` tuple (see `net`'s `NetBodyParts`). `stack_size` is the sp-relative
+/// locals region the body reserves; the wrapper passes it to
+/// `finalize_vreg_body_with_locals`, byte-identical to the body's former self-finalize.
+pub(crate) type OsBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize);
+
+/// The `abi_function` body shared by every native `os.*` member (crypto/io/net's
+/// clean-room shape). The `abi_function` wrapper seeds the entry label, binds the
+/// incoming ABI argument registers, and finalizes; this body dispatches to the
+/// family-generic [`lower_os_helper`] by the runtime-call name in [`AbiCtx::call`]
+/// and appends its instructions/relocations. All native members register this one body.
+pub(crate) fn lower_os_os_seam(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &crate::codegen::registry::AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) = lower_os_helper(
+        ctx.call,
+        &symbol,
+        ctx.build_mode,
+        ctx.module_name,
+        ctx.platform_imports,
+        ctx.platform,
+    )?;
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    // A `void` location: every os body emits its own fallible ABI, so the wrapper
+    // appends no epilogue.
+    Ok(ValueResult {
+        origin: None,
+        type_: "Nothing".to_string(),
+        location: crate::codegen::engine::operand::Operand::from("void"),
+        text: ctx.call.to_string(),
+    })
+}
+
+/// The family-generic dispatcher for every `os::` runtime helper — reached from the
+/// shared [`lower_os_os_seam`] `abi_function` body. It dispatches on the runtime-call
+/// name; the per-member lowering handles the OS family internally and returns the
+/// pre-finalize [`OsBodyParts`] the wrapper finalizes. `os.resourcePath` is the one
+/// arm that consumes the per-compilation `build_mode`/`module_name`; every other arm
+/// ignores them.
 pub(crate) fn lower_os_helper(
     call: &str,
     symbol: &str,
-    ctx: &crate::codegen::registry::OsLowerCtx,
+    build_mode: crate::target::NativeBuildMode,
+    module_name: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<OsBodyParts, String> {
     match call {
         "os.getEnv" => lower_get_env(symbol, platform_imports, platform, false),
         "os.getEnvOr" => lower_get_env(symbol, platform_imports, platform, true),
@@ -93,13 +133,9 @@ pub(crate) fn lower_os_helper(
         "os.hostName" => lower_host_name(symbol, platform_imports, platform),
         "os.userName" => lower_user_name(symbol, platform_imports, platform),
         "os.executablePath" => lower_executable_path(symbol, platform_imports, platform),
-        "os.resourcePath" => lower_resource_path(
-            symbol,
-            ctx.build_mode,
-            ctx.module_name,
-            platform_imports,
-            platform,
-        ),
+        "os.resourcePath" => {
+            lower_resource_path(symbol, build_mode, module_name, platform_imports, platform)
+        }
         "os.args" => lower_args(symbol),
         other => Err(format!(
             "native os lowering does not support runtime call '{other}'"
@@ -130,7 +166,7 @@ fn os_arch(target: &str) -> &'static str {
     }
 }
 
-fn alloc_reloc(symbol: &str, relocations: &mut Vec<CodeRelocation>) {
+pub(crate) fn alloc_reloc(symbol: &str, relocations: &mut Vec<CodeRelocation>) {
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
 }
 
@@ -139,7 +175,7 @@ fn alloc_reloc(symbol: &str, relocations: &mut Vec<CodeRelocation>) {
 /// C-string, leaving its pointer in `out`. Both `src` and `out` are vregs so the
 /// allocator preserves them across the `arena_alloc` call. Branches to
 /// `alloc_fail` on OOM. `uniq` disambiguates the copy-loop labels.
-fn marshal_cstring(
+pub(crate) fn marshal_cstring(
     symbol: &str,
     src: &str,
     out: &str,
@@ -190,7 +226,7 @@ fn marshal_cstring(
 /// Build an owned arena `String` from the NUL-terminated C-string in `cstr`,
 /// landing it in the result registers with the OK tag. Branches to `alloc_fail`
 /// on OOM. `cstr` is a vreg (preserved across `arena_alloc`).
-fn build_string_from_cstr(
+pub(crate) fn build_string_from_cstr(
     symbol: &str,
     cstr: &str,
     alloc_fail: &str,
@@ -253,7 +289,7 @@ fn build_string_from_cstr(
     ]);
 }
 
-fn push_alloc_error(
+pub(crate) fn push_alloc_error(
     symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
@@ -265,7 +301,7 @@ fn push_alloc_error(
 /// Build an owned arena `String` of exactly `len` bytes copied from `src`
 /// (which need NOT be NUL-terminated — used for `readlink`), landing it in the
 /// result registers with the OK tag. Branches to `alloc_fail` on OOM.
-fn build_string_from_len(
+pub(crate) fn build_string_from_len(
     symbol: &str,
     src: &str,
     len: &str,
@@ -318,7 +354,7 @@ fn build_string_from_len(
 /// Copy `len` bytes from `src_base[0..len]` to `dst`, advancing `dst` past the
 /// copied bytes (plan-55-B §4.4). `src_cursor`/`index`/`byte` are caller-owned
 /// scratch vregs; `uniq` disambiguates the loop labels.
-fn emit_copy_counted(
+pub(crate) fn emit_copy_counted(
     src_base: &str,
     len: &str,
     dst: &str,
@@ -348,7 +384,7 @@ fn emit_copy_counted(
 
 /// Store the constant byte `value` at `dst` and advance `dst` by one
 /// (plan-55-B §4.4). `scratch` is a caller-owned vreg.
-fn emit_store_byte_advance(
+pub(crate) fn emit_store_byte_advance(
     value: u8,
     dst: &str,
     scratch: &str,
@@ -361,11 +397,6 @@ fn emit_store_byte_advance(
     ]);
 }
 
-mod env;
-mod introspect;
-mod paths;
-
-use env::*;
-pub(crate) use env::{module_uses_env_lock, os_env_lock_init_hex};
-use introspect::*;
-use paths::*;
+use super::gen_env::*;
+use super::gen_introspect::*;
+use super::gen_paths::*;

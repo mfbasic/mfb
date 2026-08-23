@@ -22,6 +22,9 @@ impl<'a> CodeBuilder<'a> {
             platform_imports: self.platform_imports,
             platform: self.platform,
             build_mode: self.build_mode,
+            // The inline path takes no resource-path member, so no module identity
+            // is needed (that is an `abi_function` concern).
+            module_name: "",
             term_state_offset: None,
             presentation_mode_offset: None,
             // The inline path lowers per call site and hands the body its raw args +

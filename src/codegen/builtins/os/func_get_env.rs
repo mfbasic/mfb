@@ -1,9 +1,10 @@
 //! `os::getEnv` — descriptor entry + authored docs.
 //!
 //! Per-member file (planning/migrate.md). `os` is a native OS-seam package: the
-//! member registers a `Body::native` whose per-family slots both hold the shared
-//! [`crate::codegen::builtins::os::native::lower_os_helper`] dispatcher (which branches on `platform.family()`
-//! and the runtime-call name internally).
+//! member registers the shared [`crate::codegen::builtins::os::gen_os_seam::lower_os_os_seam`]
+//! `Body::abi_function` body, which dispatches by `AbiCtx::call` to
+//! `lower_os_helper` (branching on `platform.family()` and the runtime-call name
+//! internally).
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -68,11 +69,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::String,
             errors: vec![],
-            body: Body::native(
-                Some(crate::codegen::builtins::os::native::lower_os_helper),
-                Some(crate::codegen::builtins::os::native::lower_os_helper),
-                None,
-            ),
+            body: Body::abi_function(crate::codegen::builtins::os::gen_os_seam::lower_os_os_seam),
         }],
     });
 }

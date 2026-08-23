@@ -36,11 +36,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![],
             return_type: ParameterType::String,
             errors: vec![],
-            body: Body::native(
-                Some(crate::codegen::builtins::os::native::lower_os_helper),
-                Some(crate::codegen::builtins::os::native::lower_os_helper),
-                None,
-            ),
+            body: Body::abi_function(crate::codegen::builtins::os::gen_os_seam::lower_os_os_seam),
         }],
     });
 }

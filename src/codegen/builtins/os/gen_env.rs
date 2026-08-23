@@ -1,5 +1,11 @@
 // --- codegen tier imports (migration) ---
-use super::*;
+use super::gen_os_seam::*;
+use crate::codegen::engine::analysis::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirModule;
 use std::collections::HashMap;
@@ -118,7 +124,7 @@ pub(crate) fn lower_get_env(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     with_fallback: bool,
-) -> HelperResult {
+) -> Result<OsBodyParts, String> {
     let not_found = format!("{symbol}_not_found");
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
@@ -128,10 +134,7 @@ pub(crate) fn lower_get_env(
     let fallback = vregs.next();
     let cname = vregs.next();
     let value = vregs.next();
-    let mut instructions = vec![
-        abi::label("entry"),
-        abi::move_register(&name, abi::c_arg(0)),
-    ];
+    let mut instructions = vec![abi::move_register(&name, abi::c_arg(0))];
     if with_fallback {
         instructions.push(abi::move_register(&fallback, abi::c_arg(1)));
     }
@@ -253,15 +256,14 @@ pub(crate) fn lower_get_env(
         &mut vregs,
     )?;
 
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_has_env(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<OsBodyParts, String> {
     let present = format!("{symbol}_present");
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
@@ -269,10 +271,7 @@ pub(crate) fn lower_has_env(
     let mut vregs = Vregs::new();
     let name = vregs.next();
     let cname = vregs.next();
-    let mut instructions = vec![
-        abi::label("entry"),
-        abi::move_register(&name, abi::c_arg(0)),
-    ];
+    let mut instructions = vec![abi::move_register(&name, abi::c_arg(0))];
     let mut relocations = Vec::new();
     // Serialize the `getenv` probe against a concurrent `os::setEnv` relocating
     // `environ` (bug-64).
@@ -339,15 +338,14 @@ pub(crate) fn lower_has_env(
         &mut vregs,
     )?;
 
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_set_env(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<OsBodyParts, String> {
     let ok = format!("{symbol}_ok");
     let fail = format!("{symbol}_fail");
     let oom = format!("{symbol}_oom");
@@ -361,7 +359,6 @@ pub(crate) fn lower_set_env(
     let cvalue = vregs.next();
     let errno = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&name, abi::c_arg(0)),
         abi::move_register(&value, abi::c_arg(1)),
     ];
@@ -463,25 +460,21 @@ pub(crate) fn lower_set_env(
         &mut vregs,
     )?;
 
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_unset_env(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<OsBodyParts, String> {
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
 
     let mut vregs = Vregs::new();
     let name = vregs.next();
     let cname = vregs.next();
-    let mut instructions = vec![
-        abi::label("entry"),
-        abi::move_register(&name, abi::c_arg(0)),
-    ];
+    let mut instructions = vec![abi::move_register(&name, abi::c_arg(0))];
     let mut relocations = Vec::new();
     // Hold the lock across `unsetenv` so a concurrent env reader on another thread
     // never observes a half-relocated `environ` (bug-64).
@@ -542,8 +535,7 @@ pub(crate) fn lower_unset_env(
         &mut vregs,
     )?;
 
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 /// `os::environ()` — walk `char **environ` twice: pass 1 counts entries and the
@@ -554,7 +546,7 @@ pub(crate) fn lower_environ(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<OsBodyParts, String> {
     let count_loop = format!("{symbol}_count_loop");
     let count_done = format!("{symbol}_count_done");
     let count_scan = format!("{symbol}_count_scan");
@@ -594,7 +586,7 @@ pub(crate) fn lower_environ(
     let src = vregs.next();
     let eq_flag = vregs.next();
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     // Hold the lock across the whole two-pass `environ` walk and the marshal into
     // the arena `Map`, so a concurrent `os::setEnv` cannot relocate/free the array
@@ -792,6 +784,5 @@ pub(crate) fn lower_environ(
         &mut vregs,
     )?;
 
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
