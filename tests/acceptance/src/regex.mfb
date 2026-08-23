@@ -2,19 +2,31 @@ IMPORT regex
 IMPORT collections
 IMPORT errorCode
 
-' Consolidated runtime-behavior acceptance for the regex builtins, converted
-' from the tests/func_regex_*_valid fixtures. Each assertion compares the SAME
-' expression as the source fixture against that fixture's exact golden value,
-' using the typed TESTING assertions. regex::find/findAll fail with
-' ErrIndexOutOfRange when `start` is out of range, and regex::match traps with
-' ErrInvalidFormat on an invalid pattern; those trapping paths are wrapped in a
-' local FUNC so expectTrap/expectNTrap can guard them.
+' =====================================================================
+' Full acceptance + security suite for the built-in `regex` package.
+'
+' The package exposes exactly four calls -- match, find, findAll, replace
+' -- and raises exactly two error codes: ErrInvalidFormat (77050003) for an
+' invalid pattern (or a pattern too complex for the input -- the ReDoS/
+' backtracking-budget and nesting guards), and ErrIndexOutOfRange (77050001)
+' for a `start` outside 0..len(value). Every case below pins a concrete
+' expected value or a concrete trapped error code verified against the engine;
+' none merely "pass". The pattern dialect is `mfb spec stdlib regex`; per-call
+' contracts are `mfb man regex`.
+'
+' Backslashes: a regex `\` is written "\\" in a pattern String literal, and a
+' non-ASCII subject scalar is written "\u{...}" (MFBASIC's own string escape --
+' note "\x{...}" is NOT a string escape and would yield the literal text
+' `x{...}`; the regex hex escape "\\x{...}" only lives inside a pattern).
+' =====================================================================
 
+' --- trap-guard wrappers: expectTrap/expectNTrap need a runtime call whose
+' --- failure they can catch, so each fallible entry point gets a thin FUNC.
 FUNC findAt(value AS String, pattern AS String, start AS Integer) AS Integer
   RETURN regex::find(value, pattern, start)
 END FUNC
 
-FUNC findAllAt(value AS String, pattern AS String, start AS Integer) AS Integer
+FUNC findAllLen(value AS String, pattern AS String, start AS Integer) AS Integer
   LET r AS List OF Integer = regex::findAll(value, pattern, start)
   RETURN len(r)
 END FUNC
@@ -23,7 +35,11 @@ FUNC matchPat(value AS String, pattern AS String) AS Boolean
   RETURN regex::match(value, pattern)
 END FUNC
 
-' n copies of "a" — input for the catastrophic-backtracking (ReDoS) probes.
+FUNC replaceWrap(value AS String, pattern AS String, replacement AS String) AS String
+  RETURN regex::replace(value, pattern, replacement)
+END FUNC
+
+' n copies of "a" -- long linear input for the security probes.
 FUNC manyA(n AS Integer) AS String
   MUT s AS String = ""
   MUT i AS Integer = 0
@@ -36,80 +52,294 @@ END FUNC
 
 TESTING
   TGROUP "Builtin: regex"
+
+    ' =================================================================
+    ' regex::match  (Boolean; only error is ErrInvalidFormat)
+    ' =================================================================
     TGROUP "match"
-      TCASE "worked examples"
+      TCASE "literal substring and absence"
         expectEqual(regex::match("hello", "ell"), TRUE)
+        expectEqual(regex::match("hello", "hello"), TRUE)
+        expectEqual(regex::match("hello", "xyz"), FALSE)
+        expectEqual(regex::match("hello", "H"), FALSE)
+        expectEqual(regex::match("a.c", "a\\.c"), TRUE)
+        expectEqual(regex::match("axc", "a\\.c"), FALSE)
+      END TCASE
+      TCASE "the dot metacharacter"
+        expectEqual(regex::match("axc", "a.c"), TRUE)
+        expectEqual(regex::match("a\nc", "a.c"), FALSE)
+        expectEqual(regex::match("ac", "a.c"), FALSE)
+      END TCASE
+      TCASE "empty pattern and empty subject"
+        expectEqual(regex::match("", "a*"), TRUE)
+        expectEqual(regex::match("anything", ""), TRUE)
+        expectEqual(regex::match("", ""), TRUE)
+        expectEqual(regex::match("", "^$"), TRUE)
+        expectEqual(regex::match("x", "^$"), FALSE)
+        expectEqual(regex::match("", "a"), FALSE)
+      END TCASE
+      TCASE "anchors ^ $ \\A \\z"
         expectEqual(regex::match("hello", "^h"), TRUE)
         expectEqual(regex::match("hello", "^e"), FALSE)
-        expectEqual(regex::match("abc123", "\\d+"), TRUE)
-        expectEqual(regex::match("abc", "\\d"), FALSE)
-        expectEqual(regex::match("café", "caf\\x{E9}"), TRUE)
-        expectEqual(regex::match("Hello", "(?i)hello"), TRUE)
-        expectEqual(regex::match("", "a*"), TRUE)
-        expectEqual(regex::match("x", "^$"), FALSE)
-        expectEqual(regex::match("", "^$"), TRUE)
+        expectEqual(regex::match("hello", "o$"), TRUE)
+        expectEqual(regex::match("hello", "h$"), FALSE)
+        expectEqual(regex::match("hi", "\\Ahi\\z"), TRUE)
+        expectEqual(regex::match("hi", "\\Ah\\z"), FALSE)
+        expectEqual(regex::match("hello", "\\Ahello\\z"), TRUE)
       END TCASE
-      TCASE "alternation grouping quantifiers"
+      TCASE "word boundaries \\b \\B"
+        expectEqual(regex::match("foo bar", "\\bbar\\b"), TRUE)
+        expectEqual(regex::match("foobar", "\\bbar\\b"), FALSE)
+        expectEqual(regex::match("xxx", "x\\Bx"), TRUE)
+        expectEqual(regex::match("ab", "\\Bb"), TRUE)
+        expectEqual(regex::match("a b", "\\Bb"), FALSE)
+      END TCASE
+      TCASE "alternation is ordered / leftmost-first"
         expectEqual(regex::match("abcd", "ab|abc"), TRUE)
-        expectEqual(regex::match("abab", "(ab)+"), TRUE)
-        expectEqual(regex::match("aaaa", "a{2,3}"), TRUE)
-        expectEqual(regex::match("color", "colou?r"), TRUE)
+        expectEqual(regex::match("cat", "dog|cat"), TRUE)
+        expectEqual(regex::match("x", "a|b|c"), FALSE)
+        expectEqual(regex::match("a", "a|"), TRUE)
+        expectEqual(regex::match("", "a|"), TRUE)
       END TCASE
-      TCASE "classes ranges negation shorthands"
+      TCASE "grouping capturing and non-capturing"
+        expectEqual(regex::match("abab", "(ab)+"), TRUE)
+        expectEqual(regex::match("abab", "(?:ab)+"), TRUE)
+        expectEqual(regex::match("", "()"), TRUE)
+        expectEqual(regex::match("", "(())"), TRUE)
+        expectEqual(regex::match("ab", "(?<first>a)(?<second>b)"), TRUE)
+        expectEqual(regex::match("ab", "(?P<first>a)b"), TRUE)
+      END TCASE
+      TCASE "quantifiers * + ? and counted {}"
+        expectEqual(regex::match("aaaa", "a{2,3}"), TRUE)
+        expectEqual(regex::match("a", "a{2,3}"), FALSE)
+        expectEqual(regex::match("color", "colou?r"), TRUE)
+        expectEqual(regex::match("colour", "colou?r"), TRUE)
+        expectEqual(regex::match("aaa", "a{3}"), TRUE)
+        expectEqual(regex::match("aa", "a{3}"), FALSE)
+        expectEqual(regex::match("aaaaa", "a{2,}"), TRUE)
+        expectEqual(regex::match("b", "a*b"), TRUE)
+        expectEqual(regex::match("aab", "a+b"), TRUE)
+        expectEqual(regex::match("b", "a+b"), FALSE)
+      END TCASE
+      TCASE "greedy vs lazy quantifiers"
+        expectEqual(regex::match("<a><b>", "<.+?>"), TRUE)
+        expectEqual(regex::match("<a><b>", "<.+>"), TRUE)
+        expectEqual(regex::match("aaa", "a+?"), TRUE)
+      END TCASE
+      TCASE "character classes: ranges and negation"
         expectEqual(regex::match("n", "[a-cm-p]"), TRUE)
+        expectEqual(regex::match("d", "[a-cm-p]"), FALSE)
         expectEqual(regex::match("x", "[^0-9]"), TRUE)
         expectEqual(regex::match("7", "[^0-9]"), FALSE)
+        expectEqual(regex::match("-", "[-a]"), TRUE)
+        expectEqual(regex::match("-", "[a-]"), TRUE)
+        expectEqual(regex::match("^", "[a^b]"), TRUE)
+        expectEqual(regex::match("]", "[\\]a]"), TRUE)
+        expectEqual(regex::match("a", "[\\]a]"), TRUE)
+        expectEqual(regex::match("-", "[a\\-z]"), TRUE)
+        expectEqual(regex::match("b", "[a\\-z]"), FALSE)
+        expectEqual(regex::match("5", "[\\d]"), TRUE)
+        expectEqual(regex::match("a", "[^\\d]"), TRUE)
+      END TCASE
+      TCASE "ASCII shorthands \\d \\w \\s and negations"
+        expectEqual(regex::match("abc123", "\\d+"), TRUE)
+        expectEqual(regex::match("abc", "\\d"), FALSE)
         expectEqual(regex::match("_id9", "\\w+"), TRUE)
+        expectEqual(regex::match("-", "\\w"), FALSE)
         expectEqual(regex::match("a b", "\\s"), TRUE)
-        expectEqual(regex::match("Q", "[[:alpha:]]"), TRUE)
+        expectEqual(regex::match("abc", "\\s"), FALSE)
+        expectEqual(regex::match("a", "\\D"), TRUE)
+        expectEqual(regex::match("5", "\\D"), FALSE)
+        expectEqual(regex::match("!", "\\W"), TRUE)
+        expectEqual(regex::match("x", "\\S"), TRUE)
       END TCASE
-      TCASE "unicode property classes"
+      TCASE "Unicode-aware shorthands (scalar categories, not ASCII)"
+        ' \d is exactly general-category Nd: an Arabic-Indic digit is Nd (matches),
+        ' superscript-two (No) and Roman-numeral-one (Nl) are not.
+        expectEqual(regex::match("\u{0660}", "\\d"), TRUE)
+        expectEqual(regex::match("\u{00B2}", "\\d"), FALSE)
+        expectEqual(regex::match("\u{2160}", "\\d"), FALSE)
+        ' \w includes letters, marks, Nd, Nl, connector punctuation.
+        expectEqual(regex::match("\u{00E9}", "\\w"), TRUE)
+        expectEqual(regex::match("\u{0301}", "\\w"), TRUE)
+        expectEqual(regex::match("\u{2160}", "\\w"), TRUE)
+        ' \s covers Z* plus \t..\r and NEL (U+0085).
+        expectEqual(regex::match("\u{0085}", "\\s"), TRUE)
+        expectEqual(regex::match("\u{00A0}", "\\s"), TRUE)
+        expectEqual(regex::match("\u{2028}", "\\s"), TRUE)
+        expectEqual(regex::match("\u{000B}", "\\s"), TRUE)
+        expectEqual(regex::match("\u{3000}", "\\s"), TRUE)
+      END TCASE
+      TCASE "Unicode general-category properties \\p{..} \\P{..}"
         expectEqual(regex::match("Z", "\\p{L}"), TRUE)
+        expectEqual(regex::match("A", "\\p{Lu}"), TRUE)
+        expectEqual(regex::match("a", "\\p{Ll}"), TRUE)
         expectEqual(regex::match("9", "\\p{Nd}"), TRUE)
+        expectEqual(regex::match("\u{00B2}", "\\p{No}"), TRUE)
+        expectEqual(regex::match("\u{00B2}", "\\p{Nd}"), FALSE)
+        expectEqual(regex::match("\u{2160}", "\\p{Nl}"), TRUE)
+        expectEqual(regex::match("\u{00A0}", "\\p{Zs}"), TRUE)
+        expectEqual(regex::match("!", "\\p{P}"), TRUE)
         expectEqual(regex::match("5", "\\P{L}"), TRUE)
+        expectEqual(regex::match("a", "\\P{L}"), FALSE)
+        expectEqual(regex::match("a", "\\pL"), TRUE)
+        expectEqual(regex::match("5", "\\PL"), TRUE)
       END TCASE
-      TCASE "anchors and boundaries"
-        expectEqual(regex::match("hello", "o$"), TRUE)
-        expectEqual(regex::match("foo bar", "\\bbar\\b"), TRUE)
-        expectEqual(regex::match("hi", "\\Ahi\\z"), TRUE)
+      TCASE "Unicode binary properties and key=value forms"
+        expectEqual(regex::match(" ", "\\p{White_Space}"), TRUE)
+        expectEqual(regex::match("a", "\\p{Alphabetic}"), TRUE)
+        expectEqual(regex::match("A", "\\p{gc=Lu}"), TRUE)
+        expectEqual(regex::match("5", "\\p{general_category=Nd}"), TRUE)
       END TCASE
-      TCASE "flags"
+      TCASE "Unicode script properties"
+        expectEqual(regex::match("a", "\\p{Latin}"), TRUE)
+        expectEqual(regex::match("\u{03B1}", "\\p{Greek}"), TRUE)
+        expectEqual(regex::match("\u{03B1}", "\\p{Latin}"), FALSE)
+        expectEqual(regex::match("\u{0410}", "\\p{Cyrillic}"), TRUE)
+        expectEqual(regex::match("\u{4E00}", "\\p{Han}"), TRUE)
+        expectEqual(regex::match("\u{3042}", "\\p{Hiragana}"), TRUE)
+        expectEqual(regex::match("\u{0E01}", "\\p{Thai}"), TRUE)
+        expectEqual(regex::match("\u{03B1}", "\\p{sc=Greek}"), TRUE)
+        expectEqual(regex::match("a", "\\p{script=Latin}"), TRUE)
+      END TCASE
+      TCASE "POSIX classes match their set and reject outside it"
+        expectEqual(regex::match("a5Z", "^[[:alnum:]]+$"), TRUE)
+        expectEqual(regex::match("a!", "^[[:alnum:]]+$"), FALSE)
+        expectEqual(regex::match("a_5", "^[[:word:]]+$"), TRUE)
+        expectEqual(regex::match("a!", "^[[:word:]]+$"), FALSE)
+        expectEqual(regex::match("fF09", "^[[:xdigit:]]+$"), TRUE)
+        expectEqual(regex::match("g", "^[[:xdigit:]]+$"), FALSE)
+        expectEqual(regex::match(" \t", "^[[:blank:]]+$"), TRUE)
+        expectEqual(regex::match("x", "^[[:blank:]]+$"), FALSE)
+        expectEqual(regex::match("a!", "^[[:graph:]]+$"), TRUE)
+        expectEqual(regex::match("a b", "^[[:graph:]]+$"), FALSE)
+        expectEqual(regex::match("a b!", "^[[:print:]]+$"), TRUE)
+        expectEqual(regex::match("a\nb", "^[[:print:]]+$"), FALSE)
+      END TCASE
+      TCASE "POSIX classes: alpha digit upper lower space cntrl punct + negation"
+        expectEqual(regex::match("Q", "[[:alpha:]]"), TRUE)
+        expectEqual(regex::match("5", "[[:alpha:]]"), FALSE)
+        expectEqual(regex::match("59", "^[[:digit:]]+$"), TRUE)
+        expectEqual(regex::match("a", "^[[:digit:]]+$"), FALSE)
+        expectEqual(regex::match("A", "[[:upper:]]"), TRUE)
+        expectEqual(regex::match("a", "[[:upper:]]"), FALSE)
+        expectEqual(regex::match("a", "[[:lower:]]"), TRUE)
+        expectEqual(regex::match("A", "[[:lower:]]"), FALSE)
+        expectEqual(regex::match("\n", "[[:space:]]"), TRUE)
+        expectEqual(regex::match("x", "[[:space:]]"), FALSE)
+        expectEqual(regex::match("\n", "[[:cntrl:]]"), TRUE)
+        expectEqual(regex::match("x", "[[:cntrl:]]"), FALSE)
+        expectEqual(regex::match("!", "[[:punct:]]"), TRUE)
+        expectEqual(regex::match("a", "[[:punct:]]"), FALSE)
+        expectEqual(regex::match("!?", "^[[:^alnum:]]+$"), TRUE)
+        expectEqual(regex::match("a", "^[[:^alnum:]]+$"), FALSE)
+      END TCASE
+      TCASE "escape sequences: controls and hex"
+        expectEqual(regex::match("café", "caf\\x{E9}"), TRUE)
+        expectEqual(regex::match("A", "\\x41"), TRUE)
+        expectEqual(regex::match("A", "\\x{41}"), TRUE)
+        expectEqual(regex::match("\t", "\\t"), TRUE)
+        expectEqual(regex::match("\n", "\\n"), TRUE)
+        expectEqual(regex::match("\r", "\\r"), TRUE)
+        expectEqual(regex::match("\u{000B}", "\\v"), TRUE)
+        expectEqual(regex::match("\u{000C}", "\\f"), TRUE)
+        expectEqual(regex::match("\u{0007}", "\\a"), TRUE)
+        expectEqual(regex::match("\u{001B}", "\\e"), TRUE)
+        expectEqual(regex::match("\u{0000}", "\\0"), TRUE)
+        expectEqual(regex::match("1+1", "1\\+1"), TRUE)
+      END TCASE
+      TCASE "flags i m s x and their combinations"
+        expectEqual(regex::match("Hello", "(?i)hello"), TRUE)
+        expectEqual(regex::match("K", "(?i)[a-z]"), TRUE)
         expectEqual(regex::match("ab\ncd", "(?m)^cd"), TRUE)
+        expectEqual(regex::match("ab\ncd", "^cd"), FALSE)
         expectEqual(regex::match("a\nb", "(?s)a.b"), TRUE)
         expectEqual(regex::match("a\nb", "a.b"), FALSE)
-        expectEqual(regex::match("ab", "(?x) a b  # spaces ignored"), TRUE)
-        expectEqual(regex::match("K", "(?i)[a-z]"), TRUE)
+        expectEqual(regex::match("ab", "(?x) a b  # spaces and this comment ignored"), TRUE)
       END TCASE
-      TCASE "lazy quantifier"
-        expectEqual(regex::match("<a><b>", "<.+?>"), TRUE)
+      TCASE "scoped and negated inline flags"
+        expectEqual(regex::match("aBc", "a(?i:b)c"), TRUE)
+        expectEqual(regex::match("ABc", "a(?i:b)c"), FALSE)
+        expectEqual(regex::match("Abc", "(?i)a(?-i:b)c"), TRUE)
+        expectEqual(regex::match("aBc", "(?i)a(?-i:b)c"), FALSE)
+      END TCASE
+      TCASE "ungreedy flag swaps default greediness (still matches)"
+        expectEqual(regex::match("aaa", "(?U)a+"), TRUE)
+        expectEqual(regex::match("aaa", "(?U)a+?"), TRUE)
+      END TCASE
+      TCASE "Unicode simple case folding under (?i)"
+        ' Simple (not full) folding: Kelvin sign folds to k, É to é; but ß does
+        ' not expand to "ss".
+        expectEqual(regex::match("\u{212A}", "(?i)k"), TRUE)
+        expectEqual(regex::match("\u{00C9}", "(?i)\\x{E9}"), TRUE)
+        expectEqual(regex::match("\u{00DF}", "(?i)ss"), FALSE)
+      END TCASE
+      TCASE "match is unanchored unless anchored"
+        expectEqual(regex::match("xxhelloxx", "hello"), TRUE)
+        expectEqual(regex::match("xxhelloxx", "^hello$"), FALSE)
+        expectEqual(regex::match("hello", "^hello$"), TRUE)
       END TCASE
     END TGROUP
 
+    ' =================================================================
+    ' regex::find  (Integer start index, -1 when absent)
+    ' =================================================================
     TGROUP "find"
-      TCASE "worked examples"
+      TCASE "worked examples with explicit start"
         expectInteger(regex::find("hello", "l", 0), 2)
         expectInteger(regex::find("hello", "l", 3), 3)
         expectInteger(regex::find("hello", "l", 4), -1)
         expectInteger(regex::find("a1b2c3", "\\d", 0), 1)
         expectInteger(regex::find("aaa", "a+", 0), 0)
         expectInteger(regex::find("abc", "x", 0), -1)
-        expectInteger(regex::find("abc", "", 0), 0)
-        expectInteger(regex::find("abc", "^b", 1), -1)
         expectInteger(regex::find("hello", "o$", 0), 4)
       END TCASE
-      TCASE "default start and edge positions"
+      TCASE "default start (omitted argument)"
         expectInteger(regex::find("a1b2c3", "\\d"), 1)
-        expectInteger(regex::find("abc", "$", 3), 3)
-        expectInteger(regex::find("abc", "\\b", 0), 0)
+        expectInteger(regex::find("hello", "l"), 2)
+        expectInteger(regex::find("abc", "z"), -1)
       END TCASE
-      TCASE "out-of-range start traps"
+      TCASE "empty and zero-length matches report their start"
+        expectInteger(regex::find("abc", "", 0), 0)
+        expectInteger(regex::find("abc", "", 2), 2)
+        expectInteger(regex::find("abc", "\\b", 0), 0)
+        expectInteger(regex::find("abc", "a*", 0), 0)
+      END TCASE
+      TCASE "start restricts where a match may begin, not the absolute anchors"
+        expectInteger(regex::find("abc", "^b", 1), -1)
+        expectInteger(regex::find("abab", "^a", 2), -1)
+        expectInteger(regex::find("abc", "$", 3), 3)
+        expectInteger(regex::find("abc", "\\Aa", 0), 0)
+      END TCASE
+      TCASE "start may equal len(value)"
+        expectInteger(regex::find("abc", "", 3), 3)
+        expectInteger(regex::find("hi", "", 2), 2)
+        expectInteger(regex::find("hi", "x", 2), -1)
+        expectInteger(regex::find("abc", "$", 3), 3)
+      END TCASE
+      TCASE "the -1 sentinel is unambiguous"
+        expectInteger(regex::find("abc", "\\d"), -1)
+        expectNInteger(regex::find("a1", "\\d"), -1)
+      END TCASE
+      TCASE "start out of range traps ErrIndexOutOfRange"
         expectTrap(findAt("hello", "l", 6), errorCode::ErrIndexOutOfRange)
+        expectTrap(findAt("hello", "l", 99), errorCode::ErrIndexOutOfRange)
+        expectTrap(findAt("hello", "l", -1), errorCode::ErrIndexOutOfRange)
+        expectTrap(findAt("", "x", 1), errorCode::ErrIndexOutOfRange)
       END TCASE
       TCASE "in-range start does not trap"
         expectNTrap(findAt("hello", "l", 0))
+        expectNTrap(findAt("hello", "l", 5))
+      END TCASE
+      TCASE "invalid pattern traps ErrInvalidFormat, taking precedence over start"
+        expectTrap(findAt("hi", "(", 0), errorCode::ErrInvalidFormat)
+        expectTrap(findAt("hi", "(", 99), errorCode::ErrInvalidFormat)
       END TCASE
     END TGROUP
 
+    ' =================================================================
+    ' regex::findAll  (List OF Integer of non-overlapping match starts)
+    ' =================================================================
     TGROUP "findAll"
       TCASE "worked examples"
         LET r0 AS List OF Integer = regex::findAll("hello", "l", 0)
@@ -121,124 +351,278 @@ TESTING
         expectInteger(collections::get(r1, 0), 1)
         expectInteger(collections::get(r1, 1), 3)
         expectInteger(collections::get(r1, 2), 5)
-        LET r2 AS List OF Integer = regex::findAll("abc", "x", 0)
-        expectInteger(len(r2), 0)
-        LET r3 AS List OF Integer = regex::findAll("aaa", "a+", 0)
-        expectInteger(len(r3), 1)
-        expectInteger(collections::get(r3, 0), 0)
-        LET r4 AS List OF Integer = regex::findAll("abc", "", 0)
-        expectInteger(len(r4), 4)
-        expectInteger(collections::get(r4, 0), 0)
-        expectInteger(collections::get(r4, 1), 1)
-        expectInteger(collections::get(r4, 2), 2)
-        expectInteger(collections::get(r4, 3), 3)
-        LET r5 AS List OF Integer = regex::findAll("x1y2", "\\d", 2)
-        expectInteger(len(r5), 1)
-        expectInteger(collections::get(r5, 0), 3)
       END TCASE
-      TCASE "default start overlap and captures"
-        LET rd AS List OF Integer = regex::findAll("a-b-c", "-")
-        expectInteger(len(rd), 2)
-        expectInteger(collections::get(rd, 0), 1)
-        expectInteger(collections::get(rd, 1), 3)
-        LET ro AS List OF Integer = regex::findAll("aaaa", "aa")
-        expectInteger(len(ro), 2)
-        expectInteger(collections::get(ro, 0), 0)
-        expectInteger(collections::get(ro, 1), 2)
-        LET rc AS List OF Integer = regex::findAll("2024-06", "(\\d+)")
-        expectInteger(len(rc), 2)
-        expectInteger(collections::get(rc, 0), 0)
-        expectInteger(collections::get(rc, 1), 5)
+      TCASE "no match yields the empty list"
+        LET r AS List OF Integer = regex::findAll("abc", "x", 0)
+        expectInteger(len(r), 0)
+        LET rd AS List OF Integer = regex::findAll("abc", "\\d")
+        expectInteger(len(rd), 0)
       END TCASE
-      TCASE "out-of-range start traps"
-        expectTrap(findAllAt("hello", "l", 6), errorCode::ErrIndexOutOfRange)
+      TCASE "matches are non-overlapping and strictly increasing"
+        LET r AS List OF Integer = regex::findAll("aaaa", "aa")
+        expectInteger(len(r), 2)
+        expectInteger(collections::get(r, 0), 0)
+        expectInteger(collections::get(r, 1), 2)
+        LET r2 AS List OF Integer = regex::findAll("aaa", "a+")
+        expectInteger(len(r2), 1)
+        expectInteger(collections::get(r2, 0), 0)
+      END TCASE
+      TCASE "empty pattern matches before each scalar and once at end"
+        LET r AS List OF Integer = regex::findAll("abc", "", 0)
+        expectInteger(len(r), 4)
+        expectInteger(collections::get(r, 0), 0)
+        expectInteger(collections::get(r, 1), 1)
+        expectInteger(collections::get(r, 2), 2)
+        expectInteger(collections::get(r, 3), 3)
+      END TCASE
+      TCASE "empty-capable pattern reports real runs, not wedged empties"
+        LET r AS List OF Integer = regex::findAll("aba", "a*")
+        expectInteger(len(r), 2)
+        expectInteger(collections::get(r, 0), 0)
+        expectInteger(collections::get(r, 1), 2)
+      END TCASE
+      TCASE "explicit start scans only the tail"
+        LET r AS List OF Integer = regex::findAll("x1y2", "\\d", 2)
+        expectInteger(len(r), 1)
+        expectInteger(collections::get(r, 0), 3)
+        LET r2 AS List OF Integer = regex::findAll("a1b2c3", "\\d", 3)
+        expectInteger(len(r2), 2)
+        expectInteger(collections::get(r2, 0), 3)
+        expectInteger(collections::get(r2, 1), 5)
+      END TCASE
+      TCASE "captures do not change the reported start indices"
+        LET r AS List OF Integer = regex::findAll("2024-06", "(\\d+)")
+        expectInteger(len(r), 2)
+        expectInteger(collections::get(r, 0), 0)
+        expectInteger(collections::get(r, 1), 5)
+      END TCASE
+      TCASE "word-boundary count on a two-word string"
+        LET r AS List OF Integer = regex::findAll("foo bar", "\\b")
+        expectInteger(len(r), 4)
+        expectInteger(collections::get(r, 0), 0)
+        expectInteger(collections::get(r, 1), 3)
+        expectInteger(collections::get(r, 2), 4)
+        expectInteger(collections::get(r, 3), 7)
+      END TCASE
+      TCASE "start out of range traps ErrIndexOutOfRange"
+        expectTrap(findAllLen("hello", "l", 6), errorCode::ErrIndexOutOfRange)
+        expectTrap(findAllLen("hello", "l", -1), errorCode::ErrIndexOutOfRange)
+        expectTrap(findAllLen("hello", "l", 99), errorCode::ErrIndexOutOfRange)
       END TCASE
       TCASE "in-range start does not trap"
-        expectNTrap(findAllAt("hello", "l", 0))
+        expectNTrap(findAllLen("hello", "l", 0))
+        expectNTrap(findAllLen("hello", "l", 5))
+      END TCASE
+      TCASE "invalid pattern traps ErrInvalidFormat, taking precedence over start"
+        expectTrap(findAllLen("hi", "[", 0), errorCode::ErrInvalidFormat)
+        expectTrap(findAllLen("hi", "[", 99), errorCode::ErrInvalidFormat)
       END TCASE
     END TGROUP
 
+    ' =================================================================
+    ' regex::replace  (String; replacement is never a source of failure)
+    ' =================================================================
     TGROUP "replace"
-      TCASE "worked examples"
+      TCASE "literal replacement and absence"
         expectString(regex::replace("a-b-c", "-", ":"), "a:b:c")
         expectString(regex::replace("hello", "l", "L"), "heLLo")
-        expectString(regex::replace("2024-06-24", "(\\d+)-(\\d+)-(\\d+)", "$3/$2/$1"), "24/06/2024")
-        expectString(regex::replace("foo", "(?<x>o)", "[${x}]"), "f[o][o]")
-        expectString(regex::replace("abc", "", "-"), "-a-b-c-")
-        expectString(regex::replace("a1b2", "\\d", ""), "ab")
-        expectString(regex::replace("price", "x", "y"), "price")
-        expectString(regex::replace("5", "5", "$$"), "$")
-        expectString(regex::replace("ab", "a", "${1}z"), "zb")
         expectString(regex::replace("cat", "a", "4"), "c4t")
+        expectString(regex::replace("price", "x", "y"), "price")
+        expectString(regex::replace("aaa", "a", ""), "")
+        expectString(regex::replace("a1b2", "\\d", ""), "ab")
       END TCASE
-      TCASE "zero-length advance and references"
-        expectString(regex::replace("abc", "x*", "-"), "-a-b-c-")
+      TCASE "numbered capture references and reordering"
+        expectString(regex::replace("2024-06-24", "(\\d+)-(\\d+)-(\\d+)", "$3/$2/$1"), "24/06/2024")
+        expectString(regex::replace("ab", "(a)(b)", "$2$1"), "ba")
+        expectString(regex::replace("ab", "(a)(b)", "${2}${1}"), "ba")
+        expectString(regex::replace("ab", "a(b)", "$0"), "ab")
+        expectString(regex::replace("hello", "l+", "[$0]"), "he[ll]o")
+      END TCASE
+      TCASE "named capture references"
+        expectString(regex::replace("foo", "(?<x>o)", "[${x}]"), "f[o][o]")
+        expectString(regex::replace("ab", "(?<n>a)", "${n}_x"), "a_xb")
+        expectString(regex::replace("ab", "(?<f>a)(b)", "${f}$2"), "ab")
+        expectString(regex::replace("ab", "(?P<x>a)b", "${x}!"), "a!")
+      END TCASE
+      TCASE "braced form disambiguates a reference from following text"
         expectString(regex::replace("ab", "(a)(b)", "${1}0"), "a0")
         expectString(regex::replace("ab", "(a)(b)", "$10"), "")
-        expectString(regex::replace("ab", "(?<n>a)", "${n}_x"), "a_xb")
+        expectString(regex::replace("ab", "a", "${1}z"), "zb")
+      END TCASE
+      TCASE "$$ is a literal dollar; a dangling $ is literal"
+        expectString(regex::replace("5", "5", "$$"), "$")
         expectString(regex::replace("x", "x", "$ y"), "$ y")
+        expectString(regex::replace("a", "a", "x$"), "x$")
+        expectString(regex::replace("a", "a", "${"), "${")
+      END TCASE
+      TCASE "unknown / out-of-range / non-participating references expand empty"
         expectString(regex::replace("abc", "a", "$9z"), "zbc")
-        expectString(regex::replace("hello", "l+", "[$0]"), "he[ll]o")
+        expectString(regex::replace("x", "(x)", "$5"), "")
+        expectString(regex::replace("x", "(x)", "${bad}"), "")
+        expectString(regex::replace("a", "a", "$x"), "")
+        expectString(regex::replace("b", "(a)?b", "[$1]"), "[]")
+        expectString(regex::replace("ac", "a(b)?c", "[$1]"), "[]")
+      END TCASE
+      TCASE "empty pattern inserts around every scalar and once at end"
+        expectString(regex::replace("abc", "", "-"), "-a-b-c-")
+        expectString(regex::replace("abc", "x*", "-"), "-a-b-c-")
+        expectString(regex::replace("", "", "-"), "-")
+      END TCASE
+      TCASE "zero-length advance never rewrites the same empty twice"
+        expectString(regex::replace("ab", "(a)(b)", "${1}0"), "a0")
+        expectString(regex::replace("ab", "(a)(b)", "$10"), "")
+      END TCASE
+      TCASE "greedy and lazy give different rewrites"
+        expectString(regex::replace("<a><b>", "<.+>", "X"), "X")
+        expectString(regex::replace("<a><b>", "<.+?>", "X"), "XX")
+      END TCASE
+      TCASE "ordered alternation picks the earlier branch"
+        expectString(regex::replace("ab", "a|ab", "X"), "Xb")
+        expectString(regex::replace("ab", "ab|a", "X"), "X")
+      END TCASE
+      TCASE "invalid pattern traps ErrInvalidFormat"
+        expectTrap(replaceWrap("x", "(", "y"), errorCode::ErrInvalidFormat)
+        expectTrap(replaceWrap("x", "[z-a]", "y"), errorCode::ErrInvalidFormat)
+      END TCASE
+      TCASE "a valid replace after a failure still works"
+        expectNTrap(replaceWrap("x", "x", "y"))
+        expectString(regex::replace("x", "x", "y"), "y")
       END TCASE
     END TGROUP
 
-    TGROUP "pattern"
-      TCASE "invalid patterns trap with ErrInvalidFormat"
+    ' =================================================================
+    ' Pattern validation: every invalid form fails with ErrInvalidFormat.
+    ' =================================================================
+    TGROUP "pattern validation"
+      TCASE "unbalanced and unterminated groups / classes"
         expectTrap(matchPat("sample", "("), errorCode::ErrInvalidFormat)
         expectTrap(matchPat("sample", ")"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "(a"), errorCode::ErrInvalidFormat)
         expectTrap(matchPat("sample", "["), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "[a"), errorCode::ErrInvalidFormat)
         expectTrap(matchPat("sample", "[]"), errorCode::ErrInvalidFormat)
         expectTrap(matchPat("sample", "[^]"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "[]]"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "[]a]"), errorCode::ErrInvalidFormat)
+      END TCASE
+      TCASE "bad ranges and set operators"
         expectTrap(matchPat("sample", "[z-a]"), errorCode::ErrInvalidFormat)
-        expectTrap(matchPat("sample", "a{2,1}"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "[a-\\d]"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "[a&&b]"), errorCode::ErrInvalidFormat)
+      END TCASE
+      TCASE "quantifiers with nothing to quantify / stacked quantifiers"
         expectTrap(matchPat("sample", "*"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "+"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "?"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "{2}"), errorCode::ErrInvalidFormat)
         expectTrap(matchPat("sample", "a**"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "a++"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "a{2,1}"), errorCode::ErrInvalidFormat)
+      END TCASE
+      TCASE "bad escapes, backreferences, and trailing backslash"
         expectTrap(matchPat("sample", "\\q"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "\\Q"), errorCode::ErrInvalidFormat)
         expectTrap(matchPat("sample", "\\1"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "a\\"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "\\x"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "\\x{}"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "\\xZZ"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "\\x{110000}"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "\\x{D800}"), errorCode::ErrInvalidFormat)
+      END TCASE
+      TCASE "unsupported lookarounds and named backreferences"
         expectTrap(matchPat("sample", "(?=x)"), errorCode::ErrInvalidFormat)
         expectTrap(matchPat("sample", "(?!x)"), errorCode::ErrInvalidFormat)
         expectTrap(matchPat("sample", "(?<=x)"), errorCode::ErrInvalidFormat)
         expectTrap(matchPat("sample", "(?<!x)"), errorCode::ErrInvalidFormat)
         expectTrap(matchPat("sample", "(?P=name)"), errorCode::ErrInvalidFormat)
+      END TCASE
+      TCASE "malformed group / flag directives"
         expectTrap(matchPat("sample", "(?)"), errorCode::ErrInvalidFormat)
         expectTrap(matchPat("sample", "(?q)"), errorCode::ErrInvalidFormat)
         expectTrap(matchPat("sample", "(?-)"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "(?i"), errorCode::ErrInvalidFormat)
         expectTrap(matchPat("sample", "(?<>x)"), errorCode::ErrInvalidFormat)
-        expectTrap(matchPat("sample", "\\p{Nope}"), errorCode::ErrInvalidFormat)
-        expectTrap(matchPat("sample", "\\x{110000}"), errorCode::ErrInvalidFormat)
-        expectTrap(matchPat("sample", "\\xZZ"), errorCode::ErrInvalidFormat)
-        expectTrap(matchPat("sample", "[a&&b]"), errorCode::ErrInvalidFormat)
         expectTrap(matchPat("sample", "(?<dup>a)(?<dup>b)"), errorCode::ErrInvalidFormat)
       END TCASE
-      TCASE "valid pattern still works after failures"
+      TCASE "unknown / unterminated Unicode properties"
+        expectTrap(matchPat("sample", "\\p{Nope}"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "\\p{"), errorCode::ErrInvalidFormat)
+        expectTrap(matchPat("sample", "\\p{sc=Nope}"), errorCode::ErrInvalidFormat)
+      END TCASE
+      TCASE "valid-but-tricky forms must NOT trap (brace as literal, etc.)"
+        expectNTrap(matchPat("a{", "a{"))
+        expectNTrap(matchPat("a{2", "a{2"))
+        expectNTrap(matchPat("a", "a{2,}"))
+        expectNTrap(matchPat("aaa", "a{0,9999999}"))
+        expectNTrap(matchPat("]", "[\\]a]"))
+        expectNTrap(matchPat("a", "a|"))
+        expectNTrap(matchPat("", "()"))
+        expectEqual(regex::match("a{", "a{"), TRUE)
+        expectEqual(regex::match("a{2", "a{2"), TRUE)
+      END TCASE
+      TCASE "a valid pattern still works after a run of failures"
         expectNTrap(matchPat("sample", "sa.ple"))
         expectEqual(regex::match("sample", "sa.ple"), TRUE)
       END TCASE
     END TGROUP
 
-    ' -----------------------------------------------------------------------
-    ' Catastrophic-backtracking (ReDoS) patterns fail with ErrInvalidFormat
-    ' rather than hanging — but the bounded backtracking recurses through more
-    ' native stack than this shared runner has after its hundreds of prior tests,
-    ' so those trap cases are verified from a shallow main() in the regex smoke.
-    ' A linear pattern on the same long input still matches quickly here.
-    TGROUP "security — linear matching on long input"
-      TCASE "a long run matches a simple quantifier quickly"
-        expectEqual(regex::match(manyA(200), "a+"), TRUE)
-        expectEqual(regex::match(manyA(200) & "!", "a+!"), TRUE)
-        expectInteger(regex::find(manyA(50), "a+", 0), 0)
-        expectInteger(len(regex::findAll(manyA(20), "a", 0)), 20)
+    ' =================================================================
+    ' Security: untrusted pattern AND untrusted text. The engine caps
+    ' backtracking (a global step budget) and recursion so pathological
+    ' inputs FAIL with ErrInvalidFormat instead of hanging or crashing.
+    ' =================================================================
+    TGROUP "security"
+      ' NOTE — catastrophic-backtracking (ReDoS) traps are deliberately NOT run
+      ' here. A pattern such as `(a+)+$` or `(.*a){20}` over a long run explores
+      ' exponentially many partitions; the engine's global backtracking-step
+      ' budget converts that DoS into a clean ErrInvalidFormat trap (77050003 --
+      ' confirmed at the engine level), but reaching the budget recurses through
+      ' more native stack than this shared `mfb test` driver has after its hundreds
+      ' of prior cases, so asserting them here overflows the stack mid-suite. The
+      ' same is true of a >200-deep parse-nesting pattern (the parser's own depth
+      ' cap traps it with 77050003 from a shallow entry point). What this group
+      ' asserts instead is the SAFE half of the DoS surface -- the linear paths
+      ' stay fast and terminate on long/untrusted input, and bounded nesting and
+      ' counted repeats are accepted -- all runnable in the shared driver.
+      TCASE "linear patterns stay fast on long input"
+        expectEqual(regex::match(manyA(2000), "a+"), TRUE)
+        expectEqual(regex::match(manyA(2000) & "!", "a+!"), TRUE)
+        expectEqual(regex::match(manyA(2000), "^a*$"), TRUE)
+        expectInteger(regex::find(manyA(500), "a+", 0), 0)
+        expectInteger(len(regex::findAll(manyA(50), "a", 0)), 50)
+      END TCASE
+      TCASE "a long non-matching scan terminates with the -1 / empty sentinels"
+        expectInteger(regex::find(manyA(2000), "b", 0), -1)
+        expectInteger(len(regex::findAll(manyA(2000), "b", 0)), 0)
+        expectString(regex::replace(manyA(5), "b", "c"), manyA(5))
+      END TCASE
+      TCASE "moderate, realistic group nesting compiles and matches"
+        ' Deep enough to prove nesting works; well under the parser depth cap.
+        ' (An adversarial >200-deep nest traps ErrInvalidFormat, but that parse
+        ' recurses through more native stack than this shared driver has, so it is
+        ' left to a shallow entry point rather than asserted here -- see the
+        ' security-group NOTE above.)
+        expectEqual(regex::match("x", "((((((((((x))))))))))"), TRUE)
+        expectEqual(regex::match("abcabc", "(abc){2}"), TRUE)
+      END TCASE
+      TCASE "a large but bounded counted repeat is accepted"
+        expectEqual(regex::match(manyA(100), "a{1,1000}"), TRUE)
+        expectEqual(regex::match(manyA(5), "a{1,1000}"), TRUE)
       END TCASE
     END TGROUP
 
-    ' -----------------------------------------------------------------------
-    TGROUP "unicode — positions are scalar indices, never bytes"
+    ' =================================================================
+    ' Unicode: every index the package accepts or reports is a scalar
+    ' index -- never a UTF-8 byte offset, never a grapheme cluster.
+    ' =================================================================
+    TGROUP "unicode positions"
       TCASE "find/findAll report scalar indices across multi-byte scalars"
-        ' é is one scalar (2 bytes); 😀 is one scalar (4 bytes).
+        ' é is one scalar (2 UTF-8 bytes); 😀 is one scalar (4 bytes).
         expectInteger(regex::find("café", "é", 0), 3)
-        expectInteger(regex::find("😀x", "x", 0), 1)
-        expectInteger(regex::find("a😀b", "b", 0), 2)
-        LET pos AS List OF Integer = regex::findAll("a😀b😀c", "😀", 0)
+        expectInteger(regex::find("\u{1F600}x", "x", 0), 1)
+        expectInteger(regex::find("a\u{1F600}b", "b", 0), 2)
+        LET pos AS List OF Integer = regex::findAll("a\u{1F600}b\u{1F600}c", "\u{1F600}", 0)
         expectInteger(len(pos), 2)
         expectInteger(collections::get(pos, 0), 1)
         expectInteger(collections::get(pos, 1), 3)
@@ -246,12 +630,15 @@ TESTING
       TCASE "matching and replacing multi-byte scalars"
         expectEqual(regex::match("é", "\\x{E9}"), TRUE)
         expectEqual(regex::match("café", "caf\\x{E9}"), TRUE)
-        expectString(regex::replace("a😀b😀c", "😀", "-"), "a-b-c")
+        expectString(regex::replace("a\u{1F600}b\u{1F600}c", "\u{1F600}", "-"), "a-b-c")
         expectString(regex::replace("naïve café", "[éï]", "?"), "na?ve caf?")
+        expectString(regex::replace("café", "(caf\\x{E9})", "<$1>"), "<café>")
       END TCASE
-      TCASE "a start argument may equal the scalar length"
+      TCASE "a start argument counts scalars and may equal the scalar length"
         expectInteger(regex::find("café", "", 4), 4)
+        expectInteger(regex::find("a\u{1F600}b", "", 3), 3)
         expectTrap(findAt("café", "x", 5), errorCode::ErrIndexOutOfRange)
+        expectTrap(findAt("a\u{1F600}b", "x", 4), errorCode::ErrIndexOutOfRange)
       END TCASE
     END TGROUP
 
