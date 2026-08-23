@@ -1,4 +1,13 @@
-use super::*;
+use super::gen_os_seam::*;
+use crate::codegen::collection::layout::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::error::emission::*;
+use crate::codegen::memory::arena::*;
+use crate::codegen::string::util::*;
+use crate::codegen::string::validate::*;
 use crate::target::shared::abi;
 pub(crate) fn emit_port_itoa(
     symbol: &str,

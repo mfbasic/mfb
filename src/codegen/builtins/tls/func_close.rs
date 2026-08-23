@@ -74,11 +74,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 }],
                 return_type: ParameterType::Nothing,
                 errors: vec![],
-                body: Body::native_os_seam(
-                    Some(super::native::lower_tls_helper),
-                    Some(super::native::lower_tls_helper),
-                    &[],
-                ),
+                body: Body::abi_function(super::gen_os_seam::lower_tls_os_seam),
             },
             // Listener close — rewritten to the internal `tls.closeListener` body
             // (the listener-shaped close), declared here as the code-form alias.
@@ -92,11 +88,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 }],
                 return_type: ParameterType::Nothing,
                 errors: vec![],
-                body: Body::native_os_seam(
-                    Some(super::native::lower_tls_helper),
-                    Some(super::native::lower_tls_helper),
-                    &["closeListener"],
-                ),
+                body: Body::abi_function_aliased(super::gen_os_seam::lower_tls_os_seam, &["closeListener"]),
             },
         ],
     });

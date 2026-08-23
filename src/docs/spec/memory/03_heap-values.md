@@ -250,7 +250,7 @@ Each still shares the `0..32` header:
 | 32 | SSL_CTX | conn CTX | — | SSL_CTX |
 | 40 | SSL | dispatch queue | SSPI block ptr | — |
 
-[[src/codegen/builtins/tls/native/mod.rs:TLS_OFFSET_CTX]] [[src/codegen/builtins/tls/native/mod.rs:TLS_SCHANNEL_OFFSET_BLOCK]]
+[[src/codegen/builtins/tls/gen_os_seam.rs:TLS_OFFSET_CTX]] [[src/codegen/builtins/tls/gen_os_seam.rs:TLS_SCHANNEL_OFFSET_BLOCK]]
 
 `closed` at **offset 16 is a compiler-enforced invariant**, not a convention: it
 is a u64 flag *set*, not a boolean — bit 0 is `closed`, bit 1 is `moved`, and 62

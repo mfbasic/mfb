@@ -13,7 +13,6 @@
 //! series. The macOS record layout differs and is documented in `macos`.
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
@@ -22,7 +21,6 @@ use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
 use crate::codegen::memory::arena::*;
 use crate::codegen::string::util::*;
-use crate::codegen::string::validate::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
 
@@ -357,25 +355,58 @@ pub(crate) fn emit_set_sock_timeouts(
     Ok(())
 }
 
-pub(crate) mod macos;
-mod openssl;
-pub(crate) mod schannel;
+// The three per-platform backends are now package-level sibling `gen_*` modules;
+// alias them so the `openssl::`/`schannel::`/`macos::` call sites below are unchanged.
+use super::gen_macos as macos;
+use super::gen_openssl as openssl;
+use super::gen_schannel as schannel;
 
-/// The single family-generic OS-seam entry for every `tls::` member — the twin
-/// idiom (`Body::native_os_seam(Some(lower_tls_helper), Some(lower_tls_helper),
-/// …)` in each `func_*.rs`): the generic runtime-call dispatch
-/// (`crate::codegen::os::dispatch_runtime_helper` → `registry::os_helper`) routes a
-/// `tls.*` runtime call here by member name / os-alias, and this matches the call
-/// to its per-helper family dispatcher (which each branch on `platform.family()`
-/// for openssl / schannel / macos). Covers the descriptor members plus the two
-/// code-form aliases (`tls.pollList`, `tls.closeListener`).
+/// The `(instructions, relocations, stack_size)` a `tls` OS-seam body emits before
+/// the `abi_function` wrapper finalizes it — the successor to the finalized
+/// `HelperResult` tuple (see `net`'s `NetBodyParts`). `stack_size` is the sp-relative
+/// locals region the body reserves.
+pub(crate) type TlsBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize);
+
+/// The `abi_function` body shared by every native `tls.*` member (crypto/io/net's
+/// clean-room shape). The `abi_function` wrapper seeds the entry label, binds the
+/// incoming ABI argument registers, and finalizes; this body dispatches to the
+/// family-generic [`lower_tls_helper`] by the runtime-call name in [`AbiCtx::call`]
+/// — the member's own name OR one of its `pollList`/`closeListener` code-form
+/// aliases — and appends its instructions/relocations. All native members register
+/// this one body; the aux→primary routing lives in `abi_function_lower`.
+pub(crate) fn lower_tls_os_seam(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &crate::codegen::registry::AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) =
+        lower_tls_helper(ctx.call, &symbol, ctx.platform_imports, ctx.platform)?;
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    // A `void` location: every tls body emits its own fallible ABI, so the wrapper
+    // appends no epilogue.
+    Ok(ValueResult {
+        origin: None,
+        type_: "Nothing".to_string(),
+        location: Operand::from("void"),
+        text: ctx.call.to_string(),
+    })
+}
+
+/// The single family-generic OS-seam entry for every `tls::` member — reached from
+/// the shared [`lower_tls_os_seam`] `abi_function` body: it matches the call
+/// (member name / os-alias) to its per-helper family dispatcher (which each branch
+/// on `platform.family()` for openssl / schannel / macos) and returns the
+/// pre-finalize [`TlsBodyParts`] the wrapper finalizes. Covers the descriptor
+/// members plus the two code-form aliases (`tls.pollList`, `tls.closeListener`).
 pub(crate) fn lower_tls_helper(
     call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     match call {
         "tls.connect" => lower_tls_connect_helper(symbol, platform_imports, platform),
         "tls.listen" => lower_tls_listen_helper(symbol, platform_imports, platform),
@@ -402,7 +433,7 @@ pub(crate) fn lower_tls_connect_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     match platform.family() {
         PlatformFamily::MacOS => macos::lower_tls_connect_macos(symbol, platform_imports, platform),
         PlatformFamily::Linux => {
@@ -416,7 +447,7 @@ pub(crate) fn lower_tls_listen_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     match platform.family() {
         PlatformFamily::MacOS => macos::lower_tls_listen_macos(symbol, platform_imports, platform),
         PlatformFamily::Linux => {
@@ -430,7 +461,7 @@ pub(crate) fn lower_tls_accept_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     match platform.family() {
         PlatformFamily::MacOS => macos::lower_tls_accept_macos(symbol, platform_imports, platform),
         PlatformFamily::Linux => {
@@ -445,7 +476,7 @@ pub(crate) fn lower_tls_read_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     match platform.family() {
         PlatformFamily::MacOS => {
             macos::lower_tls_read_macos(symbol, platform_imports, platform, text)
@@ -464,7 +495,7 @@ pub(crate) fn lower_tls_write_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     match platform.family() {
         PlatformFamily::MacOS => {
             macos::lower_tls_write_macos(symbol, platform_imports, platform, text)
@@ -485,7 +516,7 @@ pub(crate) fn lower_tls_poll_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     match platform.family() {
         PlatformFamily::MacOS => macos::lower_tls_poll_macos(symbol, platform_imports, platform),
         PlatformFamily::Linux => {
@@ -512,7 +543,7 @@ pub(crate) fn lower_tls_poll_list_helper(
     symbol: &str,
     _platform_imports: &HashMap<String, String>,
     _platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v13 = vregs.next();
     let v14 = vregs.next();
@@ -541,7 +572,7 @@ pub(crate) fn lower_tls_poll_list_helper(
     let found = format!("{symbol}_found");
     let done = format!("{symbol}_done");
 
-    let mut ins = vec![abi::label("entry")];
+    let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     // Loads socks[i]'s record ptr into `dst`: entry = list+HEADER+i*ENTRY_SIZE;
     // rec = load(data_base + load(entry+VALUE_OFFSET)). Uses %v13/%v14 as scratch.
@@ -656,15 +687,14 @@ pub(crate) fn lower_tls_poll_list_helper(
     ins.push(abi::label(&timeout_lbl));
     emit_fail(symbol, "ErrTimeout", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
-    Ok((frame, ins, rel, stack_slots))
+    Ok((ins, rel, FRAME_SIZE))
 }
 
 pub(crate) fn lower_tls_close_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     match platform.family() {
         PlatformFamily::MacOS => macos::lower_tls_close_macos(symbol, platform_imports, platform),
         PlatformFamily::Linux => {
@@ -678,7 +708,7 @@ pub(crate) fn lower_tls_close_listener_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     match platform.family() {
         PlatformFamily::MacOS => {
             macos::lower_tls_close_listener_macos(symbol, platform_imports, platform)

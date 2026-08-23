@@ -11,7 +11,7 @@
 //! layout constants that stay in `shared/code/tls/macos.rs`.
 
 use crate::arch::aarch64::abi;
-use crate::codegen::builtins::tls::native::macos::{
+use crate::codegen::builtins::tls::gen_macos::{
     BLK_CAP, CFG_CAP_COPYFN, CFG_CAP_RELEASEFN, CFG_CAP_SETFN, CFG_CAP_SNAME, CFG_INVOKE,
     CTX_CONTENT, CTX_ERROR, CTX_PCONTENT, CTX_PERROR, CTX_PSEM, CTX_RETAIN, CTX_SEM, CTX_SIGNAL,
     CTX_STATE, LCONN_INVOKE, LCTX_HEAD, LCTX_RING, LCTX_RING_CAP, LCTX_TAIL, RECV_INVOKE,

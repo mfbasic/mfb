@@ -44,12 +44,12 @@ fn socket_connect(
         ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), hints_off + o));
     }
     ins.extend([
-        abi::move_immediate(&v9, "Integer", super::HINTS_FAMILY_WORD),
+        abi::move_immediate(&v9, "Integer", super::gen_os_seam::HINTS_FAMILY_WORD),
         abi::store_u64(&v9, abi::stack_pointer(), hints_off),
-        abi::move_immediate(&v9, "Integer", super::SOCK_STREAM),
+        abi::move_immediate(&v9, "Integer", super::gen_os_seam::SOCK_STREAM),
         abi::store_u64(&v9, abi::stack_pointer(), hints_off + 8),
     ]);
-    super::emit_cstring(symbol, "h", host_off, hostcstr_off, fail, ins, rel, vregs);
+    super::gen_os_seam::emit_cstring(symbol, "h", host_off, hostcstr_off, fail, ins, rel, vregs);
     // getaddrinfo(host, NULL, &hints, &res)
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), hostcstr_off),
@@ -231,7 +231,7 @@ pub(crate) fn lower_tls_connect(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -280,7 +280,7 @@ pub(crate) fn lower_tls_connect(
     let no_token = format!("{symbol}_no_token");
     let no_extra = format!("{symbol}_no_extra");
 
-    let mut ins = vec![abi::label("entry")];
+    let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST),
@@ -339,7 +339,7 @@ pub(crate) fn lower_tls_connect(
             abi::label(&hs_ts_ok),
             abi::store_u64(&v14, abi::stack_pointer(), HSTV),
         ]);
-        super::emit_set_sock_timeouts(
+        super::gen_os_seam::emit_set_sock_timeouts(
             &mut EmitCtx {
                 symbol,
                 platform_imports: imports,
@@ -611,7 +611,7 @@ pub(crate) fn lower_tls_connect(
             abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTV),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTV + 8),
         ]);
-        super::emit_set_sock_timeouts(
+        super::gen_os_seam::emit_set_sock_timeouts(
             &mut EmitCtx {
                 symbol,
                 platform_imports: imports,
@@ -693,8 +693,7 @@ pub(crate) fn lower_tls_connect(
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
-    let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
-    Ok((frame, ins, rel, slots))
+    Ok((ins, rel, FRAME_SIZE))
 }
 
 fn abi_zero() -> String {
@@ -723,4 +722,4 @@ fn move_bytes(src: &str, dst: &str, count: &str, tag: &str, ins: &mut Vec<CodeIn
     ]);
 }
 
-include!("schannel_io.rs");
+include!("gen_schannel_io.rs");

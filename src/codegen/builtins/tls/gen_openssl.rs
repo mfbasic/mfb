@@ -6,13 +6,19 @@
 use crate::codegen::engine::builder::*;
 use std::collections::HashMap;
 
-use super::*;
+use super::gen_os_seam::*;
+use crate::codegen::collection::layout::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::error::emission::*;
+use crate::codegen::string::validate::*;
 use crate::target::shared::abi;
 pub(crate) fn lower_tls_connect_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -61,7 +67,7 @@ pub(crate) fn lower_tls_connect_openssl(
     let done = format!("{symbol}_done");
 
     let addr_off = platform.addrinfo_addr_offset();
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
 
     // x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName.
@@ -1004,9 +1010,7 @@ pub(crate) fn lower_tls_connect_openssl(
 
     instructions.extend([abi::label(&done), abi::return_()]);
     {
-        let (frame, stack_slots) =
-            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, FRAME_SIZE))
     }
 }
 
@@ -1018,7 +1022,7 @@ pub(crate) fn lower_tls_listen_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -1053,7 +1057,7 @@ pub(crate) fn lower_tls_listen_openssl(
     let done = format!("{symbol}_done");
 
     let addr_off = platform.addrinfo_addr_offset();
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
 
     // x0 = host; x1 = port; x2 = certPath; x3 = keyPath; x4 = backlog.
@@ -1536,9 +1540,7 @@ pub(crate) fn lower_tls_listen_openssl(
 
     instructions.extend([abi::label(&done), abi::return_()]);
     {
-        let (frame, stack_slots) =
-            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, FRAME_SIZE))
     }
 }
 
@@ -1550,7 +1552,7 @@ pub(crate) fn lower_tls_accept_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -1584,7 +1586,7 @@ pub(crate) fn lower_tls_accept_openssl(
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     // x0 = listener record { fd@0, closed@8, ctx@16 }; x1 = timeoutMs.
     instructions.extend([
@@ -1973,9 +1975,7 @@ pub(crate) fn lower_tls_accept_openssl(
     );
     instructions.extend([abi::label(&done), abi::return_()]);
     {
-        let (frame, stack_slots) =
-            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, FRAME_SIZE))
     }
 }
 
@@ -1988,7 +1988,7 @@ pub(crate) fn lower_tls_read_openssl(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -2019,7 +2019,7 @@ pub(crate) fn lower_tls_read_openssl(
     let entry_done = format!("{symbol}_entry_done");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     instructions.extend([
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), MAX_OFFSET),
@@ -2226,9 +2226,7 @@ pub(crate) fn lower_tls_read_openssl(
     );
     instructions.extend([abi::label(&done), abi::return_()]);
     {
-        let (frame, stack_slots) =
-            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, FRAME_SIZE))
     }
 }
 
@@ -2246,7 +2244,7 @@ pub(crate) fn lower_tls_poll_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -2269,7 +2267,7 @@ pub(crate) fn lower_tls_poll_openssl(
     let poll_fail = format!("{symbol}_poll_fail");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     instructions.extend([
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT_OFFSET),
@@ -2415,8 +2413,7 @@ pub(crate) fn lower_tls_poll_openssl(
         &done,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME_SIZE))
 }
 
 // ---------------------------------------------------------------------------
@@ -2428,7 +2425,7 @@ pub(crate) fn lower_tls_write_openssl(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -2450,7 +2447,7 @@ pub(crate) fn lower_tls_write_openssl(
     let write_fail = format!("{symbol}_write_fail");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     instructions.extend([
         abi::load_u64(&v9, abi::return_register(), TLS_OFFSET_CLOSED),
@@ -2561,9 +2558,7 @@ pub(crate) fn lower_tls_write_openssl(
     );
     instructions.extend([abi::label(&done), abi::return_()]);
     {
-        let (frame, stack_slots) =
-            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, FRAME_SIZE))
     }
 }
 
@@ -2575,7 +2570,7 @@ pub(crate) fn lower_tls_close_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -2592,7 +2587,7 @@ pub(crate) fn lower_tls_close_openssl(
     let ctx_done = format!("{symbol}_ctx_done");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC_OFFSET),
@@ -2724,9 +2719,7 @@ pub(crate) fn lower_tls_close_openssl(
         abi::return_(),
     ]);
     {
-        let (frame, stack_slots) =
-            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, FRAME_SIZE))
     }
 }
 
@@ -2739,7 +2732,7 @@ pub(crate) fn lower_tls_close_listener_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -2754,7 +2747,7 @@ pub(crate) fn lower_tls_close_listener_openssl(
     let load_fail = format!("{symbol}_load_fail");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC_OFFSET),
@@ -2834,9 +2827,7 @@ pub(crate) fn lower_tls_close_listener_openssl(
         abi::return_(),
     ]);
     {
-        let (frame, stack_slots) =
-            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, FRAME_SIZE))
     }
 }
 
@@ -2859,7 +2850,7 @@ mod error_path_release_tests {
     fn connect_alloc_fail_frees_ssl_ctx_and_fd() {
         mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
         let imports = HashMap::new();
-        let (_f, ins, rel, _s) =
+        let (ins, rel, _s) =
             lower_tls_connect_helper("c", &imports, &TestPlatform).expect("lower connect");
         for label in [
             "c_af_skip_ssl",
@@ -2916,7 +2907,7 @@ mod error_path_release_tests {
     fn connect_tls_fail_frees_ssl_and_ctx() {
         mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
         let imports = HashMap::new();
-        let (_f, ins, _r, _s) =
+        let (ins, _r, _s) =
             lower_tls_connect_helper("c", &imports, &TestPlatform).expect("lower connect");
         for label in ["c_tf_skip_ssl", "c_tf_skip_ctx", "c_tls_fail_raw"] {
             assert!(
@@ -2938,7 +2929,7 @@ mod error_path_release_tests {
     fn accept_alloc_fail_frees_ssl_and_fd() {
         mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
         let imports = HashMap::new();
-        let (_f, _ins, rel, _s) =
+        let (_ins, rel, _s) =
             lower_tls_accept_helper("a", &imports, &TestPlatform).expect("lower accept");
         // ssl_fail resolves SSL_free once (2 data relocs); alloc_fail now adds a
         // second resolution, so the count roughly doubles.
@@ -2954,7 +2945,7 @@ mod error_path_release_tests {
         // helper must still lower cleanly and resolve the ctrl symbol.
         mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
         let imports = HashMap::new();
-        let (_f, _ins, rel, _s) =
+        let (_ins, rel, _s) =
             lower_tls_listen_helper("l", &imports, &TestPlatform).expect("lower listen");
         assert!(reloc_count(&rel, "sym_SSL_CTX_ctrl") >= 1);
     }

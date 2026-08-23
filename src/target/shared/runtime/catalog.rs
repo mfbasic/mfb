@@ -193,9 +193,13 @@ mod tests {
             // (`builder_values` rewrites `net.poll`/`net.connectTcp`), so they never
             // reach `helper_for_call` at the NIR level in practice — but where they to,
             // the family answer is now correct rather than `None`.
-            // plan-76-C: `tls.poll(List OF RES TlsSocket)` → `tls.pollList` is still an
-            // OS-seam (`native_os_seam`) alias, so `helper_for_call` must not classify it.
-            "tls.pollList",
+            // `tls`'s `pollList`/`closeListener` code-form aliases are NOT listed: since
+            // the migration to `Body::abi_function_aliased` they are registered
+            // `os_aliases` of an `abi_function` member, so `is_abi_function_call` /
+            // `abi_function_lower` classify them to the `Tls` family (like net's aliases).
+            // They are still synthesized in the code layer (`builder_values` rewrites
+            // `tls.poll(List …)` / listener scope-drop), so they never reach
+            // `helper_for_call` at the NIR level in practice.
             // plan-67-B: perf helpers are injected by the code layer (program
             // entry/exit + arena-region wrapping), never present at the NIR level,
             // so `helper_for_call` must NOT classify them.

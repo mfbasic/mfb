@@ -26,7 +26,6 @@ impl<'a> CodeBuilder<'a> {
             // is needed (that is an `abi_function` concern).
             module_name: "",
             term_state_offset: None,
-            presentation_mode_offset: None,
             // The inline path lowers per call site and hands the body its raw args +
             // target directly; no `abi_function` runtime-call name applies.
             call: "",

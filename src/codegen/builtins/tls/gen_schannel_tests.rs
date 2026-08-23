@@ -18,7 +18,7 @@ use std::collections::HashMap;
 fn reads_reject_invalid_maxbytes(text: bool) {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (_frame, _ins, rel, _slots) =
+    let (_ins, rel, _slots) =
         lower_tls_read("t_read", &imports, &TestPlatform, text).expect("lower schannel tls::read");
     let invalid_argument_symbol =
         crate::codegen::registry::runtime_error_emission("ErrInvalidArgument")

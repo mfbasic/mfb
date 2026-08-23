@@ -1,7 +1,7 @@
 //! `tls::connect` — descriptor entry (native OS-seam).
 //!
 //! Per-member file (planning/migrate.md). The member's lowering is the shared
-//! family-generic [`super::native::lower_tls_helper`] in both `Body::native_os_seam`
+//! family-generic [`super::gen_os_seam::lower_tls_helper`] in both `Body::abi_function`
 //! slots (the `os`/`fs` twin idiom); the generic runtime-call dispatch picks
 //! posix/win by `platform.family()`.
 
@@ -114,11 +114,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Named(super::TLS_SOCKET_TYPE_ID),
             errors: vec![],
-            body: Body::native_os_seam(
-                Some(super::native::lower_tls_helper),
-                Some(super::native::lower_tls_helper),
-                &[],
-            ),
+            body: Body::abi_function(super::gen_os_seam::lower_tls_os_seam),
         }],
     });
 }

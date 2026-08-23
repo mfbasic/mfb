@@ -120,11 +120,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Boolean,
                 errors: vec![],
-                body: Body::native_os_seam(
-                    Some(super::native::lower_tls_helper),
-                    Some(super::native::lower_tls_helper),
-                    &[],
-                ),
+                body: Body::abi_function(super::gen_os_seam::lower_tls_os_seam),
             },
             // Readiness multiplex: `poll(List OF RES tls.TlsSocket[, timeoutMs]) AS
             // TlsSocket` (borrowed). Emits the `tls.pollList` code form.
@@ -150,11 +146,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Named(super::TLS_SOCKET_TYPE_ID),
                 errors: vec![],
-                body: Body::native_os_seam(
-                    Some(super::native::lower_tls_helper),
-                    Some(super::native::lower_tls_helper),
-                    &["pollList"],
-                ),
+                body: Body::abi_function_aliased(super::gen_os_seam::lower_tls_os_seam, &["pollList"]),
             },
         ],
     });

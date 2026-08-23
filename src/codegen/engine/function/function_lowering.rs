@@ -1262,7 +1262,6 @@ pub(crate) fn lower_abi_function_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     term_state_offset: Option<usize>,
-    presentation_mode_offset: Option<usize>,
 ) -> Result<
     (
         CodeFrame,
@@ -1373,7 +1372,6 @@ pub(crate) fn lower_abi_function_helper(
         build_mode,
         module_name,
         term_state_offset,
-        presentation_mode_offset,
         call,
     };
     let result = lower(&mut builder, &args, &ctx)?;

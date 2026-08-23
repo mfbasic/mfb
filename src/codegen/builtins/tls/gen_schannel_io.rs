@@ -259,7 +259,7 @@ pub(crate) fn lower_tls_write(
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -288,7 +288,7 @@ pub(crate) fn lower_tls_write(
     let wloop = format!("{symbol}_wloop");
     let wdone = format!("{symbol}_wdone");
 
-    let mut ins = vec![abi::label("entry")];
+    let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     // return_register = resource; ARG[1] = data (String/List).
     ins.extend([
@@ -413,8 +413,7 @@ pub(crate) fn lower_tls_write(
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
-    let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
-    Ok((frame, ins, rel, slots))
+    Ok((ins, rel, FRAME_SIZE))
 }
 
-include!("schannel_read_close.rs");
+include!("gen_schannel_read_close.rs");

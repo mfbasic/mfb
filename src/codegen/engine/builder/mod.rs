@@ -946,20 +946,21 @@ pub(crate) fn lower_module_for_platform(
         match platform.family() {
             PlatformFamily::MacOS => {
                 data_objects.extend(
-                    crate::codegen::builtins::tls::native::macos_tls_data_objects(tls_server),
+                    crate::codegen::builtins::tls::gen_os_seam::macos_tls_data_objects(tls_server),
                 );
             }
             PlatformFamily::Linux => {
                 data_objects.extend(
-                    crate::codegen::builtins::tls::native::tls_cstring_data_objects(tls_server),
+                    crate::codegen::builtins::tls::gen_os_seam::tls_cstring_data_objects(
+                        tls_server,
+                    ),
                 );
             }
             // The Windows TLS data objects are the Schannel package-name wide
             // string (plan-47-J).
             PlatformFamily::Windows => {
                 let _ = tls_server;
-                data_objects
-                    .extend(crate::codegen::builtins::tls::native::schannel::data_objects());
+                data_objects.extend(crate::codegen::builtins::tls::gen_schannel::data_objects());
             }
         }
     }
@@ -1908,17 +1909,14 @@ pub(crate) fn lower_runtime_helper(
             "native code plan does not emit runtime helper '{symbol}'"
         ));
     };
-    // The per-compilation OS-seam context bundle, threaded to every `Body::native`
-    // OS-seam emitter (os/fs/process/datetime) through the generic dispatch. Carries
-    // the build identity `os.resourcePath` bakes in plus the arena offsets the io
-    // TUI/cooked-mode routing consumes (both `Option<usize>`, exactly as
-    // `ArenaLayout` holds them).
+    // The per-compilation OS-seam context bundle, threaded to the remaining
+    // `Body::native` OS-seam emitters (term/app) through the generic dispatch. Carries
+    // the build mode plus the arena offsets the term/app routing consumes (both
+    // `Option<usize>`, exactly as `ArenaLayout` holds them).
     let os_ctx = crate::codegen::registry::OsLowerCtx {
         build_mode,
-        module_name,
         term_state_offset: arena_layout.term_state_offset,
         presentation_mode_offset: arena_layout.presentation_mode_offset,
-        type_model,
     };
     // Every runtime helper lowers to the same CodeFunction shape — an empty
     // `params` list and the spec's return type — differing only in the
@@ -1940,7 +1938,6 @@ pub(crate) fn lower_runtime_helper(
                 platform_imports,
                 platform,
                 os_ctx.term_state_offset,
-                os_ctx.presentation_mode_offset,
             )?
         } else if crate::codegen::registry::registry().owning_package(spec.call) == Some("term") {
             // Every `term.*` member carries a `Body::native_os_seam` OS-seam lowering
@@ -2086,27 +2083,10 @@ pub(crate) fn lower_runtime_helper(
                     platform_imports,
                     platform,
                 )?,
-                // Every `tls.*` member carries `Body::native_os_seam` on the clean-room
-                // registry: the per-platform emission lives in
-                // `codegen::builtins::tls::native` (the twin-idiom `lower_tls_helper`),
-                // and the generic registry-driven dispatch routes each member plus its
-                // `pollList`/`closeListener` code-form aliases by `platform.family()`.
-                call if call.starts_with("tls.") => {
-                    match crate::codegen::os::dispatch_runtime_helper(
-                        call,
-                        symbol,
-                        &os_ctx,
-                        platform_imports,
-                        platform,
-                    ) {
-                        Some(result) => result?,
-                        None => {
-                            return Err(format!(
-                                "native code plan does not emit runtime call '{call}'"
-                            ));
-                        }
-                    }
-                }
+                // (`tls.*` members are `Body::abi_function`/`abi_function_aliased` since
+                // the clean-room migration — the shared `lower_tls_os_seam` body plus its
+                // `pollList`/`closeListener` code-form aliases — so they route through the
+                // `is_abi_function_call` branch above; no `tls.` arm here.)
                 other => {
                     return Err(format!(
                         "native code plan does not emit runtime call '{other}'"

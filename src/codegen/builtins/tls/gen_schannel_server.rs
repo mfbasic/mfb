@@ -256,7 +256,7 @@ pub(crate) fn lower_tls_listen(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -292,7 +292,7 @@ pub(crate) fn lower_tls_listen(
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
 
-    let mut ins = vec![abi::label("entry")];
+    let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST),
@@ -306,9 +306,9 @@ pub(crate) fn lower_tls_listen(
         ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), HINTS + o));
     }
     ins.extend([
-        abi::move_immediate(&v9, "Integer", super::HINTS_FAMILY_WORD_PASSIVE),
+        abi::move_immediate(&v9, "Integer", super::gen_os_seam::HINTS_FAMILY_WORD_PASSIVE),
         abi::store_u64(&v9, abi::stack_pointer(), HINTS),
-        abi::move_immediate(&v9, "Integer", super::SOCK_STREAM),
+        abi::move_immediate(&v9, "Integer", super::gen_os_seam::SOCK_STREAM),
         abi::store_u64(&v9, abi::stack_pointer(), HINTS + 8),
         // Empty host => NULL node (bind all interfaces).
         abi::load_u64(&v9, abi::stack_pointer(), HOST),
@@ -316,7 +316,7 @@ pub(crate) fn lower_tls_listen(
         abi::compare_immediate(&v9, "0"),
         abi::branch_eq(&null_host),
     ]);
-    super::emit_cstring(symbol, "host", HOST, HOSTCSTR, &alloc_fail, &mut ins, &mut rel, &mut vregs);
+    super::gen_os_seam::emit_cstring(symbol, "host", HOST, HOSTCSTR, &alloc_fail, &mut ins, &mut rel, &mut vregs);
     ins.extend([
         abi::branch(&resolved),
         abi::label(&null_host),
@@ -610,8 +610,7 @@ pub(crate) fn lower_tls_listen(
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
 
     ins.extend([abi::label(&done), abi::return_()]);
-    let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
-    Ok((frame, ins, rel, slots))
+    Ok((ins, rel, FRAME_SIZE))
 }
 
 // ---------------------------------------------------------------------------
@@ -621,7 +620,7 @@ pub(crate) fn lower_tls_accept(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -661,7 +660,7 @@ pub(crate) fn lower_tls_accept(
     let no_send = format!("{symbol}_no_send");
     let resetrecv = format!("{symbol}_resetrecv");
 
-    let mut ins = vec![abi::label("entry")];
+    let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     // return_register = listener record { fd@0, closed@8, WORK@16 }; ARG[1] = timeoutMs.
     ins.extend([
@@ -740,7 +739,7 @@ pub(crate) fn lower_tls_accept(
             abi::label(&hs_ts_ok),
             abi::store_u64(&v14, abi::stack_pointer(), HSTV),
         ]);
-        super::emit_set_sock_timeouts(
+        super::gen_os_seam::emit_set_sock_timeouts(
             &mut EmitCtx {
                 symbol,
                 platform_imports: imports,
@@ -927,7 +926,7 @@ pub(crate) fn lower_tls_accept(
             abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTV),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTV + 8),
         ]);
-        super::emit_set_sock_timeouts(
+        super::gen_os_seam::emit_set_sock_timeouts(
             &mut EmitCtx {
                 symbol,
                 platform_imports: imports,
@@ -1011,8 +1010,7 @@ pub(crate) fn lower_tls_accept(
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
 
     ins.extend([abi::label(&done), abi::return_()]);
-    let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
-    Ok((frame, ins, rel, slots))
+    Ok((ins, rel, FRAME_SIZE))
 }
 
 // ---------------------------------------------------------------------------
@@ -1022,7 +1020,7 @@ pub(crate) fn lower_tls_close_listener(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -1034,7 +1032,7 @@ pub(crate) fn lower_tls_close_listener(
     let already = format!("{symbol}_already");
     let done = format!("{symbol}_done");
 
-    let mut ins = vec![abi::label("entry")];
+    let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
@@ -1095,6 +1093,5 @@ pub(crate) fn lower_tls_close_listener(
         abi::label(&done),
         abi::return_(),
     ]);
-    let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
-    Ok((frame, ins, rel, slots))
+    Ok((ins, rel, FRAME_SIZE))
 }

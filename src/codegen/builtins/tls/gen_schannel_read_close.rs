@@ -5,7 +5,7 @@ pub(crate) fn lower_tls_read(
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -39,7 +39,7 @@ pub(crate) fn lower_tls_read(
     let dloop = format!("{symbol}_dloop");
     let dread = format!("{symbol}_dread");
 
-    let mut ins = vec![abi::label("entry")];
+    let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
@@ -353,15 +353,14 @@ pub(crate) fn lower_tls_read(
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
-    let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
-    Ok((frame, ins, rel, slots))
+    Ok((ins, rel, FRAME_SIZE))
 }
 
 pub(crate) fn lower_tls_close(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -385,7 +384,7 @@ pub(crate) fn lower_tls_close(
     let no_tok = format!("{symbol}_notok");
     let skip_free = format!("{symbol}_skip_free");
 
-    let mut ins = vec![abi::label("entry")];
+    let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
@@ -488,8 +487,7 @@ pub(crate) fn lower_tls_close(
         abi::label(&done),
         abi::return_(),
     ]);
-    let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
-    Ok((frame, ins, rel, slots))
+    Ok((ins, rel, FRAME_SIZE))
 }
 
 // plan-76-B: tls::poll(sock[, timeoutMs]) AS Boolean on schannel.
@@ -502,7 +500,7 @@ pub(crate) fn lower_tls_poll(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -519,7 +517,7 @@ pub(crate) fn lower_tls_poll(
     let timeout_ok = format!("{symbol}_timeout_ok");
     let done = format!("{symbol}_done");
 
-    let mut ins = vec![abi::label("entry")];
+    let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     ins.extend([
         abi::store_u64(abi::c_arg(1), abi::stack_pointer(), TIMEOUT),
@@ -585,6 +583,5 @@ pub(crate) fn lower_tls_poll(
     ins.push(abi::label(&closed));
     emit_fail(symbol, "ErrResourceClosed", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
-    let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
-    Ok((frame, ins, rel, slots))
+    Ok((ins, rel, FRAME_SIZE))
 }

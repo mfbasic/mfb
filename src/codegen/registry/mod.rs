@@ -39,35 +39,23 @@ pub(crate) type NativeLower =
         &[crate::target::shared::nir::NirValue],
     ) -> Result<crate::codegen::engine::builder::ValueResult, String>;
 
-/// The per-compilation context an OS-seam ([`OsLower`]) emitter may bake into its
-/// runtime-helper body — bundled into one struct instead of a growing positional
-/// list so the contract stays lean as consumers accrue.
+/// The per-compilation context the remaining OS-seam ([`OsLower`]) emitters
+/// (`term`/`app`, the last not-yet-migrated packages) may bake into their
+/// runtime-helper bodies — bundled into one struct. DEPRECATED alongside
+/// [`OsLower`]; deleted once `term`/`app` move to [`Body::AbiFunction`].
 ///
-/// * `build_mode` / `module_name` — the build identity (`os.resourcePath` derives
-///   its `(strip, suffix)` from them).
+/// * `build_mode` — the build mode (console vs `--app`).
 /// * `term_state_offset` — the arena offset of the TUI term-state slot, or `None`
-///   when the program uses no `term::` (plan-35-B TUI shadow-grid routing on
-///   `io.print`/`io.write`; bug-149 cooked-mode restore on `io.readLine`/`io.input`).
+///   when the program uses no `term::` (plan-35-B TUI shadow-grid routing).
 /// * `presentation_mode_offset` — the arena offset of the app presentation-mode
 ///   slot, or `None` when the program is not an `--app` build.
 ///
-/// The two arena offsets are `Option<usize>` to carry the legacy `ArenaLayout`
-/// `term_state_offset`/`presentation_mode_offset` values byte-for-byte (they are
-/// already `Option<usize>`, and `io`'s emitters consume `Option<usize>`). Most
-/// emitters ignore most fields — they are threaded so a context-dependent member
-/// can migrate onto this contract without changing it.
-pub(crate) struct OsLowerCtx<'a> {
+/// The two arena offsets are `Option<usize>`, carrying the `ArenaLayout` values
+/// byte-for-byte.
+pub(crate) struct OsLowerCtx {
     pub(crate) build_mode: crate::target::NativeBuildMode,
-    pub(crate) module_name: &'a str,
     pub(crate) term_state_offset: Option<usize>,
     pub(crate) presentation_mode_offset: Option<usize>,
-    /// The per-compilation type model (record field layouts, union/enum members,
-    /// resource closers). Threaded so an OS-seam emitter that **returns a record**
-    /// can drive the generic spec-canonical record marshaller
-    /// ([`crate::codegen::memory::marshal::emit_build_inlined_record`]) — the
-    /// field-inline classification (`record_field_is_inlined` / `type_is_flat`)
-    /// needs the record's declared fields. Most emitters ignore it.
-    pub(crate) type_model: &'a crate::codegen::engine::builder::TypeModel,
 }
 
 /// An OS-seam member's per-platform native emission — the
@@ -124,10 +112,6 @@ pub(crate) struct AbiCtx<'a> {
     /// emitter did. Carries the legacy `ArenaLayout` value byte-for-byte
     /// (`Option<usize>`). Most abi bodies (crypto/bits) ignore it.
     pub(crate) term_state_offset: Option<usize>,
-    /// The arena offset of the app presentation-mode slot, or `None` when the
-    /// program is not an `--app` build. Threaded alongside `term_state_offset` for
-    /// the same reason; the migrated `io` app-mode routing consults it.
-    pub(crate) presentation_mode_offset: Option<usize>,
 }
 
 /// A builder-driven **inline** lowering — the single sanctioned inline shape (the

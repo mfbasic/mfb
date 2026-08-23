@@ -398,7 +398,7 @@ pub(crate) fn lower_tls_listen_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -452,7 +452,7 @@ pub(crate) fn lower_tls_listen_macos(
     let ready = format!("{symbol}_ready");
     let done = format!("{symbol}_done");
 
-    let mut ins = vec![abi::label("entry")];
+    let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     // x0 = host; x1 = port; x2 = certPath; x3 = keyPath; x4 = backlog (unused).
     ins.extend([
@@ -1247,8 +1247,7 @@ pub(crate) fn lower_tls_listen_macos(
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     {
-        let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
-        Ok((frame, ins, rel, stack_slots))
+        Ok((ins, rel, FRAME_SIZE))
     }
 }
 
@@ -1256,7 +1255,7 @@ pub(crate) fn lower_tls_accept_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -1296,7 +1295,7 @@ pub(crate) fn lower_tls_accept_macos(
     let ready = format!("{symbol}_ready");
     let done = format!("{symbol}_done");
 
-    let mut ins = vec![abi::label("entry")];
+    let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     // x0 = listener record { closed@0, listener@8, queue@16, lctx@24 };
     // x1 = timeoutMs.
@@ -1686,8 +1685,7 @@ pub(crate) fn lower_tls_accept_macos(
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
     {
-        let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
-        Ok((frame, ins, rel, stack_slots))
+        Ok((ins, rel, FRAME_SIZE))
     }
 }
 
@@ -1695,7 +1693,7 @@ pub(crate) fn lower_tls_close_listener_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<TlsBodyParts, String> {
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
     let v10 = vregs.next();
@@ -1724,7 +1722,7 @@ pub(crate) fn lower_tls_close_listener_macos(
     let lcancel_drain = format!("{symbol}_lcancel_drain");
     let done = format!("{symbol}_done");
 
-    let mut ins = vec![abi::label("entry")];
+    let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
@@ -1894,7 +1892,6 @@ pub(crate) fn lower_tls_close_listener_macos(
         abi::return_(),
     ]);
     {
-        let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE);
-        Ok((frame, ins, rel, stack_slots))
+        Ok((ins, rel, FRAME_SIZE))
     }
 }

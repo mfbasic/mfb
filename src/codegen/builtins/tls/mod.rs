@@ -1,4 +1,3 @@
-#![allow(deprecated)] // not-yet-migrated: uses deprecated Body::native_os_seam
 //! The built-in `tls` package (transport-layer security) on the clean-room
 //! registry.
 //!
@@ -27,7 +26,10 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::{Registry, RegistryPackage, RegistryResource};
-pub(crate) mod native;
+pub(crate) mod gen_macos;
+mod gen_openssl;
+pub(crate) mod gen_os_seam;
+pub(crate) mod gen_schannel;
 
 mod func_accept;
 mod func_close;

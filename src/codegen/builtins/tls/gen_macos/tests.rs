@@ -10,6 +10,7 @@
 use super::*;
 use crate::arch::ops::CodeOp;
 use crate::codegen::engine::mir;
+use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
 struct TlsReadTestPlatform;
@@ -264,7 +265,7 @@ fn blr_between(ins: &[CodeInstruction], start: &str, end: &str) -> usize {
 fn readtext_encoding_error_releases_mapped_and_content() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (_frame, ins, rel, _slots) =
+    let (ins, rel, _slots) =
         lower_tls_read_macos("t_readtext", &imports, &TlsReadTestPlatform, true)
             .expect("lower tls::readText");
 
@@ -293,7 +294,7 @@ fn readtext_encoding_error_releases_mapped_and_content() {
 fn readbytes_has_no_encoding_error_exit() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (_frame, ins, _rel, _slots) =
+    let (ins, _rel, _slots) =
         lower_tls_read_macos("t_readbytes", &imports, &TlsReadTestPlatform, false)
             .expect("lower tls::read");
 
@@ -345,7 +346,7 @@ fn resolves_in(win: &[CodeInstruction], name: &str) -> bool {
 fn accept_failure_exits_release_the_connection() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (_f, ins, _r, _s) =
+    let (ins, _r, _s) =
         lower_tls_accept_macos("t_a", &imports, &TlsReadTestPlatform).expect("lower");
     // Each exit is checked against its own window (up to the next exit's
     // label), so one exit's release cannot stand in for the other's.
@@ -380,7 +381,7 @@ fn accept_failure_exits_release_the_connection() {
 fn connect_failure_exits_release_connection_and_queue() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (_f, ins, _r, _s) =
+    let (ins, _r, _s) =
         lower_tls_connect_macos("t_c", &imports, &TlsReadTestPlatform).expect("lower");
     for (exit, end) in [
         ("t_c_conn_fail", "t_c_conn_timeout"),
@@ -411,7 +412,7 @@ fn connect_failure_exits_release_connection_and_queue() {
 fn readtext_releases_previous_semaphore() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (_f, ins, rel, _s) =
+    let (ins, rel, _s) =
         lower_tls_read_macos("t_rt", &imports, &TlsReadTestPlatform, true).expect("lower");
     assert!(
         has_label(&ins, "t_rt_sem_skip_release"),
@@ -427,7 +428,7 @@ fn readtext_releases_previous_semaphore() {
 fn write_releases_previous_semaphore() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (_f, ins, _r, _s) =
+    let (ins, _r, _s) =
         lower_tls_write_macos("t_w", &imports, &TlsReadTestPlatform, false).expect("lower");
     assert!(
         has_label(&ins, "t_w_sem_skip_release"),
@@ -442,7 +443,7 @@ fn write_releases_previous_semaphore() {
 fn connect_releases_endpoint_and_params() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (_f, _ins, rel, _s) =
+    let (_ins, rel, _s) =
         lower_tls_connect_macos("t_c", &imports, &TlsReadTestPlatform).expect("lower");
     assert!(
         rel.iter().any(|r| r.to.contains("nw_release")),
@@ -458,7 +459,7 @@ fn connect_releases_endpoint_and_params() {
 fn close_releases_connection_queue_and_sem() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (_f, ins, rel, _s) =
+    let (ins, rel, _s) =
         lower_tls_close_macos("t_cl", &imports, &TlsReadTestPlatform).expect("lower");
     assert!(
         rel.iter().any(|r| r.to.contains("nw_release")),
@@ -480,7 +481,7 @@ fn close_releases_connection_queue_and_sem() {
 fn accept_stores_zero_queue_slot() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (_f, ins, _r, _s) =
+    let (ins, _r, _s) =
         lower_tls_accept_macos("t_a", &imports, &TlsReadTestPlatform).expect("lower");
     // The accepted-record build stores x31 (zero) into REC_QUEUE rather than
     // the shared listener queue; assert no `store [x1+REC_QUEUE] <- vN` from a
@@ -532,7 +533,7 @@ fn has_cancel_drain(win: &[CodeInstruction], drain_label: &str, cancelled_state:
 fn accept_failure_exits_drain_to_cancelled() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (_f, ins, _r, _s) =
+    let (ins, _r, _s) =
         lower_tls_accept_macos("t_a", &imports, &TlsReadTestPlatform).expect("lower");
     for (exit, end, drain) in [
         ("t_a_conn_fail", "t_a_hs_timeout", "t_a_conn_fail_drain"),
@@ -561,7 +562,7 @@ fn accept_failure_exits_drain_to_cancelled() {
 fn close_listener_drains_to_cancelled() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (_f, ins, rel, _s) =
+    let (ins, rel, _s) =
         lower_tls_close_listener_macos("t_ll", &imports, &TlsReadTestPlatform).expect("lower");
     assert!(
         has_cancel_drain(&ins, "t_ll_lcancel_drain", "4"),
@@ -580,7 +581,7 @@ fn close_listener_drains_to_cancelled() {
 fn close_listener_releases_queue_and_sem() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (_f, _ins, rel, _s) =
+    let (_ins, rel, _s) =
         lower_tls_close_listener_macos("t_ll", &imports, &TlsReadTestPlatform).expect("lower");
     assert!(
         rel.iter().any(|r| r.to.contains("dispatch_release")),

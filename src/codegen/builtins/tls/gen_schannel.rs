@@ -23,8 +23,8 @@ use crate::codegen::error::emission::*;
 use crate::codegen::memory::marshal::*;
 use std::collections::HashMap;
 
-use super::{
-    TLS_LISTENER_OFFSET_CLOSED, TLS_OFFSET_CLOSED, TLS_OFFSET_FD, TLS_OFFSET_STATE,
+use super::gen_os_seam::{
+    TlsBodyParts, TLS_LISTENER_OFFSET_CLOSED, TLS_OFFSET_CLOSED, TLS_OFFSET_FD, TLS_OFFSET_STATE,
     TLS_RECORD_SIZE, TLS_SCHANNEL_OFFSET_BLOCK,
 };
 use crate::codegen::builtins::net::gen_os_seam::emit_string_result_build;
@@ -240,9 +240,9 @@ fn sspi_call_ext(
     Ok(())
 }
 
-include!("schannel_impl.rs");
-include!("schannel_server.rs");
+include!("gen_schannel_impl.rs");
+include!("gen_schannel_server.rs");
 
 #[cfg(test)]
-#[path = "schannel_tests.rs"]
+#[path = "gen_schannel_tests.rs"]
 mod schannel_tests;

@@ -65,11 +65,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Nothing,
             errors: vec![],
-            body: Body::native_os_seam(
-                Some(super::native::lower_tls_helper),
-                Some(super::native::lower_tls_helper),
-                &[],
-            ),
+            body: Body::abi_function(super::gen_os_seam::lower_tls_os_seam),
         }],
     });
 }
