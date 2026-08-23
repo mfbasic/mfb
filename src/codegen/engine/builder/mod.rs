@@ -1938,6 +1938,7 @@ pub(crate) fn lower_runtime_helper(
                 platform_imports,
                 platform,
                 os_ctx.term_state_offset,
+                os_ctx.presentation_mode_offset,
             )?
         } else if crate::codegen::registry::registry().owning_package(spec.call) == Some("term") {
             // Every `term.*` member carries a `Body::native_os_seam` OS-seam lowering
@@ -1963,30 +1964,10 @@ pub(crate) fn lower_runtime_helper(
             }
         } else {
             match spec.call {
-                // plan-62-B: the two `app.*` presentation-mode helpers (state
-                // read/write off the per-arena presentation-mode slot; `setMode`
-                // additionally calls the per-backend surface-reconcile seam) carry a
-                // `Body::native` OS-seam lowering in `codegen::builtins::app::native`.
-                // The generic registry-driven dispatch threads the arena
-                // `presentation_mode_offset` through `os_ctx`; the migrated helper
-                // errors if it is absent (app builds reserve the slot only when
-                // `is_app()`). The cross-package `ErrWrongMode` gate below stays here.
-                call if call.starts_with("app.") => {
-                    match crate::codegen::os::dispatch_runtime_helper(
-                        call,
-                        symbol,
-                        &os_ctx,
-                        platform_imports,
-                        platform,
-                    ) {
-                        Some(result) => result?,
-                        None => {
-                            return Err(format!(
-                                "native code plan does not emit runtime call '{call}'"
-                            ));
-                        }
-                    }
-                }
+                // (`app.*` presentation-mode members are `Body::abi_function` since the
+                // clean-room migration — the shared `lower_app_os_seam` body reads the
+                // arena `presentation_mode_offset` off the `AbiCtx` — so they route
+                // through the `is_abi_function_call` branch above; no `app.` arm here.)
                 // Every `crypto.*` runtime helper (the `randomBytes` CSPRNG and the
                 // NIST-EC public-key ops) carries a `Body::native` OS-seam lowering in
                 // `codegen::builtins::crypto::native`; the generic registry-driven

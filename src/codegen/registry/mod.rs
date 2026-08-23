@@ -112,6 +112,11 @@ pub(crate) struct AbiCtx<'a> {
     /// emitter did. Carries the legacy `ArenaLayout` value byte-for-byte
     /// (`Option<usize>`). Most abi bodies (crypto/bits) ignore it.
     pub(crate) term_state_offset: Option<usize>,
+    /// The arena offset of the app presentation-mode slot, or `None` when the
+    /// program is not an `--app` build. Read by the `app`/`term` `abi_function`
+    /// bodies (presentation-mode load/store + the app-mode `ErrWrongMode` gate);
+    /// carries the `ArenaLayout` value byte-for-byte. Most abi bodies ignore it.
+    pub(crate) presentation_mode_offset: Option<usize>,
 }
 
 /// A builder-driven **inline** lowering — the single sanctioned inline shape (the

@@ -1,7 +1,7 @@
 //! `app::getMode` — read the presentation mode currently in effect.
 //!
 //! The native lowering (the per-arena presentation-mode load) lives in
-//! [`super::native::lower_app_helper`].
+//! [`super::gen_os_seam::lower_app_os_seam`].
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
@@ -48,11 +48,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![],
             return_type: ParameterType::Named("Mode"),
             errors: vec![],
-            body: Body::native(
-                Some(super::native::lower_app_helper),
-                Some(super::native::lower_app_helper),
-                None,
-            ),
+            body: Body::abi_function(super::gen_os_seam::lower_app_os_seam),
         }],
     });
 }

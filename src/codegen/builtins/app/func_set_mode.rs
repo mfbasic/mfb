@@ -1,7 +1,7 @@
 //! `app::setMode` — change the presentation mode of an `--app` program.
 //!
 //! The native lowering (store the discriminant, then the per-backend surface-reconcile
-//! seam) lives in [`super::native::lower_app_helper`].
+//! seam) lives in [`super::gen_os_seam::lower_app_os_seam`].
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::registry::{
@@ -57,11 +57,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Nothing,
             errors: vec![],
-            body: Body::native(
-                Some(super::native::lower_app_helper),
-                Some(super::native::lower_app_helper),
-                None,
-            ),
+            body: Body::abi_function(super::gen_os_seam::lower_app_os_seam),
         }],
     });
 }

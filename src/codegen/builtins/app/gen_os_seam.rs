@@ -5,11 +5,10 @@
 //! pinned arena-state register at `presentation_mode_offset` (reserved one slot
 //! past the `term::` state region, app builds only). The offset is not a static
 //! ABI constant — it is a per-compilation `ArenaLayout` value — so it arrives on
-//! the [`OsLowerCtx`](crate::codegen::registry::OsLowerCtx) that the generic
-//! runtime-helper dispatch (`registry::os_helper`) threads to every OS-seam
-//! lowering; `presentation_mode_offset` is `Some` exactly in an `--app` build, so
-//! its absence here is an internal error (the plan never emits these symbols
-//! otherwise).
+//! the [`AbiCtx`](crate::codegen::registry::AbiCtx) the `abi_function` wrapper
+//! threads to the shared [`lower_app_os_seam`] body; `presentation_mode_offset` is
+//! `Some` exactly in an `--app` build, so its absence here is an internal error
+//! (the plan never emits these symbols otherwise).
 //!
 //! `getMode` loads the word into the result value register — the `term::isOn`
 //! shape. `setMode` stores its argument, then calls the per-backend
@@ -27,26 +26,58 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
-use std::collections::HashMap;
 
-use crate::codegen::registry::OsLowerCtx;
+use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
+
+/// The `(instructions, relocations, stack_size)` an `app` OS-seam body emits before
+/// the `abi_function` wrapper finalizes it (see `net`'s `NetBodyParts`).
+pub(crate) type AppBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize);
+
+/// The `abi_function` body shared by the two `app::` presentation-mode members
+/// (crypto/io/net's clean-room shape). The `abi_function` wrapper seeds the entry
+/// label, binds the ABI argument registers, and finalizes; this body dispatches to
+/// [`lower_app_helper`] by the runtime-call name in [`AbiCtx::call`] and appends its
+/// instructions/relocations.
+pub(crate) fn lower_app_os_seam(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &crate::codegen::registry::AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) = lower_app_helper(
+        ctx.call,
+        &symbol,
+        ctx.presentation_mode_offset,
+        ctx.platform,
+    )?;
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(ValueResult {
+        origin: None,
+        type_: "Nothing".to_string(),
+        location: Operand::from("void"),
+        text: ctx.call.to_string(),
+    })
+}
+
 /// The two `app::` presentation-mode runtime helpers. Reads the per-arena
 /// presentation-mode slot (`getMode`) or writes it and runs the per-backend
-/// surface-reconcile seam (`setMode`). `ctx.presentation_mode_offset` is the arena
-/// slot; it is `Some` only in an `--app` build, so `None` here is an internal error.
+/// surface-reconcile seam (`setMode`), returning the pre-finalize [`AppBodyParts`]
+/// the wrapper finalizes. `presentation_mode_offset` is the arena slot; it is `Some`
+/// only in an `--app` build, so `None` here is an internal error.
 pub(crate) fn lower_app_helper(
     call: &str,
     symbol: &str,
-    ctx: &OsLowerCtx,
-    _platform_imports: &HashMap<String, String>,
+    presentation_mode_offset: Option<usize>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
-    let presentation_mode_offset = ctx.presentation_mode_offset.ok_or_else(|| {
+) -> Result<AppBodyParts, String> {
+    let presentation_mode_offset = presentation_mode_offset.ok_or_else(|| {
         format!("native code plan emits '{symbol}' without reserving the presentation-mode slot")
     })?;
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
 
@@ -64,8 +95,7 @@ pub(crate) fn lower_app_helper(
     }
 
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 0);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 /// `app::getMode()` — load the presentation-mode word (`0`/`1`) into the result

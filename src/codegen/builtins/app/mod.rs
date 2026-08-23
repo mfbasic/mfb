@@ -1,4 +1,3 @@
-#![allow(deprecated)] // not-yet-migrated: uses deprecated Body::native
 //! The built-in `app` package (plan-62 / clean-room registry migration).
 //!
 //! `app` makes an `--app` program's **presentation mode** — what its window
@@ -10,15 +9,13 @@
 //! `money::getRounding` / `money::setRounding`.
 //!
 //! Unlike `money`, the two members lower to **runtime helpers** (`_mfb_rt_app_*`),
-//! not inline call-site sequences, so each carries a `Body::native` OS-seam
-//! lowering ([`native::lower_app_helper`]) in both the posix and win slots; the
-//! generic runtime-call dispatch (`crate::codegen::os::dispatch_runtime_helper` →
-//! `registry::os_helper`) routes each member to it and threads the per-arena
-//! `presentation_mode_offset` through the [`OsLowerCtx`](crate::codegen::registry::OsLowerCtx)
-//! (app is not OS-family-specific — the per-backend surface reconcile is a
-//! `CodegenPlatform` seam invoked from the shared body). Their runtime specs are
-//! DERIVED from the registry (`registry::runtime_specs`), so there is no
-//! hand-written `app_specs.rs`.
+//! not inline call-site sequences, so each registers the shared
+//! [`gen_os_seam::lower_app_os_seam`] `Body::abi_function` body; the `abi_function`
+//! wrapper threads the per-arena `presentation_mode_offset` through the
+//! [`AbiCtx`](crate::codegen::registry::AbiCtx) (app is not OS-family-specific — the
+//! per-backend surface reconcile is a `CodegenPlatform` seam invoked from the shared
+//! body). Their runtime specs are DERIVED from the registry
+//! (`registry::runtime_specs`), so there is no hand-written `app_specs.rs`.
 //!
 //! The `Mode` enum is modeled on the registry via `add_enum` (rendered into the
 //! injected source by `get_mfb`, like `money`'s `Rounding` and `datetime`'s
@@ -29,7 +26,7 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::registry::{EnumVariant, Registry, RegistryEnum, RegistryPackage};
-pub(crate) mod native;
+mod gen_os_seam;
 
 mod func_get_mode;
 mod func_set_mode;
