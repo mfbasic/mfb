@@ -30,6 +30,10 @@ impl<'a> CodeBuilder<'a> {
             // The inline path lowers per call site and hands the body its raw args +
             // target directly; no `abi_function` runtime-call name applies.
             call: "",
+            // Worker-spawn build state (`thread.start`) is an `abi_function` concern;
+            // the inline path never lowers `thread.start`.
+            arena_global_slots: 0,
+            uses_rng: false,
         }
     }
 }

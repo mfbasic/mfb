@@ -51,7 +51,6 @@ use crate::codegen::string::format::*;
 use crate::codegen::engine::analysis::module_uses_call;
 use crate::codegen::engine::analysis::*;
 use crate::codegen::memory::data::*;
-use crate::codegen::runtime::thread::*;
 // `audio`'s per-backend device emission moved to `crate::codegen::builtins::audio` (gen_* modules)
 // (clean-room registry migration). The `AudioBackend` selector (data objects + macOS
 // AudioQueue callbacks) is reached there; runtime-helper bodies flow through the generic
@@ -1915,6 +1914,8 @@ pub(crate) fn lower_runtime_helper(
                 platform,
                 os_ctx.term_state_offset,
                 os_ctx.presentation_mode_offset,
+                arena_layout.global_slots,
+                uses_rng,
             )?
         // (`term.*` members are `Body::abi_function` since the clean-room migration —
         // each member's own per-member body (`func_*.rs::lower_<name>`) calls the shared
@@ -1979,32 +1980,14 @@ pub(crate) fn lower_runtime_helper(
                 }
                 // (`io.*` members are `Body::abi_function` since plan-101, so they are
                 // handled by the `is_abi_function_call` branch above — no `io.` arm here.)
-                "thread.start"
-                | "thread.isRunning"
-                | "thread.waitFor"
-                | "thread.cancel"
-                | "thread.drop"
-                | "thread.send"
-                | "thread.poll"
-                | "thread.sleep"
-                | "thread.read"
-                | "thread.receive"
-                | "thread.emit"
-                | "thread.sleepWorker"
-                | "thread.transferResource"
-                | "thread.acceptResource"
-                | "thread.emitResource"
-                | "thread.readResource"
-                | "thread.isCancelled"
-                | "thread.openStdIn"
-                | "thread.closeStdIn" => lower_thread_helper(
-                    symbol,
-                    spec.call,
-                    uses_rng,
-                    arena_layout.global_slots,
-                    platform_imports,
-                    platform,
-                )?,
+                // (`thread.*` members are `Body::abi_function`/`abi_function_aliased` since
+                // the clean-room migration — each member owns its per-member body in its
+                // `func_*.rs` (`lower_<name>`), which calls the shared un-finalized
+                // `gen_shared`/runtime-thread emitters and branches worker/parent + the
+                // resource plane off `AbiCtx::call`; the internal `emit`/`read`/
+                // `sleepWorker`/`*Resource`/`drop` code forms are `os_aliases`. So they
+                // route through the `is_abi_function_call` branch above; no `thread.` arm
+                // here. `thread.start` reads `AbiCtx::arena_global_slots`/`uses_rng`.)
                 // (`net.*` members are `Body::abi_function_aliased` since the clean-room
                 // migration — each member's own per-member body (`func_*.rs::lower_<name>`)
                 // plus its `connectTcpAddr`/`pollList` code-form aliases — so they route

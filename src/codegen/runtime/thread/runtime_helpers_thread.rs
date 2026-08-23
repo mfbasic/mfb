@@ -1,12 +1,20 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
-use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::codegen::runtime::thread::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
+
+/// The `(instructions, relocations, stack_size)` a `thread` OS-seam body emits before
+/// the `abi_function` wrapper finalizes it — the successor to the self-finalized
+/// `HelperResult`/`HelperBody` (see `fs`'s `FsBodyParts`). `stack_size` is the explicit
+/// sp-relative locals region the body reserves; the wrapper seeds the `entry` label and
+/// passes `stack_size` to `finalize_vreg_body_with_locals`, byte-identical to the body's
+/// former self-finalize.
+pub(crate) type ThreadBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize);
+
 pub(crate) enum ThreadSimpleOp {
     IsRunning,
     WaitFor,
@@ -72,7 +80,7 @@ pub(crate) fn simple_thread_handle_helper(
     op: ThreadSimpleOp,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ThreadBodyParts, String> {
     const FRAME_SIZE: usize = 48;
     const HANDLE_OFFSET: usize = 8;
     const VALUE_OFFSET: usize = 16;
@@ -81,7 +89,7 @@ pub(crate) fn simple_thread_handle_helper(
     // WaitFor only: origin ErrorLoc of a propagated worker error (0 otherwise).
     const SOURCE_OFFSET: usize = 40;
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions = Vec::new();
     let mut relocations = Vec::new();
     instructions.extend([abi::store_u64(
         abi::c_arg(0),
@@ -803,8 +811,7 @@ pub(crate) fn simple_thread_handle_helper(
         }
     }
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME_SIZE))
 }
 
 /// plan-91-B: worker-side `thread::sleep(t, ms)` — a cancellation-aware delay.
@@ -819,7 +826,7 @@ pub(crate) fn lower_thread_sleep_worker_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ThreadBodyParts, String> {
     const FRAME_SIZE: usize = 64;
     const HANDLE_OFFSET: usize = 8;
     const QUEUE_OFFSET: usize = 16;
@@ -834,7 +841,7 @@ pub(crate) fn lower_thread_sleep_worker_helper(
     let deadline_reached = format!("{symbol}_deadline_reached");
     let interrupted = format!("{symbol}_interrupted");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions = Vec::new();
     let mut relocations = Vec::new();
     instructions.extend([
         abi::store_u64(abi::c_arg(0), abi::stack_pointer(), HANDLE_OFFSET),
@@ -977,8 +984,7 @@ pub(crate) fn lower_thread_sleep_worker_helper(
         &mut relocations,
     );
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME_SIZE))
 }
 
 pub(crate) fn thread_queue_write_helper(
@@ -987,7 +993,7 @@ pub(crate) fn thread_queue_write_helper(
     parent_send: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ThreadBodyParts, String> {
     const FRAME_SIZE: usize = 80;
     const HANDLE_OFFSET: usize = 8;
     const DATA_OFFSET: usize = 16;
@@ -1014,7 +1020,7 @@ pub(crate) fn thread_queue_write_helper(
     let tail_wrap = format!("{symbol}_tail_wrap");
     let unlock = format!("{symbol}_unlock");
     let done = format!("{symbol}_done");
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions = Vec::new();
     let mut relocations = Vec::new();
     instructions.extend([
         abi::store_u64(abi::c_arg(0), abi::stack_pointer(), HANDLE_OFFSET),
@@ -1253,8 +1259,7 @@ pub(crate) fn thread_queue_write_helper(
         abi::label(&done),
     ]);
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME_SIZE))
 }
 
 /// How a queue-read helper treats its caller. The read machinery is shared by the
@@ -1288,7 +1293,7 @@ pub(crate) fn thread_queue_read_helper(
     mode: ThreadReadMode,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ThreadBodyParts, String> {
     // `WorkerSelf` callers pass their own control block, so the helper restores
     // `x20` and reads the worker cancel flag; parent callers do neither.
     let worker_self = mode == ThreadReadMode::WorkerSelf;
@@ -1314,7 +1319,7 @@ pub(crate) fn thread_queue_read_helper(
     let head_wrap = format!("{symbol}_head_wrap");
     let unlock = format!("{symbol}_unlock");
     let done = format!("{symbol}_done");
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions = Vec::new();
     let mut relocations = Vec::new();
     instructions.extend([
         abi::store_u64(abi::c_arg(0), abi::stack_pointer(), HANDLE_OFFSET),
@@ -1556,17 +1561,15 @@ pub(crate) fn thread_queue_read_helper(
         abi::label(&done),
     ]);
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME_SIZE))
 }
 
-pub(crate) fn thread_is_cancelled_helper() -> HelperBody {
+pub(crate) fn thread_is_cancelled_helper() -> ThreadBodyParts {
     // Reads the worker's pinned current-thread register `x20` (the thread control
     // block); reserve it so the allocator never colors the `%v9` scratch onto it.
     let cancelled = "_mfb_rt_thread_is_cancelled_true";
     let done = "_mfb_rt_thread_is_cancelled_done";
-    let mut instructions = vec![
-        abi::label("entry"),
+    let instructions = vec![
         abi::load_u64("%v9", abi::CURRENT_THREAD, THREAD_OFFSET_CANCELLED),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(cancelled),
@@ -1579,8 +1582,7 @@ pub(crate) fn thread_is_cancelled_helper() -> HelperBody {
         abi::label(done),
         abi::return_(),
     ];
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 0);
-    (frame, instructions, Vec::new(), stack_slots)
+    (instructions, Vec::new(), 0)
 }
 
 /// Close and broadcast both **resource-plane** queues of the thread whose handle

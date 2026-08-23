@@ -1263,6 +1263,8 @@ pub(crate) fn lower_abi_function_helper(
     platform: &dyn CodegenPlatform,
     term_state_offset: Option<usize>,
     presentation_mode_offset: Option<usize>,
+    arena_global_slots: usize,
+    uses_rng: bool,
 ) -> Result<
     (
         CodeFrame,
@@ -1375,6 +1377,8 @@ pub(crate) fn lower_abi_function_helper(
         term_state_offset,
         presentation_mode_offset,
         call,
+        arena_global_slots,
+        uses_rng,
     };
     let result = lower(&mut builder, &args, &ctx)?;
 

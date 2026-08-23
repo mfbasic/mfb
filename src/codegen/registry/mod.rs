@@ -115,6 +115,16 @@ pub(crate) struct AbiCtx<'a> {
     /// bodies (presentation-mode load/store + the app-mode `ErrWrongMode` gate);
     /// carries the `ArenaLayout` value byte-for-byte. Most abi bodies ignore it.
     pub(crate) presentation_mode_offset: Option<usize>,
+    /// The count of writable global slots (program globals + `LINK`/`FREE` pointer
+    /// slots + `term::` state) the program uses — from `ArenaLayout::global_slots`.
+    /// `thread.start` alone consumes it to size a spawned worker's arena block so its
+    /// global-slot offsets match the main thread's (bug-369); every other abi body
+    /// ignores it. `0` on the inline (`abi_inline`) path.
+    pub(crate) arena_global_slots: usize,
+    /// Whether the program uses the RNG (so a spawned worker must seed its per-thread
+    /// RNG state). `thread.start` alone consumes it; every other abi body ignores it.
+    /// `false` on the inline (`abi_inline`) path.
+    pub(crate) uses_rng: bool,
 }
 
 /// A builder-driven **inline** lowering — the single sanctioned inline shape (the

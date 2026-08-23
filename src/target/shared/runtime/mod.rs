@@ -119,14 +119,12 @@ pub(crate) struct RuntimeHelperAbi {
 
 mod catalog;
 mod perf_specs;
-mod thread_specs;
 mod usage;
 
 pub(crate) use catalog::{spec_for_call, spec_for_symbol, supported_helper_specs};
 pub(crate) use usage::{is_native_direct_call, required_helpers};
 
 use perf_specs::*;
-use thread_specs::*;
 
 /// The runtime-helper family an `abi_function` member's symbol/spec belong to: its
 /// owning package's family when that package has a dedicated one (plan-101 — `io`

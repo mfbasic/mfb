@@ -1,18 +1,24 @@
 //! The built-in `thread` package — migrated onto the clean-room registry
 //! (`crate::codegen::registry`).
 //!
-//! `thread` is a **descriptor-only** migration. Unlike `process`/`fs`/`io`, thread's
-//! runtime lowering is NOT a per-member OS-seam: every user call lowers through the
-//! shared code-layer `RuntimeHelper::Thread` machinery (the per-thread data/resource
-//! queues, the parent/worker direction split in `builder_values`, the cancellation
-//! condvars, and the `_mfb_rt_stdin_*` broadcast) by its call NAME. So each member's
-//! [`Body`] is [`Body::Intrinsic`] — no rewrite, no source body — and the call name is
-//! left intact for `runtime::helper_for_call` to route. The runtime ABI catalog
-//! (`thread_specs.rs`), the `thread.drop` scope-cleanup op, and the stdin broadcast
-//! all stay shared (plan §"PART B obstacle resolution"); only the DESCRIPTOR
-//! (membership, arity, parameter names, argument-typed return resolution, the opaque
-//! `Thread`/`ThreadWorker` handle types) moves here off the legacy
-//! `target::shared::registry` `THREAD` module + `ThreadResolver`.
+//! Each member owns its `Body::abi_function` body in [`lowering`] (`lower_<name>`),
+//! the clean-room shape shared with every other builtin. The heavy per-thread machinery
+//! (data/resource queues, cancellation condvars, the `_mfb_rt_stdin_*` broadcast) stays
+//! in the shared `codegen::runtime::thread` emitters (`simple_thread_handle_helper`,
+//! `thread_queue_write_helper`/`thread_queue_read_helper`, `lower_thread_start_helper`,
+//! …); each member body is a thin call to its emitter that returns un-finalized parts,
+//! and the `abi_function` wrapper seeds `entry` and finalizes. The parent/worker
+//! direction split + the resource plane resolve to distinct runtime-call NAMES in
+//! `builder_values` (`send`→`emit`, `receive`→`read`, `sleep`→`sleepWorker`, `transfer`
+//! →`transferResource`/`emitResource`, `accept`→`acceptResource`/`readResource`); each
+//! such code form is an `os_alias` of the owning member, so `abi_function_lower` routes
+//! it to that member's body, which reads [`AbiCtx::call`](crate::codegen::registry::AbiCtx)
+//! to pick the queue/direction. The `thread.drop` scope-cleanup op is an `os_alias` of
+//! `cancel`. `thread.start` reads `AbiCtx::arena_global_slots`/`uses_rng` (the sole
+//! per-compilation build state a thread body consumes). The runtime ABI catalog is now
+//! DERIVED from the registry (`registry::runtime_specs`) — no hand-written thread specs.
+//! The DESCRIPTOR (membership, arity, parameter names, argument-typed return resolution,
+//! the opaque `Thread`/`ThreadWorker` handle types) lives here.
 //!
 //! The argument-typed return resolution — `start` builds a fresh parent handle,
 //! `waitFor`→Out, `receive`→Msg, `accept`→Res, `send`/`transfer` cross-param — rides
@@ -26,6 +32,8 @@ use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, Registry, RegistryFunction, RegistryPackage,
 };
 use crate::types::ParameterType;
+
+mod lowering;
 
 /// The parent thread handle's opaque type name.
 pub(crate) const THREAD_TYPE: &str = crate::types::THREAD_TYPE;
@@ -96,14 +104,15 @@ fn opt(name: &'static str, aliases: &'static [&'static str], ty: ParameterType) 
     }
 }
 
-// A single Body::Intrinsic overload: params + return type. thread lowers by call
-// name through the shared `RuntimeHelper::Thread`, so no rewrite/source body.
-fn overload(params: Vec<Parameter>, return_type: ParameterType) -> Implementation {
+// A single overload: params + return type + the member's per-member `abi_function`
+// body. Every overload of a member shares one body (`lowering::lower_<name>`), which
+// branches its worker/parent + resource-plane split off `AbiCtx::call`.
+fn overload(params: Vec<Parameter>, return_type: ParameterType, body: Body) -> Implementation {
     Implementation {
         params,
         return_type,
         errors: vec![],
-        body: Body::Intrinsic,
+        body,
     }
 }
 
@@ -169,6 +178,7 @@ pub(crate) fn register(r: &mut Registry) {
                 opt("outboundLimit", &[], ParameterType::Integer),
             ],
             th(false, worker_msg, worker_res, out()),
+            Body::abi_function(lowering::lower_start),
         )
     };
     pkg.add_function(function(
@@ -189,6 +199,7 @@ pub(crate) fn register(r: &mut Registry) {
         vec![overload(
             vec![req("t", &["thread"], any(false))],
             ParameterType::Boolean,
+            Body::abi_function(lowering::lower_is_running),
         )],
     ));
     // waitFor echoes the output. A single `Var`-output overload: a wholly-`Unknown`
@@ -201,6 +212,7 @@ pub(crate) fn register(r: &mut Registry) {
         vec![overload(
             vec![req("t", &["thread"], th(false, u(), u(), out()))],
             out(),
+            Body::abi_function(lowering::lower_wait_for),
         )],
     ));
     pkg.add_function(function(
@@ -209,6 +221,7 @@ pub(crate) fn register(r: &mut Registry) {
         vec![overload(
             vec![req("t", &["thread"], any(false))],
             ParameterType::Nothing,
+            Body::abi_function_aliased(lowering::lower_cancel, &["drop"]),
         )],
     ));
     pkg.add_function(function(
@@ -220,6 +233,7 @@ pub(crate) fn register(r: &mut Registry) {
                 req("ms", &[], ParameterType::Integer),
             ],
             ParameterType::Boolean,
+            Body::abi_function(lowering::lower_poll),
         )],
     ));
 
@@ -230,6 +244,7 @@ pub(crate) fn register(r: &mut Registry) {
         vec![overload(
             vec![req("t", &["thread"], any(true))],
             ParameterType::Boolean,
+            Body::abi_function(lowering::lower_is_cancelled),
         )],
     ));
 
@@ -238,8 +253,16 @@ pub(crate) fn register(r: &mut Registry) {
         "send",
         Some("Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Msg, Integer"),
         vec![
-            overload(send_params(false, msg()), ParameterType::Nothing),
-            overload(send_params(true, msg()), ParameterType::Nothing),
+            overload(
+                send_params(false, msg()),
+                ParameterType::Nothing,
+                Body::abi_function_aliased(lowering::lower_send, &["emit"]),
+            ),
+            overload(
+                send_params(true, msg()),
+                ParameterType::Nothing,
+                Body::abi_function_aliased(lowering::lower_send, &["emit"]),
+            ),
         ],
     ));
     // receive echoes the message (two kind-split overloads). Like waitFor, no
@@ -248,16 +271,32 @@ pub(crate) fn register(r: &mut Registry) {
         "receive",
         Some("Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Integer"),
         vec![
-            overload(receive_params(false, msg()), msg()),
-            overload(receive_params(true, msg()), msg()),
+            overload(
+                receive_params(false, msg()),
+                msg(),
+                Body::abi_function_aliased(lowering::lower_receive, &["read"]),
+            ),
+            overload(
+                receive_params(true, msg()),
+                msg(),
+                Body::abi_function_aliased(lowering::lower_receive, &["read"]),
+            ),
         ],
     ));
     pkg.add_function(function(
         "sleep",
         Some("Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Integer"),
         vec![
-            overload(sleep_params(false), ParameterType::Nothing),
-            overload(sleep_params(true), ParameterType::Nothing),
+            overload(
+                sleep_params(false),
+                ParameterType::Nothing,
+                Body::abi_function_aliased(lowering::lower_sleep, &["sleepWorker"]),
+            ),
+            overload(
+                sleep_params(true),
+                ParameterType::Nothing,
+                Body::abi_function_aliased(lowering::lower_sleep, &["sleepWorker"]),
+            ),
         ],
     ));
 
@@ -268,16 +307,44 @@ pub(crate) fn register(r: &mut Registry) {
         "transfer",
         Some("Thread OF Msg RES Res TO Out or ThreadWorker OF Msg RES Res TO Out, Res, Integer"),
         vec![
-            overload(transfer_params(false), ParameterType::Nothing),
-            overload(transfer_params(true), ParameterType::Nothing),
+            overload(
+                transfer_params(false),
+                ParameterType::Nothing,
+                Body::abi_function_aliased(
+                    lowering::lower_transfer,
+                    &["transferResource", "emitResource"],
+                ),
+            ),
+            overload(
+                transfer_params(true),
+                ParameterType::Nothing,
+                Body::abi_function_aliased(
+                    lowering::lower_transfer,
+                    &["transferResource", "emitResource"],
+                ),
+            ),
         ],
     ));
     pkg.add_function(function(
         "accept",
         Some("Thread OF Msg RES Res TO Out or ThreadWorker OF Msg RES Res TO Out, Integer"),
         vec![
-            overload(accept_params(false), res()),
-            overload(accept_params(true), res()),
+            overload(
+                accept_params(false),
+                res(),
+                Body::abi_function_aliased(
+                    lowering::lower_accept,
+                    &["acceptResource", "readResource"],
+                ),
+            ),
+            overload(
+                accept_params(true),
+                res(),
+                Body::abi_function_aliased(
+                    lowering::lower_accept,
+                    &["acceptResource", "readResource"],
+                ),
+            ),
         ],
     ));
 
@@ -288,6 +355,7 @@ pub(crate) fn register(r: &mut Registry) {
         vec![overload(
             vec![opt("t", &["thread"], any(false))],
             ParameterType::Nothing,
+            Body::abi_function(lowering::lower_open_std_in),
         )],
     ));
     pkg.add_function(function(
@@ -296,6 +364,7 @@ pub(crate) fn register(r: &mut Registry) {
         vec![overload(
             vec![opt("t", &["thread"], any(false))],
             ParameterType::Nothing,
+            Body::abi_function(lowering::lower_close_std_in),
         )],
     ));
 

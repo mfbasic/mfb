@@ -48,25 +48,10 @@ static LEGACY_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     // No `strings::` row: those ops are all native-direct (lowered inline; no
     // `_mfb_rt_strings_*` helper is ever emitted, bug-120.1). The dead spec
     // table that used to sit beside this comment is gone (bug-326-A1).
-    THREAD_START_SPEC,
-    THREAD_IS_RUNNING_SPEC,
-    THREAD_WAIT_FOR_SPEC,
-    THREAD_CANCEL_SPEC,
-    THREAD_DROP_SPEC,
-    THREAD_SEND_SPEC,
-    THREAD_POLL_SPEC,
-    THREAD_SLEEP_SPEC,
-    THREAD_READ_SPEC,
-    THREAD_RECEIVE_SPEC,
-    THREAD_EMIT_SPEC,
-    THREAD_SLEEP_WORKER_SPEC,
-    THREAD_TRANSFER_SPEC,
-    THREAD_ACCEPT_SPEC,
-    THREAD_EMIT_RESOURCE_SPEC,
-    THREAD_READ_RESOURCE_SPEC,
-    THREAD_IS_CANCELLED_SPEC,
-    THREAD_OPEN_STD_IN_SPEC,
-    THREAD_CLOSE_STD_IN_SPEC,
+    // `thread` is migrated: its specs (the 13 descriptor members plus the
+    // `emit`/`read`/`sleepWorker`/`*Resource`/`drop` `os_aliases`) are DERIVED from
+    // the registry (`registry::runtime_specs`) and merged in by
+    // `supported_helper_specs`, so no hand-written `THREAD_*_SPEC` rows here.
     // `net` is migrated: its specs (including the `connectTcpAddr`/`pollList` code
     // forms and the three resource close ops) are DERIVED from the registry
     // (`registry::runtime_specs`) and merged in by `supported_helper_specs`, so no
@@ -157,18 +142,22 @@ mod tests {
         // Catalogued calls that `helper_for_call` must NOT classify: these are
         // synthesized inside the code layer (`builder_values` rewrites the
         // user-facing call into the direction/overload-specific queue or addr
-        // variant; `thread.drop` is the handle-cleanup helper emitted by
-        // codegen primitives), so they never exist at the NIR level where
-        // `helper_for_call` routes calls. They are catalogued only so
-        // `spec_for_call`/`spec_for_symbol` resolve them during code emission
-        // and object planning.
+        // variant), so they never exist at the NIR level where `helper_for_call`
+        // routes calls. They are catalogued only so `spec_for_call`/`spec_for_symbol`
+        // resolve them during code emission and object planning.
         const CODE_LAYER_ONLY_CALLS: &[&str] = &[
-            "thread.drop",
-            "thread.read",
-            "thread.emit",
-            // plan-91-B: worker-side sleep is synthesized from `thread.sleep` in
-            // the code layer (builder_values), so it never exists at NIR level.
-            "thread.sleepWorker",
+            // `thread`'s worker/parent + resource-plane code forms (`emit`/`read`/
+            // `sleepWorker`/`transferResource`/`acceptResource`/`emitResource`/
+            // `readResource`) and the `drop` scope-cleanup op are NOT listed: since the
+            // migration to `Body::abi_function`/`abi_function_aliased` they are registered
+            // `os_aliases` of an `abi_function` member (`emit`→`send`, `read`→`receive`,
+            // `sleepWorker`→`sleep`, the `*Resource` forms→`transfer`/`accept`,
+            // `drop`→`cancel`), so `is_abi_function_call`/`abi_function_lower` classify them
+            // to the `Thread` family (like net's/tls's aliases). They are still synthesized
+            // in the code layer (`builder_values` rewrites the direction split; `drop` is
+            // the codegen-emitted handle-cleanup op), so they never reach `helper_for_call`
+            // at the NIR level in practice — but were they to, the family answer is now
+            // correct rather than `None`.
             // `process`'s `spawnEnv`/`sendTimeout`/`sendBytesTimeout`/`pollFrom`/
             // `receiveFrom`/`receiveBytesFrom` code-form aliases are NOT listed: since
             // the migration to `Body::abi_function_aliased` they are registered

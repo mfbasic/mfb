@@ -26,7 +26,7 @@ Cleaned up codegen
 [@] regex
 [@] strings
 [@] term
-[-] thread
+[@] thread
 [@] tls
 [-] vector
 

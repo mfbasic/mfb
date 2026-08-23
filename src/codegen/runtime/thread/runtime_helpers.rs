@@ -2,7 +2,6 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::regalloc;
 use crate::codegen::engine::types::*;
-use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::codegen::runtime::thread::*;
@@ -383,123 +382,15 @@ pub(crate) fn emit_thread_queue_alloc(
     Ok(())
 }
 
-pub(crate) fn lower_thread_helper(
-    symbol: &str,
-    call: &str,
-    uses_rng: bool,
-    arena_global_slots: usize,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-) -> HelperResult {
-    match call {
-        "thread.start" => lower_thread_start_helper(
-            symbol,
-            uses_rng,
-            arena_global_slots,
-            platform_imports,
-            platform,
-        ),
-        "thread.isRunning" => simple_thread_handle_helper(
-            symbol,
-            ThreadSimpleOp::IsRunning,
-            platform_imports,
-            platform,
-        ),
-        "thread.waitFor" => {
-            simple_thread_handle_helper(symbol, ThreadSimpleOp::WaitFor, platform_imports, platform)
-        }
-        "thread.cancel" => {
-            simple_thread_handle_helper(symbol, ThreadSimpleOp::Cancel, platform_imports, platform)
-        }
-        "thread.drop" => {
-            simple_thread_handle_helper(symbol, ThreadSimpleOp::Drop, platform_imports, platform)
-        }
-        "thread.send" => thread_queue_write_helper(
-            symbol,
-            THREAD_OFFSET_INBOUND_QUEUE,
-            true,
-            platform_imports,
-            platform,
-        ),
-        "thread.poll" => {
-            simple_thread_handle_helper(symbol, ThreadSimpleOp::Poll, platform_imports, platform)
-        }
-        "thread.sleep" => lower_thread_sleep_helper(symbol, platform_imports, platform),
-        "thread.sleepWorker" => {
-            lower_thread_sleep_worker_helper(symbol, platform_imports, platform)
-        }
-        "thread.read" => thread_queue_read_helper(
-            symbol,
-            THREAD_OFFSET_OUTBOUND_QUEUE,
-            ThreadReadMode::Parent,
-            platform_imports,
-            platform,
-        ),
-        "thread.receive" => thread_queue_read_helper(
-            symbol,
-            THREAD_OFFSET_INBOUND_QUEUE,
-            ThreadReadMode::WorkerSelf,
-            platform_imports,
-            platform,
-        ),
-        "thread.emit" => thread_queue_write_helper(
-            symbol,
-            THREAD_OFFSET_OUTBOUND_QUEUE,
-            false,
-            platform_imports,
-            platform,
-        ),
-        // Resource plane: transfer/accept mirror send/receive, split by direction
-        // across two queues (like the data plane's send/emit and receive/read).
-        // Parent→worker uses the inbound resource queue; worker→parent uses the
-        // outbound resource queue, so a thread's own transfer is never re-read by
-        // its own accept.
-        //
-        // transferResource: parent writes the inbound resource queue (mirrors send).
-        "thread.transferResource" => thread_queue_write_helper(
-            symbol,
-            THREAD_OFFSET_RESOURCE_INBOUND_QUEUE,
-            true,
-            platform_imports,
-            platform,
-        ),
-        // emitResource: worker writes the outbound resource queue (mirrors emit).
-        "thread.emitResource" => thread_queue_write_helper(
-            symbol,
-            THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE,
-            false,
-            platform_imports,
-            platform,
-        ),
-        // acceptResource: worker reads the inbound resource queue (mirrors receive).
-        "thread.acceptResource" => thread_queue_read_helper(
-            symbol,
-            THREAD_OFFSET_RESOURCE_INBOUND_QUEUE,
-            ThreadReadMode::WorkerSelf,
-            platform_imports,
-            platform,
-        ),
-        // readResource: parent reads the outbound resource queue (mirrors read).
-        "thread.readResource" => thread_queue_read_helper(
-            symbol,
-            THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE,
-            ThreadReadMode::Parent,
-            platform_imports,
-            platform,
-        ),
-        "thread.isCancelled" => Ok(thread_is_cancelled_helper()),
-        "thread.openStdIn" => lower_thread_stdin_subscription_helper(symbol, true),
-        "thread.closeStdIn" => lower_thread_stdin_subscription_helper(symbol, false),
-        _ => Err(format!("native thread helper does not implement {call}")),
-    }
-}
-
 /// `thread::openStdIn`/`closeStdIn` (plan-15 §4.5). A thin wrapper over the stdin
 /// broadcast subscribe/unsubscribe helpers: `x0 = 0` (the padded no-arg self form)
 /// subscribes the calling thread (its arena `x19`); a non-null parent `Thread`
 /// handle subscribes the worker behind it (its arena at `THREAD_OFFSET_ARENA_STATE`).
 /// Returns `Nothing`.
-fn lower_thread_stdin_subscription_helper(symbol: &str, subscribe: bool) -> HelperResult {
+pub(crate) fn lower_thread_stdin_subscription_helper(
+    symbol: &str,
+    subscribe: bool,
+) -> Result<ThreadBodyParts, String> {
     let target = if subscribe {
         STDIN_SUBSCRIBE_SYMBOL
     } else {
@@ -508,7 +399,6 @@ fn lower_thread_stdin_subscription_helper(symbol: &str, subscribe: bool) -> Help
     let worker = format!("{symbol}_worker");
     let do_call = format!("{symbol}_call");
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register("%v9", abi::c_arg(0)),
         abi::compare_immediate(abi::c_arg(0), "0"),
         abi::branch_ne(&worker),
@@ -528,8 +418,7 @@ fn lower_thread_stdin_subscription_helper(symbol: &str, subscribe: bool) -> Help
         RESULT_OK_TAG,
     ));
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 0);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 /// plan-91-A: parent-side `thread::sleep(t, ms)`. Blocks the CALLING thread for
@@ -539,11 +428,11 @@ fn lower_thread_stdin_subscription_helper(symbol: &str, subscribe: bool) -> Help
 /// overload, plan-91-B). For parity with `thread::poll` on a parent handle it
 /// still returns `ErrResourceClosed` on an already-closed `Thread`, and
 /// `ErrInvalidArgument` on a negative `ms`; `ms == 0` is an immediate no-op.
-fn lower_thread_sleep_helper(
+pub(crate) fn lower_thread_sleep_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ThreadBodyParts, String> {
     const FRAME_SIZE: usize = 48;
     // Two relative `timespec { tv_sec; tv_nsec }` (16 bytes each): `req` is the
     // requested remaining sleep, `rem` the kernel's leftover on an EINTR wake.
@@ -555,7 +444,7 @@ fn lower_thread_sleep_helper(
     let err_closed = format!("{symbol}_closed");
     let retry = format!("{symbol}_retry");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions = Vec::new();
     let mut relocations = Vec::new();
     instructions.extend([
         // Parent handle-state parity with `poll`: an already-closed handle is
@@ -647,17 +536,16 @@ fn lower_thread_sleep_helper(
         &mut relocations,
     );
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME_SIZE))
 }
 
-fn lower_thread_start_helper(
+pub(crate) fn lower_thread_start_helper(
     symbol: &str,
     uses_rng: bool,
     arena_global_slots: usize,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ThreadBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2): the control-block/queue scratch slots are
     // an explicit sp-relative local region; x9/x10 scratch becomes vregs. Runs in
     // the parent (x20 is not the worker thread block here), so no reservation.
@@ -690,7 +578,7 @@ fn lower_thread_start_helper(
     let alloc_worker_arena_ok = format!("{symbol}_alloc_worker_arena_ok");
     let spawn_error = format!("{symbol}_spawn_error");
     let parent_done = format!("{symbol}_parent_done");
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions = Vec::new();
     let mut relocations = Vec::new();
 
     instructions.extend([
@@ -1053,8 +941,7 @@ fn lower_thread_start_helper(
     instructions.push(abi::branch(&parent_done));
     instructions.extend([abi::label(&parent_done), abi::return_()]);
 
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME_SIZE))
 }
 
 pub(crate) fn lower_thread_trampoline(
