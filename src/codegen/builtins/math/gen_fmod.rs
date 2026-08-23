@@ -1,5 +1,5 @@
 //! Standalone in-tree port of musl's 64-bit `fmod` (bug-332 F1). Split out of
-//! `builder_numeric.rs` to mirror `builder_pow.rs` (the fdlibm `pow` port) — the
+//! `builder_numeric.rs` to mirror `gen_pow.rs` (the fdlibm `pow` port) — the
 //! other large standalone libm kernel that earns its own file. No platform math
 //! library is linked; see `docs/spec/architecture/18_math-kernels.md`.
 

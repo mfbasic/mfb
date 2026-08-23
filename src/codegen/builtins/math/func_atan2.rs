@@ -36,7 +36,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     );
 }
 
-/// Target-generic call-site lowering for `math::atan2`. Slice B shim.
+/// Target-generic call-site lowering for `math::atan2`, delegating to the shared `lower_math_call` carrier in `gen_math.rs`.
 pub(crate) fn lower_math_atan2(
     builder: &mut CodeBuilder,
     args: &[NirValue],

@@ -41,7 +41,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     );
 }
 
-/// Target-generic call-site lowering for `math::pow`. Slice B shim.
+/// Target-generic call-site lowering for `math::pow`, delegating to the shared `lower_math_call` carrier in `gen_math.rs`.
 pub(crate) fn lower_math_pow(
     builder: &mut CodeBuilder,
     args: &[NirValue],

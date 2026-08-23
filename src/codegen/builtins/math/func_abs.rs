@@ -34,8 +34,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     );
 }
 
-/// Target-generic call-site lowering for `math::abs`. Slice B shim → the
-/// `lower_math_call` dispatcher (relocated into `common/` in Slice C).
+/// Target-generic call-site lowering for `math::abs`, delegating to the shared
+/// `lower_math_call` carrier in `gen_math.rs`.
 pub(crate) fn lower_math_abs(
     builder: &mut CodeBuilder,
     args: &[NirValue],

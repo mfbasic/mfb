@@ -19,7 +19,10 @@
 //! The two members that call a STAYS-core helper are `pow`/`atan2` (Float scalar
 //! `pow` shares `emit_pow_scalar`/`lower_pow_array` with the `^` operator) and
 //! `rand`/`seed` (the PCG64 routines `_mfb_rng_next`/`_mfb_rng_seed` stay core,
-//! referenced by symbol). The vectorized lowerings live in [`common`].
+//! referenced by symbol). The shared call-site lowering carrier (`lower_math_call`,
+//! including the vectorized/SIMD lowerings) lives in [`gen_math`], with the fdlibm
+//! `pow`/`fmod` kernels in [`gen_pow`]/[`gen_fmod`] and the PCG64 generator in
+//! [`gen_rng_pcg64`].
 //!
 //! `math.sqrt` / `math.clamp` stay callable **by name**: `builder_vector_inline`
 //! emits them as `NirValue::Call`, so they resolve through
@@ -50,8 +53,6 @@ use crate::types::ParameterType;
 // is `owning_package == "math"`; `RAND` and `SEED` are the `rand`/`seed` members; and
 // `MATH` is this descriptor authority for the 21 callables.
 
-pub(crate) mod common;
-
 mod func_abs;
 mod func_acos;
 mod func_asin;
@@ -73,6 +74,13 @@ mod func_seed;
 mod func_sin;
 mod func_sqrt;
 mod func_tan;
+
+pub(crate) mod gen_fmod;
+pub(crate) mod gen_math;
+pub(crate) use gen_math::*;
+pub(crate) mod gen_pow;
+pub(crate) mod gen_rng_pcg64;
+pub(crate) use gen_rng_pcg64::*;
 
 const MODULE_INTRO: &str = r#"Scalar and vectorized numeric functions and constants"#;
 const MODULE_DESC: &str = r#"The `math` package provides the scalar and vectorized (SIMD) numeric functions the
@@ -438,10 +446,3 @@ mod tests {
         );
     }
 }
-
-pub(crate) mod builder_math;
-pub(crate) use builder_math::*;
-pub(crate) mod builder_fmod;
-pub(crate) mod builder_pow;
-pub(crate) mod rng_pcg64;
-pub(crate) use rng_pcg64::*;

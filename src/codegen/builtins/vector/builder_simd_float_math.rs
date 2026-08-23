@@ -1993,7 +1993,7 @@ impl CodeBuilder<'_> {
 
     /// Lower a two-array `math::` Float overload. `atan2` is the only kernel that
     /// reaches this driver — array `pow` is diverted to `lower_pow_array`
-    /// (`builder_math.rs`) because it needs the per-element fdlibm kernel — so the
+    /// (`gen_math.rs`) because it needs the per-element fdlibm kernel — so the
     /// error reduce below only has to cover `atan2`'s single `Nan` failure. Both
     /// lists must have the same length (`ErrInvalidArgument` otherwise).
     /// `left_slot`/`right_slot` already hold the two list pointers (the caller

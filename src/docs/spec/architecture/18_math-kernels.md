@@ -9,12 +9,12 @@ deterministic Q32.32 routines. This topic specifies the accuracy and determinism
 contract those kernels meet, how they are validated, and the one place the
 behavior deliberately diverges from a system C library.
 
-The lowering dispatch is [[src/codegen/builtins/math/builder_math.rs:lower_math_call]];
+The lowering dispatch is [[src/codegen/builtins/math/gen_math.rs:lower_math_call]];
 the `Float` NEON kernels live in
 [[src/codegen/builtins/vector/builder_simd_float_math.rs]] (with Remez coefficients in
 [[src/codegen/builtins/vector/simd_kernel_coeffs.rs]]), `pow` in
-[[src/codegen/builtins/math/builder_pow.rs:emit_pow_scalar]], and `fmod` in
-[[src/codegen/builtins/math/builder_fmod.rs:emit_float_fmod]]. The scalar and array
+[[src/codegen/builtins/math/gen_pow.rs:emit_pow_scalar]], and `fmod` in
+[[src/codegen/builtins/math/gen_fmod.rs:emit_float_fmod]]. The scalar and array
 overloads of each function **share one kernel**, so `math::f(x)` and
 `math::f([x])[0]` are bit-identical (`./mfb spec language builtin-functions`).
 

@@ -51,7 +51,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     });
 }
 
-/// Target-generic call-site lowering for `math::rand`. Slice B shim.
+/// Target-generic call-site lowering for `math::rand`, delegating to the shared `lower_math_call` carrier in `gen_math.rs`.
 pub(crate) fn lower_math_rand(
     builder: &mut CodeBuilder,
     args: &[NirValue],

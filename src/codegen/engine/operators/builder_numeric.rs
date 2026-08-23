@@ -2,7 +2,7 @@
 //! helpers: integer and Fixed arithmetic, the checked-multiply and power
 //! skeletons, and the numeric conversions. The two large standalone libm ports
 //! that used to live here now have their own files — musl `fmod` in
-//! `builder_fmod.rs` and fdlibm `pow` in `builder_pow.rs` — and the `String`
+//! `gen_fmod.rs` and fdlibm `pow` in `gen_pow.rs` — and the `String`
 //! comparison/ordering lowering moved to `builder_strings.rs` (bug-332 F1).
 
 // --- codegen tier imports (migration) ---

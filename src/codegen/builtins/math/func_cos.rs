@@ -31,7 +31,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
     );
 }
 
-/// Target-generic call-site lowering for `math::cos`. Slice B shim.
+/// Target-generic call-site lowering for `math::cos`, delegating to the shared `lower_math_call` carrier in `gen_math.rs`.
 pub(crate) fn lower_math_cos(
     builder: &mut CodeBuilder,
     args: &[NirValue],

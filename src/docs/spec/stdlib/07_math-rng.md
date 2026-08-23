@@ -36,7 +36,7 @@ state := state * MULT + INC          ; all arithmetic mod 2^128
 
 computed from the two 64-bit limbs `(lo, hi)` held in registers. The product is
 the low 128 bits of `state * MULT`; the increment is added with carry across the
-limbs. [[src/codegen/builtins/math/rng_pcg64.rs:emit_pcg_step]]
+limbs. [[src/codegen/builtins/math/gen_rng_pcg64.rs:emit_pcg_step]]
 
 ```text
 emit_pcg_step(lo, hi):
@@ -59,7 +59,7 @@ scratch. The aarch64 encoders are `mul`, `umulh`, `adds`, `adc`.
 
 After advancing, the 64-bit result is the **XSL-RR** permutation of the new
 128-bit state: XOR the two halves, then rotate right by a count taken from the
-top 6 bits of the high half. [[src/codegen/builtins/math/rng_pcg64.rs:lower_rng_next]]
+top 6 bits of the high half. [[src/codegen/builtins/math/gen_rng_pcg64.rs:lower_rng_next]]
 
 ```text
 rot := hi >> 58                 ; top 6 bits of the high limb (0..63)
@@ -82,7 +82,7 @@ registers, so `math::rand` spills its bounds across the call.
 
 Reseeding from a single 64-bit `seed` follows the canonical PCG initialization:
 zero the state, step once, add the seed, step again. The result is stored to the
-arena RNG words. [[src/codegen/builtins/math/rng_pcg64.rs:lower_rng_seed_at]]
+arena RNG words. [[src/codegen/builtins/math/gen_rng_pcg64.rs:lower_rng_seed_at]]
 
 ```text
 _mfb_rng_seed_at(arena_ptr, seed):
@@ -177,7 +177,7 @@ The reduction is Lemire's multiply-shift: the offset is the high word of the
 no modulo bias. The tail threshold `t` is computed once with `udiv`/`msub`. The
 full-domain case (`min = INT_MIN`, `max = INT_MAX`) detects the `span == 0` wrap
 and returns the raw 64-bit draw unmodified, covering every `Integer` uniformly.
-[[src/codegen/builtins/math/builder_math.rs:lower_math_rand]]
+[[src/codegen/builtins/math/gen_math.rs:lower_math_rand]]
 
 ## `math::seed(value)` semantics
 
@@ -187,7 +187,7 @@ own. Because each thread owns an independent generator and stream, reseeding one
 thread never disturbs another. Calling `math::seed` is optional — every thread is
 already seeded automatically (main from the OS, children from the parent) — and
 is needed only to make a thread's subsequent sequence reproducible.
-[[src/codegen/builtins/math/builder_math.rs:883]]
+[[src/codegen/builtins/math/gen_math.rs:883]]
 
 ## Relationship to the memory-fill RNG
 

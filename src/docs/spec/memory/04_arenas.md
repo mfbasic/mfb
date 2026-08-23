@@ -255,7 +255,7 @@ The fill source is a **dedicated per-arena PCG64** at arena-state offsets 16/24,
 separate from the `math::rand` stream at 88/96 and seeded independently at arena
 init (`arena_fill_seed`): the main thread mixes OS entropy (`getentropy`) with the
 arena address and start time (offset 40); each worker mixes a draw from the
-parent's fill stream with its own arena address. [[src/codegen/builtins/math/rng_pcg64.rs:lower_arena_fill_seed]] Its output is never observable —
+parent's fill stream with its own arena address. [[src/codegen/builtins/math/gen_rng_pcg64.rs:lower_arena_fill_seed]] Its output is never observable —
 filled bytes are always overwritten by a constructor before any read — so the
 stream needs no reproducibility. `arena_fill_random(ptr, len)` streams PRNG words
 (no syscall per fill); `arena_free` calls it after the coalescing insert (over
