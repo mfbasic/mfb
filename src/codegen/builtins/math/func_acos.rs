@@ -3,7 +3,6 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{AbiCtx, RegistryPackage};
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType::{Fixed, Float};
 const INTRO: &str = r#"Arccosine (inverse cosine), returning radians."#;
 const DESC: &str = r#"`acos` returns the arccosine of `value` in radians, echoing the operand type
@@ -36,7 +35,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// Target-generic call-site lowering for `math::acos`, delegating to the shared `lower_math_call` carrier in `gen_math.rs`.
 pub(crate) fn lower_math_acos(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     builder.lower_math_call("acos", args)

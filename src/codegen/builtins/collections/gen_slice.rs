@@ -405,6 +405,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: format!("List OF {element_type}"),
             location: Operand::from(result.render()),
             text: format!("slice(List OF {element_type})"),

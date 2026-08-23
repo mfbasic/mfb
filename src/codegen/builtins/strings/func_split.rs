@@ -8,12 +8,11 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     if args.len() != 2 {
@@ -36,10 +35,10 @@ pub(crate) fn lower(
     let scratch22 = builder.temporary_vreg();
     let scratch23 = builder.temporary_vreg();
     let scratch24 = builder.temporary_vreg();
-    let value = builder.lower_value(value)?;
+    let value = value.clone();
     builder.require_string("strings.split value", &value)?;
     let value_slot = builder.spill_to_slot("strings_split_value", &value.location);
-    let delimiter = builder.lower_value(delimiter)?;
+    let delimiter = delimiter.clone();
     builder.require_string("strings.split delimiter", &delimiter)?;
     let delimiter_slot = builder.spill_to_slot("strings_split_delimiter", &delimiter.location);
     let count_slot = builder.allocate_stack_object("strings_split_count", 8);
@@ -259,6 +258,7 @@ pub(crate) fn lower(
     builder.emit(abi::label(&done));
 
     Ok(ValueResult {
+        origin: None,
         type_: "List OF String".to_string(),
         location: Operand::from(result.render()),
         text: "strings.split".to_string(),
@@ -292,7 +292,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::list_of(ParameterType::String),
             errors: vec!["ErrInvalidArgument"],
-            body: Body::abi_inline_self(lower),
+            body: Body::abi_inline(lower),
         }],
     });
 }

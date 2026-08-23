@@ -3,7 +3,6 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{AbiCtx, RegistryPackage};
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType::{Fixed, Float, Money};
 const INTRO: &str = r#"Round to the nearest whole number, half away from zero."#;
 const DESC: &str = r#"`round` returns the nearest integer to `value`, rounding halves away from zero. It
@@ -37,7 +36,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// Target-generic call-site lowering for `math::round`, delegating to the shared `lower_math_call` carrier in `gen_math.rs`.
 pub(crate) fn lower_math_round(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     builder.lower_math_call("round", args)

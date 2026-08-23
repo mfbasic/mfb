@@ -3,14 +3,16 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::nir::*;
 impl CodeBuilder<'_> {
     pub(crate) fn static_strings_package_string(
         &self,
         target: &str,
-        args: &[NirValue],
+        args: &[ValueResult],
     ) -> Result<Option<String>, String> {
-        let Some(value) = args.first().and_then(|arg| self.static_string_value(arg)) else {
+        let Some(value) = args
+            .first()
+            .and_then(|arg| self.static_string_value_vr(arg))
+        else {
             return Ok(None);
         };
         let value = match target {
@@ -250,6 +252,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: "Boolean".to_string(),
             location: Operand::from(result.render()),
             text: label.to_string(),

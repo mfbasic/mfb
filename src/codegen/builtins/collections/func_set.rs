@@ -8,7 +8,6 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTO_SET: &str = "Return a collection with one element replaced, or one map key assigned";
 const DESC_SET: &str = r#"`collections::set` returns a new collection with one position updated. It takes
@@ -127,7 +126,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Arg(0),
                 errors: vec!["ErrIndexOutOfRange"],
-                body: Body::abi_inline_self(lower_set),
+                body: Body::abi_inline(lower_set),
             },
             Implementation {
                 params: vec![
@@ -155,7 +154,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Arg(0),
                 errors: vec!["ErrIndexOutOfRange"],
-                body: Body::abi_inline_self(lower_set),
+                body: Body::abi_inline(lower_set),
             },
         ],
     });
@@ -166,10 +165,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// fixed-width element, else `removeAt`+`insert`; map path: `removeKey`+concat.
 pub(crate) fn lower_set(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let collection = builder.lower_value(&args[0])?;
+    let collection = args[0].clone();
     if let Some(element_type) = list_element_type(&collection.type_) {
         let list_slot = builder.allocate_stack_object("set_list", 8);
         builder.emit(abi::store_u64(
@@ -177,7 +176,7 @@ pub(crate) fn lower_set(
             abi::stack_pointer(),
             list_slot,
         ));
-        let index = builder.lower_value(&args[1])?;
+        let index = args[1].clone();
         if index.type_ != "Integer" {
             return Err(format!(
                 "native collection set list index must be Integer, got {}",
@@ -190,10 +189,10 @@ pub(crate) fn lower_set(
             abi::stack_pointer(),
             index_slot,
         ));
-        let item = builder.lower_value(&args[2])?;
+        let item = args[2].clone();
         // Observation boundary: a `Float` replacement element must be finite
         // (plan-17).
-        builder.observe_float(&args[2], &item)?;
+        builder.observe_float_vr(&item)?;
         if item.type_ != element_type {
             return Err(format!(
                 "native collection set list item must be {}, got {}",
@@ -285,9 +284,9 @@ pub(crate) fn lower_set(
             abi::stack_pointer(),
             map_slot,
         ));
-        let key = builder.lower_value(&args[1])?;
+        let key = args[1].clone();
         // Observation boundary: a `Float` map key must be finite (plan-17).
-        builder.observe_float(&args[1], &key)?;
+        builder.observe_float_vr(&key)?;
         if key.type_ != key_type {
             return Err(format!(
                 "native collection set map key must be {}, got {}",
@@ -301,9 +300,9 @@ pub(crate) fn lower_set(
             abi::stack_pointer(),
             key_slot,
         ));
-        let value = builder.lower_value(&args[2])?;
+        let value = args[2].clone();
         // Observation boundary: a `Float` map value must be finite (plan-17).
-        builder.observe_float(&args[2], &value)?;
+        builder.observe_float_vr(&value)?;
         if value.type_ != value_type {
             return Err(format!(
                 "native collection set map value must be {}, got {}",

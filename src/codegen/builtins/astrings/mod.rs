@@ -7,7 +7,7 @@
 //! migrated here; only `astrings`' FUNCTIONS and its source companion move.
 //!
 //! The public members split three ways by realization:
-//!   - `fromString` is **native-direct** codegen — `Body::abi_inline_self`, a thin
+//!   - `fromString` is **native-direct** codegen — `Body::abi_inline`, a thin
 //!     wrapper over the shared `AttributedString` carrier
 //!     (`CodeBuilder::lower_astrings_package_call` in
 //!     `src/codegen/builtins/astrings/gen_astrings.rs`).
@@ -19,7 +19,7 @@
 //!     `__astrings_clearAttributesRange`, selected by the registry's overload-aware
 //!     `rewrite_target`.
 //!   - `readSpans`/`writeSpans`/`scalarLen` are **internal-only** native overlay-bridge
-//!     primitives (`Body::abi_inline_self`, `internal_only: true`): they cross the
+//!     primitives (`Body::abi_inline`, `internal_only: true`): they cross the
 //!     opaque record boundary the `.mfb` companion cannot touch. Users can never call
 //!     them (the `internal_only` flag, honored by `builtins::is_internal_only_call`).
 //!

@@ -1,3 +1,4 @@
+#![allow(deprecated)] // not-yet-migrated: uses deprecated Body::native_os_seam
 //! The built-in `term` package (clean-room registry migration).
 //!
 //! `term` gives an MFBASIC program a structured terminal surface: the TUI-mode

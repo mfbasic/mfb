@@ -308,6 +308,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
 
         Ok(ValueResult {
+            origin: None,
             type_: "String".to_string(),
             location: Operand::from(result.render()),
             text: "replace(String, String, String)".to_string(),
@@ -755,6 +756,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: list_type.to_string(),
             location: Operand::from(result.render()),
             text: format!("replace({list_type}, {element_type}, {element_type})"),
@@ -814,6 +816,7 @@ impl CodeBuilder<'_> {
 
         match value.type_.as_str() {
             "String" => Ok(ValueResult {
+                origin: None,
                 type_: "String".to_string(),
                 location: Operand::from(value_register.render()),
                 text: format!("toString({})", value.text),
@@ -862,6 +865,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::add_registers(&text_ptr, &value_register, &text_ptr));
                 let copied = self.copy_flat_block("String", &text_ptr)?;
                 Ok(ValueResult {
+                    origin: None,
                     type_: "String".to_string(),
                     location: Operand::from(copied.render()),
                     text: format!("toString({})", value.text),
@@ -888,6 +892,7 @@ impl CodeBuilder<'_> {
         self.emit_load_string_constant(&result, "FALSE")?;
         self.emit(abi::label(&done));
         Ok(ValueResult {
+            origin: None,
             type_: "String".to_string(),
             location: Operand::from(result.render()),
             text: "toString(Boolean)".to_string(),
@@ -1029,6 +1034,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         self.emit(abi::label(&done));
         Ok(ValueResult {
+            origin: None,
             type_: "String".to_string(),
             location: Operand::from(result.render()),
             text: "toString(Integer)".to_string(),
@@ -1268,6 +1274,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(result, abi::stack_pointer(), result_slot));
 
         Ok(ValueResult {
+            origin: None,
             type_: "String".to_string(),
             location: Operand::from(result.to_string()),
             text: "toString(List OF Byte)".to_string(),
@@ -1757,6 +1764,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: "String".to_string(),
             location: Operand::from(result.render()),
             text: "toString(Fixed)".to_string(),
@@ -1946,6 +1954,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: "String".to_string(),
             location: Operand::from(result.render()),
             text: "toString(Money)".to_string(),
@@ -1983,6 +1992,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::move_register(&result, abi::mfb_return(1)));
         Ok(ValueResult {
+            origin: None,
             type_: "String".to_string(),
             location: Operand::from(result.render()),
             text: "toString(Float)".to_string(),
@@ -2054,6 +2064,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
 
         Ok(ValueResult {
+            origin: None,
             type_: "Boolean".to_string(),
             location: Operand::from(result.render()),
             text: format!("({} {op} {})", left.text, right.text),
@@ -2149,6 +2160,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
 
         Ok(ValueResult {
+            origin: None,
             type_: "Boolean".to_string(),
             location: Operand::from(result.render()),
             text: format!("({} {op} {})", left.text, right.text),

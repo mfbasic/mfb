@@ -85,6 +85,7 @@ impl CodeBuilder<'_> {
         let reg = self.allocate_register()?;
         self.emit(abi::load_u64(&reg, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: "List OF Integer".to_string(),
             location: Operand::from(reg.render()),
             text: "index-list".to_string(),
@@ -437,6 +438,7 @@ impl CodeBuilder<'_> {
             result_slot,
         ));
         let threaded = ValueResult {
+            origin: None,
             type_: list_type.clone(),
             location: Operand::from(result_reg.render()),
             text: String::new(),
@@ -445,6 +447,7 @@ impl CodeBuilder<'_> {
         let threaded = self.free_intermediate_collection(items_slot, &idx_type, threaded)?;
         let threaded = self.free_intermediate_collection(itemsb_slot, &idx_type, threaded)?;
         Ok(ValueResult {
+            origin: None,
             type_: list_type.clone(),
             location: threaded.location,
             text: format!("sort({list_type})"),

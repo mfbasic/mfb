@@ -12,7 +12,7 @@
 //! which dispatches to the family-generic OS-seam dispatcher
 //! [`gen_os_seam::lower_fs_helper`] (branching on `platform.family()` internally); the
 //! `abi_function` wrapper finalizes it. The five `path*` string members are
-//! `Body::abi_inline_self` (the self-lowering successor to the former `common` slot),
+//! `Body::abi_inline` (the self-lowering successor to the former `common` slot),
 //! lowering at the call site through the relocated `impl CodeBuilder` path emitters.
 //! Unlike `os.resourcePath`, `fs` needs no build context.
 //!

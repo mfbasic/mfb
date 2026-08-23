@@ -187,7 +187,7 @@ mod tests {
             // here (the `audio.close` base member, which always rewrites away, never
             // reaches a runtime symbol but is still classified by `owning_package`).
             // `net`'s `connectTcpAddr`/`pollList` code-form aliases are NOT listed:
-            // since the migration to `Body::abi_function_os_seam` they are registered
+            // since the migration to `Body::abi_function_aliased` they are registered
             // `os_aliases` of an `abi_function` member, so `is_abi_function_call` /
             // `abi_function_lower` classify them to the `Net` family (like audio's
             // overload-split forms). They are still synthesized in the code layer

@@ -911,6 +911,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), map_slot));
         Ok(ValueResult {
+            origin: None,
             type_: map_type.to_string(),
             location: Operand::from(result.render()),
             text: format!("map set in place {map_type}"),
@@ -1036,6 +1037,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), map_slot));
         Ok(ValueResult {
+            origin: None,
             type_: map_type.to_string(),
             location: Operand::from(result.render()),
             text: format!("removeKey_in_place({map_type}, {key_type})"),

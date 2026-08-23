@@ -108,6 +108,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&no_err));
 
         Ok(ValueResult {
+            origin: None,
             type_: "List OF Fixed".to_string(),
             location: Operand::from(result_base.render()),
             text,
@@ -350,6 +351,7 @@ impl CodeBuilder<'_> {
         let result_base = self.allocate_register()?;
         self.emit(abi::load_u64(&result_base, abi::stack_pointer(), base_slot));
         Ok(ValueResult {
+            origin: None,
             type_: "List OF Fixed".to_string(),
             location: Operand::from(result_base.render()),
             text,

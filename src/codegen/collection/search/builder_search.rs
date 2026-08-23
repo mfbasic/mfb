@@ -339,6 +339,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
 
         Ok(ValueResult {
+            origin: None,
             type_: "Integer".to_string(),
             location: Operand::from(result.render()),
             text: "find(String, String)".to_string(),
@@ -469,6 +470,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: "Integer".to_string(),
             location: Operand::from(result.render()),
             text: format!("find({list_type}, {element_type})"),
@@ -650,6 +652,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: "Integer".to_string(),
             location: Operand::from(result.render()),
             text: format!("find({list_type}, {list_type}) over {element_type}"),
@@ -925,6 +928,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
 
         Ok(ValueResult {
+            origin: None,
             type_: "String".to_string(),
             location: Operand::from(result.render()),
             text: "mid(String, Integer, Integer)".to_string(),
@@ -1306,6 +1310,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: list_type.to_string(),
             location: Operand::from(result.render()),
             text: format!("mid({list_type}, Integer, Integer) over {element_type}"),

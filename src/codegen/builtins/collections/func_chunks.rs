@@ -240,6 +240,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: outer_type,
             location: Operand::from(result.render()),
             text: format!("chunks({})", source.type_),
@@ -320,6 +321,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), outer_slot));
         Ok(ValueResult {
+            origin: None,
             type_: outer_type,
             location: Operand::from(result.render()),
             text: format!("chunks({}, {size})", source.type_),

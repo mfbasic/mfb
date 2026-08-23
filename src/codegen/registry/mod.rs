@@ -108,7 +108,7 @@ pub(crate) struct AbiCtx<'a> {
     /// overload-split code forms through one `abi_function` body (audio's
     /// `openInput`/`openInputDevice`, `read`/`readTimeout`, `close`/`closeInput`/
     /// `closeOutput`) selects its arm off this. Empty (`""`) on the inline
-    /// (`abi_inline`/`abi_inline_self`) path, which lowers per call site and receives
+    /// (`abi_inline`) path, which lowers per call site and receives
     /// its target directly.
     pub(crate) call: &'a str,
     /// The arena offset of the TUI term-state slot, or `None` when the program
@@ -125,11 +125,13 @@ pub(crate) struct AbiCtx<'a> {
     pub(crate) presentation_mode_offset: Option<usize>,
 }
 
-/// A builder-driven **inline** lowering (the unified successor to [`NativeLower`]):
-/// given the caller's `CodeBuilder`, the call's **pre-lowered** `ValueResult` args,
-/// and an [`AbiCtx`], emit the call inline and return where the result value lives.
-/// The body reads its `ValueResult` args and never re-lowers or frees them — the
-/// dispatch owns arg acquisition/lifetime.
+/// A builder-driven **inline** lowering — the single sanctioned inline shape (the
+/// successor to the deprecated [`NativeLower`]): given the caller's `CodeBuilder`, the
+/// call's **pre-lowered** `ValueResult` args (each carrying its
+/// source `NirValue` for NIR-structural
+/// analyses like bounds-check elision), and an [`AbiCtx`], emit the call inline and
+/// return where the result value lives. The body reads its `ValueResult` args and
+/// never re-lowers or frees them — the dispatch owns arg acquisition/lifetime.
 pub(crate) type AbiInline =
     for<'a> fn(
         &mut crate::codegen::engine::builder::CodeBuilder<'a>,
@@ -137,25 +139,7 @@ pub(crate) type AbiInline =
         &AbiCtx<'a>,
     ) -> Result<crate::codegen::engine::builder::ValueResult, String>;
 
-/// A builder-driven **self-lowering** inline lowering — the second `AbiInline` mode.
-/// Where [`AbiInline`] hands the body its args **pre-lowered** (the dispatch owns arg
-/// acquisition — the `bits` register-only shape), an `AbiInlineSelf` body receives the
-/// call's **raw `NirValue` args** and lowers them itself, exactly as a [`NativeLower`]
-/// `common` body did, plus the [`AbiCtx`]. This is the mode a member needs when its
-/// argument handling is type-aware (a `d`-native float map key stores via `str d`, not
-/// a generic `str x`) or NIR-dependent (constant-folding a literal, or bounds-check
-/// elision off the raw index expression) — things a generic pre-lowering pass cannot
-/// reproduce. Making `abi_inline` carry both modes is what lets it be the true unified
-/// successor to `NativeLower` (which is self-lowering) without pessimizing a member
-/// that lowers its own args. Byte-identical to the `common` body it replaces.
-pub(crate) type AbiInlineSelf =
-    for<'a> fn(
-        &mut crate::codegen::engine::builder::CodeBuilder<'a>,
-        &[crate::target::shared::nir::NirValue],
-        &AbiCtx<'a>,
-    ) -> Result<crate::codegen::engine::builder::ValueResult, String>;
-
-/// A builder-driven **shared-function** lowering (the unified successor to
+/// A builder-driven **shared-function** lowering (the successor to the deprecated
 /// [`OsLower`]): the *same body shape* as [`AbiInline`], but the wrapper binds its
 /// args to the incoming ABI param registers and emits it once as a shared
 /// `_mfb_rt_*` helper (emit-once, called by `bl` from every call site).
@@ -245,35 +229,40 @@ pub(crate) enum Body {
         rewrite: &'static str,
         fast_path: Option<MfbFastPath>,
     },
-    /// The member owns its native lowering, split by target family. `posix` is
-    /// emitted only on POSIX targets and `win` only on Windows — both as per-platform
-    /// runtime-helper bodies ([`OsLower`]) — while `common` is emitted on **all**
-    /// targets as a call-site lowering ([`NativeLower`]); a target picks its family
-    /// slot, falling back to `common`. **At least one slot must be `Some`** — enforced
-    /// by [`Body::native`], the blessed constructor. (Merges the old `Native` + `Os`
-    /// kinds, keeping each slot's original signature.)
+    /// **DEPRECATED — the legacy OS-seam / call-site lowering** ([`OsLower`] /
+    /// [`NativeLower`]). `posix` is emitted only on POSIX targets and `win` only on
+    /// Windows (per-platform runtime-helper bodies), while `common` is emitted on all
+    /// targets as a call-site lowering; a target picks its family slot, falling back to
+    /// `common`. New code MUST use [`Body::AbiInline`] (inline) or [`Body::AbiFunction`]
+    /// (runtime helper) instead — this variant survives only for the not-yet-migrated
+    /// packages (`term`/`tls`/`process`/`app`/`os`) and is slated for deletion.
+    #[deprecated(
+        note = "use Body::AbiInline or Body::AbiFunction; OsLower/NativeLower are being removed"
+    )]
     Native {
         posix: Option<OsLower>,
         win: Option<OsLower>,
         common: Option<NativeLower>,
-        /// Experimental unified lowerings (see [`AbiInline`]/[`AbiFunction`]). A
-        /// member sets exactly one: `abi_inline` lowers the call inline at each call
-        /// site with **pre-lowered** args (like `common`, the `bits` shape);
-        /// `abi_inline_self` also lowers inline but receives the **raw `NirValue`**
-        /// args and lowers them itself (the self-lowering `AbiInline` mode a type-aware
-        /// or NIR-dependent member needs — byte-identical to its old `common` body);
-        /// `abi_function` is wrapped once into a shared `_mfb_rt_*` helper (like
-        /// `posix`/`win`) and `bl`'d from every call site.
-        abi_inline: Option<AbiInline>,
-        abi_inline_self: Option<AbiInlineSelf>,
-        abi_function: Option<AbiFunction>,
         /// Auxiliary runtime-call member names this OS-seam member also emits for —
         /// the `builder_values` overload-split code forms (`spawnEnv`, `sendTimeout`,
-        /// `receiveFrom`, …) that share this member's `posix`/`win` lowering, which
-        /// each emitter branches on internally. Empty for a member with no overload
-        /// split. The generic OS dispatch ([`os_helper`]) routes an aux runtime call
-        /// to this member's lowering through these aliases, so the aux→primary map is
-        /// registry **data** rather than a per-package dispatch branch.
+        /// …) that share this member's `posix`/`win` lowering. Empty for a member with
+        /// no overload split. The generic OS dispatch ([`os_helper`]) routes an aux
+        /// runtime call to this member's lowering through these aliases.
+        os_aliases: &'static [&'static str],
+    },
+    /// A builder-driven **inline** call-site lowering with **pre-lowered** args — the
+    /// single sanctioned inline shape (the `bits`/collections/strings/math shape). The
+    /// dispatch acquires each arg as a [`ValueResult`]
+    /// for NIR-structural analyses like bounds-check elision) and the body combines them.
+    AbiInline(AbiInline),
+    /// A builder-driven **runtime-helper** lowering — the single sanctioned OS-seam /
+    /// heavy shape (crypto/io/fs/datetime/audio/net). Wrapped once into a shared
+    /// `_mfb_rt_*` helper and `bl`'d from every call site. `os_aliases` are the
+    /// IR-level overload-split code forms (`connectTcpAddr`/`pollList`/audio's
+    /// `openInputDevice`…) that share this member's body, selected off [`AbiCtx::call`];
+    /// the aux→primary map is registry **data**, not a per-package dispatch branch.
+    AbiFunction {
+        lower: AbiFunction,
         os_aliases: &'static [&'static str],
     },
     /// A fixed internal rewrite target: the call becomes a call to this `__`-symbol.
@@ -320,16 +309,23 @@ impl Body {
     /// rewrite forms — `Rewrite`'s fixed symbol and `Mfb`'s body-declared one —
     /// replacing the old per-package `implementation_name`.
     pub(crate) fn rewrite_target(&self) -> Option<&'static str> {
+        #[allow(deprecated)]
         match self {
             Body::Rewrite(symbol) => Some(symbol),
             Body::Mfb { rewrite, .. } => Some(rewrite),
-            Body::Native { .. } | Body::Intrinsic => None,
+            Body::Native { .. }
+            | Body::AbiInline(_)
+            | Body::AbiFunction { .. }
+            | Body::Intrinsic => None,
         }
     }
 
-    /// A `Native` lowering, split by target family (`posix`/`win` as [`OsLower`]
-    /// helper bodies, `common` as a [`NativeLower`] call-site lowering). At least one
-    /// of the three must be `Some` — a `Native` that lowers on no target is meaningless.
+    /// **DEPRECATED.** A legacy `Native` lowering (`posix`/`win` [`OsLower`] helper
+    /// bodies, `common` [`NativeLower`] call-site lowering). New members must use
+    /// [`Body::abi_inline`] or [`Body::abi_function`]. Kept for the not-yet-migrated
+    /// `app`/`os` (common) and OS-seam packages.
+    #[deprecated(note = "use Body::abi_inline or Body::abi_function")]
+    #[allow(deprecated)]
     pub(crate) fn native(
         posix: Option<OsLower>,
         win: Option<OsLower>,
@@ -343,87 +339,45 @@ impl Body {
             posix,
             win,
             common,
-            abi_inline: None,
-            abi_inline_self: None,
-            abi_function: None,
             os_aliases: &[],
         }
     }
 
-    /// An experimental [`AbiInline`] lowering — a builder-driven inline call-site
-    /// lowering with **pre-lowered** args (the `bits` register-only shape). Lowers on
-    /// all targets; the call is emitted inline at each site.
+    /// The single sanctioned **inline** lowering ([`Body::AbiInline`]): a builder-driven
+    /// call-site lowering with **pre-lowered** args (the `bits`/collections/strings/math
+    /// shape). Lowers on all targets; the call is emitted inline at each site.
     pub(crate) fn abi_inline(lower: AbiInline) -> Self {
-        Body::Native {
-            posix: None,
-            win: None,
-            common: None,
-            abi_inline: Some(lower),
-            abi_inline_self: None,
-            abi_function: None,
-            os_aliases: &[],
-        }
+        Body::AbiInline(lower)
     }
 
-    /// The **self-lowering** [`AbiInlineSelf`] mode of `abi_inline`: the body receives
-    /// the call's raw `NirValue` args (plus [`AbiCtx`]) and lowers them itself, exactly
-    /// as its former `common`/[`NativeLower`] body did. Use it for a member whose
-    /// argument handling is type-aware or NIR-dependent, so a generic arg pre-lowering
-    /// pass would be wrong or lossy. Byte-identical to the `common` body it replaces.
-    pub(crate) fn abi_inline_self(lower: AbiInlineSelf) -> Self {
-        Body::Native {
-            posix: None,
-            win: None,
-            common: None,
-            abi_inline: None,
-            abi_inline_self: Some(lower),
-            abi_function: None,
-            os_aliases: &[],
-        }
-    }
-
-    /// An experimental [`AbiFunction`] lowering — a builder-driven body wrapped once
-    /// into a shared `_mfb_rt_*` helper (the unified successor to an `posix`/`win`
-    /// [`OsLower`] member). Catalogued as a runtime call and `bl`'d from each site.
+    /// The single sanctioned **runtime-helper** lowering ([`Body::AbiFunction`]): a
+    /// builder-driven body wrapped once into a shared `_mfb_rt_*` helper and `bl`'d
+    /// from each call site (crypto/io/fs/datetime shape). No overload-split aliases.
     pub(crate) fn abi_function(lower: AbiFunction) -> Self {
-        Body::Native {
-            posix: None,
-            win: None,
-            common: None,
-            abi_inline: None,
-            abi_inline_self: None,
-            abi_function: Some(lower),
+        Body::AbiFunction {
+            lower,
             os_aliases: &[],
         }
     }
 
-    /// An [`AbiFunction`] lowering that ALSO serves the auxiliary runtime-call code
-    /// forms named in `os_aliases` — the `abi_function` successor to
-    /// [`native_os_seam`](Self::native_os_seam) for a package whose IR-level
-    /// overload-split forms (audio's `openInputDevice`/`readTimeout`/`closeInput`/…)
-    /// share one member body. The aux→primary routing is registry data
-    /// ([`abi_function_lower`]/[`runtime_specs`]) exactly as it was for the `posix`/`win`
-    /// slots ([`os_helper`]); the shared body selects its arm off [`AbiCtx::call`].
-    pub(crate) fn abi_function_os_seam(
+    /// An [`Body::AbiFunction`] lowering that ALSO serves the auxiliary runtime-call
+    /// code forms named in `os_aliases` — the IR-level overload-split forms
+    /// (`connectTcpAddr`/`pollList`; audio's `openInputDevice`/`readTimeout`/…) that
+    /// share one member body, selected off [`AbiCtx::call`]. The aux→primary routing is
+    /// registry data ([`abi_function_lower`]), not a per-package dispatch branch.
+    pub(crate) fn abi_function_aliased(
         lower: AbiFunction,
         os_aliases: &'static [&'static str],
     ) -> Self {
-        Body::Native {
-            posix: None,
-            win: None,
-            common: None,
-            abi_inline: None,
-            abi_inline_self: None,
-            abi_function: Some(lower),
-            os_aliases,
-        }
+        Body::AbiFunction { lower, os_aliases }
     }
 
-    /// An OS-seam `Native` lowering (`posix`/`win` only, no `common`) that also
-    /// serves the auxiliary runtime-call code forms named in `os_aliases` — the
-    /// `builder_values` overload-split names (`spawnEnv`, `sendTimeout`, …) whose
-    /// emission shares this member's `posix`/`win` lowering. The aux→primary routing
-    /// is thereby registry data ([`os_helper`]) instead of a per-package branch.
+    /// **DEPRECATED.** An OS-seam `Native` lowering (`posix`/`win` only) that also
+    /// serves the auxiliary runtime-call code forms named in `os_aliases`. New OS-seam
+    /// members must use [`Body::abi_function`]/[`Body::abi_function_aliased`]. Kept for
+    /// the not-yet-migrated `term`/`tls`/`process` packages.
+    #[deprecated(note = "use Body::abi_function or Body::abi_function_aliased")]
+    #[allow(deprecated)]
     pub(crate) fn native_os_seam(
         posix: Option<OsLower>,
         win: Option<OsLower>,
@@ -437,9 +391,6 @@ impl Body {
             posix,
             win,
             common: None,
-            abi_inline: None,
-            abi_inline_self: None,
-            abi_function: None,
             os_aliases,
         }
     }
@@ -1742,21 +1693,21 @@ pub(crate) fn runtime_specs() -> &'static [RuntimeCall] {
             let pkg = package.import_name();
             for function in package.functions() {
                 for implementation in function.implementations() {
-                    let Body::Native {
-                        posix,
-                        win,
-                        abi_function,
-                        os_aliases,
-                        ..
-                    } = &implementation.body
-                    else {
-                        continue;
+                    // Only runtime-helper members contribute a `_mfb_rt_*` call: the
+                    // legacy `Body::Native` OS-seam (`posix`/`win`) and the new
+                    // `Body::AbiFunction`. `common`/`abi_inline` inline lowerings emit
+                    // no runtime helper, and both kinds carry `os_aliases`.
+                    #[allow(deprecated)]
+                    let os_aliases: &[&str] = match &implementation.body {
+                        Body::Native {
+                            posix,
+                            win,
+                            os_aliases,
+                            ..
+                        } if posix.is_some() || win.is_some() => os_aliases,
+                        Body::AbiFunction { os_aliases, .. } => os_aliases,
+                        _ => continue,
                     };
-                    // `common`/`abi_inline` inline lowerings emit no runtime helper;
-                    // `posix`/`win`/`abi_function` (shared `_mfb_rt_*` bodies) do.
-                    if posix.is_none() && win.is_none() && abi_function.is_none() {
-                        continue;
-                    }
                     push_runtime_call(
                         &mut calls,
                         qualify_runtime_call(pkg, function.name),
@@ -2346,6 +2297,7 @@ pub(crate) fn rewrite_target(qualified: &str, arg_types: &[String]) -> Option<&'
 /// (source-backed / not migrated). The codegen dual-path seam (`try_native_lower`)
 /// consults this before the legacy `src/target` ladder, so a migrated member owns
 /// its own call-site lowering.
+#[allow(deprecated)]
 pub(crate) fn native_lower(qualified: &str) -> Option<NativeLower> {
     for implementation in &registry().resolve_func(qualified)?.function.implementations {
         if let Body::Native {
@@ -2359,58 +2311,34 @@ pub(crate) fn native_lower(qualified: &str) -> Option<NativeLower> {
     None
 }
 
-/// The experimental [`AbiInline`] lowering for `qualified`, or `None`. The inline
-/// dual-path (`try_abi_inline_lower`) consults this at the call site.
+/// The [`AbiInline`] lowering for `qualified`, or `None`. The inline dual-path
+/// (`try_abi_inline_lower`) consults this at the call site.
 pub(crate) fn abi_inline_lower(qualified: &str) -> Option<AbiInline> {
     for implementation in &registry().resolve_func(qualified)?.function.implementations {
-        if let Body::Native {
-            abi_inline: Some(lower),
-            ..
-        } = &implementation.body
-        {
+        if let Body::AbiInline(lower) = &implementation.body {
             return Some(*lower);
         }
     }
     None
 }
 
-/// The **self-lowering** [`AbiInlineSelf`] lowering for `qualified`, or `None`. The
-/// dispatch calls this body with the raw `NirValue` args (no arg pre-lowering).
-pub(crate) fn abi_inline_self_lower(qualified: &str) -> Option<AbiInlineSelf> {
-    for implementation in &registry().resolve_func(qualified)?.function.implementations {
-        if let Body::Native {
-            abi_inline_self: Some(lower),
-            ..
-        } = &implementation.body
-        {
-            return Some(*lower);
-        }
-    }
-    None
-}
-
-/// The experimental [`AbiFunction`] lowering for `qualified`, plus the member's
-/// parameter count (so the runtime-helper wrapper can bind that many incoming ABI
-/// argument registers). `None` when `qualified` is not an `abi_function` member.
+/// The [`AbiFunction`] lowering for `qualified`, plus the member's parameter count (so
+/// the runtime-helper wrapper can bind that many incoming ABI argument registers).
+/// `None` when `qualified` is not an `abi_function` member.
 pub(crate) fn abi_function_lower(qualified: &str) -> Option<(AbiFunction, usize)> {
     // Direct member lookup: the member's own qualified name.
     if let Some(resolved) = registry().resolve_func(qualified) {
         for implementation in &resolved.function.implementations {
-            if let Body::Native {
-                abi_function: Some(lower),
-                ..
-            } = &implementation.body
-            {
+            if let Body::AbiFunction { lower, .. } = &implementation.body {
                 return Some((*lower, implementation.params.len()));
             }
         }
     }
     // Fall back to an `os_aliases` code form of an `abi_function` member — the
-    // IR-level overload-split runtime calls (`audio.openInputDevice`/`readTimeout`/
-    // `closeInput`/…) that are not descriptor members but share a member's body,
-    // routed by registry data exactly as [`os_helper`] routes the `posix`/`win`
-    // slots' aliases. The wrapper binds the owning implementation's parameter count;
-    // the shared body reads `AbiCtx::call` to pick the alias arm.
+    // IR-level overload-split runtime calls (`net.connectTcpAddr`/`net.pollList`;
+    // `audio.openInputDevice`/`readTimeout`/…) that are not descriptor members but
+    // share a member's body. The wrapper binds the owning implementation's parameter
+    // count; the shared body reads `AbiCtx::call` to pick the alias arm.
     let (pkg_name, member) = qualified.split_once('.')?;
     let package = registry()
         .packages()
@@ -2418,12 +2346,7 @@ pub(crate) fn abi_function_lower(qualified: &str) -> Option<(AbiFunction, usize)
         .find(|p| p.import_name == pkg_name)?;
     for function in package.functions() {
         for implementation in function.implementations() {
-            if let Body::Native {
-                abi_function: Some(lower),
-                os_aliases,
-                ..
-            } = &implementation.body
-            {
+            if let Body::AbiFunction { lower, os_aliases } = &implementation.body {
                 if os_aliases.contains(&member) {
                     return Some((*lower, implementation.params.len()));
                 }
@@ -2457,19 +2380,14 @@ pub(crate) fn native_member_declares_error(qualified: &str) -> Option<bool> {
     // member is recognized exactly like a fallible `common` one.
     let mut inline_native = false;
     let mut declares = false;
+    #[allow(deprecated)]
     for implementation in &function.implementations {
         if matches!(
             implementation.body,
             Body::Native {
                 common: Some(_),
                 ..
-            } | Body::Native {
-                abi_inline: Some(_),
-                ..
-            } | Body::Native {
-                abi_inline_self: Some(_),
-                ..
-            }
+            } | Body::AbiInline(_)
         ) {
             inline_native = true;
             if !implementation.errors.is_empty() {
@@ -2513,23 +2431,18 @@ pub(crate) fn mfb_fast_path(target: &str) -> Option<MfbFastPath> {
 /// `strings::`.
 pub(crate) fn native_bare_target(qualified: &str) -> Option<&'static str> {
     let function = registry().resolve_func(qualified)?.function;
+    #[allow(deprecated)]
     for implementation in &function.implementations {
         // A native inline call-site lowering is the legacy `common` (`NativeLower`)
-        // slot or either `abi_inline` mode (pre-lowered or self-lowering) — all
-        // dequalify to the same bare native name. `abi_function` (a `bl`'d runtime
-        // helper) is NOT an inline call-site lowering, so it is excluded.
+        // slot or the `abi_inline` variant — both dequalify to the same bare native
+        // name. `abi_function` (a `bl`'d runtime helper) is NOT an inline call-site
+        // lowering, so it is excluded.
         if matches!(
             implementation.body,
             Body::Native {
                 common: Some(_),
                 ..
-            } | Body::Native {
-                abi_inline: Some(_),
-                ..
-            } | Body::Native {
-                abi_inline_self: Some(_),
-                ..
-            }
+            } | Body::AbiInline(_)
         ) {
             return Some(function.name);
         }
@@ -2581,6 +2494,7 @@ fn function_has_unary_callback(function: &RegistryFunction) -> bool {
 /// in [`Body::Native::os_aliases`](Body::Native) (`process.spawnEnv`, …). Returns
 /// `None` when no migrated OS-seam member owns `call`, so the caller can fall back to
 /// the legacy runtime-call dispatch for not-yet-migrated packages.
+#[allow(deprecated)] // reads the deprecated Body::Native for the not-yet-migrated OS-seam packages
 pub(crate) fn os_helper(
     call: &str,
     symbol: &str,
@@ -3722,6 +3636,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)] // exercises the deprecated legacy Body::native constructor
     fn native_holds_three_per_family_slots() {
         match Body::native(None, None, Some(sample_lower as NativeLower)) {
             Body::Native {
@@ -3747,6 +3662,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "at least one of posix/win/common")]
+    #[allow(deprecated)] // exercises the deprecated legacy Body::native constructor
     fn native_with_no_slots_is_rejected() {
         let _ = Body::native(None, None, None);
     }

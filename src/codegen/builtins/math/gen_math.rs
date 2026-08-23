@@ -14,7 +14,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn lower_math_call(
         &mut self,
         function: &str,
-        args: &[NirValue],
+        args: &[ValueResult],
     ) -> Result<ValueResult, String> {
         match function {
             "abs" if args.len() == 1 && self.is_list_argument(&args[0]) => {
@@ -81,9 +81,8 @@ impl CodeBuilder<'_> {
 
     /// Whether `arg`'s static type is a `List OF …` (selects the SIMD array
     /// overloads over the scalar `math::` lowerings).
-    pub(crate) fn is_list_argument(&self, arg: &NirValue) -> bool {
-        self.static_type_name(arg)
-            .is_some_and(|type_| type_.starts_with("List OF "))
+    pub(crate) fn is_list_argument(&self, arg: &ValueResult) -> bool {
+        arg.type_.starts_with("List OF ")
     }
 
     /// Map a numeric element type name to its collection value-type code.
@@ -110,9 +109,9 @@ impl CodeBuilder<'_> {
     }
 
     /// `math.abs(values AS T[])` — vectorized absolute value (plan-01-simd §4.4).
-    fn lower_math_abs_array(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
+    fn lower_math_abs_array(&mut self, arg: &ValueResult) -> Result<ValueResult, String> {
         use crate::codegen::builtins::vector::builder_simd_math::SimdUnaryKernel;
-        let input = self.lower_value(arg)?;
+        let input = arg.clone();
         let text = format!("math.abs({})", input.text);
         let element = Self::list_element_type(&input.type_, "abs")?;
         match element.as_str() {
@@ -147,9 +146,9 @@ impl CodeBuilder<'_> {
 
     /// `math.sqrt(values AS Float[])` — vectorized square root (plan-01-simd
     /// §4.4). `ErrInvalidArgument` if any lane is negative.
-    fn lower_math_sqrt_array(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
+    fn lower_math_sqrt_array(&mut self, arg: &ValueResult) -> Result<ValueResult, String> {
         use crate::codegen::builtins::vector::builder_simd_math::SimdUnaryKernel;
-        let input = self.lower_value(arg)?;
+        let input = arg.clone();
         let text = format!("math.sqrt({})", input.text);
         let element = Self::list_element_type(&input.type_, "sqrt")?;
         match element.as_str() {
@@ -175,12 +174,12 @@ impl CodeBuilder<'_> {
     fn lower_math_scalar_transcendental(
         &mut self,
         function: &str,
-        arg: &NirValue,
+        arg: &ValueResult,
     ) -> Result<ValueResult, String> {
         use crate::codegen::builtins::vector::builder_simd_float_math::FloatKernel;
         // The scalar kernel reads the operand's bits from a GPR, so materialize a
         // `d`-native float into one first (plan-01 float-dnative).
-        let value = self.lower_value(arg)?;
+        let value = arg.clone();
         let value = self.materialize_float(value)?;
         match value.type_.as_str() {
             "Float" => {
@@ -214,12 +213,12 @@ impl CodeBuilder<'_> {
     fn lower_math_scalar_binary(
         &mut self,
         function: &str,
-        args: &[NirValue],
+        args: &[ValueResult],
     ) -> Result<ValueResult, String> {
         use crate::codegen::builtins::vector::builder_simd_float_math::FloatBinaryKernel;
         // The kernels read each operand's bits from a GPR slot, so materialize a
         // `d`-native float before spilling (plan-01 float-dnative).
-        let left = self.lower_value(&args[0])?;
+        let left = args[0].clone();
         let left = self.materialize_float(left)?;
         let left_slot = self.allocate_stack_object("scalar_binary_left", 8);
         self.emit(abi::store_u64(
@@ -227,7 +226,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             left_slot,
         ));
-        let right = self.lower_value(&args[1])?;
+        let right = args[1].clone();
         let right = self.materialize_float(right)?;
         let right_slot = self.allocate_stack_object("scalar_binary_right", 8);
         self.emit(abi::store_u64(
@@ -256,6 +255,7 @@ impl CodeBuilder<'_> {
                 let result = self.emit_pow_scalar(&left_reg, &right_reg)?;
                 self.emit_float_result_check(&result, FloatInfinityError::Infinity)?;
                 Ok(ValueResult {
+                    origin: None,
                     type_: "Float".to_string(),
                     location: Operand::from(result.render()),
                     text,
@@ -283,11 +283,13 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&right_reg, abi::stack_pointer(), right_slot));
                 let values = vec![
                     ValueResult {
+                        origin: None,
                         type_: "Fixed".to_string(),
                         location: Operand::from(left_reg.render()),
                         text: left.text,
                     },
                     ValueResult {
+                        origin: None,
                         type_: "Fixed".to_string(),
                         location: Operand::from(right_reg.render()),
                         text: right.text,
@@ -305,19 +307,19 @@ impl CodeBuilder<'_> {
     fn lower_math_atan2_pow_array(
         &mut self,
         function: &str,
-        args: &[NirValue],
+        args: &[ValueResult],
     ) -> Result<ValueResult, String> {
         use crate::codegen::builtins::vector::builder_simd_float_math::FloatBinaryKernel;
         // Lower and spill each arg before lowering the next (a later arg's call
         // can clobber the earlier list pointer).
-        let left = self.lower_value(&args[0])?;
+        let left = args[0].clone();
         let left_slot = self.allocate_stack_object("simd_flb_left", 8);
         self.emit(abi::store_u64(
             &left.location,
             abi::stack_pointer(),
             left_slot,
         ));
-        let right = self.lower_value(&args[1])?;
+        let right = args[1].clone();
         let right_slot = self.allocate_stack_object("simd_flb_right", 8);
         self.emit(abi::store_u64(
             &right.location,
@@ -345,9 +347,9 @@ impl CodeBuilder<'_> {
 
     /// `math.exp(values AS Float[]) AS Float[]` — NEON polynomial kernel
     /// (plan-01-simd §4.6).
-    fn lower_math_exp_array(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
+    fn lower_math_exp_array(&mut self, arg: &ValueResult) -> Result<ValueResult, String> {
         use crate::codegen::builtins::vector::builder_simd_float_math::FloatKernel;
-        let input = self.lower_value(arg)?;
+        let input = arg.clone();
         let text = format!("math.exp({})", input.text);
         let element = Self::list_element_type(&input.type_, "exp")?;
         match element.as_str() {
@@ -362,10 +364,10 @@ impl CodeBuilder<'_> {
     fn lower_math_trig_array(
         &mut self,
         function: &str,
-        arg: &NirValue,
+        arg: &ValueResult,
     ) -> Result<ValueResult, String> {
         use crate::codegen::builtins::vector::builder_simd_float_math::FloatKernel;
-        let input = self.lower_value(arg)?;
+        let input = arg.clone();
         let text = format!("math.{function}({})", input.text);
         let element = Self::list_element_type(&input.type_, function)?;
         let kernel = match (function, element.as_str()) {
@@ -389,9 +391,9 @@ impl CodeBuilder<'_> {
     fn lower_math_log_array(
         &mut self,
         function: &str,
-        arg: &NirValue,
+        arg: &ValueResult,
     ) -> Result<ValueResult, String> {
-        let input = self.lower_value(arg)?;
+        let input = arg.clone();
         let text = format!("math.{function}({})", input.text);
         let element = Self::list_element_type(&input.type_, function)?;
         match element.as_str() {
@@ -416,10 +418,10 @@ impl CodeBuilder<'_> {
     fn lower_math_rounding_array(
         &mut self,
         function: &str,
-        arg: &NirValue,
+        arg: &ValueResult,
     ) -> Result<ValueResult, String> {
         use crate::codegen::builtins::vector::builder_simd_math::SimdUnaryKernel;
-        let input = self.lower_value(arg)?;
+        let input = arg.clone();
         let text = format!("math.{function}({})", input.text);
         let element = Self::list_element_type(&input.type_, function)?;
         let kernel = match (function, element.as_str()) {
@@ -444,8 +446,8 @@ impl CodeBuilder<'_> {
         )
     }
 
-    fn lower_math_abs(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
-        let value = self.lower_value(arg)?;
+    fn lower_math_abs(&mut self, arg: &ValueResult) -> Result<ValueResult, String> {
+        let value = arg.clone();
         let value = self.materialize_float(value)?;
         let dst = self.allocate_register()?;
         let bound = self.temporary_vreg();
@@ -485,6 +487,7 @@ impl CodeBuilder<'_> {
             other => return Err(format!("math.abs does not accept {other}")),
         }
         Ok(ValueResult {
+            origin: None,
             type_: value.type_,
             location: Operand::from(dst.render()),
             text: format!("math.abs({})", value.text),
@@ -496,20 +499,20 @@ impl CodeBuilder<'_> {
     fn lower_math_min_max_array(
         &mut self,
         function: &str,
-        args: &[NirValue],
+        args: &[ValueResult],
     ) -> Result<ValueResult, String> {
         use crate::codegen::builtins::vector::builder_simd_math::SimdBinaryKernel;
         // Lower and spill each argument before lowering the next: a later arg's
         // lowering may emit a call that clobbers the caller-saved register holding
         // an earlier list pointer ([[arena-alloc-clobbers-x14-x15]] generalized).
-        let left = self.lower_value(&args[0])?;
+        let left = args[0].clone();
         let left_slot = self.allocate_stack_object("simd_minmax_left", 8);
         self.emit(abi::store_u64(
             &left.location,
             abi::stack_pointer(),
             left_slot,
         ));
-        let right = self.lower_value(&args[1])?;
+        let right = args[1].clone();
         let right_slot = self.allocate_stack_object("simd_minmax_right", 8);
         self.emit(abi::store_u64(
             &right.location,
@@ -545,12 +548,12 @@ impl CodeBuilder<'_> {
 
     /// `math.clamp(values AS T[], low AS T, high AS T) AS T[]` — vectorized clamp
     /// (plan-01-simd §4.4). Never errors.
-    fn lower_math_clamp_array(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+    fn lower_math_clamp_array(&mut self, args: &[ValueResult]) -> Result<ValueResult, String> {
         use crate::codegen::builtins::vector::builder_simd_math::SimdClampKernel;
         // Lower and spill each argument before lowering the next (see
         // lower_math_min_max_array): `low`/`high` may be call results that clobber
         // the register holding the input list pointer.
-        let input = self.lower_value(&args[0])?;
+        let input = args[0].clone();
         let result_type = input.type_.clone();
         let in_slot = self.allocate_stack_object("simd_clamp_in", 8);
         self.emit(abi::store_u64(
@@ -564,11 +567,11 @@ impl CodeBuilder<'_> {
         // it into a GP-context op — an encode failure on riscv (str_u64 cannot
         // take an FP register). `float_value_as_gpr` is the identity for a
         // GP-native value (Integer/Fixed bounds), so only Float bounds change.
-        let low = self.lower_value(&args[1])?;
+        let low = args[1].clone();
         let low_bits = self.float_value_as_gpr(&low)?;
         let low_slot = self.allocate_stack_object("simd_clamp_low", 8);
         self.emit(abi::store_u64(&low_bits, abi::stack_pointer(), low_slot));
-        let high = self.lower_value(&args[2])?;
+        let high = args[2].clone();
         let high_bits = self.float_value_as_gpr(&high)?;
         let high_slot = self.allocate_stack_object("simd_clamp_high", 8);
         self.emit(abi::store_u64(&high_bits, abi::stack_pointer(), high_slot));
@@ -600,9 +603,9 @@ impl CodeBuilder<'_> {
     fn lower_math_min_max(
         &mut self,
         function: &str,
-        args: &[NirValue],
+        args: &[ValueResult],
     ) -> Result<ValueResult, String> {
-        let left = self.lower_value(&args[0])?;
+        let left = args[0].clone();
         let left = self.materialize_float(left)?;
         let left_slot = self.allocate_stack_object("math_minmax_left", 8);
         self.emit(abi::store_u64(
@@ -610,7 +613,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             left_slot,
         ));
-        let right = self.lower_value(&args[1])?;
+        let right = args[1].clone();
         let right = self.materialize_float(right)?;
         let right_slot = self.allocate_stack_object("math_minmax_right", 8);
         self.emit(abi::store_u64(
@@ -671,14 +674,15 @@ impl CodeBuilder<'_> {
             other => return Err(format!("math.{function} does not accept {other}")),
         }
         Ok(ValueResult {
+            origin: None,
             type_: left.type_,
             location: Operand::from(dst.render()),
             text: format!("math.{function}({}, {})", left.text, right.text),
         })
     }
 
-    fn lower_math_clamp(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
-        let value = self.lower_value(&args[0])?;
+    fn lower_math_clamp(&mut self, args: &[ValueResult]) -> Result<ValueResult, String> {
+        let value = args[0].clone();
         let value = self.materialize_float(value)?;
         let value_slot = self.allocate_stack_object("math_clamp_value", 8);
         self.emit(abi::store_u64(
@@ -686,7 +690,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             value_slot,
         ));
-        let low = self.lower_value(&args[1])?;
+        let low = args[1].clone();
         let low = self.materialize_float(low)?;
         let low_slot = self.allocate_stack_object("math_clamp_low", 8);
         self.emit(abi::store_u64(
@@ -694,7 +698,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             low_slot,
         ));
-        let high = self.lower_value(&args[2])?;
+        let high = args[2].clone();
         let high = self.materialize_float(high)?;
         let high_slot = self.allocate_stack_object("math_clamp_high", 8);
         self.emit(abi::store_u64(
@@ -782,6 +786,7 @@ impl CodeBuilder<'_> {
             other => return Err(format!("math.clamp does not accept {other}")),
         }
         Ok(ValueResult {
+            origin: None,
             type_: value.type_,
             location: Operand::from(dst.render()),
             text: format!("math.clamp({}, {}, {})", value.text, low.text, high.text),
@@ -791,9 +796,9 @@ impl CodeBuilder<'_> {
     fn lower_math_rounding(
         &mut self,
         function: &str,
-        arg: &NirValue,
+        arg: &ValueResult,
     ) -> Result<ValueResult, String> {
-        let value = self.lower_value(arg)?;
+        let value = arg.clone();
         let value = self.materialize_float(value)?;
         let dst = self.allocate_register()?;
         match value.type_.as_str() {
@@ -825,6 +830,7 @@ impl CodeBuilder<'_> {
             other => return Err(format!("math.{function} does not accept {other}")),
         }
         Ok(ValueResult {
+            origin: None,
             type_: "Integer".to_string(),
             location: Operand::from(dst.render()),
             text: format!("math.{function}({})", value.text),
@@ -910,8 +916,8 @@ impl CodeBuilder<'_> {
     /// `math.rand(min, max)` — uniform inclusive integer in `[min, max]`, drawn
     /// from this thread's PCG64 generator. Reports `ErrInvalidArgument` when
     /// `min > max`.
-    fn lower_math_rand(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
-        let min = self.lower_value(&args[0])?;
+    fn lower_math_rand(&mut self, args: &[ValueResult]) -> Result<ValueResult, String> {
+        let min = args[0].clone();
         // `rand(Money, Money) → Money` draws uniformly over the raw i64 range, the
         // same Lemire sampling as Integer (the raws are i64) (plan-29-G §4.7).
         if !matches!(min.type_.as_str(), "Integer" | "Money") {
@@ -924,7 +930,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             min_slot,
         ));
-        let max = self.lower_value(&args[1])?;
+        let max = args[1].clone();
         if max.type_ != result_type {
             return Err(format!("math.rand does not accept {}", max.type_));
         }
@@ -1052,6 +1058,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: result_type,
             location: Operand::from(result.render()),
             text: format!("math.rand({}, {})", min.text, max.text),
@@ -1059,8 +1066,8 @@ impl CodeBuilder<'_> {
     }
 
     /// `math.seed(value)` — reseed this thread's PCG64 generator. Returns Nothing.
-    fn lower_math_seed(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
-        let value = self.lower_value(arg)?;
+    fn lower_math_seed(&mut self, arg: &ValueResult) -> Result<ValueResult, String> {
+        let value = arg.clone();
         if value.type_ != "Integer" {
             return Err(format!("math.seed does not accept {}", value.type_));
         }
@@ -1079,14 +1086,15 @@ impl CodeBuilder<'_> {
             library: None,
         });
         Ok(ValueResult {
+            origin: None,
             type_: "Nothing".to_string(),
             location: abi::return_register(),
             text,
         })
     }
 
-    fn lower_math_sqrt(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
-        let value = self.lower_value(arg)?;
+    fn lower_math_sqrt(&mut self, arg: &ValueResult) -> Result<ValueResult, String> {
+        let value = arg.clone();
         // Fixed keeps its GPR path (raw Q32.32 sqrt); only Float goes d-native.
         if value.type_ == "Float" {
             // plan-39 B2: keep sqrt d-register-native — read the operand straight
@@ -1105,6 +1113,7 @@ impl CodeBuilder<'_> {
             let result = self.allocate_fp_register()?;
             self.emit(abi::float_sqrt_d(&result, &src));
             return Ok(ValueResult {
+                origin: None,
                 type_: "Float".to_string(),
                 location: Operand::from(result.render()),
                 text,
@@ -1122,6 +1131,7 @@ impl CodeBuilder<'_> {
                 // Deterministic raw Q32.32 square root (no host floating-point).
                 let dst = self.emit_fixed_sqrt(&value.location)?;
                 Ok(ValueResult {
+                    origin: None,
                     type_: "Fixed".to_string(),
                     location: Operand::from(dst.render()),
                     text: format!("math.sqrt({})", value.text),
@@ -1175,6 +1185,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), slot));
         Ok(ValueResult {
+            origin: None,
             type_: "Fixed".to_string(),
             location: Operand::from(result.render()),
             text,
@@ -1307,6 +1318,16 @@ impl CodeBuilder<'_> {
             };
             self.current_loc = saved;
             outcome?;
+        }
+        Ok(())
+    }
+
+    /// [`observe_float`](Self::observe_float) for a **pre-lowered** `abi_inline` arg:
+    /// the source `NirValue` the finiteness re-check keys on lives on the
+    /// `ValueResult::origin`, so this reads it there instead of taking the raw node.
+    pub(crate) fn observe_float_vr(&mut self, result: &ValueResult) -> Result<(), String> {
+        if let Some(value) = result.origin.clone() {
+            self.observe_float(&value, result)?;
         }
         Ok(())
     }

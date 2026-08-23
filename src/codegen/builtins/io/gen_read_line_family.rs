@@ -43,6 +43,7 @@ pub(crate) fn lower_read_line_family(
             .emit_app_io_input(&symbol, &mut builder.instructions, &mut builder.relocations)
             .ok_or_else(|| super::app_unsupported(ctx.platform))??;
         return Ok(ValueResult {
+            origin: None,
             type_: "String".to_string(),
             location: Operand::from("void"),
             text: text.to_string(),
@@ -488,6 +489,7 @@ pub(crate) fn lower_read_line_family(
     builder.relocations.extend(relocations);
     builder.stack_size = FRAME_SIZE;
     Ok(ValueResult {
+        origin: None,
         type_: "String".to_string(),
         location: Operand::from("void"),
         text: text.to_string(),

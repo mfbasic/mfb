@@ -107,8 +107,13 @@ impl CodeBuilder<'_> {
             // the String source. `transform` re-lowers args[0]/args[1]; the dispatch
             // gate only routes String sortBy here when both are re-eval-safe.
             let ctx = self.inline_abi_ctx();
+            // `lower_transform` is pre-lowered `abi_inline`; pass pre-lowered args.
+            let mut lowered = Vec::with_capacity(args.len());
+            for a in args {
+                lowered.push(self.lower_value(a)?);
+            }
             let keys = crate::codegen::builtins::collections::func_transform::lower_transform(
-                self, args, &ctx,
+                self, &lowered, &ctx,
             )?;
             let keys_slot = self.allocate_stack_object("sortby_keys", 8);
             self.emit(abi::store_u64(
@@ -483,6 +488,7 @@ impl CodeBuilder<'_> {
                 result_slot,
             ));
             let threaded = ValueResult {
+                origin: None,
                 type_: list_type.clone(),
                 location: Operand::from(result_reg.render()),
                 text: String::new(),
@@ -492,6 +498,7 @@ impl CodeBuilder<'_> {
             let threaded = self.free_intermediate_collection(keys_slot, &keys_type, threaded)?;
             let threaded = self.free_intermediate_collection(keysb_slot, &keys_type, threaded)?;
             return Ok(ValueResult {
+                origin: None,
                 type_: list_type.clone(),
                 location: threaded.location,
                 text: format!("sortBy({list_type})"),
@@ -510,6 +517,7 @@ impl CodeBuilder<'_> {
         let result_reg = self.allocate_register()?;
         self.emit(abi::load_u64(&result_reg, abi::stack_pointer(), items_slot));
         let threaded = ValueResult {
+            origin: None,
             type_: list_type.clone(),
             location: Operand::from(result_reg.render()),
             text: String::new(),
@@ -518,6 +526,7 @@ impl CodeBuilder<'_> {
         let threaded = self.free_intermediate_collection(keys_slot, &keys_type, threaded)?;
         let threaded = self.free_intermediate_collection(keysb_slot, &keys_type, threaded)?;
         Ok(ValueResult {
+            origin: None,
             type_: list_type.clone(),
             location: threaded.location,
             text: format!("sortBy({list_type})"),

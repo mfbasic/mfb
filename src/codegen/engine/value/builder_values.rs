@@ -13,7 +13,7 @@ use crate::target::shared::runtime;
 
 impl<'a> CodeBuilder<'a> {
     /// Build an [`AbiCtx`] from the builder's own platform/imports/build-mode for an
-    /// inline (`abi_inline`/`abi_inline_self`) lowering. The fields are `&'a`/`Copy`,
+    /// inline (`abi_inline`) lowering. The fields are `&'a`/`Copy`,
     /// so the returned `AbiCtx` borrows the underlying build data, not `self` — leaving
     /// `self` free to pass mutably to the lowering. The inline path has no OS-seam arena
     /// offsets (that is an `abi_function` concern), so both are `None`.
@@ -42,10 +42,18 @@ impl CodeBuilder<'_> {
         if let Some(loc) = value_loc(value) {
             self.current_loc = loc;
         }
-        let result = self.lower_value_inner(value);
+        let mut result = self.lower_value_inner(value);
         self.current_loc = saved_loc;
         if let Ok(result) = &result {
             self.register_pending_temp(value, result);
+        }
+        // Stamp the source `NirValue` so a pre-lowered `abi_inline` body can run any
+        // NIR-structural analysis (bounds-check elision, float-finiteness, folding)
+        // off the `ValueResult` — the value is pre-lowered, but the details are kept.
+        if let Ok(vr) = &mut result {
+            if vr.origin.is_none() {
+                vr.origin = Some(value.clone());
+            }
         }
         result
     }
@@ -167,6 +175,7 @@ impl CodeBuilder<'_> {
         if self.value_needs_owning_copy(value) && self.is_freeable_flat_value(&result.type_) {
             let copied = self.copy_flat_block(&result.type_, &result.location)?;
             return Ok(ValueResult {
+                origin: None,
                 type_: result.type_,
                 location: Operand::from(copied.render()),
                 text: result.text,
@@ -337,6 +346,7 @@ impl CodeBuilder<'_> {
         if let Some(string_value) = self.static_string_value(value) {
             let register = self.load_string_constant(&string_value)?;
             return Ok(ValueResult {
+                origin: None,
                 type_: "String".to_string(),
                 location: Operand::from(register.render()),
                 text: format!("String({string_value})"),
@@ -352,6 +362,7 @@ impl CodeBuilder<'_> {
                 let immediate = native_immediate_value(type_, value)?;
                 self.emit(abi::move_immediate(&register, type_, &immediate));
                 Ok(ValueResult {
+                    origin: None,
                     type_: type_.clone(),
                     location: Operand::from(register.render()),
                     text: format!("{type_}({value})"),
@@ -360,6 +371,7 @@ impl CodeBuilder<'_> {
             NirValue::Local(name) => {
                 if self.type_model.union_variants.contains_key(name) {
                     return Ok(ValueResult {
+                        origin: None,
                         type_: "VariantTag".to_string(),
                         location: Operand::from(name.clone()),
                         text: name.clone(),
@@ -381,6 +393,7 @@ impl CodeBuilder<'_> {
                 if let Some(d) = self.promoted_float_locals.get(name).cloned() {
                     if self.dnative_floats() {
                         return Ok(ValueResult {
+                            origin: None,
                             type_: "Float".to_string(),
                             location: Operand::from(d),
                             text: name.clone(),
@@ -390,6 +403,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::float_move_x_from_d(&register, &d));
                     self.float_residents.insert(register.render(), d);
                     return Ok(ValueResult {
+                        origin: None,
                         type_: "Float".to_string(),
                         location: Operand::from(register.render()),
                         text: name.clone(),
@@ -411,6 +425,7 @@ impl CodeBuilder<'_> {
                     let d = self.allocate_fp_register()?;
                     self.emit(abi::load_double(&d, abi::stack_pointer(), stack_offset));
                     return Ok(ValueResult {
+                        origin: None,
                         type_,
                         location: Operand::from(d.render()),
                         text: name.clone(),
@@ -426,6 +441,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_u64(&register, &register, 0));
                 }
                 Ok(ValueResult {
+                    origin: None,
                     type_,
                     location: Operand::from(register.render()),
                     text: name.clone(),
@@ -451,6 +467,7 @@ impl CodeBuilder<'_> {
                     stack_offset,
                 ));
                 Ok(ValueResult {
+                    origin: None,
                     type_: type_.clone(),
                     location: Operand::from(register.render()),
                     text: format!("&{name}"),
@@ -471,6 +488,7 @@ impl CodeBuilder<'_> {
                     let d = self.allocate_fp_register()?;
                     self.emit(abi::load_double(&d, &address, 0));
                     return Ok(ValueResult {
+                        origin: None,
                         type_: value_type,
                         location: Operand::from(d.render()),
                         text: name.clone(),
@@ -479,6 +497,7 @@ impl CodeBuilder<'_> {
                 let register = self.allocate_register()?;
                 self.emit(abi::load_u64(&register, &address, 0));
                 Ok(ValueResult {
+                    origin: None,
                     type_: value_type,
                     location: Operand::from(register.render()),
                     text: name.clone(),
@@ -518,6 +537,7 @@ impl CodeBuilder<'_> {
                     library: None,
                 });
                 Ok(ValueResult {
+                    origin: None,
                     type_: type_.clone(),
                     location: Operand::from(closure_register.render()),
                     text: name.clone(),
@@ -643,6 +663,7 @@ impl CodeBuilder<'_> {
                 }
                 self.emit(abi::move_register(&closure_register, abi::mfb_return(1)));
                 Ok(ValueResult {
+                    origin: None,
                     type_: type_.clone(),
                     location: Operand::from(closure_register.render()),
                     text: name.clone(),
@@ -656,6 +677,7 @@ impl CodeBuilder<'_> {
                 let register = self.allocate_register()?;
                 self.emit(abi::load_u64(&register, CLOSURE_ENV_REGISTER, index * 8));
                 Ok(ValueResult {
+                    origin: None,
                     type_: type_.clone(),
                     location: Operand::from(register.render()),
                     text: format!("capture[{index}]"),
@@ -689,6 +711,7 @@ impl CodeBuilder<'_> {
                             )
                         })?;
                         let callable = ValueResult {
+                            origin: None,
                             type_: local.type_,
                             location: {
                                 let register = self.allocate_register()?;
@@ -724,6 +747,7 @@ impl CodeBuilder<'_> {
                         let register = self.allocate_register()?;
                         self.emit(abi::load_u64(&register, &address, 0));
                         let callable = ValueResult {
+                            origin: None,
                             type_: global.type_,
                             location: Operand::from(register.render()),
                             text: target.clone(),
@@ -736,15 +760,12 @@ impl CodeBuilder<'_> {
                         );
                     }
                 }
-                if let Some(result) = self.lower_fs_path_call(target, args)? {
-                    return Ok(result);
-                }
                 // `strings::`/`astrings::` native members migrated to the clean-room
                 // registry, reached below through the inline dual-path (plan-99 PART
                 // B/C). `strings::` lowers per member in its own `func_*.rs` (the
                 // `builder_strings_*` carrier + `lower_strings_package_call` dispatcher
                 // were collapsed to the func_/gen_ shape); `astrings::` members are
-                // `Body::abi_inline_self`, reached through `try_abi_inline_self_lower`,
+                // `Body::abi_inline`, reached through `try_abi_inline_lower`,
                 // still delegating to the shared `lower_astrings_package_call` carrier
                 // in `gen_astrings.rs`.
                 // Migrated `collections::`/`strings::` members arrive with their
@@ -756,9 +777,6 @@ impl CodeBuilder<'_> {
                 // plan-95: prefer a migrated function's own lowering
                 // (`Implementation::Native`) over the legacy ladder below.
                 if let Some(result) = self.try_abi_inline_lower(target, args) {
-                    return result;
-                }
-                if let Some(result) = self.try_abi_inline_self_lower(target, args) {
                     return result;
                 }
                 if let Some(result) = self.try_native_lower(target, args) {
@@ -797,6 +815,7 @@ impl CodeBuilder<'_> {
                     })?;
                     let register = self.load_string_constant(&type_name)?;
                     return Ok(ValueResult {
+                        origin: None,
                         type_: "String".to_string(),
                         location: Operand::from(register.render()),
                         text: format!("typeName({type_name})"),
@@ -823,8 +842,8 @@ impl CodeBuilder<'_> {
                 if target == "isNumeric" && args.len() == 1 {
                     return self.lower_is_numeric(&args[0]);
                 }
-                // `math.*` migrated to the clean-room registry (`Body::abi_inline_self`),
-                // reached above through `try_abi_inline_self_lower` — no `math.` name
+                // `math.*` migrated to the clean-room registry (`Body::abi_inline`),
+                // reached above through `try_abi_inline_lower` — no `math.` name
                 // predicate here. The shared `lower_math_call` carrier stays; each
                 // member's `func_*.rs` shim calls it, and `builder_vector_inline` reaches
                 // the scalar `math.sqrt`/`math.clamp` it emits as `NirValue::Call` through
@@ -862,6 +881,7 @@ impl CodeBuilder<'_> {
                             )
                         })?;
                         let callable = ValueResult {
+                            origin: None,
                             type_: local.type_,
                             location: {
                                 let register = self.allocate_register()?;
@@ -877,6 +897,7 @@ impl CodeBuilder<'_> {
                         return self
                             .emit_function_value_call(target, &callable, args, Some(&return_type))
                             .map(|result| ValueResult {
+                                origin: None,
                                 type_: format!("Result OF {return_type}"),
                                 ..result
                             });
@@ -1008,6 +1029,7 @@ impl CodeBuilder<'_> {
                 let register = self.allocate_register()?;
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
+                    origin: None,
                     type_: format!("Result OF {success_type}"),
                     location: Operand::from(register.render()),
                     text: format!("callResult {target}"),
@@ -1019,9 +1041,6 @@ impl CodeBuilder<'_> {
                 args,
                 ..
             } => {
-                if let Some(result) = self.lower_fs_path_call(target, args)? {
-                    return Ok(result);
-                }
                 // `strings::`/`astrings::` native members migrated to the clean-room
                 // registry (`Body::Native` `common`), reached through
                 // `try_native_lower` (plan-99 PART B/C) — the same dual-path seam as
@@ -1049,6 +1068,7 @@ impl CodeBuilder<'_> {
                     })?;
                     let register = self.load_string_constant(&type_name)?;
                     return Ok(ValueResult {
+                        origin: None,
                         type_: "String".to_string(),
                         location: Operand::from(register.render()),
                         text: format!("typeName({type_name})"),
@@ -1115,6 +1135,7 @@ impl CodeBuilder<'_> {
                     let result = self.temporary_vreg();
                     self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
                     return Ok(ValueResult {
+                        origin: None,
                         type_: type_.clone(),
                         location: Operand::from(result.render()),
                         text: format!("construct {type_}({})", join_texts(&arg_values)),
@@ -1195,6 +1216,7 @@ impl CodeBuilder<'_> {
                 }
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
+                    origin: None,
                     type_: union_name,
                     location: Operand::from(register.render()),
                     text: format!("construct {type_}({})", join_texts(&arg_values)),
@@ -1244,6 +1266,7 @@ impl CodeBuilder<'_> {
                     let register =
                         self.emit_wrap_record_in_union(member_type, tag, wrapped_slot)?;
                     return Ok(ValueResult {
+                        origin: None,
                         type_: union_type.clone(),
                         location: Operand::from(register.render()),
                         text: format!("wrap {member_type} as {union_type}"),
@@ -1307,6 +1330,7 @@ impl CodeBuilder<'_> {
                 let register = self.allocate_register()?;
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
+                    origin: None,
                     type_: union_type.clone(),
                     location: Operand::from(register.render()),
                     text: format!("wrap {member_type} as {union_type}"),
@@ -1320,6 +1344,7 @@ impl CodeBuilder<'_> {
                     let register = self.allocate_register()?;
                     self.emit(abi::load_u64(&register, &source.location, 8));
                     return Ok(ValueResult {
+                        origin: None,
                         type_: type_.clone(),
                         location: Operand::from(register.render()),
                         text: format!("extract {type_} from {}", source.text),
@@ -1332,6 +1357,7 @@ impl CodeBuilder<'_> {
                 let register = self.allocate_register()?;
                 self.emit(abi::add_immediate(&register, &source.location, 16));
                 Ok(ValueResult {
+                    origin: None,
                     type_: type_.clone(),
                     location: Operand::from(register.render()),
                     text: format!("extract {type_} from {}", source.text),
@@ -1351,6 +1377,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, "Boolean", "1"));
                 self.emit(abi::label(&end_label));
                 Ok(ValueResult {
+                    origin: None,
                     type_: "Boolean".to_string(),
                     location: Operand::from(register.render()),
                     text: "resultIsOk".to_string(),
@@ -1378,6 +1405,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_u64(&register, &result.location, 16));
                 }
                 Ok(ValueResult {
+                    origin: None,
                     type_,
                     location: Operand::from(register.render()),
                     text: "resultValue".to_string(),
@@ -1389,6 +1417,7 @@ impl CodeBuilder<'_> {
                 let register = self.allocate_register()?;
                 self.emit(abi::add_immediate(&register, &result.location, 16));
                 Ok(ValueResult {
+                    origin: None,
                     type_: "Error".to_string(),
                     location: Operand::from(register.render()),
                     text: "resultError".to_string(),
@@ -1434,6 +1463,7 @@ impl CodeBuilder<'_> {
                             &ordinal.to_string(),
                         ));
                         return Ok(ValueResult {
+                            origin: None,
                             type_: type_name.clone(),
                             location: Operand::from(register.render()),
                             text: format!("{type_name}.{member}"),
@@ -1471,6 +1501,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::move_immediate(&register, "Boolean", "true"));
                     self.emit(abi::label(&done_label));
                     return Ok(ValueResult {
+                        origin: None,
                         type_: "Boolean".to_string(),
                         location: Operand::from(register.render()),
                         text: format!("(NOT {})", operand.text),
@@ -1579,19 +1610,6 @@ impl CodeBuilder<'_> {
         Some(lower(self, &arg_values, &ctx))
     }
 
-    /// The self-lowering `abi_inline` mode: the body receives the call's **raw**
-    /// `NirValue` args (no arg pre-lowering) and lowers them itself, as its former
-    /// `common` body did. The collections/strings native members use this mode.
-    fn try_abi_inline_self_lower(
-        &mut self,
-        target: &str,
-        args: &[NirValue],
-    ) -> Option<Result<ValueResult, String>> {
-        let lower = crate::codegen::registry::abi_inline_self_lower(target)?;
-        let ctx = self.inline_abi_ctx();
-        Some(lower(self, args, &ctx))
-    }
-
     /// Pre-lower each `NirValue` arg to a `ValueResult` for an `AbiInline` body
     /// ("pre-lowered `ValueResult`"). A single arg is consumed immediately and needs
     /// no stabilization. With two or more args, lowering a later arg can reset
@@ -1614,8 +1632,13 @@ impl CodeBuilder<'_> {
         for (index, arg) in args.iter().enumerate() {
             let value = self.lower_value(arg)?;
             let slot = self.allocate_stack_object(&format!("abi_inline_arg{index}"), 8);
-            self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
-            spilled.push((slot, value.type_, value.text));
+            // Type-aware spill: a `d`-native `Float` stores from its FP register
+            // (`str d`) so its bit pattern — including the sign of a `-0.0` — survives
+            // the round-trip. A plain `store_u64` would push the FP vreg through a GP
+            // store and drop the sign (bug: `pow(-0.0, 3)` → `+0.0`). Integer/GP args
+            // store via `str x` exactly as before, so `bits`/collections stay identical.
+            self.store_value_at(&value, abi::stack_pointer(), slot);
+            spilled.push((slot, value.type_, value.text, value.origin));
         }
         self.reset_temporary_registers();
         // Allocate every result register first, then reload — matching the former
@@ -1625,9 +1648,10 @@ impl CodeBuilder<'_> {
             registers.push(self.allocate_register()?);
         }
         let mut arg_values = Vec::with_capacity(spilled.len());
-        for ((slot, type_, text), register) in spilled.into_iter().zip(registers) {
+        for ((slot, type_, text, origin), register) in spilled.into_iter().zip(registers) {
             self.emit(abi::load_u64(&register, abi::stack_pointer(), slot));
             arg_values.push(ValueResult {
+                origin,
                 type_,
                 location: Operand::from(register.render()),
                 text,
@@ -1672,15 +1696,11 @@ impl CodeBuilder<'_> {
             // plan-95: migrated function lowering, inside the raw-capture wrapper
             // so `raw_result_capture` still routes its domain error to the capture.
             result
-        } else if let Some(result) = self.try_abi_inline_self_lower(target, args) {
-            // A self-lowering `abi_inline` member (the migrated collections/strings
-            // natives, e.g. fallible `get`/`set`/`insert`) trapped by an inline `TRAP`:
-            // its domain error routes through the `raw_result_capture` branch above.
-            result
         } else if let Some(result) = self.try_abi_inline_lower(target, args) {
-            // An `abi_inline` intrinsic (e.g. the fallible `bits.sl`/`sr`/`sra`
-            // variable shifts) trapped by an inline `TRAP`: its `raise_error_bare`
-            // routes through the `raw_result_capture` branch set above.
+            // An `abi_inline` member (the migrated collections/strings natives, e.g.
+            // fallible `get`/`set`/`insert`, and the fallible `bits.sl`/`sr`/`sra`
+            // variable shifts) trapped by an inline `TRAP`: its domain error routes
+            // through the `raw_result_capture` branch set above.
             result
         } else {
             match crate::builtins::native_builtin_target(target) {
@@ -1752,7 +1772,7 @@ impl CodeBuilder<'_> {
         if let Some(result) = self.try_native_lower(target, args) {
             return result;
         }
-        if let Some(result) = self.try_abi_inline_self_lower(target, args) {
+        if let Some(result) = self.try_abi_inline_lower(target, args) {
             return result;
         }
         if target == "len" && args.len() == 1 {
@@ -1767,6 +1787,7 @@ impl CodeBuilder<'_> {
                 .ok_or_else(|| "native code cannot determine typeName argument type".to_string())?;
             let register = self.load_string_constant(&type_name)?;
             return Ok(ValueResult {
+                origin: None,
                 type_: "String".to_string(),
                 location: Operand::from(register.render()),
                 text: format!("typeName({type_name})"),

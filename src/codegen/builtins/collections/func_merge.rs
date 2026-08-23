@@ -292,6 +292,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: map_type.clone(),
             location: Operand::from(result.render()),
             text: format!("merge({map_type})"),

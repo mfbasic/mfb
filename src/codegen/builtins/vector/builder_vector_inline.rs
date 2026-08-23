@@ -179,6 +179,7 @@ impl CodeBuilder<'_> {
         self.next_vector_native += 1;
         self.vector_natives.insert(marker.clone(), lanes);
         ValueResult {
+            origin: None,
             type_: type_.to_string(),
             location: Operand::from(marker),
             text: format!("vecnative {type_}"),
@@ -216,6 +217,7 @@ impl CodeBuilder<'_> {
         }
         let register = self.emit_build_inlined_record(&value.type_, &slots)?;
         let block = ValueResult {
+            origin: None,
             type_: value.type_,
             location: Operand::from(register.render()),
             text: value.text,

@@ -78,6 +78,7 @@ pub(crate) fn lower_bits_clz(
     let dst = builder.allocate_register()?;
     builder.emit(abi::count_leading_zeros(dst, &value.location));
     Ok(ValueResult {
+        origin: None,
         type_: "Integer".to_string(),
         location: Operand::from(dst.render()),
         text: format!("bits.clz({})", value.text),

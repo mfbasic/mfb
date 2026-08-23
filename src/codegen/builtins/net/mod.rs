@@ -10,7 +10,7 @@
 //! Like `fs`/`audio`, `net` is a **native OS-seam** package migrated to the
 //! `Body::abi_function` clean-room shape: every socket/DNS/UDP member carries a
 //! per-platform runtime-helper lowering. The relocated syscall emission lives in
-//! [`gen_os_seam`]; each such member's [`Body::abi_function_os_seam`] holds the one
+//! [`gen_os_seam`]; each such member's [`Body::abi_function_aliased`] holds the one
 //! clean-room lowering [`gen_os_seam::lower_net_os_seam`], which dispatches to the
 //! family-generic [`gen_os_seam::lower_net_helper`] by `AbiCtx::call` and selects the
 //! posix/win emission by `platform.family()`. The member plus its `connectTcpAddr` /
@@ -141,13 +141,13 @@ URL into a `Url` value record, `toString` renders it back, and
 `Socket`, `Listener`, and `UdpSocket` handles are opaque, owned resources closed
 automatically by lexical drop; `net::close` releases one earlier."#;
 
-/// The `Body::abi_function_os_seam` every native `net.*` member carries: the one
+/// The `Body::abi_function_aliased` every native `net.*` member carries: the one
 /// clean-room lowering [`gen_os_seam::lower_net_os_seam`] (which dispatches to the
 /// family-generic [`gen_os_seam::lower_net_helper`] by `AbiCtx::call`), plus any code-form
 /// `os_aliases` (`connectTcpAddr`/`pollList`) the overload emits — the `abi_function`
 /// successor to the `native_os_seam` twin idiom (crypto/io/fs/audio shape).
 pub(crate) fn net_native(os_aliases: &'static [&'static str]) -> Body {
-    Body::abi_function_os_seam(gen_os_seam::lower_net_os_seam, os_aliases)
+    Body::abi_function_aliased(gen_os_seam::lower_net_os_seam, os_aliases)
 }
 
 /// Register the `net` package on the clean-room registry.

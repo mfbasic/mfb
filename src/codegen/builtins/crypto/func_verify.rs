@@ -1521,6 +1521,7 @@ pub(crate) fn lower_verify(
         .extend([abi::label(&done), abi::return_()]);
 
     Ok(ValueResult {
+        origin: None,
         type_: "Boolean".to_string(),
         location: Operand::from("void"),
         text: "crypto.verify".to_string(),

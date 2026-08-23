@@ -7,7 +7,6 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTO_GET_OR: &str =
     "Read a list item or map value, returning a supplied default when it is absent.";
@@ -119,7 +118,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Var("T"),
                 errors: vec![],
-                body: Body::abi_inline_self(lower_get_or),
+                body: Body::abi_inline(lower_get_or),
             },
             Implementation {
                 params: vec![
@@ -147,7 +146,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Var("V"),
                 errors: vec![],
-                body: Body::abi_inline_self(lower_get_or),
+                body: Body::abi_inline(lower_get_or),
             },
         ],
     });
@@ -157,10 +156,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// map key overload). Reuses the get-or helpers; no domain error is raised.
 pub(crate) fn lower_get_or(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let collection = builder.lower_value(&args[0])?;
+    let collection = args[0].clone();
     let collection_slot = builder.allocate_stack_object("get_or_collection", 8);
     builder.emit(abi::store_u64(
         &collection.location,
@@ -168,12 +167,12 @@ pub(crate) fn lower_get_or(
         collection_slot,
     ));
 
-    let key = builder.lower_value(&args[1])?;
+    let key = args[1].clone();
     let key_slot = builder.allocate_stack_object("get_or_key", 8);
     // `d`-native float key/default store via `str d` (plan-01 float-dnative).
     builder.store_value_at(&key, abi::stack_pointer(), key_slot);
 
-    let default = builder.lower_value(&args[2])?;
+    let default = args[2].clone();
     let default_slot = builder.allocate_stack_object("get_or_default", 8);
     builder.store_value_at(&default, abi::stack_pointer(), default_slot);
 

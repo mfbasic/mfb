@@ -64,9 +64,14 @@ impl CodeBuilder<'_> {
         let v_layout = CollectionTypeLayout::from_type(&list_v)
             .ok_or_else(|| "groupBy: value layout".to_string())?;
         let ctx = self.inline_abi_ctx();
+        // `lower_transform` is a pre-lowered `abi_inline` body, so pass it pre-lowered
+        // `ValueResult` args (the collection is re-lowered for each transform, exactly
+        // as the self-lowering carrier re-lowered `args[0]` internally per call).
+        let keys_collection = self.lower_value(&args[0])?;
+        let keys_fn = self.lower_value(&args[1])?;
         let keys = crate::codegen::builtins::collections::func_transform::lower_transform(
             self,
-            &[args[0].clone(), args[1].clone()],
+            &[keys_collection, keys_fn],
             &ctx,
         )?;
         let keys_slot = self.allocate_stack_object("gb_keys", 8);
@@ -75,9 +80,11 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             keys_slot,
         ));
+        let vals_collection = self.lower_value(&args[0])?;
+        let vals_fn = self.lower_value(&args[2])?;
         let vals = crate::codegen::builtins::collections::func_transform::lower_transform(
             self,
-            &[args[0].clone(), args[2].clone()],
+            &[vals_collection, vals_fn],
             &ctx,
         )?;
         let vals_slot = self.allocate_stack_object("gb_vals", 8);
@@ -402,6 +409,7 @@ impl CodeBuilder<'_> {
         ));
         // free the now-copied bucket
         let keep = ValueResult {
+            origin: None,
             type_: map_type.clone(),
             location: {
                 let z = self.allocate_register()?;
@@ -418,6 +426,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&fm_done));
         // free the six scratch buffers (thread result through)
         let mut threaded = ValueResult {
+            origin: None,
             type_: map_type.clone(),
             location: {
                 let z = self.allocate_register()?;
@@ -437,6 +446,7 @@ impl CodeBuilder<'_> {
             threaded = self.free_intermediate_collection(s, &ty, threaded)?;
         }
         Ok(ValueResult {
+            origin: None,
             type_: map_type,
             location: threaded.location,
             text: "groupBy".to_string(),

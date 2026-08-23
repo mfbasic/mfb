@@ -253,6 +253,7 @@ pub(crate) fn lower_random_bytes(
         .extend([abi::label(&done), abi::return_()]);
 
     Ok(ValueResult {
+        origin: None,
         type_: "List OF Byte".to_string(),
         location: Operand::from("void"),
         text: "crypto.randomBytes".to_string(),

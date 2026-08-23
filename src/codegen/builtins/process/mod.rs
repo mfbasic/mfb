@@ -1,3 +1,4 @@
+#![allow(deprecated)] // not-yet-migrated: uses deprecated Body::native_os_seam
 //! The built-in `process` package (plan-90).
 //!
 //! `process` spawns and manages child processes. Its one resource, `Process`, is

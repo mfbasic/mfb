@@ -68,6 +68,7 @@ pub(crate) fn lower_flush(
         builder.stack_size = 16;
     }
     Ok(ValueResult {
+        origin: None,
         type_: "Nothing".to_string(),
         location: Operand::from("void"),
         text: "io.flush".to_string(),

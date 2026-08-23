@@ -113,6 +113,7 @@ pub(crate) fn lower_bits_sr(
     let dst = builder.allocate_register()?;
     builder.emit(abi::shift_right_variable(dst, value_reg, &count_reg));
     Ok(ValueResult {
+        origin: None,
         type_: "Integer".to_string(),
         location: Operand::from(dst.render()),
         text: format!("bits.sr({value_text}, {count_text})"),

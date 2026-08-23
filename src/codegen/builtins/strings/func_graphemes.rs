@@ -11,11 +11,11 @@ use crate::types::ParameterType;
 
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     if args.len() == 1 {
-        if let Some(value) = builder.static_string_value(&args[0]) {
+        if let Some(value) = builder.static_string_value_vr(&args[0]) {
             let values = crate::unicode::backend::graphemes(&value)
                 .into_iter()
                 .map(|value| NirValue::Const {
@@ -50,7 +50,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::list_of(ParameterType::String),
             errors: vec![],
-            body: Body::abi_inline_self(lower),
+            body: Body::abi_inline(lower),
         }],
     });
 }

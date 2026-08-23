@@ -9,12 +9,11 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     if args.len() != 2 {
@@ -31,7 +30,7 @@ pub(crate) fn lower(
     let scratch13 = builder.temporary_vreg();
     let scratch14 = builder.temporary_vreg();
     let scratch15 = builder.temporary_vreg();
-    let index = builder.lower_value(index)?;
+    let index = index.clone();
     if index.type_ != "Integer" {
         return Err(format!(
             "strings.graphemeAt index must be Integer, got {}",
@@ -94,6 +93,7 @@ pub(crate) fn lower(
     builder.emit(abi::load_u64(&scratch14, abi::stack_pointer(), len_slot));
     let result = builder.emit_materialize_string_from_bytes(&scratch15, &scratch14)?;
     Ok(ValueResult {
+        origin: None,
         type_: "String".to_string(),
         location: Operand::from(result.render()),
         text: "strings.graphemeAt".to_string(),
@@ -127,7 +127,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::String,
             errors: vec!["ErrIndexOutOfRange"],
-            body: Body::abi_inline_self(lower),
+            body: Body::abi_inline(lower),
         }],
     });
 }

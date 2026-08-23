@@ -14,11 +14,11 @@ use crate::types::ParameterType;
 
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     if args.len() == 1 {
-        if let Some(value) = builder.static_string_value(&args[0]) {
+        if let Some(value) = builder.static_string_value_vr(&args[0]) {
             let values = value
                 .as_bytes()
                 .iter()
@@ -47,7 +47,7 @@ pub(crate) fn lower(
     let scratch26 = builder.temporary_vreg();
     let scratch27 = builder.temporary_vreg();
     let scratch28 = builder.temporary_vreg();
-    let value = builder.lower_value(value)?;
+    let value = value.clone();
     builder.require_string("strings.toBytes value", &value)?;
     let value_slot = builder.spill_to_slot("strings_to_bytes_value", &value.location);
     let count_slot = builder.allocate_stack_object("strings_to_bytes_count", 8);
@@ -192,6 +192,7 @@ pub(crate) fn lower(
     let result = builder.allocate_register()?;
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
     Ok(ValueResult {
+        origin: None,
         type_: "List OF Byte".to_string(),
         location: Operand::from(result.render()),
         text: "strings.toBytes".to_string(),
@@ -216,7 +217,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::list_of(ParameterType::Byte),
             errors: vec![],
-            body: Body::abi_inline_self(lower),
+            body: Body::abi_inline(lower),
         }],
     });
 }

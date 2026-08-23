@@ -380,6 +380,7 @@ impl CodeBuilder<'_> {
             self.raise_error("collections.get", "ErrNotFound")?;
             self.emit(abi::label(&done));
             return Ok(ValueResult {
+                origin: None,
                 type_: value_type.to_string(),
                 location: Operand::from(result.render()),
                 text: format!("get({collection_type}, {key_type}) [hash]"),
@@ -452,6 +453,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
 
         Ok(ValueResult {
+            origin: None,
             type_: value_type.to_string(),
             location: Operand::from(result.render()),
             text: format!("get({collection_type}, {key_type})"),
@@ -515,6 +517,7 @@ impl CodeBuilder<'_> {
             }
             self.emit(abi::label(&done));
             return Ok(ValueResult {
+                origin: None,
                 type_: value_type.to_string(),
                 location: Operand::from(result.render()),
                 text: format!("getOr({collection_type}, {key_type}, {value_type}) [hash]"),
@@ -602,6 +605,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
 
         Ok(ValueResult {
+            origin: None,
             type_: value_type.to_string(),
             location: Operand::from(result.render()),
             text: format!("getOr({collection_type}, {key_type}, {value_type})"),

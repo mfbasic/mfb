@@ -108,6 +108,7 @@ pub(crate) fn lower_bits_rl64(
     builder.emit(abi::subtract_registers(neg, abi::ZERO, count_reg));
     builder.emit(abi::rotate_right_registers(dst, value_reg, neg));
     Ok(ValueResult {
+        origin: None,
         type_: "Integer".to_string(),
         location: Operand::from(dst.render()),
         text: format!("bits.rl64({value_text}, {count_text})"),

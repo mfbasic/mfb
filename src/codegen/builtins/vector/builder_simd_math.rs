@@ -253,6 +253,7 @@ impl CodeBuilder<'_> {
         }
 
         Ok(ValueResult {
+            origin: None,
             type_: result_type.to_string(),
             location: Operand::from(result_base.render()),
             text,
@@ -707,6 +708,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&tail_done));
 
         Ok(ValueResult {
+            origin: None,
             type_: result_type.to_string(),
             location: Operand::from(result_base.render()),
             text,
@@ -921,6 +923,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&tail_done));
 
         Ok(ValueResult {
+            origin: None,
             type_: result_type.to_string(),
             location: Operand::from(result_base.render()),
             text,

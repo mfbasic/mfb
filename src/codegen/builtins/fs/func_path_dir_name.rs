@@ -1,7 +1,7 @@
 //! `fs::pathDirName` — descriptor + docs.
 //!
 //! A purely-syntactic `path*` string member: no syscall. It lowers at the call
-//! site through the `Body::abi_inline_self` (self-lowering) (`gen_path_builder::lower_fs_path_dir_name_nl`).
+//! site through the `Body::abi_inline` (`gen_path_builder::lower_fs_path_dir_name_nl`).
 
 use super::gen_path_builder::lower_fs_path_dir_name_nl;
 use super::{Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage};
@@ -94,7 +94,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::String,
             errors: vec![],
-            body: Body::abi_inline_self(lower_fs_path_dir_name_nl),
+            body: Body::abi_inline(lower_fs_path_dir_name_nl),
         }],
     });
 }

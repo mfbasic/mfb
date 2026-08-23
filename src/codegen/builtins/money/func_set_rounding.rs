@@ -7,7 +7,6 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTRO: &str = r#"Set the rounding mode used by Money arithmetic on the calling thread"#;
 const DESC: &str = r#"`money::setRounding` selects how `Money` arithmetic settles the exact half case.
@@ -71,7 +70,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Nothing,
             errors: vec![],
-            body: Body::abi_inline_self(lower_money_set_rounding),
+            body: Body::abi_inline(lower_money_set_rounding),
         }],
     });
 }
@@ -80,10 +79,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// The `Rounding` value arrives as its i64 discriminant. Returns Nothing.
 pub(crate) fn lower_money_set_rounding(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let mode = builder.lower_value(&args[0])?;
+    let mode = args[0].clone();
     let text = format!("money.setRounding({})", mode.text);
     let masked = builder.allocate_register()?;
     let one = builder.allocate_register()?;
@@ -95,6 +94,7 @@ pub(crate) fn lower_money_set_rounding(
         ARENA_ROUNDING_MODE_OFFSET,
     ));
     Ok(ValueResult {
+        origin: None,
         type_: "Nothing".to_string(),
         location: abi::return_register(),
         text,

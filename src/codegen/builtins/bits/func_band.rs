@@ -99,6 +99,7 @@ pub(crate) fn lower_bits_band(
     let dst = builder.allocate_register()?;
     builder.emit(abi::and_registers(dst, left_reg, right_reg));
     Ok(ValueResult {
+        origin: None,
         type_: "Integer".to_string(),
         location: Operand::from(dst.render()),
         text: format!("bits.band({left_text}, {right_text})"),

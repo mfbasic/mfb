@@ -3,7 +3,6 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{AbiCtx, RegistryPackage};
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType::{Fixed, Float};
 const INTRO: &str = r#"Arctangent (inverse tangent), returning radians."#;
 const DESC: &str = r#"`atan` returns the arctangent of `value` in radians (in `[-pi/2, pi/2]`), echoing
@@ -35,7 +34,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// Target-generic call-site lowering for `math::atan`, delegating to the shared `lower_math_call` carrier in `gen_math.rs`.
 pub(crate) fn lower_math_atan(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     builder.lower_math_call("atan", args)

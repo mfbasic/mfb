@@ -5,12 +5,11 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::nir::*;
 
 pub(crate) fn lower_strings_with_any(
     builder: &mut CodeBuilder,
-    value: &NirValue,
-    parts: &NirValue,
+    value: &ValueResult,
+    parts: &ValueResult,
     suffix: bool,
 ) -> Result<ValueResult, String> {
     let scratch16 = builder.temporary_vreg();
@@ -25,10 +24,10 @@ pub(crate) fn lower_strings_with_any(
     let scratch12 = builder.temporary_vreg();
     let scratch15 = builder.temporary_vreg();
     let scratch13 = builder.temporary_vreg();
-    let value = builder.lower_value(value)?;
+    let value = value.clone();
     builder.require_string("strings.withAny value", &value)?;
     let value_slot = builder.spill_to_slot("strings_with_any_value", &value.location);
-    let parts = builder.lower_value(parts)?;
+    let parts = parts.clone();
     if list_element_type(&parts.type_).as_deref() != Some("String") {
         return Err(format!(
             "strings.startsWithAny/endsWithAny parts must be List OF String, got {}",

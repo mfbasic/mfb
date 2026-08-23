@@ -84,6 +84,7 @@ pub(crate) fn lower_bits_bswap64(
     let dst = builder.allocate_register()?;
     builder.emit(abi::reverse_bytes(dst, &value.location));
     Ok(ValueResult {
+        origin: None,
         type_: "Integer".to_string(),
         location: Operand::from(dst.render()),
         text: format!("bits.bswap64({})", value.text),

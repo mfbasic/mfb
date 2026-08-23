@@ -378,6 +378,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: list_type.to_string(),
             location: Operand::from(result.render()),
             text: format!("zip({list_type})"),
@@ -510,6 +511,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), outer_slot));
         Ok(ValueResult {
+            origin: None,
             type_: list_type.to_string(),
             location: Operand::from(result.render()),
             text: format!("zip({list_type} String)"),

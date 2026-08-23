@@ -114,6 +114,7 @@ impl CodeBuilder<'_> {
                 let register = self.allocate_register()?;
                 self.emit(abi::move_immediate(&register, "Integer", "0"));
                 Ok(ValueResult {
+                    origin: None,
                     type_: type_.to_string(),
                     location: Operand::from(register.render()),
                     text: "default Nothing".to_string(),
@@ -123,6 +124,7 @@ impl CodeBuilder<'_> {
                 let register = self.allocate_register()?;
                 self.emit(abi::move_immediate(&register, "Boolean", "0"));
                 Ok(ValueResult {
+                    origin: None,
                     type_: type_.to_string(),
                     location: Operand::from(register.render()),
                     text: "default Boolean".to_string(),
@@ -132,6 +134,7 @@ impl CodeBuilder<'_> {
                 let register = self.allocate_register()?;
                 self.emit(abi::move_immediate(&register, type_, "0"));
                 Ok(ValueResult {
+                    origin: None,
                     type_: type_.to_string(),
                     location: Operand::from(register.render()),
                     text: format!("default {type_}"),
@@ -140,6 +143,7 @@ impl CodeBuilder<'_> {
             "String" => {
                 let register = self.load_empty_string_constant()?;
                 Ok(ValueResult {
+                    origin: None,
                     type_: type_.to_string(),
                     location: Operand::from(register.render()),
                     text: "default String".to_string(),
@@ -148,6 +152,7 @@ impl CodeBuilder<'_> {
             _ if is_collection_type(type_) => {
                 let result = self.lower_empty_collection(type_)?;
                 Ok(ValueResult {
+                    origin: None,
                     type_: result.type_,
                     location: result.location,
                     text: format!("default {type_}"),
@@ -209,6 +214,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_u64(&block, abi::stack_pointer(), block_slot));
                 }
                 Ok(ValueResult {
+                    origin: None,
                     type_: type_.to_string(),
                     location: Operand::from(block.render()),
                     text: format!("closed union {type_}"),
@@ -241,6 +247,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_u64(&record, abi::stack_pointer(), slot));
                 }
                 Ok(ValueResult {
+                    origin: None,
                     type_: type_.to_string(),
                     location: Operand::from(record.render()),
                     text: format!("closed {type_}"),
@@ -263,6 +270,7 @@ impl CodeBuilder<'_> {
                 // data region; scalar/pointer defaults stay inline (plan-02 §4.2).
                 let register = self.emit_build_inlined_record(type_, &field_slots)?;
                 Ok(ValueResult {
+                    origin: None,
                     type_: type_.to_string(),
                     location: Operand::from(register.render()),
                     text: format!("default {type_}"),
@@ -298,6 +306,7 @@ impl CodeBuilder<'_> {
                 let register = self.allocate_register()?;
                 self.emit(abi::load_u64(&register, &record, RESOURCE_OFFSET_STATE));
                 return Ok(ValueResult {
+                    origin: None,
                     type_: state_type,
                     location: Operand::from(register.render()),
                     text: "state".to_string(),
@@ -392,6 +401,7 @@ impl CodeBuilder<'_> {
             ));
         }
         Ok(ValueResult {
+            origin: None,
             type_: field_type,
             location: Operand::from(register.render()),
             text: format!("{}.{}", target_value.text, member),
@@ -472,6 +482,7 @@ impl CodeBuilder<'_> {
         }
         let register = self.emit_build_inlined_record(type_, &field_slots)?;
         Ok(ValueResult {
+            origin: None,
             type_: type_.to_string(),
             location: Operand::from(register.render()),
             text: format!("with {}", target_value.text),
@@ -598,6 +609,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u8(byte, write_cur, 0));
 
         Ok(ValueResult {
+            origin: None,
             type_: "String".to_string(),
             location: Operand::from(result_ptr.render()),
             text: format!("({} & {})", left.text, right.text),
@@ -663,6 +675,17 @@ impl CodeBuilder<'_> {
             }
             _ => None,
         }
+    }
+
+    /// [`static_string_value`](Self::static_string_value) for a **pre-lowered**
+    /// `abi_inline` arg: the constant-folding reads the source `NirValue` off the
+    /// `ValueResult::origin` (the value is already lowered, but its source node is
+    /// kept for exactly this kind of compile-time fold).
+    pub(crate) fn static_string_value_vr(&self, value: &ValueResult) -> Option<String> {
+        value
+            .origin
+            .as_ref()
+            .and_then(|nir| self.static_string_value(nir))
     }
 
     pub(crate) fn static_string_value(&self, value: &NirValue) -> Option<String> {

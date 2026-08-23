@@ -124,6 +124,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
 
         Ok(ValueResult {
+            origin: None,
             type_: element_type.to_string(),
             location: Operand::from(result.render()),
             text,

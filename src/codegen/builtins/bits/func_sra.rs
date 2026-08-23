@@ -130,6 +130,7 @@ pub(crate) fn lower_bits_sra(
         dst, value_reg, count_reg,
     ));
     Ok(ValueResult {
+        origin: None,
         type_: "Integer".to_string(),
         location: Operand::from(dst.render()),
         text: format!("bits.sra({value_text}, {count_text})"),

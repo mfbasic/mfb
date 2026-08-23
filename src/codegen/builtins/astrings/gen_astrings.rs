@@ -2,7 +2,6 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
-use crate::target::shared::nir::*;
 impl CodeBuilder<'_> {
     /// Dispatch an `astrings::` package call to its native lowering, or `None`
     /// when `target` is not a native `astrings` member (so the caller falls
@@ -11,7 +10,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn lower_astrings_package_call(
         &mut self,
         target: &str,
-        args: &[NirValue],
+        args: &[ValueResult],
     ) -> Result<Option<ValueResult>, String> {
         if target == "astrings.fromString" && args.len() == 1 {
             return Ok(Some(self.lower_astrings_from_string(args)?));
@@ -34,8 +33,8 @@ impl CodeBuilder<'_> {
     /// the generic inlined-record builder (`emit_build_inlined_record`), so the
     /// value's byte layout is identical to every other `AttributedString` and its
     /// value-semantic copy/drop reuse the generic record machinery.
-    fn lower_astrings_from_string(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
-        let text = self.lower_value(&args[0])?;
+    fn lower_astrings_from_string(&mut self, args: &[ValueResult]) -> Result<ValueResult, String> {
+        let text = args[0].clone();
         if text.type_ != "String" {
             return Err(format!(
                 "astrings::fromString expects a String argument, got {}",
@@ -63,6 +62,7 @@ impl CodeBuilder<'_> {
         let register =
             self.emit_build_inlined_record("AttributedString", &[text_slot, spans_slot])?;
         Ok(ValueResult {
+            origin: None,
             type_: "AttributedString".to_string(),
             location: Operand::from(register.render()),
             text: format!("astrings::fromString({})", text.text),
@@ -88,8 +88,8 @@ impl CodeBuilder<'_> {
     /// overlay list (`List OF AttrSpan`). The overlay is inlined in the record, so
     /// the alias is deep-copied out; the companion mutates the copy freely and
     /// writes it back with `writeSpans`.
-    fn lower_astrings_read_spans(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
-        let value = self.lower_value(&args[0])?;
+    fn lower_astrings_read_spans(&mut self, args: &[ValueResult]) -> Result<ValueResult, String> {
+        let value = args[0].clone();
         let record_slot = self.allocate_stack_object("astrings_read_spans_record", 8);
         self.emit(abi::store_u64(
             &value.location,
@@ -102,6 +102,7 @@ impl CodeBuilder<'_> {
         let spans_alias = self.emit_attributed_string_field_ptr(&record_op, 1)?;
         let copied = self.copy_value_to_current_arena("List OF AttrSpan", &spans_alias)?;
         Ok(ValueResult {
+            origin: None,
             type_: "List OF AttrSpan".to_string(),
             location: Operand::from(copied.render()),
             text: format!("astrings::readSpans({})", value.text),
@@ -112,8 +113,8 @@ impl CodeBuilder<'_> {
     /// visible text, for inclusive-range bounds validation in the companion. Counts
     /// non-continuation UTF-8 bytes in the inlined `text` String, reusing the shared
     /// scalar-count walk (no strings/encoding companion dependency).
-    fn lower_astrings_scalar_len(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
-        let value = self.lower_value(&args[0])?;
+    fn lower_astrings_scalar_len(&mut self, args: &[ValueResult]) -> Result<ValueResult, String> {
+        let value = args[0].clone();
         let record_slot = self.allocate_stack_object("astrings_scalar_len_record", 8);
         self.emit(abi::store_u64(
             &value.location,
@@ -153,6 +154,7 @@ impl CodeBuilder<'_> {
             &done,
         );
         Ok(ValueResult {
+            origin: None,
             type_: "Integer".to_string(),
             location: Operand::from(count.render()),
             text: format!("astrings::scalarLen({})", value.text),
@@ -161,8 +163,8 @@ impl CodeBuilder<'_> {
 
     /// `astrings::writeSpans(a, spans)` (internal) — build a new `AttributedString`
     /// carrying `a`'s visible text (deep-copied) and the supplied overlay list.
-    fn lower_astrings_write_spans(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
-        let value = self.lower_value(&args[0])?;
+    fn lower_astrings_write_spans(&mut self, args: &[ValueResult]) -> Result<ValueResult, String> {
+        let value = args[0].clone();
         let record_slot = self.allocate_stack_object("astrings_write_spans_record", 8);
         self.emit(abi::store_u64(
             &value.location,
@@ -176,7 +178,7 @@ impl CodeBuilder<'_> {
         let text_slot = self.allocate_stack_object("astrings_write_spans_text", 8);
         self.emit(abi::store_u64(&text_alias, abi::stack_pointer(), text_slot));
 
-        let spans = self.lower_value(&args[1])?;
+        let spans = args[1].clone();
         if spans.type_ != "List OF AttrSpan" {
             return Err(format!(
                 "astrings::writeSpans expects a List OF AttrSpan, got {}",
@@ -194,6 +196,7 @@ impl CodeBuilder<'_> {
         let register =
             self.emit_build_inlined_record("AttributedString", &[text_slot, spans_slot])?;
         Ok(ValueResult {
+            origin: None,
             type_: "AttributedString".to_string(),
             location: Operand::from(register.render()),
             text: format!("astrings::writeSpans({}, {})", value.text, spans.text),

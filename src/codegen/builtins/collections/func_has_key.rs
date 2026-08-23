@@ -7,7 +7,6 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTO_HAS_KEY: &str = "Test whether a map contains an entry for a key.";
 const DESC_HAS_KEY: &str = r#"`collections::hasKey` returns `TRUE` when `value` holds an entry whose key
@@ -107,7 +106,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Boolean,
             errors: vec![],
-            body: Body::abi_inline_self(lower_has_key),
+            body: Body::abi_inline(lower_has_key),
         }],
     });
 }
@@ -116,17 +115,17 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// shared hash-probe / linear-scan (`emit_key_membership`).
 pub(crate) fn lower_has_key(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let collection = builder.lower_value(&args[0])?;
+    let collection = args[0].clone();
     let collection_slot = builder.allocate_stack_object("has_key_collection", 8);
     builder.emit(abi::store_u64(
         &collection.location,
         abi::stack_pointer(),
         collection_slot,
     ));
-    let key = builder.lower_value(&args[1])?;
+    let key = args[1].clone();
     let key_slot = builder.allocate_stack_object("has_key_key", 8);
     // `d`-native float key stores via `str d` (plan-01 float-dnative).
     builder.store_value_at(&key, abi::stack_pointer(), key_slot);

@@ -498,6 +498,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: "List OF Float".to_string(),
             location: Operand::from(result.render()),
             text,

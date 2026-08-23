@@ -30,6 +30,7 @@ impl CodeBuilder<'_> {
         if self.is_freeable_flat_value(&result.type_) && result.type_ != "String" {
             let copied = self.copy_flat_block(&result.type_, &result.location)?;
             return Ok(ValueResult {
+                origin: None,
                 type_: result.type_,
                 location: Operand::from(copied.render()),
                 text: result.text,

@@ -9,7 +9,6 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTO_FILTER: &str = "Keep the elements of a list for which a predicate returns TRUE";
 const DESC_FILTER: &str = r#"`collections::filter` walks `value` from the first element to the last, calls
@@ -113,7 +112,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Arg(0),
             errors: vec![],
-            body: Body::abi_inline_self(lower_filter),
+            body: Body::abi_inline(lower_filter),
         }],
     });
 }
@@ -122,12 +121,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// elements for which `predicate` returns TRUE, appending to a pre-sized output.
 pub(crate) fn lower_filter(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let scratch9 = builder.temporary_vreg();
     let scratch17 = builder.temporary_vreg();
-    let collection = builder.lower_value(&args[0])?;
+    let collection = args[0].clone();
     let Some(element_type) = list_element_type(&collection.type_) else {
         return Err(format!(
             "native collection filter does not accept {}",
@@ -140,7 +139,7 @@ pub(crate) fn lower_filter(
         abi::stack_pointer(),
         collection_slot,
     ));
-    let action = builder.lower_value(&args[1])?;
+    let action = args[1].clone();
     let output_type = callable_return_type(&action.type_).ok_or_else(|| {
         format!(
             "native collection filter predicate must be a function, got {}",
@@ -222,6 +221,7 @@ pub(crate) fn lower_filter(
     let result = builder.allocate_register()?;
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), output_slot));
     Ok(ValueResult {
+        origin: None,
         type_: collection.type_.clone(),
         location: Operand::from(result.render()),
         text: format!("filter({}, {})", collection.type_, action.text),

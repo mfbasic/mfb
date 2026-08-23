@@ -241,6 +241,7 @@ impl CodeBuilder<'_> {
             self.deactivate_moved_thread_arguments(target, args);
             self.deactivate_moved_resource_arguments(target, args);
             return Ok(ValueResult {
+                origin: None,
                 type_: result_type,
                 location: Operand::from("void"),
                 text: format!("call {target}({})", join_texts(&arg_values)),
@@ -258,6 +259,7 @@ impl CodeBuilder<'_> {
         let register = self.allocate_register()?;
         self.emit(abi::move_register(&register, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
+            origin: None,
             type_: result_type,
             location: Operand::from(register.render()),
             text: format!("call {target}({})", join_texts(&arg_values)),
@@ -313,6 +315,7 @@ impl CodeBuilder<'_> {
             }
             self.deactivate_moved_resource_arguments(target, args);
             return Ok(ValueResult {
+                origin: None,
                 type_: result_type,
                 location: Operand::from("void"),
                 text: format!("call {target}({})", join_texts(&arg_values)),
@@ -332,6 +335,7 @@ impl CodeBuilder<'_> {
         let register = self.allocate_register()?;
         self.emit(abi::move_register(&register, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
+            origin: None,
             type_: result_type,
             location: Operand::from(register.render()),
             text: format!("call {target}({})", join_texts(&arg_values)),
@@ -399,6 +403,7 @@ impl CodeBuilder<'_> {
 
         if result_type == "Nothing" {
             return Ok(ValueResult {
+                origin: None,
                 type_: result_type.to_string(),
                 location: Operand::from("void"),
                 text: format!("call {target}({})", join_texts(&arg_values)),
@@ -421,6 +426,7 @@ impl CodeBuilder<'_> {
             register
         };
         Ok(ValueResult {
+            origin: None,
             type_: result_type.to_string(),
             location: Operand::from(register.render()),
             text: format!("call {target}({})", join_texts(&arg_values)),

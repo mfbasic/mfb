@@ -7,7 +7,6 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTO_REMOVE_KEY: &str = "Return a copy of a map with the entry for one key removed.";
 const DESC_REMOVE_KEY: &str = r#"`collections::removeKey` produces a **new** map containing every entry of
@@ -107,7 +106,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Arg(0),
             errors: vec![],
-            body: Body::abi_inline_self(lower_remove_key),
+            body: Body::abi_inline(lower_remove_key),
         }],
     });
 }
@@ -116,10 +115,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// if absent). Reuses `lower_map_remove_key`.
 pub(crate) fn lower_remove_key(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let map = builder.lower_value(&args[0])?;
+    let map = args[0].clone();
     let Some((key_type, _)) = map_type_parts(&map.type_) else {
         return Err(format!(
             "native collection removeKey does not accept {}",
@@ -132,7 +131,7 @@ pub(crate) fn lower_remove_key(
         abi::stack_pointer(),
         map_slot,
     ));
-    let key = builder.lower_value(&args[1])?;
+    let key = args[1].clone();
     if key.type_ != key_type {
         return Err(format!(
             "native collection removeKey key must be {}, got {}",

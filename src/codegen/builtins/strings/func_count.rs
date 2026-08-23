@@ -7,12 +7,11 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     if args.len() != 2 {
@@ -31,10 +30,10 @@ pub(crate) fn lower(
     let scratch14 = builder.temporary_vreg();
     let scratch13 = builder.temporary_vreg();
     let scratch15 = builder.temporary_vreg();
-    let value = builder.lower_value(value)?;
+    let value = value.clone();
     builder.require_string("strings.count value", &value)?;
     let value_slot = builder.spill_to_slot("strings_count_value", &value.location);
-    let needle = builder.lower_value(needle)?;
+    let needle = needle.clone();
     builder.require_string("strings.count needle", &needle)?;
     let needle_slot = builder.spill_to_slot("strings_count_needle", &needle.location);
     let count_slot = builder.allocate_stack_object("strings_count_result", 8);
@@ -92,6 +91,7 @@ pub(crate) fn lower(
     builder.raise_error("strings.count", "ErrInvalidArgument")?;
     builder.emit(abi::label(&after));
     Ok(ValueResult {
+        origin: None,
         type_: "Integer".to_string(),
         location: Operand::from(result.render()),
         text: "strings.count".to_string(),
@@ -125,7 +125,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Integer,
             errors: vec!["ErrInvalidArgument"],
-            body: Body::abi_inline_self(lower),
+            body: Body::abi_inline(lower),
         }],
     });
 }

@@ -27,7 +27,6 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::{collection_payload_alignment_for_code, list_element_type};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 impl CodeBuilder<'_> {
     /// Shared body of `append`/`prepend`: insert a single item at one end of a
     /// list. The two differ only in the insertion index (`count` for append, `0`
@@ -37,12 +36,12 @@ impl CodeBuilder<'_> {
     /// names, keeping the dumps byte-identical).
     pub(crate) fn lower_collection_end_insert(
         &mut self,
-        args: &[NirValue],
+        args: &[ValueResult],
         op: &str,
         at_start: bool,
     ) -> Result<ValueResult, String> {
         let scratch8 = self.temporary_vreg();
-        let list = self.lower_value(&args[0])?;
+        let list = args[0].clone();
         let Some(element_type) = list_element_type(&list.type_) else {
             return Err(format!(
                 "native collection {op} does not accept {}",
@@ -55,9 +54,9 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             list_slot,
         ));
-        let item = self.lower_value(&args[1])?;
+        let item = args[1].clone();
         // Observation boundary: a `Float` inserted element must be finite (plan-17).
-        self.observe_float(&args[1], &item)?;
+        self.observe_float_vr(&item)?;
         if at_start && item.type_ == list.type_ {
             return Err("native collection prepend expects a single item, not a list".to_string());
         }
@@ -229,6 +228,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: output_type.to_string(),
             location: Operand::from(result.render()),
             text: format!("reserved list {output_type}"),
@@ -531,6 +531,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: map_type.to_string(),
             location: Operand::from(result.render()),
             text: format!("map concat {map_type}"),
@@ -751,6 +752,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: map_type.to_string(),
             location: Operand::from(result.render()),
             text: format!("removeKey({map_type}, {key_type})"),

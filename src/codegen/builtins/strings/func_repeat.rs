@@ -7,12 +7,11 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     if args.len() != 2 {
@@ -21,10 +20,10 @@ pub(crate) fn lower(
     let value = &args[0];
     let times = &args[1];
 
-    let value = builder.lower_value(value)?;
+    let value = value.clone();
     builder.require_string("strings.repeat value", &value)?;
     let value_slot = builder.spill_to_slot("strings_repeat_value", &value.location);
-    let times = builder.lower_value(times)?;
+    let times = times.clone();
     if times.type_ != "Integer" {
         return Err(format!(
             "strings.repeat times must be Integer, got {}",
@@ -131,6 +130,7 @@ pub(crate) fn lower(
     builder.raise_error("strings.repeat", "ErrInvalidArgument")?;
     builder.emit(abi::label(&after));
     Ok(ValueResult {
+        origin: None,
         type_: "String".to_string(),
         location: Operand::from(result.render()),
         text: "strings.repeat".to_string(),
@@ -164,7 +164,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::String,
             errors: vec!["ErrInvalidArgument"],
-            body: Body::abi_inline_self(lower),
+            body: Body::abi_inline(lower),
         }],
     });
 }

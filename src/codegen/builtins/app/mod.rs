@@ -1,3 +1,4 @@
+#![allow(deprecated)] // not-yet-migrated: uses deprecated Body::native
 //! The built-in `app` package (plan-62 / clean-room registry migration).
 //!
 //! `app` makes an `--app` program's **presentation mode** — what its window

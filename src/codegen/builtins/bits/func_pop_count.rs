@@ -104,6 +104,7 @@ pub(crate) fn lower_bits_pop_count(
         builder.emit(abi::vector_addv8b(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
         builder.emit(abi::vector_extract_to_x(dst, abi::VEC_SCRATCH[0], 0));
         return Ok(ValueResult {
+            origin: None,
             type_: "Integer".to_string(),
             location: Operand::from(dst.render()),
             text,
@@ -141,6 +142,7 @@ pub(crate) fn lower_bits_pop_count(
     builder.emit(abi::shift_right_immediate(acc, acc, 56));
 
     Ok(ValueResult {
+        origin: None,
         type_: "Integer".to_string(),
         location: Operand::from(acc.render()),
         text,

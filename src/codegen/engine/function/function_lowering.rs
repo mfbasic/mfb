@@ -1359,6 +1359,7 @@ pub(crate) fn lower_abi_function_helper(
     let mut args = Vec::with_capacity(arity);
     for index in 0..arity {
         args.push(ValueResult {
+            origin: None,
             type_: "Integer".to_string(),
             location: abi::argument_register(index)?,
             text: format!("abiArg{index}"),

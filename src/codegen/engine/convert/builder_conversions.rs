@@ -25,6 +25,7 @@ impl CodeBuilder<'_> {
             let register = self.allocate_register()?;
             self.emit(abi::move_register(&register, &value.location));
             return Ok(ValueResult {
+                origin: None,
                 type_: "Integer".to_string(),
                 location: Operand::from(register.render()),
                 text: format!("toInt({})", value.text),
@@ -84,6 +85,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::arithmetic_shift_right_immediate(&result, value, 32));
         self.emit(abi::label(&done));
         Ok(ValueResult {
+            origin: None,
             type_: "Integer".to_string(),
             location: Operand::from(result.render()),
             text: "toInt(Fixed)".to_string(),
@@ -105,6 +107,7 @@ impl CodeBuilder<'_> {
             &scale,
         ));
         Ok(ValueResult {
+            origin: None,
             type_: "Integer".to_string(),
             location: Operand::from(result.render()),
             text: "toInt(Money)".to_string(),
@@ -159,6 +162,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
 
         Ok(ValueResult {
+            origin: None,
             type_: "Integer".to_string(),
             location: Operand::from(result.render()),
             text: "toInt(Float)".to_string(),
@@ -372,6 +376,7 @@ impl CodeBuilder<'_> {
         )?;
 
         Ok(ValueResult {
+            origin: None,
             type_: "Integer".to_string(),
             location: Operand::from(result.render()),
             text: "toInt(String)".to_string(),
@@ -518,6 +523,7 @@ impl CodeBuilder<'_> {
         )?;
 
         Ok(ValueResult {
+            origin: None,
             type_: "Integer".to_string(),
             location: Operand::from(result.render()),
             text: "toInt(String, base)".to_string(),
@@ -560,6 +566,7 @@ impl CodeBuilder<'_> {
         self.raise_error("toByte", "ErrOverflow")?;
         self.emit(abi::label(&ok));
         Ok(ValueResult {
+            origin: None,
             type_: "Byte".to_string(),
             location: Operand::from(result.render()),
             text: format!("toByte({})", value.text),
@@ -578,6 +585,7 @@ impl CodeBuilder<'_> {
                 let register = self.allocate_register()?;
                 self.emit(abi::move_register(&register, &value.location));
                 Ok(ValueResult {
+                    origin: None,
                     type_: "Scalar".to_string(),
                     location: Operand::from(register.render()),
                     text: format!("toScalar({})", value.text),
@@ -607,6 +615,7 @@ impl CodeBuilder<'_> {
                 let register = self.allocate_register()?;
                 self.emit(abi::move_register(&register, &cp));
                 Ok(ValueResult {
+                    origin: None,
                     type_: "Scalar".to_string(),
                     location: Operand::from(register.render()),
                     text: format!("toScalar({})", value.text),
@@ -615,6 +624,7 @@ impl CodeBuilder<'_> {
             "String" => {
                 let result = self.emit_string_to_scalar_value(&value.location)?;
                 Ok(ValueResult {
+                    origin: None,
                     type_: "Scalar".to_string(),
                     location: Operand::from(result.render()),
                     text: format!("toScalar({})", value.text),
@@ -835,6 +845,7 @@ impl CodeBuilder<'_> {
         ));
         let result = self.emit_materialize_string_from_bytes(&buf_addr, len)?;
         Ok(ValueResult {
+            origin: None,
             type_: "String".to_string(),
             location: Operand::from(result.render()),
             text: "toString(Scalar)".to_string(),
@@ -860,6 +871,7 @@ impl CodeBuilder<'_> {
             }
             "Fixed" => {
                 let temp = ValueResult {
+                    origin: None,
                     type_: "Fixed".to_string(),
                     location: Operand::from(source.render()),
                     text: value.text.clone(),
@@ -870,6 +882,7 @@ impl CodeBuilder<'_> {
             // `toFloat(Money)` = `raw / 100000.0` (plan-29-G §4.3).
             "Money" => {
                 let temp = ValueResult {
+                    origin: None,
                     type_: "Money".to_string(),
                     location: Operand::from(source.render()),
                     text: value.text.clone(),
@@ -898,6 +911,7 @@ impl CodeBuilder<'_> {
             }
         }
         Ok(ValueResult {
+            origin: None,
             type_: "Float".to_string(),
             location: Operand::from(result.render()),
             text: format!("toFloat({})", value.text),
@@ -958,6 +972,7 @@ impl CodeBuilder<'_> {
             }
         }
         Ok(ValueResult {
+            origin: None,
             type_: "Fixed".to_string(),
             location: Operand::from(result.render()),
             text: format!("toFixed({})", value.text),
@@ -1039,6 +1054,7 @@ impl CodeBuilder<'_> {
             }
         }
         Ok(ValueResult {
+            origin: None,
             type_: "Money".to_string(),
             location: Operand::from(result.render()),
             text: format!("toMoney({})", value.text),
@@ -1073,6 +1089,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&result, "Boolean", "false"));
         self.emit(abi::label(&done));
         Ok(ValueResult {
+            origin: None,
             type_: "Boolean".to_string(),
             location: Operand::from(result.render()),
             text: format!("isNumeric({})", value.text),
@@ -1108,6 +1125,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
 
         Ok(ValueResult {
+            origin: None,
             type_: "Boolean".to_string(),
             location: Operand::from(result.render()),
             text: format!("{name}({})", value.text),
@@ -1161,6 +1179,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
 
         Ok(ValueResult {
+            origin: None,
             type_: "Boolean".to_string(),
             location: Operand::from(result.render()),
             text: format!("{name}({})", value.text),
@@ -1195,6 +1214,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
 
         Ok(ValueResult {
+            origin: None,
             type_: "Boolean".to_string(),
             location: Operand::from(result.render()),
             text: format!("{name}({})", len.text),

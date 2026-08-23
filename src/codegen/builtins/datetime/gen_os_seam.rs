@@ -226,6 +226,7 @@ pub(crate) fn lower_datetime_os_seam(
     // A `void` location: the body emitted its own fallible ABI (the shared OK tail
     // and the `localOffset` range-fail tail), so the wrapper appends no epilogue.
     Ok(ValueResult {
+        origin: None,
         type_: "Integer".to_string(),
         location: Operand::from("void"),
         text: call.to_string(),

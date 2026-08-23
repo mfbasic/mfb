@@ -48,6 +48,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, &right.location));
         self.emit(abi::label(&done_label));
         Ok(ValueResult {
+            origin: None,
             type_: "Boolean".to_string(),
             location: Operand::from(result.render()),
             text: format!("({} AND {})", left.text, right.text),
@@ -72,6 +73,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, &right.location));
         self.emit(abi::label(&done_label));
         Ok(ValueResult {
+            origin: None,
             type_: "Boolean".to_string(),
             location: Operand::from(result.render()),
             text: format!("({} OR {})", left.text, right.text),
@@ -123,6 +125,7 @@ impl CodeBuilder<'_> {
             &right_register,
         ));
         Ok(ValueResult {
+            origin: None,
             type_: "Boolean".to_string(),
             location: Operand::from(result.render()),
             text: format!("({left_text} XOR {right_text})"),
@@ -212,11 +215,13 @@ impl CodeBuilder<'_> {
             self.float_residents.insert(right_register.render(), fp);
         }
         let left = ValueResult {
+            origin: None,
             type_: left.type_,
             location: Operand::from(left_register.render()),
             text: left_text,
         };
         let right = ValueResult {
+            origin: None,
             type_: right.type_,
             location: Operand::from(right_register.render()),
             text: right_text,
@@ -269,11 +274,13 @@ impl CodeBuilder<'_> {
                         left_fixed_slot,
                     ));
                     let left = ValueResult {
+                        origin: None,
                         type_: "Fixed".to_string(),
                         location: Operand::from(left_fixed.render()),
                         text: left.text.clone(),
                     };
                     let right = ValueResult {
+                        origin: None,
                         type_: "Fixed".to_string(),
                         location: Operand::from(right_fixed.render()),
                         text: right.text.clone(),
@@ -303,6 +310,7 @@ impl CodeBuilder<'_> {
             }
         }
         Ok(ValueResult {
+            origin: None,
             type_: result_type,
             location: Operand::from(result_location),
             text: format!("({} {op} {})", left.text, right.text),
@@ -331,6 +339,7 @@ impl CodeBuilder<'_> {
         let dst = self.allocate_register()?;
         let location = self.emit_float_binary(op, &left, &right, &dst)?;
         Ok(ValueResult {
+            origin: None,
             type_: result_type,
             location: Operand::from(location),
             text: format!(
@@ -409,6 +418,7 @@ impl CodeBuilder<'_> {
             }
         }
         Ok(ValueResult {
+            origin: None,
             type_: operand.type_,
             location: Operand::from(location.render()),
             text: format!("(-{})", operand.text),
@@ -461,11 +471,13 @@ impl CodeBuilder<'_> {
                 right_slot,
             ));
             let left = ValueResult {
+                origin: None,
                 type_: left.type_,
                 location: Operand::from(left_register.render()),
                 text: left.text,
             };
             let right = ValueResult {
+                origin: None,
                 type_: right.type_,
                 location: Operand::from(right_register.render()),
                 text: right.text,
@@ -498,11 +510,13 @@ impl CodeBuilder<'_> {
                 right_slot,
             ));
             let left = ValueResult {
+                origin: None,
                 type_: left.type_,
                 location: Operand::from(left_register.render()),
                 text: left.text,
             };
             let right = ValueResult {
+                origin: None,
                 type_: right.type_,
                 location: Operand::from(right_register.render()),
                 text: right.text,
@@ -567,6 +581,7 @@ impl CodeBuilder<'_> {
             ));
             self.emit(abi::label(&done_label));
             return Ok(ValueResult {
+                origin: None,
                 type_: "Boolean".to_string(),
                 location: Operand::from(result.render()),
                 text: format!("({} {op} {})", left.text, right.text),
@@ -615,6 +630,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&result, "Boolean", "true"));
         self.emit(abi::label(&done_label));
         Ok(ValueResult {
+            origin: None,
             type_: "Boolean".to_string(),
             location: Operand::from(result.render()),
             text: format!("({} {op} {})", left.text, right.text),
@@ -654,11 +670,13 @@ impl CodeBuilder<'_> {
             right_slot,
         ));
         let left = ValueResult {
+            origin: None,
             type_: left.type_.clone(),
             location: Operand::from(left_register.render()),
             text: left.text.clone(),
         };
         let right = ValueResult {
+            origin: None,
             type_: right.type_.clone(),
             location: Operand::from(right_register.render()),
             text: right.text.clone(),
@@ -739,6 +757,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&result, "Boolean", "true"));
         self.emit(abi::label(&done_label));
         Ok(ValueResult {
+            origin: None,
             type_: "Boolean".to_string(),
             location: Operand::from(result.render()),
             text: format!("({} {op} {})", left.text, right.text),
@@ -1128,6 +1147,7 @@ impl CodeBuilder<'_> {
             let gpr = self.allocate_register()?;
             self.emit(abi::float_move_x_from_d(&gpr, &value.location));
             return Ok(ValueResult {
+                origin: None,
                 type_: value.type_,
                 location: Operand::from(gpr.render()),
                 text: value.text,

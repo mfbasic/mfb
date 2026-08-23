@@ -3,7 +3,6 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{AbiCtx, RegistryPackage};
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType::{Fixed, Float, Integer, Money};
 const INTRO: &str = r#"Absolute value of a numeric value or list."#;
 const DESC: &str = r#"`abs` returns the magnitude of `value`: the value with its sign removed. It accepts
@@ -38,7 +37,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// `lower_math_call` carrier in `gen_math.rs`.
 pub(crate) fn lower_math_abs(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     builder.lower_math_call("abs", args)

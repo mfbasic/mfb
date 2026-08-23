@@ -10,7 +10,7 @@
 //! the stored values.
 //!
 //! The three members lower inline (no runtime helper, no source body): each is a
-//! `Body::abi_inline_self` self-lowering intrinsic whose call-site lowering (in its
+//! `Body::abi_inline` self-lowering intrinsic whose call-site lowering (in its
 //! `func_*.rs`) reads/writes the arena rounding-mode field. `setRounding`/
 //! `getRounding` are infallible; `round` declares
 //! `ErrInvalidArgument` (a `decimals` outside `0..5`) and `ErrOverflow` (settling a
@@ -123,8 +123,8 @@ mod tests {
         for name in [SET_ROUNDING, GET_ROUNDING, ROUND] {
             assert_eq!(registry().owning_package(name), Some("money"), "{name}");
             assert!(
-                registry::abi_inline_self_lower(name).is_some(),
-                "{name} should have a Body::abi_inline_self lowering"
+                registry::abi_inline_lower(name).is_some(),
+                "{name} should have a Body::abi_inline lowering"
             );
         }
         assert_eq!(registry::call_return_type(SET_ROUNDING), Some("Nothing"));

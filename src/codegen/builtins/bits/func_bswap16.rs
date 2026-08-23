@@ -81,6 +81,7 @@ pub(crate) fn lower_bits_bswap16(
     builder.emit(abi::reverse_bytes_word(dst, &value.location));
     builder.emit(abi::shift_right_immediate(dst, dst, 16));
     Ok(ValueResult {
+        origin: None,
         type_: "Integer".to_string(),
         location: Operand::from(dst.render()),
         text: format!("bits.bswap16({})", value.text),

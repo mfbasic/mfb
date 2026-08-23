@@ -104,6 +104,7 @@ pub(crate) fn lower_bits_bxor(
     let dst = builder.allocate_register()?;
     builder.emit(abi::exclusive_or_registers(dst, left_reg, right_reg));
     Ok(ValueResult {
+        origin: None,
         type_: "Integer".to_string(),
         location: Operand::from(dst.render()),
         text: format!("bits.bxor({left_text}, {right_text})"),

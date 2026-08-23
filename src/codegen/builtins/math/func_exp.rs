@@ -3,7 +3,6 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{AbiCtx, RegistryPackage};
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType::{Fixed, Float};
 const INTRO: &str = r#"Natural exponential (e raised to the power) of a value or list."#;
 const DESC: &str = r#"`exp` returns `e ** value`, echoing the operand type (`Float` or `Fixed`), plus the
@@ -35,7 +34,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// Target-generic call-site lowering for `math::exp`, delegating to the shared `lower_math_call` carrier in `gen_math.rs`.
 pub(crate) fn lower_math_exp(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     builder.lower_math_call("exp", args)

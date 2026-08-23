@@ -10,7 +10,6 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTO_CONTAINS: &str = "Test whether a list holds an item equal to a given value.";
 const DESC_CONTAINS: &str = r#"`collections::contains` scans `value` from index `0` upward and returns `TRUE`
@@ -131,7 +130,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Boolean,
                 errors: vec![],
-                body: Body::abi_inline_self(lower_contains),
+                body: Body::abi_inline(lower_contains),
             },
             Implementation {
                 params: vec![
@@ -152,7 +151,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Boolean,
                 errors: vec![],
-                body: Body::abi_inline_self(lower_contains),
+                body: Body::abi_inline(lower_contains),
             },
         ],
     });
@@ -162,10 +161,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// probe (shared `emit_key_membership`) or a linear list scan.
 pub(crate) fn lower_contains(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let collection = builder.lower_value(&args[0])?;
+    let collection = args[0].clone();
     let collection_slot = builder.allocate_stack_object("contains_collection", 8);
     builder.emit(abi::store_u64(
         &collection.location,
@@ -173,7 +172,7 @@ pub(crate) fn lower_contains(
         collection_slot,
     ));
 
-    let item = builder.lower_value(&args[1])?;
+    let item = args[1].clone();
     let item_slot = builder.allocate_stack_object("contains_item", 8);
     // A `d`-native float item stores via `str d`, bit-identical to the
     // `str x` the element compare reads back (plan-01 float-dnative).
@@ -302,6 +301,7 @@ pub(crate) fn lower_contains(
     builder.emit(abi::label(&done));
 
     Ok(ValueResult {
+        origin: None,
         type_: "Boolean".to_string(),
         location: Operand::from(result.render()),
         text: format!("contains({}, {})", collection.type_, element_type),

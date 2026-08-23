@@ -53,6 +53,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::move_immediate(&result, "Boolean", "false"));
             self.emit(abi::label(&done));
             return Ok(ValueResult {
+                origin: None,
                 type_: "Boolean".to_string(),
                 location: Operand::from(result.render()),
                 text: format!("{label_prefix}({collection_type}) [hash]"),
@@ -97,6 +98,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
 
         Ok(ValueResult {
+            origin: None,
             type_: "Boolean".to_string(),
             location: Operand::from(result.render()),
             text: format!("{label_prefix}({collection_type}, {key_type})"),

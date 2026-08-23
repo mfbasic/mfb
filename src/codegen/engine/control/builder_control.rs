@@ -605,6 +605,7 @@ impl CodeBuilder<'_> {
                             let new_ptr = self.allocate_register()?;
                             self.emit(abi::load_u64(&new_ptr, abi::stack_pointer(), new_slot));
                             let stored = ValueResult {
+                                origin: None,
                                 type_: result.type_.clone(),
                                 location: Operand::from(new_ptr.render()),
                                 text: String::new(),
@@ -759,6 +760,7 @@ impl CodeBuilder<'_> {
                                 let register = self.allocate_register()?;
                                 self.emit(abi::load_u64(&register, abi::stack_pointer(), slot));
                                 ValueResult {
+                                    origin: None,
                                     type_: result.type_.clone(),
                                     location: Operand::from(register.render()),
                                     text: String::new(),
@@ -934,6 +936,7 @@ impl CodeBuilder<'_> {
                                 matched_slot,
                             ));
                             let case_matched = ValueResult {
+                                origin: None,
                                 type_: matched.type_.clone(),
                                 location: Operand::from(matched_register.render()),
                                 text: matched.text.clone(),
@@ -1304,19 +1307,25 @@ impl CodeBuilder<'_> {
     /// True when `list_arg == Local(L)` and `index_arg` is `Local(i)` (needs
     /// headroom `k >= 1`) or `i + 1` (needs `k >= 2`), with
     /// `provable_index_locals[i] == (L, k)`.
+    /// Whether pre-lowered `index` provably indexes pre-lowered `list` in range, so a
+    /// `get`/`set` may elide the bounds check (plan-86 G1). Reads the args' source
+    /// `NirValue` off `ValueResult::origin` — the collection must be a bare local `L`,
+    /// and the index a bare local `i` (`k >= 1`) or `i + 1` (`k >= 2`) — against
+    /// `provable_index_locals` (set by the `FOR i = 0 TO len(L)-k` recognizer). The
+    /// pre-lowered `ValueResult` carries the source node the self-lowering body matched.
     pub(crate) fn is_provable_index_access(
         &self,
-        list_arg: &NirValue,
-        index_arg: &NirValue,
+        list_arg: &ValueResult,
+        index_arg: &ValueResult,
     ) -> bool {
-        let NirValue::Local(list) = list_arg else {
+        let Some(NirValue::Local(list)) = &list_arg.origin else {
             return false;
         };
-        let (i, need_k) = match index_arg {
-            NirValue::Local(i) => (i.as_str(), 1i64),
-            NirValue::Binary {
+        let (i, need_k) = match &index_arg.origin {
+            Some(NirValue::Local(i)) => (i.as_str(), 1i64),
+            Some(NirValue::Binary {
                 op, left, right, ..
-            } if op == "+" => match (left.as_ref(), right.as_ref()) {
+            }) if op == "+" => match (left.as_ref(), right.as_ref()) {
                 (NirValue::Local(i), NirValue::Const { type_, value })
                     if type_ == "Integer" && value == "1" =>
                 {

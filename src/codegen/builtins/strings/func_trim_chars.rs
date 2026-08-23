@@ -7,12 +7,11 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     if args.len() != 2 {
@@ -31,10 +30,10 @@ pub(crate) fn lower(
     let scratch15 = builder.temporary_vreg();
     let scratch13 = builder.temporary_vreg();
     let scratch23 = builder.temporary_vreg();
-    let value = builder.lower_value(value)?;
+    let value = value.clone();
     builder.require_string("strings.trimChars value", &value)?;
     let value_slot = builder.spill_to_slot("strings_trim_chars_value", &value.location);
-    let chars = builder.lower_value(chars)?;
+    let chars = chars.clone();
     builder.require_string("strings.trimChars chars", &chars)?;
     let chars_slot = builder.spill_to_slot("strings_trim_chars_chars", &chars.location);
     let start_slot = builder.allocate_stack_object("strings_trim_chars_start", 8);
@@ -155,6 +154,7 @@ pub(crate) fn lower(
     builder.emit(abi::add_registers(&scratch13, &scratch13, &scratch10));
     let result = builder.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
     Ok(ValueResult {
+        origin: None,
         type_: "String".to_string(),
         location: Operand::from(result.render()),
         text: "strings.trimChars".to_string(),
@@ -188,7 +188,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::String,
             errors: vec![],
-            body: Body::abi_inline_self(lower),
+            body: Body::abi_inline(lower),
         }],
     });
 }

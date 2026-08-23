@@ -231,6 +231,7 @@ impl CodeBuilder<'_> {
                 let copied = self.copy_flat_block(&lowered.type_, &lowered.location)?;
                 return Ok((
                     ValueResult {
+                        origin: None,
                         type_: lowered.type_,
                         location: Operand::from(copied.render()),
                         text: lowered.text,

@@ -102,6 +102,7 @@ pub(crate) fn lower_strings_trim(
     builder.emit(abi::add_registers(&scratch13, &scratch13, &scratch10));
     let result = builder.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
     Ok(ValueResult {
+        origin: None,
         type_: "String".to_string(),
         location: Operand::from(result.render()),
         text: "strings.trim".to_string(),

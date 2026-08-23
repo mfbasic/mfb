@@ -1,3 +1,4 @@
+#![allow(deprecated)] // not-yet-migrated: uses deprecated Body::native_os_seam
 //! The built-in `tls` package (transport-layer security) on the clean-room
 //! registry.
 //!

@@ -5,7 +5,6 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTO_REDUCE_RIGHT: &str =
     "Fold a list into a single value, walking from the last item to the first";
@@ -125,7 +124,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Arg(1),
             errors: vec![],
-            body: Body::abi_inline_self(lower_reduce_right),
+            body: Body::abi_inline(lower_reduce_right),
         }],
     });
 }
@@ -134,7 +133,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// The shared fold machinery, walked tail-to-head.
 pub(crate) fn lower_reduce_right(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     builder.lower_collection_reduce_impl(args, true)

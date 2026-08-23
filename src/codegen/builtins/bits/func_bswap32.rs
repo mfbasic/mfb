@@ -84,6 +84,7 @@ pub(crate) fn lower_bits_bswap32(
     // result is a non-negative 32-bit quantity regardless of the high bits.
     builder.emit(abi::reverse_bytes_word(dst, &value.location));
     Ok(ValueResult {
+        origin: None,
         type_: "Integer".to_string(),
         location: Operand::from(dst.render()),
         text: format!("bits.bswap32({})", value.text),

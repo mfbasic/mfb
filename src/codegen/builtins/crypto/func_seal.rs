@@ -69,6 +69,7 @@ pub(crate) fn lower_seal(
         .extend([abi::label(&done), abi::return_()]);
 
     Ok(ValueResult {
+        origin: None,
         type_: "Sealed".to_string(),
         location: Operand::from("void"),
         text: "crypto.seal".to_string(),

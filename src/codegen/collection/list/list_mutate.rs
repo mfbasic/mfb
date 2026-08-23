@@ -441,6 +441,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: list_type.to_string(),
             location: Operand::from(result.render()),
             text: format!("list update {list_type} over {element_type}"),
@@ -866,6 +867,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
+            origin: None,
             type_: list_type.to_string(),
             location: Operand::from(result.render()),
             text: format!("append in place {list_type} over {element_type}"),
@@ -1300,6 +1302,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
+            origin: None,
             type_: list_type.to_string(),
             location: Operand::from(result.render()),
             text: format!("bulk append in place {list_type} over {element_type}"),
@@ -1844,6 +1847,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
+            origin: None,
             type_: list_type.to_string(),
             location: Operand::from(result.render()),
             text: format!("prepend in place {list_type} over {element_type}"),
@@ -2073,6 +2077,7 @@ impl CodeBuilder<'_> {
         let keep = self.allocate_register()?;
         self.emit(abi::load_u64(&keep, abi::stack_pointer(), buffer_slot));
         let threaded = ValueResult {
+            origin: None,
             type_: list_type.to_string(),
             location: Operand::from(keep.render()),
             text: String::new(),
@@ -2089,6 +2094,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
+            origin: None,
             type_: list_type.to_string(),
             location: Operand::from(result.render()),
             text: format!("set in place {list_type} over {element_type}"),
@@ -2383,6 +2389,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: list_type.to_string(),
             location: Operand::from(result.render()),
             text: format!("removeAt({list_type}, Integer) over {element_type}"),

@@ -7,7 +7,6 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTO_ADD: &str = "Return a set with one element inserted, leaving the argument unchanged";
 const DESC_ADD: &str = r#"`collections::add` returns a new `Set OF T` containing every element of `value`
@@ -99,7 +98,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Arg(0),
             errors: vec![],
-            body: Body::abi_inline_self(lower_add),
+            body: Body::abi_inline(lower_add),
         }],
     });
 }
@@ -108,10 +107,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// idempotent. Copy the set (tight, uniquely owned), then insert into the copy.
 pub(crate) fn lower_add(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let set = builder.lower_value(&args[0])?;
+    let set = args[0].clone();
     let Some(element_type) = set_element_type(&set.type_) else {
         return Err(format!(
             "native collection add does not accept {}",
@@ -124,9 +123,9 @@ pub(crate) fn lower_add(
         abi::stack_pointer(),
         source_slot,
     ));
-    let item = builder.lower_value(&args[1])?;
+    let item = args[1].clone();
     // Observation boundary: a `Float` element must be finite (plan-17).
-    builder.observe_float(&args[1], &item)?;
+    builder.observe_float_vr(&item)?;
     if item.type_ != element_type {
         return Err(format!(
             "native collection add element must be {element_type}, got {}",

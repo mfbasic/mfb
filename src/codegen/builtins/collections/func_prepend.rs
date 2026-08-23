@@ -5,7 +5,6 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTO_PREPEND: &str = "Return a list with one element added at the start";
 const DESC_PREPEND: &str = r#"`collections::prepend` returns a new list whose first element is `item` and whose
@@ -109,7 +108,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Arg(0),
             errors: vec![],
-            body: Body::abi_inline_self(lower_prepend),
+            body: Body::abi_inline(lower_prepend),
         }],
     });
 }
@@ -118,7 +117,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// body with prepend's index (`0`) and its reject-a-list guard.
 pub(crate) fn lower_prepend(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     builder.lower_collection_end_insert(args, "prepend", true)

@@ -198,6 +198,7 @@ impl CodeBuilder<'_> {
         let record_reg =
             self.emit_build_inlined_record(&record_type, &[matched_slot, unmatched_slot])?;
         let record = ValueResult {
+            origin: None,
             type_: record_type.clone(),
             location: Operand::from(record_reg.render()),
             text: format!("partition({}, {})", collection.type_, action.text),

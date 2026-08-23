@@ -4,12 +4,11 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
-use crate::target::shared::nir::*;
 
 pub(crate) fn lower_strings_strip(
     builder: &mut CodeBuilder,
-    value: &NirValue,
-    part: &NirValue,
+    value: &ValueResult,
+    part: &ValueResult,
     suffix: bool,
 ) -> Result<ValueResult, String> {
     let scratch16 = builder.temporary_vreg();
@@ -19,10 +18,10 @@ pub(crate) fn lower_strings_strip(
     let scratch11 = builder.temporary_vreg();
     let scratch12 = builder.temporary_vreg();
     let scratch13 = builder.temporary_vreg();
-    let value = builder.lower_value(value)?;
+    let value = value.clone();
     builder.require_string("strings.strip value", &value)?;
     let value_slot = builder.spill_to_slot("strings_strip_value", &value.location);
-    let part = builder.lower_value(part)?;
+    let part = part.clone();
     builder.require_string("strings.strip part", &part)?;
     let part_slot = builder.spill_to_slot("strings_strip_part", &part.location);
     let ptr_slot = builder.allocate_stack_object("strings_strip_ptr", 8);
@@ -89,6 +88,7 @@ pub(crate) fn lower_strings_strip(
         "strings.stripPrefix"
     };
     Ok(ValueResult {
+        origin: None,
         type_: "String".to_string(),
         location: Operand::from(result.render()),
         text: label.to_string(),

@@ -98,6 +98,7 @@ pub(crate) fn lower_bits_bor(
     let dst = builder.allocate_register()?;
     builder.emit(abi::or_registers(dst, left_reg, right_reg));
     Ok(ValueResult {
+        origin: None,
         type_: "Integer".to_string(),
         location: Operand::from(dst.render()),
         text: format!("bits.bor({left_text}, {right_text})"),

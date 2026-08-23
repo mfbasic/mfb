@@ -10,7 +10,6 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTO_FOR_EACH: &str = "Call an action once for each element of a list, in order";
 const DESC_FOR_EACH: &str = r#"`collections::forEach` walks `value` from the first element to the last and
@@ -111,7 +110,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Nothing,
             errors: vec![],
-            body: Body::abi_inline_self(lower_for_each),
+            body: Body::abi_inline(lower_for_each),
         }],
     });
 }
@@ -120,7 +119,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// element in order, yielding `Nothing`. A failing callback propagates.
 pub(crate) fn lower_for_each(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let scratch8 = builder.temporary_vreg();
@@ -129,14 +128,14 @@ pub(crate) fn lower_for_each(
     let scratch11 = builder.temporary_vreg();
     let scratch12 = builder.temporary_vreg();
     let scratch17 = builder.temporary_vreg();
-    let collection = builder.lower_value(&args[0])?;
+    let collection = args[0].clone();
     let Some(element_type) = list_element_type(&collection.type_) else {
         return Err(format!(
             "native collection forEach does not accept {}",
             collection.type_
         ));
     };
-    let action = builder.lower_value(&args[1])?;
+    let action = args[1].clone();
     if !action.type_.starts_with("FUNC(") {
         return Err(format!(
             "native collection forEach action must be a function, got {}",
@@ -272,6 +271,7 @@ pub(crate) fn lower_for_each(
     builder.emit(abi::branch(&loop_label));
     builder.emit(abi::label(&done));
     Ok(ValueResult {
+        origin: None,
         type_: "Nothing".to_string(),
         location: Operand::from("void"),
         text: format!("forEach({}, {})", collection.type_, action.text),

@@ -194,6 +194,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), remaining_slot));
         self.emit(abi::subtract_immediate(&result, &result, 1));
         Ok(ValueResult {
+            origin: None,
             type_: "Integer".to_string(),
             location: Operand::from(result.render()),
             text: format!("findLastIndex({}, {})", collection.type_, action.text),

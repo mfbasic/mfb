@@ -1086,6 +1086,7 @@ pub(crate) fn lower_net_os_seam(
     // A `void` location: every net body emits its own fallible ABI, so the wrapper
     // appends no epilogue.
     Ok(ValueResult {
+        origin: None,
         type_: "Nothing".to_string(),
         location: Operand::from("void"),
         text: ctx.call.to_string(),

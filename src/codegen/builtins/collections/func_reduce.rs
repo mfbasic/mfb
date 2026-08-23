@@ -5,7 +5,6 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTO_REDUCE: &str = "Fold a list left to right into a single accumulated value";
 const DESC_REDUCE: &str = r#"`collections::reduce` folds `value` into one value. The accumulator starts as
@@ -132,7 +131,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Arg(1),
             errors: vec![],
-            body: Body::abi_inline_self(lower_reduce),
+            body: Body::abi_inline(lower_reduce),
         }],
     });
 }
@@ -141,7 +140,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// shared fold machinery, walked head-to-tail.
 pub(crate) fn lower_reduce(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     builder.lower_collection_reduce_impl(args, false)

@@ -35,6 +35,7 @@ pub(crate) fn lower_fs_os_seam(
     // value in `RESULT_VALUE_REGISTER` + `RESULT_OK_TAG`, each error path setting its
     // error and returning), so the wrapper appends no epilogue.
     Ok(ValueResult {
+        origin: None,
         type_: "Nothing".to_string(),
         location: Operand::from("void"),
         text: call.to_string(),

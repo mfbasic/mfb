@@ -9,7 +9,6 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTO_TRANSFORM: &str =
     "Map every element of a list through a function and collect the results";
@@ -125,7 +124,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::list_of(ParameterType::Var("U")),
             errors: vec![],
-            body: Body::abi_inline_self(lower_transform),
+            body: Body::abi_inline(lower_transform),
         }],
     });
 }
@@ -134,12 +133,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// element through `f`, appending the results to a pre-sized output list.
 pub(crate) fn lower_transform(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let scratch9 = builder.temporary_vreg();
     let scratch17 = builder.temporary_vreg();
-    let collection = builder.lower_value(&args[0])?;
+    let collection = args[0].clone();
     let Some(element_type) = list_element_type(&collection.type_) else {
         return Err(format!(
             "native collection transform does not accept {}",
@@ -152,7 +151,7 @@ pub(crate) fn lower_transform(
         abi::stack_pointer(),
         collection_slot,
     ));
-    let action = builder.lower_value(&args[1])?;
+    let action = args[1].clone();
     let output_type = callable_return_type(&action.type_).ok_or_else(|| {
         format!(
             "native collection transform action must be a function, got {}",
@@ -232,6 +231,7 @@ pub(crate) fn lower_transform(
     let result = builder.allocate_register()?;
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), output_slot));
     Ok(ValueResult {
+        origin: None,
         type_: output_list_type,
         location: Operand::from(result.render()),
         text: format!("transform({}, {})", collection.type_, action.text),

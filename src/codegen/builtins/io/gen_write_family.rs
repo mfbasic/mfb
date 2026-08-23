@@ -57,6 +57,7 @@ pub(crate) fn lower_write_family(
             )
             .ok_or_else(|| super::app_unsupported(ctx.platform))??;
         return Ok(ValueResult {
+            origin: None,
             type_: "Nothing".to_string(),
             location: Operand::from("void"),
             text: text.to_string(),
@@ -287,6 +288,7 @@ pub(crate) fn lower_write_family(
     builder.relocations.extend(relocations);
     builder.stack_size = 16;
     Ok(ValueResult {
+        origin: None,
         type_: "Nothing".to_string(),
         location: Operand::from("void"),
         text: text.to_string(),

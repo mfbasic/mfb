@@ -8,17 +8,17 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     if let Some(value) = builder.static_strings_package_string("strings.normalizeNfc", args)? {
         let register = builder.load_string_constant(&value)?;
         return Ok(ValueResult {
+            origin: None,
             type_: "String".to_string(),
             location: Operand::from(register.render()),
             text: "strings.normalizeNfc".to_string(),
@@ -48,7 +48,7 @@ pub(crate) fn lower(
     let scratch17 = builder.temporary_vreg();
     let scratch9 = builder.temporary_vreg();
     let scratch8 = builder.temporary_vreg();
-    let value = builder.lower_value(value)?;
+    let value = value.clone();
     builder.require_string("strings.normalizeNfc value", &value)?;
     let value_slot = builder.spill_to_slot("strings_normalize_nfc_value", &value.location);
     let scalar_count_slot = builder.allocate_stack_object("strings_normalize_nfc_scalar_count", 8);
@@ -503,6 +503,7 @@ pub(crate) fn lower(
     let result = builder.allocate_register()?;
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
     Ok(ValueResult {
+        origin: None,
         type_: "String".to_string(),
         location: Operand::from(result.render()),
         text: "strings.normalizeNfc".to_string(),
@@ -527,7 +528,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::String,
             errors: vec![],
-            body: Body::abi_inline_self(lower),
+            body: Body::abi_inline(lower),
         }],
     });
 }

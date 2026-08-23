@@ -4,11 +4,10 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
-use crate::target::shared::nir::*;
 
 pub(crate) fn lower_strings_pad(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     right: bool,
 ) -> Result<ValueResult, String> {
     let scratch9 = builder.temporary_vreg();
@@ -20,10 +19,10 @@ pub(crate) fn lower_strings_pad(
     let scratch14 = builder.temporary_vreg();
     let scratch16 = builder.temporary_vreg();
     let scratch15 = builder.temporary_vreg();
-    let value = builder.lower_value(&args[0])?;
+    let value = args[0].clone();
     builder.require_string("strings.pad value", &value)?;
     let value_slot = builder.spill_to_slot("strings_pad_value", &value.location);
-    let width = builder.lower_value(&args[1])?;
+    let width = args[1].clone();
     if width.type_ != "Integer" {
         return Err(format!(
             "strings.pad width must be Integer, got {}",
@@ -32,7 +31,7 @@ pub(crate) fn lower_strings_pad(
     }
     let width_slot = builder.spill_to_slot("strings_pad_width", &width.location);
     let pad_slot = if args.len() == 3 {
-        let pad = builder.lower_value(&args[2])?;
+        let pad = args[2].clone();
         builder.require_string("strings.pad padChar", &pad)?;
         builder.spill_to_slot("strings_pad_char", &pad.location)
     } else {
@@ -275,6 +274,7 @@ pub(crate) fn lower_strings_pad(
         "strings.padLeft"
     };
     Ok(ValueResult {
+        origin: None,
         type_: "String".to_string(),
         location: Operand::from(result.render()),
         text: label.to_string(),

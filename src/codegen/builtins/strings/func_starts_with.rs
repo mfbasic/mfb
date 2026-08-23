@@ -5,12 +5,11 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     if args.len() != 2 {
@@ -19,10 +18,10 @@ pub(crate) fn lower(
     let value = &args[0];
     let prefix = &args[1];
 
-    let value = builder.lower_value(value)?;
+    let value = value.clone();
     builder.require_string("strings.startsWith value", &value)?;
     let value_slot = builder.spill_to_slot("strings_starts_with_value", &value.location);
-    let prefix = builder.lower_value(prefix)?;
+    let prefix = prefix.clone();
     builder.require_string("strings.startsWith prefix", &prefix)?;
     let prefix_slot = builder.spill_to_slot("strings_starts_with_prefix", &prefix.location);
     builder.lower_string_prefix_predicate("strings.startsWith", value_slot, prefix_slot, false)
@@ -55,7 +54,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Boolean,
             errors: vec![],
-            body: Body::abi_inline_self(lower),
+            body: Body::abi_inline(lower),
         }],
     });
 }

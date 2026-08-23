@@ -12,11 +12,11 @@ use crate::types::ParameterType;
 
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     if args.len() == 1 {
-        if let Some(value) = builder.static_string_value(&args[0]) {
+        if let Some(value) = builder.static_string_value_vr(&args[0]) {
             let width: i64 = crate::unicode::backend::graphemes(&value)
                 .iter()
                 .map(|cluster| {
@@ -60,7 +60,7 @@ pub(crate) fn lower(
     let (cp, adv, prop, bc_prev, icb_prev, bc_cur, icb_cur, cw, addr) = (
         &cp, &adv, &prop, &bc_prev, &icb_prev, &bc_cur, &icb_cur, &cw, &addr,
     );
-    let value = builder.lower_value(value)?;
+    let value = value.clone();
     builder.require_string("strings.displayWidth value", &value)?;
     let value_slot = builder.spill_to_slot("strings_display_width_value", &value.location);
 
@@ -127,6 +127,7 @@ pub(crate) fn lower(
     let result = builder.allocate_register()?;
     builder.emit(abi::move_register(&result, total));
     Ok(ValueResult {
+        origin: None,
         type_: "Integer".to_string(),
         location: Operand::from(result.render()),
         text: "strings.displayWidth".to_string(),
@@ -151,7 +152,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Integer,
             errors: vec![],
-            body: Body::abi_inline_self(lower),
+            body: Body::abi_inline(lower),
         }],
     });
 }

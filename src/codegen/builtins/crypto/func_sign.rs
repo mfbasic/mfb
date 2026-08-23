@@ -1603,6 +1603,7 @@ pub(crate) fn lower_sign(
         .extend([abi::label(&done), abi::return_()]);
 
     Ok(ValueResult {
+        origin: None,
         type_: "List OF Byte".to_string(),
         location: Operand::from("void"),
         text: "crypto.sign".to_string(),

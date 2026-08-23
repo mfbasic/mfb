@@ -9,12 +9,11 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     if args.len() != 1 {
@@ -29,6 +28,7 @@ pub(crate) fn lower(
     builder.emit(abi::load_u64(&scratch16, abi::stack_pointer(), list_slot));
     builder.emit(abi::load_u64(&result, &scratch16, COLLECTION_OFFSET_COUNT));
     Ok(ValueResult {
+        origin: None,
         type_: "Integer".to_string(),
         location: Operand::from(result.render()),
         text: "strings.graphemesCount".to_string(),
@@ -53,7 +53,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Integer,
             errors: vec![],
-            body: Body::abi_inline_self(lower),
+            body: Body::abi_inline(lower),
         }],
     });
 }

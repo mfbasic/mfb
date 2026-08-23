@@ -87,6 +87,7 @@ pub(crate) fn lower_bits_bnot(
     let dst = builder.allocate_register()?;
     builder.emit(abi::bitwise_not(dst, &value.location));
     Ok(ValueResult {
+        origin: None,
         type_: "Integer".to_string(),
         location: Operand::from(dst.render()),
         text: format!("bits.bnot({})", value.text),

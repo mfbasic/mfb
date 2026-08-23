@@ -3,7 +3,6 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{AbiCtx, RegistryPackage};
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType::{Fixed, Float, Money};
 const INTRO: &str = r#"Round toward positive infinity to a whole number."#;
 const DESC: &str = r#"`ceil` returns the least integer not less than `value`. It accepts `Float`, `Fixed`,
@@ -36,7 +35,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// Target-generic call-site lowering for `math::ceil`, delegating to the shared `lower_math_call` carrier in `gen_math.rs`.
 pub(crate) fn lower_math_ceil(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     builder.lower_math_call("ceil", args)

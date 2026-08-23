@@ -104,6 +104,7 @@ pub(crate) fn lower_bits_rr32(
     let dst = builder.allocate_register()?;
     builder.emit(abi::rotate_right_word_registers(dst, value_reg, count_reg));
     Ok(ValueResult {
+        origin: None,
         type_: "Integer".to_string(),
         location: Operand::from(dst.render()),
         text: format!("bits.rr32({value_text}, {count_text})"),

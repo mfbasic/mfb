@@ -63,6 +63,7 @@ pub(crate) fn lower_is_terminal(
         builder.stack_size = 16;
     }
     Ok(ValueResult {
+        origin: None,
         type_: "Boolean".to_string(),
         location: Operand::from("void"),
         text: text.to_string(),

@@ -14,7 +14,7 @@
 //! per-platform runtime-helper lowering, migrated to crypto/io's clean-room
 //! `Body::abi_function` shape. The whole per-backend emission (macOS Core Audio
 //! `AudioQueue`, Linux ALSA over a `dlopen`'d `libasound.so.2`, Windows WASAPI over
-//! COM) lives in the `gen_*` backend modules; every device-I/O member's [`Body::abi_function_os_seam`]
+//! COM) lives in the `gen_*` backend modules; every device-I/O member's [`Body::abi_function_aliased`]
 //! holds the one clean-room lowering [`gen_os_seam::lower_audio_os_seam`], which dispatches
 //! to the family-generic backend [`gen_os_seam::lower_audio_helper`] by `platform.family()`
 //! and selects its call arm off `AbiCtx::call`. The member plus its code-form aliases
@@ -164,7 +164,7 @@ pub(crate) fn timeout_ms(desc: &'static str) -> Parameter {
 /// `openInputDevice`/`readTimeout`/`closeInput`/… routed to this body by
 /// `abi_function_lower`).
 pub(crate) fn native_body(os_aliases: &'static [&'static str]) -> Body {
-    Body::abi_function_os_seam(gen_os_seam::lower_audio_os_seam, os_aliases)
+    Body::abi_function_aliased(gen_os_seam::lower_audio_os_seam, os_aliases)
 }
 
 /// The internal runtime-helper name a surface `audio::` call rewrites to during IR

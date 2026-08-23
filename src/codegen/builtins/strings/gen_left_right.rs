@@ -4,12 +4,11 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
-use crate::target::shared::nir::*;
 
 pub(crate) fn lower_strings_left_right(
     builder: &mut CodeBuilder,
-    value: &NirValue,
-    count: &NirValue,
+    value: &ValueResult,
+    count: &ValueResult,
     right: bool,
 ) -> Result<ValueResult, String> {
     let scratch16 = builder.temporary_vreg();
@@ -21,10 +20,10 @@ pub(crate) fn lower_strings_left_right(
     let scratch14 = builder.temporary_vreg();
     let scratch15 = builder.temporary_vreg();
     let scratch13 = builder.temporary_vreg();
-    let value = builder.lower_value(value)?;
+    let value = value.clone();
     builder.require_string("strings.left/right value", &value)?;
     let value_slot = builder.spill_to_slot("strings_lr_value", &value.location);
-    let count = builder.lower_value(count)?;
+    let count = count.clone();
     if count.type_ != "Integer" {
         return Err(format!(
             "strings.left/right count must be Integer, got {}",
@@ -130,6 +129,7 @@ pub(crate) fn lower_strings_left_right(
         "strings.left"
     };
     Ok(ValueResult {
+        origin: None,
         type_: "String".to_string(),
         location: Operand::from(result.render()),
         text: label.to_string(),

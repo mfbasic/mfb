@@ -186,6 +186,7 @@ impl CodeBuilder<'_> {
         let register = self.allocate_register()?;
         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: format!("Result OF {success_type}"),
             location: Operand::from(register.render()),
             text,

@@ -8,17 +8,17 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     if let Some(value) = builder.static_strings_package_string("strings.lower", args)? {
         let register = builder.load_string_constant(&value)?;
         return Ok(ValueResult {
+            origin: None,
             type_: "String".to_string(),
             location: Operand::from(register.render()),
             text: "strings.lower".to_string(),
@@ -48,7 +48,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::String,
             errors: vec![],
-            body: Body::abi_inline_self(lower),
+            body: Body::abi_inline(lower),
         }],
     });
 }

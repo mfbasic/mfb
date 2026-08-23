@@ -69,6 +69,7 @@ pub(crate) fn lower_open(
         .extend([abi::label(&done), abi::return_()]);
 
     Ok(ValueResult {
+        origin: None,
         type_: "List OF Byte".to_string(),
         location: Operand::from("void"),
         text: "crypto.open".to_string(),

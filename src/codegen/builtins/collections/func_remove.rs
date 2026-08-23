@@ -7,7 +7,6 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTO_REMOVE: &str = "Return a set with one element removed, leaving the argument unchanged";
 const DESC_REMOVE: &str = r#"`collections::remove` returns a new `Set OF T` containing every element of
@@ -83,7 +82,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Arg(0),
             errors: vec![],
-            body: Body::abi_inline_self(lower_remove),
+            body: Body::abi_inline(lower_remove),
         }],
     });
 }
@@ -92,10 +91,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// (no-op if absent). Reuses `lower_map_remove_key` with the element as the key.
 pub(crate) fn lower_remove(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let set = builder.lower_value(&args[0])?;
+    let set = args[0].clone();
     let Some(element_type) = set_element_type(&set.type_) else {
         return Err(format!(
             "native collection remove does not accept {}",
@@ -108,7 +107,7 @@ pub(crate) fn lower_remove(
         abi::stack_pointer(),
         set_slot,
     ));
-    let item = builder.lower_value(&args[1])?;
+    let item = args[1].clone();
     if item.type_ != element_type {
         return Err(format!(
             "native collection remove element must be {element_type}, got {}",

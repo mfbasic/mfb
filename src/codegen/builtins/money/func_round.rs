@@ -7,7 +7,6 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTRO: &str =
     r#"Settle a Money to a given number of decimal places under the current rounding mode"#;
@@ -103,7 +102,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Money,
             errors: vec!["ErrInvalidArgument", "ErrOverflow"],
-            body: Body::abi_inline_self(lower_money_round),
+            body: Body::abi_inline(lower_money_round),
         }],
     });
 }
@@ -116,10 +115,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// original raw).
 pub(crate) fn lower_money_round(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let value = builder.lower_value(&args[0])?;
+    let value = args[0].clone();
     // Spill the Money raw before lowering `decimals`: that lowering may emit a
     // `_mfb_*` helper call which clobbers every caller-saved register (the
     // register-lifetime model), destroying `value.location`. Mirror the spill every
@@ -130,7 +129,7 @@ pub(crate) fn lower_money_round(
         abi::stack_pointer(),
         raw_slot,
     ));
-    let decimals = builder.lower_value(&args[1])?;
+    let decimals = args[1].clone();
     let text = format!("money.round({}, {})", value.text, decimals.text);
     let raw = builder.allocate_register()?;
     builder.emit(abi::load_u64(raw, abi::stack_pointer(), raw_slot));
@@ -183,6 +182,7 @@ pub(crate) fn lower_money_round(
     let result = builder.allocate_register()?;
     builder.emit_checked_integer_multiply(result, rounded, divisor)?;
     Ok(ValueResult {
+        origin: None,
         type_: "Money".to_string(),
         location: Operand::from(result.render()),
         text,

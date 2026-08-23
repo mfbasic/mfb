@@ -1,4 +1,4 @@
-//! Purely-syntactic `path*` string `fs` code generation: the call-site path lowering, the five abi_inline_self members, and the standalone pathJoin runtime helper.
+//! Purely-syntactic `path*` string `fs` code generation: the call-site path lowering, the five abi_inline members, and the standalone pathJoin runtime helper.
 
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
@@ -7,7 +7,6 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 
 impl CodeBuilder<'_> {
     /// Emit the shared trailing-`/` trim loop (bug-331 §J): walk `length` down
@@ -42,7 +41,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn lower_fs_path_call(
         &mut self,
         target: &str,
-        args: &[NirValue],
+        args: &[ValueResult],
     ) -> Result<Option<ValueResult>, String> {
         let result = match target {
             "fs.pathJoin" if args.len() == 1 => self.lower_fs_path_join(&args[0])?,
@@ -63,8 +62,8 @@ impl CodeBuilder<'_> {
     /// The work is delegated to the shared [`FS_PATH_JOIN_SYMBOL`] runtime helper
     /// so that root native code and imported-package binary_repr lower `pathJoin`
     /// identically.
-    fn lower_fs_path_join(&mut self, parts: &NirValue) -> Result<ValueResult, String> {
-        let parts = self.lower_value(parts)?;
+    fn lower_fs_path_join(&mut self, parts: &ValueResult) -> Result<ValueResult, String> {
+        let parts = parts.clone();
         if list_element_type(&parts.type_).as_deref() != Some("String") {
             return Err(format!(
                 "fs.pathJoin parts must be List OF String, got {}",
@@ -94,14 +93,15 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::move_register(&result, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
+            origin: None,
             type_: "String".to_string(),
             location: Operand::from(result.render()),
             text: "fs.pathJoin".to_string(),
         })
     }
 
-    fn lower_fs_path_base_name(&mut self, path: &NirValue) -> Result<ValueResult, String> {
-        let path = self.lower_value(path)?;
+    fn lower_fs_path_base_name(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
+        let path = path.clone();
         self.require_string("fs.pathBaseName path", &path)?;
         let path_slot = self.spill_to_slot("fs_path_base_name_path", &path.location);
         let whole_root = self.label("fs_path_base_name_whole_root");
@@ -158,14 +158,15 @@ impl CodeBuilder<'_> {
         self.emit(abi::subtract_registers(&span, &length, &index));
         let result = self.emit_materialize_string_from_bytes(&start, &span)?;
         Ok(ValueResult {
+            origin: None,
             type_: "String".to_string(),
             location: Operand::from(result.render()),
             text: "fs.pathBaseName".to_string(),
         })
     }
 
-    fn lower_fs_path_dir_name(&mut self, path: &NirValue) -> Result<ValueResult, String> {
-        let path = self.lower_value(path)?;
+    fn lower_fs_path_dir_name(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
+        let path = path.clone();
         self.require_string("fs.pathDirName path", &path)?;
         let path_slot = self.spill_to_slot("fs_path_dir_name_path", &path.location);
         let dot = self.label("fs_path_dir_name_dot");
@@ -241,14 +242,15 @@ impl CodeBuilder<'_> {
         let out = self.allocate_register()?;
         self.emit(abi::load_u64(&out, abi::stack_pointer(), final_slot));
         Ok(ValueResult {
+            origin: None,
             type_: "String".to_string(),
             location: Operand::from(out.render()),
             text: "fs.pathDirName".to_string(),
         })
     }
 
-    fn lower_fs_path_extension(&mut self, path: &NirValue) -> Result<ValueResult, String> {
-        let path = self.lower_value(path)?;
+    fn lower_fs_path_extension(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
+        let path = path.clone();
         self.require_string("fs.pathExtension path", &path)?;
         let path_slot = self.spill_to_slot("fs_path_extension_path", &path.location);
         let empty = self.label("fs_path_extension_empty");
@@ -304,14 +306,15 @@ impl CodeBuilder<'_> {
         let result = self.emit_materialize_string_from_bytes(&start, &span)?;
         self.emit(abi::label(&done));
         Ok(ValueResult {
+            origin: None,
             type_: "String".to_string(),
             location: Operand::from(result.render()),
             text: "fs.pathExtension".to_string(),
         })
     }
 
-    fn lower_fs_path_normalize(&mut self, path: &NirValue) -> Result<ValueResult, String> {
-        let path = self.lower_value(path)?;
+    fn lower_fs_path_normalize(&mut self, path: &ValueResult) -> Result<ValueResult, String> {
+        let path = path.clone();
         self.require_string("fs.pathNormalize path", &path)?;
         let path_slot = self.spill_to_slot("fs_path_normalize_path", &path.location);
         let result_slot = self.allocate_stack_object("fs_path_normalize_result", 8);
@@ -704,6 +707,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: "String".to_string(),
             location: Operand::from(result.render()),
             text: "fs.pathNormalize".to_string(),
@@ -711,7 +715,7 @@ impl CodeBuilder<'_> {
     }
 }
 
-/// `Body::abi_inline_self` [`crate::codegen::registry::AbiInlineSelf`] wrappers for
+/// `Body::abi_inline` wrappers for
 /// the five `path*` members — the self-lowering successor to the former `common`
 /// `NativeLower` slot (byte-identical: the raw `NirValue` args are lowered by the
 /// same dispatcher). Each delegates to the shared
@@ -723,7 +727,7 @@ impl CodeBuilder<'_> {
 fn dispatch_path(
     builder: &mut CodeBuilder,
     target: &str,
-    args: &[NirValue],
+    args: &[ValueResult],
 ) -> Result<ValueResult, String> {
     builder
         .lower_fs_path_call(target, args)?
@@ -732,7 +736,7 @@ fn dispatch_path(
 
 pub(crate) fn lower_fs_path_join_nl(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &crate::codegen::registry::AbiCtx,
 ) -> Result<ValueResult, String> {
     dispatch_path(builder, "fs.pathJoin", args)
@@ -740,7 +744,7 @@ pub(crate) fn lower_fs_path_join_nl(
 
 pub(crate) fn lower_fs_path_base_name_nl(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &crate::codegen::registry::AbiCtx,
 ) -> Result<ValueResult, String> {
     dispatch_path(builder, "fs.pathBaseName", args)
@@ -748,7 +752,7 @@ pub(crate) fn lower_fs_path_base_name_nl(
 
 pub(crate) fn lower_fs_path_dir_name_nl(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &crate::codegen::registry::AbiCtx,
 ) -> Result<ValueResult, String> {
     dispatch_path(builder, "fs.pathDirName", args)
@@ -756,7 +760,7 @@ pub(crate) fn lower_fs_path_dir_name_nl(
 
 pub(crate) fn lower_fs_path_extension_nl(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &crate::codegen::registry::AbiCtx,
 ) -> Result<ValueResult, String> {
     dispatch_path(builder, "fs.pathExtension", args)
@@ -764,7 +768,7 @@ pub(crate) fn lower_fs_path_extension_nl(
 
 pub(crate) fn lower_fs_path_normalize_nl(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &crate::codegen::registry::AbiCtx,
 ) -> Result<ValueResult, String> {
     dispatch_path(builder, "fs.pathNormalize", args)

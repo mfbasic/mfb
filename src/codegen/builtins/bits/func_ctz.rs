@@ -183,6 +183,7 @@ pub(crate) fn lower_bits_ctz(
     builder.emit(abi::reverse_bits(reversed, &value.location));
     builder.emit(abi::count_leading_zeros(dst, reversed));
     Ok(ValueResult {
+        origin: None,
         type_: "Integer".to_string(),
         location: Operand::from(dst.render()),
         text: format!("bits.ctz({})", value.text),

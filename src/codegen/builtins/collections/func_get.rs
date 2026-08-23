@@ -15,7 +15,6 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTO_GET: &str = "Read a list item by index or a map value by key.";
 const DESC_GET: &str = r#"`collections::get` reads one element out of a collection. The collection itself
@@ -116,7 +115,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Var("T"),
                 errors: vec!["ErrIndexOutOfRange", "ErrNotFound"],
-                body: Body::abi_inline_self(lower_get),
+                body: Body::abi_inline(lower_get),
             },
             Implementation {
                 params: vec![
@@ -137,7 +136,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Var("V"),
                 errors: vec!["ErrIndexOutOfRange", "ErrNotFound"],
-                body: Body::abi_inline_self(lower_get),
+                body: Body::abi_inline(lower_get),
             },
         ],
     });
@@ -148,13 +147,13 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// list or map lowering by the collection's static type.
 pub(crate) fn lower_get(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     // plan-86 G1: is `args[1]` a provably-in-range index into the list `args[0]`?
     // (Computed from the RAW NIR before lowering, against `provable_index_locals`.)
     let unchecked = builder.is_provable_index_access(&args[0], &args[1]);
-    let collection = builder.lower_value(&args[0])?;
+    let collection = args[0].clone();
     let collection_slot = builder.allocate_stack_object("get_collection", 8);
     builder.emit(abi::store_u64(
         &collection.location,
@@ -162,7 +161,7 @@ pub(crate) fn lower_get(
         collection_slot,
     ));
 
-    let key = builder.lower_value(&args[1])?;
+    let key = args[1].clone();
     let key_slot = builder.allocate_stack_object("get_key", 8);
     // A `d`-native float map key stores via `str d`, bit-identical to the
     // `str x` a later bitwise key compare reads (plan-01 float-dnative).

@@ -6,7 +6,6 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTRO: &str = r#"Read the rounding mode currently in effect for Money arithmetic"#;
 const DESC: &str = r#"`money::getRounding` returns the `Money` arithmetic rounding mode currently in
@@ -70,7 +69,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![],
             return_type: ParameterType::Named("Rounding"),
             errors: vec![],
-            body: Body::abi_inline_self(lower_money_get_rounding),
+            body: Body::abi_inline(lower_money_get_rounding),
         }],
     });
 }
@@ -79,7 +78,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// `Rounding` value (the enum is i64-carried by its discriminant).
 pub(crate) fn lower_money_get_rounding(
     builder: &mut CodeBuilder,
-    _args: &[NirValue],
+    _args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let result = builder.allocate_register()?;
@@ -89,6 +88,7 @@ pub(crate) fn lower_money_get_rounding(
         ARENA_ROUNDING_MODE_OFFSET,
     ));
     Ok(ValueResult {
+        origin: None,
         type_: "Rounding".to_string(),
         location: Operand::from(result.render()),
         text: "money.getRounding()".to_string(),

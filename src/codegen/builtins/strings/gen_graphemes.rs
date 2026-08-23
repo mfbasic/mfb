@@ -5,11 +5,10 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::nir::*;
 
 pub(crate) fn lower_strings_graphemes(
     builder: &mut CodeBuilder,
-    value: &NirValue,
+    value: &ValueResult,
 ) -> Result<ValueResult, String> {
     let scratch16 = builder.temporary_vreg();
     let scratch9 = builder.temporary_vreg();
@@ -28,7 +27,7 @@ pub(crate) fn lower_strings_graphemes(
     let scratch20 = builder.temporary_vreg();
     let scratch21 = builder.temporary_vreg();
     let scratch28 = builder.temporary_vreg();
-    let value = builder.lower_value(value)?;
+    let value = value.clone();
     builder.require_string("strings.graphemes value", &value)?;
     let value_slot = builder.spill_to_slot("strings_graphemes_value", &value.location);
     let count_slot = builder.allocate_stack_object("strings_graphemes_count", 8);
@@ -262,6 +261,7 @@ pub(crate) fn lower_strings_graphemes(
     let result = builder.allocate_register()?;
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
     Ok(ValueResult {
+        origin: None,
         type_: "List OF String".to_string(),
         location: Operand::from(result.render()),
         text: "strings.graphemes".to_string(),

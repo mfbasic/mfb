@@ -1,4 +1,4 @@
-//! `astrings::scalarLen` — internal-only native overlay bridge (`Body::abi_inline_self`).
+//! `astrings::scalarLen` — internal-only native overlay bridge (`Body::abi_inline`).
 //!
 //! Never user-callable (`internal_only`): the source companion (`package.mfb`, an
 //! `internal` file) reads the visible scalar count of an opaque `AttributedString`
@@ -10,13 +10,12 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-/// Self-lowering inline body for `astrings.scalarLen` (`Body::abi_inline_self`),
+/// Self-lowering inline body for `astrings.scalarLen` (`Body::abi_inline`),
 /// delegating to the shared `AttributedString` codegen carrier.
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     builder
@@ -42,7 +41,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Integer,
             errors: vec![],
-            body: Body::abi_inline_self(lower),
+            body: Body::abi_inline(lower),
         }],
     });
 }

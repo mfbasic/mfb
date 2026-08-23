@@ -6,7 +6,7 @@
 //! `atan2`), `pow`, and the per-thread PCG64 generator (`rand`/`seed`) — plus 14
 //! compile-time constants (`pi`, `e`, `ln2`, …, seven `Float` and seven `Fixed`).
 //!
-//! Every callable lowers **inline** at the call site (a `Body::abi_inline_self`
+//! Every callable lowers **inline** at the call site (a `Body::abi_inline`
 //! self-lowering intrinsic — no runtime helper, no source companion). Each
 //! member is enumerated as concrete-type overloads that reproduce the legacy
 //! `resolve_call` acceptance and return types byte-for-byte: an argument-type
@@ -26,7 +26,7 @@
 //!
 //! `math.sqrt` / `math.clamp` stay callable **by name**: `builder_vector_inline`
 //! emits them as `NirValue::Call`, so they resolve through
-//! `try_abi_inline_self_lower` on the full `"math.sqrt"` spelling.
+//! `try_abi_inline_lower` on the full `"math.sqrt"` spelling.
 //!
 //! Man/spec citation anchors (the `math/*` man pages and §13 spec ground their
 //! per-member facts here): `MATH` (the descriptor authority for the 21 callables),
@@ -38,7 +38,7 @@
 //! acceptance now enumerated as concrete-type overloads below).
 
 use crate::codegen::registry::{
-    AbiInlineSelf, Body, DefaultValue, Implementation, Parameter, Registry, RegistryConstant,
+    AbiInline, Body, DefaultValue, Implementation, Parameter, Registry, RegistryConstant,
     RegistryFunction, RegistryPackage,
 };
 use crate::types::ParameterType;
@@ -119,13 +119,13 @@ pub(crate) fn overload(
     params: Vec<Parameter>,
     return_type: ParameterType,
     errors: Vec<&'static str>,
-    lower: AbiInlineSelf,
+    lower: AbiInline,
 ) -> Implementation {
     Implementation {
         params,
         return_type,
         errors,
-        body: Body::abi_inline_self(lower),
+        body: Body::abi_inline(lower),
     }
 }
 
@@ -203,7 +203,7 @@ pub(crate) fn preserving_unary(
     scalars: &[ParameterType],
     lists: &[ParameterType],
     errors: &[&'static str],
-    lower: AbiInlineSelf,
+    lower: AbiInline,
     pkg: &mut RegistryPackage,
 ) {
     // List overloads are registered BEFORE the scalar overloads: lenient overload
@@ -252,7 +252,7 @@ pub(crate) fn rounding(
     scalars: &[ParameterType],
     lists: &[ParameterType],
     errors: &[&'static str],
-    lower: AbiInlineSelf,
+    lower: AbiInline,
     pkg: &mut RegistryPackage,
 ) {
     // List overloads first (see `preserving_unary`): the array form returns
@@ -302,7 +302,7 @@ pub(crate) fn preserving_binary(
     scalars: &[ParameterType],
     lists: &[ParameterType],
     errors: &[&'static str],
-    lower: AbiInlineSelf,
+    lower: AbiInline,
     pkg: &mut RegistryPackage,
 ) {
     // List overloads first (see `preserving_unary`).
@@ -366,8 +366,8 @@ mod tests {
             let q = format!("math.{name}");
             assert_eq!(registry().owning_package(&q), Some("math"), "{name}");
             assert!(
-                registry::abi_inline_self_lower(&q).is_some(),
-                "{name} should have a Body::abi_inline_self lowering"
+                registry::abi_inline_lower(&q).is_some(),
+                "{name} should have a Body::abi_inline lowering"
             );
         }
     }

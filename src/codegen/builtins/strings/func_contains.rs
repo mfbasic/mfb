@@ -6,12 +6,11 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     if args.len() != 2 {
@@ -29,10 +28,10 @@ pub(crate) fn lower(
     let scratch13 = builder.temporary_vreg();
     let scratch14 = builder.temporary_vreg();
     let scratch15 = builder.temporary_vreg();
-    let value = builder.lower_value(value)?;
+    let value = value.clone();
     builder.require_string("strings.contains value", &value)?;
     let value_slot = builder.spill_to_slot("strings_contains_value", &value.location);
-    let needle = builder.lower_value(needle)?;
+    let needle = needle.clone();
     builder.require_string("strings.contains needle", &needle)?;
     let needle_slot = builder.spill_to_slot("strings_contains_needle", &needle.location);
 
@@ -100,7 +99,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Boolean,
             errors: vec![],
-            body: Body::abi_inline_self(lower),
+            body: Body::abi_inline(lower),
         }],
     });
 }

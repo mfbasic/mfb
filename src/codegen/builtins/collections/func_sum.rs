@@ -235,6 +235,7 @@ pub(crate) fn lower_sum(
     let result = builder.allocate_register()?;
     builder.emit(abi::move_register(&result, &scratch14));
     Ok(ValueResult {
+        origin: None,
         type_: element_type,
         location: Operand::from(result.render()),
         text: format!("sum({})", collection.type_),

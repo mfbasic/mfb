@@ -399,6 +399,7 @@ impl CodeBuilder<'_> {
         }
 
         Ok(ValueResult {
+            origin: None,
             type_: "List OF Float".to_string(),
             location: Operand::from(result_base.render()),
             text,
@@ -501,6 +502,7 @@ impl CodeBuilder<'_> {
         let dst = self.allocate_register()?;
         self.emit(abi::vector_extract_to_x(&dst, abi::VEC_SCRATCH[0], 0));
         Ok(ValueResult {
+            origin: None,
             type_: "Float".to_string(),
             location: Operand::from(dst.render()),
             text,
@@ -2103,6 +2105,7 @@ impl CodeBuilder<'_> {
         }
 
         Ok(ValueResult {
+            origin: None,
             type_: "List OF Float".to_string(),
             location: Operand::from(result_base.render()),
             text,
@@ -2134,6 +2137,7 @@ impl CodeBuilder<'_> {
         let dst = self.allocate_register()?;
         self.emit(abi::vector_extract_to_x(&dst, abi::VEC_SCRATCH[0], 0));
         Ok(ValueResult {
+            origin: None,
             type_: "Float".to_string(),
             location: Operand::from(dst.render()),
             text,

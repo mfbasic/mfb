@@ -9,12 +9,11 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::*;
 use crate::types::ParameterType;
 
 pub(crate) fn lower(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     if args.len() != 2 {
@@ -32,7 +31,7 @@ pub(crate) fn lower(
     let scratch13 = builder.temporary_vreg();
     let scratch14 = builder.temporary_vreg();
     let scratch15 = builder.temporary_vreg();
-    let parts = builder.lower_value(parts)?;
+    let parts = parts.clone();
     if list_element_type(&parts.type_).as_deref() != Some("String") {
         return Err(format!(
             "strings.join parts must be List OF String, got {}",
@@ -40,7 +39,7 @@ pub(crate) fn lower(
         ));
     }
     let parts_slot = builder.spill_to_slot("strings_join_parts", &parts.location);
-    let delimiter = builder.lower_value(delimiter)?;
+    let delimiter = delimiter.clone();
     builder.require_string("strings.join delimiter", &delimiter)?;
     let delimiter_slot = builder.spill_to_slot("strings_join_delimiter", &delimiter.location);
     let output_len_slot = builder.allocate_stack_object("strings_join_output_len", 8);
@@ -201,6 +200,7 @@ pub(crate) fn lower(
     let result = builder.allocate_register()?;
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
     Ok(ValueResult {
+        origin: None,
         type_: "String".to_string(),
         location: Operand::from(result.render()),
         text: "strings.join".to_string(),
@@ -234,7 +234,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::String,
             errors: vec![],
-            body: Body::abi_inline_self(lower),
+            body: Body::abi_inline(lower),
         }],
     });
 }

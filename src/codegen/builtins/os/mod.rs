@@ -1,3 +1,4 @@
+#![allow(deprecated)] // not-yet-migrated: uses deprecated Body::native
 //! The built-in `os` package (plan-31 / plan-55-B).
 //!
 //! `os` reaches the host process: it reads, tests, sets, unsets, and enumerates

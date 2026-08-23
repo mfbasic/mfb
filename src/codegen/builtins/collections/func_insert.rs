@@ -7,7 +7,6 @@ use crate::codegen::registry::{
     AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
 const INTO_INSERT: &str = "Return a list with one element inserted before a given index";
 const DESC_INSERT: &str = r#"`collections::insert` returns a new list in which `item` occupies position
@@ -112,7 +111,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Arg(0),
             errors: vec!["ErrIndexOutOfRange"],
-            body: Body::abi_inline_self(lower_insert),
+            body: Body::abi_inline(lower_insert),
         }],
     });
 }
@@ -121,10 +120,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 /// `index` (`0 <= index <= len`, range-checked -> `ErrIndexOutOfRange`).
 pub(crate) fn lower_insert(
     builder: &mut CodeBuilder,
-    args: &[NirValue],
+    args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let list = builder.lower_value(&args[0])?;
+    let list = args[0].clone();
     let Some(element_type) = list_element_type(&list.type_) else {
         return Err(format!(
             "native collection insert does not accept {}",
@@ -137,7 +136,7 @@ pub(crate) fn lower_insert(
         abi::stack_pointer(),
         list_slot,
     ));
-    let index = builder.lower_value(&args[1])?;
+    let index = args[1].clone();
     if index.type_ != "Integer" {
         return Err(format!(
             "native collection insert index must be Integer, got {}",
@@ -150,9 +149,9 @@ pub(crate) fn lower_insert(
         abi::stack_pointer(),
         index_slot,
     ));
-    let item = builder.lower_value(&args[2])?;
+    let item = args[2].clone();
     // Observation boundary: a `Float` inserted element must be finite (plan-17).
-    builder.observe_float(&args[2], &item)?;
+    builder.observe_float_vr(&item)?;
     if item.type_ == list.type_ {
         return Err("native collection insert expects a single item, not a list".to_string());
     }

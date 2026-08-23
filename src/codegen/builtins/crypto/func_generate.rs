@@ -1482,6 +1482,7 @@ pub(crate) fn lower_generate(
         .extend([abi::label(&done), abi::return_()]);
 
     Ok(ValueResult {
+        origin: None,
         type_: "KeyPair".to_string(),
         location: Operand::from("void"),
         text: "crypto.generate".to_string(),

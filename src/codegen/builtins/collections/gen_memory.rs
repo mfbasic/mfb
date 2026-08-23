@@ -26,7 +26,6 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::{callable_return_type, list_element_type};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
-use crate::target::shared::nir::NirValue;
 impl CodeBuilder<'_> {
     pub(crate) fn lower_map_projection(
         &mut self,
@@ -341,6 +340,7 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
+            origin: None,
             type_: format!("List OF {element_type}"),
             location: Operand::from(result.render()),
             text: if project_key {
@@ -353,12 +353,12 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn lower_collection_reduce_impl(
         &mut self,
-        args: &[NirValue],
+        args: &[ValueResult],
         reverse: bool,
     ) -> Result<ValueResult, String> {
         let scratch9 = self.temporary_vreg();
         let scratch17 = self.temporary_vreg();
-        let collection = self.lower_value(&args[0])?;
+        let collection = args[0].clone();
         let Some(element_type) = list_element_type(&collection.type_) else {
             return Err(format!(
                 "native collection reduce does not accept {}",
@@ -371,14 +371,14 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             collection_slot,
         ));
-        let initial = self.lower_value(&args[1])?;
+        let initial = args[1].clone();
         let accumulator_slot = self.allocate_stack_object("reduce_accumulator", 8);
         self.emit(abi::store_u64(
             &initial.location,
             abi::stack_pointer(),
             accumulator_slot,
         ));
-        let action = self.lower_value(&args[2])?;
+        let action = args[2].clone();
         let output_type = callable_return_type(&action.type_).ok_or_else(|| {
             format!(
                 "native collection reduce reducer must be a function, got {}",
@@ -618,6 +618,7 @@ impl CodeBuilder<'_> {
             accumulator_slot,
         ));
         Ok(ValueResult {
+            origin: None,
             type_: initial.type_,
             location: Operand::from(result.render()),
             text: format!(

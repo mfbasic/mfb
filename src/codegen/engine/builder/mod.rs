@@ -431,6 +431,13 @@ pub(crate) struct ValueResult {
     pub(crate) type_: String,
     pub(crate) location: Operand,
     pub(crate) text: String,
+    /// The `NirValue` this result was lowered from, preserved so a **pre-lowered**
+    /// `abi_inline` body can still run any NIR-structural analysis the former
+    /// self-lowering body did (bounds-check elision off `Local`/`Local + 1`,
+    /// float-finiteness re-check off an arithmetic node, constant-string folding, …)
+    /// — the value is pre-lowered uniformly, but no structural detail is lost. `None`
+    /// only for values not produced from a single source node (a synthesized result).
+    pub(crate) origin: Option<crate::target::shared::nir::NirValue>,
 }
 
 pub(crate) struct TrapState {
@@ -2057,7 +2064,7 @@ pub(crate) fn lower_runtime_helper(
                     platform_imports,
                     platform,
                 )?,
-                // (`net.*` members are `Body::abi_function_os_seam` since the clean-room
+                // (`net.*` members are `Body::abi_function_aliased` since the clean-room
                 // migration — the shared `lower_net_os_seam` body plus its
                 // `connectTcpAddr`/`pollList` code-form aliases — so they route through
                 // the `is_abi_function_call` branch above; no `net.` arm here.)

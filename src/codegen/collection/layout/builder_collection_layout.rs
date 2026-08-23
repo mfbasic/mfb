@@ -1112,6 +1112,7 @@ impl CodeBuilder<'_> {
             let register = self.allocate_register()?;
             self.emit(abi::load_u64(&register, abi::stack_pointer(), count_slot));
             Ok(ValueResult {
+                origin: None,
                 type_: "Integer".to_string(),
                 location: Operand::from(register.render()),
                 text: format!("len({})", value.text),
@@ -1124,6 +1125,7 @@ impl CodeBuilder<'_> {
                 COLLECTION_OFFSET_COUNT,
             ));
             Ok(ValueResult {
+                origin: None,
                 type_: "Integer".to_string(),
                 location: Operand::from(register.render()),
                 text: format!("len({})", value.text),
@@ -1223,6 +1225,7 @@ impl CodeBuilder<'_> {
         let register = self.allocate_register()?;
         self.emit(abi::load_u64(&register, abi::stack_pointer(), set_slot));
         Ok(ValueResult {
+            origin: None,
             type_: type_.to_string(),
             location: Operand::from(register.render()),
             text: format!("set literal {type_}"),
@@ -1402,6 +1405,7 @@ impl CodeBuilder<'_> {
             collection_slot,
         ));
         Ok(ValueResult {
+            origin: None,
             type_: type_.to_string(),
             location: Operand::from(register.render()),
             text: format!("{label} {type_}"),
