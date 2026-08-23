@@ -136,13 +136,18 @@ fn desugar_project(ast: &mut AstProject, coverage: bool, project_dir: &Path) -> 
     // one source file in a project. It streams the report through `io::print`, so
     // ensure that file imports `io`; the case SUBs it calls are Public, so the
     // cross-file calls resolve regardless of which file each case lives in.
-    let driver = desugar::build_driver(&steps, coverage);
+    // The driver is emitted as a thin entry function plus the chunk functions it
+    // calls (bug-445 follow-up: chunking bounds each generated function's stack
+    // frame so a large suite does not exhaust the stack). They all go into the
+    // first file, which always exists.
+    let driver_functions = desugar::build_driver(&steps, coverage);
     let sink = ast
         .files
         .first_mut()
         .expect("a project has at least one source file");
     ensure_import(sink, "io");
-    sink.items.push(Item::Function(driver));
+    sink.items
+        .extend(driver_functions.into_iter().map(Item::Function));
 
     // Coverage instrumentation runs last: it walks the now-complete item list
     // (skipping the generated driver/helpers by name), injects hit counters, and
