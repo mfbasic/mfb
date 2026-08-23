@@ -6,15 +6,15 @@
 //! package — the second native package (after `process`) migrated onto the
 //! clean-room registry (`crate::codegen::registry`).
 //!
-//! Every syscall member (36 of them) lowers through the shared family-generic
-//! OS-seam dispatcher [`native::lower_fs_helper`], registered in *both* the
-//! `posix` and `win` slots of a `Body::native`; the generic runtime-call dispatch
-//! (`crate::codegen::os`) picks it by `platform.family()` and the emitter branches
-//! on family internally. The five `path*` string members lower at the call site
-//! through a `Body::native` `common` slot (the relocated `impl CodeBuilder` path
-//! emitters). Unlike `os.resourcePath`, `fs` needs no build context, so every
-//! emitter accepts and ignores the `_build_mode`/`_module_name` arguments of the
-//! OS-seam contract.
+//! Every syscall member (36 of them) is `Body::abi_function` (crypto/io's
+//! clean-room shape): each `func_*.rs` registers a one-line `lower_<name>` body
+//! calling the shared [`native::lower_fs_os_seam`] with its own runtime-call name,
+//! which dispatches to the family-generic OS-seam dispatcher
+//! [`native::lower_fs_helper`] (branching on `platform.family()` internally); the
+//! `abi_function` wrapper finalizes it. The five `path*` string members are
+//! `Body::abi_inline_self` (the self-lowering successor to the former `common` slot),
+//! lowering at the call site through the relocated `impl CodeBuilder` path emitters.
+//! Unlike `os.resourcePath`, `fs` needs no build context.
 //!
 //! The opaque `File` handle is the one owned resource (`add_resource`); its close
 //! op is the public `fs.close`. Runtime specs and the resource close op are
