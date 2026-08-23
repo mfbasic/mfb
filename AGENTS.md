@@ -13,6 +13,15 @@ Don't edit/weaken/re-baseline a test/golden until PROVEN wrong.
 * Not all 4 → test wins, STOP.
 * Run full `cargo test`, never one module.
 * Once proven wrong: fix the bug AND correct only the disproved line (never re-baseline a whole file); show proof in commit.
+* This rule guards *behavioral/semantic* tests (correctness contracts). It is NOT about
+  byte-identity codegen goldens (`.ncode`/`.ncodesum`): those are DRIFT SENTINELS, not
+  behavior — a churn from a correct change means "regenerate the golden" (`sync-goldens.sh`
+  / `regen-ncodesum.sh`), NEVER "revert the change." The 4-question gate does not apply to them.
+* Byte-identity is NOT a design constraint or a goal in itself (`.ai/testing-gates.md`): it was
+  the explicit north star ONLY for the builtin-migration project (pure code motion). For all
+  other work, do NOT shape, shrink, or abandon a correct change to keep bytes identical, and do
+  NOT revert because a change "can't be byte-identical." Make the right change, then regenerate
+  and PROVE the golden delta is only yours. Reverting a correct change to preserve bytes is a bug.
 
 ## A claim is measured or a guess
 

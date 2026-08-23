@@ -5,8 +5,46 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness (valid source rejected by codegen)
 
-Status: Open
-Regression Test: tests/rt_aarch64_conditional_branch_relaxation.rs (to be added) + an encoder-level unit test in src/arch/aarch64/encode/tests.rs
+Status: Fixed
+Regression Test: src/arch/aarch64/encode/relax.rs (`#[cfg(test)] mod tests`) — three
+encoder-level tests: the pre-fix rejection is still asserted, a far `b.eq` now encodes
+into a correct trampoline hop, and an in-range branch is left byte-identical.
+
+## Resolution
+
+Fixed by an AArch64 conditional-branch relaxation pass, `src/arch/aarch64/encode/relax.rs`
+(`relax_conditional_branches`), run by the two AArch64 targets on the code plan *before*
+`encode` (src/target/macos_aarch64/mod.rs, src/target/linux_aarch64/mod.rs). For each
+function it walks the instruction stream to a fixpoint and rewrites every conditional
+branch whose target sits outside the imm19 ±1 MiB reach into a short hop to a nearby
+trampoline holding an unconditional `b` (imm26, ±128 MiB):
+
+```
+    b.<cond> far    ==>    b.<cond> Ltramp   ; near: taken -> trampoline
+                           b        Lcont    ; not taken -> fall through
+                         Ltramp:
+                           b        far      ; unconditional, ±128 MiB
+                         Lcont:
+```
+
+The rewrite keeps the *original* condition (hop-to-trampoline) rather than inverting it,
+so it needs no new opcode — the backend emits `b.lo`/`b.mi` but not their complements
+`b.hs`/`b.pl`. Because the pass materializes real instructions into the plan before the
+normal two-pass encoder sizes and places them, every in-range branch is byte-identical
+(the pass is a strict no-op when nothing is out of range); the full acceptance golden
+harness (1264 fixtures, incl. `.ncode` byte-identity) is neutral. Verified: bug-445's own
+8000-`WITH` repro now builds and runs (returns 0).
+
+Note (separate follow-up, same "large generated function" family): the `mfb test` driver
+`#mfb_test_main` inlined every case's run-and-report code into one function, whose *stack
+frame* (not its branches) grew with the case count until a large suite exhausted the 8 MiB
+main-thread stack and a deep-recursing case overflowed. That is not this branch-reach bug
+(the relaxation pass finds zero out-of-range branches in the driver); it was fixed
+alongside by chunking the driver into bounded-size functions
+(src/testing/desugar/driver.rs).
+
+The riscv64 conditional reach (±4 KiB) is even shorter and needs the same class of pass;
+still out of scope here (audit separately), unchanged.
 
 A function whose compiled body is large enough that a **conditional** branch must
 span more than ±1 MiB fails native codegen on AArch64 with:

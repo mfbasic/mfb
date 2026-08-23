@@ -1030,10 +1030,26 @@ impl CodeBuilder<'_> {
                 self.emit(abi::float_multiply_d(&scaled, &fval, &scale));
                 self.emit_round_double_to_money_raw(&scaled, &result)?;
             }
-            // Mirror `toFixed(String)`: parse to f64, then scale + mode-round.
+            // bug-449: parse the decimal text EXACTLY (integer arithmetic, no
+            // f64) so Money's exact base-10 contract holds on string input — the
+            // f64 path overflowed the valid max and misrounded large ties. The
+            // rare scientific-notation form (`e`/`E`) falls back to the f64 parse,
+            // which is approximate anyway.
             "String" => {
                 let invalid = self.label("to_money_invalid");
+                let overflow = self.label("to_money_overflow");
+                let scientific = self.label("to_money_scientific");
                 let done = self.label("to_money_done");
+                self.emit_parse_decimal_string_to_money_raw(
+                    &source,
+                    &result,
+                    &invalid,
+                    &overflow,
+                    &scientific,
+                )?;
+                self.emit(abi::branch(&done));
+                // Scientific-notation fallback: f64 parse, scale, mode-round.
+                self.emit(abi::label(&scientific));
                 self.emit_parse_decimal_string_to_double(&source, &invalid)?;
                 let parsed = self.allocate_fp_register()?;
                 self.emit(abi::float_move_d_from_d(&parsed, abi::FP_SCRATCH[0]));
@@ -1043,6 +1059,8 @@ impl CodeBuilder<'_> {
                 self.emit(abi::float_multiply_d(&scaled, &parsed, &scale));
                 self.emit_round_double_to_money_raw(&scaled, &result)?;
                 self.emit(abi::branch(&done));
+                self.emit(abi::label(&overflow));
+                self.raise_error("toMoney", "ErrOverflow")?;
                 self.emit(abi::label(&invalid));
                 self.raise_error("toMoney", "ErrInvalidFormat")?;
                 self.emit(abi::label(&done));

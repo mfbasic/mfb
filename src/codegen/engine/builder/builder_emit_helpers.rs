@@ -266,13 +266,18 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(crate) fn emit_function_value_call(
+    /// Emit the indirect-call sequence for a function value: prepare the argument
+    /// registers, save the caller's closure env, load the callee's code pointer and
+    /// env from the closure object, install the callee env, `blr`, then restore the
+    /// caller's env. Leaves the fallible result in the standard (tag, value,
+    /// message, source) registers. Returns the rendered argument texts. Shared by
+    /// the normal ([`Self::emit_function_value_call`]) and raw-capture
+    /// ([`Self::emit_function_value_call_raw`]) paths so the two cannot drift.
+    fn emit_function_value_invoke(
         &mut self,
-        target: &str,
         callable: &ValueResult,
         args: &[NirValue],
-        return_type: Option<&str>,
-    ) -> Result<ValueResult, String> {
+    ) -> Result<Vec<ValueResult>, String> {
         let arg_values = self.emit_prepared_call_args(args, "call_arg")?;
         let saved_env_slot = self.allocate_stack_object("closure_saved_env", 8);
         let code_register = self.allocate_register()?;
@@ -299,6 +304,34 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             saved_env_slot,
         ));
+        Ok(arg_values)
+    }
+
+    /// bug-448: invoke a function value under a raw capture (an inline `TRAP` on a
+    /// function-value call). Emits the same indirect call as
+    /// [`Self::emit_function_value_call`] but leaves the fallible result in the
+    /// standard (tag, value, message, source) registers instead of checking the
+    /// tag / extracting the value — so the caller materializes the boxed `Result`
+    /// exactly as it does for a direct user-function call. Without this the trapped
+    /// path treated the raw success *value* as a `Result`-object pointer and
+    /// dereferenced it, segfaulting.
+    pub(crate) fn emit_function_value_call_raw(
+        &mut self,
+        callable: &ValueResult,
+        args: &[NirValue],
+    ) -> Result<(), String> {
+        self.emit_function_value_invoke(callable, args)?;
+        Ok(())
+    }
+
+    pub(crate) fn emit_function_value_call(
+        &mut self,
+        target: &str,
+        callable: &ValueResult,
+        args: &[NirValue],
+        return_type: Option<&str>,
+    ) -> Result<ValueResult, String> {
+        let arg_values = self.emit_function_value_invoke(callable, args)?;
         let result_type = return_type
             .map(|type_| type_.to_string())
             .unwrap_or_else(|| "Unknown".to_string());

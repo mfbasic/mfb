@@ -324,8 +324,13 @@ fn write_executable(
     native_plan.validate()?;
     os::macos::validate_native_object_plan(&native_plan)?;
     progress("emitting native code");
-    let native_code = code::lower_module(&module, &native_plan, packages)?;
+    let mut native_code = code::lower_module(&module, &native_plan, packages)?;
     native_code.validate()?;
+    // bug-445: relax any conditional branch whose target is farther than the
+    // AArch64 imm19 ±1 MiB reach into a trampoline hop, so a large function
+    // compiles instead of being rejected by the encoder. A no-op for every
+    // function whose branches already fit (i.e. every realistic program).
+    arch::aarch64::encode::relax_conditional_branches(&mut native_code)?;
     progress("encoding image");
     let mut image = arch::aarch64::encode::encode(&native_code)?;
     image.signing_metadata = signing_metadata.map(|metadata| metadata.to_vec());

@@ -1,14 +1,18 @@
 IMPORT vector
 IMPORT math
+IMPORT errorCode
 
-' Consolidated runtime-behavior acceptance for the vector builtins, converted
-' from the tests/func_vector_*_valid fixtures. Vector results are asserted by
-' their scalar component projections (.x/.y/.z/.w) with the typed TESTING
-' assertions; scalar returns (length/distance/dot/angle) are asserted directly.
-' Float/Fixed literals are the exact full-precision values the compiler emits.
+' Consolidated runtime-behavior acceptance for the vector builtins. Vector
+' results are asserted by their scalar component projections (.x/.y/.z/.w) with
+' the typed TESTING assertions; scalar returns (length/distance/dot/angle) are
+' asserted directly. Float/Fixed literals are the exact full-precision values the
+' compiler emits. Beyond the per-function value matrix, the "errors" and "edge
+' cases" groups TRAP every documented failure (all ErrInvalidArgument 77050002
+' except abs-of-minimum, which is ErrOverflow) and pin the geometric identities
+' (orthogonality, endpoints, clamping, degenerate/zero inputs).
 
 TESTING
-  TGROUP "builtin: ventor"
+  TGROUP "builtin: vector"
     TGROUP "abs"
       TCASE "Float"
         LET f2 AS vector::Float2 = vector::abs(vector::Float2[-3.0, 4.0])
@@ -626,6 +630,160 @@ TESTING
         LET vi AS vector::Integer2 = vector::Integer2[3, 4]
         expectInteger(vi.x, 3)
         expectInteger(vi.y, 4)
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' Errors — every documented failure. All are ErrInvalidArgument
+    ' (77050002) except abs of the minimum value, which is ErrOverflow
+    ' (77050010, exactly like the scalar math::abs of the min).
+    ' =================================================================
+    TGROUP "errors"
+      TCASE "normalize of a zero vector traps (every element type / dim)"
+        expectTrap(vector::normalize(vector::zeroFloat2), errorCode::ErrInvalidArgument)
+        expectTrap(vector::normalize(vector::zeroFloat3), errorCode::ErrInvalidArgument)
+        expectTrap(vector::normalize(vector::zeroFloat4), errorCode::ErrInvalidArgument)
+        expectTrap(vector::normalize(vector::zeroFixed2), errorCode::ErrInvalidArgument)
+        expectTrap(vector::normalize(vector::zeroFixed3), errorCode::ErrInvalidArgument)
+        expectTrap(vector::normalize(vector::zeroInteger2), errorCode::ErrInvalidArgument)
+        expectTrap(vector::normalize(vector::zeroInteger4), errorCode::ErrInvalidArgument)
+        expectNTrap(vector::normalize(vector::Float2[3.0, 4.0]))
+      END TCASE
+      TCASE "project and reject onto a zero vector trap"
+        expectTrap(vector::project(vector::Float2[3.0, 4.0], vector::zeroFloat2), errorCode::ErrInvalidArgument)
+        expectTrap(vector::project(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::zeroFixed3), errorCode::ErrInvalidArgument)
+        expectTrap(vector::project(vector::Integer2[3, 4], vector::zeroInteger2), errorCode::ErrInvalidArgument)
+        expectTrap(vector::reject(vector::Float2[3.0, 4.0], vector::zeroFloat2), errorCode::ErrInvalidArgument)
+        expectTrap(vector::reject(vector::Integer4[1, 2, 2, 4], vector::zeroInteger4), errorCode::ErrInvalidArgument)
+        expectNTrap(vector::project(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0]))
+      END TCASE
+      TCASE "angle with either input zero-length traps"
+        expectTrap(vector::angle(vector::zeroFloat2, vector::Float2[1.0, 2.0]), errorCode::ErrInvalidArgument)
+        expectTrap(vector::angle(vector::Float2[1.0, 2.0], vector::zeroFloat2), errorCode::ErrInvalidArgument)
+        expectTrap(vector::angle(vector::zeroFloat3, vector::zeroFloat3), errorCode::ErrInvalidArgument)
+        expectTrap(vector::angle(vector::zeroInteger2, vector::Integer2[1, 2]), errorCode::ErrInvalidArgument)
+        expectNTrap(vector::angle(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0]))
+      END TCASE
+      TCASE "clamp_length with a negative max traps"
+        expectTrap(vector::clamp_length(vector::Float2[3.0, 4.0], 0.0 - 1.0), errorCode::ErrInvalidArgument)
+        expectTrap(vector::clamp_length(vector::Fixed2[toFixed(3.0), toFixed(4.0)], toFixed(-1.0)), errorCode::ErrInvalidArgument)
+        expectTrap(vector::clamp_length(vector::Integer2[3, 4], 0 - 1), errorCode::ErrInvalidArgument)
+        expectNTrap(vector::clamp_length(vector::Float2[3.0, 4.0], 2.0))
+        expectNTrap(vector::clamp_length(vector::Float2[3.0, 4.0], 0.0))
+      END TCASE
+      TCASE "abs of the minimum value overflows"
+        LET imin AS Integer = -9223372036854775808
+        LET vimin AS vector::Integer2 = vector::Integer2[imin, 0]
+        expectTrap(vector::abs(vimin), errorCode::ErrOverflow)
+        LET vfmin AS vector::Fixed2 = vector::Fixed2[-2147483648.0F, 0.0F]
+        expectTrap(vector::abs(vfmin), errorCode::ErrOverflow)
+        expectNTrap(vector::abs(vector::Integer2[-3, 4]))
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' Edge cases — geometric identities and boundary inputs.
+    ' =================================================================
+    TGROUP "edge cases"
+      TCASE "length and distance degeneracies"
+        expectFloat(vector::length(vector::zeroFloat2), 0.0)
+        expectFixed(vector::length(vector::zeroFixed3), 0.0F)
+        expectInteger(vector::length(vector::zeroInteger4), 0)
+        expectFloat(vector::distance(vector::Float2[3.0, 4.0], vector::Float2[3.0, 4.0]), 0.0)
+        expectInteger(vector::distance(vector::Integer3[1, 2, 2], vector::Integer3[1, 2, 2]), 0)
+      END TCASE
+      TCASE "dot: orthogonal is zero, self is length squared"
+        expectFloat(vector::dot(vector::Float2[1.0, 0.0], vector::Float2[0.0, 1.0]), 0.0)
+        expectInteger(vector::dot(vector::Integer2[1, 0], vector::Integer2[0, 1]), 0)
+        expectFloat(vector::dot(vector::Float2[3.0, 4.0], vector::Float2[3.0, 4.0]), 25.0)
+        expectInteger(vector::dot(vector::Integer2[3, 4], vector::Integer2[3, 4]), 25)
+      END TCASE
+      TCASE "angle: same is 0, opposite is pi, orthogonal is pi/2"
+        expectFloat(vector::angle(vector::Float2[3.0, 4.0], vector::Float2[3.0, 4.0]), 0.0)
+        expectFloat(vector::angle(vector::Float2[1.0, 0.0], vector::Float2[0.0 - 1.0, 0.0]), math::pi)
+        expectFloat(vector::angle(vector::Float2[1.0, 0.0], vector::Float2[0.0, 1.0]), math::pi2)
+      END TCASE
+      TCASE "normalize: unit stays unit, integer collapses to a sign vector"
+        LET nu AS vector::Float2 = vector::normalize(vector::Float2[1.0, 0.0])
+        expectFloat(nu.x, 1.0)
+        expectFloat(nu.y, 0.0)
+        LET ni AS vector::Integer2 = vector::normalize(vector::Integer2[5, 0])
+        expectInteger(ni.x, 1)
+        expectInteger(ni.y, 0)
+      END TCASE
+      TCASE "clamp_length: within-max and zero are returned unchanged"
+        LET w AS vector::Float2 = vector::clamp_length(vector::Float2[1.0, 1.0], 10.0)
+        expectFloat(w.x, 1.0)
+        expectFloat(w.y, 1.0)
+        LET z AS vector::Float2 = vector::clamp_length(vector::zeroFloat2, 5.0)
+        expectFloat(z.x, 0.0)
+        expectFloat(z.y, 0.0)
+      END TCASE
+      TCASE "lerp clamps t to [0,1] at the endpoints"
+        LET a AS vector::Float2 = vector::lerp(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0], 0.0)
+        expectFloat(a.x, 3.0)
+        expectFloat(a.y, 4.0)
+        LET b AS vector::Float2 = vector::lerp(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0], 1.0)
+        expectFloat(b.x, 1.0)
+        expectFloat(b.y, 2.0)
+        LET below AS vector::Float2 = vector::lerp(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0], 0.0 - 1.0)
+        expectFloat(below.x, 3.0)
+        expectFloat(below.y, 4.0)
+        LET above AS vector::Float2 = vector::lerp(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0], 2.0)
+        expectFloat(above.x, 1.0)
+        expectFloat(above.y, 2.0)
+      END TCASE
+      TCASE "slerp: endpoints exact, parallel falls back to a linear blend"
+        LET s0 AS vector::Float2 = vector::slerp(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0], 0.0)
+        expectFloat(s0.x, 3.0)
+        expectFloat(s0.y, 4.0)
+        LET s1 AS vector::Float2 = vector::slerp(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0], 1.0)
+        expectFloat(s1.x, 1.0)
+        expectFloat(s1.y, 2.0)
+        LET par AS vector::Float2 = vector::slerp(vector::Float2[1.0, 0.0], vector::Float2[2.0, 0.0], 0.5)
+        expectFloat(par.x, 1.5)
+        expectFloat(par.y, 0.0)
+      END TCASE
+      TCASE "reflect uses the normal as given (not renormalized)"
+        LET r AS vector::Float2 = vector::reflect(vector::Float2[3.0, 4.0], vector::Float2[1.0, 0.0])
+        expectFloat(r.x, -3.0)
+        expectFloat(r.y, 4.0)
+        LET r2 AS vector::Float2 = vector::reflect(vector::Float2[1.0, 0.0], vector::Float2[0.0, 1.0])
+        expectFloat(r2.x, 1.0)
+        expectFloat(r2.y, 0.0)
+      END TCASE
+      TCASE "cross and perpendicular are orthogonal to their inputs"
+        LET c3 AS vector::Float3 = vector::cross(vector::Float3[1.0, 0.0, 0.0], vector::Float3[0.0, 1.0, 0.0])
+        expectFloat(c3.x, 0.0)
+        expectFloat(c3.y, 0.0)
+        expectFloat(c3.z, 1.0)
+        expectFloat(vector::dot(vector::Float3[1.0, 0.0, 0.0], c3), 0.0)
+        LET c2 AS vector::Float2 = vector::cross(vector::Float2[1.0, 0.0])
+        expectFloat(c2.x, 0.0)
+        expectFloat(c2.y, 1.0)
+        LET p AS vector::Float2 = vector::perpendicular(vector::Float2[3.0, 4.0])
+        expectFloat(p.x, -4.0)
+        expectFloat(p.y, 3.0)
+        expectFloat(vector::dot(vector::Float2[3.0, 4.0], p), 0.0)
+      END TCASE
+      TCASE "scale, min, max, and abs boundaries"
+        LET sc AS vector::Float2 = vector::scale(vector::Float2[3.0, 4.0], vector::oneFloat2)
+        expectFloat(sc.x, 3.0)
+        expectFloat(sc.y, 4.0)
+        LET sz AS vector::Float2 = vector::scale(vector::Float2[3.0, 4.0], vector::zeroFloat2)
+        expectFloat(sz.x, 0.0)
+        expectFloat(sz.y, 0.0)
+        LET mn AS vector::Integer2 = vector::min(vector::Integer2[3, 4], vector::Integer2[1, 7])
+        expectInteger(mn.x, 1)
+        expectInteger(mn.y, 4)
+        LET mx AS vector::Integer2 = vector::max(vector::Integer2[3, 4], vector::Integer2[1, 7])
+        expectInteger(mx.x, 3)
+        expectInteger(mx.y, 7)
+        LET az AS vector::Integer2 = vector::abs(vector::zeroInteger2)
+        expectInteger(az.x, 0)
+        LET ap AS vector::Integer2 = vector::abs(vector::Integer2[5, -3])
+        expectInteger(ap.x, 5)
+        expectInteger(ap.y, 3)
       END TCASE
     END TGROUP
   END TGROUP
