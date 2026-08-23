@@ -2,8 +2,28 @@
 //!
 //! Per-member file (planning/migrate.md).
 
-use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
+use crate::codegen::engine::builder::*;
+use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
+
+/// `os::name` — the OS family string (`"macos"`/`"linux"`/`"windows"`) selected by the
+/// build target, materialized as a fresh owned `String` via the shared
+/// [`super::gen_introspect::lower_const_string`] (shared with `os::arch`).
+pub(crate) fn lower_name(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) = super::gen_introspect::lower_const_string(
+        &symbol,
+        super::gen_shared::os_family(ctx.platform.family()),
+    )?;
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result("os.name"))
+}
 
 const INTRO: &str = r#"The operating-system family the program was built for"#;
 const DESC: &str = r#"`os::name` returns the operating-system family of the build target: `"macos"` or
@@ -36,7 +56,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![],
             return_type: ParameterType::String,
             errors: vec![],
-            body: Body::abi_function(crate::codegen::builtins::os::gen_os_seam::lower_os_os_seam),
+            body: Body::abi_function(lower_name),
         }],
     });
 }

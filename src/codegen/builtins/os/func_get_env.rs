@@ -1,15 +1,29 @@
-//! `os::getEnv` — descriptor entry + authored docs.
-//!
-//! Per-member file (planning/migrate.md). `os` is a native OS-seam package: the
-//! member registers the shared [`crate::codegen::builtins::os::gen_os_seam::lower_os_os_seam`]
-//! `Body::abi_function` body, which dispatches by `AbiCtx::call` to
-//! `lower_os_helper` (branching on `platform.family()` and the runtime-call name
-//! internally).
+//! `os::getEnv` — descriptor entry + authored docs, and the per-member
+//! `Body::abi_function` lowering ([`lower_get_env`]). The `getenv` + marshal body is
+//! shared with `getEnvOr` (the two differ only by the fallback flag), so it lives in
+//! [`super::gen_env`] and this per-member body calls it with `with_fallback = false`.
 
+use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::types::ParameterType;
+
+/// `os::getEnv(name)` — read an environment variable, raising `ErrNotFound` when it
+/// is unset. Shares [`super::gen_env::lower_get_env`] with `getEnvOr`.
+pub(crate) fn lower_get_env(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) =
+        super::gen_env::lower_get_env(&symbol, ctx.platform_imports, ctx.platform, false)?;
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result("os.getEnv"))
+}
 
 const INTRO: &str = r#"Read an environment variable, raising when it is unset"#;
 const DESC: &str = r#"`os::getEnv` returns the value of the environment variable named `name` as it
@@ -69,7 +83,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::String,
             errors: vec![],
-            body: Body::abi_function(crate::codegen::builtins::os::gen_os_seam::lower_os_os_seam),
+            body: Body::abi_function(lower_get_env),
         }],
     });
 }

@@ -6,18 +6,17 @@
 //! CPU architecture, host and user names, and CPU count).
 //!
 //! Migrated onto the clean-room registry (`crate::codegen::registry`) and onto the
-//! `Body::abi_function` clean-room shape (crypto/io/fs/net). Every member registers
-//! the one shared [`gen_os_seam::lower_os_os_seam`] `abi_function` body, which
-//! dispatches by [`AbiCtx::call`](crate::codegen::registry::AbiCtx) to the
-//! family-generic [`gen_os_seam::lower_os_helper`] (branching on `platform.family()`
-//! internally). `os` owns **no** resource handle — `os::resourcePath` merely
-//! *returns* a `String`; the substring "resource" names no `RegistryResource`.
+//! `Body::abi_function` clean-room shape (crypto/io/fs/net). Each member owns its
+//! `abi_function` body in its own `func_*.rs` (`lower_<name>`, branching on
+//! `platform.family()` internally); genuinely-shared emitters live in `gen_env`,
+//! `gen_introspect`, `gen_paths`, and `gen_shared` and are called by those bodies.
+//! `os` owns **no** resource handle — `os::resourcePath` merely *returns* a
+//! `String`; the substring "resource" names no `RegistryResource`.
 //!
 //! `os::resourcePath` is the one member that consumes per-compilation build
-//! context: the shared body threads the real `build_mode`/`module_name`
-//! (the strip/suffix selection baked into the resource-base offset, both carried on
-//! the `AbiCtx`) into [`gen_os_seam::lower_os_helper`]'s path arm. Every other
-//! member accepts and ignores them.
+//! context: [`func_resource_path::lower_resource_path`] reads the real
+//! `build_mode`/`module_name` off the `AbiCtx` (the strip/suffix selection baked
+//! into the resource-base offset). Every other member accepts and ignores them.
 //!
 //! `os` is a fully data-only package: each call's return type is fixed per name,
 //! no overload uses an argument union, and it contributes no builtin value type or
@@ -28,10 +27,10 @@ use crate::codegen::registry::{Registry, RegistryPackage};
 
 mod gen_env;
 mod gen_introspect;
-mod gen_os_seam;
 mod gen_paths;
+mod gen_shared;
 pub(crate) use gen_env::{module_uses_env_lock, os_env_lock_init_hex};
-pub(crate) use gen_os_seam::{
+pub(crate) use gen_shared::{
     OS_ARGC_GLOBAL_SYMBOL, OS_ARGV_GLOBAL_SYMBOL, OS_ENV_LOCK_SIZE, OS_ENV_LOCK_SYMBOL,
 };
 

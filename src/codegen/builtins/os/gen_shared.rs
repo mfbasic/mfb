@@ -30,7 +30,6 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
-use std::collections::HashMap;
 pub(crate) const ERRNO_ENOMEM: &str = "12";
 pub(crate) const OS_ARGC_GLOBAL_SYMBOL: &str = "_mfb_rt_os_argc";
 pub(crate) const OS_ARGV_GLOBAL_SYMBOL: &str = "_mfb_rt_os_argv";
@@ -73,79 +72,22 @@ pub(crate) const OS_ENV_LOCK_CALLS: &[&str] = &[
 /// `finalize_vreg_body_with_locals`, byte-identical to the body's former self-finalize.
 pub(crate) type OsBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize);
 
-/// The `abi_function` body shared by every native `os.*` member (crypto/io/net's
-/// clean-room shape). The `abi_function` wrapper seeds the entry label, binds the
-/// incoming ABI argument registers, and finalizes; this body dispatches to the
-/// family-generic [`lower_os_helper`] by the runtime-call name in [`AbiCtx::call`]
-/// and appends its instructions/relocations. All native members register this one body.
-pub(crate) fn lower_os_os_seam(
-    builder: &mut CodeBuilder,
-    _args: &[ValueResult],
-    ctx: &crate::codegen::registry::AbiCtx,
-) -> Result<ValueResult, String> {
-    let symbol = builder.current_symbol.clone();
-    let (instructions, relocations, stack_size) = lower_os_helper(
-        ctx.call,
-        &symbol,
-        ctx.build_mode,
-        ctx.module_name,
-        ctx.platform_imports,
-        ctx.platform,
-    )?;
-    builder.instructions.extend(instructions);
-    builder.relocations.extend(relocations);
-    builder.stack_size = stack_size;
-    // A `void` location: every os body emits its own fallible ABI, so the wrapper
-    // appends no epilogue.
-    Ok(ValueResult {
+/// The `void`-location [`ValueResult`] every `os` per-member `abi_function` body
+/// returns: it emits its OWN fallible ABI (result value + `RESULT_OK_TAG`, each
+/// error path jumping to its own `ret`), so the wrapper appends no epilogue. `text`
+/// is the member's runtime-call name (`os.pid`).
+pub(crate) fn void_result(text: &str) -> ValueResult {
+    ValueResult {
         origin: None,
         type_: "Nothing".to_string(),
         location: crate::codegen::engine::operand::Operand::from("void"),
-        text: ctx.call.to_string(),
-    })
-}
-
-/// The family-generic dispatcher for every `os::` runtime helper — reached from the
-/// shared [`lower_os_os_seam`] `abi_function` body. It dispatches on the runtime-call
-/// name; the per-member lowering handles the OS family internally and returns the
-/// pre-finalize [`OsBodyParts`] the wrapper finalizes. `os.resourcePath` is the one
-/// arm that consumes the per-compilation `build_mode`/`module_name`; every other arm
-/// ignores them.
-pub(crate) fn lower_os_helper(
-    call: &str,
-    symbol: &str,
-    build_mode: crate::target::NativeBuildMode,
-    module_name: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-) -> Result<OsBodyParts, String> {
-    match call {
-        "os.getEnv" => lower_get_env(symbol, platform_imports, platform, false),
-        "os.getEnvOr" => lower_get_env(symbol, platform_imports, platform, true),
-        "os.hasEnv" => lower_has_env(symbol, platform_imports, platform),
-        "os.setEnv" => lower_set_env(symbol, platform_imports, platform),
-        "os.unsetEnv" => lower_unset_env(symbol, platform_imports, platform),
-        "os.environ" => lower_environ(symbol, platform_imports, platform),
-        "os.name" => lower_const_string(symbol, os_family(platform.family())),
-        "os.arch" => lower_const_string(symbol, os_arch(platform.target())),
-        "os.pid" => lower_pid(symbol, platform_imports, platform),
-        "os.cpuCount" => lower_cpu_count(symbol, platform_imports, platform),
-        "os.hostName" => lower_host_name(symbol, platform_imports, platform),
-        "os.userName" => lower_user_name(symbol, platform_imports, platform),
-        "os.executablePath" => lower_executable_path(symbol, platform_imports, platform),
-        "os.resourcePath" => {
-            lower_resource_path(symbol, build_mode, module_name, platform_imports, platform)
-        }
-        "os.args" => lower_args(symbol),
-        other => Err(format!(
-            "native os lowering does not support runtime call '{other}'"
-        )),
+        text: text.to_string(),
     }
 }
 
 /// The OS family string for `os::name` — the part of the target triple before
 /// the first `-` (`macos-aarch64` → `macos`).
-fn os_family(family: PlatformFamily) -> &'static str {
+pub(crate) fn os_family(family: PlatformFamily) -> &'static str {
     match family {
         PlatformFamily::MacOS => "macos",
         PlatformFamily::Linux => "linux",
@@ -156,7 +98,7 @@ fn os_family(family: PlatformFamily) -> &'static str {
 }
 
 /// The CPU architecture string for `os::arch` — the part after the first `-`.
-fn os_arch(target: &str) -> &'static str {
+pub(crate) fn os_arch(target: &str) -> &'static str {
     if target.ends_with("x86_64") {
         "x86_64"
     } else if target.ends_with("riscv64") {
@@ -396,7 +338,3 @@ pub(crate) fn emit_store_byte_advance(
         abi::add_immediate(dst, dst, 1),
     ]);
 }
-
-use super::gen_env::*;
-use super::gen_introspect::*;
-use super::gen_paths::*;
