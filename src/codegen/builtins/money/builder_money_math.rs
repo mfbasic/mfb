@@ -398,6 +398,222 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// bug-449: parse a decimal `Money` string EXACTLY to its scaled raw i64 in
+    /// `dst`, using integer arithmetic only — no f64 — so the exact base-10
+    /// contract Money is built on holds on string input too. Mirrors
+    /// [`crate::numeric::money_conversion_from_decimal`]: an optional sign, whole
+    /// digits, an optional `.` and fractional digits; the first 5 fractional
+    /// digits are kept and the 6th settles the value under the current rounding
+    /// mode (Commercial away, Banker to even — same as arithmetic rounding), any
+    /// nonzero digit past the 6th making a non-tie.
+    ///
+    /// Control leaves through one of: `dst` set and fall through (success),
+    /// `invalid_label` (malformed text), `overflow_label` (out of the i64 raw
+    /// range), or `scientific_label` (an `e`/`E` — the rare exponent form is left
+    /// to the f64 caller path, since a scientific money string is inherently
+    /// approximate). The whole part is bounded to 92233720368547 as it
+    /// accumulates so `whole * 100000` cannot overflow before the final range
+    /// check; the magnitude is compared unsigned so the exact min
+    /// (-92233720368547.75808, raw 2^63) is accepted.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn emit_parse_decimal_string_to_money_raw(
+        &mut self,
+        source_register: impl Into<Operand>,
+        dst: impl Into<Operand>,
+        invalid_label: &str,
+        overflow_label: &str,
+        scientific_label: &str,
+    ) -> Result<(), String> {
+        let dst = dst.into();
+        let string = self.temporary_vreg();
+        let length = self.temporary_vreg();
+        let cursor = self.temporary_vreg();
+        let index = self.temporary_vreg();
+        let byte = self.temporary_vreg();
+        let digit = self.temporary_vreg();
+        let whole = self.temporary_vreg();
+        let frac5 = self.temporary_vreg();
+        let frac_count = self.temporary_vreg();
+        let d6 = self.temporary_vreg();
+        let rest_nonzero = self.temporary_vreg();
+        let negative = self.temporary_vreg();
+        let seen_digit = self.temporary_vreg();
+        let dot_seen = self.temporary_vreg();
+        let ten = self.temporary_vreg();
+        let scratch = self.temporary_vreg();
+
+        let loop_start = self.label("money_parse_loop");
+        let after_sign = self.label("money_parse_after_sign");
+        let not_minus = self.label("money_parse_not_minus");
+        let sign_done = self.label("money_parse_sign_done");
+        let dot = self.label("money_parse_dot");
+        let is_frac = self.label("money_parse_frac");
+        let frac_gt5 = self.label("money_parse_frac_gt5");
+        let frac_rest = self.label("money_parse_frac_rest");
+        let advance = self.label("money_parse_advance");
+        let finish = self.label("money_parse_finish");
+        let do_inc = self.label("money_parse_do_inc");
+        let no_inc = self.label("money_parse_no_inc");
+        let neg_path = self.label("money_parse_neg");
+        let set_done = self.label("money_parse_set_done");
+
+        self.emit(abi::move_register(&string, source_register));
+        self.emit(abi::load_u64(&length, &string, 0));
+        self.emit(abi::compare_immediate(&length, "0"));
+        self.emit(abi::branch_eq(invalid_label));
+        self.emit(abi::add_immediate(&cursor, &string, 8));
+        self.emit(abi::move_immediate(&index, "Integer", "0"));
+        self.emit(abi::move_immediate(&negative, "Integer", "0"));
+        self.emit(abi::move_immediate(&seen_digit, "Integer", "0"));
+        self.emit(abi::move_immediate(&dot_seen, "Integer", "0"));
+        self.emit(abi::move_immediate(&whole, "Integer", "0"));
+        self.emit(abi::move_immediate(&frac5, "Integer", "0"));
+        self.emit(abi::move_immediate(&frac_count, "Integer", "0"));
+        self.emit(abi::move_immediate(&d6, "Integer", "0"));
+        self.emit(abi::move_immediate(&rest_nonzero, "Integer", "0"));
+        self.emit(abi::move_immediate(&ten, "Integer", "10"));
+
+        // Optional leading sign.
+        self.emit(abi::load_u8(&byte, &cursor, 0));
+        self.emit(abi::compare_immediate(&byte, "45")); // '-'
+        self.emit(abi::branch_ne(&not_minus));
+        self.emit(abi::move_immediate(&negative, "Integer", "1"));
+        self.emit(abi::branch(&after_sign));
+        self.emit(abi::label(&not_minus));
+        self.emit(abi::compare_immediate(&byte, "43")); // '+'
+        self.emit(abi::branch_ne(&sign_done));
+        self.emit(abi::label(&after_sign));
+        self.emit(abi::add_immediate(&index, &index, 1));
+        self.emit(abi::add_immediate(&cursor, &cursor, 1));
+        self.emit(abi::label(&sign_done));
+
+        self.emit(abi::label(&loop_start));
+        self.emit(abi::compare_registers(&index, &length));
+        self.emit(abi::branch_ge(&finish));
+        self.emit(abi::load_u8(&byte, &cursor, 0));
+        self.emit(abi::compare_immediate(&byte, "46")); // '.'
+        self.emit(abi::branch_eq(&dot));
+        self.emit(abi::compare_immediate(&byte, "101")); // 'e'
+        self.emit(abi::branch_eq(scientific_label));
+        self.emit(abi::compare_immediate(&byte, "69")); // 'E'
+        self.emit(abi::branch_eq(scientific_label));
+        self.emit(abi::compare_immediate(&byte, "48")); // '0'
+        self.emit(abi::branch_lo(invalid_label));
+        self.emit(abi::compare_immediate(&byte, "57")); // '9'
+        self.emit(abi::branch_hi(invalid_label));
+        self.emit(abi::move_immediate(&seen_digit, "Integer", "1"));
+        self.emit(abi::subtract_immediate(&digit, &byte, 48));
+        self.emit(abi::compare_immediate(&dot_seen, "0"));
+        self.emit(abi::branch_ne(&is_frac));
+        // Integer part: whole = whole * 10 + digit, bounded so `* 100000` is safe.
+        self.emit(abi::multiply_registers(&whole, &whole, &ten));
+        self.emit(abi::add_registers(&whole, &whole, &digit));
+        self.emit(abi::move_immediate(&scratch, "Integer", "92233720368547"));
+        self.emit(abi::compare_registers(&whole, &scratch));
+        self.emit(abi::branch_hi(overflow_label));
+        self.emit(abi::branch(&advance));
+        // Fractional part.
+        self.emit(abi::label(&is_frac));
+        self.emit(abi::add_immediate(&frac_count, &frac_count, 1));
+        self.emit(abi::compare_immediate(&frac_count, "5"));
+        self.emit(abi::branch_hi(&frac_gt5));
+        // The first 5 fractional digits form the kept scaled value.
+        self.emit(abi::multiply_registers(&frac5, &frac5, &ten));
+        self.emit(abi::add_registers(&frac5, &frac5, &digit));
+        self.emit(abi::branch(&advance));
+        self.emit(abi::label(&frac_gt5));
+        self.emit(abi::compare_immediate(&frac_count, "6"));
+        self.emit(abi::branch_ne(&frac_rest));
+        self.emit(abi::move_register(&d6, &digit)); // the 6th digit drives rounding
+        self.emit(abi::branch(&advance));
+        self.emit(abi::label(&frac_rest));
+        // Any nonzero digit past the 6th means the 6th place is not an exact tie.
+        self.emit(abi::compare_immediate(&digit, "0"));
+        self.emit(abi::branch_eq(&advance));
+        self.emit(abi::move_immediate(&rest_nonzero, "Integer", "1"));
+        self.emit(abi::label(&advance));
+        self.emit(abi::add_immediate(&index, &index, 1));
+        self.emit(abi::add_immediate(&cursor, &cursor, 1));
+        self.emit(abi::branch(&loop_start));
+
+        self.emit(abi::label(&dot));
+        self.emit(abi::compare_immediate(&dot_seen, "0"));
+        self.emit(abi::branch_ne(invalid_label)); // a second '.' is malformed
+        self.emit(abi::move_immediate(&dot_seen, "Integer", "1"));
+        self.emit(abi::branch(&advance));
+
+        self.emit(abi::label(&finish));
+        self.emit(abi::compare_immediate(&seen_digit, "0"));
+        self.emit(abi::branch_eq(invalid_label)); // no digits at all
+                                                  // Zero-pad the kept fraction on the RIGHT to exactly 5 places: `.5` is
+                                                  // 0.50000 (frac5 50000), not 0.00005. Fewer than 5 fractional digits
+                                                  // scales frac5 up by 10 per missing place; 5-or-more already fills it.
+        let pad_loop = self.label("money_parse_pad_loop");
+        let pad_done = self.label("money_parse_pad_done");
+        self.emit(abi::label(&pad_loop));
+        self.emit(abi::compare_immediate(&frac_count, "5"));
+        self.emit(abi::branch_ge(&pad_done));
+        self.emit(abi::multiply_registers(&frac5, &frac5, &ten));
+        self.emit(abi::add_immediate(&frac_count, &frac_count, 1));
+        self.emit(abi::branch(&pad_loop));
+        self.emit(abi::label(&pad_done));
+        // Settle the 6th fractional digit into frac5 under the current mode.
+        self.emit(abi::compare_immediate(&d6, "5"));
+        self.emit(abi::branch_lo(&no_inc)); // < 5 → truncate
+        self.emit(abi::branch_hi(&do_inc)); // > 5 → round up
+                                            // d6 == 5: past the half (rest nonzero) rounds up; an exact half uses the mode.
+        self.emit(abi::compare_immediate(&rest_nonzero, "0"));
+        self.emit(abi::branch_ne(&do_inc));
+        self.emit(abi::load_u64(
+            &scratch,
+            ARENA_STATE_REGISTER,
+            ARENA_ROUNDING_MODE_OFFSET,
+        ));
+        self.emit(abi::compare_immediate(&scratch, "0"));
+        self.emit(abi::branch_eq(&do_inc)); // Commercial → away
+                                            // Banker → to even: round up only when the kept value's last digit is odd.
+        self.emit(abi::move_immediate(&scratch, "Integer", "1"));
+        self.emit(abi::and_registers(&digit, &frac5, &scratch));
+        self.emit(abi::compare_immediate(&digit, "0"));
+        self.emit(abi::branch_eq(&no_inc));
+        self.emit(abi::label(&do_inc));
+        self.emit(abi::add_immediate(&frac5, &frac5, 1));
+        self.emit(abi::label(&no_inc));
+
+        // raw_mag = whole * 100000 + frac5 (a frac5 of 100000 carries naturally).
+        self.emit(abi::move_immediate(&scratch, "Integer", "100000"));
+        self.emit(abi::multiply_registers(&whole, &whole, &scratch));
+        self.emit(abi::add_registers(&whole, &whole, &frac5));
+        // Apply the sign and the i64 range check (unsigned magnitude compares).
+        self.emit(abi::compare_immediate(&negative, "0"));
+        self.emit(abi::branch_ne(&neg_path));
+        // Positive: magnitude must fit i64::MAX = 9223372036854775807.
+        self.emit(abi::move_immediate(
+            &scratch,
+            "Integer",
+            "9223372036854775807",
+        ));
+        self.emit(abi::compare_registers(&whole, &scratch));
+        self.emit(abi::branch_hi(overflow_label));
+        self.emit(abi::move_register(&dst, &whole));
+        self.emit(abi::branch(&set_done));
+        self.emit(abi::label(&neg_path));
+        // Negative: magnitude must fit 2^63 = 9223372036854775808 (i64::MIN);
+        // 0 - 2^63 wraps to i64::MIN in two's complement, exactly the min Money.
+        self.emit(abi::move_immediate(
+            &scratch,
+            "Integer",
+            "9223372036854775807",
+        ));
+        self.emit(abi::add_immediate(&scratch, &scratch, 1)); // 2^63, unrepresentable as a positive i64 literal
+        self.emit(abi::compare_registers(&whole, &scratch));
+        self.emit(abi::branch_hi(overflow_label));
+        self.emit(abi::move_immediate(&scratch, "Integer", "0"));
+        self.emit(abi::subtract_registers(&dst, &scratch, &whole));
+        self.emit(abi::label(&set_done));
+        Ok(())
+    }
+
     /// floor/ceil/round of a Money raw to its whole-unit Integer count
     /// (plan-29-G §4.7). `q = raw / 100000` truncated toward zero, then adjusted:
     /// floor toward -∞, ceil toward +∞, round half-away-from-zero.

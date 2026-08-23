@@ -5,8 +5,32 @@ Effort: medium (native/runtime exact-decimal parser)
 Severity: MEDIUM
 Class: Correctness (financial exactness — the whole point of Money — is lost on string input)
 
-Status: Open
-Regression Test: to be added (rt-behavior money-from-string fixture)
+Status: Fixed
+Regression Test: tests/acceptance/src/money.mfb — "string parsing is exact base-10,
+at the range boundaries too (bug-449)" (exact max/min strings, `.5`, leading zeros,
+and a large 6th-place tie under both rounding modes).
+
+## Resolution
+
+Fixed by an exact integer decimal parser for the `String` arm of `lower_to_money`
+(`src/codegen/engine/convert/builder_conversions.rs`), backed by a new
+`emit_parse_decimal_string_to_money_raw` in
+`src/codegen/builtins/money/builder_money_math.rs`. It parses sign + whole +
+fractional digits with integer arithmetic only (no f64): the first 5 fractional
+digits are kept (right-zero-padded to 5), the 6th settles the value under the
+current rounding mode (Commercial away / Banker to even, matching the arithmetic
+rounding sites), any nonzero digit past the 6th makes a non-tie, the whole part is
+bounded as it accumulates so `whole*100000` cannot overflow, and the magnitude is
+compared unsigned so the exact minimum (raw 2^63) is accepted. Malformed → the
+existing ErrInvalidFormat; out of range → ErrOverflow. The rare scientific-notation
+form (`e`/`E`) still routes to the f64 path (a scientific money string is
+inherently approximate).
+
+Verified: `toMoney("92233720368547.75807")` == the max literal, the min likewise,
+`toMoney("1.234565")` is 1.23457 (Commercial) / 1.23456 (Banker), `.5` → 0.50000,
+mid-range values unchanged. The `general` byte-identity fixture (the only one that
+emits a runtime `toMoney(String)`) had its `.ncodesum` goldens regenerated for all
+five targets.
 
 `toMoney(String)` lowers by parsing the text to an **f64**, then scaling by
 100000.0 and mode-rounding (`src/codegen/engine/convert/builder_conversions.rs`,

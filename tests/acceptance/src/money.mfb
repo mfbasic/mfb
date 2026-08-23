@@ -159,8 +159,24 @@ TESTING
       TCASE "malformed text and out-of-range text fail"
         expectTrap(toMoney("abc"), errorCode::ErrInvalidFormat)
         expectTrap(toMoney(""), errorCode::ErrInvalidFormat)
+        expectTrap(toMoney("1.2.3"), errorCode::ErrInvalidFormat)
+        expectTrap(toMoney("."), errorCode::ErrInvalidFormat)
         expectTrap(toMoney("99999999999999999999"), errorCode::ErrOverflow)
         expectNTrap(toMoney("3.50"))
+      END TCASE
+      TCASE "string parsing is exact base-10, at the range boundaries too (bug-449)"
+        ' The exact max/min strings parse to the same value as the literals — the
+        ' f64 parse used to overflow the max and misround large 6th-place ties.
+        expectEqual(toMoney("92233720368547.75807"), 92233720368547.75807m)
+        expectEqual(toMoney("-92233720368547.75808"), -92233720368547.75808m)
+        expectEqual(toMoney("123456789.12345"), 123456789.12345m)
+        expectEqual(toMoney(".5"), 0.50000m)
+        expectEqual(toMoney("007.50"), 7.50m)
+        money::setRounding(Rounding.Commercial)
+        expectEqual(toMoney("1.234565"), 1.23457m)
+        money::setRounding(Rounding.Banker)
+        expectEqual(toMoney("1.234565"), 1.23456m)
+        money::setRounding(Rounding.Commercial)
       END TCASE
     END TGROUP
 
