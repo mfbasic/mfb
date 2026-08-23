@@ -2,7 +2,7 @@
 //! local/remote address, read/write, DNS lookup, and the UDP datagram
 //! operations (bind/receive/send). Each `lower_net_*_helper` emits a
 //! self-contained AArch64 runtime function returning the standard
-//! `(tag, value)` result in `x0`/`x1`. See `gen_os_seam` for the shared
+//! `(tag, value)` result in `x0`/`x1`. See `gen_shared` for the shared
 //! emitters and record-layout invariants.
 
 // --- codegen tier imports (migration) ---
@@ -16,7 +16,7 @@ use crate::codegen::os::syscall::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
 
-use super::gen_os_seam::*;
+use super::gen_shared::*;
 /// Winsock `WSAETIMEDOUT`: a blocking socket op that hits SO_RCVTIMEO/SO_SNDTIMEO
 /// reports this on Windows, where POSIX reports EAGAIN/EWOULDBLOCK (plan-47-I,
 /// bug-109). Used only on the `PlatformFamily::Windows` timeout arms.

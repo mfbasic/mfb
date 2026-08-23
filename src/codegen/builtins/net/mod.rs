@@ -9,11 +9,12 @@
 //!
 //! Like `fs`/`audio`, `net` is a **native OS-seam** package migrated to the
 //! `Body::abi_function` clean-room shape: every socket/DNS/UDP member carries a
-//! per-platform runtime-helper lowering. The relocated syscall emission lives in
-//! [`gen_os_seam`]; each such member's [`Body::abi_function_aliased`] holds the one
-//! clean-room lowering [`gen_os_seam::lower_net_os_seam`], which dispatches to the
-//! family-generic [`gen_os_seam::lower_net_helper`] by `AbiCtx::call` and selects the
-//! posix/win emission by `platform.family()`. The member plus its `connectTcpAddr` /
+//! per-platform runtime-helper lowering. The relocated syscall emission lives in the
+//! `gen_shared`/`gen_io`/`gen_poll` `lower_net_*_helper` emitters; each member owns
+//! its own [`Body::abi_function_aliased`] body in its `func_*.rs` (`lower_<name>`),
+//! which calls the matching `lower_net_*_helper` (with any bool/alias discriminant)
+//! and finalizes; each emitter selects the posix/win emission by `platform.family()`.
+//! The member plus its `connectTcpAddr` /
 //! `pollList` code-form aliases route through `is_abi_function_call` /
 //! `abi_function_lower` (the aux→primary routing is registry data), and the `Net`
 //! runtime family is preserved via `abi_function_family` so the `_mfb_rt_net_*`
@@ -99,8 +100,8 @@ mod func_write;
 mod func_write_text;
 
 mod gen_io;
-pub(crate) mod gen_os_seam;
 mod gen_poll;
+pub(crate) mod gen_shared;
 
 /// The bare resource/record type names — the identity *within* the `net` package
 /// (the `RegistryResource`/`RegistryRecord` name, the `type` half of a qualified
@@ -141,13 +142,18 @@ URL into a `Url` value record, `toString` renders it back, and
 `Socket`, `Listener`, and `UdpSocket` handles are opaque, owned resources closed
 automatically by lexical drop; `net::close` releases one earlier."#;
 
-/// The `Body::abi_function_aliased` every native `net.*` member carries: the one
-/// clean-room lowering [`gen_os_seam::lower_net_os_seam`] (which dispatches to the
-/// family-generic [`gen_os_seam::lower_net_helper`] by `AbiCtx::call`), plus any code-form
+/// Build a native `net.*` member's `Body::abi_function_aliased`: its own per-member
+/// lowering `lower` (which lives in the member's `func_*.rs` and calls the matching
+/// `gen_shared`/`gen_io`/`gen_poll` `lower_net_*_helper` emitter), plus any code-form
 /// `os_aliases` (`connectTcpAddr`/`pollList`) the overload emits — the `abi_function`
-/// successor to the `native_os_seam` twin idiom (crypto/io/fs/audio shape).
-pub(crate) fn net_native(os_aliases: &'static [&'static str]) -> Body {
-    Body::abi_function_aliased(gen_os_seam::lower_net_os_seam, os_aliases)
+/// successor to the `native_os_seam` twin idiom (crypto/io/fs/audio shape). Aliases
+/// route to the same member body through `abi_function_lower`, distinguished off
+/// `AbiCtx::call`.
+pub(crate) fn native_body(
+    lower: crate::codegen::registry::AbiFunction,
+    os_aliases: &'static [&'static str],
+) -> Body {
+    Body::abi_function_aliased(lower, os_aliases)
 }
 
 /// Register the `net` package on the clean-room registry.

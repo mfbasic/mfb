@@ -16,8 +16,31 @@ fn overload(ty: ParameterType) -> Implementation {
         }],
         return_type: ParameterType::Named(super::ADDRESS_TYPE),
         errors: vec![],
-        body: super::net_native(&[]),
+        body: super::native_body(lower_local_address, &[]),
     }
+}
+
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::AbiCtx;
+
+/// `abi_function` body for `net::local_address` — calls the shared `lower_net_*_helper`
+/// emitter and finalizes.
+pub(crate) fn lower_local_address(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) = super::gen_io::lower_net_address_helper(
+        &symbol,
+        ctx.platform_imports,
+        ctx.platform,
+        false,
+    )?;
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result(ctx.call))
 }
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

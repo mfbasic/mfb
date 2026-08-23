@@ -1,9 +1,10 @@
-//! The shared `net` `abi_function` body ([`lower_net_os_seam`]) and the
-//! family-generic OS-seam dispatcher ([`lower_net_helper`]) it delegates to, plus
-//! the DNS-lookup / TCP-endpoint helpers and the socket-call symbol/emitter
-//! primitives the sibling [`super::gen_io`] / [`super::gen_poll`] backends share.
-//! Each `lower_net_*_helper` emits a self-contained runtime function that marshals
-//! libc socket calls and returns the standard `(tag, value)` result in `x0`/`x1`.
+//! The shared `net` OS-seam emitters: the DNS-lookup / TCP-endpoint / connect /
+//! listen helpers and the socket-call symbol/emitter primitives the sibling
+//! [`super::gen_io`] / [`super::gen_poll`] backends share. Each `lower_net_*_helper`
+//! emits a self-contained runtime function that marshals libc socket calls and
+//! returns the standard `(tag, value)` result in `x0`/`x1`; each `net::` member owns
+//! its `Body::abi_function` body in its own `func_*.rs`, which calls the matching
+//! `lower_net_*_helper` (with any bool/alias discriminant) and finalizes.
 //!
 //! Socket and listener handles share the `File` record layout (`fd` at offset
 //! 0, a `closed` flag at offset 8). Platform `sockaddr` structures are produced
@@ -12,8 +13,6 @@
 //! platforms for `AF_INET`.
 
 // --- codegen tier imports (migration) ---
-use super::gen_io::*;
-use super::gen_poll::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
@@ -1065,89 +1064,14 @@ pub(crate) fn lower_net_listen_tcp_helper(
 /// `finalize_vreg_body_with_locals`, byte-identical to the body's former self-finalize.
 pub(crate) type NetBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize);
 
-/// The `abi_function` body shared by every native `net.*` member (crypto/io's
-/// clean-room shape). The `abi_function` wrapper seeds the entry label, binds the
-/// incoming ABI argument registers, and finalizes; this body dispatches to the
-/// family-generic [`lower_net_helper`] by the runtime-call name in [`AbiCtx::call`]
-/// — the member's own name OR one of its `connectTcpAddr`/`pollList` code-form
-/// aliases — and appends its instructions/relocations. All native members register
-/// this one body; the aux→primary routing lives in `abi_function_lower`.
-pub(crate) fn lower_net_os_seam(
-    builder: &mut CodeBuilder,
-    _args: &[ValueResult],
-    ctx: &crate::codegen::registry::AbiCtx,
-) -> Result<ValueResult, String> {
-    let symbol = builder.current_symbol.clone();
-    let (instructions, relocations, stack_size) =
-        lower_net_helper(ctx.call, &symbol, ctx.platform_imports, ctx.platform)?;
-    builder.instructions.extend(instructions);
-    builder.relocations.extend(relocations);
-    builder.stack_size = stack_size;
-    // A `void` location: every net body emits its own fallible ABI, so the wrapper
-    // appends no epilogue.
-    Ok(ValueResult {
+/// The `void` result every native `net.*` member returns from its per-member
+/// `abi_function` body: every net body emits its own fallible ABI, so the wrapper
+/// appends no epilogue. `type_` is `Nothing`; `text` carries the runtime-call name.
+pub(crate) fn void_result(call: &str) -> ValueResult {
+    ValueResult {
         origin: None,
         type_: "Nothing".to_string(),
         location: Operand::from("void"),
-        text: ctx.call.to_string(),
-    })
-}
-
-/// Family-generic OS-seam dispatcher for every native `net.*` member. Reached from the
-/// shared [`lower_net_os_seam`] `abi_function` body; the relocated `lower_net_*_helper`
-/// emitters branch on `platform.family()` internally and return the pre-finalize
-/// [`NetBodyParts`] the wrapper finalizes. A `net` socket/listener handle shares the
-/// `File` record layout, so `net.close` reuses the shared file-close helper.
-pub(crate) fn lower_net_helper(
-    call: &str,
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-) -> Result<NetBodyParts, String> {
-    match call {
-        "net.lookup" => lower_net_lookup_helper(symbol, platform_imports, platform),
-        "net.connectTcp" => lower_net_connect_tcp_helper(symbol, platform_imports, platform),
-        "net.connectTcpAddr" => {
-            lower_net_connect_tcp_addr_helper(symbol, platform_imports, platform)
-        }
-        "net.listenTcp" => lower_net_listen_tcp_helper(symbol, platform_imports, platform),
-        "net.accept" => lower_net_accept_helper(symbol, platform_imports, platform),
-        "net.poll" => lower_net_poll_helper(symbol, platform_imports, platform),
-        "net.pollList" => lower_net_poll_list_helper(symbol, platform_imports, platform),
-        "net.read" => lower_net_read_helper(symbol, platform_imports, platform, false),
-        "net.readText" => lower_net_read_helper(symbol, platform_imports, platform, true),
-        "net.write" => lower_net_write_helper(symbol, platform_imports, platform, false),
-        "net.writeText" => lower_net_write_helper(symbol, platform_imports, platform, true),
-        // `net.close` reuses the `fs::close` body (a socket fd is closed exactly like a
-        // file fd; `flush_on_close: false` — a socket carries no `fs::` output buffer).
-        // `lower_fs_close_helper` is an `abi_function` pre-finalize body returning the
-        // `(instructions, relocations, stack_size)` this shared dispatcher forwards
-        // unchanged; the `abi_function` wrapper seeds the entry label and finalizes.
-        "net.close" => crate::codegen::builtins::fs::gen_handle::lower_fs_close_helper(
-            symbol,
-            platform_imports,
-            platform,
-            false,
-        ),
-        "net.localAddress" => lower_net_address_helper(symbol, platform_imports, platform, false),
-        "net.remoteAddress" => lower_net_address_helper(symbol, platform_imports, platform, true),
-        "net.setReadTimeout" => {
-            lower_net_set_timeout_helper(symbol, platform_imports, platform, false)
-        }
-        "net.setWriteTimeout" => {
-            lower_net_set_timeout_helper(symbol, platform_imports, platform, true)
-        }
-        "net.bindUdp" => lower_net_bind_udp_helper(symbol, platform_imports, platform),
-        "net.receiveFrom" => {
-            lower_net_receive_from_helper(symbol, platform_imports, platform, false)
-        }
-        "net.receiveTextFrom" => {
-            lower_net_receive_from_helper(symbol, platform_imports, platform, true)
-        }
-        "net.sendTo" => lower_net_send_to_helper(symbol, platform_imports, platform, false),
-        "net.sendTextTo" => lower_net_send_to_helper(symbol, platform_imports, platform, true),
-        other => Err(format!(
-            "native code plan does not emit runtime call '{other}'"
-        )),
+        text: call.to_string(),
     }
 }

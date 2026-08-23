@@ -2008,9 +2008,9 @@ pub(crate) fn lower_runtime_helper(
                     platform,
                 )?,
                 // (`net.*` members are `Body::abi_function_aliased` since the clean-room
-                // migration — the shared `lower_net_os_seam` body plus its
-                // `connectTcpAddr`/`pollList` code-form aliases — so they route through
-                // the `is_abi_function_call` branch above; no `net.` arm here.)
+                // migration — each member's own per-member body (`func_*.rs::lower_<name>`)
+                // plus its `connectTcpAddr`/`pollList` code-form aliases — so they route
+                // through the `is_abi_function_call` branch above; no `net.` arm here.)
                 // (`audio.*` device-I/O members are `Body::abi_function_aliased` since the
                 // clean-room migration — each member's own per-member body
                 // (`func_*.rs::lower_<name>`) plus its IR-level overload-split code forms

@@ -1,6 +1,6 @@
 ' Source companion for the built-in `net` package: URL parsing and rendering.
 '
-' Sockets, DNS, and UDP stay native (`src/codegen/builtins/net/gen_os_seam.rs`,
+' Sockets, DNS, and UDP stay native (`src/codegen/builtins/net/gen_shared.rs`,
 ' `gen_io.rs`, `gen_poll.rs`); this file holds the pure string work — the
 ' `Url` value record and its `toUrl`/`toString` helpers — in the established
 ' source-package idiom (`json`/`csv`/`regex`). See src/docs/spec/stdlib/06_url.md

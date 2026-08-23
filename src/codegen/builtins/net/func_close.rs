@@ -19,8 +19,32 @@ fn overload(ty: ParameterType) -> Implementation {
         }],
         return_type: ParameterType::Nothing,
         errors: vec![],
-        body: super::net_native(&[]),
+        body: super::native_body(lower_close, &[]),
     }
+}
+
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::AbiCtx;
+
+/// `abi_function` body for `net::close` — calls the shared `lower_net_*_helper`
+/// emitter and finalizes.
+pub(crate) fn lower_close(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) =
+        crate::codegen::builtins::fs::gen_handle::lower_fs_close_helper(
+            &symbol,
+            ctx.platform_imports,
+            ctx.platform,
+            false,
+        )?;
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result(ctx.call))
 }
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {

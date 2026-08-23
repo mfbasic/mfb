@@ -220,7 +220,7 @@ pub(crate) fn lower_process_receive_helper_posix(
         abi::branch(&closed),
         abi::label(&build),
     ]);
-    crate::codegen::builtins::net::gen_os_seam::emit_string_result_build(
+    crate::codegen::builtins::net::gen_shared::emit_string_result_build(
         symbol,
         LINEP,
         N,
