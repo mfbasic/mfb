@@ -1,0 +1,164 @@
+IMPORT io
+IMPORT errorCode
+
+' =====================================================================
+' Acceptance suite for the io package (standard streams + terminal inspection).
+'
+' io is inherently side-effecting: the output calls write to the very stdout the
+' test driver streams its report on, and the input calls read stdin, which in a
+' shared, possibly-interactive driver must never be allowed to block. So the
+' deterministic, non-blocking, non-polluting surface is asserted directly:
+'   * buffering state (setBuffered/isBuffered/flush) — exact round-trip values;
+'   * the output calls succeed on valid UTF-8 (expectNTrap; the stderr calls do
+'     not touch the report stream, the stdout ones use empty/near-empty payloads);
+'   * the terminal predicates never raise and return a Boolean (their VALUE is
+'     environment-dependent — a pipe vs a tty — so the type/no-raise contract is
+'     what is pinned, per `mfb man io`);
+'   * pollInput rejects a negative timeout (ErrInvalidArgument) and is a
+'     non-blocking Boolean at 0.
+' The blocking reads (input/readLine/readChar/readByte) are exercised for their
+' end-of-input error ONLY when pollInput(0) reports a read will not block — so an
+' interactive run skips them rather than hanging, while an automated run (stdin at
+' EOF) verifies each reports ErrEndOfFile (77020003) at end of input.
+' =====================================================================
+
+FUNC rdLine() AS String
+  RETURN io::readLine()
+END FUNC
+FUNC rdChar() AS String
+  RETURN io::readChar()
+END FUNC
+FUNC rdByte() AS Byte
+  RETURN io::readByte()
+END FUNC
+FUNC rdInput() AS String
+  RETURN io::input()
+END FUNC
+FUNC rdInputPrompt() AS String
+  ' The prompt overload; an empty prompt writes nothing, so it never pollutes
+  ' the driver's report stream, and still reads (and reports EOF) like input().
+  RETURN io::input("")
+END FUNC
+FUNC pollNeg() AS Boolean
+  RETURN io::pollInput(0 - 1)
+END FUNC
+
+TESTING
+  TGROUP "Builtin: io"
+
+    ' =================================================================
+    ' Standard-output buffering (per-thread, off by default)
+    ' =================================================================
+    TGROUP "buffering"
+      TCASE "isBuffered defaults to FALSE"
+        expectEqual(io::isBuffered(), FALSE)
+      END TCASE
+      TCASE "setBuffered round-trips and isBuffered reflects it"
+        io::setBuffered(TRUE)
+        expectEqual(io::isBuffered(), TRUE)
+        io::setBuffered(FALSE)
+        expectEqual(io::isBuffered(), FALSE)
+        io::setBuffered(TRUE)
+        io::setBuffered(TRUE)
+        expectEqual(io::isBuffered(), TRUE)
+        io::setBuffered(FALSE)
+        expectEqual(io::isBuffered(), FALSE)
+      END TCASE
+      TCASE "flush never fails, buffered or not"
+        expectNTrap(io::flush())
+        io::setBuffered(TRUE)
+        io::write("")
+        expectNTrap(io::flush())
+        io::setBuffered(FALSE)
+        expectNTrap(io::flush())
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' Output calls succeed on valid UTF-8 (no implicit conversion)
+    ' =================================================================
+    TGROUP "output"
+      TCASE "stdout writers accept text without failing"
+        expectNTrap(io::write(""))
+        expectNTrap(io::print(""))
+      END TCASE
+      TCASE "stderr writers accept text (incl. multi-byte) without failing"
+        expectNTrap(io::writeError(""))
+        expectNTrap(io::printError("io-acceptance: stderr marker"))
+        expectNTrap(io::writeError("caf\u{00E9} \u{1F600}"))
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' Terminal predicates — never raise, always Boolean (value is env-dependent)
+    ' =================================================================
+    TGROUP "terminal predicates"
+      TCASE "each predicate returns a Boolean and never raises"
+        expectString(typeName(io::isInputTerminal()), "Boolean")
+        expectString(typeName(io::isOutputTerminal()), "Boolean")
+        expectString(typeName(io::isErrorTerminal()), "Boolean")
+        expectNTrap(io::isInputTerminal())
+        expectNTrap(io::isOutputTerminal())
+        expectNTrap(io::isErrorTerminal())
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' pollInput — timeout convention (§18.4)
+    ' =================================================================
+    TGROUP "pollInput"
+      TCASE "a negative timeout is rejected"
+        expectTrap(pollNeg(), errorCode::ErrInvalidArgument)
+      END TCASE
+      TCASE "an immediate poll is a non-blocking Boolean"
+        expectString(typeName(io::pollInput(0)), "Boolean")
+        expectNTrap(io::pollInput(0))
+      END TCASE
+      TCASE "a small positive timeout returns a Boolean and never raises"
+        ' At EOF the stream is immediately readable so this returns at once; on an
+        ' idle terminal it waits at most 5ms — either way a non-hanging Boolean.
+        expectString(typeName(io::pollInput(5)), "Boolean")
+        expectNTrap(io::pollInput(5))
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' Input reads — end-of-input error, guarded so an interactive run
+    ' (no data waiting) never blocks: only read when pollInput says a read
+    ' will return immediately. Under automated runs stdin is at EOF, so
+    ' each read reports ErrEndOfFile.
+    ' =================================================================
+    TGROUP "input reads at end of input"
+      TCASE "readLine reports ErrEndOfFile at EOF"
+        IF io::pollInput(0) THEN
+          expectTrap(rdLine(), errorCode::ErrEndOfFile)
+        END IF
+        expectEqual(TRUE, TRUE)
+      END TCASE
+      TCASE "readChar reports ErrEndOfFile at EOF"
+        IF io::pollInput(0) THEN
+          expectTrap(rdChar(), errorCode::ErrEndOfFile)
+        END IF
+        expectEqual(TRUE, TRUE)
+      END TCASE
+      TCASE "readByte reports ErrEndOfFile at EOF"
+        IF io::pollInput(0) THEN
+          expectTrap(rdByte(), errorCode::ErrEndOfFile)
+        END IF
+        expectEqual(TRUE, TRUE)
+      END TCASE
+      TCASE "input (promptless) reports ErrEndOfFile at EOF"
+        IF io::pollInput(0) THEN
+          expectTrap(rdInput(), errorCode::ErrEndOfFile)
+        END IF
+        expectEqual(TRUE, TRUE)
+      END TCASE
+      TCASE "input (with prompt) reports ErrEndOfFile at EOF"
+        IF io::pollInput(0) THEN
+          expectTrap(rdInputPrompt(), errorCode::ErrEndOfFile)
+        END IF
+        expectEqual(TRUE, TRUE)
+      END TCASE
+    END TGROUP
+  END TGROUP
+END TESTING
