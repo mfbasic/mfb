@@ -1,20 +1,24 @@
-//! `astrings::scalarLen` — internal-only native overlay bridge (`Body::Native`).
+//! `astrings::scalarLen` — internal-only native overlay bridge (`Body::abi_inline_self`).
 //!
 //! Never user-callable (`internal_only`): the source companion (`package.mfb`, an
 //! `internal` file) reads the visible scalar count of an opaque `AttributedString`
 //! through this native primitive for inclusive-range bounds validation. The lowering
-//! stays SHARED in `src/codegen/builtins/astrings/builder_astrings.rs`.
+//! stays SHARED in `src/codegen/builtins/astrings/gen_astrings.rs`.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-/// Target-generic native lowering for `astrings.scalarLen` (registry `Body::Native`
-/// `common` slot), delegating to the shared `AttributedString` codegen carrier.
-pub(crate) fn lower(builder: &mut CodeBuilder, args: &[NirValue]) -> Result<ValueResult, String> {
+/// Self-lowering inline body for `astrings.scalarLen` (`Body::abi_inline_self`),
+/// delegating to the shared `AttributedString` codegen carrier.
+pub(crate) fn lower(
+    builder: &mut CodeBuilder,
+    args: &[NirValue],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
     builder
         .lower_astrings_package_call("astrings.scalarLen", args)?
         .ok_or_else(|| "astrings.scalarLen: no native lowering for these arguments".to_string())
@@ -38,7 +42,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Integer,
             errors: vec![],
-            body: Body::native(None, None, Some(lower)),
+            body: Body::abi_inline_self(lower),
         }],
     });
 }

@@ -7,11 +7,10 @@
 //! migrated here; only `astrings`' FUNCTIONS and its source companion move.
 //!
 //! The public members split three ways by realization:
-//!   - `fromString` is **native-direct** codegen — `Body::Native` `common`, a thin
+//!   - `fromString` is **native-direct** codegen — `Body::abi_inline_self`, a thin
 //!     wrapper over the shared `AttributedString` carrier
 //!     (`CodeBuilder::lower_astrings_package_call` in
-//!     `src/codegen/builtins/astrings/builder_astrings.rs`, kept in place like `vector`'s
-//!     SIMD carrier and `strings`' string carrier).
+//!     `src/codegen/builtins/astrings/gen_astrings.rs`).
 //!   - the `Attribute`-model constructors (`bold`..`background`) and the Tier-C
 //!     mutation/query members (`addAttribute`..`toMarkdown`) are **source-companion
 //!     rewrites** — `Body::Rewrite("__astrings_*")` into `package.mfb`.
@@ -20,7 +19,7 @@
 //!     `__astrings_clearAttributesRange`, selected by the registry's overload-aware
 //!     `rewrite_target`.
 //!   - `readSpans`/`writeSpans`/`scalarLen` are **internal-only** native overlay-bridge
-//!     primitives (`Body::Native` `common`, `internal_only: true`): they cross the
+//!     primitives (`Body::abi_inline_self`, `internal_only: true`): they cross the
 //!     opaque record boundary the `.mfb` companion cannot touch. Users can never call
 //!     them (the `internal_only` flag, honored by `builtins::is_internal_only_call`).
 //!
@@ -105,4 +104,4 @@ pub(crate) fn register(r: &mut Registry) {
     r.add_package(pkg);
 }
 
-pub(crate) mod builder_astrings;
+mod gen_astrings;

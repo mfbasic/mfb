@@ -737,12 +737,13 @@ impl CodeBuilder<'_> {
                     return Ok(result);
                 }
                 // `strings::`/`astrings::` native members migrated to the clean-room
-                // registry (`Body::Native` `common`), reached below through
-                // `try_native_lower` (plan-99 PART B/C). `strings::` now lowers per
-                // member in its own `func_*.rs` (the `builder_strings_*` carrier +
-                // `lower_strings_package_call` dispatcher were collapsed to the
-                // func_/gen_ shape); `astrings::` still routes through its shared
-                // `lower_astrings_package_call` carrier until it migrates.
+                // registry, reached below through the inline dual-path (plan-99 PART
+                // B/C). `strings::` lowers per member in its own `func_*.rs` (the
+                // `builder_strings_*` carrier + `lower_strings_package_call` dispatcher
+                // were collapsed to the func_/gen_ shape); `astrings::` members are
+                // `Body::abi_inline_self`, reached through `try_abi_inline_self_lower`,
+                // still delegating to the shared `lower_astrings_package_call` carrier
+                // in `gen_astrings.rs`.
                 // Migrated `collections::`/`strings::` members arrive with their
                 // qualified, dot-containing target (`collections.get`,
                 // `strings.find`, ...). `native_builtin_target` maps these to the

@@ -1,22 +1,26 @@
-//! `astrings::fromString` — native-direct constructor (`Body::Native` `common`).
+//! `astrings::fromString` — native-direct constructor (`Body::abi_inline_self`).
 //!
-//! The native lowering stays SHARED in `src/codegen/builtins/astrings/builder_astrings.rs`
-//! (the `AttributedString` codegen carrier, kept in place like `vector`'s SIMD
-//! carrier and `strings`' string carrier); this thin wrapper points the registry's
-//! `Body::Native` `common` slot at the shared dispatcher
+//! The native lowering stays SHARED in `src/codegen/builtins/astrings/gen_astrings.rs`
+//! (the `AttributedString` codegen carrier); this thin wrapper points the registry's
+//! `Body::abi_inline_self` at the shared dispatcher
 //! `CodeBuilder::lower_astrings_package_call`.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
-/// Target-generic native lowering for `astrings.fromString` (registry `Body::Native`
-/// `common` slot), delegating to the shared `AttributedString` codegen carrier
-/// (`CodeBuilder::lower_astrings_package_call` in `src/target/shared/code`).
-pub(crate) fn lower(builder: &mut CodeBuilder, args: &[NirValue]) -> Result<ValueResult, String> {
+/// Self-lowering inline body for `astrings.fromString` (`Body::abi_inline_self`),
+/// delegating to the shared `AttributedString` codegen carrier
+/// (`CodeBuilder::lower_astrings_package_call` in `gen_astrings.rs`). Type-aware over
+/// its raw `NirValue` args, so it lowers them itself.
+pub(crate) fn lower(
+    builder: &mut CodeBuilder,
+    args: &[NirValue],
+    _ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
     builder
         .lower_astrings_package_call("astrings.fromString", args)?
         .ok_or_else(|| "astrings.fromString: no native lowering for these arguments".to_string())
@@ -40,7 +44,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Named("AttributedString"),
             errors: vec![],
-            body: Body::native(None, None, Some(lower)),
+            body: Body::abi_inline_self(lower),
         }],
     });
 }

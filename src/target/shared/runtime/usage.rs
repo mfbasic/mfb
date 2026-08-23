@@ -110,8 +110,8 @@ pub(crate) fn is_native_direct_call(name: &str) -> bool {
             | "strings.graphemesCount"
             | "strings.displayWidth"
             | "strings.trimChars"
-            // plan-89-A/B: native-direct `astrings` codegen
-            // (`builder_astrings.rs`). `fromString` is the public constructor;
+            // plan-89-A/B: native-direct `astrings` codegen (`gen_astrings.rs`,
+            // `Body::abi_inline_self`). `fromString` is the public constructor;
             // `readSpans`/`writeSpans` are the internal opaque-overlay bridge the
             // source companion builds the Tier-C members over.
             | "astrings.fromString"
