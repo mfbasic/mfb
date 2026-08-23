@@ -8,7 +8,6 @@
 //! docs.
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -21,7 +20,7 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-use super::native::*;
+use super::gen_os_seam::*;
 const INTRO: &str = r#"Test whether a child's output stream is readable within a timeout."#;
 const DESC: &str = r#"`process::poll` reports whether a following read of a child's output stream can
 proceed without blocking. It returns `TRUE` when the selected stream is readable —
@@ -106,11 +105,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Boolean,
             errors: vec![],
-            body: Body::native_os_seam(
-                Some(lower_process_poll_helper_posix),
-                Some(lower_process_poll_helper_win),
-                &["pollFrom"],
-            ),
+            body: Body::abi_function_aliased(super::gen_os_seam::lower_process_os_seam, &["pollFrom"]),
         }],
     });
 }
@@ -118,10 +113,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 pub(crate) fn lower_process_poll_helper_posix(
     call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ProcBodyParts, String> {
     let with_from = call == "process.pollFrom";
     const POLLFD_SLOT: usize = 0;
     let mut v = Vregs::new();
@@ -137,7 +131,6 @@ pub(crate) fn lower_process_poll_helper_posix(
     let done = format!("{symbol}_done");
 
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
         abi::move_register(&ms, abi::c_arg(1)),
     ];
@@ -201,17 +194,15 @@ pub(crate) fn lower_process_poll_helper_posix(
         &done,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 16);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 16))
 }
 
 pub(crate) fn lower_process_poll_helper_win(
     call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ProcBodyParts, String> {
     let with_from = call == "process.pollFrom";
     const AVAIL: usize = 0x30;
     const FILE: usize = 0x38;
@@ -230,7 +221,6 @@ pub(crate) fn lower_process_poll_helper_win(
     let done = format!("{symbol}_done");
     let mut relocations = Vec::new();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::subtract_stack(FRAME),
         abi::store_u64(abi::return_register(), sp, FILE),
         abi::store_u64(abi::mfb_arg(1), sp, MS),
@@ -344,6 +334,5 @@ pub(crate) fn lower_process_poll_helper_win(
         &done,
     );
     instructions.extend([abi::label(&done), abi::add_stack(FRAME), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }

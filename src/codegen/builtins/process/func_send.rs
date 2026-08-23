@@ -7,10 +7,10 @@
 //! descriptor and those entry fns.
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use std::collections::HashMap;
 
+use super::gen_os_seam::ProcBodyParts;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
@@ -102,11 +102,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Nothing,
             errors: vec![],
-            body: Body::native_os_seam(
-                Some(lower_process_send_helper_posix),
-                Some(lower_process_send_helper_win),
-                &["sendTimeout"],
-            ),
+            body: Body::abi_function_aliased(super::gen_os_seam::lower_process_os_seam, &["sendTimeout"]),
         }],
     });
 }
@@ -114,11 +110,10 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 pub(crate) fn lower_process_send_helper_posix(
     call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
-    super::native::unix::lower_process_send_helper(
+) -> Result<ProcBodyParts, String> {
+    super::gen_unix::lower_process_send_helper(
         symbol,
         platform_imports,
         platform,
@@ -130,11 +125,10 @@ pub(crate) fn lower_process_send_helper_posix(
 pub(crate) fn lower_process_send_helper_win(
     call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
-    super::native::windows::lower_process_send_helper(
+) -> Result<ProcBodyParts, String> {
+    super::gen_windows::lower_process_send_helper(
         symbol,
         platform_imports,
         platform,

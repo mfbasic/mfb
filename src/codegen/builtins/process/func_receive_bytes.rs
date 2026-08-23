@@ -21,7 +21,7 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-use super::native::*;
+use super::gen_os_seam::*;
 const INTRO: &str = r#"Read one available chunk of raw bytes from a child's output."#;
 const DESC: &str = r#"`process::receiveBytes` reads the next available chunk of raw bytes from a child's
 output stream and returns it as a `List OF Byte`. It performs one underlying read,
@@ -81,11 +81,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::list_of(ParameterType::Byte),
             errors: vec![],
-            body: Body::native_os_seam(
-                Some(lower_process_receivebytes_helper_posix),
-                Some(lower_process_receivebytes_helper_win),
-                &["receiveBytesFrom"],
-            ),
+            body: Body::abi_function_aliased(super::gen_os_seam::lower_process_os_seam, &["receiveBytesFrom"]),
         }],
     });
 }
@@ -93,10 +89,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 pub(crate) fn lower_process_receivebytes_helper_posix(
     call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ProcBodyParts, String> {
     let with_from = call == "process.receiveBytesFrom";
     const FD_OFFSET: usize = 0;
     const N_OFFSET: usize = 8;
@@ -123,7 +118,6 @@ pub(crate) fn lower_process_receivebytes_helper_posix(
     let reg14 = vregs.next();
 
     let mut instructions = vec![
-        abi::label("entry"),
         abi::load_u64(&reg9, abi::return_register(), RESOURCE_OFFSET_CLOSED),
         abi::compare_immediate(&reg9, "0"),
         abi::branch_ne(&closed),
@@ -262,17 +256,15 @@ pub(crate) fn lower_process_receivebytes_helper_posix(
         &done,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 32);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 32))
 }
 
 pub(crate) fn lower_process_receivebytes_helper_win(
     call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ProcBodyParts, String> {
     let with_from = call == "process.receiveBytesFrom";
     const NREAD: usize = 0x28;
     const FILE: usize = 0x30;
@@ -294,7 +286,6 @@ pub(crate) fn lower_process_receivebytes_helper_win(
     let done = format!("{symbol}_done");
     let mut relocations = Vec::new();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::subtract_stack(FRAME),
         abi::store_u64(abi::return_register(), sp, FILE),
     ];
@@ -436,6 +427,5 @@ pub(crate) fn lower_process_receivebytes_helper_win(
         &done,
     );
     instructions.extend([abi::label(&done), abi::add_stack(FRAME), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }

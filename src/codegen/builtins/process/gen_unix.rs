@@ -8,7 +8,12 @@
 //! explicit `sp`-relative frame from `finalize_vreg_body_with_locals`.
 
 // --- codegen tier imports (migration) ---
-use super::*;
+use super::gen_os_seam::*;
+use crate::codegen::collection::layout::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::emit_fail;
 use crate::target::shared::abi;
 use std::collections::HashMap;
@@ -658,7 +663,7 @@ pub(crate) fn lower_process_send_helper(
     platform: &dyn CodegenPlatform,
     is_bytes: bool,
     with_timeout: bool,
-) -> HelperResult {
+) -> Result<ProcBodyParts, String> {
     const NL_SLOT: usize = 0;
     const POLLFD_SLOT: usize = 8; // { int fd; short events; short revents }
     const EINTR: &str = "4";
@@ -685,7 +690,6 @@ pub(crate) fn lower_process_send_helper(
     let done = format!("{symbol}_done");
 
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
         abi::move_register(&val, abi::c_arg(1)),
     ];
@@ -840,8 +844,7 @@ pub(crate) fn lower_process_send_helper(
         );
     }
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 32);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 32))
 }
 
 pub(crate) const POLLOUT: &str = "4";

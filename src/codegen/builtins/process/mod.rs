@@ -1,16 +1,18 @@
-#![allow(deprecated)] // not-yet-migrated: uses deprecated Body::native_os_seam
 //! The built-in `process` package (plan-90).
 //!
 //! `process` spawns and manages child processes. Its one resource, `Process`, is
 //! a native resource (tag 10) whose 96-byte record tail holds the three pipe fds
 //! (stdin-write / stdout-read / stderr-read) plus the cached exit/signal state.
 //!
-//! `process` is the first **native** package migrated onto the clean-room registry
-//! (`crate::codegen::registry`). Unlike the pure-MFBASIC packages already there
-//! (`csv`/`json`/`regex`), every member owns a per-platform OS-seam lowering: its
-//! `Body::Native` slots hold the `posix`/`win` runtime-helper emitters living in the
-//! member's `func_*.rs` (delegating to the arch-neutral `native::{unix,windows}`
-//! emission), which the runtime-call dispatch picks by `platform.family()`. The
+//! `process` is a **native** OS-seam package migrated onto the clean-room registry
+//! (`crate::codegen::registry`) and onto the `Body::abi_function` clean-room shape
+//! (crypto/io/fs/net). Every member registers the one shared
+//! [`gen_os_seam::lower_process_os_seam`] `abi_function` body, which dispatches by
+//! [`AbiCtx::call`](crate::codegen::registry::AbiCtx) to the family-generic
+//! [`gen_os_seam::lower_process_helper`]: that selects the member by name (plus its
+//! `spawnEnv`/`sendTimeout`/… code-form aliases) and the posix/win backend by
+//! `platform.family()`, calling the per-member emitter in the member's `func_*.rs`
+//! (delegating to the arch-neutral `gen_{unix,windows}` emission). The
 //! opaque `Process` handle is a descriptor-only nominal type (recognized by
 //! [`is_builtin_type`]); the source companion carries only the `Stream`/`Signal`
 //! value enums, injected as a helper-function chunk so the registry reassembles it.
@@ -27,12 +29,15 @@ use crate::codegen::registry::{
 mod func_close;
 mod func_detach;
 
-mod native;
+mod gen_os_seam;
+mod gen_unix;
+mod gen_windows;
 
 // `process.__drop` is not a descriptor member (no `func_*.rs`), so its helper is
 // still reached by name from the runtime-call dispatch; every other member lowers
-// through its own `Body::Native` (`func_*.rs` → `native::{unix,windows}`).
-pub(crate) use native::lower_process_drop_helper;
+// through the shared `gen_os_seam::lower_process_os_seam` `Body::abi_function` body
+// (`func_*.rs` → `gen_{unix,windows}`).
+pub(crate) use gen_os_seam::lower_process_drop_helper;
 mod func_did_signal;
 mod func_is_running;
 mod func_pid;

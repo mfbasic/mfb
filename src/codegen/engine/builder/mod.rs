@@ -2074,32 +2074,18 @@ pub(crate) fn lower_runtime_helper(
                 // IR-level overload-split code forms (openInputDevice/openOutputDevice/
                 // readTimeout/pollTimeout/closeInput/closeOutput) — so they route through
                 // the `is_abi_function_call` branch above; no `audio.` arm here.)
-                // Every `process.*` member carries `Implementation::Os`: the
-                // per-platform emission lives in its `func_*.rs`, and the generic
-                // registry-driven dispatch picks posix/win by `platform.family()`.
-                // `process.__drop` is the sole exception — it is not a descriptor
-                // member, so it keeps its own family-branching helper.
+                // Every `process.*` member is `Body::abi_function` since the
+                // clean-room migration (the shared `lower_process_os_seam` body plus
+                // its `spawnEnv`/`sendTimeout`/… code-form aliases), so it routes
+                // through the `is_abi_function_call` branch above. `process.__drop` is
+                // the sole exception — it is not a descriptor member (the scope-drop op
+                // synthesized during IR lowering), so it keeps its own family-branching
+                // self-finalizing helper and this dedicated arm.
                 "process.__drop" => crate::codegen::builtins::process::lower_process_drop_helper(
                     symbol,
                     platform_imports,
                     platform,
                 )?,
-                call if call.starts_with("process.") => {
-                    match crate::codegen::os::dispatch_runtime_helper(
-                        call,
-                        symbol,
-                        &os_ctx,
-                        platform_imports,
-                        platform,
-                    ) {
-                        Some(result) => result?,
-                        None => {
-                            return Err(format!(
-                                "native code plan does not emit runtime call '{call}'"
-                            ));
-                        }
-                    }
-                }
                 // Every `tls.*` member carries `Body::native_os_seam` on the clean-room
                 // registry: the per-platform emission lives in
                 // `codegen::builtins::tls::native` (the twin-idiom `lower_tls_helper`),

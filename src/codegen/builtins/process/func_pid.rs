@@ -7,7 +7,6 @@
 //! descriptor and those entry fns.
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -20,7 +19,7 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-use super::native::*;
+use super::gen_os_seam::*;
 const INTRO: &str = r#"Return the operating-system process ID of a spawned child."#;
 const DESC: &str = r#"`process::pid` reads the operating-system process identifier of the child behind a
 `Process` handle. The value is the child pid captured when the process was spawned
@@ -62,11 +61,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Integer,
             errors: vec![],
-            body: Body::native(
-                Some(lower_process_pid_helper_posix),
-                Some(lower_process_pid_helper_win),
-                None,
-            ),
+            body: Body::abi_function(super::gen_os_seam::lower_process_os_seam),
         }],
     });
 }
@@ -74,10 +69,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 pub(crate) fn lower_process_pid_helper_posix(
     _call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     _platform_imports: &HashMap<String, String>,
     _platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ProcBodyParts, String> {
     let mut v = Vregs::new();
     let file = v.next();
     let closed = v.next();
@@ -85,7 +79,6 @@ pub(crate) fn lower_process_pid_helper_posix(
     let closed_l = format!("{symbol}_closed");
     let done = format!("{symbol}_done");
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
         abi::load_u64(&closed, &file, RESOURCE_OFFSET_CLOSED),
         abi::compare_immediate(&closed, "0"),
@@ -105,24 +98,21 @@ pub(crate) fn lower_process_pid_helper_posix(
         &done,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_process_pid_helper_win(
     _call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     _platform_imports: &HashMap<String, String>,
     _platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ProcBodyParts, String> {
     let mut v = Vregs::new();
     let file = v.next();
     let closed = v.next();
     let closed_l = format!("{symbol}_closed");
     let done = format!("{symbol}_done");
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
         abi::load_u64(&closed, &file, RESOURCE_OFFSET_CLOSED),
         abi::compare_immediate(&closed, "0"),
@@ -141,6 +131,5 @@ pub(crate) fn lower_process_pid_helper_win(
         &done,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }

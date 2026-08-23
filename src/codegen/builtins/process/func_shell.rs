@@ -12,6 +12,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use std::collections::HashMap;
 
+use super::gen_os_seam::ProcBodyParts;
 use crate::codegen::error::emission::emit_fail;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -19,8 +20,8 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-use super::native::unix::*;
-use super::native::windows::*;
+use super::gen_unix::*;
+use super::gen_windows::*;
 const INTRO: &str =
     r#"Run a command line through the platform shell, returning a handle to the child."#;
 const DESC: &str = r#"`process::shell` runs `cmd` as a shell command line and returns an owned `Process`
@@ -84,11 +85,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Named(super::PROCESS_TYPE_ID),
             errors: vec![],
-            body: Body::native(
-                Some(lower_process_shell_helper_posix),
-                Some(lower_process_shell_helper_win),
-                None,
-            ),
+            body: Body::abi_function(super::gen_os_seam::lower_process_os_seam),
         }],
     });
 }
@@ -96,10 +93,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 pub(crate) fn lower_process_shell_helper_posix(
     _call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ProcBodyParts, String> {
     const LOCAL: usize = SPAWN_LOCAL;
     let mut v = Vregs::new();
     let cmdstr = v.next();
@@ -117,7 +113,6 @@ pub(crate) fn lower_process_shell_helper_posix(
     let done = format!("{symbol}_done");
 
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&cmdstr, abi::return_register()),
         // argv = alloc(4*8, 8)  ["/bin/sh", "-c", cmd, NULL]
         abi::move_immediate(abi::return_register(), "Integer", "32"),
@@ -202,16 +197,14 @@ pub(crate) fn lower_process_shell_helper_posix(
         &done,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], LOCAL);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, LOCAL))
 }
 
 pub(crate) fn lower_process_shell_helper_win(
     _call: &str,
     _symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     _platform_imports: &HashMap<String, String>,
     _platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ProcBodyParts, String> {
     unimplemented_on_windows("shell")
 }

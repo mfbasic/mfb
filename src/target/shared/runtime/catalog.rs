@@ -169,17 +169,16 @@ mod tests {
             // plan-91-B: worker-side sleep is synthesized from `thread.sleep` in
             // the code layer (builder_values), so it never exists at NIR level.
             "thread.sleepWorker",
-            // plan-90-A: `process.spawn(args, cwd, env, envReplace)` is rewritten to
-            // `process.spawnEnv` in the code layer (`builder_values`), so it never
-            // exists at the NIR level and `helper_for_call` must not classify it.
-            // (`process.__drop` IS routed — like audio's close ops — via
-            // `is_process_runtime_call`, so it is deliberately NOT listed here.)
-            "process.spawnEnv",
-            "process.sendTimeout",
-            "process.sendBytesTimeout",
-            "process.pollFrom",
-            "process.receiveFrom",
-            "process.receiveBytesFrom",
+            // `process`'s `spawnEnv`/`sendTimeout`/`sendBytesTimeout`/`pollFrom`/
+            // `receiveFrom`/`receiveBytesFrom` code-form aliases are NOT listed: since
+            // the migration to `Body::abi_function_aliased` they are registered
+            // `os_aliases` of an `abi_function` member, so `is_abi_function_call` /
+            // `abi_function_lower` classify them to the `Process` family (like net's
+            // aliases). They are still synthesized in the code layer (`builder_values`
+            // rewrites `process.spawn(4 args)`/`process.send(timeout)`/…), so they never
+            // reach `helper_for_call` at the NIR level in practice — but were they to,
+            // the family answer is now correct rather than `None`. (`process.__drop` IS
+            // routed via `is_process_runtime_call`, so it too is not listed here.)
             // audio's overload-split runtime calls (`openInputDevice`/`openOutputDevice`/
             // `readTimeout`/`pollTimeout`/`closeInput`/`closeOutput`) are rewritten at IR
             // level (`audio::runtime_overload_name`), so they DO exist at the NIR level

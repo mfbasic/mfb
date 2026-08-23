@@ -7,7 +7,6 @@
 //! `platform.family()`.
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -20,7 +19,7 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-use super::native::PROC_STDIN_W;
+use super::gen_os_seam::{ProcBodyParts, PROC_STDIN_W};
 const INTRO: &str =
     r#"Close a child's standard input, signalling end-of-input; the child keeps running."#;
 const DESC: &str = r#"`process::close` closes the child's standard input — the parent's write end of the
@@ -73,11 +72,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Nothing,
             errors: vec![],
-            body: Body::native(
-                Some(lower_process_close_helper_posix),
-                Some(lower_process_close_helper_win),
-                None,
-            ),
+            body: Body::abi_function(super::gen_os_seam::lower_process_os_seam),
         }],
     });
 }
@@ -85,10 +80,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 pub(crate) fn lower_process_close_helper_posix(
     _call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ProcBodyParts, String> {
     let mut v = Vregs::new();
     let file = v.next();
     let closed = v.next();
@@ -98,7 +92,6 @@ pub(crate) fn lower_process_close_helper_posix(
     let already = format!("{symbol}_stdin_already");
     let done = format!("{symbol}_done");
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
         abi::load_u64(&closed, &file, RESOURCE_OFFSET_CLOSED),
         abi::compare_immediate(&closed, "0"),
@@ -132,17 +125,15 @@ pub(crate) fn lower_process_close_helper_posix(
         &done,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_process_close_helper_win(
     _call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ProcBodyParts, String> {
     const FILE: usize = 0x20;
     const FRAME: usize = 0x30;
     let sp = abi::stack_pointer();
@@ -151,7 +142,6 @@ pub(crate) fn lower_process_close_helper_win(
     let done = format!("{symbol}_done");
     let mut relocations = Vec::new();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::subtract_stack(FRAME),
         abi::store_u64(abi::return_register(), sp, FILE),
         abi::load_u64(abi::mfb_arg(0), sp, FILE),
@@ -188,6 +178,5 @@ pub(crate) fn lower_process_close_helper_win(
         &done,
     );
     instructions.extend([abi::label(&done), abi::add_stack(FRAME), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }

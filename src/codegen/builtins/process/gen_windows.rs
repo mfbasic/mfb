@@ -10,11 +10,15 @@
 //! placeholders, not live stubs).
 
 // --- codegen tier imports (migration) ---
-use super::*;
+use super::gen_os_seam::*;
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::emit_fail;
 use crate::target::shared::abi;
 use std::collections::HashMap;
-pub(crate) fn unimplemented_on_windows(op: &str) -> HelperResult {
+pub(crate) fn unimplemented_on_windows(op: &str) -> Result<ProcBodyParts, String> {
     Err(format!(
         "process::{op} native Windows backend is not yet emitted (plan-90-D)"
     ))
@@ -98,7 +102,7 @@ pub(crate) fn lower_process_send_helper(
     platform: &dyn CodegenPlatform,
     is_bytes: bool,
     _with_timeout: bool,
-) -> HelperResult {
+) -> Result<ProcBodyParts, String> {
     const WRITTEN: usize = 0x28;
     const FILE: usize = 0x30;
     const FD: usize = 0x38;
@@ -113,7 +117,6 @@ pub(crate) fn lower_process_send_helper(
     // The payload pointer arrives in the 2nd MFB arg; stash it before it is
     // clobbered, then derive (srcp, rem).
     let mut instructions = vec![
-        abi::label("entry"),
         abi::subtract_stack(FRAME),
         abi::store_u64(abi::return_register(), sp, FILE),
         abi::store_u64(abi::mfb_arg(1), sp, SRCP), // payload object (temp)
@@ -197,8 +200,7 @@ pub(crate) fn lower_process_send_helper(
         &done,
     );
     instructions.extend([abi::label(&done), abi::add_stack(FRAME), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 pub(crate) fn lower_process_drop_helper(
     symbol: &str,

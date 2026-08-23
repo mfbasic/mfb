@@ -20,9 +20,9 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-use super::native::unix::*;
-use super::native::windows::*;
-use super::native::*;
+use super::gen_os_seam::*;
+use super::gen_unix::*;
+use super::gen_windows::*;
 const INTRO: &str =
     r#"Run a program directly from an argument list, returning a handle to the child."#;
 const DESC: &str = r#"`process::spawn` starts a child process from an explicit argument vector and
@@ -105,11 +105,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![args.clone()],
                 return_type: ParameterType::Named(super::PROCESS_TYPE_ID),
                 errors: vec![],
-                    body: Body::native_os_seam(
-                    Some(lower_process_spawn_helper_posix),
-                    Some(lower_process_spawn_helper_win),
-                    &["spawnEnv"],
-                ),
+                    body: Body::abi_function_aliased(super::gen_os_seam::lower_process_os_seam, &["spawnEnv"]),
             },
             // Full form: working directory + environment map + replace/merge flag.
             Implementation {
@@ -139,11 +135,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Named(super::PROCESS_TYPE_ID),
                 errors: vec![],
-                    body: Body::native_os_seam(
-                    Some(lower_process_spawn_helper_posix),
-                    Some(lower_process_spawn_helper_win),
-                    &["spawnEnv"],
-                ),
+                    body: Body::abi_function_aliased(super::gen_os_seam::lower_process_os_seam, &["spawnEnv"]),
             },
         ],
     });
@@ -152,10 +144,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 pub(crate) fn lower_process_spawn_helper_posix(
     call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ProcBodyParts, String> {
     if call == "process.spawnEnv" {
         const LOCAL: usize = SPAWN_LOCAL;
         let mut v = Vregs::new();
@@ -196,7 +187,6 @@ pub(crate) fn lower_process_spawn_helper_posix(
 
         // Capture the four arguments (x0..x3) before any clobbering libc call.
         let mut instructions = vec![
-            abi::label("entry"),
             abi::move_register(&args, abi::return_register()),
             abi::move_register(&cwd_str, abi::c_arg(1)),
             abi::move_register(&env_map, abi::c_arg(2)),
@@ -323,8 +313,7 @@ pub(crate) fn lower_process_spawn_helper_posix(
             &done,
         );
         instructions.extend([abi::label(&done), abi::return_()]);
-        let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], LOCAL);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, LOCAL))
     } else {
         const LOCAL: usize = SPAWN_LOCAL;
 
@@ -354,7 +343,6 @@ pub(crate) fn lower_process_spawn_helper_posix(
         let done = format!("{symbol}_done");
 
         let mut instructions = vec![
-            abi::label("entry"),
             abi::move_register(&list, abi::return_register()),
             abi::load_u64(&n, &list, LIST_COUNT),
             abi::compare_immediate(&n, "0"),
@@ -462,18 +450,16 @@ pub(crate) fn lower_process_spawn_helper_posix(
             &done,
         );
         instructions.extend([abi::label(&done), abi::return_()]);
-        let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], LOCAL);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, LOCAL))
     }
 }
 
 pub(crate) fn lower_process_spawn_helper_win(
     call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ProcBodyParts, String> {
     if call == "process.spawnEnv" {
         unimplemented_on_windows("spawn")
     } else {
@@ -539,7 +525,6 @@ pub(crate) fn lower_process_spawn_helper_win(
 
         let mut relocations = Vec::new();
         let mut instructions = vec![
-            abi::label("entry"),
             abi::subtract_stack(FRAME),
             // The argv list pointer arrives in the return register.
             abi::store_u64(abi::return_register(), sp, LIST),
@@ -799,7 +784,6 @@ pub(crate) fn lower_process_spawn_helper_win(
         );
         // Every path funnels here; unwind the frame before returning.
         instructions.extend([abi::label(&done), abi::add_stack(FRAME), abi::return_()]);
-        let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, 0))
     }
 }

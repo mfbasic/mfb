@@ -8,12 +8,12 @@
 //! docs.
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use std::collections::HashMap;
 
+use super::gen_os_seam::ProcBodyParts;
 use crate::codegen::error::emission::emit_fail;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -80,11 +80,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Nothing,
             errors: vec![],
-            body: Body::native(
-                Some(lower_process_signal_helper_posix),
-                Some(lower_process_signal_helper_win),
-                None,
-            ),
+            body: Body::abi_function(super::gen_os_seam::lower_process_os_seam),
         }],
     });
 }
@@ -92,10 +88,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 pub(crate) fn lower_process_signal_helper_posix(
     _call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ProcBodyParts, String> {
     let mut v = Vregs::new();
     let file = v.next();
     let sig = v.next();
@@ -107,7 +102,6 @@ pub(crate) fn lower_process_signal_helper_posix(
     let done_ok = format!("{symbol}_done_ok");
     let done = format!("{symbol}_done");
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
         abi::move_register(&sig, abi::c_arg(1)),
         abi::load_u64(&num, &file, RESOURCE_OFFSET_CLOSED),
@@ -154,17 +148,15 @@ pub(crate) fn lower_process_signal_helper_posix(
         &done,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_process_signal_helper_win(
     _call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ProcBodyParts, String> {
     const FILE: usize = 0x20;
     const FRAME: usize = 0x30;
     let sp = abi::stack_pointer();
@@ -176,7 +168,6 @@ pub(crate) fn lower_process_signal_helper_win(
     let done = format!("{symbol}_done");
     let mut relocations = Vec::new();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::subtract_stack(FRAME),
         abi::store_u64(abi::return_register(), sp, FILE),
         // sig arrives in the 2nd MFB arg; keep it in mfb_arg(1) across the checks.
@@ -224,6 +215,5 @@ pub(crate) fn lower_process_signal_helper_win(
         &done,
     );
     instructions.extend([abi::label(&done), abi::add_stack(FRAME), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }

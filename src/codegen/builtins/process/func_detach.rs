@@ -8,7 +8,6 @@
 //! docs.
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -21,7 +20,7 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-use super::native::*;
+use super::gen_os_seam::*;
 const INTRO: &str =
     r#"Relinquish ownership of a child so it keeps running after the program exits."#;
 const DESC: &str = r#"`process::detach` relinquishes ownership of a child **without** killing it. It
@@ -70,11 +69,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Nothing,
             errors: vec![],
-            body: Body::native(
-                Some(lower_process_detach_helper_posix),
-                Some(lower_process_detach_helper_win),
-                None,
-            ),
+            body: Body::abi_function(super::gen_os_seam::lower_process_os_seam),
         }],
     });
 }
@@ -82,10 +77,9 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 pub(crate) fn lower_process_detach_helper_posix(
     _call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ProcBodyParts, String> {
     let sigchld = if platform.family() == PlatformFamily::MacOS {
         "20"
     } else {
@@ -98,7 +92,6 @@ pub(crate) fn lower_process_detach_helper_posix(
     let closed_l = format!("{symbol}_closed");
     let done = format!("{symbol}_done");
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
         abi::load_u64(&fd, &file, RESOURCE_OFFSET_CLOSED),
         abi::compare_immediate(&fd, "0"),
@@ -149,17 +142,15 @@ pub(crate) fn lower_process_detach_helper_posix(
         &done,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_process_detach_helper_win(
     _call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ProcBodyParts, String> {
     const FILE: usize = 0x20;
     const FRAME: usize = 0x30;
     let sp = abi::stack_pointer();
@@ -167,7 +158,6 @@ pub(crate) fn lower_process_detach_helper_win(
     let done = format!("{symbol}_done");
     let mut relocations = Vec::new();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::subtract_stack(FRAME),
         abi::store_u64(abi::return_register(), sp, FILE),
         abi::load_u64(abi::mfb_arg(0), sp, FILE),
@@ -213,6 +203,5 @@ pub(crate) fn lower_process_detach_helper_win(
         &done,
     );
     instructions.extend([abi::label(&done), abi::add_stack(FRAME), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
