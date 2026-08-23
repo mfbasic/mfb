@@ -823,9 +823,12 @@ impl CodeBuilder<'_> {
                 if target == "isNumeric" && args.len() == 1 {
                     return self.lower_is_numeric(&args[0]);
                 }
-                if let Some(function) = target.strip_prefix("math.") {
-                    return self.lower_math_call(function, args);
-                }
+                // `math.*` migrated to the clean-room registry (`Body::abi_inline_self`),
+                // reached above through `try_abi_inline_self_lower` — no `math.` name
+                // predicate here. The shared `lower_math_call` carrier stays; each
+                // member's `func_*.rs` shim calls it, and `builder_vector_inline` reaches
+                // the scalar `math.sqrt`/`math.clamp` it emits as `NirValue::Call` through
+                // the same self-lowering dual-path.
                 // `money.*` migrated to the clean-room registry (`Body::Native`
                 // `common`), reached above through `try_native_lower`.
                 if target == "isEven" && args.len() == 1 {

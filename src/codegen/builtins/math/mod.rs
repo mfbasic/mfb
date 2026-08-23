@@ -22,8 +22,8 @@
 //! referenced by symbol). The vectorized lowerings live in [`common`].
 //!
 //! `math.sqrt` / `math.clamp` stay callable **by name**: `builder_vector_inline`
-//! emits them, so they resolve through `try_native_lower` on the full `"math.sqrt"`
-//! spelling.
+//! emits them as `NirValue::Call`, so they resolve through
+//! `try_abi_inline_self_lower` on the full `"math.sqrt"` spelling.
 //!
 //! Man/spec citation anchors (the `math/*` man pages and §13 spec ground their
 //! per-member facts here): `MATH` (the descriptor authority for the 21 callables),
