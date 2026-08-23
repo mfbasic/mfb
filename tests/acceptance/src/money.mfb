@@ -1,81 +1,228 @@
 IMPORT money
 IMPORT math
+IMPORT errorCode
 
-' plan-29: the Money type end-to-end — literals, dimensional arithmetic, scaling,
-' ratio/MOD/DIV, comparisons, conversions, toString, money::round with the
-' rounding-mode switch, and the math:: overloads. Assertions compare either raw
-' Money values (via the generic expect on two Money) or their rendered strings.
+' =====================================================================
+' Full acceptance + numeric-safety suite for the Money type and the money
+' package. Money is an exact base-10 fixed-point value (5 decimal places); this
+' suite pins its literals/toString, the dimensional arithmetic and its errors,
+' the conversions in and out (and their overflow/format failures), money::round
+' with the Commercial/Banker mode switch (values, decimal-bounds error, and the
+' near-max overflow), the mode's effect on division rounding, setRounding/
+' getRounding, and the math:: overloads. Every assertion pins a concrete expected
+' value or a concrete trapped error code verified against the engine.
+'
+' Money operators are not inline-TRAP-able directly, so each fallible Money
+' arithmetic form is wrapped in a user FUNC that expectTrap can guard. Errors are
+' ErrInvalidArgument (77050002, non-Float div/mod by zero, out-of-range decimals),
+' ErrOverflow (77050010, arithmetic/conversion overflow, abs of the minimum),
+' ErrInvalidFormat (77050003, malformed toMoney text), and ErrFloatOverflow
+' (77050015, a Money/Money ratio dividing by zero).
 
 FUNC settle(v AS Money, d AS Integer) AS Money
   RETURN money::round(v, d)
 END FUNC
+FUNC mnyAdd(a AS Money, b AS Money) AS Money
+  RETURN a + b
+END FUNC
+FUNC mnySub(a AS Money, b AS Money) AS Money
+  RETURN a - b
+END FUNC
+FUNC mnyDivK(a AS Money, k AS Integer) AS Money
+  RETURN a / k
+END FUNC
+FUNC mnyMod(a AS Money, b AS Money) AS Money
+  RETURN a MOD b
+END FUNC
+FUNC mnyDivM(a AS Money, b AS Money) AS Float
+  RETURN a / b
+END FUNC
 
 TESTING
   TGROUP "Builtin: money"
+
+    ' =================================================================
+    ' Literals and toString
+    ' =================================================================
     TGROUP "literals and toString"
-      TCASE "decimal literal and m suffix"
+      TCASE "decimal literal, m suffix, toMoney round-trip"
         LET p5 AS Byte = 5
         expectString(toString(1.25m), "1.25")
         expectString(toString(1.25m, p5), "1.25000")
         expectEqual(1.25m, toMoney("1.25"))
         expectString(toString(-1.25m), "-1.25")
+        expectString(toString(0.00m), "0.00")
       END TCASE
-      TCASE "toString rounds presentation half-away, independent of mode"
+      TCASE "toString presentation rounds half-away, independent of the mode"
         money::setRounding(Rounding.Banker)
         expectString(toString(0.125m), "0.13")
+        expectString(toString(2.005m), "2.01")
         money::setRounding(Rounding.Commercial)
         expectString(toString(0.125m), "0.13")
+        expectString(toString(2.005m), "2.01")
+      END TCASE
+      TCASE "the representable range renders at full magnitude"
+        LET p5 AS Byte = 5
+        expectString(toString(92233720368547.75807m, p5), "92233720368547.75807")
+        expectString(toString(-92233720368547.75808m, p5), "-92233720368547.75808")
       END TCASE
     END TGROUP
 
+    ' =================================================================
+    ' Dimensional arithmetic
+    ' =================================================================
     TGROUP "dimensional arithmetic"
-      TCASE "add subtract negate"
+      TCASE "add, subtract, negate"
         expectEqual(1.25m + 2.50m, 3.75m)
         expectEqual(2.50m - 1.25m, 1.25m)
         expectEqual(-1.25m, 0.00m - 1.25m)
+        expectEqual(1.25m + 0.00m, 1.25m)
+        expectEqual(0.00m - 5.00m, -5.00m)
       END TCASE
-      TCASE "scalar scaling"
+      TCASE "scalar scaling (M*k, k*M, M/k, M*Fixed)"
         expectEqual(2.50m * 3, 7.50m)
         expectEqual(3 * 2.50m, 7.50m)
         expectEqual(9.99m * 1.08F, 10.7892m)
         expectEqual(10.00m / 4, 2.50m)
+        expectEqual(2.50m * 0, 0.00m)
+        expectEqual(1.00m / 3, 0.33333m)
       END TCASE
-      TCASE "ratio MOD DIV"
+      TCASE "ratio, MOD, DIV"
         expectFloat(10.00m / 4.00m, 2.5)
+        expectFloat(6.00m / 2.00m, 3.0)
         expectEqual(7.00m MOD 3.00m, 1.00m)
+        expectEqual(0.00m - 7.00m MOD 3.00m, -1.00m)
         expectFloat(10.00m DIV 4.00m, 2.5)
       END TCASE
       TCASE "comparisons"
         expectEqual(1.25m < 2.50m, true)
         expectEqual(1.25m = 1.25m, true)
         expectEqual(2.50m >= 2.50m, true)
+        expectEqual(2.50m <> 1.25m, true)
+        expectEqual(92233720368547.75807m > -92233720368547.75808m, true)
       END TCASE
     END TGROUP
 
-    TGROUP "conversions"
-      TCASE "out of Money"
+    ' =================================================================
+    ' Arithmetic errors
+    ' =================================================================
+    TGROUP "arithmetic errors"
+      TCASE "overflow on add and subtract"
+        LET maxm AS Money = 92233720368547.75807
+        LET minm AS Money = -92233720368547.75808
+        expectTrap(mnyAdd(maxm, maxm), errorCode::ErrOverflow)
+        expectTrap(mnySub(minm, 1.00m), errorCode::ErrOverflow)
+        expectNTrap(mnyAdd(maxm, 0.00m))
+      END TCASE
+      TCASE "non-Float divide and modulo by zero are ErrInvalidArgument"
+        expectTrap(mnyDivK(10.00m, 0), errorCode::ErrInvalidArgument)
+        expectTrap(mnyMod(10.00m, 0.00m), errorCode::ErrInvalidArgument)
+        expectNTrap(mnyDivK(10.00m, 4))
+      END TCASE
+      TCASE "a Money/Money ratio dividing by zero exits to Float and overflows"
+        expectTrap(mnyDivM(10.00m, 0.00m), errorCode::ErrFloatOverflow)
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' Conversions out of Money
+    ' =================================================================
+    TGROUP "conversions out of Money"
+      TCASE "to Integer/Float/Byte/Fixed truncate or preserve"
         expectInteger(toInt(2.99m), 2)
+        expectInteger(toInt(-2.99m), -2)
         expectFloat(toFloat(1.25m), 1.25)
         expectString(toString(toByte(2.00m)), "2")
         expectFixed(toFixed(1.25m), 1.25F)
       END TCASE
-      TCASE "into Money"
-        expectEqual(toMoney(4), 4.00m)
-        expectEqual(toMoney("3.50"), 3.50m)
-        expectEqual(toMoney(1.5), 1.50m)
+      TCASE "out-of-range narrowing overflows"
+        LET maxm AS Money = 92233720368547.75807
+        expectTrap(toByte(300.00m), errorCode::ErrOverflow)
+        expectTrap(toFixed(maxm), errorCode::ErrOverflow)
+        expectNTrap(toInt(maxm))
+        expectNTrap(toByte(255.00m))
       END TCASE
     END TGROUP
 
-    TGROUP "rounding mode"
-      TCASE "money::round ties differ by mode"
+    ' =================================================================
+    ' Conversions into Money
+    ' =================================================================
+    TGROUP "conversions into Money"
+      TCASE "from Integer, Float, Fixed, and exact decimal text"
+        expectEqual(toMoney(4), 4.00m)
+        expectEqual(toMoney("3.50"), 3.50m)
+        expectEqual(toMoney(1.5), 1.50m)
+        expectEqual(toMoney(2.5F), 2.50m)
+        expectEqual(toMoney("-12345.67891"), -12345.67891m)
+        expectEqual(toMoney("0"), 0.00m)
+      END TCASE
+      TCASE "malformed text and out-of-range text fail"
+        expectTrap(toMoney("abc"), errorCode::ErrInvalidFormat)
+        expectTrap(toMoney(""), errorCode::ErrInvalidFormat)
+        expectTrap(toMoney("99999999999999999999"), errorCode::ErrOverflow)
+        expectNTrap(toMoney("3.50"))
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' money::round — settle to N decimals under the current mode
+    ' =================================================================
+    TGROUP "money::round"
+      TCASE "Commercial rounds ties away from zero (symmetric on sign)"
         money::setRounding(Rounding.Commercial)
-        expectEqual(settle(0.125m, 2), 0.13m)
+        expectEqual(money::round(0.125m, 2), 0.13m)
+        expectEqual(money::round(-0.125m, 2), -0.13m)
+        expectEqual(money::round(0.005m, 2), 0.01m)
+        expectEqual(money::round(2.675m, 2), 2.68m)
+        expectEqual(money::round(2.5m, 0), 3.00m)
+        expectEqual(money::round(-0.135m, 2), -0.14m)
+      END TCASE
+      TCASE "Banker rounds ties to even"
         money::setRounding(Rounding.Banker)
-        expectEqual(settle(0.125m, 2), 0.12m)
-        expectEqual(settle(0.135m, 2), 0.14m)
+        expectEqual(money::round(0.125m, 2), 0.12m)
+        expectEqual(money::round(0.135m, 2), 0.14m)
+        expectEqual(money::round(0.245m, 2), 0.24m)
+        expectEqual(money::round(2.5m, 0), 2.00m)
+        expectEqual(money::round(3.5m, 0), 4.00m)
         money::setRounding(Rounding.Commercial)
       END TCASE
-      TCASE "getRounding reflects the mode"
+      TCASE "decimals 0 and 5 are the bounds; 5 is the identity"
+        expectEqual(money::round(1.23456m - 0.00456m, 5), 1.23000m)
+        expectEqual(money::round(3.14159m, 5), 3.14159m)
+        expectEqual(money::round(3.14159m, 0), 3.00m)
+      END TCASE
+      TCASE "decimals outside 0..5 trap ErrInvalidArgument"
+        expectTrap(settle(1.23m, 0 - 1), errorCode::ErrInvalidArgument)
+        expectTrap(settle(1.23m, 6), errorCode::ErrInvalidArgument)
+        expectTrap(settle(1.23m, 100), errorCode::ErrInvalidArgument)
+        expectNTrap(settle(1.23m, 0))
+        expectNTrap(settle(1.23m, 5))
+      END TCASE
+      TCASE "rounding a near-maximum amount upward overflows"
+        expectTrap(settle(92233720368547.75807m, 0), errorCode::ErrOverflow)
+        expectNTrap(settle(92233720368547.00000m, 0))
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' The rounding mode governs arithmetic rounding, not just money::round
+    ' =================================================================
+    TGROUP "rounding mode governs arithmetic"
+      TCASE "division of a Money by a scalar rounds under the mode"
+        ' 1.00m / 64 = 0.015625 exactly; the 6th place is a true tie.
+        money::setRounding(Rounding.Commercial)
+        expectEqual(1.00m / 64, 0.01563m)
+        money::setRounding(Rounding.Banker)
+        expectEqual(1.00m / 64, 0.01562m)
+        money::setRounding(Rounding.Commercial)
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' setRounding / getRounding
+    ' =================================================================
+    TGROUP "rounding mode state"
+      TCASE "getRounding reflects the installed mode"
         money::setRounding(Rounding.Banker)
         expectEqual(money::getRounding() = Rounding.Banker, true)
         money::setRounding(Rounding.Commercial)
@@ -83,20 +230,33 @@ TESTING
       END TCASE
     END TGROUP
 
+    ' =================================================================
+    ' math:: overloads on Money
+    ' =================================================================
     TGROUP "math surface"
-      TCASE "abs min max clamp stay Money"
+      TCASE "abs, min, max, clamp stay Money"
         expectEqual(math::abs(-3.75m), 3.75m)
+        expectEqual(math::abs(3.75m), 3.75m)
         expectEqual(math::min(1.25m, 2.50m), 1.25m)
         expectEqual(math::max(1.25m, 2.50m), 2.50m)
         expectEqual(math::clamp(2.50m, 1.00m, 2.00m), 2.00m)
+        expectEqual(math::clamp(0.50m, 1.00m, 2.00m), 1.00m)
       END TCASE
-      TCASE "floor ceil round exit to Integer"
+      TCASE "floor, ceil, round exit the dimension to Integer (half away)"
         expectInteger(math::floor(3.75m), 3)
         expectInteger(math::ceil(3.25m), 4)
         expectInteger(math::round(3.5m), 4)
+        expectInteger(math::round(2.5m), 3)
+        expectInteger(math::round(-2.5m), -3)
         expectInteger(math::floor(-1.25m), -2)
+        expectInteger(math::ceil(-1.25m), -1)
       END TCASE
-      TCASE "rand stays in range"
+      TCASE "abs of the minimum value overflows"
+        LET minm AS Money = -92233720368547.75808
+        expectTrap(math::abs(minm), errorCode::ErrOverflow)
+        expectNTrap(math::abs(0.00m - 1.00m))
+      END TCASE
+      TCASE "rand stays within the requested range"
         LET r AS Money = math::rand(1.00m, 10.00m)
         expectEqual(r >= 1.00m AND r <= 10.00m, true)
       END TCASE
