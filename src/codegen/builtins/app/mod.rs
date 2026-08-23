@@ -9,13 +9,14 @@
 //! `money::getRounding` / `money::setRounding`.
 //!
 //! Unlike `money`, the two members lower to **runtime helpers** (`_mfb_rt_app_*`),
-//! not inline call-site sequences, so each registers the shared
-//! [`gen_os_seam::lower_app_os_seam`] `Body::abi_function` body; the `abi_function`
-//! wrapper threads the per-arena `presentation_mode_offset` through the
-//! [`AbiCtx`](crate::codegen::registry::AbiCtx) (app is not OS-family-specific — the
-//! per-backend surface reconcile is a `CodegenPlatform` seam invoked from the shared
-//! body). Their runtime specs are DERIVED from the registry
-//! (`registry::runtime_specs`), so there is no hand-written `app_specs.rs`.
+//! not inline call-site sequences, so each carries its own per-member
+//! `Body::abi_function` lowering in its `func_*.rs` (`func_get_mode::lower_get_mode`
+//! loads the slot; `func_set_mode::lower_set_mode` stores it then runs the
+//! per-backend surface reconcile). The `abi_function` wrapper threads the per-arena
+//! `presentation_mode_offset` through the [`AbiCtx`](crate::codegen::registry::AbiCtx);
+//! the reconcile is a `CodegenPlatform::emit_app_mode_reconcile` seam. Their runtime
+//! specs are DERIVED from the registry (`registry::runtime_specs`), so there is no
+//! hand-written `app_specs.rs`.
 //!
 //! The `Mode` enum is modeled on the registry via `add_enum` (rendered into the
 //! injected source by `get_mfb`, like `money`'s `Rounding` and `datetime`'s
@@ -26,7 +27,6 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::registry::{EnumVariant, Registry, RegistryEnum, RegistryPackage};
-mod gen_os_seam;
 
 mod func_get_mode;
 mod func_set_mode;

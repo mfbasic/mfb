@@ -1,11 +1,47 @@
 //! `app::getMode` — read the presentation mode currently in effect.
-//!
-//! The native lowering (the per-arena presentation-mode load) lives in
-//! [`super::gen_os_seam::lower_app_os_seam`].
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::Operand;
+use crate::codegen::error::constants::*;
+use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
+use crate::target::shared::abi;
 use crate::types::ParameterType;
+
+/// `app::getMode()` — load the presentation-mode word (`0`/`1`) into the result
+/// value register as a `Mode` value (the enum is i64-carried by its discriminant).
+/// The `abi_function` wrapper seeds the entry label and finalizes; this body sets
+/// the result registers and returns. `ctx.presentation_mode_offset` is the arena
+/// slot, `Some` only in an `--app` build, so `None` here is an internal error.
+pub(crate) fn lower_get_mode(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let presentation_mode_offset = ctx.presentation_mode_offset.ok_or_else(|| {
+        format!(
+            "native code plan emits '{}' without reserving the presentation-mode slot",
+            builder.current_symbol
+        )
+    })?;
+    builder.instructions.push(abi::load_u64(
+        RESULT_VALUE_REGISTER,
+        ARENA_STATE_REGISTER,
+        presentation_mode_offset,
+    ));
+    builder.instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.instructions.push(abi::return_());
+    Ok(ValueResult {
+        origin: None,
+        type_: "Nothing".to_string(),
+        location: Operand::from("void"),
+        text: "app.getMode".to_string(),
+    })
+}
 const INTRO: &str = r#"Read the presentation mode currently in effect for this `--app` program"#;
 const DESC: &str = r#"`app::getMode` returns the program's current presentation mode as a `Mode` value.
 It takes no arguments and always succeeds.
@@ -48,7 +84,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![],
             return_type: ParameterType::Named("Mode"),
             errors: vec![],
-            body: Body::abi_function(super::gen_os_seam::lower_app_os_seam),
+            body: Body::abi_function(lower_get_mode),
         }],
     });
 }

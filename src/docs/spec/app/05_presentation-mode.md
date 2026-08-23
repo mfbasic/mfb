@@ -50,7 +50,7 @@ touches `app::` keeps its exact entry frame. [[src/codegen/error/constants/error
 `app::getMode` and `app::setMode` are lowered inline to runtime helpers that load
 and store this word — `getMode` is a single load (as cheap as reading a local),
 `setMode` a store followed by the surface-reconcile seam below.
-[[src/codegen/builtins/app/gen_os_seam.rs:lower_app_helper]]
+[[src/codegen/builtins/app/func_get_mode.rs:lower_get_mode]] [[src/codegen/builtins/app/func_set_mode.rs:lower_set_mode]]
 
 Because the slot lives in the per-arena state region, it is per-execution-context,
 consistent with the per-thread RNG and Money rounding mode.

@@ -1,13 +1,64 @@
 //! `app::setMode` — change the presentation mode of an `--app` program.
-//!
-//! The native lowering (store the discriminant, then the per-backend surface-reconcile
-//! seam) lives in [`super::gen_os_seam::lower_app_os_seam`].
 
 // --- codegen tier imports (migration) ---
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::Operand;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
+use crate::target::shared::abi;
 use crate::types::ParameterType;
+
+/// `app::setMode(mode)` — store the `Mode` discriminant into the presentation-mode
+/// word, then invoke the per-backend surface-reconcile seam
+/// ([`CodegenPlatform::emit_app_mode_reconcile`]). The store lands *before* the
+/// reconcile runs, so the reconcile (which in C/D emits register-clobbering `bl`
+/// calls to marshal to the UI thread) reads the authoritative mode from the slot
+/// rather than a caller-saved register. `ctx.presentation_mode_offset` is `Some`
+/// only in an `--app` build, so `None` here is an internal error.
+pub(crate) fn lower_set_mode(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let presentation_mode_offset = ctx.presentation_mode_offset.ok_or_else(|| {
+        format!("native code plan emits '{symbol}' without reserving the presentation-mode slot")
+    })?;
+    let mut vregs = Vregs::new();
+    let mode = vregs.next();
+    builder
+        .instructions
+        .push(abi::move_register(&mode, abi::c_arg(0)));
+    builder.instructions.push(abi::store_u64(
+        &mode,
+        ARENA_STATE_REGISTER,
+        presentation_mode_offset,
+    ));
+    // plan-62-B seam (no-op default; filled by plan-62-C/D). `None` = state-only.
+    if let Some(result) = ctx.platform.emit_app_mode_reconcile(
+        &symbol,
+        presentation_mode_offset,
+        &mut builder.instructions,
+        &mut builder.relocations,
+    ) {
+        result?;
+    }
+    builder.instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    builder.instructions.push(abi::return_());
+    Ok(ValueResult {
+        origin: None,
+        type_: "Nothing".to_string(),
+        location: Operand::from("void"),
+        text: "app.setMode".to_string(),
+    })
+}
 
 const INTRO: &str = r#"Change the presentation mode of this `--app` program"#;
 const DESC: &str = r#"`app::setMode` sets the program's presentation mode. `mode` is one of the two
@@ -57,7 +108,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Nothing,
             errors: vec![],
-            body: Body::abi_function(super::gen_os_seam::lower_app_os_seam),
+            body: Body::abi_function(lower_set_mode),
         }],
     });
 }
