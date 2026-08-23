@@ -5,15 +5,15 @@ Cleaned up codegen
 @ = Reviewed
 
 [-] app
-[-] astrings
+[@] astrings
 [-] audio
 [@] bits
-[+] collections
+[@] collections
 [@] crypto
 [@] csv
-[-] datetime
-[-] encoding
-[-] errorcode
+[@] datetime
+[@] encoding
+[@] errorcode
 [-] fs
 [-] http
 [@] io
@@ -24,7 +24,7 @@ Cleaned up codegen
 [-] os
 [-] process
 [@] regex
-[+] strings
+[@] strings
 [-] term
 [-] thread
 [-] tls
