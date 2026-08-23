@@ -1999,15 +1999,6 @@ pub(crate) fn lower_runtime_helper(
                         }
                     }
                 }
-                "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset" => {
-                    crate::codegen::builtins::datetime::lower_datetime_helper(
-                        spec.call,
-                        symbol,
-                        &os_ctx,
-                        platform_imports,
-                        platform,
-                    )?
-                }
                 // plan-67-B: internal perf-tracking helpers (injected, never NIR-level).
                 "perf.init" | "perf.start" | "perf.end" | "perf.done" => {
                     perf::lower_perf_helper(spec.call, symbol, platform_imports, platform)?

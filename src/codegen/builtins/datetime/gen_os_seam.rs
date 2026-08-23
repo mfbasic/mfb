@@ -1,5 +1,7 @@
-//! Native code generation for the `datetime::` OS-seam intrinsics
-//! (plan-01-datetime.md §8.2). Three tiny runtime helpers wrap libc:
+//! Shared code generation for the `datetime::` OS-seam intrinsics
+//! (plan-01-datetime.md §8.2). Three tiny runtime helpers wrap libc, all sharing
+//! this one `abi_function` body (each `func_*.rs` calls it with its own call
+//! name); the wrapper finalizes it (crypto/io's clean-room shape):
 //!
 //! - `datetime.nowNanos` — `clock_gettime(CLOCK_REALTIME)` → `sec*1e9 + nsec`.
 //! - `datetime.monotonicNanos` — `clock_gettime(CLOCK_MONOTONIC)` → nanoseconds.
@@ -15,12 +17,14 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use std::collections::HashMap;
 
+use crate::codegen::registry::AbiCtx;
 use crate::target::shared::abi;
 // Frame layout (16-aligned). `LOCALS_SIZE` is the size of this locals region,
 // which `finalize_vreg_body_with_locals` rounds to 16 and reserves; the vreg
@@ -75,16 +79,20 @@ const WIN_UNIX_EPOCH_TO_1601_SEC: &str = "11644473600";
 // still fits i64; a larger value would wrap. `(i64::MAX - epoch) / 1e7`.
 const WIN_FILETIME_MAX_UNIX_SEC: &str = "910692730085";
 
-pub(crate) fn lower_datetime_helper(
+pub(crate) fn lower_datetime_os_seam(
+    builder: &mut CodeBuilder,
+    ctx: &AbiCtx,
     call: &str,
-    symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<ValueResult, String> {
+    let symbol_owned = builder.current_symbol.clone();
+    let symbol: &str = &symbol_owned;
+    let platform_imports = ctx.platform_imports;
+    let platform = ctx.platform;
+
     // Vreg-allocated (plan-00-G Phase 2): the timespec/tm buffer is an explicit
-    // sp-relative local region; the x9-x11 scratch becomes vregs.
-    let mut instructions = vec![abi::label("entry")];
+    // sp-relative local region; the x9-x11 scratch becomes vregs. The `abi_function`
+    // wrapper pre-seeds the entry label and finalizes, so this body emits neither.
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
 
@@ -212,8 +220,16 @@ pub(crate) fn lower_datetime_helper(
         instructions.push(abi::return_());
     }
 
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], LOCALS_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = LOCALS_SIZE;
+    // A `void` location: the body emitted its own fallible ABI (the shared OK tail
+    // and the `localOffset` range-fail tail), so the wrapper appends no epilogue.
+    Ok(ValueResult {
+        type_: "Integer".to_string(),
+        location: Operand::from("void"),
+        text: call.to_string(),
+    })
 }
 
 /// The Windows kernel32 body for the three `datetime::` intrinsics (plan-66-A).

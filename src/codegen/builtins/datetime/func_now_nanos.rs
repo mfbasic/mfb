@@ -1,8 +1,21 @@
 //! `datetime::nowNanos` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). datetime members are
-//! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`.
+//! Per-member file (planning/migrate.md). The OS-seam body is the shared
+//! `abi_function` lowering [`super::gen_os_seam::lower_datetime_os_seam`]; the
+//! wrapper finalizes it (crypto/io's clean-room shape).
+
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::AbiCtx;
+
+/// `abi_function` body for `datetime::nowNanos` — the shared OS-seam clock
+/// lowering, selected by call name.
+pub(crate) fn lower_now_nanos(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    super::gen_os_seam::lower_datetime_os_seam(builder, ctx, "datetime.nowNanos")
+}
 
 const INTRO: &str = r#"The current wall-clock reading as nanoseconds since the Unix epoch."#;
 const DESC: &str = r#"`datetime::nowNanos` is the low-level OS-seam intrinsic behind `datetime::now`.
@@ -64,11 +77,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             params: vec![],
             return_type: super::ParameterType::Integer,
             errors: vec![],
-            body: super::Body::native(
-                Some(super::lower_datetime_helper),
-                Some(super::lower_datetime_helper),
-                None,
-            ),
+            body: super::Body::abi_function(lower_now_nanos),
         }],
     });
 }

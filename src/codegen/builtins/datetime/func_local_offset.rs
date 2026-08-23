@@ -1,8 +1,23 @@
 //! `datetime::localOffset` — descriptor entry + authored docs.
 //!
-//! Per-member file (planning/migrate.md). datetime members are
-//! `Implementation::Custom` (arity/type resolved by `DatetimeResolver`); the
-//! source bodies live in the shared `package.mfb`.
+//! Per-member file (planning/migrate.md). The OS-seam body is the shared
+//! `abi_function` lowering [`super::gen_os_seam::lower_datetime_os_seam`]; the
+//! wrapper finalizes it (crypto/io's clean-room shape). The `localtime_r` NULL /
+//! FILETIME-range failure raises `ErrInvalidArgument` through the tag the shared
+//! body sets (bug-42), auto-propagated by the runtime-helper call site.
+
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::AbiCtx;
+
+/// `abi_function` body for `datetime::localOffset` — the shared OS-seam lowering,
+/// selected by call name.
+pub(crate) fn lower_local_offset(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    super::gen_os_seam::lower_datetime_os_seam(builder, ctx, "datetime.localOffset")
+}
 
 const INTRO: &str = r#"The host's local UTC offset in seconds at a given epoch second."#;
 const DESC: &str = r#"`datetime::localOffset` returns the signed offset from UTC, in seconds, that the
@@ -71,11 +86,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
             }],
             return_type: super::ParameterType::Integer,
             errors: vec![],
-            body: super::Body::native(
-                Some(super::lower_datetime_helper),
-                Some(super::lower_datetime_helper),
-                None,
-            ),
+            body: super::Body::abi_function(lower_local_offset),
         }],
     });
 }
