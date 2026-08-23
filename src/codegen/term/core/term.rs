@@ -164,7 +164,7 @@ pub(crate) fn lower_term_helper(
 ) -> Result<(Vec<CodeInstruction>, Vec<CodeRelocation>, usize), String> {
     // Vreg-allocated (plan-00-G Phase 2): the decimal/record-build scratch buffers
     // are an explicit sp-relative local region; x9-x15 scratch becomes vregs. The
-    // `abi_function` wrapper (`term::gen_os_seam::lower_term_os_seam`) seeds the
+    // `abi_function` wrapper (`term::gen_shared per-member body`) seeds the
     // entry label and finalizes; this body returns the pre-finalize
     // `(instructions, relocations, stack_size)` it consumes.
     let done = format!("{symbol}_done");

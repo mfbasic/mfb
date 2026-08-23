@@ -8,10 +8,11 @@
 //! `fillRect`), text/glyph stamping (`drawText`/`drawGlyph`), and size/resize queries
 //! (`terminalSize`/`didResize`).
 //!
-//! Every one of the 24 members registers the shared
-//! [`gen_os_seam::lower_term_os_seam`] `Body::abi_function` body; the `abi_function`
-//! wrapper seeds the entry label, binds the ABI argument registers, and finalizes.
-//! That body branches app-vs-console internally off the [`AbiCtx`] it is threaded
+//! Each of the 24 members owns its `Body::abi_function` body
+//! (`func_*.rs::lower_<name>`); the `abi_function` wrapper seeds the entry label,
+//! binds the ABI argument registers, and finalizes. Each body calls the shared
+//! family-generic [`gen_shared::lower_term_helper`] with its own runtime-call name,
+//! which branches app-vs-console internally off the [`AbiCtx`] it is threaded
 //! (`build_mode`/`term_state_offset`/`presentation_mode_offset`) and delegates to the
 //! heavy terminal emitters kept in the shared code layer
 //! (`code::lower_term_helper` for the console backend,
@@ -75,7 +76,7 @@ mod func_show_cursor;
 mod func_sync;
 mod func_terminal_size;
 
-mod gen_os_seam;
+mod gen_shared;
 
 /// The `term::drawText` qualified call name — the co-located IR-level rewrite key for
 /// the `drawText(AttributedString)` overload (routed to `__term_drawTextAttr`).

@@ -60,7 +60,7 @@ use crate::codegen::builtins::audio::gen_shared::AudioBackend;
 use crate::codegen::collection::layout::{recursive_transfer_types, thread_copy_symbol};
 // The cross-package presentation-mode gate (app owns `Mode`) stays in the shared
 // code layer; re-exported so the migrated `term` package's `abi_function` body
-// (`codegen::builtins::term::gen_os_seam`) can fence its app-mode helpers.
+// (`codegen::builtins::term::gen_shared`) can fence its app-mode helpers.
 pub(crate) mod builder_emit_helpers;
 
 use crate::codegen::engine::function::*;
@@ -1919,16 +1919,17 @@ pub(crate) fn lower_runtime_helper(
                 os_ctx.presentation_mode_offset,
             )?
         // (`term.*` members are `Body::abi_function` since the clean-room migration —
-        // the shared `lower_term_os_seam` body branches app-vs-console off the `AbiCtx`
+        // each member's own per-member body (`func_*.rs::lower_<name>`) calls the shared
+        // `gen_shared::lower_term_helper`, which branches app-vs-console off the `AbiCtx`
         // (`build_mode`/`term_state_offset`/`presentation_mode_offset`) and, in app
         // mode, appends the platform's `emit_app_term_helper` sequence — so they route
         // through the `is_abi_function_call` branch above; no `term.` arm here. The
-        // app-mode `ErrWrongMode` gate stays in the shared code layer, spliced by the
-        // shared body.)
+        // app-mode `ErrWrongMode` gate stays in the shared code layer, spliced by that
+        // shared helper.)
         } else {
             match spec.call {
                 // (`app.*` presentation-mode members are `Body::abi_function` since the
-                // clean-room migration — the shared `lower_app_os_seam` body reads the
+                // clean-room migration — each member's own per-member body reads the
                 // arena `presentation_mode_offset` off the `AbiCtx` — so they route
                 // through the `is_abi_function_call` branch above; no `app.` arm here.)
                 // Every `crypto.*` runtime helper (the `randomBytes` CSPRNG and the
@@ -2010,11 +2011,12 @@ pub(crate) fn lower_runtime_helper(
                 // migration — the shared `lower_net_os_seam` body plus its
                 // `connectTcpAddr`/`pollList` code-form aliases — so they route through
                 // the `is_abi_function_call` branch above; no `net.` arm here.)
-                // (`audio.*` device-I/O members are `Body::abi_function` since the
-                // clean-room migration — the shared `lower_audio_os_seam` body plus its
-                // IR-level overload-split code forms (openInputDevice/openOutputDevice/
-                // readTimeout/pollTimeout/closeInput/closeOutput) — so they route through
-                // the `is_abi_function_call` branch above; no `audio.` arm here.)
+                // (`audio.*` device-I/O members are `Body::abi_function_aliased` since the
+                // clean-room migration — each member's own per-member body
+                // (`func_*.rs::lower_<name>`) plus its IR-level overload-split code forms
+                // (openInputDevice/openOutputDevice/readTimeout/pollTimeout/closeInput/
+                // closeOutput) — so they route through the `is_abi_function_call` branch
+                // above; no `audio.` arm here.)
                 // Every `process.*` member is `Body::abi_function` since the
                 // clean-room migration (the shared `lower_process_os_seam` body plus
                 // its `spawnEnv`/`sendTimeout`/… code-form aliases), so it routes

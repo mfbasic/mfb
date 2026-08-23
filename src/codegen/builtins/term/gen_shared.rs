@@ -8,14 +8,14 @@
 //! (`code::lower_term_helper`) or, in an `--app` build, the platform's synthesized
 //! `TermView` surface (`CodegenPlatform::emit_app_term_helper`).
 //!
-//! The 24 members share one `Body::abi_function` body, [`lower_term_os_seam`]: the
-//! `abi_function` wrapper seeds the entry label, binds the incoming ABI argument
-//! registers, and finalizes; this body dispatches by the runtime-call name in
-//! [`AbiCtx::call`] to the family-generic [`lower_term_helper`], which branches
-//! app-vs-console off the [`AbiCtx`](crate::codegen::registry::AbiCtx)
-//! (`build_mode` / `term_state_offset` / `presentation_mode_offset`) and appends
-//! the pre-finalize [`TermBodyParts`] the wrapper finalizes. `term` has no
-//! posix/win difference and no `os_aliases`.
+//! Each of the 24 members owns its `Body::abi_function` body (`lower_<name>`) in its
+//! own `func_*.rs`: the `abi_function` wrapper seeds the entry label, binds the
+//! incoming ABI argument registers, and finalizes; the body calls the one
+//! genuinely-shared family-generic [`lower_term_helper`] with its own runtime-call
+//! name, which branches app-vs-console off the
+//! [`AbiCtx`](crate::codegen::registry::AbiCtx) (`build_mode` / `term_state_offset` /
+//! `presentation_mode_offset`) and appends the pre-finalize [`TermBodyParts`] the
+//! wrapper finalizes. `term` has no posix/win difference and no `os_aliases`.
 //!
 //! The heavy emitters stay in the shared code layer (like the `strings` / `vector`
 //! codegen carriers — relocating the 150 KB of terminal-grid emission would be
@@ -41,38 +41,16 @@ use std::collections::HashMap;
 /// body's former self-finalize.
 pub(crate) type TermBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize);
 
-/// The `abi_function` body shared by every native `term.*` member (crypto/io/net's
-/// clean-room shape). The `abi_function` wrapper seeds the entry label, binds the
-/// incoming ABI argument registers, and finalizes; this body dispatches to the
-/// family-generic [`lower_term_helper`] by the runtime-call name in [`AbiCtx::call`]
-/// and appends its instructions/relocations. All native members register this one
-/// body.
-pub(crate) fn lower_term_os_seam(
-    builder: &mut CodeBuilder,
-    _args: &[ValueResult],
-    ctx: &crate::codegen::registry::AbiCtx,
-) -> Result<ValueResult, String> {
-    let symbol = builder.current_symbol.clone();
-    let (instructions, relocations, stack_size) = lower_term_helper(
-        ctx.call,
-        &symbol,
-        ctx.term_state_offset,
-        ctx.presentation_mode_offset,
-        ctx.build_mode,
-        ctx.platform_imports,
-        ctx.platform,
-    )?;
-    builder.instructions.extend(instructions);
-    builder.relocations.extend(relocations);
-    builder.stack_size = stack_size;
-    // A `void` location: every term body emits its own fallible ABI, so the wrapper
-    // appends no epilogue.
-    Ok(ValueResult {
+/// The `void` result every native `term.*` member returns from its per-member
+/// `abi_function` body: every term body emits its own fallible ABI, so the wrapper
+/// appends no epilogue. `type_` is `Nothing`; `text` carries the runtime-call name.
+pub(crate) fn void_result(call: &str) -> ValueResult {
+    ValueResult {
         origin: None,
         type_: "Nothing".to_string(),
         location: Operand::from("void"),
-        text: ctx.call.to_string(),
-    })
+        text: call.to_string(),
+    }
 }
 
 /// The single family-generic OS-seam entry for every `term::` member — reached from
