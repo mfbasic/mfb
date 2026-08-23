@@ -2,23 +2,29 @@
 //! local/remote address, read/write, DNS lookup, and the UDP datagram
 //! operations (bind/receive/send). Each `lower_net_*_helper` emits a
 //! self-contained AArch64 runtime function returning the standard
-//! `(tag, value)` result in `x0`/`x1`. See the parent module for the shared
+//! `(tag, value)` result in `x0`/`x1`. See `gen_os_seam` for the shared
 //! emitters and record-layout invariants.
 
 // --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::error::emission::*;
+use crate::codegen::os::syscall::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
 
-use super::*;
+use super::gen_os_seam::*;
 /// Winsock `WSAETIMEDOUT`: a blocking socket op that hits SO_RCVTIMEO/SO_SNDTIMEO
 /// reports this on Windows, where POSIX reports EAGAIN/EWOULDBLOCK (plan-47-I,
 /// bug-109). Used only on the `PlatformFamily::Windows` timeout arms.
 const WSAETIMEDOUT: &str = "10060";
 
-// `EINTR_ERRNO` (bug-115) is defined once in `net/mod.rs` and reaches here via
-// the `use super::*` glob above; this module previously shadowed it with a
-// byte-identical local copy (bug-331 §I).
+// `EINTR_ERRNO` (bug-115) is defined in `os::syscall` and reaches here via the
+// `use crate::codegen::os::syscall::*` glob above; this module previously shadowed
+// it with a byte-identical local copy (bug-331 §I).
 
 // ---------------------------------------------------------------------------
 // net.accept

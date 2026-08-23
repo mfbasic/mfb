@@ -1,16 +1,21 @@
 //! Native code generation for the `net` package poll/timeout helpers:
 //! `net.poll` readiness checks and `net.setReadTimeout`/`net.setWriteTimeout`
-//! socket-option machinery. See the parent module for the shared emitters.
+//! socket-option machinery. See `gen_os_seam` for the shared emitters.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::error::emission::*;
+use crate::codegen::os::syscall::*;
 use crate::target::shared::abi;
 use std::collections::HashMap;
 
-use super::*;
-// `EINTR_ERRNO` (bug-115) is defined once in `net/mod.rs` and reaches here via
-// the `use super::*` glob above; this module previously shadowed it with a
-// byte-identical local copy (bug-331 §I).
+use super::gen_os_seam::*;
+// `EINTR_ERRNO` (bug-115) is defined in `os::syscall` and reaches here via the
+// `use crate::codegen::os::syscall::*` glob above; this module previously shadowed
+// it with a byte-identical local copy (bug-331 §I).
 
 // ---------------------------------------------------------------------------
 // net.poll

@@ -1,22 +1,19 @@
-//! Native code generation for the built-in `net` package runtime helpers (DNS
-//! lookup and TCP sockets). Each `lower_net_*_helper` emits a self-contained
-//! AArch64 runtime function that marshals libc socket calls and returns the
-//! standard `(tag, value)` result in `x0`/`x1`.
+//! The shared `net` `abi_function` body ([`lower_net_os_seam`]) and the
+//! family-generic OS-seam dispatcher ([`lower_net_helper`]) it delegates to, plus
+//! the DNS-lookup / TCP-endpoint helpers and the socket-call symbol/emitter
+//! primitives the sibling [`super::gen_io`] / [`super::gen_poll`] backends share.
+//! Each `lower_net_*_helper` emits a self-contained runtime function that marshals
+//! libc socket calls and returns the standard `(tag, value)` result in `x0`/`x1`.
 //!
 //! Socket and listener handles share the `File` record layout (`fd` at offset
 //! 0, a `closed` flag at offset 8). Platform `sockaddr` structures are produced
 //! by `getaddrinfo` so the helpers never hand-build a `sockaddr_in`; the only
 //! field written directly is `sin_port` at offset 2, which is consistent across
 //! platforms for `AF_INET`.
-//!
-//! Visibility here is spelled `pub(crate)` in full,
-//! matching `io.rs` and `poll.rs`, rather than the shorter `pub(crate)`. In this
-//! file the two happen to mean the same thing; in the child modules they do not
-//! (`pub(crate)` there would mean `pub(in ...::net)`), so the long form is the
-//! only spelling that is correct in all three and can be copied between them.
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::collection::layout::*;
+use super::gen_io::*;
+use super::gen_poll::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
@@ -25,11 +22,6 @@ use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
 use crate::codegen::os::syscall::*;
 use crate::codegen::string::validate::*;
-mod io;
-mod poll;
-
-pub(crate) use io::*;
-pub(crate) use poll::*;
 
 use std::collections::HashMap;
 
@@ -128,16 +120,16 @@ pub(crate) fn emit_pollfd_events(
     }
 }
 
-const AF_INET: &str = "2";
-const SOCK_STREAM: &str = "1";
-const SOCK_DGRAM: &str = "2";
+pub(crate) const AF_INET: &str = "2";
+pub(crate) const SOCK_STREAM: &str = "1";
+pub(crate) const SOCK_DGRAM: &str = "2";
 // hints `u64` at offset 0 packs `ai_flags` (low 32) and `ai_family` (high 32).
 // `AF_INET (2) << 32`.
 const HINTS_FAMILY_WORD: &str = "8589934592"; // ai_flags = 0
 const HINTS_FAMILY_WORD_PASSIVE: &str = "8589934593"; // ai_flags = AI_PASSIVE (1)
-const SOCKADDR_STORAGE_SIZE: usize = 128;
+pub(crate) const SOCKADDR_STORAGE_SIZE: usize = 128;
 const ADDR_STR_CAP: usize = 64;
-const POLLIN: &str = "1";
+pub(crate) const POLLIN: &str = "1";
 /// `EINTR` errno (Linux/macOS both use 4): a `poll` interrupted by a signal
 /// returns `-1`/`EINTR` and must be re-issued rather than treated as a hard
 /// connect failure (bug-115).
@@ -214,7 +206,7 @@ pub(crate) fn emit_string_result_build(
 /// allocated NUL-terminated C string, storing the result pointer at
 /// `sp + out_off`. Branches to `alloc_fail` on allocation failure. Clobbers
 /// `x0`, `x1`, `x9`..`x14`.
-fn emit_cstring(
+pub(crate) fn emit_cstring(
     symbol: &str,
     prefix: &str,
     str_off: usize,
@@ -263,7 +255,7 @@ fn emit_cstring(
 /// Zero a 48-byte `addrinfo` hints block at `sp + hints_off` and set
 /// `ai_family = AF_INET`, `ai_socktype = socktype` (and `AI_PASSIVE` when
 /// `passive`). Clobbers `x9`.
-fn emit_hints(
+pub(crate) fn emit_hints(
     hints_off: usize,
     passive: bool,
     socktype: &str,
@@ -298,7 +290,7 @@ fn emit_hints(
 /// `Address` pointer in `x1`, branches to `alloc_fail` on allocation failure or
 /// `addr_fail` when `inet_ntop` fails. Everything persists on the stack so no
 /// callee-saved registers are clobbered.
-fn emit_address_from_sockaddr(
+pub(crate) fn emit_address_from_sockaddr(
     ctx: &mut EmitCtx,
     prefix: &str,
     sockaddr_off: usize,
@@ -412,7 +404,7 @@ fn emit_address_from_sockaddr(
 /// the plan-80 header { tag, fd (handle), closed=0, STATE=0 }; `tag` is the
 /// caller's `RESOURCE_TAG_*` (Socket / UdpSocket / Listener). Branches to
 /// `alloc_fail` on failure.
-fn emit_make_handle(
+pub(crate) fn emit_make_handle(
     symbol: &str,
     fd_off: usize,
     tag: &str,
