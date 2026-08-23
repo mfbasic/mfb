@@ -208,3 +208,64 @@ fn builtins_no_hand_picked_vreg() {
         sample.join("\n")
     );
 }
+
+/// Every `abi_function` builtin member registers its OWN per-member lowering in its
+/// `func_*.rs` (migrate.md §0: "**one** `lower_<name>` … registered as
+/// `Body::abi_function(lower_<name>)`. No `lower_<name>` + `emit_<name>_body`
+/// split."). The crypto/io reference migrations do this: `func_flush.rs` →
+/// `Body::abi_function(lower_flush)` with the body right there; `func_hash.rs` →
+/// `lower_hash`.
+///
+/// The banned shape — the "shared-dispatcher to fake a migration" deviation — is a
+/// package-wide `lower_<pkg>_os_seam` body reached by EVERY member (directly, or via
+/// a per-member `lower_<name>` shell that just calls
+/// `lower_<pkg>_os_seam(builder, ctx, "pkg.member")`) that switches on `AbiCtx::call`
+/// to pick the member. That leaves each `func_*.rs` a shell and the real lowering in
+/// one cross-member `match ctx.call` in `gen_*`. `AbiCtx::call` is sanctioned ONLY
+/// for one member's own overload aliases (audio's `openInput`/`openInputDevice`),
+/// never to dispatch between different members — and the correct references
+/// (crypto/io) carry no `_os_seam` construct at all. So: ban the `_os_seam`
+/// identifier everywhere in `src/codegen/builtins` (and a `func_*.rs` `body:` that
+/// registers a `*_native(` package shell wrapping one). Hard floor of 0.
+#[test]
+fn no_cross_member_os_seam_dispatcher() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest.join("src/codegen/builtins");
+    let mut offenders: Vec<String> = Vec::new();
+    for path in rs_files(&[root]) {
+        let src = std::fs::read_to_string(&path).expect("read source");
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        for (line_no, line) in code_above_tests(&src).lines().enumerate() {
+            let t = line.trim_start();
+            if t.starts_with("//") {
+                continue;
+            }
+            let rel = path.strip_prefix(manifest).unwrap().display();
+            // The cross-member dispatcher construct itself — its definition, and every
+            // per-member shell that reaches it — all name `_os_seam`.
+            if line.contains("_os_seam") {
+                offenders.push(format!("{rel}:{}", line_no + 1));
+            } else if name.starts_with("func_")
+                && line.contains("body:")
+                && line.contains("_native(")
+            {
+                // A `func_*.rs` registering a `<pkg>_native(...)` shell (net's idiom)
+                // that returns the shared `_os_seam` body.
+                offenders.push(format!(
+                    "{rel}:{} (registers a *_native shell body)",
+                    line_no + 1
+                ));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "cross-member `*_os_seam` shared-dispatcher deviation (migrate.md §0). Each \
+         `abi_function` member must carry its OWN `lower_<name>` in its `func_*.rs` \
+         (fold a single-use emitter in; keep genuinely-shared code as a `gen_*` helper \
+         the per-member bodies CALL), and the `lower_<pkg>_os_seam` / `lower_<pkg>_helper` \
+         cross-member `match ctx.call` must be deleted. See fs/io/crypto for the shape. \
+         Offenders:\n{}",
+        offenders.join("\n")
+    );
+}
