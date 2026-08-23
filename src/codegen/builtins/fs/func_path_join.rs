@@ -1,7 +1,7 @@
 //! `fs::pathJoin` — descriptor + docs.
 //!
 //! A `path*` string member: purely syntactic, no syscall. It lowers at the call
-//! site through the `Body::native` `common` slot (`native::lower_fs_path_join_nl`,
+//! site through the `Body::abi_inline_self` (self-lowering) (`native::lower_fs_path_join_nl`,
 //! delegating to the relocated `impl CodeBuilder` path emitters), which itself
 //! calls the standalone `lower_fs_path_join_helper` runtime helper so
 //! imported-package binary_repr joins identically.
@@ -85,7 +85,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::String,
             errors: vec![],
-            body: Body::native(None, None, Some(lower_fs_path_join_nl)),
+            body: Body::abi_inline_self(lower_fs_path_join_nl),
         }],
     });
 }

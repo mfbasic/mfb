@@ -1095,12 +1095,26 @@ pub(crate) fn lower_net_helper(
         "net.readText" => lower_net_read_helper(symbol, platform_imports, platform, true),
         "net.write" => lower_net_write_helper(symbol, platform_imports, platform, false),
         "net.writeText" => lower_net_write_helper(symbol, platform_imports, platform, true),
-        "net.close" => crate::codegen::builtins::fs::native::lower_fs_close_helper(
-            symbol,
-            platform_imports,
-            platform,
-            false,
-        ),
+        "net.close" => {
+            // `net.close` reuses the `fs::close` body (a socket fd is closed exactly
+            // like a file fd). Since the plan-72 migration `lower_fs_close_helper` is an
+            // `abi_function` body — it returns the pre-finalize `(instructions,
+            // relocations, stack_size)` and no longer seeds its own entry label — so this
+            // OS-seam consumer prepends the entry label and finalizes the vreg body
+            // itself, exactly as the `abi_function` wrapper does (byte-identical).
+            let (body, relocations, stack_size) =
+                crate::codegen::builtins::fs::native::lower_fs_close_helper(
+                    symbol,
+                    platform_imports,
+                    platform,
+                    false,
+                )?;
+            let mut instructions = vec![abi::label("entry")];
+            instructions.extend(body);
+            let (frame, stack_slots) =
+                finalize_vreg_body_with_locals(&mut instructions, &[], stack_size);
+            Ok((frame, instructions, relocations, stack_slots))
+        }
         "net.localAddress" => lower_net_address_helper(symbol, platform_imports, platform, false),
         "net.remoteAddress" => lower_net_address_helper(symbol, platform_imports, platform, true),
         "net.setReadTimeout" => {

@@ -1,11 +1,24 @@
 //! `fs::currentDirectory` — descriptor + docs.
 //!
-//! Native syscall member: its `Body::native` posix/win slots both hold the shared
-//! family-generic OS-seam dispatcher `native::lower_fs_helper`.
+//! Native syscall member: its `Body::abi_function` body delegates to the shared
+//! family-generic OS-seam dispatcher `native::lower_fs_os_seam`.
 
-use super::native::lower_fs_helper;
+use super::native::lower_fs_os_seam;
 use super::{Body, Implementation, RegistryFunction, RegistryPackage};
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::AbiCtx;
 use crate::types::ParameterType;
+
+/// `abi_function` body for `fs::currentDirectory` — the shared OS-seam dispatcher
+/// [`super::native::lower_fs_os_seam`], selected by runtime-call name (crypto/io's
+/// clean-room shape); the `abi_function` wrapper finalizes it.
+pub(crate) fn lower_fs_current_directory(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    lower_fs_os_seam(builder, ctx, "fs.currentDirectory")
+}
 
 const INTRO: &str = r#"Return the process's current working directory"#;
 const DESC: &str = r#"`fs::currentDirectory` returns the absolute current working directory of the
@@ -64,7 +77,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![],
             return_type: ParameterType::String,
             errors: vec![],
-            body: Body::native(Some(lower_fs_helper), Some(lower_fs_helper), None),
+            body: Body::abi_function(lower_fs_current_directory),
         }],
     });
 }

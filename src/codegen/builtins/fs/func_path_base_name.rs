@@ -1,7 +1,7 @@
 //! `fs::pathBaseName` — descriptor + docs.
 //!
 //! A purely-syntactic `path*` string member: no syscall. It lowers at the call
-//! site through the `Body::native` `common` slot (`native::lower_fs_path_base_name_nl`).
+//! site through the `Body::abi_inline_self` (self-lowering) (`native::lower_fs_path_base_name_nl`).
 
 use super::native::lower_fs_path_base_name_nl;
 use super::{Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage};
@@ -104,7 +104,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::String,
             errors: vec![],
-            body: Body::native(None, None, Some(lower_fs_path_base_name_nl)),
+            body: Body::abi_inline_self(lower_fs_path_base_name_nl),
         }],
     });
 }

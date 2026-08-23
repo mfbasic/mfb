@@ -1,12 +1,25 @@
 //! `fs::listDirectory` — descriptor + docs.
 //!
-//! Native syscall member: its `Body::native` posix/win slots both hold the shared
-//! family-generic OS-seam dispatcher `native::lower_fs_helper` (which branches to
+//! Native syscall member: its `Body::abi_function` body delegates to the shared
+//! family-generic OS-seam dispatcher `native::lower_fs_os_seam` (which branches to
 //! the relocated `lower_fs_list_directory_helper`).
 
-use super::native::lower_fs_helper;
+use super::native::lower_fs_os_seam;
 use super::{Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage};
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::AbiCtx;
 use crate::types::ParameterType;
+
+/// `abi_function` body for `fs::listDirectory` — the shared OS-seam dispatcher
+/// [`super::native::lower_fs_os_seam`], selected by runtime-call name (crypto/io's
+/// clean-room shape); the `abi_function` wrapper finalizes it.
+pub(crate) fn lower_fs_list_directory(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    lower_fs_os_seam(builder, ctx, "fs.listDirectory")
+}
 
 const INTRO: &str = r#"List the direct child names of a directory"#;
 const DESC: &str = r#"`fs::listDirectory` opens the directory named by `path`, reads every entry it
@@ -91,7 +104,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::list_of(ParameterType::String),
             errors: vec![],
-            body: Body::native(Some(lower_fs_helper), Some(lower_fs_helper), None),
+            body: Body::abi_function(lower_fs_list_directory),
         }],
     });
 }

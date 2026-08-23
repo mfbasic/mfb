@@ -704,12 +704,15 @@ impl CodeBuilder<'_> {
     }
 }
 
-/// `Body::native` `common` [`crate::codegen::registry::NativeLower`] wrappers for
-/// the five `path*` members. Each delegates to the shared
+/// `Body::abi_inline_self` [`crate::codegen::registry::AbiInlineSelf`] wrappers for
+/// the five `path*` members — the self-lowering successor to the former `common`
+/// `NativeLower` slot (byte-identical: the raw `NirValue` args are lowered by the
+/// same dispatcher). Each delegates to the shared
 /// [`CodeBuilder::lower_fs_path_call`] dispatcher (kept because the same lowering
 /// also serves the `RuntimeCall` node and the standalone `pathJoin` helper), which
-/// always lowers these single-arg path calls. A free fn per member so the HRTB
-/// fn-pointer coerces (a method would E0308).
+/// always lowers these single-arg path calls. The `AbiCtx` is unused (a `path*`
+/// member is purely syntactic). A free fn per member so the HRTB fn-pointer coerces
+/// (a method would E0308).
 fn dispatch_path(
     builder: &mut CodeBuilder,
     target: &str,
@@ -723,6 +726,7 @@ fn dispatch_path(
 pub(crate) fn lower_fs_path_join_nl(
     builder: &mut CodeBuilder,
     args: &[NirValue],
+    _ctx: &crate::codegen::registry::AbiCtx,
 ) -> Result<ValueResult, String> {
     dispatch_path(builder, "fs.pathJoin", args)
 }
@@ -730,6 +734,7 @@ pub(crate) fn lower_fs_path_join_nl(
 pub(crate) fn lower_fs_path_base_name_nl(
     builder: &mut CodeBuilder,
     args: &[NirValue],
+    _ctx: &crate::codegen::registry::AbiCtx,
 ) -> Result<ValueResult, String> {
     dispatch_path(builder, "fs.pathBaseName", args)
 }
@@ -737,6 +742,7 @@ pub(crate) fn lower_fs_path_base_name_nl(
 pub(crate) fn lower_fs_path_dir_name_nl(
     builder: &mut CodeBuilder,
     args: &[NirValue],
+    _ctx: &crate::codegen::registry::AbiCtx,
 ) -> Result<ValueResult, String> {
     dispatch_path(builder, "fs.pathDirName", args)
 }
@@ -744,6 +750,7 @@ pub(crate) fn lower_fs_path_dir_name_nl(
 pub(crate) fn lower_fs_path_extension_nl(
     builder: &mut CodeBuilder,
     args: &[NirValue],
+    _ctx: &crate::codegen::registry::AbiCtx,
 ) -> Result<ValueResult, String> {
     dispatch_path(builder, "fs.pathExtension", args)
 }
@@ -751,6 +758,7 @@ pub(crate) fn lower_fs_path_extension_nl(
 pub(crate) fn lower_fs_path_normalize_nl(
     builder: &mut CodeBuilder,
     args: &[NirValue],
+    _ctx: &crate::codegen::registry::AbiCtx,
 ) -> Result<ValueResult, String> {
     dispatch_path(builder, "fs.pathNormalize", args)
 }

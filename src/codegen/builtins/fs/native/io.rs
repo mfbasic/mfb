@@ -193,13 +193,12 @@ fn emit_append_to_file_buffer(
 }
 
 /// `fs::isBuffered(file)` (plan-14-B §4.5): report whether this handle is buffered.
-pub(crate) fn lower_fs_is_buffered_helper(symbol: &str) -> HelperResult {
+pub(crate) fn lower_fs_is_buffered_helper(symbol: &str) -> Result<FsBodyParts, String> {
     let yes = format!("{symbol}_yes");
     let done = format!("{symbol}_done");
     let mut vregs = Vregs::new();
     let enabled = vregs.next();
-    let mut instructions = vec![
-        abi::label("entry"),
+    let instructions = vec![
         abi::load_u64(&enabled, abi::return_register(), FILE_OFFSET_BUF_ENABLED),
         abi::compare_immediate(&enabled, "0"),
         abi::branch_ne(&yes),
@@ -212,13 +211,12 @@ pub(crate) fn lower_fs_is_buffered_helper(symbol: &str) -> HelperResult {
         abi::label(&done),
         abi::return_(),
     ];
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, Vec::new(), stack_slots))
+    Ok((instructions, Vec::new(), 0))
 }
 
 /// `fs::setBuffered(file, enabled)` (plan-14-B §4.5): turn per-handle buffering on
 /// or off. Disabling drains any pending bytes first, then clears the flag.
-pub(crate) fn lower_fs_set_buffered_helper(symbol: &str) -> HelperResult {
+pub(crate) fn lower_fs_set_buffered_helper(symbol: &str) -> Result<FsBodyParts, String> {
     let enable = format!("{symbol}_enable");
     let done = format!("{symbol}_done");
     let mut vregs = Vregs::new();
@@ -226,7 +224,6 @@ pub(crate) fn lower_fs_set_buffered_helper(symbol: &str) -> HelperResult {
     let one = vregs.next();
     // x0 = File*, x1 = enabled (Boolean).
     let mut instructions = vec![
-        abi::label("entry"),
         abi::compare_immediate(abi::mfb_return(1), "0"),
         abi::branch_ne(&enable),
         // Disable: drain first (best-effort — setBuffered returns Nothing), then
@@ -245,18 +242,17 @@ pub(crate) fn lower_fs_set_buffered_helper(symbol: &str) -> HelperResult {
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::return_(),
     ]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 /// `fs::flush(file)` (plan-14-B §4.5): drain this handle's buffer now. Raises the
 /// write-path ErrOutput on a failing final write; a no-op when the handle is
 /// unbuffered.
-pub(crate) fn lower_fs_flush_helper(symbol: &str) -> HelperResult {
+pub(crate) fn lower_fs_flush_helper(symbol: &str) -> Result<FsBodyParts, String> {
     let flush_error = format!("{symbol}_flush_error");
     let done = format!("{symbol}_done");
     // x0 = File*.
-    let mut instructions = vec![abi::label("entry"), abi::branch_link(FILE_DRAIN_SYMBOL)];
+    let mut instructions = vec![abi::branch_link(FILE_DRAIN_SYMBOL)];
     let mut relocations = vec![internal_branch(symbol, FILE_DRAIN_SYMBOL)];
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
@@ -272,8 +268,7 @@ pub(crate) fn lower_fs_flush_helper(symbol: &str) -> HelperResult {
         &mut relocations,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_fs_open_helper(
@@ -281,7 +276,7 @@ pub(crate) fn lower_fs_open_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     no_follow: bool,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). path/mode (held across the first alloc),
     // and the open fd (held across the file-record alloc) become spilled vregs; the
     // C-string and flags are consumed before the next call. The mode-literal matcher
@@ -330,7 +325,6 @@ pub(crate) fn lower_fs_open_helper(
     let openat2_errno = vregs.next();
     let openat2_mode_zero = format!("{symbol}_openat2_mode_zero");
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&path, abi::return_register()),
         abi::move_register(&mode, abi::mfb_return(1)),
         abi::load_u64(&len0, &path, 0),
@@ -619,12 +613,8 @@ pub(crate) fn lower_fs_open_helper(
 
     // Reserve the 24-byte `open_how` scratch at sp+0 only for the Linux no-follow
     // path that builds it; every other flavor keeps the byte-identical frame.
-    let (frame, stack_slots) = if linux_nofollow {
-        finalize_vreg_body_with_locals(&mut instructions, &[], 24)
-    } else {
-        finalize_vreg_body(&mut instructions, &[])
-    };
-    Ok((frame, instructions, relocations, stack_slots))
+    let stack_size = if linux_nofollow { 24 } else { 0 };
+    Ok((instructions, relocations, stack_size))
 }
 
 /// `fs::openWithin(root, relPath[, mode])` (bug-259 / OS-03): open `relPath`
@@ -642,7 +632,7 @@ pub(crate) fn lower_fs_open_within_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     const PATH_MAX_PLUS_NUL: usize = 4097;
     let linux = match platform.family() {
         PlatformFamily::Linux => true,
@@ -724,7 +714,6 @@ pub(crate) fn lower_fs_open_within_helper(
     };
 
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&root, abi::return_register()),
         abi::move_register(&rel, abi::mfb_return(1)),
         abi::move_register(&mode, abi::mfb_return(2)),
@@ -1107,12 +1096,8 @@ pub(crate) fn lower_fs_open_within_helper(
         &done,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = if linux {
-        finalize_vreg_body_with_locals(&mut instructions, &[], 24)
-    } else {
-        finalize_vreg_body(&mut instructions, &[])
-    };
-    Ok((frame, instructions, relocations, stack_slots))
+    let stack_size = if linux { 24 } else { 0 };
+    Ok((instructions, relocations, stack_size))
 }
 
 pub(crate) fn lower_fs_close_helper(
@@ -1120,7 +1105,7 @@ pub(crate) fn lower_fs_close_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     flush_on_close: bool,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). The file-record pointer is held across the
     // `close` call (read again afterward to mark CLOSED), so it spills.
     // `flush_on_close` is true for `fs::close` (which honors the per-File output
@@ -1138,7 +1123,6 @@ pub(crate) fn lower_fs_close_helper(
     let flag = vregs.next();
     let drain_result = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
         abi::load_u64(&closed, &file, FILE_OFFSET_CLOSED),
         abi::compare_immediate(&closed, "0"),
@@ -1229,15 +1213,14 @@ pub(crate) fn lower_fs_close_helper(
         );
     }
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_fs_write_all_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). fd / remaining / cursor are loop-carried
     // across the `write` syscall, so the allocator spills them.
     let loop_label = format!("{symbol}_write_loop");
@@ -1254,7 +1237,6 @@ pub(crate) fn lower_fs_write_all_helper(
     let closed_flag = vregs.next();
     let buf_enabled = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
         abi::move_register(&data, abi::mfb_return(1)),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
@@ -1355,15 +1337,14 @@ pub(crate) fn lower_fs_write_all_helper(
         &mut relocations,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_fs_read_all_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). fd (across the seeks + read loop), the
     // seek positions/length (across the alloc), and the result string (across the
     // read loop + UTF-8 validation) are vregs the allocator spills.
@@ -1387,7 +1368,6 @@ pub(crate) fn lower_fs_read_all_helper(
     let cursor = vregs.next();
     let closed_flag = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
         abi::compare_immediate(&closed_flag, "0"),
@@ -1533,15 +1513,14 @@ pub(crate) fn lower_fs_read_all_helper(
         &mut relocations,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_fs_write_all_bytes_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). Writes the byte-List's data region;
     // fd/remaining/cursor are loop-carried across the `write` syscall (spilled).
     let loop_label = format!("{symbol}_write_loop");
@@ -1560,7 +1539,6 @@ pub(crate) fn lower_fs_write_all_bytes_helper(
     let buf_enabled = vregs.next();
     let entry_size = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
         abi::move_register(&bytes, abi::mfb_return(1)),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
@@ -1666,15 +1644,14 @@ pub(crate) fn lower_fs_write_all_bytes_helper(
         &mut relocations,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_fs_read_all_bytes_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). fd (across seeks + read loop), seek
     // positions/length (across the alloc), the collection and its data-region base
     // (across the read loop) are spilled vregs; the entry-init loop makes no call.
@@ -1704,7 +1681,6 @@ pub(crate) fn lower_fs_read_all_bytes_helper(
     let scratch = vregs.next();
     let closed_flag = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
         abi::compare_immediate(&closed_flag, "0"),
@@ -1887,15 +1863,14 @@ pub(crate) fn lower_fs_read_all_bytes_helper(
         &mut relocations,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_fs_eof_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). fd is held across the three seeks, the
     // start position across the second/third — both spilled vregs.
     let closed = format!("{symbol}_closed");
@@ -1912,7 +1887,6 @@ pub(crate) fn lower_fs_eof_helper(
     let read_pos = vregs.next();
     let read_fill = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
         abi::compare_immediate(&closed_flag, "0"),
@@ -1990,8 +1964,7 @@ pub(crate) fn lower_fs_eof_helper(
     instructions.extend([abi::branch(&done), abi::label(&seek_error)]);
     raise_error_into(symbol, "ErrReadFailed", &mut instructions, &mut relocations);
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2149,7 +2122,7 @@ pub(crate) fn lower_fs_read_line_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Transparent block read buffer (plan-14-C): serve lines from the per-`File`
     // read block (`READ_PTR[READ_POS..READ_FILL]`) and refill with one `read()` when
     // it is exhausted, accumulating a line that spans blocks into a growing arena
@@ -2196,7 +2169,6 @@ pub(crate) fn lower_fs_read_line_helper(
     let result = vregs.next();
     let mut relocations = Vec::new();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
         abi::compare_immediate(&closed_flag, "0"),
@@ -2416,8 +2388,7 @@ pub(crate) fn lower_fs_read_line_helper(
         &mut relocations,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) struct OpenFlagSet {

@@ -7,19 +7,23 @@
 //! the former `src/codegen/builtins/fs/native/` and `builder_fs_paths.rs`; they are
 //! relocated here verbatim (byte-identical emission).
 //!
-//! The 36 syscall members share one family-generic dispatcher, [`lower_fs_helper`]
-//! — the verbatim `match call` block that lived in `code/mod.rs`. Each member's
-//! `func_*.rs` registers it in *both* the `posix` and `win` slots of a
-//! `Body::native`; the generic OS-seam dispatch (`crate::codegen::os`) reaches it
-//! by `platform.family()`, and the emitter branches on family internally. `fs`
-//! needs no build context, so the `_build_mode`/`_module_name` arguments of the
-//! [`crate::codegen::registry::OsLower`] contract are accepted and ignored.
+//! The 36 syscall members are `Body::abi_function` (crypto/io's clean-room shape):
+//! each `func_*.rs` registers a one-line `lower_<name>` body that calls the shared
+//! [`lower_fs_os_seam`] `abi_function` lowering with its own runtime-call name; the
+//! `abi_function` wrapper seeds the entry label, binds the incoming ABI argument
+//! registers, and finalizes. `lower_fs_os_seam` dispatches to the family-generic
+//! [`lower_fs_helper`] — the verbatim `match call` block that lived in `code/mod.rs`
+//! — whose relocated `lower_fs_*_helper` emitters branch on `platform.family()`
+//! internally and return the pre-finalize [`FsBodyParts`]. `fs` needs no build
+//! context, so the [`AbiCtx`](crate::codegen::registry::AbiCtx) carries only the
+//! import table + platform.
 //!
-//! The five `path*` members lower at the call site through the relocated
-//! `impl CodeBuilder` block in `paths_builder.rs` (a `Body::native` `common`
-//! slot). `pathJoin` additionally has a standalone runtime helper
-//! ([`lower_fs_path_join_helper`]) so imported-package binary_repr lowers it
-//! identically; that helper is injected module-wide from `code/mod.rs`.
+//! The five `path*` members are `Body::abi_inline_self` (the self-lowering successor
+//! to the former `common`/`NativeLower` slot), lowering at the call site through the
+//! relocated `impl CodeBuilder` block in `paths_builder.rs`. `pathJoin` additionally
+//! has a standalone runtime helper ([`lower_fs_path_join_helper`]) so imported-package
+//! binary_repr lowers it identically; that helper is injected module-wide from
+//! `code/mod.rs`.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::collection::layout::*;
@@ -46,19 +50,50 @@ pub(crate) use paths::*;
 pub(crate) use paths_builder::*;
 pub(crate) use shared::*;
 
-/// Family-generic OS-seam dispatcher for every syscall `fs` member. Registered in
-/// both the `posix` and `win` slots of each member's `Body::native`; the relocated
-/// `lower_fs_*_helper` emitters branch on `platform.family()` internally. This is
-/// the verbatim `match call` block relocated from `src/codegen/engine/builder/mod.rs`.
-/// `fs` carries no build context, so the [`OsLowerCtx`](crate::codegen::registry::OsLowerCtx)
-/// is ignored.
+/// The `(instructions, relocations, stack_size)` an `fs` OS-seam body emits before
+/// the `abi_function` wrapper finalizes it — the successor to the finalized
+/// [`HelperResult`] tuple. `stack_size` is the explicit sp-relative locals region the
+/// body reserves (0 when it takes no on-stack scratch); the wrapper passes it to
+/// `finalize_vreg_body_with_locals`, byte-identical to the body's former self-finalize.
+pub(crate) type FsBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize);
+
+/// The `abi_function` body shared by every syscall `fs` member (crypto/io's
+/// clean-room shape): the wrapper seeds the entry label, binds the incoming ABI
+/// argument registers, and finalizes, so this body just dispatches to the
+/// family-generic [`lower_fs_helper`] and appends its instructions/relocations.
+/// Each `func_*.rs` calls it with its own runtime-call name.
+pub(crate) fn lower_fs_os_seam(
+    builder: &mut CodeBuilder,
+    ctx: &crate::codegen::registry::AbiCtx,
+    call: &str,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) =
+        lower_fs_helper(call, &symbol, ctx.platform_imports, ctx.platform)?;
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    // A `void` location: every `fs` body emits its own fallible ABI (the success
+    // value in `RESULT_VALUE_REGISTER` + `RESULT_OK_TAG`, each error path setting its
+    // error and returning), so the wrapper appends no epilogue.
+    Ok(ValueResult {
+        type_: "Nothing".to_string(),
+        location: Operand::from("void"),
+        text: call.to_string(),
+    })
+}
+
+/// Family-generic OS-seam dispatcher for every syscall `fs` member. Reached from the
+/// shared [`lower_fs_os_seam`] `abi_function` body; the relocated `lower_fs_*_helper`
+/// emitters branch on `platform.family()` internally and return the pre-finalize
+/// [`FsBodyParts`] the wrapper finalizes. This is the verbatim `match call` block
+/// relocated from `src/codegen/engine/builder/mod.rs`.
 pub(crate) fn lower_fs_helper(
     call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     Ok(match call {
         "fs.exists" => lower_fs_exists_helper(symbol, platform_imports, platform)?,
         "fs.fileExists" | "fs.directoryExists" => {

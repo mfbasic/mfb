@@ -33,7 +33,7 @@ pub(crate) fn lower_fs_create_temp_file_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). The 16-byte random buffer is an explicit
     // on-stack local at sp+0 (`finalize_vreg_body_with_locals`); dir/path/cursor/fd
     // (held across the random-bytes / open / record-alloc calls) are spilled vregs.
@@ -59,7 +59,6 @@ pub(crate) fn lower_fs_create_temp_file_helper(
     let fd = vregs.next();
     let len0 = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&dir, abi::return_register()),
         abi::load_u64(&len0, &dir, 0),
         abi::compare_immediate(&len0, "0"),
@@ -239,9 +238,7 @@ pub(crate) fn lower_fs_create_temp_file_helper(
         &mut relocations,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) =
-        finalize_vreg_body_with_locals(&mut instructions, &[], RANDOM_BUF_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, RANDOM_BUF_SIZE))
 }
 
 fn temp_file_open_flags(family: PlatformFamily) -> &'static str {
@@ -358,7 +355,7 @@ pub(crate) fn lower_fs_atomic_write_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     value_kind: AtomicWriteValueKind,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). Atomic write: build a temp template,
     // mkstemps, write the value, fsync, close, then rename onto the final path.
     // Every value held across one of those calls (path, value, temp_path, fd, the
@@ -416,7 +413,6 @@ pub(crate) fn lower_fs_atomic_write_helper(
     // errno) so the rename failure is still mapped to the right Result (bug-63).
     let saved_errno = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&path, abi::return_register()),
         abi::move_register(&value, abi::mfb_return(1)),
         abi::load_u64(&len0, &path, 0),
@@ -823,8 +819,7 @@ pub(crate) fn lower_fs_atomic_write_helper(
         &mut relocations,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_fs_write_path_helper(
@@ -833,7 +828,7 @@ pub(crate) fn lower_fs_write_path_helper(
     platform: &dyn CodegenPlatform,
     append: bool,
     bytes: bool,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). path→C-string, open, write loop, fsync,
     // close. fd (across write/sync/close) and the value (across open) are spilled
     // vregs; the C-string is consumed at open. `bytes` selects the source: a
@@ -872,7 +867,6 @@ pub(crate) fn lower_fs_write_path_helper(
     // String path keeps its exact vreg numbering (bug-331 §B).
     let cap = if bytes { vregs.next() } else { String::new() };
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&path, abi::return_register()),
         abi::move_register(&value, abi::mfb_return(1)),
         abi::load_u64(&len0, &path, 0),
@@ -1059,15 +1053,14 @@ pub(crate) fn lower_fs_write_path_helper(
         &mut relocations,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_fs_read_text_path_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). path→C-string, open(read), seek end/start
     // for the size, alloc the string, read loop, close, UTF-8 validate. fd (across
     // seeks/read/close), the length, and the result string are spilled vregs.
@@ -1102,7 +1095,6 @@ pub(crate) fn lower_fs_read_text_path_helper(
     let index = vregs.next();
     let byte = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
@@ -1324,15 +1316,14 @@ pub(crate) fn lower_fs_read_text_path_helper(
         &mut relocations,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_fs_read_bytes_path_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). path→C-string, open(read), wrap in a File
     // record, delegate to `readAllBytes`, then close (stashing the Result across the
     // close in vregs). fd and the saved Result fields are spilled vregs.
@@ -1361,7 +1352,6 @@ pub(crate) fn lower_fs_read_bytes_path_helper(
     let index = vregs.next();
     let byte = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
@@ -1516,6 +1506,5 @@ pub(crate) fn lower_fs_read_bytes_path_helper(
         &mut relocations,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }

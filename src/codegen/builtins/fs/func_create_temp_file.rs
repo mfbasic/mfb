@@ -1,12 +1,25 @@
 //! `fs::createTempFile` — descriptor + docs.
 //!
-//! Native syscall member: its `Body::native` posix/win slots both hold the shared
-//! family-generic OS-seam dispatcher `native::lower_fs_helper`. Returns a `File`
+//! Native syscall member: its `Body::abi_function` body delegates to the shared
+//! family-generic OS-seam dispatcher `native::lower_fs_os_seam`. Returns a `File`
 //! resource for a freshly created temp file; `directory` is optional.
 
-use super::native::lower_fs_helper;
+use super::native::lower_fs_os_seam;
 use super::{Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage};
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::AbiCtx;
 use crate::types::ParameterType;
+
+/// `abi_function` body for `fs::createTempFile` — the shared OS-seam dispatcher
+/// [`super::native::lower_fs_os_seam`], selected by runtime-call name (crypto/io's
+/// clean-room shape); the `abi_function` wrapper finalizes it.
+pub(crate) fn lower_fs_create_temp_file(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    lower_fs_os_seam(builder, ctx, "fs.createTempFile")
+}
 
 const INTRO: &str = r#"Securely create and open a unique, freshly named temporary file"#;
 const DESC: &str = r#"`fs::createTempFile` creates a brand-new file with a unique, unpredictable name
@@ -86,7 +99,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Named(super::FILE_TYPE_ID),
             errors: vec![],
-            body: Body::native(Some(lower_fs_helper), Some(lower_fs_helper), None),
+            body: Body::abi_function(lower_fs_create_temp_file),
         }],
     });
 }

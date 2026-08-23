@@ -6,7 +6,7 @@ pub(crate) fn lower_fs_exists_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). The path pointer is held across the
     // `arena_alloc` call and the allocated C-string across the libc `stat`; as
     // vregs the allocator spills the former and keeps the latter in a callee-saved
@@ -24,7 +24,6 @@ pub(crate) fn lower_fs_exists_helper(
     let alloc = vregs.next();
     let len0 = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::add_immediate(abi::return_register(), &len0, 1),
@@ -100,8 +99,7 @@ pub(crate) fn lower_fs_exists_helper(
     );
     instructions.extend([abi::label(&done), abi::return_()]);
 
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_fs_kind_exists_helper(
@@ -109,7 +107,7 @@ pub(crate) fn lower_fs_kind_exists_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     expected_kind: &str,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). The `stat` struct the syscall fills is an
     // explicit on-stack buffer (`finalize_vreg_body_with_locals`) at `sp + 0`; the
     // path pointer (held across `arena_alloc`) spills and the allocated C-string
@@ -130,7 +128,6 @@ pub(crate) fn lower_fs_kind_exists_helper(
     let alloc = vregs.next();
     let len0 = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::add_immediate(abi::return_register(), &len0, 1),
@@ -218,16 +215,14 @@ pub(crate) fn lower_fs_kind_exists_helper(
     );
     instructions.extend([abi::label(&done), abi::return_()]);
 
-    let (frame, stack_slots) =
-        finalize_vreg_body_with_locals(&mut instructions, &[], STAT_BUF_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, STAT_BUF_SIZE))
 }
 
 pub(crate) fn lower_fs_current_directory_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). The `getcwd` buffer is arena-allocated
     // (not on-stack); the buffer pointer and the measured length are held across
     // the second `arena_alloc`, so as vregs the allocator keeps them in callee-saved
@@ -248,7 +243,6 @@ pub(crate) fn lower_fs_current_directory_helper(
     let buffer = vregs.next();
     let length = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_immediate(abi::return_register(), "Integer", GETCWD_CAPACITY),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
@@ -330,15 +324,14 @@ pub(crate) fn lower_fs_current_directory_helper(
     );
     instructions.extend([abi::label(&done), abi::return_()]);
 
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_fs_temp_directory_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). The temp-dir path is read into an
     // arena buffer (not on-stack); the buffer pointer and length are held across
     // the second `arena_alloc` as vregs (allocator spills / callee-saves them).
@@ -356,7 +349,6 @@ pub(crate) fn lower_fs_temp_directory_helper(
     let buffer = vregs.next();
     let length = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_immediate(abi::return_register(), "Integer", TEMP_CAPACITY),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
@@ -445,9 +437,7 @@ pub(crate) fn lower_fs_temp_directory_helper(
     // TEMP_DIRECTORY_SCRATCH_BYTES` across its environment lookup, so that window
     // has to be reserved here rather than left to overlap the spill area — or, as
     // in bug-360, the caller's frame.
-    let (frame, stack_slots) =
-        finalize_vreg_body_with_locals(&mut instructions, &[], TEMP_DIRECTORY_SCRATCH_BYTES);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, TEMP_DIRECTORY_SCRATCH_BYTES))
 }
 
 pub(crate) fn lower_fs_path_operation_helper(
@@ -455,7 +445,7 @@ pub(crate) fn lower_fs_path_operation_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     operation: FsPathOperation,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). The path pointer is held across the
     // `arena_alloc` (spilled); the C-string is consumed by the syscall before any
     // later call, so it stays in a register.
@@ -471,7 +461,6 @@ pub(crate) fn lower_fs_path_operation_helper(
     let alloc = vregs.next();
     let len0 = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
@@ -558,15 +547,14 @@ pub(crate) fn lower_fs_path_operation_helper(
     );
     instructions.extend([abi::label(&done), abi::return_()]);
 
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_fs_create_directories_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). The C-string and the scan `cursor` are
     // loop-carried across the per-prefix `mkdir` calls, so the allocator spills
     // them. `errno` stays in the physical register `emit_errno` writes (`x9`) — it
@@ -593,7 +581,6 @@ pub(crate) fn lower_fs_create_directories_helper(
     let cursor = vregs.next();
     let len0 = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
@@ -744,15 +731,14 @@ pub(crate) fn lower_fs_create_directories_helper(
     );
     instructions.extend([abi::label(&done), abi::return_()]);
 
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_fs_list_directory_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). Two passes over the directory: count
     // entries + name bytes, allocate the List, then fill + sort. Every value held
     // across an opendir/readdir/closedir/sort call (c_path, dir handle, count,
@@ -806,7 +792,6 @@ pub(crate) fn lower_fs_list_directory_helper(
     let scratch = vregs.next();
 
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
@@ -1091,15 +1076,14 @@ pub(crate) fn lower_fs_list_directory_helper(
         &mut relocations,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_fs_canonical_path_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). The C-string, the PATH_MAX realpath
     // buffer, the measured length and the result are all arena-allocated; the ones
     // held across a later `arena_alloc`/`realpath` become spilled/callee-saved vregs.
@@ -1128,7 +1112,6 @@ pub(crate) fn lower_fs_canonical_path_helper(
     let result = vregs.next();
     let len0 = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&path, abi::return_register()),
         abi::load_u64(&len0, &path, 0),
         abi::compare_immediate(&len0, "0"),
@@ -1268,15 +1251,14 @@ pub(crate) fn lower_fs_canonical_path_helper(
         &mut relocations,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 pub(crate) fn lower_fs_is_within_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<FsBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2). Both input paths, their C-strings, and
     // their two PATH_MAX realpath buffers are arena-allocated; each is held across
     // a later `arena_alloc`/`realpath`, so the allocator spills them across the
@@ -1316,7 +1298,6 @@ pub(crate) fn lower_fs_is_within_helper(
     let index = vregs.next();
     let byte = vregs.next();
     let mut instructions = vec![
-        abi::label("entry"),
         abi::move_register(&base, abi::return_register()),
         abi::move_register(&child, abi::mfb_return(1)),
         abi::load_u64(&len, &base, 0),
@@ -1520,8 +1501,7 @@ pub(crate) fn lower_fs_is_within_helper(
         &mut relocations,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, 0))
 }
 
 /// Symbol of the shared standalone `fs::pathJoin` runtime helper.

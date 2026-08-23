@@ -2003,12 +2003,14 @@ pub(crate) fn lower_runtime_helper(
                 "perf.init" | "perf.start" | "perf.end" | "perf.done" => {
                     perf::lower_perf_helper(spec.call, symbol, platform_imports, platform)?
                 }
-                // Every `os.*`/`fs.*` member carries a `Body::native` OS-seam lowering:
-                // the per-platform emission lives in `codegen::builtins::{os,fs}::native`,
-                // and the generic registry-driven dispatch picks posix/win by
-                // `platform.family()`. `os.resourcePath` receives the real
-                // `build_mode`/`module_name`; every other member ignores them.
-                call if call.starts_with("os.") || call.starts_with("fs.") => {
+                // Every `os.*` member carries a `Body::native` OS-seam lowering: the
+                // per-platform emission lives in `codegen::builtins::os::native`, and the
+                // generic registry-driven dispatch picks posix/win by `platform.family()`.
+                // `os.resourcePath` receives the real `build_mode`/`module_name`; every
+                // other member ignores them. (`fs.*` members are `Body::abi_function` since
+                // the plan-72 clean-room migration, so they route through the
+                // `is_abi_function_call` branch above — no `fs.` arm here.)
+                call if call.starts_with("os.") => {
                     match crate::codegen::os::dispatch_runtime_helper(
                         call,
                         symbol,

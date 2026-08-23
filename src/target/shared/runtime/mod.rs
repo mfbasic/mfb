@@ -159,8 +159,6 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         // (The source members `audio.render`/`audio.play` are internalized before
         // reaching here.)
         Some(RuntimeHelper::Audio)
-    } else if crate::codegen::registry::registry().owning_package(name) == Some("fs") {
-        Some(RuntimeHelper::Fs)
     } else if crate::codegen::builtins::general::is_general_call(name) {
         Some(RuntimeHelper::General)
     } else if crate::codegen::registry::registry().owning_package(name) == Some("io") {
