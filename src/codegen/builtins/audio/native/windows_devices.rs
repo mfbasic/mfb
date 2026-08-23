@@ -79,7 +79,7 @@ fn lower_devices(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let unavailable = format!("{symbol}_unavailable");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let fill_loop = format!("{symbol}_fill");
@@ -87,7 +87,7 @@ fn lower_devices(
     let name_from_id = format!("{symbol}_name_id");
     let have_name = format!("{symbol}_have_name");
     let done = format!("{symbol}_done");
-    let mut ins = vec![abi::label("entry")];
+    let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -338,6 +338,5 @@ fn lower_devices(
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.push(abi::label(&done));
     ins.push(abi::return_());
-    let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME);
-    Ok((frame, ins, rel, slots))
+    Ok((ins, rel, FRAME))
 }

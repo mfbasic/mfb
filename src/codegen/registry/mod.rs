@@ -102,6 +102,15 @@ pub(crate) struct AbiCtx<'a> {
     pub(crate) platform_imports: &'a std::collections::HashMap<String, String>,
     pub(crate) platform: &'a dyn crate::codegen::engine::types::CodegenPlatform,
     pub(crate) build_mode: crate::target::NativeBuildMode,
+    /// The runtime-call name being lowered (`audio.openInputDevice`,
+    /// `datetime.nowNanos`) for an `abi_function` member — the shared successor to the
+    /// `call` argument an [`OsLower`] body received. A member serving several IR-level
+    /// overload-split code forms through one `abi_function` body (audio's
+    /// `openInput`/`openInputDevice`, `read`/`readTimeout`, `close`/`closeInput`/
+    /// `closeOutput`) selects its arm off this. Empty (`""`) on the inline
+    /// (`abi_inline`/`abi_inline_self`) path, which lowers per call site and receives
+    /// its target directly.
+    pub(crate) call: &'a str,
     /// The arena offset of the TUI term-state slot, or `None` when the program
     /// uses no `term::` — the plan-35-B shadow-grid routing on `io.print`/`io.write`
     /// and the bug-149 cooked-mode restore on `io.readLine`/`io.input` consume it.
@@ -385,6 +394,28 @@ impl Body {
             abi_inline_self: None,
             abi_function: Some(lower),
             os_aliases: &[],
+        }
+    }
+
+    /// An [`AbiFunction`] lowering that ALSO serves the auxiliary runtime-call code
+    /// forms named in `os_aliases` — the `abi_function` successor to
+    /// [`native_os_seam`](Self::native_os_seam) for a package whose IR-level
+    /// overload-split forms (audio's `openInputDevice`/`readTimeout`/`closeInput`/…)
+    /// share one member body. The aux→primary routing is registry data
+    /// ([`abi_function_lower`]/[`runtime_specs`]) exactly as it was for the `posix`/`win`
+    /// slots ([`os_helper`]); the shared body selects its arm off [`AbiCtx::call`].
+    pub(crate) fn abi_function_os_seam(
+        lower: AbiFunction,
+        os_aliases: &'static [&'static str],
+    ) -> Self {
+        Body::Native {
+            posix: None,
+            win: None,
+            common: None,
+            abi_inline: None,
+            abi_inline_self: None,
+            abi_function: Some(lower),
+            os_aliases,
         }
     }
 
@@ -2362,13 +2393,41 @@ pub(crate) fn abi_inline_self_lower(qualified: &str) -> Option<AbiInlineSelf> {
 /// parameter count (so the runtime-helper wrapper can bind that many incoming ABI
 /// argument registers). `None` when `qualified` is not an `abi_function` member.
 pub(crate) fn abi_function_lower(qualified: &str) -> Option<(AbiFunction, usize)> {
-    for implementation in &registry().resolve_func(qualified)?.function.implementations {
-        if let Body::Native {
-            abi_function: Some(lower),
-            ..
-        } = &implementation.body
-        {
-            return Some((*lower, implementation.params.len()));
+    // Direct member lookup: the member's own qualified name.
+    if let Some(resolved) = registry().resolve_func(qualified) {
+        for implementation in &resolved.function.implementations {
+            if let Body::Native {
+                abi_function: Some(lower),
+                ..
+            } = &implementation.body
+            {
+                return Some((*lower, implementation.params.len()));
+            }
+        }
+    }
+    // Fall back to an `os_aliases` code form of an `abi_function` member — the
+    // IR-level overload-split runtime calls (`audio.openInputDevice`/`readTimeout`/
+    // `closeInput`/…) that are not descriptor members but share a member's body,
+    // routed by registry data exactly as [`os_helper`] routes the `posix`/`win`
+    // slots' aliases. The wrapper binds the owning implementation's parameter count;
+    // the shared body reads `AbiCtx::call` to pick the alias arm.
+    let (pkg_name, member) = qualified.split_once('.')?;
+    let package = registry()
+        .packages()
+        .iter()
+        .find(|p| p.import_name == pkg_name)?;
+    for function in package.functions() {
+        for implementation in function.implementations() {
+            if let Body::Native {
+                abi_function: Some(lower),
+                os_aliases,
+                ..
+            } = &implementation.body
+            {
+                if os_aliases.contains(&member) {
+                    return Some((*lower, implementation.params.len()));
+                }
+            }
         }
     }
     None

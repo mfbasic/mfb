@@ -139,7 +139,7 @@ fn lower_open(
     device: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let invalid = format!("{symbol}_invalid");
     let unavailable = format!("{symbol}_unavailable");
     let dev_fail = format!("{symbol}_dev_fail");
@@ -148,7 +148,7 @@ fn lower_open(
     let use_shared = format!("{symbol}_use_shared");
     let done = format!("{symbol}_done");
 
-    let mut ins = vec![abi::label("entry")];
+    let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -454,8 +454,7 @@ fn lower_open(
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.push(abi::label(&done));
     ins.push(abi::return_());
-    let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME);
-    Ok((frame, ins, rel, slots))
+    Ok((ins, rel, FRAME))
 }
 
 /// Widen the UTF-8 device id at `DEVID_OFF` into a NUL-terminated UTF-16 buffer at
@@ -536,11 +535,11 @@ fn lower_close(
     _input: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let already = format!("{symbol}_already");
     let no_event = format!("{symbol}_no_event");
     let done = format!("{symbol}_done");
-    let mut ins = vec![abi::label("entry")];
+    let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -583,6 +582,5 @@ fn lower_close(
         abi::label(&done),
         abi::return_(),
     ]);
-    let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME);
-    Ok((frame, ins, rel, slots))
+    Ok((ins, rel, FRAME))
 }

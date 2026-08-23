@@ -62,7 +62,7 @@ pub(crate) fn lower_audio_macos(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     match call {
         "audio.devices" => lower_devices(symbol, platform_imports, platform),
         "audio.openOutput" => lower_open_output(symbol, false, platform_imports, platform),
@@ -143,7 +143,7 @@ fn lower_open_output(
     device: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let invalid = format!("{symbol}_invalid");
     let dev_fail = format!("{symbol}_dev_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -151,7 +151,7 @@ fn lower_open_output(
     let buf_done = format!("{symbol}_buf_done");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -453,8 +453,7 @@ fn lower_open_output(
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
 
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], F);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, F))
 }
 
 /// AudioQueueSetProperty(queue, kAudioQueueProperty_CurrentDevice, &uidCF, 8)
@@ -853,7 +852,7 @@ fn lower_write(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let invalid = format!("{symbol}_invalid");
     let dev_fail = format!("{symbol}_dev_fail");
     let write_loop = format!("{symbol}_write_loop");
@@ -866,7 +865,7 @@ fn lower_write(
     let cap_ok = format!("{symbol}_cap_ok");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -1087,8 +1086,7 @@ fn lower_write(
     );
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], F);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, F))
 }
 
 /// closeOutput(output): drain, stop, dispose, destroy, munmap. Idempotent.
@@ -1096,7 +1094,7 @@ fn lower_close_output(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let already = format!("{symbol}_already");
     let drain_loop = format!("{symbol}_drain_loop");
     let drain_done = format!("{symbol}_drain_done");
@@ -1105,7 +1103,7 @@ fn lower_close_output(
     let pad_done = format!("{symbol}_pad_done");
     let enq_ok = format!("{symbol}_enq_ok");
     let done = format!("{symbol}_done");
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -1316,8 +1314,7 @@ fn lower_close_output(
         abi::label(&done),
         abi::return_(),
     ]);
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], F);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, F))
 }
 
 /// available/poll/xruns(stream): read the mutex-guarded counters, branching on
@@ -1328,13 +1325,13 @@ fn lower_query(
     kind: Query,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let is_input = format!("{symbol}_input");
     let have = format!("{symbol}_have");
     let closed = format!("{symbol}_closed");
     let invalid = format!("{symbol}_invalid");
     let done = format!("{symbol}_done");
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -1659,8 +1656,7 @@ fn lower_query(
         );
     }
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], F);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, F))
 }
 
 /// The runtime symbols whose presence in a plan means an output stream is built,
@@ -1811,7 +1807,7 @@ fn lower_open_input(
     device: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let invalid = format!("{symbol}_invalid");
     let dev_fail = format!("{symbol}_dev_fail");
     let unavailable = format!("{symbol}_unavailable");
@@ -1820,7 +1816,7 @@ fn lower_open_input(
     let buf_done = format!("{symbol}_buf_done");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -2168,8 +2164,7 @@ fn lower_open_input(
     );
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], F);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, F))
 }
 
 /// read(input, frames[, timeoutMs]). Drains the ring incrementally into the
@@ -2181,7 +2176,7 @@ fn lower_read(
     timeout: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let invalid = format!("{symbol}_invalid");
     let dev_fail = format!("{symbol}_dev_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -2198,7 +2193,7 @@ fn lower_read(
     let fin_done = format!("{symbol}_fin_done");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -2527,8 +2522,7 @@ fn lower_read(
     );
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], F);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, F))
 }
 
 /// closeInput(input): drop captured data, stop, dispose, destroy, munmap.
@@ -2536,10 +2530,10 @@ fn lower_close_input(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let already = format!("{symbol}_already");
     let done = format!("{symbol}_done");
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -2651,8 +2645,7 @@ fn lower_close_input(
         abi::label(&done),
         abi::return_(),
     ]);
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], F);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, F))
 }
 
 /// The AudioQueue input callback (C-ABI, 6 args): copies the captured buffer into
@@ -2850,7 +2843,7 @@ fn lower_devices(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let dev_fail = format!("{symbol}_dev_fail");
     let unavailable = format!("{symbol}_unavailable");
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -2858,7 +2851,7 @@ fn lower_devices(
     let fill_done = format!("{symbol}_fill_done");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -3124,8 +3117,7 @@ fn lower_devices(
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
 
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME_SIZE))
 }
 
 /// Store `1` into `out_off` of the record `%v12` (record ptr) when the u64 at

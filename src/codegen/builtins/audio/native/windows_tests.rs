@@ -32,9 +32,8 @@ fn any_label_with(ins: &[CodeInstruction], needle: &str) -> bool {
 fn available_returns_frames_not_bytes() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (_frame, ins, _rel, _slots) =
-        lower_query("t_avail", Query::Available, &imports, &TestPlatform)
-            .expect("lower audio::available");
+    let (ins, _rel, _slots) = lower_query("t_avail", Query::Available, &imports, &TestPlatform)
+        .expect("lower audio::available");
     let scales_result = ins.iter().any(|i| {
         i.op == CodeOp::Mul
             && i.get("dst").as_deref() == Some(RESULT_VALUE_REGISTER.render().as_str())
@@ -54,7 +53,7 @@ fn available_returns_frames_not_bytes() {
 fn read_preserves_unconsumed_capture_tail() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (_frame, ins, _rel, _slots) =
+    let (ins, _rel, _slots) =
         lower_read("t_read", false, &imports, &TestPlatform).expect("lower audio::read");
     // Drain of the previous read's carry-over is a second frame-fill expansion.
     assert_eq!(
@@ -75,7 +74,7 @@ fn read_preserves_unconsumed_capture_tail() {
 fn read_timeout_preserves_unconsumed_capture_tail() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (_frame, ins, _rel, _slots) =
+    let (ins, _rel, _slots) =
         lower_read("t_readto", true, &imports, &TestPlatform).expect("lower audio::readTimeout");
     assert_eq!(
         read_fill_count(&ins),
@@ -96,7 +95,7 @@ fn read_timeout_preserves_unconsumed_capture_tail() {
 fn shared_open_guards_mix_channel_underflow() {
     mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
     let imports = HashMap::new();
-    let (_frame, ins, _rel, _slots) = lower_open("t_openin", true, false, &imports, &TestPlatform)
+    let (ins, _rel, _slots) = lower_open("t_openin", true, false, &imports, &TestPlatform)
         .expect("lower audio::openInput");
     let mix_ch = W_MIX_CH.to_string();
     let loads_mix_ch = ins.iter().any(|i| {

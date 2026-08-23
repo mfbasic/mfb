@@ -151,14 +151,6 @@ pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
         Some(abi_function_family(name))
     } else if crate::codegen::registry::registry().owning_package(name) == Some("app") {
         Some(RuntimeHelper::App)
-    } else if name.starts_with("audio.") {
-        // Every `audio.*` runtime call routes to the Audio family: the descriptor
-        // members plus the IR-level overload-split names (`openInputDevice`/
-        // `openOutputDevice`/`readTimeout`/`pollTimeout`/`closeInput`/`closeOutput`) that
-        // `audio::runtime_overload_name` synthesizes at IR level, so they exist at NIR.
-        // (The source members `audio.render`/`audio.play` are internalized before
-        // reaching here.)
-        Some(RuntimeHelper::Audio)
     } else if crate::codegen::builtins::general::is_general_call(name) {
         Some(RuntimeHelper::General)
     } else if crate::codegen::registry::registry().owning_package(name) == Some("io") {

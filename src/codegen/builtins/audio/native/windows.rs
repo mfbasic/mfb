@@ -272,7 +272,7 @@ pub(crate) fn lower_audio_windows(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     match call {
         "audio.devices" => lower_devices(symbol, platform_imports, platform),
         "audio.openOutput" => lower_open(symbol, false, false, platform_imports, platform),

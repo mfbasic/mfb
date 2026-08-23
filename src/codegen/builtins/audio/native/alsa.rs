@@ -250,7 +250,7 @@ pub(crate) fn lower_audio_alsa(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     match call {
         "audio.devices" => lower_devices(symbol, platform_imports, platform),
         "audio.openOutput" => lower_open(symbol, false, false, platform_imports, platform),
@@ -392,14 +392,14 @@ fn lower_open(
     device: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let invalid = format!("{symbol}_invalid");
     let unavailable = format!("{symbol}_unavailable");
     let dev_fail = format!("{symbol}_dev_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -659,8 +659,7 @@ fn lower_open(
     );
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME))
 }
 
 /// Release everything `lower_open` may have acquired, in acquisition-reverse
@@ -1117,7 +1116,7 @@ fn lower_write(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let invalid = format!("{symbol}_invalid");
     let unavailable = format!("{symbol}_unavailable");
     let dev_fail = format!("{symbol}_dev_fail");
@@ -1127,7 +1126,7 @@ fn lower_write(
     let recover = format!("{symbol}_recover");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -1288,8 +1287,7 @@ fn lower_write(
     );
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME))
 }
 
 /// read(input, frames[, timeoutMs]): loop snd_pcm_readi into the pre-allocated
@@ -1300,7 +1298,7 @@ fn lower_read(
     timeout: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let invalid = format!("{symbol}_invalid");
     let unavailable = format!("{symbol}_unavailable");
     let dev_fail = format!("{symbol}_dev_fail");
@@ -1316,7 +1314,7 @@ fn lower_read(
     let expired_drain = format!("{symbol}_expired_drain");
     let drain_cap = format!("{symbol}_drain_cap");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -1756,8 +1754,7 @@ fn lower_read(
     );
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME))
 }
 
 /// available/poll/xruns via snd_pcm_avail_update / snd_pcm_wait / the xruns
@@ -1767,13 +1764,13 @@ fn lower_query(
     kind: Query,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let unavailable = format!("{symbol}_unavailable");
     let invalid = format!("{symbol}_invalid");
     let closed = format!("{symbol}_closed");
     let clamp = format!("{symbol}_clamp");
     let done = format!("{symbol}_done");
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -1983,8 +1980,7 @@ fn lower_query(
     }
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME))
 }
 
 /// close(stream): drain (playback) or drop (capture), snd_pcm_close, munmap.
@@ -1993,11 +1989,11 @@ fn lower_close(
     input: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let already = format!("{symbol}_already");
     let unavailable = format!("{symbol}_unavailable");
     let done = format!("{symbol}_done");
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -2094,8 +2090,7 @@ fn lower_close(
     );
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME))
 }
 
 /// Build an MFBASIC `String` at `out_off` from the malloc'd C string whose
@@ -2169,7 +2164,7 @@ fn lower_devices(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let unavailable = format!("{symbol}_unavailable");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let count_loop = format!("{symbol}_count");
@@ -2178,7 +2173,7 @@ fn lower_devices(
     let fill_done = format!("{symbol}_fill_done");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -2483,8 +2478,7 @@ fn lower_devices(
     );
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME))
 }
 
 #[cfg(test)]
@@ -2500,7 +2494,7 @@ mod open_error_cleanup_tests {
     fn open_ins(device: bool) -> Vec<CodeInstruction> {
         mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
         let imports = HashMap::new();
-        let (_f, ins, _r, _s) =
+        let (ins, _r, _s) =
             lower_open("o", false, device, &imports, &TestPlatform).expect("lower open");
         ins
     }

@@ -10,17 +10,18 @@
 //! (`resource_base_eq`) rejects the wrong direction with no custom resolver
 //! (the `tls`/`process`/`datetime` multi-overload idiom).
 //!
-//! Like `process`/`tls`, `audio` is a **native OS-seam** package: the device I/O
-//! members carry a per-platform runtime-helper lowering. The whole per-backend
-//! emission (macOS Core Audio `AudioQueue`, Linux ALSA over a `dlopen`'d
-//! `libasound.so.2`, Windows WASAPI over COM) lives in [`native`]; every native
-//! member's [`Body::native_os_seam`] holds the one family-generic dispatcher
-//! [`native::lower_audio_helper`] in both slots, and the generic runtime-call
-//! dispatch (`crate::codegen::os::dispatch_runtime_helper` → `registry::os_helper`)
-//! picks the slot by `platform.family()` and routes each member plus its
-//! code-form aliases (`openInputDevice`/`openOutputDevice`/`readTimeout`/
-//! `pollTimeout`/`closeInput`/`closeOutput`) to it. The overload-split NIR
-//! rewrites live in `builder_values.rs` (`audio.read` → `audio.readTimeout`, …),
+//! `audio` is a **native OS-seam** package: the device I/O members carry a
+//! per-platform runtime-helper lowering, migrated to crypto/io's clean-room
+//! `Body::abi_function` shape. The whole per-backend emission (macOS Core Audio
+//! `AudioQueue`, Linux ALSA over a `dlopen`'d `libasound.so.2`, Windows WASAPI over
+//! COM) lives in [`native`]; every device-I/O member's [`Body::abi_function_os_seam`]
+//! holds the one clean-room lowering [`native::lower_audio_os_seam`], which dispatches
+//! to the family-generic backend [`native::lower_audio_helper`] by `platform.family()`
+//! and selects its call arm off `AbiCtx::call`. The member plus its code-form aliases
+//! (`openInputDevice`/`openOutputDevice`/`readTimeout`/`pollTimeout`/`closeInput`/
+//! `closeOutput`) route to that one body through `registry::abi_function_lower` (the
+//! `abi_function` successor to `os_helper`'s alias routing). The IR-level overload
+//! rewrites live in [`runtime_overload_name`] (`audio.read` → `audio.readTimeout`, …),
 //! keyed on argument shape.
 //!
 //! The `render`/`play` members are pure MFBASIC: the tone renderer and the MML
@@ -144,15 +145,15 @@ pub(crate) fn timeout_ms(desc: &'static str) -> Parameter {
     }
 }
 
-/// The native OS-seam body shared by every device-I/O member: the one
-/// family-generic dispatcher in both slots, picked by `platform.family()`, plus
-/// the code-form `os_aliases` this overload declares.
+/// The `abi_function` body shared by every device-I/O member (crypto/io's
+/// clean-room shape): the one clean-room lowering [`native::lower_audio_os_seam`],
+/// which dispatches to the family-generic backend by `platform.family()` and selects
+/// its call arm off [`AbiCtx::call`](crate::codegen::registry::AbiCtx), plus the
+/// code-form `os_aliases` this overload declares (the IR-level overload-split forms
+/// `openInputDevice`/`readTimeout`/`closeInput`/… routed to this body by
+/// `abi_function_lower`).
 pub(crate) fn native_body(os_aliases: &'static [&'static str]) -> Body {
-    Body::native_os_seam(
-        Some(native::lower_audio_helper),
-        Some(native::lower_audio_helper),
-        os_aliases,
-    )
+    Body::abi_function_os_seam(native::lower_audio_os_seam, os_aliases)
 }
 
 /// The internal runtime-helper name a surface `audio::` call rewrites to during IR
@@ -167,8 +168,8 @@ pub(crate) fn native_body(os_aliases: &'static [&'static str]) -> Body {
 /// NIR call, so an IR-level rewrite keeps them — and the native `.ncode` — unchanged.
 /// This is the `tls::close`→`tls.closeListener` idiom (which likewise rewrites at IR
 /// level), extended to audio's five overload-split cases; the `os_aliases` on each
-/// `func_*.rs` descriptor still derive the specs and route the emitted symbol to
-/// `lower_audio_helper` (`registry::os_helper`). The result is a runtime helper, not a
+/// `func_*.rs` descriptor still derive the specs and route the emitted symbol to the
+/// shared `lower_audio_os_seam` body (`registry::abi_function_lower`). The result is a runtime helper, not a
 /// source companion, so IR lowering must NOT internalize it. `render`/`play` are
 /// source members handled by the generic `registry::rewrite_target` and are excluded
 /// here (they are not native runtime calls).

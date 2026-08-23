@@ -24,6 +24,9 @@ impl<'a> CodeBuilder<'a> {
             build_mode: self.build_mode,
             term_state_offset: None,
             presentation_mode_offset: None,
+            // The inline path lowers per call site and hands the body its raw args +
+            // target directly; no `abi_function` runtime-call name applies.
+            call: "",
         }
     }
 }

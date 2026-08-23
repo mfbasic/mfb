@@ -123,17 +123,51 @@ mod windows;
 use common::{emit_validate_open, Query, READ_FRAMES_MAX};
 pub(crate) use macos::{lower_audio_input_callback, lower_audio_output_callback};
 
-/// Dispatch an `audio.*` runtime-helper body to the platform backend. The
-/// `OsLower` shape (`Body::native_os_seam` slot): the `_ctx` is unused (audio
-/// helpers need no build-mode/term-state context), and the generic registry OS
-/// dispatch (`registry::os_helper`) picks this by `platform.family()`.
+/// The `(instructions, relocations, stack_size)` an `audio` OS-seam body emits before
+/// the `abi_function` wrapper finalizes it — the successor to the finalized
+/// [`HelperResult`] tuple (see `fs`'s `FsBodyParts`). `stack_size` is the explicit
+/// sp-relative locals region the body reserves; the wrapper passes it to
+/// `finalize_vreg_body_with_locals`, byte-identical to the body's former self-finalize.
+pub(crate) type AudioBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize);
+
+/// The `abi_function` body shared by every device-I/O `audio` member (crypto/io's
+/// clean-room shape). The `abi_function` wrapper seeds the entry label, binds the
+/// incoming ABI argument registers, and finalizes; this body dispatches to the
+/// family-generic [`lower_audio_helper`] by the runtime-call name in
+/// [`AbiCtx::call`](crate::codegen::registry::AbiCtx) — which is the member's own name
+/// OR one of its IR-level overload-split code forms (`openInputDevice`/`readTimeout`/
+/// `closeInput`/…) — and appends its instructions/relocations. All device-I/O members
+/// register this one body; the aux→primary routing lives in `abi_function_lower`.
+pub(crate) fn lower_audio_os_seam(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &crate::codegen::registry::AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) =
+        lower_audio_helper(ctx.call, &symbol, ctx.platform_imports, ctx.platform)?;
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    // A `void` location: every audio body emits its own fallible ABI, so the wrapper
+    // appends no epilogue.
+    Ok(ValueResult {
+        type_: "Nothing".to_string(),
+        location: Operand::from("void"),
+        text: ctx.call.to_string(),
+    })
+}
+
+/// Dispatch an `audio.*` runtime-helper body to the platform backend, picked by
+/// `platform.family()`. Reached from the shared [`lower_audio_os_seam`]
+/// `abi_function` body; each backend dispatcher returns the pre-finalize
+/// [`AudioBodyParts`] the wrapper finalizes.
 pub(crate) fn lower_audio_helper(
     call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     match platform.family() {
         PlatformFamily::MacOS => macos::lower_audio_macos(call, symbol, platform_imports, platform),
         PlatformFamily::Linux => alsa::lower_audio_alsa(call, symbol, platform_imports, platform),

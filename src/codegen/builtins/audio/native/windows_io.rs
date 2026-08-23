@@ -260,14 +260,14 @@ fn lower_write(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let invalid = format!("{symbol}_invalid");
     let dev_fail = format!("{symbol}_dev_fail");
     let loop_top = format!("{symbol}_loop");
     let loop_done = format!("{symbol}_loop_done");
     let cap_ok = format!("{symbol}_cap_ok");
     let done = format!("{symbol}_done");
-    let mut ins = vec![abi::label("entry")];
+    let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -374,8 +374,7 @@ fn lower_write(
     emit_fail(symbol, "ErrAudioDevice", &mut ins, &mut rel, &done);
     ins.push(abi::label(&done));
     ins.push(abi::return_());
-    let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME);
-    Ok((frame, ins, rel, slots))
+    Ok((ins, rel, FRAME))
 }
 
 /// Copy `copyFrames` captured frames at `pData` (`W_OUT1`) into the s16le result
@@ -477,7 +476,7 @@ fn lower_read(
     timeout: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let invalid = format!("{symbol}_invalid");
     let dev_fail = format!("{symbol}_dev_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
@@ -485,7 +484,7 @@ fn lower_read(
     let loop_done = format!("{symbol}_loop_done");
     let cap_ok = format!("{symbol}_cap_ok");
     let done = format!("{symbol}_done");
-    let mut ins = vec![abi::label("entry")];
+    let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -773,8 +772,7 @@ fn lower_read(
     emit_fail(symbol, "ErrOutOfMemory", &mut ins, &mut rel, &done);
     ins.push(abi::label(&done));
     ins.push(abi::return_());
-    let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME);
-    Ok((frame, ins, rel, slots))
+    Ok((ins, rel, FRAME))
 }
 
 fn lower_query(
@@ -782,11 +780,11 @@ fn lower_query(
     kind: Query,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<AudioBodyParts, String> {
     let closed = format!("{symbol}_closed");
     let invalid = format!("{symbol}_invalid");
     let done = format!("{symbol}_done");
-    let mut ins = vec![abi::label("entry")];
+    let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -906,6 +904,5 @@ fn lower_query(
         );
     }
     ins.extend([abi::label(&done), abi::return_()]);
-    let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME);
-    Ok((frame, ins, rel, slots))
+    Ok((ins, rel, FRAME))
 }

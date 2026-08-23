@@ -2075,28 +2075,11 @@ pub(crate) fn lower_runtime_helper(
                         }
                     }
                 }
-                // Every `audio.*` device-I/O member carries `Body::native_os_seam` on the
-                // clean-room registry: the per-backend emission lives in
-                // `codegen::builtins::audio::native` (`lower_audio_helper`), and the generic
-                // registry-driven dispatch routes each member plus its
-                // openInputDevice/openOutputDevice/readTimeout/pollTimeout/closeInput/
-                // closeOutput code forms by `platform.family()`.
-                call if call.starts_with("audio.") => {
-                    match crate::codegen::os::dispatch_runtime_helper(
-                        call,
-                        symbol,
-                        &os_ctx,
-                        platform_imports,
-                        platform,
-                    ) {
-                        Some(result) => result?,
-                        None => {
-                            return Err(format!(
-                                "native code plan does not emit runtime call '{call}'"
-                            ));
-                        }
-                    }
-                }
+                // (`audio.*` device-I/O members are `Body::abi_function` since the
+                // clean-room migration — the shared `lower_audio_os_seam` body plus its
+                // IR-level overload-split code forms (openInputDevice/openOutputDevice/
+                // readTimeout/pollTimeout/closeInput/closeOutput) — so they route through
+                // the `is_abi_function_call` branch above; no `audio.` arm here.)
                 // Every `process.*` member carries `Implementation::Os`: the
                 // per-platform emission lives in its `func_*.rs`, and the generic
                 // registry-driven dispatch picks posix/win by `platform.family()`.

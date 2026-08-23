@@ -1371,6 +1371,7 @@ pub(crate) fn lower_abi_function_helper(
         build_mode,
         term_state_offset,
         presentation_mode_offset,
+        call,
     };
     let result = lower(&mut builder, &args, &ctx)?;
 
