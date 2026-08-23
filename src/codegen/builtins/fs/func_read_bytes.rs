@@ -1,24 +1,31 @@
 //! `fs::readBytes` — descriptor + docs.
 //!
-//! Native syscall member: its `Body::abi_function` body delegates to the shared
-//! family-generic OS-seam dispatcher `gen_os_seam::lower_fs_os_seam` (which branches to
-//! the relocated `lower_fs_read_bytes_path_helper`).
+//! Native syscall member: it owns its `Body::abi_function` body, which calls its
+//! per-member emitter in the `gen_*` backends and finalizes.
 
-use super::gen_os_seam::lower_fs_os_seam;
 use super::{Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage};
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::registry::AbiCtx;
 use crate::types::ParameterType;
 
-/// `abi_function` body for `fs::readBytes` — the shared OS-seam dispatcher
-/// [`super::gen_os_seam::lower_fs_os_seam`], selected by runtime-call name (crypto/io's
-/// clean-room shape); the `abi_function` wrapper finalizes it.
+/// `abi_function` body for `fs::readBytes` — calls its per-member `lower_fs_*_helper` emitter and finalizes
+/// (crypto/io's clean-room shape).
 pub(crate) fn lower_fs_read_bytes(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    lower_fs_os_seam(builder, ctx, "fs.readBytes")
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) =
+        super::gen_atomic_write::lower_fs_read_bytes_path_helper(
+            &symbol,
+            ctx.platform_imports,
+            ctx.platform,
+        )?;
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result(ctx.call))
 }
 
 const INTRO: &str = r#"Read an entire file into a `List OF Byte`"#;

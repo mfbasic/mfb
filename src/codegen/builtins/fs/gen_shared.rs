@@ -11,6 +11,18 @@ use crate::target::shared::abi;
 /// `finalize_vreg_body_with_locals`, byte-identical to the body's former self-finalize.
 pub(crate) type FsBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize);
 
+/// The `void` result every syscall `fs` member returns from its per-member
+/// `abi_function` body: every `fs` body emits its own fallible ABI, so the wrapper
+/// appends no epilogue. `type_` is `Nothing`; `text` carries the runtime-call name.
+pub(crate) fn void_result(call: &str) -> crate::codegen::engine::builder::ValueResult {
+    crate::codegen::engine::builder::ValueResult {
+        origin: None,
+        type_: "Nothing".to_string(),
+        location: crate::codegen::engine::operand::Operand::from("void"),
+        text: call.to_string(),
+    }
+}
+
 /// Emit the shared path→C-string copy loop (bug-331 §A): copy `len` bytes from
 /// `src` into `dst`, advancing both, then write the trailing NUL. When
 /// `reject_nul` is set an embedded NUL byte branches to `invalid` (the caller's
