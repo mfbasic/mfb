@@ -2,7 +2,7 @@
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
-use crate::codegen::registry::RegistryPackage;
+use crate::codegen::registry::{AbiCtx, RegistryPackage};
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType::{Fixed, Float};
 const INTRO: &str = r#"Arcsine (inverse sine), returning radians."#;
@@ -37,6 +37,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 pub(crate) fn lower_math_asin(
     builder: &mut CodeBuilder,
     args: &[NirValue],
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     builder.lower_math_call("asin", args)
 }

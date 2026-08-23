@@ -6,8 +6,8 @@
 //! `atan2`), `pow`, and the per-thread PCG64 generator (`rand`/`seed`) — plus 14
 //! compile-time constants (`pi`, `e`, `ln2`, …, seven `Float` and seven `Fixed`).
 //!
-//! Every callable lowers **inline** at the call site (a `Body::native(None, None,
-//! Some(lower_math_*))` intrinsic — no runtime helper, no source companion). Each
+//! Every callable lowers **inline** at the call site (a `Body::abi_inline_self`
+//! self-lowering intrinsic — no runtime helper, no source companion). Each
 //! member is enumerated as concrete-type overloads that reproduce the legacy
 //! `resolve_call` acceptance and return types byte-for-byte: an argument-type
 //! preserving member echoes `Arg(0)` (its operand's type), `floor`/`ceil`/`round`
@@ -35,7 +35,7 @@
 //! acceptance now enumerated as concrete-type overloads below).
 
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, NativeLower, Parameter, Registry, RegistryConstant,
+    AbiInlineSelf, Body, DefaultValue, Implementation, Parameter, Registry, RegistryConstant,
     RegistryFunction, RegistryPackage,
 };
 use crate::types::ParameterType;
@@ -111,13 +111,13 @@ pub(crate) fn overload(
     params: Vec<Parameter>,
     return_type: ParameterType,
     errors: Vec<&'static str>,
-    lower: NativeLower,
+    lower: AbiInlineSelf,
 ) -> Implementation {
     Implementation {
         params,
         return_type,
         errors,
-        body: Body::native(None, None, Some(lower)),
+        body: Body::abi_inline_self(lower),
     }
 }
 
@@ -195,7 +195,7 @@ pub(crate) fn preserving_unary(
     scalars: &[ParameterType],
     lists: &[ParameterType],
     errors: &[&'static str],
-    lower: NativeLower,
+    lower: AbiInlineSelf,
     pkg: &mut RegistryPackage,
 ) {
     // List overloads are registered BEFORE the scalar overloads: lenient overload
@@ -244,7 +244,7 @@ pub(crate) fn rounding(
     scalars: &[ParameterType],
     lists: &[ParameterType],
     errors: &[&'static str],
-    lower: NativeLower,
+    lower: AbiInlineSelf,
     pkg: &mut RegistryPackage,
 ) {
     // List overloads first (see `preserving_unary`): the array form returns
@@ -294,7 +294,7 @@ pub(crate) fn preserving_binary(
     scalars: &[ParameterType],
     lists: &[ParameterType],
     errors: &[&'static str],
-    lower: NativeLower,
+    lower: AbiInlineSelf,
     pkg: &mut RegistryPackage,
 ) {
     // List overloads first (see `preserving_unary`).
@@ -350,7 +350,7 @@ mod tests {
     }
 
     #[test]
-    fn every_member_owns_a_common_native_lowering() {
+    fn every_member_owns_a_self_lowering_inline_body() {
         for name in [
             "abs", "min", "max", "clamp", "floor", "ceil", "round", "sqrt", "pow", "exp", "log",
             "log10", "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "rand", "seed",
@@ -358,8 +358,8 @@ mod tests {
             let q = format!("math.{name}");
             assert_eq!(registry().owning_package(&q), Some("math"), "{name}");
             assert!(
-                registry::native_lower(&q).is_some(),
-                "{name} should have a common native lowering"
+                registry::abi_inline_self_lower(&q).is_some(),
+                "{name} should have a Body::abi_inline_self lowering"
             );
         }
     }
