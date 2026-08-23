@@ -6,12 +6,18 @@ use crate::codegen::engine::types::NativeCodePlan;
 
 mod emitter;
 mod operand;
+mod relax;
 mod sizing;
 
 #[cfg(test)]
 mod tests;
 
 use emitter::Encoder;
+
+// bug-445: the conditional-branch relaxation pass, run by the AArch64 targets on
+// the code plan before `encode` so a function whose `b.<cond>` must span more than
+// ±1 MiB compiles (via a trampoline) instead of being rejected.
+pub(crate) use relax::relax_conditional_branches;
 
 // The sizing helper the shared driver reaches via the trait; the encoder unit
 // tests also call it bare through `use super::*` (bug-341-B1).
