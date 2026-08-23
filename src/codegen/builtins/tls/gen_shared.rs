@@ -367,61 +367,15 @@ use super::gen_schannel as schannel;
 /// locals region the body reserves.
 pub(crate) type TlsBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize);
 
-/// The `abi_function` body shared by every native `tls.*` member (crypto/io/net's
-/// clean-room shape). The `abi_function` wrapper seeds the entry label, binds the
-/// incoming ABI argument registers, and finalizes; this body dispatches to the
-/// family-generic [`lower_tls_helper`] by the runtime-call name in [`AbiCtx::call`]
-/// — the member's own name OR one of its `pollList`/`closeListener` code-form
-/// aliases — and appends its instructions/relocations. All native members register
-/// this one body; the aux→primary routing lives in `abi_function_lower`.
-pub(crate) fn lower_tls_os_seam(
-    builder: &mut CodeBuilder,
-    _args: &[ValueResult],
-    ctx: &crate::codegen::registry::AbiCtx,
-) -> Result<ValueResult, String> {
-    let symbol = builder.current_symbol.clone();
-    let (instructions, relocations, stack_size) =
-        lower_tls_helper(ctx.call, &symbol, ctx.platform_imports, ctx.platform)?;
-    builder.instructions.extend(instructions);
-    builder.relocations.extend(relocations);
-    builder.stack_size = stack_size;
-    // A `void` location: every tls body emits its own fallible ABI, so the wrapper
-    // appends no epilogue.
-    Ok(ValueResult {
+/// The `void` result every native `tls.*` member returns from its per-member
+/// `abi_function` body: every tls body emits its own fallible ABI, so the wrapper
+/// appends no epilogue. `type_` is `Nothing`; `text` carries the runtime-call name.
+pub(crate) fn void_result(call: &str) -> ValueResult {
+    ValueResult {
         origin: None,
         type_: "Nothing".to_string(),
         location: Operand::from("void"),
-        text: ctx.call.to_string(),
-    })
-}
-
-/// The single family-generic OS-seam entry for every `tls::` member — reached from
-/// the shared [`lower_tls_os_seam`] `abi_function` body: it matches the call
-/// (member name / os-alias) to its per-helper family dispatcher (which each branch
-/// on `platform.family()` for openssl / schannel / macos) and returns the
-/// pre-finalize [`TlsBodyParts`] the wrapper finalizes. Covers the descriptor
-/// members plus the two code-form aliases (`tls.pollList`, `tls.closeListener`).
-pub(crate) fn lower_tls_helper(
-    call: &str,
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-) -> Result<TlsBodyParts, String> {
-    match call {
-        "tls.connect" => lower_tls_connect_helper(symbol, platform_imports, platform),
-        "tls.listen" => lower_tls_listen_helper(symbol, platform_imports, platform),
-        "tls.accept" => lower_tls_accept_helper(symbol, platform_imports, platform),
-        "tls.read" => lower_tls_read_helper(symbol, platform_imports, platform, false),
-        "tls.readText" => lower_tls_read_helper(symbol, platform_imports, platform, true),
-        "tls.write" => lower_tls_write_helper(symbol, platform_imports, platform, false),
-        "tls.writeText" => lower_tls_write_helper(symbol, platform_imports, platform, true),
-        "tls.poll" => lower_tls_poll_helper(symbol, platform_imports, platform),
-        "tls.pollList" => lower_tls_poll_list_helper(symbol, platform_imports, platform),
-        "tls.close" => lower_tls_close_helper(symbol, platform_imports, platform),
-        "tls.closeListener" => lower_tls_close_listener_helper(symbol, platform_imports, platform),
-        other => Err(format!(
-            "native code plan does not emit runtime call '{other}'"
-        )),
+        text: call.to_string(),
     }
 }
 

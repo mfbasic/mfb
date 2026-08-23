@@ -6,15 +6,16 @@
 //! resources — `TlsSocket` (a connected stream) and `TlsListener` (a bound server
 //! endpoint) — are opaque, owned, non-copyable handles released by lexical drop.
 //!
-//! Like `process`/`os`/`fs`, `tls` is a **native OS-seam** package: every member
-//! carries a per-platform runtime-helper lowering. The per-backend emission
-//! (Linux OpenSSL, Windows Schannel, macOS Network.framework) lives in
-//! [`native`]; each member's [`Body::native_os_seam`] holds the one family-generic
-//! dispatcher [`native::lower_tls_helper`] in both the posix and win slots (the
-//! `os`/`fs` twin idiom), and the generic runtime-call dispatch
-//! (`crate::codegen::os::dispatch_runtime_helper` → `registry::os_helper`) picks
-//! the slot by `platform.family()` and routes each member (plus the two code-form
-//! aliases `tls.pollList` / `tls.closeListener`) to it.
+//! Like `process`/`os`/`fs`, `tls` is a **native OS-seam** package migrated to the
+//! `Body::abi_function` clean-room shape: every member carries a per-platform
+//! runtime-helper lowering. The per-backend emission (Linux OpenSSL, Windows
+//! Schannel, macOS Network.framework) lives in the `gen_openssl`/`gen_schannel`/
+//! `gen_macos` backends; each member owns its `Body::abi_function` body in its own
+//! `func_*.rs` (`lower_<name>`), which calls the shared per-member family dispatcher
+//! [`gen_shared::lower_tls_connect_helper`] et al. (picking the backend by
+//! `platform.family()`) and finalizes. The two code-form aliases (`tls.pollList` /
+//! `tls.closeListener`) route to the owning member's body (`func_poll` / `func_close`)
+//! through `abi_function_lower`, distinguished off `AbiCtx::call`.
 //!
 //! Every call's return type is fixed per name except `poll`, which is
 //! return-type-overloaded on argument shape — a scalar `TlsSocket` yields
@@ -28,8 +29,8 @@ use crate::codegen::error::constants::*;
 use crate::codegen::registry::{Registry, RegistryPackage, RegistryResource};
 pub(crate) mod gen_macos;
 mod gen_openssl;
-pub(crate) mod gen_os_seam;
 pub(crate) mod gen_schannel;
+pub(crate) mod gen_shared;
 
 mod func_accept;
 mod func_close;

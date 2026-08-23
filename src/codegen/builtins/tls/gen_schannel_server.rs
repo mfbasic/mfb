@@ -306,9 +306,9 @@ pub(crate) fn lower_tls_listen(
         ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), HINTS + o));
     }
     ins.extend([
-        abi::move_immediate(&v9, "Integer", super::gen_os_seam::HINTS_FAMILY_WORD_PASSIVE),
+        abi::move_immediate(&v9, "Integer", super::gen_shared::HINTS_FAMILY_WORD_PASSIVE),
         abi::store_u64(&v9, abi::stack_pointer(), HINTS),
-        abi::move_immediate(&v9, "Integer", super::gen_os_seam::SOCK_STREAM),
+        abi::move_immediate(&v9, "Integer", super::gen_shared::SOCK_STREAM),
         abi::store_u64(&v9, abi::stack_pointer(), HINTS + 8),
         // Empty host => NULL node (bind all interfaces).
         abi::load_u64(&v9, abi::stack_pointer(), HOST),
@@ -316,7 +316,7 @@ pub(crate) fn lower_tls_listen(
         abi::compare_immediate(&v9, "0"),
         abi::branch_eq(&null_host),
     ]);
-    super::gen_os_seam::emit_cstring(symbol, "host", HOST, HOSTCSTR, &alloc_fail, &mut ins, &mut rel, &mut vregs);
+    super::gen_shared::emit_cstring(symbol, "host", HOST, HOSTCSTR, &alloc_fail, &mut ins, &mut rel, &mut vregs);
     ins.extend([
         abi::branch(&resolved),
         abi::label(&null_host),
@@ -739,7 +739,7 @@ pub(crate) fn lower_tls_accept(
             abi::label(&hs_ts_ok),
             abi::store_u64(&v14, abi::stack_pointer(), HSTV),
         ]);
-        super::gen_os_seam::emit_set_sock_timeouts(
+        super::gen_shared::emit_set_sock_timeouts(
             &mut EmitCtx {
                 symbol,
                 platform_imports: imports,
@@ -926,7 +926,7 @@ pub(crate) fn lower_tls_accept(
             abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTV),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTV + 8),
         ]);
-        super::gen_os_seam::emit_set_sock_timeouts(
+        super::gen_shared::emit_set_sock_timeouts(
             &mut EmitCtx {
                 symbol,
                 platform_imports: imports,

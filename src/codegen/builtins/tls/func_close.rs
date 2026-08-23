@@ -54,6 +54,32 @@ SUB main()
 END SUB
 ```"#;
 
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::AbiCtx;
+
+/// `abi_function` body for `tls::close` — calls the shared `lower_tls_*_helper`
+/// family dispatcher and finalizes.
+pub(crate) fn lower_close(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) = if ctx.call == "tls.closeListener" {
+        super::gen_shared::lower_tls_close_listener_helper(
+            &symbol,
+            ctx.platform_imports,
+            ctx.platform,
+        )?
+    } else {
+        super::gen_shared::lower_tls_close_helper(&symbol, ctx.platform_imports, ctx.platform)?
+    };
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result(ctx.call))
+}
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "close",
@@ -74,7 +100,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 }],
                 return_type: ParameterType::Nothing,
                 errors: vec![],
-                body: Body::abi_function(super::gen_os_seam::lower_tls_os_seam),
+                body: Body::abi_function(lower_close),
             },
             // Listener close — rewritten to the internal `tls.closeListener` body
             // (the listener-shaped close), declared here as the code-form alias.
@@ -88,7 +114,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 }],
                 return_type: ParameterType::Nothing,
                 errors: vec![],
-                body: Body::abi_function_aliased(super::gen_os_seam::lower_tls_os_seam, &["closeListener"]),
+                body: Body::abi_function_aliased(lower_close, &["closeListener"]),
             },
         ],
     });

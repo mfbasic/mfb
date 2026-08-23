@@ -37,6 +37,29 @@ SUB main()
 END SUB
 ```"#;
 
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::AbiCtx;
+
+/// `abi_function` body for `tls::read` — calls the shared `lower_tls_*_helper`
+/// family dispatcher and finalizes.
+pub(crate) fn lower_read(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) = super::gen_shared::lower_tls_read_helper(
+        &symbol,
+        ctx.platform_imports,
+        ctx.platform,
+        false,
+    )?;
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result(ctx.call))
+}
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "read",
@@ -64,7 +87,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::ListOf(Box::new(ParameterType::Byte)),
             errors: vec![],
-            body: Body::abi_function(super::gen_os_seam::lower_tls_os_seam),
+            body: Body::abi_function(lower_read),
         }],
     });
 }

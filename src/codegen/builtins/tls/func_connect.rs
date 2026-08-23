@@ -1,9 +1,9 @@
 //! `tls::connect` — descriptor entry (native OS-seam).
 //!
-//! Per-member file (planning/migrate.md). The member's lowering is the shared
-//! family-generic [`super::gen_os_seam::lower_tls_helper`] in both `Body::abi_function`
-//! slots (the `os`/`fs` twin idiom); the generic runtime-call dispatch picks
-//! posix/win by `platform.family()`.
+//! Per-member file (planning/migrate.md). This member owns its `Body::abi_function`
+//! body ([`lower_connect`]), which calls the shared per-member family dispatcher
+//! [`super::gen_shared::lower_tls_connect_helper`] (picking openssl/schannel/macOS by
+//! `platform.family()`) and finalizes.
 
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -67,6 +67,25 @@ SUB main()
 END SUB
 ```"#;
 
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::AbiCtx;
+
+/// `abi_function` body for `tls::connect` — calls the shared `lower_tls_*_helper`
+/// family dispatcher and finalizes.
+pub(crate) fn lower_connect(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) =
+        super::gen_shared::lower_tls_connect_helper(&symbol, ctx.platform_imports, ctx.platform)?;
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result(ctx.call))
+}
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "connect",
@@ -114,7 +133,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Named(super::TLS_SOCKET_TYPE_ID),
             errors: vec![],
-            body: Body::abi_function(super::gen_os_seam::lower_tls_os_seam),
+            body: Body::abi_function(lower_connect),
         }],
     });
 }

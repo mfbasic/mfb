@@ -23,7 +23,7 @@ use crate::codegen::error::emission::*;
 use crate::codegen::memory::marshal::*;
 use std::collections::HashMap;
 
-use super::gen_os_seam::{
+use super::gen_shared::{
     TlsBodyParts, TLS_LISTENER_OFFSET_CLOSED, TLS_OFFSET_CLOSED, TLS_OFFSET_FD, TLS_OFFSET_STATE,
     TLS_RECORD_SIZE, TLS_SCHANNEL_OFFSET_BLOCK,
 };

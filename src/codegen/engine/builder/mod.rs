@@ -925,14 +925,12 @@ pub(crate) fn lower_module_for_platform(
         match platform.family() {
             PlatformFamily::MacOS => {
                 data_objects.extend(
-                    crate::codegen::builtins::tls::gen_os_seam::macos_tls_data_objects(tls_server),
+                    crate::codegen::builtins::tls::gen_shared::macos_tls_data_objects(tls_server),
                 );
             }
             PlatformFamily::Linux => {
                 data_objects.extend(
-                    crate::codegen::builtins::tls::gen_os_seam::tls_cstring_data_objects(
-                        tls_server,
-                    ),
+                    crate::codegen::builtins::tls::gen_shared::tls_cstring_data_objects(tls_server),
                 );
             }
             // The Windows TLS data objects are the Schannel package-name wide
@@ -2030,7 +2028,7 @@ pub(crate) fn lower_runtime_helper(
                     platform,
                 )?,
                 // (`tls.*` members are `Body::abi_function`/`abi_function_aliased` since
-                // the clean-room migration — the shared `lower_tls_os_seam` body plus its
+                // the clean-room migration — each member's own per-member body plus its
                 // `pollList`/`closeListener` code-form aliases — so they route through the
                 // `is_abi_function_call` branch above; no `tls.` arm here.)
                 other => {

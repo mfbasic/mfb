@@ -44,12 +44,12 @@ fn socket_connect(
         ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), hints_off + o));
     }
     ins.extend([
-        abi::move_immediate(&v9, "Integer", super::gen_os_seam::HINTS_FAMILY_WORD),
+        abi::move_immediate(&v9, "Integer", super::gen_shared::HINTS_FAMILY_WORD),
         abi::store_u64(&v9, abi::stack_pointer(), hints_off),
-        abi::move_immediate(&v9, "Integer", super::gen_os_seam::SOCK_STREAM),
+        abi::move_immediate(&v9, "Integer", super::gen_shared::SOCK_STREAM),
         abi::store_u64(&v9, abi::stack_pointer(), hints_off + 8),
     ]);
-    super::gen_os_seam::emit_cstring(symbol, "h", host_off, hostcstr_off, fail, ins, rel, vregs);
+    super::gen_shared::emit_cstring(symbol, "h", host_off, hostcstr_off, fail, ins, rel, vregs);
     // getaddrinfo(host, NULL, &hints, &res)
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), hostcstr_off),
@@ -339,7 +339,7 @@ pub(crate) fn lower_tls_connect(
             abi::label(&hs_ts_ok),
             abi::store_u64(&v14, abi::stack_pointer(), HSTV),
         ]);
-        super::gen_os_seam::emit_set_sock_timeouts(
+        super::gen_shared::emit_set_sock_timeouts(
             &mut EmitCtx {
                 symbol,
                 platform_imports: imports,
@@ -611,7 +611,7 @@ pub(crate) fn lower_tls_connect(
             abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTV),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), HSTV + 8),
         ]);
-        super::gen_os_seam::emit_set_sock_timeouts(
+        super::gen_shared::emit_set_sock_timeouts(
             &mut EmitCtx {
                 symbol,
                 platform_imports: imports,
