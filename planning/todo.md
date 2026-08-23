@@ -6,7 +6,7 @@ Cleaned up codegen
 
 [-] app
 [@] astrings
-[-] audio
+[@] audio
 [@] bits
 [@] collections
 [@] crypto
@@ -14,13 +14,13 @@ Cleaned up codegen
 [@] datetime
 [@] encoding
 [@] errorcode
-[-] fs
-[-] http
+[@] fs
+[@] http
 [@] io
 [@] json
-[-] math
-[-] money
-[-] net
+[@] math
+[@] money
+[@] net
 [-] os
 [-] process
 [@] regex
