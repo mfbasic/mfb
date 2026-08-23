@@ -14,15 +14,16 @@
 //! per-platform runtime-helper lowering, migrated to crypto/io's clean-room
 //! `Body::abi_function` shape. The whole per-backend emission (macOS Core Audio
 //! `AudioQueue`, Linux ALSA over a `dlopen`'d `libasound.so.2`, Windows WASAPI over
-//! COM) lives in the `gen_*` backend modules; every device-I/O member's [`Body::abi_function_aliased`]
-//! holds the one clean-room lowering [`gen_os_seam::lower_audio_os_seam`], which dispatches
-//! to the family-generic backend [`gen_os_seam::lower_audio_helper`] by `platform.family()`
-//! and selects its call arm off `AbiCtx::call`. The member plus its code-form aliases
-//! (`openInputDevice`/`openOutputDevice`/`readTimeout`/`pollTimeout`/`closeInput`/
-//! `closeOutput`) route to that one body through `registry::abi_function_lower` (the
-//! `abi_function` successor to `os_helper`'s alias routing). The IR-level overload
-//! rewrites live in [`runtime_overload_name`] (`audio.read` → `audio.readTimeout`, …),
-//! keyed on argument shape.
+//! COM) lives in the `gen_*` backend modules; each device-I/O member owns its
+//! `abi_function` body ([`Body::abi_function_aliased`]) in its own `func_*.rs`
+//! (`lower_<name>`), branching on `platform.family()` to the shared backend
+//! emitters (the family routing for the multi-member `open`/`query` cases is the
+//! shared [`gen_shared::dispatch_open`]/[`gen_shared::dispatch_query`]). A member
+//! plus its code-form aliases (`openInputDevice`/`openOutputDevice`/`readTimeout`/
+//! `pollTimeout`/`closeInput`/`closeOutput`) route to that same member body through
+//! `registry::abi_function_lower`, distinguished inside `lower_<name>` off
+//! `AbiCtx::call`. The IR-level overload rewrites live in [`runtime_overload_name`]
+//! (`audio.read` → `audio.readTimeout`, …), keyed on argument shape.
 //!
 //! The `render`/`play` members are pure MFBASIC: the tone renderer and the MML
 //! sequencer are injected from the source companion (`package.mfb`, which CALLs
@@ -48,7 +49,7 @@ pub(crate) mod gen_macos_devices;
 pub(crate) mod gen_macos_io;
 pub(crate) mod gen_macos_shared;
 pub(crate) mod gen_macos_stream;
-pub(crate) mod gen_os_seam;
+pub(crate) mod gen_shared;
 pub(crate) mod gen_windows;
 
 mod func_available;
@@ -156,15 +157,18 @@ pub(crate) fn timeout_ms(desc: &'static str) -> Parameter {
     }
 }
 
-/// The `abi_function` body shared by every device-I/O member (crypto/io's
-/// clean-room shape): the one clean-room lowering [`gen_os_seam::lower_audio_os_seam`],
-/// which dispatches to the family-generic backend by `platform.family()` and selects
-/// its call arm off [`AbiCtx::call`](crate::codegen::registry::AbiCtx), plus the
+/// Build a device-I/O member's `abi_function` body (crypto/io's clean-room shape):
+/// its own per-member lowering `lower` (which lives in the member's `func_*.rs` and
+/// branches on `platform.family()` to the shared backend emitters), plus the
 /// code-form `os_aliases` this overload declares (the IR-level overload-split forms
-/// `openInputDevice`/`readTimeout`/`closeInput`/… routed to this body by
-/// `abi_function_lower`).
-pub(crate) fn native_body(os_aliases: &'static [&'static str]) -> Body {
-    Body::abi_function_aliased(gen_os_seam::lower_audio_os_seam, os_aliases)
+/// `openInputDevice`/`readTimeout`/`closeInput`/… routed to this same body by
+/// `abi_function_lower`, and distinguished inside `lower` off
+/// [`AbiCtx::call`](crate::codegen::registry::AbiCtx)).
+pub(crate) fn native_body(
+    lower: crate::codegen::registry::AbiFunction,
+    os_aliases: &'static [&'static str],
+) -> Body {
+    Body::abi_function_aliased(lower, os_aliases)
 }
 
 /// The internal runtime-helper name a surface `audio::` call rewrites to during IR

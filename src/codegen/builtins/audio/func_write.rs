@@ -3,10 +3,37 @@
 //! Output-only: its `AudioOutput` parameter rejects an `AudioInput` under strict
 //! base-resource matching.
 
-use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::engine::types::PlatformFamily;
+use crate::codegen::registry::{AbiCtx, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
 use super::{param, AUDIO_OUTPUT_TYPE_ID};
+
+/// `abi_function` body for `audio::write` — play PCM frames to an output stream.
+/// Routes by `platform.family()` to the backend `write` emitter (no overload aliases).
+pub(crate) fn lower_write(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) = match ctx.platform.family() {
+        PlatformFamily::MacOS => {
+            super::gen_macos_io::lower_write(&symbol, ctx.platform_imports, ctx.platform)?
+        }
+        PlatformFamily::Linux => {
+            super::gen_alsa_io::lower_write(&symbol, ctx.platform_imports, ctx.platform)?
+        }
+        PlatformFamily::Windows => {
+            super::gen_windows::lower_write(&symbol, ctx.platform_imports, ctx.platform)?
+        }
+    };
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result(ctx.call))
+}
 
 const INTRO: &str =
     r#"Queue raw `s16le` PCM to an output stream, blocking until every byte is enqueued."#;
@@ -62,7 +89,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Nothing,
             errors: vec!["ErrInvalidArgument", "ErrAudioDevice", "ErrAudioUnavailable"],
-            body: super::native_body(&[]),
+            body: super::native_body(lower_write, &[]),
         }],
     });
 }

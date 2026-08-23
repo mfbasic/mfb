@@ -3,10 +3,35 @@
 //! Two overloads (default-device / named-device), the named form declaring the
 //! code-form alias `openOutputDevice`.
 
-use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::{AbiCtx, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
 use super::{param, AUDIO_DEVICE_TYPE, AUDIO_OUTPUT_TYPE_ID};
+
+/// `abi_function` body for `audio::openOutput` (and its `openOutputDevice`
+/// named-device overload alias) — open a playback stream. `ctx.call` selects the
+/// default-device vs named-device form; the shared [`super::gen_shared::dispatch_open`]
+/// routes by `platform.family()` to the backend `open` emitter.
+pub(crate) fn lower_open_output(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let device = ctx.call == "audio.openOutputDevice";
+    let (instructions, relocations, stack_size) = super::gen_shared::dispatch_open(
+        &symbol,
+        false,
+        device,
+        ctx.platform_imports,
+        ctx.platform,
+    )?;
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result(ctx.call))
+}
 
 const INTRO: &str = r#"Open a playback stream and return an `AudioOutput` handle."#;
 const DESC: &str = r#"`audio::openOutput` opens a PCM playback stream and returns an `AudioOutput`. The
@@ -65,7 +90,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Named(AUDIO_OUTPUT_TYPE_ID),
                 errors: errors(),
-                body: super::native_body(&[]),
+                body: super::native_body(lower_open_output, &[]),
             },
             Implementation {
                 params: vec![
@@ -81,7 +106,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Named(AUDIO_OUTPUT_TYPE_ID),
                 errors: errors(),
-                body: super::native_body(&["openOutputDevice"]),
+                body: super::native_body(lower_open_output, &["openOutputDevice"]),
             },
         ],
     });

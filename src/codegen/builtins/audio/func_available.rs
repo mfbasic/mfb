@@ -3,10 +3,33 @@
 //! Two overloads (`AudioInput` / `AudioOutput`) sharing one runtime symbol
 //! (`audio.available`, branching on the handle kind at runtime).
 
-use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::{AbiCtx, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
+use super::gen_common::Query;
 use super::{param, AUDIO_INPUT_TYPE_ID, AUDIO_OUTPUT_TYPE_ID};
+
+/// `abi_function` body for `audio::available` — the count of whole frames ready
+/// without blocking. Routes via the shared [`super::gen_shared::dispatch_query`] with
+/// [`Query::Available`] (no overload aliases).
+pub(crate) fn lower_available(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) = super::gen_shared::dispatch_query(
+        &symbol,
+        Query::Available,
+        ctx.platform_imports,
+        ctx.platform,
+    )?;
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result(ctx.call))
+}
 
 const INTRO: &str = r#"Frames an open stream can move immediately without blocking."#;
 const DESC: &str = r#"`audio::available` returns how many whole frames a stream can move right now
@@ -43,7 +66,7 @@ fn overload(stream_ty: &'static str) -> Implementation {
         )],
         return_type: ParameterType::Integer,
         errors: vec!["ErrAudioUnavailable"],
-        body: super::native_body(&[]),
+        body: super::native_body(lower_available, &[]),
     }
 }
 

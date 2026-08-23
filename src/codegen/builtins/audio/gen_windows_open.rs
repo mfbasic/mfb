@@ -133,7 +133,7 @@ fn emit_reactivate_client(
     emit_activate_client(symbol, dev_fail, ins, rel, vregs);
 }
 
-fn lower_open(
+pub(crate) fn lower_open(
     symbol: &str,
     input: bool,
     device: bool,
@@ -530,7 +530,7 @@ fn emit_release_field(field: usize, ins: &mut Vec<CodeInstruction>, vregs: &mut 
 }
 
 /// close(stream): Stop, Release the four interfaces, CloseHandle the event.
-fn lower_close(
+pub(crate) fn lower_close(
     symbol: &str,
     _input: bool,
     platform_imports: &HashMap<String, String>,

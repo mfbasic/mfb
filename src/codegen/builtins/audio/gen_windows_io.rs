@@ -256,7 +256,7 @@ fn emit_write_fill(base_frame_off: usize, n_off: usize, ins: &mut Vec<CodeInstru
     ins.push(abi::label(&done));
 }
 
-fn lower_write(
+pub(crate) fn lower_write(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -471,7 +471,7 @@ fn emit_read_fill(got_off: usize, cf_off: usize, ins: &mut Vec<CodeInstruction>,
     ins.push(abi::label(&done));
 }
 
-fn lower_read(
+pub(crate) fn lower_read(
     symbol: &str,
     timeout: bool,
     platform_imports: &HashMap<String, String>,
@@ -775,7 +775,7 @@ fn lower_read(
     Ok((ins, rel, FRAME))
 }
 
-fn lower_query(
+pub(crate) fn lower_query(
     symbol: &str,
     kind: Query,
     platform_imports: &HashMap<String, String>,

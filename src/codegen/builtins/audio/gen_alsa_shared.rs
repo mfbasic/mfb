@@ -1,17 +1,12 @@
 //! Linux ALSA `audio` shared codegen: dlopen/dlsym plumbing, constants, helpers, data objects, and the platform dispatcher.
 
-use super::gen_alsa_devices::*;
-use super::gen_alsa_io::*;
-use super::gen_alsa_stream::*;
-use super::gen_common::*;
-use super::gen_os_seam::*;
+use super::gen_shared::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::memory::arena::*;
 use crate::codegen::string::util::*;
 use crate::target::shared::abi;
-use std::collections::HashMap;
 
 pub(crate) const ALSA_SONAME: &str = "libasound.so.2";
 
@@ -277,33 +272,6 @@ pub(crate) fn emit_dlsym(ctx: &mut EmitCtx, name: &str, unavailable: &str) -> Re
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FNPTR_OFF),
     ]);
     Ok(())
-}
-
-pub(crate) fn lower_audio_alsa(
-    call: &str,
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-) -> Result<AudioBodyParts, String> {
-    match call {
-        "audio.devices" => lower_devices(symbol, platform_imports, platform),
-        "audio.openOutput" => lower_open(symbol, false, false, platform_imports, platform),
-        "audio.openOutputDevice" => lower_open(symbol, false, true, platform_imports, platform),
-        "audio.openInput" => lower_open(symbol, true, false, platform_imports, platform),
-        "audio.openInputDevice" => lower_open(symbol, true, true, platform_imports, platform),
-        "audio.write" => lower_write(symbol, platform_imports, platform),
-        "audio.read" => lower_read(symbol, false, platform_imports, platform),
-        "audio.readTimeout" => lower_read(symbol, true, platform_imports, platform),
-        "audio.poll" => lower_query(symbol, Query::Poll, platform_imports, platform),
-        "audio.pollTimeout" => lower_query(symbol, Query::PollTimeout, platform_imports, platform),
-        "audio.available" => lower_query(symbol, Query::Available, platform_imports, platform),
-        "audio.xruns" => lower_query(symbol, Query::Xruns, platform_imports, platform),
-        "audio.closeInput" => lower_close(symbol, true, platform_imports, platform),
-        "audio.closeOutput" => lower_close(symbol, false, platform_imports, platform),
-        other => Err(format!(
-            "native code plan does not emit runtime call '{other}' for linux (alsa)"
-        )),
-    }
 }
 
 /// Call the fn-ptr currently in `FNPTR_OFF` (args already staged), leaving its

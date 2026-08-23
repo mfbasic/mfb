@@ -5,10 +5,35 @@
 //! code-form alias `openInputDevice` (`builder_values` rewrites the device-first
 //! NIR call to it).
 
-use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::{AbiCtx, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
 use super::{param, AUDIO_DEVICE_TYPE, AUDIO_INPUT_TYPE_ID};
+
+/// `abi_function` body for `audio::openInput` (and its `openInputDevice` named-device
+/// overload alias) — open a capture stream. `ctx.call` selects the default-device vs
+/// named-device form; the shared [`super::gen_shared::dispatch_open`] routes by
+/// `platform.family()` to the backend `open` emitter.
+pub(crate) fn lower_open_input(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let device = ctx.call == "audio.openInputDevice";
+    let (instructions, relocations, stack_size) = super::gen_shared::dispatch_open(
+        &symbol,
+        true,
+        device,
+        ctx.platform_imports,
+        ctx.platform,
+    )?;
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result(ctx.call))
+}
 
 const INTRO: &str = r#"Open a capture stream and return an `AudioInput` handle."#;
 const DESC: &str = r#"`audio::openInput` opens a PCM capture stream and returns an `AudioInput`. The
@@ -64,7 +89,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Named(AUDIO_INPUT_TYPE_ID),
                 errors: errors(),
-                body: super::native_body(&[]),
+                body: super::native_body(lower_open_input, &[]),
             },
             Implementation {
                 params: vec![
@@ -80,7 +105,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Named(AUDIO_INPUT_TYPE_ID),
                 errors: errors(),
-                body: super::native_body(&["openInputDevice"]),
+                body: super::native_body(lower_open_input, &["openInputDevice"]),
             },
         ],
     });

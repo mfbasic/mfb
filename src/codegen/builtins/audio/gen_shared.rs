@@ -12,6 +12,7 @@
 // `OUT CBuffer` staging can reach it without depending on `audio`. Re-imported
 // here so both backends keep naming it unqualified.
 // --- codegen tier imports (migration) ---
+use super::gen_common::Query;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
@@ -124,55 +125,77 @@ pub(crate) use super::gen_macos_callbacks::{
 /// `finalize_vreg_body_with_locals`, byte-identical to the body's former self-finalize.
 pub(crate) type AudioBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize);
 
-/// The `abi_function` body shared by every device-I/O `audio` member (crypto/io's
-/// clean-room shape). The `abi_function` wrapper seeds the entry label, binds the
-/// incoming ABI argument registers, and finalizes; this body dispatches to the
-/// family-generic [`lower_audio_helper`] by the runtime-call name in
-/// [`AbiCtx::call`](crate::codegen::registry::AbiCtx) — which is the member's own name
-/// OR one of its IR-level overload-split code forms (`openInputDevice`/`readTimeout`/
-/// `closeInput`/…) — and appends its instructions/relocations. All device-I/O members
-/// register this one body; the aux→primary routing lives in `abi_function_lower`.
-pub(crate) fn lower_audio_os_seam(
-    builder: &mut CodeBuilder,
-    _args: &[ValueResult],
-    ctx: &crate::codegen::registry::AbiCtx,
-) -> Result<ValueResult, String> {
-    let symbol = builder.current_symbol.clone();
-    let (instructions, relocations, stack_size) =
-        lower_audio_helper(ctx.call, &symbol, ctx.platform_imports, ctx.platform)?;
-    builder.instructions.extend(instructions);
-    builder.relocations.extend(relocations);
-    builder.stack_size = stack_size;
-    // A `void` location: every audio body emits its own fallible ABI, so the wrapper
-    // appends no epilogue.
-    Ok(ValueResult {
+/// The `void` result every device-I/O `audio` member returns from its per-member
+/// `abi_function` body: every audio body emits its own fallible ABI, so the wrapper
+/// appends no epilogue. `type_` is `Nothing`; `text` carries the runtime-call name.
+pub(crate) fn void_result(call: &str) -> ValueResult {
+    ValueResult {
         origin: None,
         type_: "Nothing".to_string(),
         location: Operand::from("void"),
-        text: ctx.call.to_string(),
-    })
+        text: call.to_string(),
+    }
 }
 
-/// Dispatch an `audio.*` runtime-helper body to the platform backend, picked by
-/// `platform.family()`. Reached from the shared [`lower_audio_os_seam`]
-/// `abi_function` body; each backend dispatcher returns the pre-finalize
-/// [`AudioBodyParts`] the wrapper finalizes.
-pub(crate) fn lower_audio_helper(
-    call: &str,
+/// Family dispatch for the two `open` members (`openInput`/`openOutput`), shared by
+/// both because a single caller cannot know its own direction: `is_input` picks the
+/// stream direction, `device` selects the named-device overload
+/// (`openInputDevice`/`openOutputDevice`). macOS has direction-specific emitters
+/// (`lower_open_input`/`lower_open_output`); ALSA and WASAPI take a unified
+/// `lower_open(is_input, device)`. Returns the pre-finalize [`AudioBodyParts`].
+pub(crate) fn dispatch_open(
     symbol: &str,
+    is_input: bool,
+    device: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<AudioBodyParts, String> {
     match platform.family() {
         PlatformFamily::MacOS => {
-            super::gen_macos_shared::lower_audio_macos(call, symbol, platform_imports, platform)
+            if is_input {
+                super::gen_macos_stream::lower_open_input(
+                    symbol,
+                    device,
+                    platform_imports,
+                    platform,
+                )
+            } else {
+                super::gen_macos_stream::lower_open_output(
+                    symbol,
+                    device,
+                    platform_imports,
+                    platform,
+                )
+            }
         }
         PlatformFamily::Linux => {
-            super::gen_alsa_shared::lower_audio_alsa(call, symbol, platform_imports, platform)
+            super::gen_alsa_stream::lower_open(symbol, is_input, device, platform_imports, platform)
         }
-        // Windows drives WASAPI over COM (plan-66 G+H): the `windows` submodule.
         PlatformFamily::Windows => {
-            super::gen_windows::lower_audio_windows(call, symbol, platform_imports, platform)
+            super::gen_windows::lower_open(symbol, is_input, device, platform_imports, platform)
+        }
+    }
+}
+
+/// Family dispatch for the three stream-query members (`poll`/`available`/`xruns`),
+/// shared because all three funnel to each backend's one `lower_query` emitter with
+/// a different [`Query`] discriminant (`poll` additionally passing `PollTimeout` for
+/// its timed overload). Returns the pre-finalize [`AudioBodyParts`].
+pub(crate) fn dispatch_query(
+    symbol: &str,
+    query: Query,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<AudioBodyParts, String> {
+    match platform.family() {
+        PlatformFamily::MacOS => {
+            super::gen_macos_io::lower_query(symbol, query, platform_imports, platform)
+        }
+        PlatformFamily::Linux => {
+            super::gen_alsa_io::lower_query(symbol, query, platform_imports, platform)
+        }
+        PlatformFamily::Windows => {
+            super::gen_windows::lower_query(symbol, query, platform_imports, platform)
         }
     }
 }

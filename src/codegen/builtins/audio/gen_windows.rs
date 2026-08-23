@@ -40,7 +40,7 @@ use crate::codegen::os::ffi::*;
 use std::collections::HashMap;
 
 use super::gen_common::*;
-use super::gen_os_seam::*;
+use super::gen_shared::*;
 use crate::target::shared::abi;
 // --- COM / WASAPI constants -------------------------------------------------
 const CLSCTX_ALL: &str = "23"; // INPROC_SERVER|INPROC_HANDLER|LOCAL_SERVER|REMOTE_SERVER
@@ -271,33 +271,6 @@ fn spill_obj(field: usize, ins: &mut Vec<CodeInstruction>, vregs: &mut Vregs) {
         abi::load_u64(&v9, &v9, field),
         abi::store_u64(&v9, abi::stack_pointer(), OBJ_OFF),
     ]);
-}
-
-pub(crate) fn lower_audio_windows(
-    call: &str,
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-) -> Result<AudioBodyParts, String> {
-    match call {
-        "audio.devices" => lower_devices(symbol, platform_imports, platform),
-        "audio.openOutput" => lower_open(symbol, false, false, platform_imports, platform),
-        "audio.openOutputDevice" => lower_open(symbol, false, true, platform_imports, platform),
-        "audio.openInput" => lower_open(symbol, true, false, platform_imports, platform),
-        "audio.openInputDevice" => lower_open(symbol, true, true, platform_imports, platform),
-        "audio.write" => lower_write(symbol, platform_imports, platform),
-        "audio.read" => lower_read(symbol, false, platform_imports, platform),
-        "audio.readTimeout" => lower_read(symbol, true, platform_imports, platform),
-        "audio.poll" => lower_query(symbol, Query::Poll, platform_imports, platform),
-        "audio.pollTimeout" => lower_query(symbol, Query::PollTimeout, platform_imports, platform),
-        "audio.available" => lower_query(symbol, Query::Available, platform_imports, platform),
-        "audio.xruns" => lower_query(symbol, Query::Xruns, platform_imports, platform),
-        "audio.closeInput" => lower_close(symbol, true, platform_imports, platform),
-        "audio.closeOutput" => lower_close(symbol, false, platform_imports, platform),
-        other => Err(format!(
-            "native code plan does not emit runtime call '{other}' for windows (wasapi)"
-        )),
-    }
 }
 
 include!("gen_windows_open.rs");

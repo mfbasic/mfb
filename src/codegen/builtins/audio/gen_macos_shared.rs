@@ -1,15 +1,10 @@
 //! macOS Core Audio `audio` shared codegen: constants, the AudioQueue/property helpers, and the platform dispatcher.
 
-use super::gen_common::*;
-use super::gen_macos_devices::*;
-use super::gen_macos_io::*;
-use super::gen_macos_stream::*;
-use super::gen_os_seam::*;
+use super::gen_shared::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::target::shared::abi;
-use std::collections::HashMap;
 
 // --- Core Audio constants (verified against CoreAudio/AudioHardware.h) --------
 pub(crate) const SYS_OBJECT: &str = "1"; // kAudioObjectSystemObject
@@ -83,33 +78,6 @@ pub(crate) const IDSBUF_CAP: &str = "256";
 pub(crate) const BUFLIST_OFF: usize = 672; // AudioBufferList scratch
 
 pub(crate) const BUFLIST_CAP: &str = "256";
-
-pub(crate) fn lower_audio_macos(
-    call: &str,
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-) -> Result<AudioBodyParts, String> {
-    match call {
-        "audio.devices" => lower_devices(symbol, platform_imports, platform),
-        "audio.openOutput" => lower_open_output(symbol, false, platform_imports, platform),
-        "audio.openOutputDevice" => lower_open_output(symbol, true, platform_imports, platform),
-        "audio.openInput" => lower_open_input(symbol, false, platform_imports, platform),
-        "audio.openInputDevice" => lower_open_input(symbol, true, platform_imports, platform),
-        "audio.read" => lower_read(symbol, false, platform_imports, platform),
-        "audio.readTimeout" => lower_read(symbol, true, platform_imports, platform),
-        "audio.closeInput" => lower_close_input(symbol, platform_imports, platform),
-        "audio.write" => lower_write(symbol, platform_imports, platform),
-        "audio.available" => lower_query(symbol, Query::Available, platform_imports, platform),
-        "audio.xruns" => lower_query(symbol, Query::Xruns, platform_imports, platform),
-        "audio.poll" => lower_query(symbol, Query::Poll, platform_imports, platform),
-        "audio.pollTimeout" => lower_query(symbol, Query::PollTimeout, platform_imports, platform),
-        "audio.closeOutput" => lower_close_output(symbol, platform_imports, platform),
-        other => Err(format!(
-            "native code plan does not emit runtime call '{other}' for macos-aarch64"
-        )),
-    }
-}
 
 // --- AudioQueue / mmap / format constants ------------------------------------
 pub(crate) const FORMAT_LPCM: &str = "1819304813"; // 0x6C70636D 'lpcm' kAudioFormatLinearPCM

@@ -5,10 +5,39 @@
 //! here as the code-form alias. `read` is input-only — its `AudioInput` parameter
 //! rejects an `AudioOutput` under strict base-resource matching.
 
-use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::engine::types::PlatformFamily;
+use crate::codegen::registry::{AbiCtx, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
 use super::{param, timeout_ms, AUDIO_INPUT_TYPE_ID};
+
+/// `abi_function` body for `audio::read` (and its `readTimeout` timed overload alias)
+/// — capture PCM frames. `ctx.call` selects the untimed vs timed form; routes by
+/// `platform.family()` to the backend `read` emitter.
+pub(crate) fn lower_read(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let timed = ctx.call == "audio.readTimeout";
+    let (instructions, relocations, stack_size) = match ctx.platform.family() {
+        PlatformFamily::MacOS => {
+            super::gen_macos_io::lower_read(&symbol, timed, ctx.platform_imports, ctx.platform)?
+        }
+        PlatformFamily::Linux => {
+            super::gen_alsa_io::lower_read(&symbol, timed, ctx.platform_imports, ctx.platform)?
+        }
+        PlatformFamily::Windows => {
+            super::gen_windows::lower_read(&symbol, timed, ctx.platform_imports, ctx.platform)?
+        }
+    };
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result(ctx.call))
+}
 
 const INTRO: &str = r#"Capture PCM frames from an input stream as raw `s16le` bytes."#;
 const DESC: &str = r#"`audio::read` captures PCM from an open `AudioInput` and returns it as a
@@ -62,7 +91,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::list_of(ParameterType::Byte),
             errors: vec!["ErrInvalidArgument", "ErrAudioDevice", "ErrAudioUnavailable", "ErrOutOfMemory"],
-            body: super::native_body(&["readTimeout"]),
+            body: super::native_body(lower_read, &["readTimeout"]),
         }],
     });
 }

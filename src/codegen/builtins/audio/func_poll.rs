@@ -6,10 +6,35 @@
 //! selected at codegen (`builder_values` → `audio.pollTimeout`), declared here as
 //! the code-form alias.
 
-use crate::codegen::registry::{Implementation, RegistryFunction, RegistryPackage};
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::{AbiCtx, Implementation, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 
+use super::gen_common::Query;
 use super::{param, timeout_ms, AUDIO_INPUT_TYPE_ID, AUDIO_OUTPUT_TYPE_ID};
+
+/// `abi_function` body for `audio::poll` (and its `pollTimeout` timed overload alias)
+/// — test whether the stream is ready without blocking. `ctx.call` selects the
+/// untimed vs timed [`Query`]; the shared [`super::gen_shared::dispatch_query`] routes
+/// by `platform.family()`.
+pub(crate) fn lower_poll(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let query = if ctx.call == "audio.pollTimeout" {
+        Query::PollTimeout
+    } else {
+        Query::Poll
+    };
+    let (instructions, relocations, stack_size) =
+        super::gen_shared::dispatch_query(&symbol, query, ctx.platform_imports, ctx.platform)?;
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result(ctx.call))
+}
 
 const INTRO: &str = r#"Test an open stream for readiness, optionally waiting up to a deadline."#;
 const DESC: &str = r#"`audio::poll` reports whether an open stream is ready for its next I/O operation,
@@ -48,7 +73,7 @@ fn overload(stream_ty: &'static str) -> Implementation {
         ],
         return_type: ParameterType::Boolean,
         errors: vec!["ErrInvalidArgument", "ErrAudioUnavailable"],
-        body: super::native_body(&["pollTimeout"]),
+        body: super::native_body(lower_poll, &["pollTimeout"]),
     }
 }
 

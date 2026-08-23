@@ -2,7 +2,7 @@
 
 use super::gen_alsa_shared::*;
 use super::gen_common::*;
-use super::gen_os_seam::*;
+use super::gen_shared::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;

@@ -56,7 +56,7 @@ use crate::codegen::runtime::thread::*;
 // (clean-room registry migration). The `AudioBackend` selector (data objects + macOS
 // AudioQueue callbacks) is reached there; runtime-helper bodies flow through the generic
 // `crate::codegen::os::dispatch_runtime_helper` (registry OS-seam), like tls/process.
-use crate::codegen::builtins::audio::gen_os_seam::AudioBackend;
+use crate::codegen::builtins::audio::gen_shared::AudioBackend;
 use crate::codegen::collection::layout::{recursive_transfer_types, thread_copy_symbol};
 // The cross-package presentation-mode gate (app owns `Mode`) stays in the shared
 // code layer; re-exported so the migrated `term` package's `abi_function` body

@@ -75,7 +75,7 @@ fn emit_string_from_wstr(
     ]);
 }
 
-fn lower_devices(
+pub(crate) fn lower_devices(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
