@@ -1,20 +1,80 @@
-//! `datetime::nowNanos` — descriptor entry + authored docs.
-//!
-//! Per-member file (planning/migrate.md). The OS-seam body is the shared
-//! `abi_function` lowering [`super::gen_os_seam::lower_datetime_os_seam`]; the
-//! wrapper finalizes it (crypto/io's clean-room shape).
+//! `datetime::nowNanos` — descriptor entry + authored docs, and the per-member
+//! `abi_function` lowering ([`lower_now_nanos`]). The wrapper finalizes it
+//! (crypto/io's clean-room shape).
 
-use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use super::gen_shared::{
+    emit_libc_clock_nanos, void_int_result, CLOCK_REALTIME, LOCALS_SIZE, WIN_FILETIME_OFFSET,
+    WIN_FILETIME_UNIX_EPOCH_100NS,
+};
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
 use crate::codegen::registry::AbiCtx;
+use crate::target::shared::abi;
 
-/// `abi_function` body for `datetime::nowNanos` — the shared OS-seam clock
-/// lowering, selected by call name.
+/// `abi_function` body for `datetime::nowNanos` — the current wall-clock reading in
+/// nanoseconds since the Unix epoch. On libc platforms it rides the shared
+/// [`emit_libc_clock_nanos`] with `CLOCK_REALTIME`; on Windows it reads
+/// `GetSystemTimePreciseAsFileTime` (100 ns intervals since 1601) and rebases to
+/// Unix nanoseconds (plan-66-A). Always succeeds.
 pub(crate) fn lower_now_nanos(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    super::gen_os_seam::lower_datetime_os_seam(builder, ctx, "datetime.nowNanos")
+    let symbol = builder.current_symbol.clone();
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
+    let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+
+    if platform.family() == PlatformFamily::Windows {
+        // GetSystemTimePreciseAsFileTime(&ft): 100 ns intervals since 1601.
+        instructions.push(abi::add_immediate(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            WIN_FILETIME_OFFSET,
+        ));
+        platform.emit_external_call(
+            "GetSystemTimePreciseAsFileTime",
+            &symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        let ft = vregs.next();
+        let tmp = vregs.next();
+        instructions.extend([
+            abi::load_u64(&ft, abi::stack_pointer(), WIN_FILETIME_OFFSET),
+            abi::move_immediate(&tmp, "Integer", WIN_FILETIME_UNIX_EPOCH_100NS),
+            abi::subtract_registers(&ft, &ft, &tmp), // 100 ns since Unix epoch
+            abi::move_immediate(&tmp, "Integer", "100"),
+            abi::multiply_registers(RESULT_VALUE_REGISTER, &ft, &tmp),
+        ]);
+    } else {
+        emit_libc_clock_nanos(
+            CLOCK_REALTIME,
+            &symbol,
+            platform,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+            &mut vregs,
+        )?;
+    }
+
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    instructions.push(abi::return_());
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = LOCALS_SIZE;
+    Ok(void_int_result("datetime.nowNanos"))
 }
 
 const INTRO: &str = r#"The current wall-clock reading as nanoseconds since the Unix epoch."#;

@@ -1,20 +1,110 @@
-//! `datetime::monotonicNanos` — descriptor entry + authored docs.
-//!
-//! Per-member file (planning/migrate.md). The OS-seam body is the shared
-//! `abi_function` lowering [`super::gen_os_seam::lower_datetime_os_seam`]; the
-//! wrapper finalizes it (crypto/io's clean-room shape).
+//! `datetime::monotonicNanos` — descriptor entry + authored docs, and the
+//! per-member `abi_function` lowering ([`lower_monotonic_nanos`]). The wrapper
+//! finalizes it (crypto/io's clean-room shape).
 
-use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use super::gen_shared::{
+    emit_libc_clock_nanos, void_int_result, CLOCK_MONOTONIC_DARWIN, CLOCK_MONOTONIC_LINUX,
+    LOCALS_SIZE, NANOS_PER_SEC, WIN_FILETIME_OFFSET, WIN_QPC_FREQ_OFFSET,
+};
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
 use crate::codegen::registry::AbiCtx;
+use crate::target::shared::abi;
 
-/// `abi_function` body for `datetime::monotonicNanos` — the shared OS-seam clock
-/// lowering, selected by call name.
+/// `abi_function` body for `datetime::monotonicNanos` — a monotonic-clock reading
+/// in nanoseconds. On libc it rides the shared [`emit_libc_clock_nanos`] with the
+/// platform's `CLOCK_MONOTONIC` id (Linux 1 / Darwin 6); on Windows it converts a
+/// `QueryPerformanceCounter` tick count with an overflow-safe tick→nanosecond fold
+/// (plan-66-A). Always succeeds.
 pub(crate) fn lower_monotonic_nanos(
     builder: &mut CodeBuilder,
     _args: &[ValueResult],
     ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    super::gen_os_seam::lower_datetime_os_seam(builder, ctx, "datetime.monotonicNanos")
+    let symbol = builder.current_symbol.clone();
+    let platform = ctx.platform;
+    let platform_imports = ctx.platform_imports;
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
+    let mut relocations = Vec::new();
+    let mut vregs = Vregs::new();
+
+    if platform.family() == PlatformFamily::Windows {
+        // QueryPerformanceCounter(&counter); QueryPerformanceFrequency(&freq).
+        instructions.push(abi::add_immediate(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            WIN_FILETIME_OFFSET,
+        ));
+        platform.emit_external_call(
+            "QueryPerformanceCounter",
+            &symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.push(abi::add_immediate(
+            abi::c_arg(0),
+            abi::stack_pointer(),
+            WIN_QPC_FREQ_OFFSET,
+        ));
+        platform.emit_external_call(
+            "QueryPerformanceFrequency",
+            &symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        // nanos = (counter/freq)*1e9 + ((counter%freq)*1e9)/freq. Splitting the
+        // multiply across the quotient and remainder keeps every intermediate
+        // inside u64: `counter*1e9` alone overflows within ~21 s at 10 MHz.
+        let counter = vregs.next();
+        let freq = vregs.next();
+        let q = vregs.next();
+        let rem = vregs.next();
+        let scale = vregs.next();
+        instructions.extend([
+            abi::load_u64(&counter, abi::stack_pointer(), WIN_FILETIME_OFFSET), // counter
+            abi::load_u64(&freq, abi::stack_pointer(), WIN_QPC_FREQ_OFFSET),    // freq
+            abi::unsigned_divide_registers(&q, &counter, &freq),                // q
+            abi::multiply_subtract_registers(&rem, &q, &freq, &counter), // rem = counter - q*freq
+            abi::move_immediate(&scale, "Integer", NANOS_PER_SEC),
+            abi::multiply_registers(&q, &q, &scale), // q*1e9
+            abi::multiply_registers(&rem, &rem, &scale), // rem*1e9
+            abi::unsigned_divide_registers(&rem, &rem, &freq), // (rem*1e9)/freq
+            abi::add_registers(RESULT_VALUE_REGISTER, &q, &rem),
+        ]);
+    } else {
+        let clock_id = match platform.family() {
+            PlatformFamily::MacOS => CLOCK_MONOTONIC_DARWIN,
+            PlatformFamily::Linux => CLOCK_MONOTONIC_LINUX,
+            // Windows is routed above and never reaches this libc clock-id selection.
+            PlatformFamily::Windows => {
+                unreachable!("plan-66-A routes Windows datetime to kernel32")
+            }
+        };
+        emit_libc_clock_nanos(
+            clock_id,
+            &symbol,
+            platform,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+            &mut vregs,
+        )?;
+    }
+
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+    instructions.push(abi::return_());
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = LOCALS_SIZE;
+    Ok(void_int_result("datetime.monotonicNanos"))
 }
 
 const INTRO: &str = r#"The raw monotonic-clock reading as a whole nanosecond count."#;

@@ -8,9 +8,10 @@
 //! return resolution, and the public→internal rewrite mapping all live here.
 //! The only platform state is reached through three intrinsics (`nowNanos`,
 //! `monotonicNanos`, `localOffset`) that lower to libc/kernel32 runtime helpers
-//! (§8.2) via `Body::abi_function`, sharing the one clean-room lowering
-//! [`gen_os_seam::lower_datetime_os_seam`] (crypto/io's shape), kept wired through
-//! the shared runtime catalog.
+//! (§8.2) via `Body::abi_function`; each owns its lowering in its own `func_*.rs`
+//! (crypto/io's shape), with the shared libc clock reading kept in
+//! [`gen_shared::emit_libc_clock_nanos`], and is wired through the shared runtime
+//! catalog.
 //!
 //! Source injection is the registry's ([`crate::codegen::registry::augment_project`]
 //! / [`crate::codegen::registry::RegistryPackage::is_imported_by`]) — the
@@ -244,7 +245,7 @@ pub(crate) fn register(r: &mut Registry) {
     r.add_package(pkg);
 }
 
-mod gen_os_seam;
+mod gen_shared;
 
 mod func_add;
 mod func_add_days;
@@ -296,7 +297,7 @@ mod func_with_zone;
 //
 // The `datetime::` OS-seam intrinsics (`nowNanos` / `monotonicNanos` / `localOffset`,
 // plan-01-datetime.md §8.2) are `Body::abi_function` members (`func_now_nanos` et
-// al.) sharing `gen_os_seam::lower_datetime_os_seam`, so the shared runtime catalog
+// al.) each owning its lowering in its own `func_*.rs`, so the shared runtime catalog
 // DERIVES their specs from the registry (`registry::runtime_specs`) and routes them
 // through the `Datetime` family via `abi_function_family` — no hand-written
 // `RuntimeHelperSpec` consts here.
