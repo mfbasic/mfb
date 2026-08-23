@@ -10,10 +10,9 @@
 //! the stored values.
 //!
 //! The three members lower inline (no runtime helper, no source body): each is a
-//! `Body::native(None, None, Some(lower_money_*))` intrinsic whose call-site
-//! lowering (in its `func_*.rs`, relocated from the former
-//! `src/codegen/builtins/money/builder_money_math.rs`) reads/writes the arena rounding-mode
-//! field. `setRounding`/`getRounding` are infallible; `round` declares
+//! `Body::abi_inline_self` self-lowering intrinsic whose call-site lowering (in its
+//! `func_*.rs`) reads/writes the arena rounding-mode field. `setRounding`/
+//! `getRounding` are infallible; `round` declares
 //! `ErrInvalidArgument` (a `decimals` outside `0..5`) and `ErrOverflow` (settling a
 //! near-maximum amount upward), a fallibility the inline-`TRAP` census now reads off
 //! this registry data. The `Rounding` enum is modeled on the registry via
@@ -25,6 +24,9 @@ use crate::codegen::registry::{EnumVariant, Registry, RegistryEnum, RegistryPack
 mod func_get_rounding;
 mod func_round;
 mod func_set_rounding;
+
+pub(crate) mod gen_fixed_math;
+pub(crate) mod gen_money_math;
 
 const MODULE_INTRO: &str = r#"Rounding-mode control for Money arithmetic"#;
 const MODULE_DESC: &str = r#"The `money` package controls how `Money` **arithmetic** settles the half case and
@@ -121,8 +123,8 @@ mod tests {
         for name in [SET_ROUNDING, GET_ROUNDING, ROUND] {
             assert_eq!(registry().owning_package(name), Some("money"), "{name}");
             assert!(
-                registry::native_lower(name).is_some(),
-                "{name} should have a common native lowering"
+                registry::abi_inline_self_lower(name).is_some(),
+                "{name} should have a Body::abi_inline_self lowering"
             );
         }
         assert_eq!(registry::call_return_type(SET_ROUNDING), Some("Nothing"));
@@ -161,6 +163,3 @@ mod tests {
         assert_eq!(registry::argument_types(GET_ROUNDING), Some(vec![]));
     }
 }
-
-pub(crate) mod builder_fixed_math;
-pub(crate) mod builder_money_math;

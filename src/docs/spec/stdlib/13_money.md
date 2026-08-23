@@ -34,7 +34,7 @@ integer arithmetic under overflow checking. Rounding enters only where a result
 cannot be represented at five places — `M / k`, `M * Float`, `M * Fixed`, the
 `toMoney` / `toFixed` conversions, and the explicit `money::round`. Every one of
 those sites consults a single rounding rule, described below, so the two modes are
-implemented exactly once. [[src/codegen/builtins/money/builder_money_math.rs:emit_apply_rounding]]
+implemented exactly once. [[src/codegen/builtins/money/gen_money_math.rs:emit_apply_rounding]]
 
 ## The rounding-mode state
 
@@ -97,7 +97,7 @@ if |rem| == half:               ; exact tie
 `|rem|` avoids overflow near `i64::MAX`. The result carries the true sign, which is
 tracked separately because a truncated quotient of `0` has no sign of its own.
 This is the sole implementation of both modes.
-[[src/codegen/builtins/money/builder_money_math.rs:emit_apply_rounding]]
+[[src/codegen/builtins/money/gen_money_math.rs:emit_apply_rounding]]
 
 The rule is fully **deterministic**: for a given operand, mode, and target scale
 the rounded result is identical on every run and every target, because it is exact

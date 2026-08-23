@@ -4,7 +4,7 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
-use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
+use crate::codegen::registry::{AbiCtx, Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
 use crate::types::ParameterType;
@@ -70,7 +70,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![],
             return_type: ParameterType::Named("Rounding"),
             errors: vec![],
-            body: Body::native(None, None, Some(lower_money_get_rounding)),
+            body: Body::abi_inline_self(lower_money_get_rounding),
         }],
     });
 }
@@ -80,6 +80,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 pub(crate) fn lower_money_get_rounding(
     builder: &mut CodeBuilder,
     _args: &[NirValue],
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let result = builder.allocate_register()?;
     builder.emit(abi::load_u64(

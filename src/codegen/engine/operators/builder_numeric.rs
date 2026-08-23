@@ -1512,7 +1512,7 @@ impl CodeBuilder<'_> {
     /// and the truncate-to-zero multiply loop.
     ///
     /// Shares that fast-path *shape* (and the copied bug-61/bug-74 comments) with
-    /// `builder_fixed_math::emit_fixed_pow_general`'s integer branch (bug-332 E2),
+    /// `gen_fixed_math::emit_fixed_pow_general`'s integer branch (bug-332 E2),
     /// but the two are deliberately **not** merged: they accept different domains
     /// (`emit_fixed_pow_general` handles negative exponents via a reciprocal tail
     /// and fractional exponents via `exp(y·ln x)`), and even the shared multiply

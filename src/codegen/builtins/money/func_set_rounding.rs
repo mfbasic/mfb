@@ -4,7 +4,7 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::{
-    Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
+    AbiCtx, Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
 };
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
@@ -71,7 +71,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Nothing,
             errors: vec![],
-            body: Body::native(None, None, Some(lower_money_set_rounding)),
+            body: Body::abi_inline_self(lower_money_set_rounding),
         }],
     });
 }
@@ -81,6 +81,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
 pub(crate) fn lower_money_set_rounding(
     builder: &mut CodeBuilder,
     args: &[NirValue],
+    _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let mode = builder.lower_value(&args[0])?;
     let text = format!("money.setRounding({})", mode.text);
