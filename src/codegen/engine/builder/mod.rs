@@ -59,8 +59,8 @@ use crate::codegen::runtime::thread::*;
 use crate::codegen::builtins::audio::gen_os_seam::AudioBackend;
 use crate::codegen::collection::layout::{recursive_transfer_types, thread_copy_symbol};
 // The cross-package presentation-mode gate (app owns `Mode`) stays in the shared
-// code layer; re-exported so the migrated `term` package's native dispatcher
-// (`codegen::builtins::term::native`) can fence its app-mode helpers.
+// code layer; re-exported so the migrated `term` package's `abi_function` body
+// (`codegen::builtins::term::gen_os_seam`) can fence its app-mode helpers.
 pub(crate) mod builder_emit_helpers;
 
 use crate::codegen::engine::function::*;
@@ -103,23 +103,10 @@ pub(crate) type HelperBody = (
     Vec<CodeStackSlot>,
 );
 
-/// The body of a platform app-mode hook: frame, instructions, relocations — the
-/// same shape as `HelperBody` without stack slots.
-///
-/// `pub(crate)`, not `pub(crate)`: 46 of its 52 sites live outside
-/// `crate::target::shared` (the three Linux backends, `linux_gtk`, and
-/// `macos_aarch64`), where `pub(crate)` would not be nameable. Those files also
-/// lack a glob `use super::*`, so they import it by name (bug-323).
-///
-/// Deliberately only the bare tuple: its sites wrap it in `Option<Result<_,
-/// String>>`, plain `Result`, `Option`, and nothing at all, so no single
-/// `AppHookResult` alias spans them.
-pub(crate) type AppHookBody = (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>);
-
 /// A fallible `HelperBody`. All 113 wrapped sites use `String` as the error
-/// type, so one alias covers them; the two sites that return a bare tuple
-/// (`runtime_helpers_thread::thread_is_cancelled_helper` and `pad_no_slots`)
-/// take `HelperBody` directly and must not be given a `Result` they never had.
+/// type, so one alias covers them; the site that returns a bare tuple
+/// (`runtime_helpers_thread::thread_is_cancelled_helper`) takes `HelperBody`
+/// directly and must not be given a `Result` it never had.
 pub(crate) type HelperResult = Result<HelperBody, String>;
 
 pub(crate) struct CodeBuilder<'a> {
@@ -654,14 +641,6 @@ pub(crate) struct TypeModel {
     /// that sees both the `RESOURCE` declarations — the module's own and every
     /// imported package's — and the code builder that needs them.
     pub(crate) resource_closers: HashMap<String, String>,
-}
-
-/// Adapt a not-yet-vreg shaped helper body (3-tuple, e.g. an app-mode platform
-/// hook that manages its own frame) to the 4-tuple shape with an empty
-/// spill-slot list, so it can share a `match`/`if` with vreg-migrated helpers.
-#[allow(clippy::type_complexity)]
-pub(crate) fn pad_no_slots(body: AppHookBody) -> HelperBody {
-    (body.0, body.1, body.2, Vec::new())
 }
 
 /// plan-67-B: the single predicate gating all runtime perf-tracking injection.
@@ -1909,12 +1888,11 @@ pub(crate) fn lower_runtime_helper(
             "native code plan does not emit runtime helper '{symbol}'"
         ));
     };
-    // The per-compilation OS-seam context bundle, threaded to the remaining
-    // `Body::native` OS-seam emitters (term/app) through the generic dispatch. Carries
-    // the build mode plus the arena offsets the term/app routing consumes (both
-    // `Option<usize>`, exactly as `ArenaLayout` holds them).
+    // The per-compilation OS-seam context bundle, threaded to the last `Body::native`
+    // OS-seam emitter (`crypto`) through the generic dispatch, and to the
+    // `abi_function` path for the arena offsets the migrated term/app/io routing
+    // consumes (both `Option<usize>`, exactly as `ArenaLayout` holds them).
     let os_ctx = crate::codegen::registry::OsLowerCtx {
-        build_mode,
         term_state_offset: arena_layout.term_state_offset,
         presentation_mode_offset: arena_layout.presentation_mode_offset,
     };
@@ -1940,28 +1918,13 @@ pub(crate) fn lower_runtime_helper(
                 os_ctx.term_state_offset,
                 os_ctx.presentation_mode_offset,
             )?
-        } else if crate::codegen::registry::registry().owning_package(spec.call) == Some("term") {
-            // Every `term.*` member carries a `Body::native_os_seam` OS-seam lowering
-            // in `codegen::builtins::term::native`; the generic registry-driven
-            // dispatch reaches its `lower_term_helper`, which branches app-vs-console
-            // internally off `os_ctx.build_mode`/`term_state_offset`/
-            // `presentation_mode_offset` (the app-mode `ErrWrongMode` gate — cross-package,
-            // app owns `Mode` — stays in the shared code layer, called from there).
-            match crate::codegen::os::dispatch_runtime_helper(
-                spec.call,
-                symbol,
-                &os_ctx,
-                platform_imports,
-                platform,
-            ) {
-                Some(result) => result?,
-                None => {
-                    return Err(format!(
-                        "native code plan does not emit runtime call '{}'",
-                        spec.call
-                    ));
-                }
-            }
+        // (`term.*` members are `Body::abi_function` since the clean-room migration —
+        // the shared `lower_term_os_seam` body branches app-vs-console off the `AbiCtx`
+        // (`build_mode`/`term_state_offset`/`presentation_mode_offset`) and, in app
+        // mode, appends the platform's `emit_app_term_helper` sequence — so they route
+        // through the `is_abi_function_call` branch above; no `term.` arm here. The
+        // app-mode `ErrWrongMode` gate stays in the shared code layer, spliced by the
+        // shared body.)
         } else {
             match spec.call {
                 // (`app.*` presentation-mode members are `Body::abi_function` since the

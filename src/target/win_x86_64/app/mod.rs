@@ -24,7 +24,6 @@
 use std::collections::HashMap;
 
 use crate::arch::aarch64::abi;
-use crate::codegen::engine::builder::AppHookBody;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::AppEntrySpec;
 use crate::codegen::engine::types::CodeDataObject;
@@ -1743,56 +1742,53 @@ pub(super) fn emit_app_io_is_terminal(
     instructions.push(abi::return_());
 }
 
-/// Wrap a raw instruction/relocation stream as a standalone app-hook body (its
-/// own frame, entered at `sp%16==8`).
-fn term_body(ins: Vec<CodeInstruction>, rel: Vec<CodeRelocation>) -> AppHookBody {
-    (
-        CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        ins,
-        rel,
-    )
-}
-
-/// plan-66-J-5: dispatch a `term::` call to its GDI-grid app-mode body. Every call
-/// Windows advertises in app mode is handled here; the shared `mod.rs` gate then
-/// prepends the presentation-mode `ErrWrongMode` guard. Returns `None` for a call
-/// with no app body (falls through to the console ANSI backend).
-pub(super) fn emit_app_term_helper(call: &str, symbol: &str, tso: usize) -> Option<AppHookBody> {
-    let b = match call {
-        "term.on" => emit_term_on(symbol, tso),
-        "term.off" => emit_term_off(symbol, tso),
-        "term.clear" => emit_term_clear(symbol),
-        "term.moveTo" => emit_term_move_to(symbol),
-        "term.setForeground" => emit_term_set_color(tso, TERM_STATE_FG_OFFSET),
-        "term.setBackground" => emit_term_set_color(tso, TERM_STATE_BG_OFFSET),
-        "term.setBold" => emit_term_set_flag(tso, TERM_STATE_BOLD_OFFSET),
-        "term.setUnderline" => emit_term_set_flag(tso, TERM_STATE_UNDERLINE_OFFSET),
-        "term.showCursor" => emit_term_cursor_visible(tso, "1"),
-        "term.hideCursor" => emit_term_cursor_visible(tso, "0"),
-        "term.sync" => emit_term_sync(symbol),
-        "term.terminalSize" => emit_term_size(symbol),
-        // The draw helpers stamp into the shared console cell grid, which the
-        // GDI app surface (immediate-mode `TextOutW`, no cell buffer) does not
-        // maintain. Rather than fall through to the console lowering — which would
-        // dereference a grid app mode never allocates — raise a clean, trappable
-        // `ErrUnsupported` here. Console builds still get the real draw via the
-        // shared lowering (this arm is app-mode-only). GDI drawing is a follow-up
-        // (plan-69 open decision / plan-66 GDI TUI backend).
-        // plan-70-F Phase 3: the six positioned draw helpers stamp directly into the
-        // persistent memDC (immediate mode). Box/line/fill use Light box-drawing
-        // glyphs; drawText/drawGlyph render through the CJK font at correct width.
-        "term.drawHLine" => emit_term_draw_line(symbol, tso, true),
-        "term.drawVLine" => emit_term_draw_line(symbol, tso, false),
-        "term.drawBox" => emit_term_draw_box(symbol, tso),
-        "term.fillRect" => emit_term_fill_rect(symbol, tso),
-        "term.drawText" => emit_term_draw_text_at(symbol, tso),
-        "term.drawGlyph" => emit_term_draw_glyph_at(symbol, tso),
+/// plan-66-J-5 / plan-101: dispatch a `term::` call to its GDI-grid app-mode body,
+/// appending the body's instructions/relocations into the caller's `abi_function`
+/// stream (the wrapper then finalizes the frame — no standalone frame here). Every
+/// call Windows advertises in app mode is handled; the shared gate prepends the
+/// presentation-mode `ErrWrongMode` guard. Returns `None` for a call with no app
+/// body (falls through to the console ANSI backend).
+///
+/// plan-70-F Phase 3: the six positioned draw helpers stamp directly into the
+/// persistent memDC (immediate mode). Box/line/fill use Light box-drawing glyphs;
+/// drawText/drawGlyph render through the CJK font at correct width.
+pub(super) fn emit_app_term_helper(
+    call: &str,
+    symbol: &str,
+    tso: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Option<Result<(), String>> {
+    match call {
+        "term.on" => emit_term_on(symbol, tso, instructions, relocations),
+        "term.off" => emit_term_off(symbol, tso, instructions, relocations),
+        "term.clear" => emit_term_clear(symbol, instructions, relocations),
+        "term.moveTo" => emit_term_move_to(symbol, instructions, relocations),
+        "term.setForeground" => {
+            emit_term_set_color(tso, TERM_STATE_FG_OFFSET, instructions, relocations)
+        }
+        "term.setBackground" => {
+            emit_term_set_color(tso, TERM_STATE_BG_OFFSET, instructions, relocations)
+        }
+        "term.setBold" => {
+            emit_term_set_flag(tso, TERM_STATE_BOLD_OFFSET, instructions, relocations)
+        }
+        "term.setUnderline" => {
+            emit_term_set_flag(tso, TERM_STATE_UNDERLINE_OFFSET, instructions, relocations)
+        }
+        "term.showCursor" => emit_term_cursor_visible(tso, "1", instructions, relocations),
+        "term.hideCursor" => emit_term_cursor_visible(tso, "0", instructions, relocations),
+        "term.sync" => emit_term_sync(symbol, instructions, relocations),
+        "term.terminalSize" => emit_term_size(symbol, instructions, relocations),
+        "term.drawHLine" => emit_term_draw_line(symbol, tso, true, instructions, relocations),
+        "term.drawVLine" => emit_term_draw_line(symbol, tso, false, instructions, relocations),
+        "term.drawBox" => emit_term_draw_box(symbol, tso, instructions, relocations),
+        "term.fillRect" => emit_term_fill_rect(symbol, tso, instructions, relocations),
+        "term.drawText" => emit_term_draw_text_at(symbol, tso, instructions, relocations),
+        "term.drawGlyph" => emit_term_draw_glyph_at(symbol, tso, instructions, relocations),
         _ => return None,
-    };
-    Some(b)
+    }
+    Some(Ok(()))
 }
 
 /// plan-70-F: `SetTextColor`/`SetBkColor` on the memDC (stack slot `memdc_off`) from
@@ -1830,7 +1826,8 @@ fn win_set_colors(
 
 /// plan-70-F: stamp one BMP glyph (slot `glyph_off`) at grid `(col slot, row slot)`
 /// into the memDC (slot `memdc_off`), staging the UTF-16 unit at `wch_off`. The 5th
-/// TextOutW arg (count = 1) rides the shadow-adjacent 0x20 slot. Clobbers ARG[0..3].
+/// TextOutW arg (count = 1) goes through the `outgoing_stack_arg_store` sentinel,
+/// which the `abi_function` finalizer sizes and resolves. Clobbers ARG[0..3].
 fn win_stamp_bmp(
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
@@ -1852,7 +1849,7 @@ fn win_stamp_bmp(
         wch_off,
     ));
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "1"));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20)); // 5th arg count
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(0), 0)); // 5th arg count
     ins.push(abi::add_immediate(
         abi::mfb_arg(3),
         abi::stack_pointer(),
@@ -1888,8 +1885,15 @@ fn win_stamp_bmp(
 
 /// plan-70-F: `term::drawGlyph(x, y, codepoint)` — stamp one glyph at the cell,
 /// astral-capable, in the current colours. Args: ARG[0]=x, ARG[1]=y, ARG[2]=cp.
-fn emit_term_draw_glyph_at(symbol: &str, tso: usize) -> AppHookBody {
-    const FRAME: usize = 0x58; // ≡ 8 (mod 16)
+fn emit_term_draw_glyph_at(
+    symbol: &str,
+    tso: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the `abi_function` finalizer builds it,
+    // reserves the requested local scratch (addressed at `sp+<slot>`), the Win64
+    // shadow, and the outgoing-arg tail. Local scratch slots below.
     const WCH: usize = 0x30;
     const MEMDC: usize = 0x38;
     const SX: usize = 0x40;
@@ -1898,8 +1902,6 @@ fn emit_term_draw_glyph_at(symbol: &str, tso: usize) -> AppHookBody {
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
-    ins.push(abi::label("entry"));
-    ins.push(abi::subtract_stack(FRAME));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), SX));
     ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), SY));
     ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), SCP));
@@ -1949,12 +1951,12 @@ fn emit_term_draw_glyph_at(symbol: &str, tso: usize) -> AppHookBody {
         WCH + 2,
     )); // lo @ +2
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "2"));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20));
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(0), 0)); // TextOutW 5th arg (count)
     ins.push(abi::branch("dg_units"));
     ins.push(abi::label("dg_bmp"));
     ins.push(abi::store_u16(abi::mfb_arg(0), abi::stack_pointer(), WCH));
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "1"));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20));
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(0), 0)); // TextOutW 5th arg (count)
     ins.push(abi::label("dg_units"));
     // TextOutW(memDC, x*8, y*16, &WCH, count)
     ins.push(abi::add_immediate(
@@ -1984,14 +1986,22 @@ fn emit_term_draw_glyph_at(symbol: &str, tso: usize) -> AppHookBody {
         RESULT_OK_TAG,
     ));
     ins.push(abi::return_());
-    term_body(ins, rel)
+    instructions.extend(ins);
+    relocations.extend(rel);
 }
 
 /// plan-70-F: `term::drawHLine`/`drawVLine(style, fixed, a, b)` — stamp a Light
 /// box-drawing run. Args: ARG[0]=style (ignored — Light), ARG[1]=fixed
 /// (row for H / col for V), ARG[2]=a, ARG[3]=b. Clips to the grid.
-fn emit_term_draw_line(symbol: &str, tso: usize, horizontal: bool) -> AppHookBody {
-    const FRAME: usize = 0x68; // ≡ 8 (mod 16)
+fn emit_term_draw_line(
+    symbol: &str,
+    tso: usize,
+    horizontal: bool,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the finalizer builds it. Local scratch
+    // slots below; `win_stamp_bmp` stages its TextOutW 5th arg via the outgoing sentinel.
     const WCH: usize = 0x30;
     const MEMDC: usize = 0x38;
     const FIXED: usize = 0x40; // row (H) or col (V)
@@ -2001,8 +2011,6 @@ fn emit_term_draw_line(symbol: &str, tso: usize, horizontal: bool) -> AppHookBod
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
-    ins.push(abi::label("entry"));
-    ins.push(abi::subtract_stack(FRAME));
     ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), FIXED));
     ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), POS));
     ins.push(abi::store_u64(abi::mfb_arg(3), abi::stack_pointer(), ENDV));
@@ -2045,14 +2053,21 @@ fn emit_term_draw_line(symbol: &str, tso: usize, horizontal: bool) -> AppHookBod
         RESULT_OK_TAG,
     ));
     ins.push(abi::return_());
-    term_body(ins, rel)
+    instructions.extend(ins);
+    relocations.extend(rel);
 }
 
 /// plan-70-F: `term::drawBox(style, x1, y1, x2, y2)` — Light box: two H edges, two V
 /// edges, four corners. Args ARG[0]=style (ignored), ARG[1]=x1, ARG[2]=y1,
 /// ARG[3]=x2, and y2 is the 5th (incoming stack) arg.
-fn emit_term_draw_box(symbol: &str, tso: usize) -> AppHookBody {
-    const FRAME: usize = 0x78; // ≡ 8 (mod 16)
+fn emit_term_draw_box(
+    symbol: &str,
+    tso: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the finalizer builds it. Local scratch
+    // slots below; the 5th incoming arg (y2) is read via the incoming-arg sentinel.
     const WCH: usize = 0x30;
     const MEMDC: usize = 0x38;
     const X1: usize = 0x40;
@@ -2064,17 +2079,12 @@ fn emit_term_draw_box(symbol: &str, tso: usize) -> AppHookBody {
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
-    ins.push(abi::label("entry"));
-    ins.push(abi::subtract_stack(FRAME));
     ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), X1));
     ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), Y1));
     ins.push(abi::store_u64(abi::mfb_arg(3), abi::stack_pointer(), X2));
-    // y2 = 5th incoming arg: caller placed it above our return addr at sp+FRAME+0x28.
-    ins.push(abi::load_u64(
-        abi::mfb_arg(0),
-        abi::stack_pointer(),
-        FRAME + 0x28,
-    ));
+    // y2 = 5th incoming (stack) arg — resolved by the finalizer to the caller's
+    // outgoing tail above this frame.
+    ins.push(abi::incoming_stack_arg_load(abi::mfb_arg(0), 0));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), Y2));
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
@@ -2137,13 +2147,19 @@ fn emit_term_draw_box(symbol: &str, tso: usize) -> AppHookBody {
         RESULT_OK_TAG,
     ));
     ins.push(abi::return_());
-    term_body(ins, rel)
+    instructions.extend(ins);
+    relocations.extend(rel);
 }
 
 /// plan-70-F: `term::fillRect(style, x1, y1, x2, y2)` — fill the cell rect with a
 /// space in the current bg (the block glyph would ignore bg). Args as drawBox.
-fn emit_term_fill_rect(symbol: &str, tso: usize) -> AppHookBody {
-    const FRAME: usize = 0x78;
+fn emit_term_fill_rect(
+    symbol: &str,
+    tso: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the finalizer builds it.
     const WCH: usize = 0x30;
     const MEMDC: usize = 0x38;
     const X1: usize = 0x40;
@@ -2156,16 +2172,10 @@ fn emit_term_fill_rect(symbol: &str, tso: usize) -> AppHookBody {
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
-    ins.push(abi::label("entry"));
-    ins.push(abi::subtract_stack(FRAME));
     ins.push(abi::store_u64(abi::mfb_arg(1), abi::stack_pointer(), X1));
     ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), Y1));
     ins.push(abi::store_u64(abi::mfb_arg(3), abi::stack_pointer(), X2));
-    ins.push(abi::load_u64(
-        abi::mfb_arg(0),
-        abi::stack_pointer(),
-        FRAME + 0x28,
-    )); // y2 (5th arg)
+    ins.push(abi::incoming_stack_arg_load(abi::mfb_arg(0), 0)); // y2 (5th incoming arg)
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), Y2));
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "32")); // space (paints bg)
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), GLYPH));
@@ -2207,14 +2217,22 @@ fn emit_term_fill_rect(symbol: &str, tso: usize) -> AppHookBody {
         RESULT_OK_TAG,
     ));
     ins.push(abi::return_());
-    term_body(ins, rel)
+    instructions.extend(ins);
+    relocations.extend(rel);
 }
 
 /// plan-70-F: `term::drawText(x, y, text)` — stamp a UTF-8 string at `(x, y)`, one
 /// grapheme per cell at its display width, no wrap (clips at the right edge). Args:
 /// ARG[0]=x, ARG[1]=y, ARG[2]=text ptr `{len@0, bytes@8}`.
-fn emit_term_draw_text_at(symbol: &str, tso: usize) -> AppHookBody {
-    const FRAME: usize = 0x98; // ≡ 8 (mod 16)
+fn emit_term_draw_text_at(
+    symbol: &str,
+    tso: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the finalizer builds it. Local scratch
+    // slots below (text-ptr scratch at 0x88); MultiByteToWideChar's 5th/6th and
+    // TextOutW's 5th args go through the outgoing-arg sentinel.
     const MEMDC: usize = 0x38;
     const SX: usize = 0x40; // starting column
     const SY: usize = 0x48; // row
@@ -2228,8 +2246,6 @@ fn emit_term_draw_text_at(symbol: &str, tso: usize) -> AppHookBody {
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
-    ins.push(abi::label("entry"));
-    ins.push(abi::subtract_stack(FRAME));
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), SX));
     ins.push(abi::store_u64(
         abi::mfb_arg(0),
@@ -2252,9 +2268,9 @@ fn emit_term_draw_text_at(symbol: &str, tso: usize) -> AppHookBody {
         WBUF,
     ));
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), WBUF));
-    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20));
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(2), 0)); // 5th lpWideCharStr
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "32767"));
-    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28));
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(2), 1)); // 6th cchWideChar
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", CP_UTF8));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0"));
     ins.push(abi::load_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x88)); // text ptr
@@ -2380,7 +2396,7 @@ fn emit_term_draw_text_at(symbol: &str, tso: usize) -> AppHookBody {
     emit_win_wide_width(&mut ins, CPSLOT, WIDTHSLOT);
     // TextOutW(memDC, curcol*8, y*16, &wbuf[i], unitCount)
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), UCOUNT));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20));
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(0), 0)); // TextOutW 5th arg (count)
     ins.push(abi::load_u64(abi::mfb_arg(3), abi::stack_pointer(), WBUF));
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::stack_pointer(), GI));
     ins.push(abi::shift_left_immediate(
@@ -2441,23 +2457,28 @@ fn emit_term_draw_text_at(symbol: &str, tso: usize) -> AppHookBody {
         RESULT_OK_TAG,
     ));
     ins.push(abi::return_());
-    term_body(ins, rel)
+    instructions.extend(ins);
+    relocations.extend(rel);
 }
 
 /// `term::on()`: build the off-screen grid surface on first use (memory DC +
 /// bitmap + a fixed-pitch stock font), clear it, mark TUI state active, hide the
 /// transcript EDIT so the grid shows through, and invalidate the window.
-fn emit_term_on(symbol: &str, tso: usize) -> AppHookBody {
-    // Frame: shadow[0..0x20]. plan-70-F: CreateFontW takes 14 args — its 5th-14th ride
-    // the stack at 0x20..0x68, so the reused scratch (PatBlt height/rop @0x20/0x28) and
-    // hdcScreen moved to 0x70 to clear that window. Frame rounded to 0x80 (16-aligned).
-    const FRAME: usize = 0x80;
+fn emit_term_on(
+    symbol: &str,
+    tso: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the finalizer builds it, reserves the
+    // Win64 shadow, and sizes the outgoing-arg tail. plan-70-F: CreateFontW takes 14
+    // args — its 5th-14th (and PatBlt's 5th/6th) go through the outgoing-arg sentinel
+    // (`outgoing_stack_arg_store`), which the finalizer resolves; `HDC_SCREEN` is the
+    // one persistent local-scratch slot.
     const HDC_SCREEN: usize = 0x70;
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
-    ins.push(abi::label("entry"));
-    ins.push(abi::subtract_stack(FRAME));
     // Build the surface once (memDC == 0 means not built yet).
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
@@ -2512,19 +2533,19 @@ fn emit_term_on(symbol: &str, tso: usize) -> AppHookBody {
     //   renders through the system fallback instead of tofu. The 5th-14th args ride
     //   the stack at 0x20..0x68 (Win64), the shadow space is 0x00..0x1F.
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "400"));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x20)); // fnWeight
-    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28)); // fdwItalic
-    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30)); // fdwUnderline
-    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38)); // fdwStrikeOut
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(0), 0)); // 5th fnWeight
+    ins.push(abi::outgoing_stack_arg_store(abi::ZERO, 1)); // 6th fdwItalic
+    ins.push(abi::outgoing_stack_arg_store(abi::ZERO, 2)); // 7th fdwUnderline
+    ins.push(abi::outgoing_stack_arg_store(abi::ZERO, 3)); // 8th fdwStrikeOut
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "1"));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x40)); // DEFAULT_CHARSET
-    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x48)); // OutputPrecision
-    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x50)); // ClipPrecision
-    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x58)); // Quality
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(0), 4)); // 9th DEFAULT_CHARSET
+    ins.push(abi::outgoing_stack_arg_store(abi::ZERO, 5)); // 10th OutputPrecision
+    ins.push(abi::outgoing_stack_arg_store(abi::ZERO, 6)); // 11th ClipPrecision
+    ins.push(abi::outgoing_stack_arg_store(abi::ZERO, 7)); // 12th Quality
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", "49"));
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x60)); // FIXED_PITCH|FF_MODERN
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(0), 8)); // 13th FIXED_PITCH|FF_MODERN
     load_addr(abi::mfb_arg(0), FONT_NAME_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::store_u64(abi::mfb_arg(0), abi::stack_pointer(), 0x68)); // lpszFace
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(0), 9)); // 14th lpszFace
     ins.push(abi::move_immediate(
         abi::mfb_arg(0),
         "Integer",
@@ -2548,9 +2569,9 @@ fn emit_term_on(symbol: &str, tso: usize) -> AppHookBody {
         "Integer",
         &(TUI_ROWS * TUI_CELL_H).to_string(),
     ));
-    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20)); // height (5th)
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(2), 0)); // height (5th)
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "66")); // BLACKNESS (6th)
-    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28));
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(2), 1));
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0"));
@@ -2592,17 +2613,21 @@ fn emit_term_on(symbol: &str, tso: usize) -> AppHookBody {
         RESULT_OK_TAG,
     ));
     ins.push(abi::return_());
-    term_body(ins, rel)
+    instructions.extend(ins);
+    relocations.extend(rel);
 }
 
 /// `term::off()`: leave TUI mode — clear the active flag and re-show the EDIT.
-fn emit_term_off(symbol: &str, tso: usize) -> AppHookBody {
-    const FRAME: usize = 0x28;
+fn emit_term_off(
+    symbol: &str,
+    tso: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the finalizer builds it (shadow only).
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
-    ins.push(abi::label("entry"));
-    ins.push(abi::subtract_stack(FRAME));
     ins.push(abi::store_u64(
         abi::ZERO,
         ARENA_STATE_REGISTER,
@@ -2619,17 +2644,21 @@ fn emit_term_off(symbol: &str, tso: usize) -> AppHookBody {
         RESULT_OK_TAG,
     ));
     ins.push(abi::return_());
-    term_body(ins, rel)
+    instructions.extend(ins);
+    relocations.extend(rel);
 }
 
 /// `term::clear()`: black out the grid and home the cursor.
-fn emit_term_clear(symbol: &str) -> AppHookBody {
-    const FRAME: usize = 0x38;
+fn emit_term_clear(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the finalizer builds it. PatBlt's 5th/6th
+    // args go through the outgoing-arg sentinel.
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
-    ins.push(abi::label("entry"));
-    ins.push(abi::subtract_stack(FRAME));
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     ins.push(abi::compare_immediate(abi::mfb_arg(0), "0"));
@@ -2639,9 +2668,9 @@ fn emit_term_clear(symbol: &str) -> AppHookBody {
         "Integer",
         &(TUI_ROWS * TUI_CELL_H).to_string(),
     ));
-    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x20));
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(2), 0));
     ins.push(abi::move_immediate(abi::mfb_arg(2), "Integer", "66"));
-    ins.push(abi::store_u64(abi::mfb_arg(2), abi::stack_pointer(), 0x28));
+    ins.push(abi::outgoing_stack_arg_store(abi::mfb_arg(2), 1));
     load_addr(abi::mfb_arg(0), TUI_MEMDC_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "0"));
@@ -2660,15 +2689,20 @@ fn emit_term_clear(symbol: &str) -> AppHookBody {
         RESULT_OK_TAG,
     ));
     ins.push(abi::return_());
-    term_body(ins, rel)
+    instructions.extend(ins);
+    relocations.extend(rel);
 }
 
 /// `term::moveTo(row, col)`: set the grid cursor (0-based), no frame/call needed.
-fn emit_term_move_to(symbol: &str) -> AppHookBody {
+fn emit_term_move_to(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the finalizer builds it (call-free/leaf).
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
-    ins.push(abi::label("entry"));
     load_addr(abi::mfb_arg(2), TUI_ROW_SYM, from, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::mfb_arg(0), abi::mfb_arg(2), 0)); // row
     load_addr(abi::mfb_arg(2), TUI_COL_SYM, from, &mut ins, &mut rel);
@@ -2679,14 +2713,20 @@ fn emit_term_move_to(symbol: &str) -> AppHookBody {
         RESULT_OK_TAG,
     ));
     ins.push(abi::return_());
-    term_body(ins, rel)
+    instructions.extend(ins);
+    relocations.extend(rel);
 }
 
 /// `term::setForeground/setBackground(r, g, b)`: pack `r | g<<8 | b<<16` (already
 /// GDI COLORREF order) into the term-state color field.
-fn emit_term_set_color(tso: usize, field: usize) -> AppHookBody {
+fn emit_term_set_color(
+    tso: usize,
+    field: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the finalizer builds it (call-free/leaf).
     let mut ins: Vec<CodeInstruction> = Vec::new();
-    ins.push(abi::label("entry"));
     ins.push(abi::shift_left_immediate(
         abi::mfb_arg(1),
         abi::mfb_arg(1),
@@ -2718,13 +2758,18 @@ fn emit_term_set_color(tso: usize, field: usize) -> AppHookBody {
         RESULT_OK_TAG,
     ));
     ins.push(abi::return_());
-    term_body(ins, Vec::new())
+    instructions.extend(ins);
 }
 
 /// `term::setBold/setUnderline(on)`: store the boolean into its term-state field.
-fn emit_term_set_flag(tso: usize, field: usize) -> AppHookBody {
+fn emit_term_set_flag(
+    tso: usize,
+    field: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the finalizer builds it (call-free/leaf).
     let mut ins: Vec<CodeInstruction> = Vec::new();
-    ins.push(abi::label("entry"));
     ins.push(abi::store_u64(
         abi::mfb_arg(0),
         ARENA_STATE_REGISTER,
@@ -2736,13 +2781,18 @@ fn emit_term_set_flag(tso: usize, field: usize) -> AppHookBody {
         RESULT_OK_TAG,
     ));
     ins.push(abi::return_());
-    term_body(ins, Vec::new())
+    instructions.extend(ins);
 }
 
 /// `term::showCursor/hideCursor()`: set the cursor-visible term-state flag.
-fn emit_term_cursor_visible(tso: usize, value: &str) -> AppHookBody {
+fn emit_term_cursor_visible(
+    tso: usize,
+    value: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    _relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the finalizer builds it (call-free/leaf).
     let mut ins: Vec<CodeInstruction> = Vec::new();
-    ins.push(abi::label("entry"));
     ins.push(abi::move_immediate(abi::mfb_arg(0), "Integer", value));
     ins.push(abi::store_u64(
         abi::mfb_arg(0),
@@ -2755,18 +2805,20 @@ fn emit_term_cursor_visible(tso: usize, value: &str) -> AppHookBody {
         RESULT_OK_TAG,
     ));
     ins.push(abi::return_());
-    term_body(ins, Vec::new())
+    instructions.extend(ins);
 }
 
 /// `term::sync()`: present the coalesced grid — invalidate + update the window so
 /// WndProc BitBlts the memory DC.
-fn emit_term_sync(symbol: &str) -> AppHookBody {
-    const FRAME: usize = 0x28;
+fn emit_term_sync(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the finalizer builds it (shadow only).
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
-    ins.push(abi::label("entry"));
-    ins.push(abi::subtract_stack(FRAME));
     invalidate_main(from, &mut ins, &mut rel);
     load_addr(abi::mfb_arg(0), MAIN_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::load_u64(abi::mfb_arg(0), abi::mfb_arg(0), 0));
@@ -2777,18 +2829,21 @@ fn emit_term_sync(symbol: &str) -> AppHookBody {
         RESULT_OK_TAG,
     ));
     ins.push(abi::return_());
-    term_body(ins, rel)
+    instructions.extend(ins);
+    relocations.extend(rel);
 }
 
 /// `term::terminalSize()`: return `{ columns, rows }` (the fixed grid dims) as an
 /// arena-allocated 16-byte record. Result value = record ptr, tag = OK.
-fn emit_term_size(symbol: &str) -> AppHookBody {
-    const FRAME: usize = 0x28;
+fn emit_term_size(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the finalizer builds it (shadow only).
     let from = symbol;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
-    ins.push(abi::label("entry"));
-    ins.push(abi::subtract_stack(FRAME));
     // record = _mfb_arena_alloc(16, align 8) → RET[1] = ptr.
     ins.push(abi::move_immediate(abi::return_register(), "Integer", "16"));
     ins.push(abi::move_immediate(abi::mfb_arg(1), "Integer", "8"));
@@ -2817,9 +2872,9 @@ fn emit_term_size(symbol: &str) -> AppHookBody {
         "Integer",
         RESULT_OK_TAG,
     )); // RET[1]=ptr survives
-    ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
-    term_body(ins, rel)
+    instructions.extend(ins);
+    relocations.extend(rel);
 }
 
 /// Zero the grid cursor row/col globals (uses ARG[0]/ARG[1] as scratch).
@@ -3163,17 +3218,21 @@ mod tests {
             "term.drawGlyph",
         ] {
             assert!(
-                emit_app_term_helper(call, "_t", 0).is_some(),
+                emit_app_term_helper(call, "_t", 0, &mut Vec::new(), &mut Vec::new()).is_some(),
                 "no app-mode term body for {call}"
             );
         }
         // A non-term call falls through (None → console backend).
-        assert!(emit_app_term_helper("term.bogus", "_t", 0).is_none());
+        assert!(
+            emit_app_term_helper("term.bogus", "_t", 0, &mut Vec::new(), &mut Vec::new()).is_none()
+        );
     }
 
     #[test]
     fn term_on_builds_and_shows_grid() {
-        let (_f, _i, rel) = emit_term_on("_t", 0);
+        let mut _i = Vec::new();
+        let mut rel = Vec::new();
+        emit_term_on("_t", 0, &mut _i, &mut rel);
         let t: Vec<&str> = rel.iter().map(|r| r.to.as_str()).collect();
         // Builds the off-screen surface, clears it, and hides the transcript EDIT.
         // plan-70-F: the font is a CJK-capable CreateFontW face (font-linking),

@@ -131,7 +131,7 @@ pub(super) fn emit_activate_handler(
         abi::stack_pointer(),
         0,
     ));
-    asm.push(abi::store_u64("x19", abi::stack_pointer(), 24));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 24));
 
     // plan-62-D: a `Console`-default program builds the transcript window + input
     // widgets (emitted byte-for-byte as before). A `None`-default program starts
@@ -218,7 +218,7 @@ pub(super) fn emit_activate_handler(
         //   g_signal_connect_data(controller, "key-pressed", on_key, NULL, NULL, 0)
         //   gtk_widget_add_controller(window, controller)  // takes ownership
         asm.call_external("gtk_event_controller_key_new");
-        asm.push(abi::move_register("x19", abi::c_return(0))); // controller (callee-saved across calls)
+        asm.push(abi::move_register(abi::LOCAL[0], abi::c_return(0))); // controller (callee-saved across calls)
         asm.local_address(abi::c_arg(1), STR_KEY_PRESSED.0);
         asm.local_address(abi::c_arg(2), KEY_PRESSED_SYMBOL);
         asm.push(abi::move_immediate(abi::c_arg(3), "Integer", "0"));
@@ -227,7 +227,7 @@ pub(super) fn emit_activate_handler(
         asm.push(abi::move_register(abi::c_arg(0), abi::c_return(0)));
         asm.call_external("g_signal_connect_data");
         asm.load_state(abi::c_arg(0), ST_WINDOW);
-        asm.push(abi::move_register(abi::c_arg(1), "x19"));
+        asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[0]));
         asm.call_external("gtk_widget_add_controller");
 
         // connect window "close-request" -> on_window_closed
@@ -251,7 +251,7 @@ pub(super) fn emit_activate_handler(
         // end is collapsed onto fd 0 below.
         asm.push(abi::add_immediate(abi::c_arg(0), abi::stack_pointer(), 16));
         asm.call_external("pipe");
-        asm.push(abi::load_u32("x11", abi::stack_pointer(), 20)); // write fd
+        asm.push(abi::load_u32(abi::SCRATCH[2], abi::stack_pointer(), 20)); // write fd
         asm.store_state("x11", ST_PIPE_WRITE_FD);
 
         // Make the pipe write end non-blocking (bug-114): if the worker stops
@@ -281,7 +281,7 @@ pub(super) fn emit_activate_handler(
 
         // Record the surviving read end (fd 0) in the runtime state. Use x10 for the
         // value because store_state materializes the state base into x9.
-        asm.push(abi::move_immediate("x10", "Integer", "0"));
+        asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
         asm.store_state("x10", ST_PIPE_READ_FD);
     } else {
         // plan-62-D: `None`-default — no window. Hold the application so it stays
@@ -290,7 +290,7 @@ pub(super) fn emit_activate_handler(
         asm.load_state(abi::c_arg(0), ST_APPLICATION);
         asm.call_external("g_application_hold");
         // Record that a hold is active so the reconcile balances it (Open Decision 1).
-        asm.push(abi::move_immediate("x10", "Integer", "1"));
+        asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "1"));
         asm.store_state("x10", ST_HELD);
     }
 
@@ -304,7 +304,7 @@ pub(super) fn emit_activate_handler(
     asm.call_external("pthread_detach");
 
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::load_u64("x19", abi::stack_pointer(), 24));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 24));
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
     asm.finish(ACTIVATE_SYMBOL, "Nothing")
@@ -362,9 +362,9 @@ pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
         abi::stack_pointer(),
         0,
     ));
-    asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
-    asm.push(abi::move_register("x19", abi::c_arg(0))); // mode
-    asm.push(abi::compare_immediate("x19", "0"));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // mode
+    asm.push(abi::compare_immediate(abi::LOCAL[0], "0"));
     asm.push(abi::branch_ne(&none)); // mode != Console → None path
 
     // --- Console: build (first time) or re-show the transcript window ---
@@ -421,7 +421,7 @@ pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
     asm.push(abi::branch_eq(&release_skip));
     asm.load_state(abi::c_arg(0), ST_APPLICATION);
     asm.call_external("g_application_release");
-    asm.push(abi::move_immediate("x10", "Integer", "0"));
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
     asm.store_state("x10", ST_HELD);
     asm.push(abi::label(&release_skip));
     asm.push(abi::branch(&done));
@@ -435,7 +435,7 @@ pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
     asm.call_external("gtk_widget_set_visible");
     asm.push(abi::label(&hide_skip));
     // clear the io-routing buffer → the write helper falls back to the fd (stdout)
-    asm.push(abi::move_immediate("x10", "Integer", "0"));
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
     asm.store_state("x10", ST_TEXT_BUFFER);
     // hold the application so it survives with no visible window (if not already).
     asm.load_state(abi::c_arg(0), ST_HELD);
@@ -443,14 +443,14 @@ pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
     asm.push(abi::branch_ne(&hold_skip));
     asm.load_state(abi::c_arg(0), ST_APPLICATION);
     asm.call_external("g_application_hold");
-    asm.push(abi::move_immediate("x10", "Integer", "1"));
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "1"));
     asm.store_state("x10", ST_HELD);
     asm.push(abi::label(&hold_skip));
 
     asm.push(abi::label(&done));
     asm.push(abi::move_immediate(abi::c_return(0), "Integer", "0")); // G_SOURCE_REMOVE
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::load_u64("x19", abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
     asm.finish(RECONCILE_IDLE_SYMBOL, "Integer")
@@ -508,27 +508,39 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
         abi::stack_pointer(),
         0,
     ));
-    asm.push(abi::store_u64("x19", abi::stack_pointer(), 40));
-    asm.push(abi::move_register("x19", abi::c_arg(1))); // keyval
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 40));
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(1))); // keyval
 
     // Raw mode delivers the keystroke immediately, bypassing the line buffer.
     asm.load_state("x9", ST_INPUT_MODE);
-    asm.push(abi::compare_immediate("x9", MODE_RAW));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], MODE_RAW));
     asm.push(abi::branch_eq("raw"));
 
     // Enter (Return / KP_Enter) -> commit; Backspace -> erase.
-    asm.push(abi::move_immediate("x9", "Integer", GDK_KEY_RETURN));
-    asm.push(abi::compare_registers("x19", "x9"));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        GDK_KEY_RETURN,
+    ));
+    asm.push(abi::compare_registers(abi::LOCAL[0], abi::SCRATCH[0]));
     asm.push(abi::branch_eq("commit"));
-    asm.push(abi::move_immediate("x9", "Integer", GDK_KEY_KP_ENTER));
-    asm.push(abi::compare_registers("x19", "x9"));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        GDK_KEY_KP_ENTER,
+    ));
+    asm.push(abi::compare_registers(abi::LOCAL[0], abi::SCRATCH[0]));
     asm.push(abi::branch_eq("commit"));
-    asm.push(abi::move_immediate("x9", "Integer", GDK_KEY_BACKSPACE));
-    asm.push(abi::compare_registers("x19", "x9"));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        GDK_KEY_BACKSPACE,
+    ));
+    asm.push(abi::compare_registers(abi::LOCAL[0], abi::SCRATCH[0]));
     asm.push(abi::branch_eq("backspace"));
 
     // Printable: unichar = gdk_keyval_to_unicode(keyval); 0 -> not a character.
-    asm.push(abi::move_register(abi::c_arg(0), "x19"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.call_external("gdk_keyval_to_unicode");
     asm.push(abi::compare_immediate(abi::c_return(0), "0"));
     asm.push(abi::branch_eq("ignore"));
@@ -547,27 +559,51 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
         &(LINE_BUF_CAP - MAX_UTF8_LEN).to_string(),
     ));
     asm.push(abi::branch_hi("ignore"));
-    asm.push(abi::store_u64("x9", abi::stack_pointer(), 8)); // oldlen
+    asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), 8)); // oldlen
     asm.local_address("x10", STATE_SYMBOL);
-    asm.push(abi::add_immediate(abi::c_arg(1), "x10", ST_LINE_BUF));
-    asm.push(abi::add_registers(abi::c_arg(1), abi::c_arg(1), "x9"));
+    asm.push(abi::add_immediate(
+        abi::c_arg(1),
+        abi::SCRATCH[1],
+        ST_LINE_BUF,
+    ));
+    asm.push(abi::add_registers(
+        abi::c_arg(1),
+        abi::c_arg(1),
+        abi::SCRATCH[0],
+    ));
     asm.push(abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 24));
     asm.call_external("g_unichar_to_utf8");
     asm.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), 16)); // count
                                                                           // line_len = oldlen + count
-    asm.push(abi::load_u64("x9", abi::stack_pointer(), 8));
-    asm.push(abi::add_registers("x9", "x9", abi::c_return(0)));
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 8));
+    asm.push(abi::add_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::c_return(0),
+    ));
     asm.local_address("x10", STATE_SYMBOL);
-    asm.push(abi::store_u64("x9", "x10", ST_LINE_LEN));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+        ST_LINE_LEN,
+    ));
     // Echo into the transcript only in LINE_ECHO mode.
     asm.load_state("x9", ST_INPUT_MODE);
-    asm.push(abi::compare_immediate("x9", MODE_LINE_ECHO));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], MODE_LINE_ECHO));
     asm.push(abi::branch_ne("consumed"));
     asm.load_state(abi::c_arg(0), ST_TEXT_BUFFER);
     asm.local_address("x10", STATE_SYMBOL);
-    asm.push(abi::add_immediate(abi::c_arg(1), "x10", ST_LINE_BUF));
-    asm.push(abi::load_u64("x9", abi::stack_pointer(), 8)); // oldlen
-    asm.push(abi::add_registers(abi::c_arg(1), abi::c_arg(1), "x9"));
+    asm.push(abi::add_immediate(
+        abi::c_arg(1),
+        abi::SCRATCH[1],
+        ST_LINE_BUF,
+    ));
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 8)); // oldlen
+    asm.push(abi::add_registers(
+        abi::c_arg(1),
+        abi::c_arg(1),
+        abi::SCRATCH[0],
+    ));
     asm.push(abi::load_u64(abi::c_arg(2), abi::stack_pointer(), 16)); // count
     asm.call_internal(APPEND_SYMBOL);
     asm.push(abi::branch("consumed"));
@@ -576,7 +612,11 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     asm.push(abi::label("commit"));
     asm.load_state(abi::c_arg(0), ST_PIPE_WRITE_FD);
     asm.local_address("x10", STATE_SYMBOL);
-    asm.push(abi::add_immediate(abi::c_arg(1), "x10", ST_LINE_BUF));
+    asm.push(abi::add_immediate(
+        abi::c_arg(1),
+        abi::SCRATCH[1],
+        ST_LINE_BUF,
+    ));
     asm.load_state(abi::c_arg(2), ST_LINE_LEN);
     asm.call_external("write");
     // O_NONBLOCK write end (bug-114): on -1/EAGAIN (pipe full, worker not
@@ -584,24 +624,28 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     // and fall through to echo + clear.
     asm.push(abi::compare_immediate(abi::c_return(0), "0"));
     asm.push(abi::branch_lt("commit_echo"));
-    asm.push(abi::move_immediate("x9", "Integer", "10"));
-    asm.push(abi::store_u8("x9", abi::stack_pointer(), 32)); // '\n'
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "10"));
+    asm.push(abi::store_u8(abi::SCRATCH[0], abi::stack_pointer(), 32)); // '\n'
     asm.load_state(abi::c_arg(0), ST_PIPE_WRITE_FD);
     asm.push(abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), 32));
     asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
     asm.call_external("write");
     asm.push(abi::label("commit_echo"));
     asm.load_state("x9", ST_INPUT_MODE);
-    asm.push(abi::compare_immediate("x9", MODE_LINE_ECHO));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], MODE_LINE_ECHO));
     asm.push(abi::branch_ne("commit_clear"));
     asm.load_state(abi::c_arg(0), ST_TEXT_BUFFER);
     asm.push(abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), 32)); // the '\n'
     asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "1"));
     asm.call_internal(APPEND_SYMBOL);
     asm.push(abi::label("commit_clear"));
-    asm.push(abi::move_immediate("x9", "Integer", "0"));
+    asm.push(abi::move_immediate(abi::SCRATCH[0], "Integer", "0"));
     asm.local_address("x10", STATE_SYMBOL);
-    asm.push(abi::store_u64("x9", "x10", ST_LINE_LEN));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+        ST_LINE_LEN,
+    ));
     asm.push(abi::branch("consumed"));
 
     // Backspace: remove one whole UTF-8 code point from the pending line (bug-421).
@@ -612,28 +656,44 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     //   do { len--; } while (len > 0 && (line_buf[len] & 0xC0) == 0x80);
     asm.push(abi::label("backspace"));
     asm.load_state("x9", ST_LINE_LEN); // x9 = len
-    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_eq("ignore"));
     asm.local_address("x10", STATE_SYMBOL);
-    asm.push(abi::add_immediate("x11", "x10", ST_LINE_BUF)); // x11 = &line_buf[0]
-    asm.push(abi::move_immediate("x13", "Integer", "192")); // 0xC0 continuation mask
+    asm.push(abi::add_immediate(
+        abi::SCRATCH[2],
+        abi::SCRATCH[1],
+        ST_LINE_BUF,
+    )); // x11 = &line_buf[0]
+    asm.push(abi::move_immediate(abi::SCRATCH[4], "Integer", "192")); // 0xC0 continuation mask
     asm.push(abi::label("bs_scan"));
-    asm.push(abi::subtract_immediate("x9", "x9", 1)); // len--
-    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::subtract_immediate(abi::SCRATCH[0], abi::SCRATCH[0], 1)); // len--
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_eq("bs_done")); // reached the buffer start
-    asm.push(abi::add_registers("x12", "x11", "x9")); // &line_buf[len]
-    asm.push(abi::load_u8("x12", "x12", 0)); // byte
-    asm.push(abi::and_registers("x12", "x12", "x13")); // byte & 0xC0
-    asm.push(abi::compare_immediate("x12", "128")); // == 0x80 -> continuation byte
+    asm.push(abi::add_registers(
+        abi::SCRATCH[3],
+        abi::SCRATCH[2],
+        abi::SCRATCH[0],
+    )); // &line_buf[len]
+    asm.push(abi::load_u8(abi::SCRATCH[3], abi::SCRATCH[3], 0)); // byte
+    asm.push(abi::and_registers(
+        abi::SCRATCH[3],
+        abi::SCRATCH[3],
+        abi::SCRATCH[4],
+    )); // byte & 0xC0
+    asm.push(abi::compare_immediate(abi::SCRATCH[3], "128")); // == 0x80 -> continuation byte
     asm.push(abi::branch_eq("bs_scan")); // keep scanning back to the lead byte
     asm.push(abi::label("bs_done"));
     asm.local_address("x10", STATE_SYMBOL);
-    asm.push(abi::store_u64("x9", "x10", ST_LINE_LEN));
+    asm.push(abi::store_u64(
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+        ST_LINE_LEN,
+    ));
     // In LINE_ECHO mode, erase the just-removed glyph from the transcript so the
     // display matches the committed line. `_mfb_gtkapp_delete_last_char` removes one
     // whole code point (GtkTextIter char-granular), matching the buffer scan above.
     asm.load_state("x9", ST_INPUT_MODE);
-    asm.push(abi::compare_immediate("x9", MODE_LINE_ECHO));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], MODE_LINE_ECHO));
     asm.push(abi::branch_ne("consumed"));
     asm.load_state(abi::c_arg(0), ST_TEXT_BUFFER);
     asm.call_internal(DELETE_LAST_CHAR_SYMBOL);
@@ -641,7 +701,7 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
 
     // Raw: unichar -> UTF-8 in scratch -> write to the pipe immediately.
     asm.push(abi::label("raw"));
-    asm.push(abi::move_register(abi::c_arg(0), "x19"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.call_external("gdk_keyval_to_unicode");
     asm.push(abi::compare_immediate(abi::c_return(0), "0"));
     asm.push(abi::branch_eq("ignore"));
@@ -660,7 +720,7 @@ pub(super) fn emit_key_pressed_handler() -> Result<CodeFunction, String> {
     asm.push(abi::move_immediate(abi::c_return(0), "Boolean", FALSE)); // not handled
     asm.push(abi::label("kp_return"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::load_u64("x19", abi::stack_pointer(), 40));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 40));
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
     asm.finish(KEY_PRESSED_SYMBOL, "Boolean")
@@ -705,15 +765,15 @@ pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
         abi::stack_pointer(),
         0,
     ));
-    asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
-    asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
-    asm.push(abi::move_register("x19", abi::c_arg(0))); // exit code
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::move_register(abi::LOCAL[0], abi::c_arg(0))); // exit code
 
     // Headless (no transcript): terminate the process with the exit code.
     asm.load_state("x9", ST_TEXT_BUFFER);
-    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::compare_immediate(abi::SCRATCH[0], "0"));
     asm.push(abi::branch_ne("fin_gui"));
-    asm.push(abi::move_register(abi::c_arg(0), "x19"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[0]));
     asm.call_external("_exit");
     asm.push(abi::branch_self());
 
@@ -722,13 +782,13 @@ pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
     asm.push(abi::label("fin_gui"));
     asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "64")); // 16 hdr + prefix + 3 digits + nl
     asm.call_external("malloc");
-    asm.push(abi::move_register("x20", abi::c_return(0))); // chunk
-                                                           // On allocation failure the memcpy below would fault on the worker thread
-                                                           // (bug-240). Skip the status line and park: the window stays up and the main
-                                                           // loop still owns shutdown, so only the cosmetic exit-code line is lost.
-    asm.push(abi::compare_immediate("x20", "0"));
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_return(0))); // chunk
+                                                                   // On allocation failure the memcpy below would fault on the worker thread
+                                                                   // (bug-240). Skip the status line and park: the window stays up and the main
+                                                                   // loop still owns shutdown, so only the cosmetic exit-code line is lost.
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
     asm.push(abi::branch_eq("park"));
-    asm.push(abi::add_immediate(abi::c_arg(0), "x20", 16)); // memcpy(chunk+16, prefix, prefix_len)
+    asm.push(abi::add_immediate(abi::c_arg(0), abi::LOCAL[1], 16)); // memcpy(chunk+16, prefix, prefix_len)
     asm.local_address(abi::c_arg(1), STR_EXIT_PREFIX.0);
     asm.push(abi::move_immediate(
         abi::c_arg(2),
@@ -737,17 +797,29 @@ pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
     ));
     asm.call_external("memcpy");
     // Format the exit code as decimal ASCII at chunk+16+prefix_len; '\n'; store len.
-    asm.push(abi::add_immediate("x13", "x20", 16 + prefix_len)); // digit write ptr
+    asm.push(abi::add_immediate(
+        abi::SCRATCH[4],
+        abi::LOCAL[1],
+        16 + prefix_len,
+    )); // digit write ptr
     emit_format_exit_code(&mut asm, "x19", "x13");
-    asm.push(abi::move_immediate("x14", "Integer", "10"));
-    asm.push(abi::store_u8("x14", "x13", 0)); // trailing '\n'
-    asm.push(abi::add_immediate("x13", "x13", 1));
+    asm.push(abi::move_immediate(abi::SCRATCH[5], "Integer", "10"));
+    asm.push(abi::store_u8(abi::SCRATCH[5], abi::SCRATCH[4], 0)); // trailing '\n'
+    asm.push(abi::add_immediate(abi::SCRATCH[4], abi::SCRATCH[4], 1));
     // len = x13 - (chunk + 16)
-    asm.push(abi::subtract_registers("x9", "x13", "x20"));
-    asm.push(abi::subtract_immediate("x9", "x9", 16));
-    asm.push(abi::store_u64("x9", "x20", 0));
+    asm.push(abi::subtract_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[4],
+        abi::LOCAL[1],
+    ));
+    asm.push(abi::subtract_immediate(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        16,
+    ));
+    asm.push(abi::store_u64(abi::SCRATCH[0], abi::LOCAL[1], 0));
     asm.local_address(abi::c_arg(0), APPEND_IDLE_SYMBOL);
-    asm.push(abi::move_register(abi::c_arg(1), "x20"));
+    asm.push(abi::move_register(abi::c_arg(1), abi::LOCAL[1]));
     asm.call_external("g_idle_add");
 
     // Park the worker; the main loop owns shutdown when the window closes.
@@ -763,38 +835,60 @@ pub(super) fn emit_finish_helper() -> Result<CodeFunction, String> {
 /// macOS `emit_format_exit_code`; uses only caller-saved scratch, performs no calls.
 fn emit_format_exit_code(asm: &mut Asm, code: &str, dst: &str) {
     // h = code/100; rem = code%100; t = rem/10; o = rem%10.
-    asm.push(abi::move_register("x9", code)); // n
-                                              // Mask to the low 8 bits, matching macOS (bug-70): `_exit(status)` delivers
-                                              // only `status & 0xFF` to the parent, so the GUI transcript must show that
-                                              // truncated value. Without the mask a code >= 1000 makes hundreds >= 10 and
-                                              // emits `'0'+10 = ':'` garbage, and a negative (u64-wrapped) code garbles all
-                                              // three digits — diverging from macOS and console (bug-110).
-    asm.push(abi::move_immediate("x11", "Integer", "255"));
-    asm.push(abi::and_registers("x9", "x9", "x11"));
-    asm.push(abi::move_immediate("x11", "Integer", "100"));
-    asm.push(abi::unsigned_divide_registers("x10", "x9", "x11")); // hundreds
-    asm.push(abi::multiply_subtract_registers("x9", "x10", "x11", "x9")); // n %= 100
-    asm.push(abi::move_immediate("x11", "Integer", "10"));
-    asm.push(abi::unsigned_divide_registers("x12", "x9", "x11")); // tens
-    asm.push(abi::multiply_subtract_registers("x9", "x12", "x11", "x9")); // ones
-                                                                          // hundreds != 0 -> emit hundreds then always tens+ones.
-    asm.push(abi::compare_immediate("x10", "0"));
+    asm.push(abi::move_register(abi::SCRATCH[0], code)); // n
+                                                         // Mask to the low 8 bits, matching macOS (bug-70): `_exit(status)` delivers
+                                                         // only `status & 0xFF` to the parent, so the GUI transcript must show that
+                                                         // truncated value. Without the mask a code >= 1000 makes hundreds >= 10 and
+                                                         // emits `'0'+10 = ':'` garbage, and a negative (u64-wrapped) code garbles all
+                                                         // three digits — diverging from macOS and console (bug-110).
+    asm.push(abi::move_immediate(abi::SCRATCH[2], "Integer", "255"));
+    asm.push(abi::and_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[0],
+        abi::SCRATCH[2],
+    ));
+    asm.push(abi::move_immediate(abi::SCRATCH[2], "Integer", "100"));
+    asm.push(abi::unsigned_divide_registers(
+        abi::SCRATCH[1],
+        abi::SCRATCH[0],
+        abi::SCRATCH[2],
+    )); // hundreds
+    asm.push(abi::multiply_subtract_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[1],
+        abi::SCRATCH[2],
+        abi::SCRATCH[0],
+    )); // n %= 100
+    asm.push(abi::move_immediate(abi::SCRATCH[2], "Integer", "10"));
+    asm.push(abi::unsigned_divide_registers(
+        abi::SCRATCH[3],
+        abi::SCRATCH[0],
+        abi::SCRATCH[2],
+    )); // tens
+    asm.push(abi::multiply_subtract_registers(
+        abi::SCRATCH[0],
+        abi::SCRATCH[3],
+        abi::SCRATCH[2],
+        abi::SCRATCH[0],
+    )); // ones
+        // hundreds != 0 -> emit hundreds then always tens+ones.
+    asm.push(abi::compare_immediate(abi::SCRATCH[1], "0"));
     asm.push(abi::branch_eq("fmt_skip_h"));
-    asm.push(abi::add_immediate("x14", "x10", 48));
-    asm.push(abi::store_u8("x14", dst, 0));
+    asm.push(abi::add_immediate(abi::SCRATCH[5], abi::SCRATCH[1], 48));
+    asm.push(abi::store_u8(abi::SCRATCH[5], dst, 0));
     asm.push(abi::add_immediate(dst, dst, 1));
     asm.push(abi::branch("fmt_tens"));
     asm.push(abi::label("fmt_skip_h"));
     // tens == 0 -> ones only.
-    asm.push(abi::compare_immediate("x12", "0"));
+    asm.push(abi::compare_immediate(abi::SCRATCH[3], "0"));
     asm.push(abi::branch_eq("fmt_ones"));
     asm.push(abi::label("fmt_tens"));
-    asm.push(abi::add_immediate("x14", "x12", 48));
-    asm.push(abi::store_u8("x14", dst, 0));
+    asm.push(abi::add_immediate(abi::SCRATCH[5], abi::SCRATCH[3], 48));
+    asm.push(abi::store_u8(abi::SCRATCH[5], dst, 0));
     asm.push(abi::add_immediate(dst, dst, 1));
     asm.push(abi::label("fmt_ones"));
-    asm.push(abi::add_immediate("x14", "x9", 48));
-    asm.push(abi::store_u8("x14", dst, 0));
+    asm.push(abi::add_immediate(abi::SCRATCH[5], abi::SCRATCH[0], 48));
+    asm.push(abi::store_u8(abi::SCRATCH[5], dst, 0));
     asm.push(abi::add_immediate(dst, dst, 1));
 }
 
@@ -956,21 +1050,21 @@ pub(super) fn emit_append_idle_helper() -> Result<CodeFunction, String> {
         abi::stack_pointer(),
         0,
     ));
-    asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
-    asm.push(abi::move_register("x20", abi::c_arg(0))); // chunk (survives load_state's x9 use)
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
+    asm.push(abi::move_register(abi::LOCAL[1], abi::c_arg(0))); // chunk (survives load_state's x9 use)
 
     // _mfb_gtkapp_append(state.text_buffer, chunk+16, chunk[0])
     asm.load_state(abi::c_arg(0), ST_TEXT_BUFFER);
-    asm.push(abi::add_immediate(abi::c_arg(1), "x20", 16));
-    asm.push(abi::load_u64(abi::c_arg(2), "x20", 0));
+    asm.push(abi::add_immediate(abi::c_arg(1), abi::LOCAL[1], 16));
+    asm.push(abi::load_u64(abi::c_arg(2), abi::LOCAL[1], 0));
     asm.call_internal(APPEND_SYMBOL);
     // free(chunk)
-    asm.push(abi::move_register(abi::c_arg(0), "x20"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::LOCAL[1]));
     asm.call_external("free");
 
     asm.push(abi::move_immediate(abi::c_return(0), "Boolean", FALSE)); // G_SOURCE_REMOVE
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::load_u64("x20", abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
     asm.push(abi::add_stack(16));
     asm.push(abi::return_());
     asm.finish(APPEND_IDLE_SYMBOL, "Boolean")

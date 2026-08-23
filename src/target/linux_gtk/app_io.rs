@@ -2,51 +2,64 @@
 //! (terminal-size/set-color/attr/cursor/clear/move/write/flush/input) (plan-11 split).
 
 use super::*;
-use crate::codegen::engine::builder::AppHookBody;
 use crate::codegen::engine::util::Vregs;
 
 /// App-mode `term::*` dispatcher. Returns the helper body for the calls the GTK
 /// surface implements; the rest fall back to the console backend (no-op while the
 /// arena term-state stays inactive).
-pub(crate) fn emit_app_term_helper(call: &str, symbol: &str, tso: usize) -> Option<AppHookBody> {
-    let helper = match call {
-        "term.on" => emit_app_term_on(symbol, tso),
-        "term.off" => emit_app_term_off(symbol, tso),
-        "term.isOn" => emit_app_term_is_on(symbol),
-        "term.didResize" => emit_app_term_did_resize(symbol),
-        "term.clear" => emit_app_term_clear(symbol),
-        "term.sync" => emit_app_term_sync(symbol),
-        "term.moveTo" => emit_app_term_move_to(symbol),
+pub(crate) fn emit_app_term_helper(
+    call: &str,
+    symbol: &str,
+    tso: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Option<Result<(), String>> {
+    match call {
+        "term.on" => emit_app_term_on(symbol, tso, instructions, relocations),
+        "term.off" => emit_app_term_off(symbol, tso, instructions, relocations),
+        "term.isOn" => emit_app_term_is_on(symbol, instructions, relocations),
+        "term.didResize" => emit_app_term_did_resize(symbol, instructions, relocations),
+        "term.clear" => emit_app_term_clear(symbol, instructions, relocations),
+        "term.sync" => emit_app_term_sync(symbol, instructions, relocations),
+        "term.moveTo" => emit_app_term_move_to(symbol, instructions, relocations),
         "term.setForeground" => emit_app_term_set_color(
             symbol,
             ST_TERM_CUR_FG,
             tso,
             crate::codegen::error::constants::TERM_STATE_FG_OFFSET,
+            instructions,
+            relocations,
         ),
         "term.setBackground" => emit_app_term_set_color(
             symbol,
             ST_TERM_CUR_BG,
             tso,
             crate::codegen::error::constants::TERM_STATE_BG_OFFSET,
+            instructions,
+            relocations,
         ),
         "term.setBold" => emit_app_term_set_attr(
             symbol,
             ST_TERM_CUR_BOLD,
             tso,
             crate::codegen::error::constants::TERM_STATE_BOLD_OFFSET,
+            instructions,
+            relocations,
         ),
         "term.setUnderline" => emit_app_term_set_attr(
             symbol,
             ST_TERM_CUR_UNDERLINE,
             tso,
             crate::codegen::error::constants::TERM_STATE_UNDERLINE_OFFSET,
+            instructions,
+            relocations,
         ),
-        "term.terminalSize" => emit_app_term_terminal_size(symbol),
-        "term.showCursor" => emit_app_term_set_cursor(symbol, "1"),
-        "term.hideCursor" => emit_app_term_set_cursor(symbol, "0"),
+        "term.terminalSize" => emit_app_term_terminal_size(symbol, instructions, relocations),
+        "term.showCursor" => emit_app_term_set_cursor(symbol, "1", instructions, relocations),
+        "term.hideCursor" => emit_app_term_set_cursor(symbol, "0", instructions, relocations),
         _ => return None,
-    };
-    Some(helper)
+    }
+    Some(Ok(()))
 }
 
 /// `term::sync()` app arm (plan-35-E): the single coalesced present. Schedules ONE
@@ -54,25 +67,24 @@ pub(crate) fn emit_app_term_helper(call: &str, symbol: &str, tso: usize) -> Opti
 /// live grid then `queue_draw`s (see [`term_draw::emit_term_redraw_idle_helper`]), so
 /// the draw never observes a torn frame. A clean no-op while TUI mode is off (the
 /// §4.2.1 gate), matching the console `term::sync` no-op.
-fn emit_app_term_sync(symbol: &str) -> AppHookBody {
+fn emit_app_term_sync(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no own frame — the `abi_function` vreg finalizer
+    // builds it and saves lr across `g_idle_add`. No value is held across the call,
+    // so no vregs are needed; the gate/g_idle_add staging uses role tokens only.
     let mut asm = Asm::new(symbol);
-    asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(
-        abi::link_register(),
-        abi::stack_pointer(),
-        0,
-    ));
     emit_gtk_term_active_gate(&mut asm, "sync_inactive"); // no-op present while off
     asm.local_address(abi::c_arg(0), TERM_REDRAW_IDLE_SYMBOL);
     asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.call_external("g_idle_add");
     asm.push(abi::label("sync_inactive"));
     asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
-    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::add_stack(16));
     asm.push(abi::return_());
-    (term_frame(), asm.ins, asm.rel)
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 /// The plan-01-term §4.2.1 no-op gate: branch to `inactive` when TUI mode is off
@@ -93,15 +105,16 @@ fn emit_gtk_term_active_gate(asm: &mut Asm, inactive: &str) {
 /// `term::terminalSize()`: OK(record) where the arena-allocated 16-byte record is
 /// `{ columns@0, rows@8 }` = the fixed grid size. On allocation failure, propagate
 /// the allocator's error result. Result ABI: x0 = tag, x1 = record/err code.
-fn emit_app_term_terminal_size(symbol: &str) -> AppHookBody {
+fn emit_app_term_terminal_size(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): the `abi_function` finalizer builds the frame and
+    // saves lr across arena_alloc. No value is held across that call (columns/rows
+    // are re-read from the state global afterwards, the record pointer is the call
+    // result), so no vregs are needed — role tokens only.
     let mut asm = Asm::new(symbol);
-    asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(
-        abi::link_register(),
-        abi::stack_pointer(),
-        0,
-    ));
     // While TUI mode is inactive, terminalSize is unsupported (matches macOS and
     // plan-01-term §4.2.1) rather than reporting the grid size (bug-111).
     emit_gtk_term_active_gate(&mut asm, "ts_unsupported");
@@ -111,10 +124,10 @@ fn emit_app_term_terminal_size(symbol: &str) -> AppHookBody {
     asm.call_internal(crate::codegen::error::constants::ARENA_ALLOC_SYMBOL);
     asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
     asm.push(abi::branch_ne("ts_err")); // non-OK tag -> propagate x0/x1/x2
-    asm.load_state("x9", ST_TERM_COLS);
-    asm.push(abi::store_u64("x9", abi::c_arg(1), 0)); // columns
-    asm.load_state("x9", ST_TERM_ROWS);
-    asm.push(abi::store_u64("x9", abi::c_arg(1), 8)); // rows
+    asm.load_state(abi::SCRATCH[0], ST_TERM_COLS);
+    asm.push(abi::store_u64(abi::SCRATCH[0], abi::c_arg(1), 0)); // columns
+    asm.load_state(abi::SCRATCH[0], ST_TERM_ROWS);
+    asm.push(abi::store_u64(abi::SCRATCH[0], abi::c_arg(1), 8)); // rows
     asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // OK; x1 = record
     asm.push(abi::branch("ts_err"));
     // plan-88-C: code + message symbol from `ERRORCODE_CONSTANTS` (this app helper
@@ -139,10 +152,9 @@ fn emit_app_term_terminal_size(symbol: &str) -> AppHookBody {
         unsupported_symbol,
     );
     asm.push(abi::label("ts_err"));
-    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::add_stack(16));
     asm.push(abi::return_());
-    (term_frame(), asm.ins, asm.rel)
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 /// `term::setForeground`/`setBackground(r /*x0*/, g /*x1*/, b /*x2*/)`: pack
@@ -154,26 +166,51 @@ fn emit_app_term_set_color(
     field: usize,
     tso: usize,
     arena_field: usize,
-) -> AppHookBody {
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no calls, so no vregs and no own frame; the pinned
+    // arena base is the arch-neutral `abi::ARENA` (NOT raw `x19`, which is wrong on
+    // x86-64) and scratch is the neutral SCRATCH pool.
     let mut asm = Asm::new(symbol);
-    asm.push(abi::label("entry"));
     emit_gtk_term_active_gate(&mut asm, "sc_inactive"); // §4.2.1 no-op gate (bug-111)
-    asm.push(abi::shift_left_immediate("x10", abi::c_arg(1), 8)); // g<<8
-    asm.push(abi::shift_left_immediate("x11", abi::c_arg(2), 16)); // b<<16
-    asm.push(abi::or_registers("x10", abi::c_arg(0), "x10")); // r | g<<8
-    asm.push(abi::or_registers("x10", "x10", "x11")); // | b<<16 -> packed (pure)
-    asm.push(abi::store_u64("x10", ARENA_REG, tso + arena_field)); // arena (no flags)
+    asm.push(abi::shift_left_immediate(abi::SCRATCH[1], abi::c_arg(1), 8)); // g<<8
+    asm.push(abi::shift_left_immediate(
+        abi::SCRATCH[2],
+        abi::c_arg(2),
+        16,
+    )); // b<<16
+    asm.push(abi::or_registers(
+        abi::SCRATCH[1],
+        abi::c_arg(0),
+        abi::SCRATCH[1],
+    )); // r | g<<8
+    asm.push(abi::or_registers(
+        abi::SCRATCH[1],
+        abi::SCRATCH[1],
+        abi::SCRATCH[2],
+    )); // | b<<16 -> packed (pure)
+    asm.push(abi::store_u64(
+        abi::SCRATCH[1],
+        abi::ARENA,
+        tso + arena_field,
+    )); // arena (no flags)
     asm.push(abi::move_immediate(
-        "x11",
+        abi::SCRATCH[2],
         "Integer",
         &COLOR_SET.to_string(),
     ));
-    asm.push(abi::or_registers("x11", "x10", "x11")); // packed | COLOR_SET
-    asm.store_state("x11", field); // app current color (x9 = store_state scratch)
+    asm.push(abi::or_registers(
+        abi::SCRATCH[2],
+        abi::SCRATCH[1],
+        abi::SCRATCH[2],
+    )); // packed | COLOR_SET
+    asm.store_state(abi::SCRATCH[2], field); // app current color (SCRATCH[0] = store_state scratch)
     asm.push(abi::label("sc_inactive"));
     asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::return_());
-    (term_frame(), asm.ins, asm.rel)
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 /// `term::setBold`/`setUnderline(enabled /*x0*/)`: store the flag to the app field
@@ -183,55 +220,60 @@ fn emit_app_term_set_attr(
     field: usize,
     tso: usize,
     arena_field: usize,
-) -> AppHookBody {
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): no calls, no vregs, no own frame; arena base via the
+    // arch-neutral `abi::ARENA`.
     let mut asm = Asm::new(symbol);
-    asm.push(abi::label("entry"));
     emit_gtk_term_active_gate(&mut asm, "sa_inactive"); // §4.2.1 no-op gate (bug-111)
-    asm.push(abi::store_u64(abi::c_arg(0), ARENA_REG, tso + arena_field)); // arena
-    asm.store_state(abi::c_arg(0), field); // app field (store_state uses x9, x0 safe)
+    asm.push(abi::store_u64(abi::c_arg(0), abi::ARENA, tso + arena_field)); // arena
+    asm.store_state(abi::c_arg(0), field); // app field (store_state uses SCRATCH[0], c_arg(0) safe)
     asm.push(abi::label("sa_inactive"));
     asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::return_());
-    (term_frame(), asm.ins, asm.rel)
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 /// `term::showCursor`/`hideCursor`: store the cursor-visible flag and redraw.
-fn emit_app_term_set_cursor(symbol: &str, visible: &str) -> AppHookBody {
+fn emit_app_term_set_cursor(
+    symbol: &str,
+    visible: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): the finalizer builds the frame and saves lr across
+    // g_idle_add. The visible flag is stored before the call, so no vreg is needed;
+    // scratch is the neutral SCRATCH pool.
     let mut asm = Asm::new(symbol);
-    asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(
-        abi::link_register(),
-        abi::stack_pointer(),
-        0,
-    ));
     emit_gtk_term_active_gate(&mut asm, "cur_inactive"); // §4.2.1 no-op gate (bug-111)
-    asm.push(abi::move_immediate("x10", "Integer", visible));
-    asm.store_state("x10", ST_TERM_CURSOR_VISIBLE);
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", visible));
+    asm.store_state(abi::SCRATCH[1], ST_TERM_CURSOR_VISIBLE);
     asm.local_address(abi::c_arg(0), TERM_REDRAW_IDLE_SYMBOL);
     asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.call_external("g_idle_add");
     asm.push(abi::label("cur_inactive"));
     asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
-    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::add_stack(16));
     asm.push(abi::return_());
-    (term_frame(), asm.ins, asm.rel)
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 /// `term::on`: reset the attributes to defaults (app + arena term-state), mark
 /// active, and schedule the view swap on the main thread (plan-01-term.md §6.3).
-fn emit_app_term_on(symbol: &str, tso: usize) -> AppHookBody {
+fn emit_app_term_on(
+    symbol: &str,
+    tso: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): the finalizer builds the frame and saves lr across
+    // g_idle_add. Every state store happens before the call, so no vreg is needed;
+    // arena base via the arch-neutral `abi::ARENA`, scratch via the SCRATCH pool.
     let mut asm = Asm::new(symbol);
-    asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(
-        abi::link_register(),
-        abi::stack_pointer(),
-        0,
-    ));
     // App current attributes -> defaults (fg/bg/bold/underline cleared, cursor on).
-    asm.push(abi::move_immediate("x10", "Integer", "0"));
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
     for field in [
         ST_TERM_CUR_FG,
         ST_TERM_CUR_BG,
@@ -240,71 +282,78 @@ fn emit_app_term_on(symbol: &str, tso: usize) -> AppHookBody {
         // planning/term.md #11: entering TUI mode starts with no pending resize.
         ST_TERM_DID_RESIZE,
     ] {
-        asm.store_state("x10", field);
+        asm.store_state(abi::SCRATCH[1], field);
     }
-    asm.push(abi::move_immediate("x10", "Integer", "1"));
-    asm.store_state("x10", ST_TERM_CURSOR_VISIBLE);
-    asm.store_state("x10", ST_TERM_ACTIVE);
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "1"));
+    asm.store_state(abi::SCRATCH[1], ST_TERM_CURSOR_VISIBLE);
+    asm.store_state(abi::SCRATCH[1], ST_TERM_ACTIVE);
     // Arena term-state defaults so the console getters report them (plan §4.2.1).
-    asm.push(abi::move_immediate("x10", "Integer", "1"));
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "1"));
     asm.push(abi::store_u64(
-        "x10",
-        ARENA_REG,
+        abi::SCRATCH[1],
+        abi::ARENA,
         tso + crate::codegen::error::constants::TERM_STATE_ACTIVE_OFFSET,
     ));
-    asm.push(abi::move_immediate("x10", "Integer", TERM_DEFAULT_FG));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        TERM_DEFAULT_FG,
+    ));
     asm.push(abi::store_u64(
-        "x10",
-        ARENA_REG,
+        abi::SCRATCH[1],
+        abi::ARENA,
         tso + crate::codegen::error::constants::TERM_STATE_FG_OFFSET,
     ));
-    asm.push(abi::move_immediate("x10", "Integer", "0"));
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
     for field in [
         crate::codegen::error::constants::TERM_STATE_BG_OFFSET,
         crate::codegen::error::constants::TERM_STATE_BOLD_OFFSET,
         crate::codegen::error::constants::TERM_STATE_UNDERLINE_OFFSET,
     ] {
-        asm.push(abi::store_u64("x10", ARENA_REG, tso + field));
+        asm.push(abi::store_u64(abi::SCRATCH[1], abi::ARENA, tso + field));
     }
     // bug-150: entering TUI mode flips the transcript into immediate single-key
     // delivery (MODE_RAW) once, so the key-press handler routes each keystroke
     // straight to the input pipe from the moment `term::on` runs instead of
     // buffering until Return. `io::input`/`io::readLine` still switch to
     // MODE_LINE_ECHO for their own read (emit_app_io_input).
-    asm.push(abi::move_immediate("x10", "Integer", MODE_RAW));
-    asm.store_state("x10", ST_INPUT_MODE);
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", MODE_RAW));
+    asm.store_state(abi::SCRATCH[1], ST_INPUT_MODE);
     asm.local_address(abi::c_arg(0), TERM_SHOW_IDLE_SYMBOL);
     asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.call_external("g_idle_add");
     asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
-    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::add_stack(16));
     asm.push(abi::return_());
-    (term_frame(), asm.ins, asm.rel)
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 /// `term::off`: clear the active flag (app + arena) and restore the transcript.
-fn emit_app_term_off(symbol: &str, tso: usize) -> AppHookBody {
+fn emit_app_term_off(
+    symbol: &str,
+    tso: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): the finalizer builds the frame and saves lr across
+    // the two g_idle_add calls; all state stores precede them, so no vreg is needed.
     let mut asm = Asm::new(symbol);
-    asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(16));
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+    asm.store_state(abi::SCRATCH[1], ST_TERM_ACTIVE);
     asm.push(abi::store_u64(
-        abi::link_register(),
-        abi::stack_pointer(),
-        0,
-    ));
-    asm.push(abi::move_immediate("x10", "Integer", "0"));
-    asm.store_state("x10", ST_TERM_ACTIVE);
-    asm.push(abi::store_u64(
-        "x10",
-        ARENA_REG,
+        abi::SCRATCH[1],
+        abi::ARENA,
         tso + crate::codegen::error::constants::TERM_STATE_ACTIVE_OFFSET,
     ));
     // bug-150: leaving TUI mode returns the transcript to line input so
     // subsequent reads commit on Return again (symmetric with the console
     // `term::off` cooked-mode restore).
-    asm.push(abi::move_immediate("x10", "Integer", MODE_LINE_ECHO));
-    asm.store_state("x10", ST_INPUT_MODE);
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        MODE_LINE_ECHO,
+    ));
+    asm.store_state(abi::SCRATCH[1], ST_INPUT_MODE);
     // plan-35-E: schedule a final present (snapshot + queue_draw) BEFORE the hide
     // idle, so the last drawn frame is marshaled before the surface is swapped back
     // to the transcript. Idle sources drain FIFO, so the present runs first.
@@ -315,20 +364,24 @@ fn emit_app_term_off(symbol: &str, tso: usize) -> AppHookBody {
     asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.call_external("g_idle_add");
     asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
-    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::add_stack(16));
     asm.push(abi::return_());
-    (term_frame(), asm.ins, asm.rel)
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 /// `term::isOn`: OK(Boolean) = the active flag. Result ABI x0=tag, x1=value.
-fn emit_app_term_is_on(symbol: &str) -> AppHookBody {
+fn emit_app_term_is_on(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): leaf (no calls), so no vregs and no own frame.
     let mut asm = Asm::new(symbol);
-    asm.push(abi::label("entry"));
     asm.load_state(abi::c_arg(1), ST_TERM_ACTIVE); // value
     asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // tag = OK
     asm.push(abi::return_());
-    (term_frame(), asm.ins, asm.rel)
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 /// `term::didResize` (planning/term.md #11): OK(Boolean) = the cached resize flag,
@@ -336,28 +389,33 @@ fn emit_app_term_is_on(symbol: &str) -> AppHookBody {
 /// flag lives in the address-based GTK state global (set by `_mfb_gtkapp_term_resize`
 /// on the main loop), so this worker-side read needs no arena register. Result ABI
 /// x0=tag, x1=value; leaf helper (state access is adrp/add + ldr/str, no call).
-fn emit_app_term_did_resize(symbol: &str) -> AppHookBody {
+fn emit_app_term_did_resize(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): leaf (no calls), so no vregs and no own frame.
     let mut asm = Asm::new(symbol);
-    asm.push(abi::label("entry"));
-    asm.load_state(abi::c_arg(1), ST_TERM_DID_RESIZE); // value (uses x9 for the address)
+    asm.load_state(abi::c_arg(1), ST_TERM_DID_RESIZE); // value (uses SCRATCH[0] for the address)
     asm.push(abi::move_immediate(abi::c_arg(2), "Integer", "0"));
     asm.store_state(abi::c_arg(2), ST_TERM_DID_RESIZE); // clear (uses SCRATCH[0] for the address)
     asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // tag = OK
     asm.push(abi::return_());
-    (term_frame(), asm.ins, asm.rel)
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 /// `term::clear`: blank chars to spaces, reset fg/bg cells to default (0), home the
 /// cursor, schedule a redraw.
-fn emit_app_term_clear(symbol: &str) -> AppHookBody {
+fn emit_app_term_clear(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): the finalizer builds the frame and saves lr across
+    // the three memset calls and g_idle_add; nothing is held across any of them, so
+    // no vreg is needed.
     let mut asm = Asm::new(symbol);
-    asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(
-        abi::link_register(),
-        abi::stack_pointer(),
-        0,
-    ));
     emit_gtk_term_active_gate(&mut asm, "clr_inactive"); // §4.2.1 no-op gate (bug-111)
                                                          // Blank the whole backing store (chars/fg/bg = 0). chars clears to 0 rather
                                                          // than ' ': cells are u32 since bug-203, and `memset` writes whole bytes, so
@@ -386,36 +444,41 @@ fn emit_app_term_clear(symbol: &str) -> AppHookBody {
         &(TERM_MAX_COLS * TERM_MAX_ROWS * 4).to_string(),
     ));
     asm.call_external("memset");
-    asm.push(abi::move_immediate("x10", "Integer", "0"));
-    asm.store_state("x10", ST_TERM_ROW);
-    asm.push(abi::move_immediate("x10", "Integer", "0"));
-    asm.store_state("x10", ST_TERM_COL);
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+    asm.store_state(abi::SCRATCH[1], ST_TERM_ROW);
+    asm.push(abi::move_immediate(abi::SCRATCH[1], "Integer", "0"));
+    asm.store_state(abi::SCRATCH[1], ST_TERM_COL);
     asm.local_address(abi::c_arg(0), TERM_REDRAW_IDLE_SYMBOL);
     asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.call_external("g_idle_add");
     asm.push(abi::label("clr_inactive"));
     asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
-    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::add_stack(16));
     asm.push(abi::return_());
-    (term_frame(), asm.ins, asm.rel)
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 /// `term::moveTo(row /*x0*/, col /*x1*/)`: clamp to the grid and set the cursor.
-fn emit_app_term_move_to(symbol: &str) -> AppHookBody {
+fn emit_app_term_move_to(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Append shape (plan-101): leaf clamp (state access is adrp/ldr/str, no call),
+    // so no vregs and no own frame; the incoming row/col in c_arg(0)/c_arg(1) survive
+    // and scratch is the neutral SCRATCH pool.
     let mut asm = Asm::new(symbol);
-    asm.push(abi::label("entry"));
     emit_gtk_term_active_gate(&mut asm, "mt_inactive"); // §4.2.1 no-op gate (bug-111)
                                                         // row = clamp(x0, 0, rows-1)
     asm.push(abi::compare_immediate(abi::c_arg(0), "0"));
     asm.push(abi::branch_ge("mt_row_lo"));
     asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0"));
     asm.push(abi::label("mt_row_lo"));
-    asm.load_state("x9", ST_TERM_ROWS);
-    asm.push(abi::subtract_immediate("x9", "x9", 1)); // rows-1
-    asm.push(abi::compare_registers(abi::c_arg(0), "x9"));
+    asm.load_state(abi::SCRATCH[0], ST_TERM_ROWS);
+    asm.push(abi::subtract_immediate(abi::SCRATCH[0], abi::SCRATCH[0], 1)); // rows-1
+    asm.push(abi::compare_registers(abi::c_arg(0), abi::SCRATCH[0]));
     asm.push(abi::branch_le("mt_row_hi"));
-    asm.push(abi::move_register(abi::c_arg(0), "x9"));
+    asm.push(abi::move_register(abi::c_arg(0), abi::SCRATCH[0]));
     asm.push(abi::label("mt_row_hi"));
     asm.store_state(abi::c_arg(0), ST_TERM_ROW);
     // col = clamp(x1, 0, cols-1)
@@ -423,24 +486,18 @@ fn emit_app_term_move_to(symbol: &str) -> AppHookBody {
     asm.push(abi::branch_ge("mt_col_lo"));
     asm.push(abi::move_immediate(abi::c_arg(1), "Integer", "0"));
     asm.push(abi::label("mt_col_lo"));
-    asm.load_state("x9", ST_TERM_COLS);
-    asm.push(abi::subtract_immediate("x9", "x9", 1)); // cols-1
-    asm.push(abi::compare_registers(abi::c_arg(1), "x9"));
+    asm.load_state(abi::SCRATCH[0], ST_TERM_COLS);
+    asm.push(abi::subtract_immediate(abi::SCRATCH[0], abi::SCRATCH[0], 1)); // cols-1
+    asm.push(abi::compare_registers(abi::c_arg(1), abi::SCRATCH[0]));
     asm.push(abi::branch_le("mt_col_hi"));
-    asm.push(abi::move_register(abi::c_arg(1), "x9"));
+    asm.push(abi::move_register(abi::c_arg(1), abi::SCRATCH[0]));
     asm.push(abi::label("mt_col_hi"));
     asm.store_state(abi::c_arg(1), ST_TERM_COL);
     asm.push(abi::label("mt_inactive"));
     asm.push(abi::move_immediate(abi::c_arg(0), "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::return_());
-    (term_frame(), asm.ins, asm.rel)
-}
-
-fn term_frame() -> CodeFrame {
-    CodeFrame {
-        stack_size: 0,
-        callee_saved: Vec::new(),
-    }
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 // --- io::* app-mode helper bodies ------------------------------------------

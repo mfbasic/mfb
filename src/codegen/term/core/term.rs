@@ -12,7 +12,6 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
-use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::io::terminal::*;
 use crate::codegen::memory::data::*;
@@ -162,11 +161,14 @@ pub(crate) fn lower_term_helper(
     term_state_offset: usize,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<(Vec<CodeInstruction>, Vec<CodeRelocation>, usize), String> {
     // Vreg-allocated (plan-00-G Phase 2): the decimal/record-build scratch buffers
-    // are an explicit sp-relative local region; x9-x15 scratch becomes vregs.
+    // are an explicit sp-relative local region; x9-x15 scratch becomes vregs. The
+    // `abi_function` wrapper (`term::gen_os_seam::lower_term_os_seam`) seeds the
+    // entry label and finalizes; this body returns the pre-finalize
+    // `(instructions, relocations, stack_size)` it consumes.
     let done = format!("{symbol}_done");
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
 
     match call {
@@ -316,8 +318,7 @@ pub(crate) fn lower_term_helper(
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
 
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], LOCALS_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, LOCALS_SIZE))
 }
 
 fn emit_on(ctx: &mut EmitCtx, term_state_offset: usize, done: &str) -> Result<(), String> {

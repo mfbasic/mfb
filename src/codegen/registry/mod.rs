@@ -39,21 +39,19 @@ pub(crate) type NativeLower =
         &[crate::target::shared::nir::NirValue],
     ) -> Result<crate::codegen::engine::builder::ValueResult, String>;
 
-/// The per-compilation context the remaining OS-seam ([`OsLower`]) emitters
-/// (`term`/`app`, the last not-yet-migrated packages) may bake into their
-/// runtime-helper bodies — bundled into one struct. DEPRECATED alongside
-/// [`OsLower`]; deleted once `term`/`app` move to [`Body::AbiFunction`].
+/// The per-compilation context the remaining OS-seam ([`OsLower`]) emitter
+/// (`crypto`, the last package still on [`Body::Native`]) may bake into its
+/// runtime-helper body — bundled into one struct. DEPRECATED alongside
+/// [`OsLower`]; deleted once `crypto` moves to [`Body::AbiFunction`].
 ///
-/// * `build_mode` — the build mode (console vs `--app`).
 /// * `term_state_offset` — the arena offset of the TUI term-state slot, or `None`
-///   when the program uses no `term::` (plan-35-B TUI shadow-grid routing).
+///   when the program uses no `term::` (threaded to the `abi_function` path).
 /// * `presentation_mode_offset` — the arena offset of the app presentation-mode
 ///   slot, or `None` when the program is not an `--app` build.
 ///
 /// The two arena offsets are `Option<usize>`, carrying the `ArenaLayout` values
 /// byte-for-byte.
 pub(crate) struct OsLowerCtx {
-    pub(crate) build_mode: crate::target::NativeBuildMode,
     pub(crate) term_state_offset: Option<usize>,
     pub(crate) presentation_mode_offset: Option<usize>,
 }
@@ -364,29 +362,6 @@ impl Body {
         os_aliases: &'static [&'static str],
     ) -> Self {
         Body::AbiFunction { lower, os_aliases }
-    }
-
-    /// **DEPRECATED.** An OS-seam `Native` lowering (`posix`/`win` only) that also
-    /// serves the auxiliary runtime-call code forms named in `os_aliases`. New OS-seam
-    /// members must use [`Body::abi_function`]/[`Body::abi_function_aliased`]. Kept for
-    /// the not-yet-migrated `term`/`tls`/`process` packages.
-    #[deprecated(note = "use Body::abi_function or Body::abi_function_aliased")]
-    #[allow(deprecated)]
-    pub(crate) fn native_os_seam(
-        posix: Option<OsLower>,
-        win: Option<OsLower>,
-        os_aliases: &'static [&'static str],
-    ) -> Self {
-        debug_assert!(
-            posix.is_some() || win.is_some(),
-            "Body::native_os_seam requires at least one of posix/win to be Some",
-        );
-        Body::Native {
-            posix,
-            win,
-            common: None,
-            os_aliases,
-        }
     }
 }
 

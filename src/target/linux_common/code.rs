@@ -22,7 +22,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
-use crate::codegen::engine::builder::AppHookBody;
 use crate::codegen::engine::mir::MirPlan;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::AppEntrySpec;
@@ -76,14 +75,6 @@ impl AppSupport {
         match self {
             AppSupport::Gtk { sysv_wrappers } => *sysv_wrappers,
             AppSupport::Unsupported(reason) => unimplemented!("{reason}"),
-        }
-    }
-
-    fn wrap(sysv_wrappers: bool, body: AppHookBody) -> AppHookBody {
-        if sysv_wrappers {
-            gtk::wrap_x86_helper(body)
-        } else {
-            body
         }
     }
 }
@@ -620,11 +611,14 @@ impl<A: LinuxArch> crate::codegen::engine::types::CodegenPlatform for Platform<A
         call: &str,
         symbol: &str,
         term_state_offset: usize,
-    ) -> Option<Result<AppHookBody, String>> {
-        let sysv = self.arch.app().require_gtk();
-        gtk::emit_app_term_helper(call, symbol, term_state_offset)
-            .map(|body| AppSupport::wrap(sysv, body))
-            .map(Ok)
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        // Hard-stop an unported ISA; the append shape lets the shared `abi_function`
+        // finalizer build the frame (the former `AppSupport::wrap` SysV bracket is
+        // gone, plan-101).
+        let _ = self.arch.app().require_gtk();
+        gtk::emit_app_term_helper(call, symbol, term_state_offset, instructions, relocations)
     }
 
     // --- io / term ----------------------------------------------------------
@@ -1636,7 +1630,13 @@ mod tests {
         #[test]
         #[should_panic(expected = "rv64 app mode not ported")]
         fn term_helper() {
-            let _ = riscv64().emit_app_term_helper("term.clear", "s", 0);
+            let _ = riscv64().emit_app_term_helper(
+                "term.clear",
+                "s",
+                0,
+                &mut Vec::new(),
+                &mut Vec::new(),
+            );
         }
     }
 

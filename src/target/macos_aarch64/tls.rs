@@ -37,14 +37,14 @@ fn invoke_function(symbol: &str, stores: &[(&str, usize)]) -> CodeFunction {
         abi::label("entry"),
         abi::subtract_stack(16),
         abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
-        abi::load_u64(abi::SCRATCH[0], "x0", BLK_CAP), // ctx = block->captured pointer
+        abi::load_u64(abi::SCRATCH[0], abi::c_arg(0), BLK_CAP), // ctx = block->captured pointer
     ];
     for (reg, off) in stores {
         instructions.push(abi::store_u64(reg, abi::SCRATCH[0], *off));
     }
     instructions.extend([
         abi::load_u64(abi::SCRATCH[1], abi::SCRATCH[0], CTX_SIGNAL),
-        abi::load_u64("x0", abi::SCRATCH[0], CTX_SEM),
+        abi::load_u64(abi::c_arg(0), abi::SCRATCH[0], CTX_SEM),
         abi::branch_link_register(abi::SCRATCH[1]),
         abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
         abi::add_stack(16),
@@ -81,19 +81,19 @@ fn recv_invoke_impl(
         abi::subtract_stack(32),
         abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
         abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8),
-        abi::move_register(abi::LOCAL[0], "x0"), // x19 = block; reload ctx below
+        abi::move_register(abi::LOCAL[0], abi::c_arg(0)), // x19 = block; reload ctx below
         abi::load_u64(abi::LOCAL[0], abi::LOCAL[0], BLK_CAP), // x19 = ctx (callee-saved across calls)
-        abi::store_u64("x4", abi::LOCAL[0], error_off),
-        abi::compare_immediate("x1", "0"),
+        abi::store_u64(abi::c_arg(4), abi::LOCAL[0], error_off),
+        abi::compare_immediate(abi::c_arg(1), "0"),
         abi::branch_eq(&sig),
-        abi::store_u64("x1", abi::LOCAL[0], content_off),
+        abi::store_u64(abi::c_arg(1), abi::LOCAL[0], content_off),
         // dispatch_retain(content) so it survives past this block.
         abi::load_u64(abi::SCRATCH[3], abi::LOCAL[0], CTX_RETAIN),
-        abi::move_register("x0", "x1"),
+        abi::move_register(abi::c_arg(0), abi::c_arg(1)),
         abi::branch_link_register(abi::SCRATCH[3]),
         abi::label(&sig),
         abi::load_u64(abi::SCRATCH[1], abi::LOCAL[0], CTX_SIGNAL),
-        abi::load_u64("x0", abi::LOCAL[0], sem_off),
+        abi::load_u64(abi::c_arg(0), abi::LOCAL[0], sem_off),
         abi::branch_link_register(abi::SCRATCH[1]),
         abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8),
         abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
@@ -136,19 +136,19 @@ fn cfg_invoke_function() -> CodeFunction {
         // x0 = block, x1 = tls_options. Preserve server name + setter across
         // the copy call (x0/x1 are clobbered by it). The release fn is stashed
         // to a stack slot now because the block pointer (x0) is clobbered too.
-        abi::load_u64(abi::LOCAL[0], "x0", CFG_CAP_SNAME), // server name (cstr)
-        abi::load_u64(abi::LOCAL[1], "x0", CFG_CAP_SETFN), // sec_protocol_options_set_tls_server_name
-        abi::load_u64(abi::SCRATCH[0], "x0", CFG_CAP_RELEASEFN), // nw_release
+        abi::load_u64(abi::LOCAL[0], abi::c_arg(0), CFG_CAP_SNAME), // server name (cstr)
+        abi::load_u64(abi::LOCAL[1], abi::c_arg(0), CFG_CAP_SETFN), // sec_protocol_options_set_tls_server_name
+        abi::load_u64(abi::SCRATCH[0], abi::c_arg(0), CFG_CAP_RELEASEFN), // nw_release
         abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), 32),
-        abi::load_u64(abi::SCRATCH[0], "x0", CFG_CAP_COPYFN), // nw_tls_copy_sec_protocol_options
-        abi::move_register("x0", "x1"),
+        abi::load_u64(abi::SCRATCH[0], abi::c_arg(0), CFG_CAP_COPYFN), // nw_tls_copy_sec_protocol_options
+        abi::move_register(abi::c_arg(0), abi::c_arg(1)),
         abi::branch_link_register(abi::SCRATCH[0]), // x0 = sec_options (+1)
-        abi::store_u64("x0", abi::stack_pointer(), 24), // survive the setter call
-        abi::move_register("x1", abi::LOCAL[0]),
+        abi::store_u64(abi::c_arg(0), abi::stack_pointer(), 24), // survive the setter call
+        abi::move_register(abi::c_arg(1), abi::LOCAL[0]),
         abi::branch_link_register(abi::LOCAL[1]), // set_tls_server_name(sec_options, name)
         // Balance the copy fn's +1 retain: nw_release(sec_options). The setter
         // is getter-style config and does not consume the ref (bug-116).
-        abi::load_u64("x0", abi::stack_pointer(), 24), // sec_options
+        abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 24), // sec_options
         abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 32), // nw_release
         abi::branch_link_register(abi::SCRATCH[0]),
         abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16),
@@ -184,8 +184,8 @@ fn lconn_invoke_function() -> CodeFunction {
         abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
         abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8),
         abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16),
-        abi::load_u64(abi::LOCAL[0], "x0", BLK_CAP), // x19 = lctx
-        abi::move_register(abi::LOCAL[1], "x1"),     // x20 = connection
+        abi::load_u64(abi::LOCAL[0], abi::c_arg(0), BLK_CAP), // x19 = lctx
+        abi::move_register(abi::LOCAL[1], abi::c_arg(1)),     // x20 = connection
         // Full? head - tail >= capacity => drop (no retain, no signal).
         abi::load_u64(abi::SCRATCH[0], abi::LOCAL[0], LCTX_HEAD),
         abi::load_u64(abi::SCRATCH[1], abi::LOCAL[0], LCTX_TAIL),
@@ -194,7 +194,7 @@ fn lconn_invoke_function() -> CodeFunction {
         abi::branch_ge(&full),
         // nw_retain(conn) so it survives past this callback.
         abi::load_u64(abi::SCRATCH[3], abi::LOCAL[0], CTX_RETAIN),
-        abi::move_register("x0", abi::LOCAL[1]),
+        abi::move_register(abi::c_arg(0), abi::LOCAL[1]),
         abi::branch_link_register(abi::SCRATCH[3]),
         // ring[head & mask] = conn; head += 1.
         abi::load_u64(abi::SCRATCH[0], abi::LOCAL[0], LCTX_HEAD),
@@ -208,7 +208,7 @@ fn lconn_invoke_function() -> CodeFunction {
         abi::store_u64(abi::SCRATCH[0], abi::LOCAL[0], LCTX_HEAD),
         // signal(sem)
         abi::load_u64(abi::SCRATCH[1], abi::LOCAL[0], CTX_SIGNAL),
-        abi::load_u64("x0", abi::LOCAL[0], CTX_SEM),
+        abi::load_u64(abi::c_arg(0), abi::LOCAL[0], CTX_SEM),
         abi::branch_link_register(abi::SCRATCH[1]),
         abi::label(&full),
         abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16),

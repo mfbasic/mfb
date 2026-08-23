@@ -1,9 +1,8 @@
-//! `term::sync` — OS-seam member (native terminal I/O).
+//! `term::sync` — abi_function member (native terminal I/O).
 //!
-//! Registers a `Body::native_os_seam` whose `posix`/`win` slots both hold the
-//! shared `term` dispatcher (`super::native::lower_term_helper`), reached by the
-//! generic OS-seam dispatch. The heavy terminal emission stays in the shared code
-//! layer (`code::lower_term_helper` / `emit_app_term_helper`).
+//! Registers the shared [`gen_os_seam::lower_term_os_seam`] `Body::abi_function`
+//! body; the `abi_function` wrapper finalizes it. The heavy terminal emission stays
+//! in the shared code layer (`code::lower_term_helper` / `emit_app_term_helper`).
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::registry::{Body, Implementation, RegistryFunction, RegistryPackage};
@@ -20,11 +19,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             params: vec![],
             return_type: ParameterType::Nothing,
             errors: vec![],
-            body: Body::native_os_seam(
-                Some(super::native::lower_term_helper),
-                Some(super::native::lower_term_helper),
-                &[],
-            ),
+            body: Body::abi_function(super::gen_os_seam::lower_term_os_seam),
         }],
     });
 }

@@ -1,6 +1,5 @@
 // --- codegen tier imports (migration) ---
 use crate::arch::ops::CodeOp;
-use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use std::collections::HashMap;
@@ -1087,16 +1086,19 @@ pub(crate) trait CodegenPlatform {
     }
 
     /// App-mode body for a `term::` runtime helper that drives the synthesized
-    /// TermView surface (plan-01-term.md §6.3, Phase 4-5). Returns `None` for
-    /// calls that keep the shared console backend (and for targets without app
-    /// mode).
-    #[allow(clippy::type_complexity)]
+    /// TermView surface (plan-01-term.md §6.3, Phase 4-5). Appends the platform
+    /// sequence into the caller's `abi_function` vreg stream (the plan-101 append
+    /// shape, mirroring [`Self::emit_app_io_is_terminal`]); the `abi_function`
+    /// wrapper finalizes it. Returns `None` for calls that keep the shared console
+    /// backend (and for targets without app mode).
     fn emit_app_term_helper(
         &self,
         _call: &str,
         _symbol: &str,
         _term_state_offset: usize,
-    ) -> Option<Result<AppHookBody, String>> {
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
         None
     }
 

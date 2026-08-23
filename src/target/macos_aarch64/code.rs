@@ -240,17 +240,10 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         call: &str,
         symbol: &str,
         term_state_offset: usize,
-    ) -> Option<
-        Result<
-            (
-                crate::codegen::engine::types::CodeFrame,
-                Vec<CodeInstruction>,
-                Vec<CodeRelocation>,
-            ),
-            String,
-        >,
-    > {
-        app::emit_app_term_helper(call, symbol, term_state_offset).map(Ok)
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        app::emit_app_term_helper(call, symbol, term_state_offset, instructions, relocations)
     }
 
     fn emit_app_mode_reconcile(

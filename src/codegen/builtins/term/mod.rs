@@ -1,4 +1,3 @@
-#![allow(deprecated)] // not-yet-migrated: uses deprecated Body::native_os_seam
 //! The built-in `term` package (clean-room registry migration).
 //!
 //! `term` gives an MFBASIC program a structured terminal surface: the TUI-mode
@@ -9,12 +8,13 @@
 //! `fillRect`), text/glyph stamping (`drawText`/`drawGlyph`), and size/resize queries
 //! (`terminalSize`/`didResize`).
 //!
-//! Every one of the 24 members is a **native OS-seam** member: each registers a
-//! `Body::native_os_seam` whose `posix`/`win` slots both hold the shared `term`
-//! dispatcher ([`native::lower_term_helper`]), reached by the generic OS-seam dispatch
-//! (`crate::codegen::os`). That dispatcher branches app-vs-console internally off the
-//! per-compilation `OsLowerCtx` and delegates to the heavy terminal emitters kept in
-//! the shared code layer (`code::lower_term_helper` for the console backend,
+//! Every one of the 24 members registers the shared
+//! [`gen_os_seam::lower_term_os_seam`] `Body::abi_function` body; the `abi_function`
+//! wrapper seeds the entry label, binds the ABI argument registers, and finalizes.
+//! That body branches app-vs-console internally off the [`AbiCtx`] it is threaded
+//! (`build_mode`/`term_state_offset`/`presentation_mode_offset`) and delegates to the
+//! heavy terminal emitters kept in the shared code layer
+//! (`code::lower_term_helper` for the console backend,
 //! `CodegenPlatform::emit_app_term_helper` for the per-platform app backend). Those
 //! ~150 KB of terminal-grid emission stay shared like the `strings`/`vector` codegen
 //! carriers — relocating them would be byte-identity-risky and they are consumed by
@@ -50,8 +50,6 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-pub(crate) mod native;
-
 mod func_clear;
 mod func_did_resize;
 mod func_draw_box;
@@ -76,6 +74,8 @@ mod func_set_underline;
 mod func_show_cursor;
 mod func_sync;
 mod func_terminal_size;
+
+mod gen_os_seam;
 
 /// The `term::drawText` qualified call name — the co-located IR-level rewrite key for
 /// the `drawText(AttributedString)` overload (routed to `__term_drawTextAttr`).
@@ -166,7 +166,8 @@ pub(crate) fn register(r: &mut Registry) {
     // term-owned value types (the datetime idiom — source-declared, name-registered).
     pkg.add_source_types(&["LineStyle", "FillStyle"]);
 
-    // Native OS-seam members (the shared terminal codegen carrier).
+    // The native members (each registers the shared `abi_function` body over the
+    // shared terminal codegen carrier).
     func_on::register(&mut pkg);
     func_off::register(&mut pkg);
     func_is_on::register(&mut pkg);

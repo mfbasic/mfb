@@ -745,7 +745,7 @@ fn build_nsstring_from_cstring(asm: &mut Asm, class_tmp: &str, cstr_symbol: &str
     asm.external_data(class_tmp, CLASS_NS_STRING, LIB_FOUNDATION);
     asm.load_selector(SEL_STRING_WITH_UTF8.0);
     asm.local_address("x2", cstr_symbol);
-    asm.push(abi::move_register("x0", class_tmp));
+    asm.push(abi::move_register(abi::c_arg(0), class_tmp));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 }
 

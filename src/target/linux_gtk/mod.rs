@@ -32,7 +32,6 @@ use term_draw::*;
 use std::collections::HashMap;
 
 use crate::arch::aarch64::abi;
-use crate::codegen::engine::builder::AppHookBody;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::AppEntrySpec;
 use crate::codegen::engine::types::CodeDataObject;
@@ -207,9 +206,6 @@ const TERM_INIT_SYMBOL: &str = "_mfb_gtkapp_term_init";
 /// the new allocation + cell metrics so `term::terminalSize` tracks the live window
 /// and forces a full redraw. Runs on the GTK main loop.
 const TERM_RESIZE_SYMBOL: &str = "_mfb_gtkapp_term_resize";
-/// Pinned arena-state base register (term helpers run on the worker thread, where
-/// x19 holds the arena base; the shared console term-state lives at tso + field).
-const ARENA_REG: &str = "x19";
 
 // Input modes (mirror macOS `app/mod.rs` INPUT_MODE_*): line-buffered without echo is the
 // default (`io::readLine`), line-buffered with echo is `io::input`, and raw delivers
@@ -569,9 +565,9 @@ fn emit_libc_start_trampoline_x86() -> Result<CodeFunction, String> {
     asm.push(abi::move_immediate(abi::c_arg(4), "Integer", "0")); // fini
     asm.push(abi::move_immediate(abi::c_arg(5), "Integer", "0")); // rtld_fini
                                                                   // stack_end = the entry sp, passed as the 7th (stack) argument.
-    asm.push(abi::add_immediate("x9", abi::stack_pointer(), 0));
+    asm.push(abi::add_immediate(abi::SCRATCH[0], abi::stack_pointer(), 0));
     asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64("x9", abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), 0));
     asm.call_external("__libc_start_main");
     asm.push(abi::branch_self());
     asm.push(abi::return_());
@@ -584,6 +580,17 @@ fn emit_libc_start_trampoline_x86() -> Result<CodeFunction, String> {
 /// bracket's `sub`/`add` are identifiable by this immediate when the spill area
 /// is folded in after allocation.
 const X86_WRAP_BYTES: usize = 56;
+
+/// The x86-64 callee-saved GPRs the wrap bracket saves/restores around a
+/// hand-built app body: the general callee-saved bank the interior code (the
+/// linear-scan allocator's output plus the residual scratch map) may land on,
+/// minus `rbp` (the frame pointer) and `r15` (the pinned arena base). These are
+/// listed as *data* — the physical save targets of the machine-floor bracket,
+/// which by construction cannot be virtual or neutral-token operands (they wrap
+/// the vreg-allocated body and must name the concrete callee-saved registers to
+/// preserve). `r14` (index 3) additionally doubles as the runtime zero register
+/// and is zeroed after being saved.
+const X86_BRACKET_CALLEE_SAVED: [&str; 4] = ["rbx", "r12", "r13", "r14"];
 
 /// Finalize a hand-built app function for x86-64. These bodies were written
 /// against the AArch64 register conventions: `x9`–`x17` caller-saved scratch
@@ -611,11 +618,36 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
 
     // Rename the AArch64 scratch/parking registers to per-function vregs (one
     // per distinct register, preserving each def/use chain — the same mapping
-    // the retired vregify pass used).
-    let is_scratch = |name: &str| -> bool {
-        name.strip_prefix('x')
+    // the retired vregify pass used). The bodies now spell that space with the
+    // neutral `abi::SCRATCH`/`abi::LOCAL` tokens (plan-34-D), so map each token
+    // back to the AArch64 index it realizes to before applying the identical
+    // `x9`–`x17` / `x20`–`x28` predicate — `%scratchK` = `x{9+K}`, `%localK` =
+    // `x{19+K}`, and a raw `xN` (still emitted by a few bodies) verbatim. The set
+    // is byte-identical to the raw-`xN` era: `x18` (`%scratch9`) and `x19`
+    // (`%local0`, the pinned arena) stay physical, exactly as before.
+    let scratch_index = |name: &str| -> Option<u32> {
+        if let Some(n) = name
+            .strip_prefix('x')
             .and_then(|rest| rest.parse::<u32>().ok())
-            .is_some_and(|n| (9..=17).contains(&n) || (20..=28).contains(&n))
+        {
+            return Some(n);
+        }
+        if let Some(k) = name
+            .strip_prefix("%scratch")
+            .and_then(|rest| rest.parse::<u32>().ok())
+        {
+            return Some(9 + k);
+        }
+        if let Some(k) = name
+            .strip_prefix("%local")
+            .and_then(|rest| rest.parse::<u32>().ok())
+        {
+            return Some(19 + k);
+        }
+        None
+    };
+    let is_scratch = |name: &str| -> bool {
+        scratch_index(name).is_some_and(|n| (9..=17).contains(&n) || (20..=28).contains(&n))
     };
     let mut order: Vec<String> = Vec::new();
     for instruction in instructions.iter() {
@@ -656,21 +688,25 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
     );
     let prologue = vec![
         abi::subtract_stack(X86_WRAP_BYTES),
-        abi::store_u64("rbx", abi::stack_pointer(), 0),
-        abi::store_u64("r12", abi::stack_pointer(), 8),
-        abi::store_u64("r13", abi::stack_pointer(), 16),
-        abi::store_u64("r14", abi::stack_pointer(), 24),
-        abi::exclusive_or_registers("r14", "r14", "r14"),
+        abi::store_u64(X86_BRACKET_CALLEE_SAVED[0], abi::stack_pointer(), 0),
+        abi::store_u64(X86_BRACKET_CALLEE_SAVED[1], abi::stack_pointer(), 8),
+        abi::store_u64(X86_BRACKET_CALLEE_SAVED[2], abi::stack_pointer(), 16),
+        abi::store_u64(X86_BRACKET_CALLEE_SAVED[3], abi::stack_pointer(), 24),
+        abi::exclusive_or_registers(
+            X86_BRACKET_CALLEE_SAVED[3],
+            X86_BRACKET_CALLEE_SAVED[3],
+            X86_BRACKET_CALLEE_SAVED[3],
+        ),
     ];
     instructions.splice(entry_at..entry_at, prologue);
     let mut index = entry_at + 6;
     while index < instructions.len() {
         if instructions[index].op == CodeOp::Ret {
             let epilogue = vec![
-                abi::load_u64("rbx", abi::stack_pointer(), 0),
-                abi::load_u64("r12", abi::stack_pointer(), 8),
-                abi::load_u64("r13", abi::stack_pointer(), 16),
-                abi::load_u64("r14", abi::stack_pointer(), 24),
+                abi::load_u64(X86_BRACKET_CALLEE_SAVED[0], abi::stack_pointer(), 0),
+                abi::load_u64(X86_BRACKET_CALLEE_SAVED[1], abi::stack_pointer(), 8),
+                abi::load_u64(X86_BRACKET_CALLEE_SAVED[2], abi::stack_pointer(), 16),
+                abi::load_u64(X86_BRACKET_CALLEE_SAVED[3], abi::stack_pointer(), 24),
                 abi::add_stack(X86_WRAP_BYTES),
             ];
             let count = epilogue.len();
@@ -713,14 +749,6 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
             }
         }
     }
-}
-
-/// x86 flavor of an app io/term helper body triple (see
-/// [`finalize_x86_app_function`]).
-pub(crate) fn wrap_x86_helper(triple: AppHookBody) -> AppHookBody {
-    let (frame, mut instructions, relocations) = triple;
-    finalize_x86_app_function(&mut instructions);
-    (frame, instructions, relocations)
 }
 
 /// The app-mode platform import set, shared by the aarch64 and x86-64 Linux

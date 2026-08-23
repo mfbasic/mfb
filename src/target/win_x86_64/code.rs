@@ -22,7 +22,6 @@ use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
 use crate::arch::x86_64::backend::WIN64_BACKEND;
-use crate::codegen::engine::builder::AppHookBody;
 use crate::codegen::engine::mir::MirPlan;
 use crate::codegen::engine::operand::Operand;
 use crate::codegen::engine::types::AppEntrySpec;
@@ -3268,8 +3267,10 @@ impl crate::codegen::engine::types::CodegenPlatform for Platform {
         call: &str,
         symbol: &str,
         term_state_offset: usize,
-    ) -> Option<Result<AppHookBody, String>> {
-        app::emit_app_term_helper(call, symbol, term_state_offset).map(Ok)
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        app::emit_app_term_helper(call, symbol, term_state_offset, instructions, relocations)
     }
 
     fn app_mode_data_objects(&self, project_name: &str) -> Vec<CodeDataObject> {
