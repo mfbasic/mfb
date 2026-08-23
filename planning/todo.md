@@ -4,7 +4,7 @@ Cleaned up codegen
 + = Started
 @ = Reviewed
 
-[-] app
+[@] app
 [@] astrings
 [@] audio
 [@] bits
@@ -21,13 +21,13 @@ Cleaned up codegen
 [@] math
 [@] money
 [@] net
-[-] os
-[-] process
+[@] os
+[@] process
 [@] regex
 [@] strings
-[-] term
+[@] term
 [-] thread
-[-] tls
+[@] tls
 [-] vector
 
 
