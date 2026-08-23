@@ -844,12 +844,78 @@ impl CodeBuilder<'_> {
                             },
                             text: target.clone(),
                         };
-                        return self
-                            .emit_function_value_call(target, &callable, args, Some(&return_type))
-                            .map(|result| ValueResult {
-                                type_: format!("Result OF {return_type}"),
-                                ..result
-                            });
+                        // bug-448: the inline-TRAP machinery consumes a boxed
+                        // `Result` (tag/value/error), so materialize one from the
+                        // call's standard result registers exactly as the direct
+                        // user-function raw path below does — the previous code
+                        // returned the raw success *value*, which the machinery
+                        // then dereferenced as a `Result`-object pointer and
+                        // segfaulted.
+                        let tag_slot = self.allocate_stack_object("raw_result_tag", 8);
+                        let value_slot = self.allocate_stack_object("raw_result_value", 8);
+                        let message_slot = self.allocate_stack_object("raw_result_message", 8);
+                        let source_slot = self.allocate_stack_object("raw_result_source", 8);
+                        let payload_slot = self.allocate_stack_object("raw_result_payload", 8);
+                        let wrap_error_label = self.label("result_wrap_error");
+                        let have_payload_label = self.label("result_have_payload");
+                        let result_slot = self.allocate_stack_object("raw_result", 8);
+                        self.emit_function_value_call_raw(&callable, args)?;
+                        self.emit(abi::store_u64(
+                            RESULT_TAG_REGISTER,
+                            abi::stack_pointer(),
+                            tag_slot,
+                        ));
+                        self.emit(abi::store_u64(
+                            RESULT_VALUE_REGISTER,
+                            abi::stack_pointer(),
+                            value_slot,
+                        ));
+                        self.emit(abi::store_u64(
+                            RESULT_ERROR_MESSAGE_REGISTER,
+                            abi::stack_pointer(),
+                            message_slot,
+                        ));
+                        self.emit(abi::store_u64(
+                            RESULT_ERROR_SOURCE_REGISTER,
+                            abi::stack_pointer(),
+                            source_slot,
+                        ));
+                        self.emit(abi::load_u64(scratch9, abi::stack_pointer(), tag_slot));
+                        self.emit(abi::compare_immediate(scratch9, RESULT_OK_TAG));
+                        self.emit(abi::branch_ne(&wrap_error_label));
+                        self.emit(abi::load_u64(scratch9, abi::stack_pointer(), value_slot));
+                        self.emit(abi::store_u64(scratch9, abi::stack_pointer(), payload_slot));
+                        let ok_result =
+                            self.emit_build_result_inline(tag_slot, &return_type, payload_slot)?;
+                        self.emit(abi::store_u64(
+                            &ok_result,
+                            abi::stack_pointer(),
+                            result_slot,
+                        ));
+                        self.emit(abi::branch(&have_payload_label));
+                        self.emit(abi::label(&wrap_error_label));
+                        let error_register =
+                            self.emit_build_error_inline(value_slot, message_slot, source_slot)?;
+                        self.emit(abi::store_u64(
+                            &error_register,
+                            abi::stack_pointer(),
+                            payload_slot,
+                        ));
+                        let err_result =
+                            self.emit_build_result_inline(tag_slot, "Error", payload_slot)?;
+                        self.emit(abi::store_u64(
+                            &err_result,
+                            abi::stack_pointer(),
+                            result_slot,
+                        ));
+                        self.emit(abi::label(&have_payload_label));
+                        let register = self.allocate_register()?;
+                        self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
+                        return Ok(ValueResult {
+                            type_: format!("Result OF {return_type}"),
+                            location: Operand::from(register.render()),
+                            text: format!("callResult {target}"),
+                        });
                     }
                 }
                 // An inline `TRAP` on an inline-lowered conversion built-in

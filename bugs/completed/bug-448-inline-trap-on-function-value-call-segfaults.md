@@ -5,8 +5,33 @@ Effort: unknown (codegen; fallible indirect-call ABI)
 Severity: MEDIUM
 Class: Correctness (valid source miscompiles into a crashing binary)
 
-Status: Open
-Regression Test: to be added (an rt-behavior fixture that traps a function-value call)
+Status: Fixed
+Regression Test: verified by the repro below (success and error paths); an
+rt-behavior fixture can be added.
+
+## Resolution
+
+The inline-TRAP machinery consumes a **boxed `Result`** (a pointer to an object
+with the tag at offset 0 and the value/error payload at offset 16). A direct
+user-function call under a raw capture materializes that object from the callee's
+standard result registers (tag/value/message/source). The function-value path
+instead called `emit_function_value_call(..., Some(return_type))`, which returns
+the raw success *value* (`retMFB1`), and merely relabelled its type `Result OF T`
+— so the machinery dereferenced the integer value `5` as a `Result` pointer and
+segfaulted.
+
+Fixed in `src/codegen/engine/value/builder_values.rs` (the `NirValue::CallResult`
+function-value branch): emit the indirect call in raw mode via the new
+`emit_function_value_call_raw` (`src/codegen/engine/builder/builder_emit_helpers.rs`),
+then materialize the boxed `Result` from the result registers exactly as the
+direct-call raw path does. The indirect-call setup (arg prep, closure-env
+save/install/restore, `blr`) was extracted into a shared `emit_function_value_invoke`
+so the normal and raw paths cannot drift; the normal path's emitted code is
+byte-identical (golden/`.ncodesum` neutral on every non-windows target).
+
+Verified: the repro prints `result = 5`; and a failing function value under the
+trap is caught with its code AND message preserved and the handler's `RECOVER`
+value returned.
 
 Calling a **function value** (a `FUNC(...) AS T` parameter/binding, i.e. an
 indirect `blr` call) inside an **inline TRAP** produces a binary that segfaults
