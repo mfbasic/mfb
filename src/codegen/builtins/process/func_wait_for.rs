@@ -20,7 +20,7 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-use super::gen_os_seam::*;
+use super::gen_shared::*;
 use super::gen_unix::*;
 const INTRO: &str = r#"Block until a spawned child exits and return its exit code."#;
 const DESC: &str = r#"`process::waitFor` blocks until the child behind a `Process` handle has exited, then
@@ -58,6 +58,31 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::AbiCtx;
+
+/// `abi_function` body for `process::wait_for` — branches win/posix and calls this
+/// member's own backend helper (with any alias discriminant via `ctx.call`), then
+/// finalizes.
+pub(crate) fn lower_wait_for(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) = if ctx.platform.family()
+        == crate::codegen::engine::types::PlatformFamily::Windows
+    {
+        lower_process_waitfor_helper_win(ctx.call, &symbol, ctx.platform_imports, ctx.platform)?
+    } else {
+        lower_process_waitfor_helper_posix(ctx.call, &symbol, ctx.platform_imports, ctx.platform)?
+    };
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result(ctx.call))
+}
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "waitFor",
@@ -76,7 +101,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Integer,
             errors: vec![],
-            body: Body::abi_function(super::gen_os_seam::lower_process_os_seam),
+            body: Body::abi_function(lower_wait_for),
         }],
     });
 }

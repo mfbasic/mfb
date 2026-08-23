@@ -20,7 +20,7 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-use super::gen_os_seam::*;
+use super::gen_shared::*;
 use super::gen_unix::*;
 use super::gen_windows::*;
 const INTRO: &str =
@@ -76,6 +76,30 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::AbiCtx;
+
+/// `abi_function` body for `process::spawn` — branches win/posix and calls this
+/// member's own backend helper (with any alias discriminant via `ctx.call`), then
+/// finalizes.
+pub(crate) fn lower_spawn(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) =
+        if ctx.platform.family() == crate::codegen::engine::types::PlatformFamily::Windows {
+            lower_process_spawn_helper_win(ctx.call, &symbol, ctx.platform_imports, ctx.platform)?
+        } else {
+            lower_process_spawn_helper_posix(ctx.call, &symbol, ctx.platform_imports, ctx.platform)?
+        };
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result(ctx.call))
+}
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     // Both overloads lower through the same posix/win emitters; the full form is
     // selected at codegen by argument count (`builder_values` → `process.spawnEnv`),
@@ -105,7 +129,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![args.clone()],
                 return_type: ParameterType::Named(super::PROCESS_TYPE_ID),
                 errors: vec![],
-                    body: Body::abi_function_aliased(super::gen_os_seam::lower_process_os_seam, &["spawnEnv"]),
+                    body: Body::abi_function_aliased(lower_spawn, &["spawnEnv"]),
             },
             // Full form: working directory + environment map + replace/merge flag.
             Implementation {
@@ -135,7 +159,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Named(super::PROCESS_TYPE_ID),
                 errors: vec![],
-                    body: Body::abi_function_aliased(super::gen_os_seam::lower_process_os_seam, &["spawnEnv"]),
+                    body: Body::abi_function_aliased(lower_spawn, &["spawnEnv"]),
             },
         ],
     });

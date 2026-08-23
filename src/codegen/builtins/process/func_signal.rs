@@ -13,7 +13,7 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use std::collections::HashMap;
 
-use super::gen_os_seam::ProcBodyParts;
+use super::gen_shared::ProcBodyParts;
 use crate::codegen::error::emission::emit_fail;
 use crate::codegen::registry::{
     Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage,
@@ -53,6 +53,31 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::AbiCtx;
+
+/// `abi_function` body for `process::signal` — branches win/posix and calls this
+/// member's own backend helper (with any alias discriminant via `ctx.call`), then
+/// finalizes.
+pub(crate) fn lower_signal(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) = if ctx.platform.family()
+        == crate::codegen::engine::types::PlatformFamily::Windows
+    {
+        lower_process_signal_helper_win(ctx.call, &symbol, ctx.platform_imports, ctx.platform)?
+    } else {
+        lower_process_signal_helper_posix(ctx.call, &symbol, ctx.platform_imports, ctx.platform)?
+    };
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result(ctx.call))
+}
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "signal",
@@ -80,7 +105,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Nothing,
             errors: vec![],
-            body: Body::abi_function(super::gen_os_seam::lower_process_os_seam),
+            body: Body::abi_function(lower_signal),
         }],
     });
 }

@@ -20,7 +20,7 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-use super::gen_os_seam::*;
+use super::gen_shared::*;
 const INTRO: &str = r#"Test whether a child's output stream is readable within a timeout."#;
 const DESC: &str = r#"`process::poll` reports whether a following read of a child's output stream can
 proceed without blocking. It returns `TRUE` when the selected stream is readable —
@@ -68,6 +68,30 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::AbiCtx;
+
+/// `abi_function` body for `process::poll` — branches win/posix and calls this
+/// member's own backend helper (with any alias discriminant via `ctx.call`), then
+/// finalizes.
+pub(crate) fn lower_poll(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) =
+        if ctx.platform.family() == crate::codegen::engine::types::PlatformFamily::Windows {
+            lower_process_poll_helper_win(ctx.call, &symbol, ctx.platform_imports, ctx.platform)?
+        } else {
+            lower_process_poll_helper_posix(ctx.call, &symbol, ctx.platform_imports, ctx.platform)?
+        };
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result(ctx.call))
+}
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     // The optional trailing `from AS Stream` widens arity to 3 and is NOT
     // default-padded: the 3-arg form is selected at codegen (`builder_values` →
@@ -105,7 +129,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             ],
             return_type: ParameterType::Boolean,
             errors: vec![],
-            body: Body::abi_function_aliased(super::gen_os_seam::lower_process_os_seam, &["pollFrom"]),
+            body: Body::abi_function_aliased(lower_poll, &["pollFrom"]),
         }],
     });
 }

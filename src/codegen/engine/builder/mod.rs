@@ -2016,7 +2016,7 @@ pub(crate) fn lower_runtime_helper(
                 // closeOutput) — so they route through the `is_abi_function_call` branch
                 // above; no `audio.` arm here.)
                 // Every `process.*` member is `Body::abi_function` since the
-                // clean-room migration (the shared `lower_process_os_seam` body plus
+                // clean-room migration (the shared `per-member body plus
                 // its `spawnEnv`/`sendTimeout`/… code-form aliases), so it routes
                 // through the `is_abi_function_call` branch above. `process.__drop` is
                 // the sole exception — it is not a descriptor member (the scope-drop op

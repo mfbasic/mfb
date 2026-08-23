@@ -19,7 +19,7 @@ use crate::codegen::registry::{
 use crate::target::shared::abi;
 use crate::types::ParameterType;
 
-use super::gen_os_seam::*;
+use super::gen_shared::*;
 const INTRO: &str = r#"Report which signal bucket a terminated child died on."#;
 const DESC: &str = r#"`process::didSignal` reports how a terminated child died, as one of the four
 `Signal` buckets. It reads the raw wait status cached when the child was reaped —
@@ -58,6 +58,31 @@ FUNC main AS Integer
 END FUNC
 ```"#;
 
+use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
+use crate::codegen::registry::AbiCtx;
+
+/// `abi_function` body for `process::did_signal` — branches win/posix and calls this
+/// member's own backend helper (with any alias discriminant via `ctx.call`), then
+/// finalizes.
+pub(crate) fn lower_did_signal(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) = if ctx.platform.family()
+        == crate::codegen::engine::types::PlatformFamily::Windows
+    {
+        lower_process_didsignal_helper_win(ctx.call, &symbol, ctx.platform_imports, ctx.platform)?
+    } else {
+        lower_process_didsignal_helper_posix(ctx.call, &symbol, ctx.platform_imports, ctx.platform)?
+    };
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    Ok(super::gen_shared::void_result(ctx.call))
+}
+
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {
         name: "didSignal",
@@ -76,7 +101,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             }],
             return_type: ParameterType::Named(super::SIGNAL_TYPE),
             errors: vec![],
-            body: Body::abi_function(super::gen_os_seam::lower_process_os_seam),
+            body: Body::abi_function(lower_did_signal),
         }],
     });
 }

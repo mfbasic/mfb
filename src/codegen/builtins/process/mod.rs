@@ -6,13 +6,12 @@
 //!
 //! `process` is a **native** OS-seam package migrated onto the clean-room registry
 //! (`crate::codegen::registry`) and onto the `Body::abi_function` clean-room shape
-//! (crypto/io/fs/net). Every member registers the one shared
-//! [`gen_os_seam::lower_process_os_seam`] `abi_function` body, which dispatches by
-//! [`AbiCtx::call`](crate::codegen::registry::AbiCtx) to the family-generic
-//! [`gen_os_seam::lower_process_helper`]: that selects the member by name (plus its
-//! `spawnEnv`/`sendTimeout`/… code-form aliases) and the posix/win backend by
-//! `platform.family()`, calling the per-member emitter in the member's `func_*.rs`
-//! (delegating to the arch-neutral `gen_{unix,windows}` emission). The
+//! (crypto/io/fs/net). Each member owns its `Body::abi_function` body in its own
+//! `func_*.rs` (`lower_<name>`), which branches the posix/win backend by
+//! `platform.family()` and calls the member's own `lower_process_<name>_helper_{win,
+//! posix}` emitter (also in the `func_*.rs`, delegating to the arch-neutral
+//! `gen_{unix,windows}` emission), with its `spawnEnv`/`sendTimeout`/… code-form
+//! alias distinguished off [`AbiCtx::call`](crate::codegen::registry::AbiCtx). The
 //! opaque `Process` handle is a descriptor-only nominal type (recognized by
 //! [`is_builtin_type`]); the source companion carries only the `Stream`/`Signal`
 //! value enums, injected as a helper-function chunk so the registry reassembles it.
@@ -29,15 +28,15 @@ use crate::codegen::registry::{
 mod func_close;
 mod func_detach;
 
-mod gen_os_seam;
+mod gen_shared;
 mod gen_unix;
 mod gen_windows;
 
 // `process.__drop` is not a descriptor member (no `func_*.rs`), so its helper is
 // still reached by name from the runtime-call dispatch; every other member lowers
-// through the shared `gen_os_seam::lower_process_os_seam` `Body::abi_function` body
+// through its own per-member `Body::abi_function` body in its `func_*.rs`
 // (`func_*.rs` → `gen_{unix,windows}`).
-pub(crate) use gen_os_seam::lower_process_drop_helper;
+pub(crate) use gen_shared::lower_process_drop_helper;
 mod func_did_signal;
 mod func_is_running;
 mod func_pid;

@@ -8,7 +8,7 @@
 //! explicit `sp`-relative frame from `finalize_vreg_body_with_locals`.
 
 // --- codegen tier imports (migration) ---
-use super::gen_os_seam::*;
+use super::gen_shared::*;
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::types::*;
