@@ -1,275 +1,402 @@
-' Consolidated runtime-behavior acceptance for the primitive type bindings,
-' converted from the tests/primitive-*_valid fixtures. Each assertion checks the
-' same bound value / promotion result / concatenation as the source fixture, using
-' the typed TESTING assertions so no toString formatting is needed.
+IMPORT errorCode
+
+' =====================================================================
+' Full acceptance + safety suite for the primitive types and the eighteen
+' always-in-scope general built-ins (§18.1): len, typeName, toString, toInt,
+' toFloat, toFixed, toByte, toMoney, toScalar, isNumeric, isEven/isOdd,
+' isPositive/isNegative/isZero, isEmpty/isNotEmpty (error builds the Error
+' record and is exercised across the suite via the trapped conversions).
+'
+' Every conversion is tested from every source type with a concrete expected
+' value, and every failure path is trapped and its code verified: ErrInvalidFormat
+' (77050003, malformed text / non-Integer text), ErrOverflow (77050010, out of the
+' destination range), and ErrInvalidArgument (77050002, a non-scalar / surrogate /
+' out-of-range code point for toScalar). Also: type bindings and defaults, the
+' §4.1 promotion result-type matrix, toString presentation, len as a Unicode
+' scalar count, the is* predicates, Boolean logic, and cross-type comparisons.
+' =====================================================================
 
 TESTING
   TGROUP "Primitives"
-    TGROUP "boolean bindings"
-      TCASE "let/mut assignment"
-        LET letValue AS Boolean = TRUE
-        MUT mutValue AS Boolean = FALSE
-        mutValue = letValue
-        expectEqual(mutValue, TRUE)
-        ' original fixture returns 1 (exit code) because mutValue is TRUE
-        expectEqual(letValue, TRUE)
-      END TCASE
-    END TGROUP
 
-    TGROUP "byte bindings"
-      TCASE "let/mut assignment and promotion via +"
-        LET letValue AS Byte = 2
-        MUT mutValue AS Byte = 3
-        mutValue = 4
-        expectInteger(toInt(letValue), 2)
-        expectInteger(toInt(mutValue), 4)
-        expectInteger(toInt(letValue + mutValue), 6)
-      END TCASE
-    END TGROUP
-
-    TGROUP "integer bindings"
-      TCASE "let/mut assignment and arithmetic"
-        LET letValue AS Integer = 1 + 1
-        MUT mutValue AS Integer = 3
-        mutValue = mutValue + 1
-        expectInteger(letValue, 2)
-        expectInteger(mutValue, 4)
-        expectInteger(letValue + mutValue, 6)
-      END TCASE
-    END TGROUP
-
-    TGROUP "float bindings"
-      TCASE "let/mut assignment"
-        LET letValue AS Float = 1.5
-        MUT mutValue AS Float = 3.5
-        mutValue = 2.5
-        expectFloat(letValue, 1.50000000000000000)
-        expectFloat(mutValue, 2.50000000000000000)
-      END TCASE
-    END TGROUP
-
-    TGROUP "fixed bindings"
-      TCASE "let/mut assignment"
-        LET letValue AS Fixed = 1.5
-        MUT mutValue AS Fixed = 3.5
-        mutValue = 2.5
-        expectFixed(letValue, 1.500000000000000000F)
-        expectFixed(mutValue, 2.500000000000000000F)
-      END TCASE
-    END TGROUP
-
-    TGROUP "string bindings"
-      TCASE "let/mut assignment and copy"
-        LET letValue AS String = "hello"
-        MUT mutValue AS String = "world"
-        mutValue = "mfb"
-        LET copy AS String = letValue
+    ' =================================================================
+    ' Bindings (LET/MUT), copies, and MUT defaults
+    ' =================================================================
+    TGROUP "bindings and defaults"
+      TCASE "let/mut assignment and copy across the scalar types"
+        LET b AS Boolean = TRUE
+        MUT mb AS Boolean = FALSE
+        mb = b
+        expectEqual(mb, TRUE)
+        LET i AS Integer = 1 + 1
+        MUT mi AS Integer = 3
+        mi = mi + 1
+        expectInteger(i, 2)
+        expectInteger(mi, 4)
+        LET f AS Float = 1.5
+        expectFloat(f, 1.50000000000000000)
+        LET x AS Fixed = 1.5
+        expectFixed(x, 1.5F)
+        LET m AS Money = 1.25
+        expectEqual(m, 1.25m)
+        LET s AS String = "hello"
+        LET copy AS String = s
         expectString(copy, "hello")
-        expectString(mutValue, "mfb")
+      END TCASE
+      TCASE "MUT bindings default to the type's zero value"
+        MUT i AS Integer
+        MUT by AS Byte
+        MUT f AS Float
+        MUT x AS Fixed
+        MUT m AS Money
+        MUT b AS Boolean
+        MUT s AS String
+        expectInteger(i, 0)
+        expectInteger(toInt(by), 0)
+        expectFloat(f, 0.00000000000000000)
+        expectFixed(x, 0.0F)
+        expectEqual(m, 0.00m)
+        expectEqual(b, FALSE)
+        expectString(s, "")
       END TCASE
     END TGROUP
 
+    ' =================================================================
+    ' typeName over every primitive
+    ' =================================================================
+    TGROUP "typeName"
+      TCASE "reports the exact primitive type name"
+        expectString(typeName(5), "Integer")
+        expectString(typeName(5.0), "Float")
+        expectString(typeName(5.0F), "Fixed")
+        expectString(typeName(5.00m), "Money")
+        expectString(typeName(toByte(5)), "Byte")
+        expectString(typeName(TRUE), "Boolean")
+        expectString(typeName("s"), "String")
+        expectString(typeName(`A`), "Scalar")
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' toString presentation
+    ' =================================================================
+    TGROUP "toString"
+      TCASE "renders each primitive"
+        expectString(toString(42), "42")
+        expectString(toString(0 - 7), "-7")
+        expectString(toString(toByte(200)), "200")
+        expectString(toString(TRUE), "TRUE")
+        expectString(toString(FALSE), "FALSE")
+        expectString(toString("verbatim"), "verbatim")
+        expectString(toString(`A`), "A")
+        expectString(toString(`😀`), "😀")
+      END TCASE
+      TCASE "Float/Fixed/Money default to 2 places; a Byte precision widens"
+        LET p4 AS Byte = 4
+        LET p0 AS Byte = 0
+        expectString(toString(3.14159), "3.14")
+        expectString(toString(0.0 - 3.14159), "-3.14")
+        expectString(toString(3.14159, p4), "3.1416")
+        expectString(toString(3.14159, p0), "3")
+        expectString(toString(4.25F), "4.25")
+        expectString(toString(1.25m), "1.25")
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' len — a Unicode scalar count, never bytes or graphemes
+    ' =================================================================
+    TGROUP "len"
+      TCASE "counts scalars"
+        expectInteger(len("hello"), 5)
+        expectInteger(len(""), 0)
+        expectInteger(len("caf\u{00E9}"), 4)
+        expectInteger(len("\u{1F600}"), 1)
+        expectInteger(len("a\u{0301}"), 2)
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' toInt — from every source, decimal and radix, with errors
+    ' =================================================================
+    TGROUP "toInt"
+      TCASE "from text, base 10"
+        expectInteger(toInt("100"), 100)
+        expectInteger(toInt("-42"), -42)
+        expectInteger(toInt("0"), 0)
+      END TCASE
+      TCASE "from text with an explicit radix (2..36)"
+        expectInteger(toInt("ff", 16), 255)
+        expectInteger(toInt("1010", 2), 10)
+        expectInteger(toInt("z", 36), 35)
+        expectInteger(toInt("-10", 16), -16)
+        expectInteger(toInt("755", 8), 493)
+      END TCASE
+      TCASE "from Byte, Float, Fixed, Money, Scalar (truncating toward zero)"
+        expectInteger(toInt(toByte(200)), 200)
+        expectInteger(toInt(2.99), 2)
+        expectInteger(toInt(0.0 - 2.99), -2)
+        expectInteger(toInt(2.75F), 2)
+        expectInteger(toInt(2.99m), 2)
+        expectInteger(toInt(`A`), 65)
+      END TCASE
+      TCASE "malformed text and out-of-range values fail"
+        expectTrap(toInt("abc"), errorCode::ErrInvalidFormat)
+        expectTrap(toInt(""), errorCode::ErrInvalidFormat)
+        expectTrap(toInt("1.5"), errorCode::ErrInvalidFormat)
+        expectTrap(toInt("ff"), errorCode::ErrInvalidFormat)
+        expectTrap(toInt(toFloat("1e20")), errorCode::ErrOverflow)
+        expectNTrap(toInt("123"))
+      END TCASE
+      TCASE "a digit outside the radix, or a base outside 2..36, fails"
+        expectTrap(toInt("2", 2), errorCode::ErrInvalidFormat)
+        expectTrap(toInt("10", 1), errorCode::ErrInvalidFormat)
+        expectTrap(toInt("10", 37), errorCode::ErrInvalidFormat)
+        expectNTrap(toInt("zz", 36))
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' toFloat
+    ' =================================================================
+    TGROUP "toFloat"
+      TCASE "from text, Integer, Fixed, Money"
+        expectFloat(toFloat("1.5"), 1.50000000000000000)
+        expectFloat(toFloat("-3.25"), -3.25000000000000000)
+        expectFloat(toFloat(5), 5.00000000000000000)
+        expectFloat(toFloat(2.5F), 2.50000000000000000)
+        expectFloat(toFloat(1.25m), 1.25000000000000000)
+      END TCASE
+      TCASE "malformed, non-finite, and overflowing text fail"
+        expectTrap(toFloat("abc"), errorCode::ErrInvalidFormat)
+        expectTrap(toFloat("NaN"), errorCode::ErrInvalidFormat)
+        expectTrap(toFloat("1e400"), errorCode::ErrOverflow)
+        expectNTrap(toFloat("2.5"))
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' toFixed
+    ' =================================================================
+    TGROUP "toFixed"
+      TCASE "from text, Integer, Float, Money"
+        expectFixed(toFixed("1.25"), 1.25F)
+        expectFixed(toFixed(3), 3.0F)
+        expectFixed(toFixed(2.5), 2.5F)
+        expectFixed(toFixed(1.25m), 1.25F)
+      END TCASE
+      TCASE "malformed and out-of-range text fail"
+        expectTrap(toFixed("abc"), errorCode::ErrInvalidFormat)
+        expectTrap(toFixed("1e20"), errorCode::ErrOverflow)
+        expectNTrap(toFixed("1.25"))
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' toByte
+    ' =================================================================
+    TGROUP "toByte"
+      TCASE "from Integer, Money, Scalar"
+        expectInteger(toInt(toByte(200)), 200)
+        expectInteger(toInt(toByte(0)), 0)
+        expectInteger(toInt(toByte(255)), 255)
+        expectInteger(toInt(toByte(2.00m)), 2)
+        expectInteger(toInt(toByte(`A`)), 65)
+      END TCASE
+      TCASE "out-of-range narrowing overflows"
+        expectTrap(toByte(300), errorCode::ErrOverflow)
+        expectTrap(toByte(0 - 1), errorCode::ErrOverflow)
+        expectTrap(toByte(toScalar(500)), errorCode::ErrOverflow)
+        expectNTrap(toByte(255))
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' toMoney
+    ' =================================================================
+    TGROUP "toMoney"
+      TCASE "from Integer, Float, Fixed, Byte, exact text"
+        expectEqual(toMoney(4), 4.00m)
+        expectEqual(toMoney(1.5), 1.50m)
+        expectEqual(toMoney(2.5F), 2.50m)
+        expectEqual(toMoney(toByte(7)), 7.00m)
+        expectEqual(toMoney("3.50"), 3.50m)
+      END TCASE
+      TCASE "malformed and out-of-range text fail"
+        expectTrap(toMoney("abc"), errorCode::ErrInvalidFormat)
+        expectTrap(toMoney("99999999999999999999"), errorCode::ErrOverflow)
+        expectNTrap(toMoney("3.50"))
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' toScalar
+    ' =================================================================
+    TGROUP "toScalar"
+      TCASE "from a code point, a one-scalar String, and a Byte"
+        expectInteger(toInt(toScalar(65)), 65)
+        expectInteger(toInt(toScalar(128512)), 128512)
+        expectInteger(toInt(toScalar("A")), 65)
+        expectInteger(toInt(toScalar(toByte(66))), 66)
+        expectString(toString(toScalar(65)), "A")
+      END TCASE
+      TCASE "a surrogate, an out-of-range code point, or a non-single-scalar fails"
+        expectTrap(toScalar(55296), errorCode::ErrInvalidArgument)
+        expectTrap(toScalar(1114112), errorCode::ErrInvalidArgument)
+        expectTrap(toScalar(0 - 1), errorCode::ErrInvalidArgument)
+        expectTrap(toScalar("ab"), errorCode::ErrInvalidArgument)
+        expectTrap(toScalar(""), errorCode::ErrInvalidArgument)
+        expectNTrap(toScalar(65))
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' is* predicates
+    ' =================================================================
+    TGROUP "predicates"
+      TCASE "isNumeric recognizes decimal/scientific text only"
+        expectEqual(isNumeric("123"), TRUE)
+        expectEqual(isNumeric("1.5"), TRUE)
+        expectEqual(isNumeric("-5"), TRUE)
+        expectEqual(isNumeric("1e3"), TRUE)
+        expectEqual(isNumeric("abc"), FALSE)
+        expectEqual(isNumeric(""), FALSE)
+        expectEqual(isNumeric("0xFF"), FALSE)
+        expectEqual(isNumeric("1.2.3"), FALSE)
+      END TCASE
+      TCASE "isEven / isOdd on Integer (sign-agnostic)"
+        expectEqual(isEven(4), TRUE)
+        expectEqual(isEven(0), TRUE)
+        expectEqual(isEven(0 - 3), FALSE)
+        expectEqual(isOdd(4), FALSE)
+        expectEqual(isOdd(0 - 3), TRUE)
+      END TCASE
+      TCASE "isPositive / isNegative / isZero on Integer/Float/Fixed"
+        expectEqual(isPositive(5), TRUE)
+        expectEqual(isPositive(0), FALSE)
+        expectEqual(isNegative(0 - 1), TRUE)
+        expectEqual(isZero(0), TRUE)
+        expectEqual(isZero(0.0), TRUE)
+        expectEqual(isZero(0.0F), TRUE)
+        expectEqual(isPositive(1.5F), TRUE)
+        expectEqual(isNegative(0.0 - 2.5), TRUE)
+        expectEqual(isPositive(0.0 - 1.0), FALSE)
+      END TCASE
+      TCASE "isEmpty / isNotEmpty on String"
+        expectEqual(isEmpty(""), TRUE)
+        expectEqual(isEmpty("x"), FALSE)
+        expectEqual(isNotEmpty("x"), TRUE)
+        expectEqual(isNotEmpty(""), FALSE)
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' Boolean logic
+    ' =================================================================
+    TGROUP "boolean logic"
+      TCASE "AND OR NOT XOR truth"
+        expectEqual(TRUE AND TRUE, TRUE)
+        expectEqual(TRUE AND FALSE, FALSE)
+        expectEqual(FALSE OR TRUE, TRUE)
+        expectEqual(FALSE OR FALSE, FALSE)
+        expectEqual(NOT FALSE, TRUE)
+        expectEqual(NOT TRUE, FALSE)
+        expectEqual(TRUE XOR TRUE, FALSE)
+        expectEqual(TRUE XOR FALSE, TRUE)
+        expectEqual(NOT (1 = 2), TRUE)
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' Comparisons across types
+    ' =================================================================
+    TGROUP "comparisons"
+      TCASE "cross-numeric equality and ordering promote operands"
+        expectEqual(2 = 2.0, TRUE)
+        expectEqual(2 < 2.5, TRUE)
+        expectEqual(2.0F = 2, TRUE)
+        expectEqual(toByte(3) < 4, TRUE)
+        expectEqual(3.5 > 3.5F, FALSE)
+        expectEqual(3 <> 4, TRUE)
+      END TCASE
+      TCASE "String lexicographic order by scalar; prefix is less"
+        expectEqual("abc" < "abd", TRUE)
+        expectEqual("ab" < "abc", TRUE)
+        expectEqual("abc" = "abc", TRUE)
+        expectEqual("Z" < "a", TRUE)
+      END TCASE
+      TCASE "Scalar order by code point; Boolean equality"
+        expectEqual(`a` < `b`, TRUE)
+        expectEqual(`a` = `a`, TRUE)
+        expectEqual(`A` < `a`, TRUE)
+        expectEqual(TRUE = TRUE, TRUE)
+        expectEqual(TRUE <> FALSE, TRUE)
+      END TCASE
+    END TGROUP
+
+    ' =================================================================
+    ' Mixed-type toString concatenation (the & operator)
+    ' =================================================================
     TGROUP "string concatenation"
-      TCASE "mixed-type toString concatenation"
+      TCASE "arithmetic binds tighter than &, and each value renders"
         LET intValue AS Integer = 1
         LET byteValue AS Byte = 2
         LET floatValue AS Float = 3.5
         LET fixedValue AS Fixed = 4.25
-        LET boolValue AS Boolean = TRUE
-        LET stringValue AS String = "six"
-        LET text AS String = "i=" & toString(intValue) & ",b=" & toString(byteValue) & ",f=" & toString(floatValue) & ",x=" & toString(fixedValue) & ",ok=" & toString(boolValue) & ",s=" & toString(stringValue)
-        MUT copy AS String = text
-        copy = copy & "!"
-        expectString(text, "i=1,b=2,f=3.50,x=4.25,ok=TRUE,s=six")
-        expectString(copy, "i=1,b=2,f=3.50,x=4.25,ok=TRUE,s=six!")
+        LET text AS String = "i=" & toString(intValue) & ",b=" & toString(byteValue) & ",f=" & toString(floatValue) & ",x=" & toString(fixedValue) & ",ok=" & toString(TRUE)
+        expectString(text, "i=1,b=2,f=3.50,x=4.25,ok=TRUE")
+        expectString("sum=" & toString(1 + 2), "sum=3")
       END TCASE
     END TGROUP
 
-    TGROUP "promotion Byte left"
-      TCASE "Byte with Byte"
-        LET left AS Byte = 2
-        LET right AS Byte = 2
-        expectString(typeName(left + right), "Byte")
-        expectString(typeName(left - right), "Byte")
-        expectString(typeName(left * right), "Byte")
-        expectString(typeName(left ^ right), "Byte")
-        expectString(typeName(left / right), "Byte")
-        expectString(typeName(left MOD right), "Byte")
-        expectString(typeName(left DIV right), "Float")
+    ' =================================================================
+    ' §4.1 promotion result-type matrix (Fixed > Float > Integer > Byte)
+    ' =================================================================
+    TGROUP "promotion matrix"
+      TCASE "Byte left"
+        LET by AS Byte = 2
+        LET it AS Integer = 2
+        LET fx AS Fixed = 2.0
+        LET fl AS Float = 2.0
+        expectString(typeName(by + by), "Byte")
+        expectString(typeName(by MOD by), "Byte")
+        expectString(typeName(by DIV by), "Float")
+        expectString(typeName(by + it), "Integer")
+        expectString(typeName(by * fx), "Fixed")
+        expectString(typeName(by - fl), "Float")
       END TCASE
-      TCASE "Byte with Integer"
-        LET left AS Byte = 2
-        LET right AS Integer = 2
-        expectString(typeName(left + right), "Integer")
-        expectString(typeName(left - right), "Integer")
-        expectString(typeName(left * right), "Integer")
-        expectString(typeName(left ^ right), "Integer")
-        expectString(typeName(left / right), "Integer")
-        expectString(typeName(left MOD right), "Integer")
-        expectString(typeName(left DIV right), "Float")
+      TCASE "Integer left"
+        LET it AS Integer = 2
+        LET by AS Byte = 2
+        LET fx AS Fixed = 2.0
+        LET fl AS Float = 2.0
+        expectString(typeName(it + by), "Integer")
+        expectString(typeName(it * it), "Integer")
+        expectString(typeName(it DIV it), "Float")
+        expectString(typeName(it + fx), "Fixed")
+        expectString(typeName(it - fl), "Float")
       END TCASE
-      TCASE "Byte with Fixed"
-        LET left AS Byte = 2
-        LET right AS Fixed = 2.0
-        expectString(typeName(left + right), "Fixed")
-        expectString(typeName(left - right), "Fixed")
-        expectString(typeName(left * right), "Fixed")
-        expectString(typeName(left ^ right), "Fixed")
-        expectString(typeName(left / right), "Fixed")
-        expectString(typeName(left MOD right), "Fixed")
-        expectString(typeName(left DIV right), "Float")
+      TCASE "Fixed left"
+        LET fx AS Fixed = 2.0
+        LET by AS Byte = 2
+        LET it AS Integer = 2
+        LET fl AS Float = 2.0
+        expectString(typeName(fx + by), "Fixed")
+        expectString(typeName(fx + it), "Fixed")
+        expectString(typeName(fx * fx), "Fixed")
+        expectString(typeName(fx - fl), "Fixed")
+        expectString(typeName(fx DIV fl), "Float")
       END TCASE
-      TCASE "Byte with Float"
-        LET left AS Byte = 2
-        LET right AS Float = 2.0
-        expectString(typeName(left + right), "Float")
-        expectString(typeName(left - right), "Float")
-        expectString(typeName(left * right), "Float")
-        expectString(typeName(left ^ right), "Float")
-        expectString(typeName(left / right), "Float")
-        expectString(typeName(left MOD right), "Float")
-        expectString(typeName(left DIV right), "Float")
-      END TCASE
-    END TGROUP
-
-    TGROUP "promotion Integer left"
-      TCASE "Integer with Byte"
-        LET left AS Integer = 2
-        LET right AS Byte = 2
-        expectString(typeName(left + right), "Integer")
-        expectString(typeName(left - right), "Integer")
-        expectString(typeName(left * right), "Integer")
-        expectString(typeName(left ^ right), "Integer")
-        expectString(typeName(left / right), "Integer")
-        expectString(typeName(left MOD right), "Integer")
-        expectString(typeName(left DIV right), "Float")
-      END TCASE
-      TCASE "Integer with Integer"
-        LET left AS Integer = 2
-        LET right AS Integer = 2
-        expectString(typeName(left + right), "Integer")
-        expectString(typeName(left - right), "Integer")
-        expectString(typeName(left * right), "Integer")
-        expectString(typeName(left ^ right), "Integer")
-        expectString(typeName(left / right), "Integer")
-        expectString(typeName(left MOD right), "Integer")
-        expectString(typeName(left DIV right), "Float")
-      END TCASE
-      TCASE "Integer with Fixed"
-        LET left AS Integer = 2
-        LET right AS Fixed = 2.0
-        expectString(typeName(left + right), "Fixed")
-        expectString(typeName(left - right), "Fixed")
-        expectString(typeName(left * right), "Fixed")
-        expectString(typeName(left ^ right), "Fixed")
-        expectString(typeName(left / right), "Fixed")
-        expectString(typeName(left MOD right), "Fixed")
-        expectString(typeName(left DIV right), "Float")
-      END TCASE
-      TCASE "Integer with Float"
-        LET left AS Integer = 2
-        LET right AS Float = 2.0
-        expectString(typeName(left + right), "Float")
-        expectString(typeName(left - right), "Float")
-        expectString(typeName(left * right), "Float")
-        expectString(typeName(left ^ right), "Float")
-        expectString(typeName(left / right), "Float")
-        expectString(typeName(left MOD right), "Float")
-        expectString(typeName(left DIV right), "Float")
-      END TCASE
-    END TGROUP
-
-    TGROUP "promotion Fixed left"
-      TCASE "Fixed with Byte"
-        LET left AS Fixed = 2.0
-        LET right AS Byte = 2
-        expectString(typeName(left + right), "Fixed")
-        expectString(typeName(left - right), "Fixed")
-        expectString(typeName(left * right), "Fixed")
-        expectString(typeName(left ^ right), "Fixed")
-        expectString(typeName(left / right), "Fixed")
-        expectString(typeName(left MOD right), "Fixed")
-        expectString(typeName(left DIV right), "Float")
-      END TCASE
-      TCASE "Fixed with Integer"
-        LET left AS Fixed = 2.0
-        LET right AS Integer = 2
-        expectString(typeName(left + right), "Fixed")
-        expectString(typeName(left - right), "Fixed")
-        expectString(typeName(left * right), "Fixed")
-        expectString(typeName(left ^ right), "Fixed")
-        expectString(typeName(left / right), "Fixed")
-        expectString(typeName(left MOD right), "Fixed")
-        expectString(typeName(left DIV right), "Float")
-      END TCASE
-      TCASE "Fixed with Fixed"
-        LET left AS Fixed = 2.0
-        LET right AS Fixed = 2.0
-        expectString(typeName(left + right), "Fixed")
-        expectString(typeName(left - right), "Fixed")
-        expectString(typeName(left * right), "Fixed")
-        expectString(typeName(left ^ right), "Fixed")
-        expectString(typeName(left / right), "Fixed")
-        expectString(typeName(left MOD right), "Fixed")
-        expectString(typeName(left DIV right), "Float")
-      END TCASE
-      TCASE "Fixed with Float"
-        LET left AS Fixed = 2.0
-        LET right AS Float = 2.0
-        expectString(typeName(left + right), "Fixed")
-        expectString(typeName(left - right), "Fixed")
-        expectString(typeName(left * right), "Fixed")
-        expectString(typeName(left ^ right), "Fixed")
-        expectString(typeName(left / right), "Fixed")
-        expectString(typeName(left MOD right), "Fixed")
-        expectString(typeName(left DIV right), "Float")
-      END TCASE
-    END TGROUP
-
-    TGROUP "promotion Float left"
-      TCASE "Float with Byte"
-        LET left AS Float = 2.0
-        LET right AS Byte = 2
-        expectString(typeName(left + right), "Float")
-        expectString(typeName(left - right), "Float")
-        expectString(typeName(left * right), "Float")
-        expectString(typeName(left ^ right), "Float")
-        expectString(typeName(left / right), "Float")
-        expectString(typeName(left MOD right), "Float")
-        expectString(typeName(left DIV right), "Float")
-      END TCASE
-      TCASE "Float with Integer"
-        LET left AS Float = 2.0
-        LET right AS Integer = 2
-        expectString(typeName(left + right), "Float")
-        expectString(typeName(left - right), "Float")
-        expectString(typeName(left * right), "Float")
-        expectString(typeName(left ^ right), "Float")
-        expectString(typeName(left / right), "Float")
-        expectString(typeName(left MOD right), "Float")
-        expectString(typeName(left DIV right), "Float")
-      END TCASE
-      TCASE "Float with Fixed"
-        LET left AS Float = 2.0
-        LET right AS Fixed = 2.0
-        expectString(typeName(left + right), "Fixed")
-        expectString(typeName(left - right), "Fixed")
-        expectString(typeName(left * right), "Fixed")
-        expectString(typeName(left ^ right), "Fixed")
-        expectString(typeName(left / right), "Fixed")
-        expectString(typeName(left MOD right), "Fixed")
-        expectString(typeName(left DIV right), "Float")
-      END TCASE
-      TCASE "Float with Float"
-        LET left AS Float = 2.0
-        LET right AS Float = 2.0
-        expectString(typeName(left + right), "Float")
-        expectString(typeName(left - right), "Float")
-        expectString(typeName(left * right), "Float")
-        expectString(typeName(left ^ right), "Float")
-        expectString(typeName(left / right), "Float")
-        expectString(typeName(left MOD right), "Float")
-        expectString(typeName(left DIV right), "Float")
+      TCASE "Float left"
+        LET fl AS Float = 2.0
+        LET by AS Byte = 2
+        LET it AS Integer = 2
+        LET fx AS Fixed = 2.0
+        expectString(typeName(fl + by), "Float")
+        expectString(typeName(fl + it), "Float")
+        expectString(typeName(fl * fx), "Fixed")
+        expectString(typeName(fl - fl), "Float")
+        expectString(typeName(fl DIV it), "Float")
       END TCASE
     END TGROUP
   END TGROUP

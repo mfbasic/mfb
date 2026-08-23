@@ -32,4 +32,8 @@ String
 String
 Integer
 String
+Float
+Integer
+Boolean
+Boolean
 [exit 0]
