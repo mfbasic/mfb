@@ -1,13 +1,14 @@
 //! Whole-tree architecture guards — filesystem lints, not MIR/serialization
 //! tests.
 //!
-//! Two invariants over the target-generic codegen (which was relocated from
-//! `src/target/shared/code` into the tiered `src/codegen`, commit f32179ed4):
+//! Two invariants over the codegen tiers:
 //!
 //!  1. `shared_lowering_names_no_physical_register` — no hand-picked *physical*
-//!     register (`"x9"`, `"rax"`, `"d3"`, …) in an instruction-emission context.
-//!     Makes the `bug-56` hand-picked-physical-register class a source lint on
-//!     top of the authoritative runtime guard `regalloc::find_physical_operand`.
+//!     register (`"x9"`, `"rax"`, `"d3"`, …) in an instruction-emission context,
+//!     across `src/codegen` AND all of `src/target` (the per-target backends
+//!     included — not just `src/target/shared`). Makes the `bug-56`
+//!     hand-picked-physical-register class a source lint on top of the
+//!     authoritative runtime guard `regalloc::find_physical_operand`.
 //!
 //!  2. `builtins_no_hand_picked_vreg` — bans hand-*numbered* virtual registers
 //!     (`"%v9"`, `"%f3"`) in `src/codegen/builtins`. These are legal (they pass
@@ -75,10 +76,7 @@ fn is_emission_context(line: &str) -> bool {
 #[test]
 fn shared_lowering_names_no_physical_register() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let roots = [
-        manifest.join("src/codegen"),
-        manifest.join("src/target/shared"),
-    ];
+    let roots = [manifest.join("src/codegen"), manifest.join("src/target")];
 
     // Every physical spelling the three backends know, per class: AArch64 GPR
     // (x/w), scalar-and-vector FP (d/s/v/q), x86-64 GPR + xmm, riscv64 int + fp
