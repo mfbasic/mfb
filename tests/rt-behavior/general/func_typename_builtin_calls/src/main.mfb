@@ -52,4 +52,25 @@ SUB main()
   io::print(typeName(toString(i)))             ' String
   io::print(typeName(len(l)))                  ' Integer
   io::print(typeName(s))                       ' String (plain local)
+
+  ' bug-451: BINDING `typeName(<package call>)` to an owned `String` local (not
+  ' just printing it inline as every case above does). The builder folds the
+  ' argument's static type to a rodata `String` constant, but the ownership
+  ' classifier `static_string_value` (consulted by `value_needs_owning_copy`)
+  ' recognized the `typeName` fold only through the coarse `static_type_name`,
+  ' whose call arm covers a hand-written builtin list — a package call like
+  ' `math::abs`/`collections::find`/`io::isBuffered` returned None, so the bound
+  ' local was NOT deep-copied and scope-drop `arena_free`d the read-only constant
+  ' (a write into rodata -> SIGBUS at exit). The inline-print cases above never
+  ' bound the folded string, so they never freed it and never caught this. Each
+  ' binding below is dropped at scope exit; the fix routes the classifier through
+  ' the same `static_type_name_for_fold` the builder folds with.
+  LET ba AS String = typeName(math::abs(f))            ' Float
+  LET bfi AS String = typeName(collections::find(l, t)) ' Integer
+  LET bco AS String = typeName(collections::contains(l, t)) ' Boolean
+  LET bib AS String = typeName(io::isBuffered())       ' Boolean
+  io::print(ba)
+  io::print(bfi)
+  io::print(bco)
+  io::print(bib)
 END SUB

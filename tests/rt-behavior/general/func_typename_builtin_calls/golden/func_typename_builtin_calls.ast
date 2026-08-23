@@ -51,7 +51,15 @@
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "l" }, { "kind": "number", "value": "0" }] }] }] }, "line": 49 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "i" }] }] }] }, "line": 52 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "l" }] }] }] }, "line": 53 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "s" }] }] }, "line": 54 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "s" }] }] }, "line": 54 },
+      { "kind": "binding", "mutable": false, "name": "ba", "type": "String", "value": { "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "math.abs", "arguments": [{ "kind": "identifier", "value": "f" }] }] }, "line": 68 },
+      { "kind": "binding", "mutable": false, "name": "bfi", "type": "String", "value": { "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "collections.find", "arguments": [{ "kind": "identifier", "value": "l" }, { "kind": "identifier", "value": "t" }] }] }, "line": 69 },
+      { "kind": "binding", "mutable": false, "name": "bco", "type": "String", "value": { "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "collections.contains", "arguments": [{ "kind": "identifier", "value": "l" }, { "kind": "identifier", "value": "t" }] }] }, "line": 70 },
+      { "kind": "binding", "mutable": false, "name": "bib", "type": "String", "value": { "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "io.isBuffered", "arguments": [] }] }, "line": 71 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "ba" }] }, "line": 72 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "bfi" }] }, "line": 73 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "bco" }] }, "line": 74 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "bib" }] }, "line": 75 }
       ]
     }
     ]

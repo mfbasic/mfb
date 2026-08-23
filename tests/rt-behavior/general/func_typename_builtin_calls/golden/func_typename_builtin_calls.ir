@@ -50,7 +50,15 @@
     { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "typeName", "args": [{ "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "l" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } },
     { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "typeName", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "i" }] }] }] } },
     { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "typeName", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "l" }] }] }] } },
-    { "op": "eval", "line": 54, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "typeName", "args": [{ "kind": "local", "name": "s" }] }] } }
+    { "op": "eval", "line": 54, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "typeName", "args": [{ "kind": "local", "name": "s" }] }] } },
+    { "op": "bind", "line": 68, "mutable": false, "name": "ba", "type": "String", "value": { "kind": "call", "type": "String", "target": "typeName", "args": [{ "kind": "call", "type": "Float", "target": "math.abs", "args": [{ "kind": "local", "name": "f" }] }] } },
+    { "op": "bind", "line": 69, "mutable": false, "name": "bfi", "type": "String", "value": { "kind": "call", "type": "String", "target": "typeName", "args": [{ "kind": "call", "type": "Integer", "target": "collections.find", "args": [{ "kind": "local", "name": "l" }, { "kind": "local", "name": "t" }] }] } },
+    { "op": "bind", "line": 70, "mutable": false, "name": "bco", "type": "String", "value": { "kind": "call", "type": "String", "target": "typeName", "args": [{ "kind": "call", "type": "Boolean", "target": "collections.contains", "args": [{ "kind": "local", "name": "l" }, { "kind": "local", "name": "t" }] }] } },
+    { "op": "bind", "line": 71, "mutable": false, "name": "bib", "type": "String", "value": { "kind": "call", "type": "String", "target": "typeName", "args": [{ "kind": "call", "type": "Boolean", "target": "io.isBuffered", "args": [] }] } },
+    { "op": "eval", "line": 72, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "ba" }] } },
+    { "op": "eval", "line": 73, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "bfi" }] } },
+    { "op": "eval", "line": 74, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "bco" }] } },
+    { "op": "eval", "line": 75, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "bib" }] } }
     ]
   }
   ]

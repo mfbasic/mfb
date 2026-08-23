@@ -685,7 +685,19 @@ impl CodeBuilder<'_> {
             NirValue::Call { target, args, .. } | NirValue::RuntimeCall { target, args, .. }
                 if target == "typeName" && args.len() == 1 =>
             {
-                self.static_type_name(&args[0])
+                // MUST use the SAME resolver the builder's `typeName` fold uses
+                // (`static_type_name_for_fold`, via `resolve_call_return_type`), not
+                // the coarser `static_type_name` whose call arm only recognizes a
+                // hardcoded builtin list. The builder folds `typeName(<any call>)`
+                // — e.g. `typeName(math::abs(x))` or `typeName(io::isBuffered())` —
+                // to a rodata `String` constant; if this ownership classifier misses
+                // that fold (as `static_type_name` does for a package call not in its
+                // list), `value_needs_owning_copy` returns false and `LET t =
+                // typeName(math::abs(x))` binds `t` straight to the rodata pointer
+                // with no deep copy — scope-drop then `arena_free`s a read-only
+                // constant (a write into rodata → SIGBUS). Same fold-mismatch class
+                // as the strings-package note below.
+                self.static_type_name_for_fold(&args[0])
             }
             NirValue::Binary {
                 op, left, right, ..
