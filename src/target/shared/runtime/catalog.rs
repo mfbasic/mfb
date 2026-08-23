@@ -169,7 +169,6 @@ mod tests {
             // plan-91-B: worker-side sleep is synthesized from `thread.sleep` in
             // the code layer (builder_values), so it never exists at NIR level.
             "thread.sleepWorker",
-            "net.connectTcpAddr",
             // plan-90-A: `process.spawn(args, cwd, env, envReplace)` is rewritten to
             // `process.spawnEnv` in the code layer (`builder_values`), so it never
             // exists at the NIR level and `helper_for_call` must not classify it.
@@ -187,11 +186,16 @@ mod tests {
             // and `helper_for_call` classifies them — they are deliberately NOT listed
             // here (the `audio.close` base member, which always rewrites away, never
             // reaches a runtime symbol but is still classified by `owning_package`).
-            // plan-76-A: `net.poll(List OF RES Socket)` is rewritten to `net.pollList`
-            // in the code layer (`builder_values`), so it never exists at the NIR
-            // level and `helper_for_call` must not classify it.
-            "net.pollList",
-            // plan-76-C: same for `tls.poll(List OF RES TlsSocket)` → `tls.pollList`.
+            // `net`'s `connectTcpAddr`/`pollList` code-form aliases are NOT listed:
+            // since the migration to `Body::abi_function_os_seam` they are registered
+            // `os_aliases` of an `abi_function` member, so `is_abi_function_call` /
+            // `abi_function_lower` classify them to the `Net` family (like audio's
+            // overload-split forms). They are still synthesized in the code layer
+            // (`builder_values` rewrites `net.poll`/`net.connectTcp`), so they never
+            // reach `helper_for_call` at the NIR level in practice — but where they to,
+            // the family answer is now correct rather than `None`.
+            // plan-76-C: `tls.poll(List OF RES TlsSocket)` → `tls.pollList` is still an
+            // OS-seam (`native_os_seam`) alias, so `helper_for_call` must not classify it.
             "tls.pollList",
             // plan-67-B: perf helpers are injected by the code layer (program
             // entry/exit + arena-region wrapping), never present at the NIR level,

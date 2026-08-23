@@ -20,7 +20,7 @@ pub(crate) fn lower_net_poll_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<NetBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2): the `pollfd` is an explicit on-stack
     // local; scratch is vregs the allocator places.
     const FRAME_SIZE: usize = 48;
@@ -35,7 +35,7 @@ pub(crate) fn lower_net_poll_helper(
     let not_ready = format!("{symbol}_not_ready");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -142,8 +142,7 @@ pub(crate) fn lower_net_poll_helper(
         &done,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME_SIZE))
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +168,7 @@ pub(crate) fn lower_net_poll_list_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<NetBodyParts, String> {
     // Explicit sp-relative locals that must survive the arena_alloc / poll /
     // arena_free calls (each clobbers all caller-saved registers). The pollfd
     // *array* lives in the arena, not here; these hold only scalars.
@@ -203,7 +202,7 @@ pub(crate) fn lower_net_poll_list_helper(
     let found = format!("{symbol}_found");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v8 = vregs.next();
@@ -423,8 +422,7 @@ pub(crate) fn lower_net_poll_list_helper(
         &done,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME_SIZE))
 }
 
 // ---------------------------------------------------------------------------
@@ -436,7 +434,7 @@ pub(crate) fn lower_net_set_timeout_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     write: bool,
-) -> HelperResult {
+) -> Result<NetBodyParts, String> {
     // Vreg-allocated (plan-00-G Phase 2): the `timeval` is an explicit on-stack
     // local; scratch is vregs.
     const FRAME_SIZE: usize = 48;
@@ -449,7 +447,7 @@ pub(crate) fn lower_net_set_timeout_helper(
     let nb_ok = format!("{symbol}_nb_ok");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -577,6 +575,5 @@ pub(crate) fn lower_net_set_timeout_helper(
         &done,
     );
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-    Ok((frame, instructions, relocations, stack_slots))
+    Ok((instructions, relocations, FRAME_SIZE))
 }

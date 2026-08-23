@@ -2057,27 +2057,10 @@ pub(crate) fn lower_runtime_helper(
                     platform_imports,
                     platform,
                 )?,
-                // Every `net.*` member carries `Body::native_os_seam` on the clean-room
-                // registry: the per-platform emission lives in
-                // `codegen::builtins::net::native` (the twin-idiom `lower_net_helper`),
-                // and the generic registry-driven dispatch routes each member plus its
-                // `connectTcpAddr`/`pollList` code-form aliases by `platform.family()`.
-                call if call.starts_with("net.") => {
-                    match crate::codegen::os::dispatch_runtime_helper(
-                        call,
-                        symbol,
-                        &os_ctx,
-                        platform_imports,
-                        platform,
-                    ) {
-                        Some(result) => result?,
-                        None => {
-                            return Err(format!(
-                                "native code plan does not emit runtime call '{call}'"
-                            ));
-                        }
-                    }
-                }
+                // (`net.*` members are `Body::abi_function_os_seam` since the clean-room
+                // migration — the shared `lower_net_os_seam` body plus its
+                // `connectTcpAddr`/`pollList` code-form aliases — so they route through
+                // the `is_abi_function_call` branch above; no `net.` arm here.)
                 // (`audio.*` device-I/O members are `Body::abi_function` since the
                 // clean-room migration — the shared `lower_audio_os_seam` body plus its
                 // IR-level overload-split code forms (openInputDevice/openOutputDevice/

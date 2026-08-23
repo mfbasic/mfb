@@ -18,6 +18,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -450,7 +451,7 @@ fn lower_net_endpoint_helper(
     platform: &dyn CodegenPlatform,
     listen: bool,
     address: bool,
-) -> HelperResult {
+) -> Result<NetBodyParts, String> {
     const FRAME_SIZE: usize = 192;
     const HOST_OFFSET: usize = 8;
     const PORT_OFFSET: usize = 16;
@@ -492,7 +493,7 @@ fn lower_net_endpoint_helper(
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -1037,9 +1038,7 @@ fn lower_net_endpoint_helper(
     );
     instructions.extend([abi::label(&done), abi::return_()]);
     {
-        let (frame, stack_slots) =
-            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, FRAME_SIZE))
     }
 }
 
@@ -1047,7 +1046,7 @@ pub(crate) fn lower_net_connect_tcp_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<NetBodyParts, String> {
     lower_net_endpoint_helper(symbol, platform_imports, platform, false, false)
 }
 
@@ -1055,7 +1054,7 @@ pub(crate) fn lower_net_connect_tcp_addr_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<NetBodyParts, String> {
     lower_net_endpoint_helper(symbol, platform_imports, platform, false, true)
 }
 
@@ -1063,24 +1062,55 @@ pub(crate) fn lower_net_listen_tcp_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<NetBodyParts, String> {
     lower_net_endpoint_helper(symbol, platform_imports, platform, true, false)
 }
 
-/// The family-generic runtime-helper dispatcher for every migrated `net.*` member,
-/// held in both `Body::native_os_seam` slots (the os/fs/tls twin idiom). The generic
-/// registry-driven dispatch (`codegen::os::dispatch_runtime_helper` →
-/// `registry::os_helper`) picks the posix/win slot by `platform.family()` and routes
-/// each member — plus its `connectTcpAddr`/`pollList` code-form aliases — here. A
-/// `net` socket/listener handle shares the `File` record layout, so `net.close` reuses
-/// the shared file-close helper (as the legacy `code/mod.rs` net arm did).
+/// The `(instructions, relocations, stack_size)` a `net` OS-seam body emits before the
+/// `abi_function` wrapper finalizes it — the successor to the finalized `HelperResult`
+/// tuple (see `fs`'s `FsBodyParts` / `audio`'s `AudioBodyParts`). `stack_size` is the
+/// sp-relative locals region the body reserves; the wrapper passes it to
+/// `finalize_vreg_body_with_locals`, byte-identical to the body's former self-finalize.
+pub(crate) type NetBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize);
+
+/// The `abi_function` body shared by every native `net.*` member (crypto/io's
+/// clean-room shape). The `abi_function` wrapper seeds the entry label, binds the
+/// incoming ABI argument registers, and finalizes; this body dispatches to the
+/// family-generic [`lower_net_helper`] by the runtime-call name in [`AbiCtx::call`]
+/// — the member's own name OR one of its `connectTcpAddr`/`pollList` code-form
+/// aliases — and appends its instructions/relocations. All native members register
+/// this one body; the aux→primary routing lives in `abi_function_lower`.
+pub(crate) fn lower_net_os_seam(
+    builder: &mut CodeBuilder,
+    _args: &[ValueResult],
+    ctx: &crate::codegen::registry::AbiCtx,
+) -> Result<ValueResult, String> {
+    let symbol = builder.current_symbol.clone();
+    let (instructions, relocations, stack_size) =
+        lower_net_helper(ctx.call, &symbol, ctx.platform_imports, ctx.platform)?;
+    builder.instructions.extend(instructions);
+    builder.relocations.extend(relocations);
+    builder.stack_size = stack_size;
+    // A `void` location: every net body emits its own fallible ABI, so the wrapper
+    // appends no epilogue.
+    Ok(ValueResult {
+        type_: "Nothing".to_string(),
+        location: Operand::from("void"),
+        text: ctx.call.to_string(),
+    })
+}
+
+/// Family-generic OS-seam dispatcher for every native `net.*` member. Reached from the
+/// shared [`lower_net_os_seam`] `abi_function` body; the relocated `lower_net_*_helper`
+/// emitters branch on `platform.family()` internally and return the pre-finalize
+/// [`NetBodyParts`] the wrapper finalizes. A `net` socket/listener handle shares the
+/// `File` record layout, so `net.close` reuses the shared file-close helper.
 pub(crate) fn lower_net_helper(
     call: &str,
     symbol: &str,
-    _ctx: &crate::codegen::registry::OsLowerCtx,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<NetBodyParts, String> {
     match call {
         "net.lookup" => lower_net_lookup_helper(symbol, platform_imports, platform),
         "net.connectTcp" => lower_net_connect_tcp_helper(symbol, platform_imports, platform),
@@ -1095,26 +1125,17 @@ pub(crate) fn lower_net_helper(
         "net.readText" => lower_net_read_helper(symbol, platform_imports, platform, true),
         "net.write" => lower_net_write_helper(symbol, platform_imports, platform, false),
         "net.writeText" => lower_net_write_helper(symbol, platform_imports, platform, true),
-        "net.close" => {
-            // `net.close` reuses the `fs::close` body (a socket fd is closed exactly
-            // like a file fd). Since the plan-72 migration `lower_fs_close_helper` is an
-            // `abi_function` body — it returns the pre-finalize `(instructions,
-            // relocations, stack_size)` and no longer seeds its own entry label — so this
-            // OS-seam consumer prepends the entry label and finalizes the vreg body
-            // itself, exactly as the `abi_function` wrapper does (byte-identical).
-            let (body, relocations, stack_size) =
-                crate::codegen::builtins::fs::gen_handle::lower_fs_close_helper(
-                    symbol,
-                    platform_imports,
-                    platform,
-                    false,
-                )?;
-            let mut instructions = vec![abi::label("entry")];
-            instructions.extend(body);
-            let (frame, stack_slots) =
-                finalize_vreg_body_with_locals(&mut instructions, &[], stack_size);
-            Ok((frame, instructions, relocations, stack_slots))
-        }
+        // `net.close` reuses the `fs::close` body (a socket fd is closed exactly like a
+        // file fd; `flush_on_close: false` — a socket carries no `fs::` output buffer).
+        // `lower_fs_close_helper` is an `abi_function` pre-finalize body returning the
+        // `(instructions, relocations, stack_size)` this shared dispatcher forwards
+        // unchanged; the `abi_function` wrapper seeds the entry label and finalizes.
+        "net.close" => crate::codegen::builtins::fs::gen_handle::lower_fs_close_helper(
+            symbol,
+            platform_imports,
+            platform,
+            false,
+        ),
         "net.localAddress" => lower_net_address_helper(symbol, platform_imports, platform, false),
         "net.remoteAddress" => lower_net_address_helper(symbol, platform_imports, platform, true),
         "net.setReadTimeout" => {

@@ -94,7 +94,7 @@ pub(crate) fn lower_net_accept_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<NetBodyParts, String> {
     const FRAME_SIZE: usize = 64;
     const FD_OFFSET: usize = 8;
     const TIMEOUT_OFFSET: usize = 16;
@@ -118,7 +118,7 @@ pub(crate) fn lower_net_accept_helper(
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -403,9 +403,7 @@ pub(crate) fn lower_net_accept_helper(
     );
     instructions.extend([abi::label(&done), abi::return_()]);
     {
-        let (frame, stack_slots) =
-            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, FRAME_SIZE))
     }
 }
 
@@ -418,7 +416,7 @@ pub(crate) fn lower_net_address_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     remote: bool,
-) -> HelperResult {
+) -> Result<NetBodyParts, String> {
     const FRAME_SIZE: usize = 224;
     const FD_OFFSET: usize = 8;
     const LEN_OFFSET: usize = 16;
@@ -434,7 +432,7 @@ pub(crate) fn lower_net_address_helper(
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -523,9 +521,7 @@ pub(crate) fn lower_net_address_helper(
     );
     instructions.extend([abi::label(&done), abi::return_()]);
     {
-        let (frame, stack_slots) =
-            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, FRAME_SIZE))
     }
 }
 
@@ -538,7 +534,7 @@ pub(crate) fn lower_net_read_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> HelperResult {
+) -> Result<NetBodyParts, String> {
     const FRAME_SIZE: usize = 96;
     const FD_OFFSET: usize = 8;
     const MAX_OFFSET: usize = 16;
@@ -570,7 +566,7 @@ pub(crate) fn lower_net_read_helper(
     let str_done = format!("{symbol}_str_done");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -819,9 +815,7 @@ pub(crate) fn lower_net_read_helper(
     );
     instructions.extend([abi::label(&done), abi::return_()]);
     {
-        let (frame, stack_slots) =
-            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, FRAME_SIZE))
     }
 }
 
@@ -834,7 +828,7 @@ pub(crate) fn lower_net_write_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> HelperResult {
+) -> Result<NetBodyParts, String> {
     const FRAME_SIZE: usize = 96;
     const FD_OFFSET: usize = 8;
     const SRC_OFFSET: usize = 16; // pointer to the next byte to write
@@ -847,7 +841,7 @@ pub(crate) fn lower_net_write_helper(
     let timeout = format!("{symbol}_timeout");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -1017,9 +1011,7 @@ pub(crate) fn lower_net_write_helper(
     );
     instructions.extend([abi::label(&done), abi::return_()]);
     {
-        let (frame, stack_slots) =
-            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, FRAME_SIZE))
     }
 }
 
@@ -1031,7 +1023,7 @@ pub(crate) fn lower_net_lookup_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<NetBodyParts, String> {
     const FRAME_SIZE: usize = 256;
     const HOST_OFFSET: usize = 8;
     const PORT_OFFSET: usize = 16;
@@ -1061,7 +1053,7 @@ pub(crate) fn lower_net_lookup_helper(
     let done = format!("{symbol}_done");
 
     let addr_off = platform.addrinfo_addr_offset();
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -1289,9 +1281,7 @@ pub(crate) fn lower_net_lookup_helper(
     );
     instructions.extend([abi::label(&done), abi::return_()]);
     {
-        let (frame, stack_slots) =
-            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, FRAME_SIZE))
     }
 }
 
@@ -1307,7 +1297,7 @@ pub(crate) fn lower_net_bind_udp_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> HelperResult {
+) -> Result<NetBodyParts, String> {
     const FRAME_SIZE: usize = 128;
     const HOST_OFFSET: usize = 8;
     const PORT_OFFSET: usize = 16;
@@ -1329,7 +1319,7 @@ pub(crate) fn lower_net_bind_udp_helper(
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -1518,9 +1508,7 @@ pub(crate) fn lower_net_bind_udp_helper(
     );
     instructions.extend([abi::label(&done), abi::return_()]);
     {
-        let (frame, stack_slots) =
-            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, FRAME_SIZE))
     }
 }
 
@@ -1539,7 +1527,7 @@ pub(crate) fn lower_net_receive_from_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> HelperResult {
+) -> Result<NetBodyParts, String> {
     const FRAME_SIZE: usize = 224;
     const FD_OFFSET: usize = 8;
     const MAX_OFFSET: usize = 16;
@@ -1569,7 +1557,7 @@ pub(crate) fn lower_net_receive_from_helper(
     let entry_done = format!("{symbol}_entry_done");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -1864,9 +1852,7 @@ pub(crate) fn lower_net_receive_from_helper(
     );
     instructions.extend([abi::label(&done), abi::return_()]);
     {
-        let (frame, stack_slots) =
-            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, FRAME_SIZE))
     }
 }
 
@@ -1882,7 +1868,7 @@ pub(crate) fn lower_net_send_to_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> HelperResult {
+) -> Result<NetBodyParts, String> {
     const FRAME_SIZE: usize = 144;
     const FD_OFFSET: usize = 8;
     const DATA_OFFSET: usize = 24; // pointer to payload bytes
@@ -1905,7 +1891,7 @@ pub(crate) fn lower_net_send_to_helper(
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry")];
+    let mut instructions: Vec<CodeInstruction> = Vec::new();
     let mut relocations = Vec::new();
     let mut vregs = Vregs::new();
     let v9 = vregs.next();
@@ -2132,9 +2118,7 @@ pub(crate) fn lower_net_send_to_helper(
     );
     instructions.extend([abi::label(&done), abi::return_()]);
     {
-        let (frame, stack_slots) =
-            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
-        Ok((frame, instructions, relocations, stack_slots))
+        Ok((instructions, relocations, FRAME_SIZE))
     }
 }
 
@@ -2153,7 +2137,7 @@ mod lookup_release_tests {
     fn lookup_frees_addrinfo_on_addr_fail() {
         mir::set_backend(&crate::arch::aarch64::backend::AARCH64_BACKEND);
         let imports = HashMap::new();
-        let (_f, ins, _r, _s) =
+        let (ins, _r, _s) =
             lower_net_lookup_helper("lk", &imports, &TestPlatform).expect("lower lookup");
         let freeaddrinfo_calls = ins
             .iter()

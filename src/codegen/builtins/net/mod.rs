@@ -7,15 +7,17 @@
 //! and `UdpSocket` (a bound datagram socket) — are opaque, owned handles released
 //! by lexical drop.
 //!
-//! Like `process`/`os`/`fs`/`tls`, `net` is a **native OS-seam** package: every
-//! socket/DNS/UDP member carries a per-platform runtime-helper lowering. The
-//! relocated syscall emission lives in [`native`]; each such member's
-//! [`Body::native_os_seam`] holds the one family-generic dispatcher
-//! [`native::lower_net_helper`] in both the posix and win slots (the `os`/`fs`/`tls`
-//! twin idiom), and the generic runtime-call dispatch
-//! (`crate::codegen::os::dispatch_runtime_helper` → `registry::os_helper`) picks the
-//! slot by `platform.family()` and routes each member (plus the `connectTcpAddr` /
-//! `pollList` code-form aliases) to it.
+//! Like `fs`/`audio`, `net` is a **native OS-seam** package migrated to the
+//! `Body::abi_function` clean-room shape: every socket/DNS/UDP member carries a
+//! per-platform runtime-helper lowering. The relocated syscall emission lives in
+//! [`native`]; each such member's [`Body::abi_function_os_seam`] holds the one
+//! clean-room lowering [`native::lower_net_os_seam`], which dispatches to the
+//! family-generic [`native::lower_net_helper`] by `AbiCtx::call` and selects the
+//! posix/win emission by `platform.family()`. The member plus its `connectTcpAddr` /
+//! `pollList` code-form aliases route through `is_abi_function_call` /
+//! `abi_function_lower` (the aux→primary routing is registry data), and the `Net`
+//! runtime family is preserved via `abi_function_family` so the `_mfb_rt_net_*`
+//! symbols are unchanged.
 //!
 //! The pure URL string work (`toUrl`/`percentDecode`/`parseQuery`, the `Url` value
 //! record, and the `toString(net::Url)` renderer) is source-backed
@@ -137,16 +139,13 @@ URL into a `Url` value record, `toString` renders it back, and
 `Socket`, `Listener`, and `UdpSocket` handles are opaque, owned resources closed
 automatically by lexical drop; `net::close` releases one earlier."#;
 
-/// The `Body::native_os_seam` every native `net.*` member carries: the one
-/// family-generic [`native::lower_net_helper`] in both the posix and win slots (the
-/// os/fs/tls twin idiom), plus any code-form `os_aliases`
-/// (`connectTcpAddr`/`pollList`) the overload emits.
+/// The `Body::abi_function_os_seam` every native `net.*` member carries: the one
+/// clean-room lowering [`native::lower_net_os_seam`] (which dispatches to the
+/// family-generic [`native::lower_net_helper`] by `AbiCtx::call`), plus any code-form
+/// `os_aliases` (`connectTcpAddr`/`pollList`) the overload emits — the `abi_function`
+/// successor to the `native_os_seam` twin idiom (crypto/io/fs/audio shape).
 pub(crate) fn net_native(os_aliases: &'static [&'static str]) -> Body {
-    Body::native_os_seam(
-        Some(native::lower_net_helper),
-        Some(native::lower_net_helper),
-        os_aliases,
-    )
+    Body::abi_function_os_seam(native::lower_net_os_seam, os_aliases)
 }
 
 /// Register the `net` package on the clean-room registry.
