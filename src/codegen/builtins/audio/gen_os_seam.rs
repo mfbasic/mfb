@@ -12,11 +12,9 @@
 // `OUT CBuffer` staging can reach it without depending on `audio`. Re-imported
 // here so both backends keep naming it unqualified.
 // --- codegen tier imports (migration) ---
-use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
-use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use std::collections::HashMap;
 
@@ -113,15 +111,11 @@ pub(crate) const DEVICE_RECORD_SIZE: usize = 48;
 pub(crate) const AUDIO_OUTPUT_CALLBACK_SYMBOL: &str = "_mfb_rt_audio_output_callback";
 pub(crate) const AUDIO_INPUT_CALLBACK_SYMBOL: &str = "_mfb_rt_audio_input_callback";
 
-mod alsa;
-mod common;
-mod macos;
-mod windows;
-
 // Scaffolding both backends share (bug-330); imported here so each backend's
 // `use super::*` picks them up.
-use common::{emit_validate_open, Query, READ_FRAMES_MAX};
-pub(crate) use macos::{lower_audio_input_callback, lower_audio_output_callback};
+pub(crate) use super::gen_macos_callbacks::{
+    lower_audio_input_callback, lower_audio_output_callback,
+};
 
 /// The `(instructions, relocations, stack_size)` an `audio` OS-seam body emits before
 /// the `abi_function` wrapper finalizes it — the successor to the finalized
@@ -169,11 +163,15 @@ pub(crate) fn lower_audio_helper(
     platform: &dyn CodegenPlatform,
 ) -> Result<AudioBodyParts, String> {
     match platform.family() {
-        PlatformFamily::MacOS => macos::lower_audio_macos(call, symbol, platform_imports, platform),
-        PlatformFamily::Linux => alsa::lower_audio_alsa(call, symbol, platform_imports, platform),
+        PlatformFamily::MacOS => {
+            super::gen_macos_shared::lower_audio_macos(call, symbol, platform_imports, platform)
+        }
+        PlatformFamily::Linux => {
+            super::gen_alsa_shared::lower_audio_alsa(call, symbol, platform_imports, platform)
+        }
         // Windows drives WASAPI over COM (plan-66 G+H): the `windows` submodule.
         PlatformFamily::Windows => {
-            windows::lower_audio_windows(call, symbol, platform_imports, platform)
+            super::gen_windows::lower_audio_windows(call, symbol, platform_imports, platform)
         }
     }
 }
@@ -181,7 +179,7 @@ pub(crate) fn lower_audio_helper(
 /// C-string data objects (the `libasound.so.2` soname + ALSA symbol names) the
 /// Linux backend references for its `dlopen`/`dlsym`.
 fn alsa_data_objects() -> Vec<CodeDataObject> {
-    alsa::data_objects()
+    super::gen_alsa_shared::data_objects()
 }
 
 /// The selected audio backend for a build. Owns the two whole-plan decisions
@@ -235,7 +233,7 @@ impl AudioBackend {
                     .iter()
                     .any(|symbol| symbol.starts_with("_mfb_rt_audio_"))
                 {
-                    windows::data_objects()
+                    super::gen_windows::data_objects()
                 } else {
                     Vec::new()
                 }
@@ -259,10 +257,10 @@ impl AudioBackend {
                     .iter()
                     .any(|symbol| list.contains(&symbol.as_str()))
             };
-            if uses(macos::OUTPUT_CALLBACK_SYMBOLS) {
+            if uses(super::gen_macos_callbacks::OUTPUT_CALLBACK_SYMBOLS) {
                 functions.push(lower_audio_output_callback(platform_imports, platform)?);
             }
-            if uses(macos::INPUT_CALLBACK_SYMBOLS) {
+            if uses(super::gen_macos_callbacks::INPUT_CALLBACK_SYMBOLS) {
                 functions.push(lower_audio_input_callback(platform_imports, platform)?);
             }
         }

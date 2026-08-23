@@ -4,9 +4,9 @@
 //! errno-convention split, and the short-transfer loop tail are used by every
 //! fs/io/net/term read/write site (`io_stdout`/`io_stdin`/`net/`/`term_grid`/…),
 //! so they live in the shared code layer rather than in the migrated `fs`
-//! package's `native/` dir (the plan-72 transitivity rule: a helper called by a
-//! non-`fs` function stays in `src/target`). Relocated verbatim from the former
-//! `src/codegen/builtins/fs/native/io.rs`.
+//! package's `gen_*` code-generation modules (the plan-72 transitivity rule: a
+//! helper called by a non-`fs` function stays in `src/target`). Relocated verbatim
+//! from the former `src/codegen/builtins/fs/native/io.rs`.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;

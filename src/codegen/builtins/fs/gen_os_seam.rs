@@ -1,61 +1,19 @@
-//! Native code generation for the built-in `fs` package (plan-72 migration).
-//!
-//! The `fs` package is a plain-syscall package: every member lowers to a
-//! per-platform OS-seam runtime helper (`open`/`read`/`write`/`close`/`stat`/…)
-//! or, for the five `path*` string members, to a target-generic call-site
-//! lowering. These emitters were the hand-written `lower_fs_*_helper` bodies under
-//! the former `src/codegen/builtins/fs/native/` and `builder_fs_paths.rs`; they are
-//! relocated here verbatim (byte-identical emission).
-//!
-//! The 36 syscall members are `Body::abi_function` (crypto/io's clean-room shape):
-//! each `func_*.rs` registers a one-line `lower_<name>` body that calls the shared
-//! [`lower_fs_os_seam`] `abi_function` lowering with its own runtime-call name; the
-//! `abi_function` wrapper seeds the entry label, binds the incoming ABI argument
-//! registers, and finalizes. `lower_fs_os_seam` dispatches to the family-generic
-//! [`lower_fs_helper`] — the verbatim `match call` block that lived in `code/mod.rs`
-//! — whose relocated `lower_fs_*_helper` emitters branch on `platform.family()`
-//! internally and return the pre-finalize [`FsBodyParts`]. `fs` needs no build
-//! context, so the [`AbiCtx`](crate::codegen::registry::AbiCtx) carries only the
-//! import table + platform.
-//!
-//! The five `path*` members are `Body::abi_inline_self` (the self-lowering successor
-//! to the former `common`/`NativeLower` slot), lowering at the call site through the
-//! relocated `impl CodeBuilder` block in `paths_builder.rs`. `pathJoin` additionally
-//! has a standalone runtime helper ([`lower_fs_path_join_helper`]) so imported-package
-//! binary_repr lowers it identically; that helper is injected module-wide from
-//! `code/mod.rs`.
+//! The shared `fs` `abi_function` body (`lower_fs_os_seam`) and the family-generic OS-seam dispatcher (`lower_fs_helper`) it delegates to.
 
-// --- codegen tier imports (migration) ---
-use crate::codegen::collection::layout::*;
-use crate::codegen::collection::sort::*;
+use super::gen_atomic_write::*;
+use super::gen_canonical::*;
+use super::gen_directory::*;
+use super::gen_exists::*;
+use super::gen_handle::*;
+use super::gen_open::*;
+use super::gen_read_write::*;
+use super::gen_shared::*;
+use super::gen_temp_file::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
-use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
-use crate::codegen::io::stdout::*;
-use crate::codegen::memory::data::*;
-use crate::codegen::os::syscall::*;
-use crate::codegen::string::validate::*;
 use std::collections::HashMap;
-mod atomic;
-mod io;
-mod paths;
-mod paths_builder;
-mod shared;
-
-pub(crate) use atomic::*;
-pub(crate) use io::*;
-pub(crate) use paths::*;
-pub(crate) use paths_builder::*;
-pub(crate) use shared::*;
-
-/// The `(instructions, relocations, stack_size)` an `fs` OS-seam body emits before
-/// the `abi_function` wrapper finalizes it — the successor to the finalized
-/// [`HelperResult`] tuple. `stack_size` is the explicit sp-relative locals region the
-/// body reserves (0 when it takes no on-stack scratch); the wrapper passes it to
-/// `finalize_vreg_body_with_locals`, byte-identical to the body's former self-finalize.
-pub(crate) type FsBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize);
 
 /// The `abi_function` body shared by every syscall `fs` member (crypto/io's
 /// clean-room shape): the wrapper seeds the entry label, binds the incoming ABI

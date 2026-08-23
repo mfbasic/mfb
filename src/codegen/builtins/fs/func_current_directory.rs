@@ -1,16 +1,16 @@
 //! `fs::currentDirectory` — descriptor + docs.
 //!
 //! Native syscall member: its `Body::abi_function` body delegates to the shared
-//! family-generic OS-seam dispatcher `native::lower_fs_os_seam`.
+//! family-generic OS-seam dispatcher `gen_os_seam::lower_fs_os_seam`.
 
-use super::native::lower_fs_os_seam;
+use super::gen_os_seam::lower_fs_os_seam;
 use super::{Body, Implementation, RegistryFunction, RegistryPackage};
 use crate::codegen::engine::builder::{CodeBuilder, ValueResult};
 use crate::codegen::registry::AbiCtx;
 use crate::types::ParameterType;
 
 /// `abi_function` body for `fs::currentDirectory` — the shared OS-seam dispatcher
-/// [`super::native::lower_fs_os_seam`], selected by runtime-call name (crypto/io's
+/// [`super::gen_os_seam::lower_fs_os_seam`], selected by runtime-call name (crypto/io's
 /// clean-room shape); the `abi_function` wrapper finalizes it.
 pub(crate) fn lower_fs_current_directory(
     builder: &mut CodeBuilder,

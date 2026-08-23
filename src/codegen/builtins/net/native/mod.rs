@@ -1103,7 +1103,7 @@ pub(crate) fn lower_net_helper(
             // OS-seam consumer prepends the entry label and finalizes the vreg body
             // itself, exactly as the `abi_function` wrapper does (byte-identical).
             let (body, relocations, stack_size) =
-                crate::codegen::builtins::fs::native::lower_fs_close_helper(
+                crate::codegen::builtins::fs::gen_handle::lower_fs_close_helper(
                     symbol,
                     platform_imports,
                     platform,

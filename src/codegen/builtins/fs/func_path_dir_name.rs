@@ -1,9 +1,9 @@
 //! `fs::pathDirName` — descriptor + docs.
 //!
 //! A purely-syntactic `path*` string member: no syscall. It lowers at the call
-//! site through the `Body::abi_inline_self` (self-lowering) (`native::lower_fs_path_dir_name_nl`).
+//! site through the `Body::abi_inline_self` (self-lowering) (`gen_path_builder::lower_fs_path_dir_name_nl`).
 
-use super::native::lower_fs_path_dir_name_nl;
+use super::gen_path_builder::lower_fs_path_dir_name_nl;
 use super::{Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 

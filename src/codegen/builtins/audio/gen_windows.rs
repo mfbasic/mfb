@@ -28,13 +28,19 @@
 //! `W_SHARED`; there is no buffer-alignment retry.
 
 // --- codegen tier imports (migration) ---
+use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
 use crate::codegen::error::emission::*;
 use crate::codegen::memory::arena::*;
 use crate::codegen::os::ffi::*;
 use std::collections::HashMap;
 
-use super::*;
+use super::gen_common::*;
+use super::gen_os_seam::*;
 use crate::target::shared::abi;
 // --- COM / WASAPI constants -------------------------------------------------
 const CLSCTX_ALL: &str = "23"; // INPROC_SERVER|INPROC_HANDLER|LOCAL_SERVER|REMOTE_SERVER
@@ -294,10 +300,10 @@ pub(crate) fn lower_audio_windows(
     }
 }
 
-include!("windows_open.rs");
-include!("windows_io.rs");
-include!("windows_devices.rs");
+include!("gen_windows_open.rs");
+include!("gen_windows_io.rs");
+include!("gen_windows_devices.rs");
 
 #[cfg(test)]
-#[path = "windows_tests.rs"]
+#[path = "gen_windows_tests.rs"]
 mod windows_tests;

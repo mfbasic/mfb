@@ -1,6 +1,16 @@
-// --- codegen tier imports (migration) ---
-use super::*;
+//! Shared `fs` code-generation primitives several members emit (the path->C-string copy loop and the errno->error mappings).
+
+use crate::codegen::engine::types::*;
+use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
+
+/// The `(instructions, relocations, stack_size)` an `fs` OS-seam body emits before
+/// the `abi_function` wrapper finalizes it — the successor to the finalized
+/// [`HelperResult`] tuple. `stack_size` is the explicit sp-relative locals region the
+/// body reserves (0 when it takes no on-stack scratch); the wrapper passes it to
+/// `finalize_vreg_body_with_locals`, byte-identical to the body's former self-finalize.
+pub(crate) type FsBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize);
+
 /// Emit the shared path→C-string copy loop (bug-331 §A): copy `len` bytes from
 /// `src` into `dst`, advancing both, then write the trailing NUL. When
 /// `reject_nul` is set an embedded NUL byte branches to `invalid` (the caller's

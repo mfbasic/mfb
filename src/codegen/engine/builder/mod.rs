@@ -52,11 +52,11 @@ use crate::codegen::engine::analysis::module_uses_call;
 use crate::codegen::engine::analysis::*;
 use crate::codegen::memory::data::*;
 use crate::codegen::runtime::thread::*;
-// `audio`'s per-backend device emission moved to `crate::codegen::builtins::audio::native`
+// `audio`'s per-backend device emission moved to `crate::codegen::builtins::audio` (gen_* modules)
 // (clean-room registry migration). The `AudioBackend` selector (data objects + macOS
 // AudioQueue callbacks) is reached there; runtime-helper bodies flow through the generic
 // `crate::codegen::os::dispatch_runtime_helper` (registry OS-seam), like tls/process.
-use crate::codegen::builtins::audio::native::AudioBackend;
+use crate::codegen::builtins::audio::gen_os_seam::AudioBackend;
 use crate::codegen::collection::layout::{recursive_transfer_types, thread_copy_symbol};
 // The cross-package presentation-mode gate (app owns `Mode`) stays in the shared
 // code layer; re-exported so the migrated `term` package's native dispatcher
@@ -124,7 +124,7 @@ pub(crate) type HelperResult = Result<HelperBody, String>;
 
 pub(crate) struct CodeBuilder<'a> {
     // `pub(crate)`: the relocated `fs` path-string emitters
-    // (`crate::codegen::builtins::fs::native::paths_builder`) read these two fields
+    // (`crate::codegen::builtins::fs::gen_path_builder`) read these two fields
     // directly, as they did when they lived in this module.
     pub(crate) current_symbol: String,
     pub(crate) function_symbols: &'a HashMap<String, String>,
@@ -1427,10 +1427,12 @@ pub(crate) fn lower_module_for_platform(
         )
     });
     if uses_file_buffer {
-        code_functions.push(crate::codegen::builtins::fs::native::lower_fs_file_drain(
-            &platform_imports,
-            platform,
-        )?);
+        code_functions.push(
+            crate::codegen::builtins::fs::gen_handle::lower_fs_file_drain(
+                &platform_imports,
+                platform,
+            )?,
+        );
     }
     if module.entry.is_some() {
         code_functions.push(lower_shutdown(
@@ -1737,7 +1739,8 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_float_to_string_helper());
     }
     if module_uses_call(module, "fs.pathJoin") {
-        code_functions.push(crate::codegen::builtins::fs::native::lower_fs_path_join_helper());
+        code_functions
+            .push(crate::codegen::builtins::fs::gen_path_builder::lower_fs_path_join_helper());
     }
     if runtime_symbols
         .iter()

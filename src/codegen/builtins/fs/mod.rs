@@ -8,9 +8,9 @@
 //!
 //! Every syscall member (36 of them) is `Body::abi_function` (crypto/io's
 //! clean-room shape): each `func_*.rs` registers a one-line `lower_<name>` body
-//! calling the shared [`native::lower_fs_os_seam`] with its own runtime-call name,
+//! calling the shared [`gen_os_seam::lower_fs_os_seam`] with its own runtime-call name,
 //! which dispatches to the family-generic OS-seam dispatcher
-//! [`native::lower_fs_helper`] (branching on `platform.family()` internally); the
+//! [`gen_os_seam::lower_fs_helper`] (branching on `platform.family()` internally); the
 //! `abi_function` wrapper finalizes it. The five `path*` string members are
 //! `Body::abi_inline_self` (the self-lowering successor to the former `common` slot),
 //! lowering at the call site through the relocated `impl CodeBuilder` path emitters.
@@ -25,7 +25,17 @@ use crate::codegen::registry::{
     RegistryResource,
 };
 
-pub(crate) mod native;
+pub(crate) mod gen_atomic_write;
+pub(crate) mod gen_canonical;
+pub(crate) mod gen_directory;
+pub(crate) mod gen_exists;
+pub(crate) mod gen_handle;
+pub(crate) mod gen_open;
+pub(crate) mod gen_os_seam;
+pub(crate) mod gen_path_builder;
+pub(crate) mod gen_read_write;
+pub(crate) mod gen_shared;
+pub(crate) mod gen_temp_file;
 
 mod func_append_bytes;
 mod func_append_text;

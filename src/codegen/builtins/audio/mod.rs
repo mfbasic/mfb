@@ -14,9 +14,9 @@
 //! per-platform runtime-helper lowering, migrated to crypto/io's clean-room
 //! `Body::abi_function` shape. The whole per-backend emission (macOS Core Audio
 //! `AudioQueue`, Linux ALSA over a `dlopen`'d `libasound.so.2`, Windows WASAPI over
-//! COM) lives in [`native`]; every device-I/O member's [`Body::abi_function_os_seam`]
-//! holds the one clean-room lowering [`native::lower_audio_os_seam`], which dispatches
-//! to the family-generic backend [`native::lower_audio_helper`] by `platform.family()`
+//! COM) lives in the `gen_*` backend modules; every device-I/O member's [`Body::abi_function_os_seam`]
+//! holds the one clean-room lowering [`gen_os_seam::lower_audio_os_seam`], which dispatches
+//! to the family-generic backend [`gen_os_seam::lower_audio_helper`] by `platform.family()`
 //! and selects its call arm off `AbiCtx::call`. The member plus its code-form aliases
 //! (`openInputDevice`/`openOutputDevice`/`readTimeout`/`pollTimeout`/`closeInput`/
 //! `closeOutput`) route to that one body through `registry::abi_function_lower` (the
@@ -38,7 +38,18 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 
-pub(crate) mod native;
+pub(crate) mod gen_alsa_devices;
+pub(crate) mod gen_alsa_io;
+pub(crate) mod gen_alsa_shared;
+pub(crate) mod gen_alsa_stream;
+pub(crate) mod gen_common;
+pub(crate) mod gen_macos_callbacks;
+pub(crate) mod gen_macos_devices;
+pub(crate) mod gen_macos_io;
+pub(crate) mod gen_macos_shared;
+pub(crate) mod gen_macos_stream;
+pub(crate) mod gen_os_seam;
+pub(crate) mod gen_windows;
 
 mod func_available;
 mod func_close;
@@ -146,14 +157,14 @@ pub(crate) fn timeout_ms(desc: &'static str) -> Parameter {
 }
 
 /// The `abi_function` body shared by every device-I/O member (crypto/io's
-/// clean-room shape): the one clean-room lowering [`native::lower_audio_os_seam`],
+/// clean-room shape): the one clean-room lowering [`gen_os_seam::lower_audio_os_seam`],
 /// which dispatches to the family-generic backend by `platform.family()` and selects
 /// its call arm off [`AbiCtx::call`](crate::codegen::registry::AbiCtx), plus the
 /// code-form `os_aliases` this overload declares (the IR-level overload-split forms
 /// `openInputDevice`/`readTimeout`/`closeInput`/… routed to this body by
 /// `abi_function_lower`).
 pub(crate) fn native_body(os_aliases: &'static [&'static str]) -> Body {
-    Body::abi_function_os_seam(native::lower_audio_os_seam, os_aliases)
+    Body::abi_function_os_seam(gen_os_seam::lower_audio_os_seam, os_aliases)
 }
 
 /// The internal runtime-helper name a surface `audio::` call rewrites to during IR

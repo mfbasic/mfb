@@ -1,7 +1,14 @@
-// --- codegen tier imports (migration) ---
-use super::*;
+//! Purely-syntactic `path*` string `fs` code generation: the call-site path lowering, the five abi_inline_self members, and the standalone pathJoin runtime helper.
+
+use crate::codegen::engine::builder::*;
+use crate::codegen::engine::operand::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
+use crate::codegen::error::constants::*;
+use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
+
 impl CodeBuilder<'_> {
     /// Emit the shared trailing-`/` trim loop (bug-331 §J): walk `length` down
     /// while the last byte (`bytes[length-1]`) is `/` (47), stopping at length 1.
@@ -761,4 +768,164 @@ pub(crate) fn lower_fs_path_normalize_nl(
     _ctx: &crate::codegen::registry::AbiCtx,
 ) -> Result<ValueResult, String> {
     dispatch_path(builder, "fs.pathNormalize", args)
+}
+
+/// Symbol of the shared standalone `fs::pathJoin` runtime helper.
+pub(crate) const FS_PATH_JOIN_SYMBOL: &str = "_mfb_rt_fs_path_join";
+
+/// Lower the standalone `fs::pathJoin` helper. It takes a `List OF String`
+/// collection pointer in `x0` and returns a `Result`-shaped value: `x0` holds
+/// the tag (`RESULT_OK_TAG`/`RESULT_ERR_TAG`) and, on success, `x1` holds the
+/// resulting `String` pointer (on allocation failure it returns `ErrOutOfMemory`).
+/// Implementing it as a shared `bl`-reachable helper lets both root native code
+/// and imported-package binary_repr lower `pathJoin` identically. Components are
+/// joined with `/`, empty components are skipped, an absolute component discards
+/// everything accumulated so far, and duplicate separators are avoided.
+pub(crate) fn lower_fs_path_join_helper() -> CodeFunction {
+    // Vreg-allocated (plan-00-G Phase 2). `parts` (the input List) is held across
+    // the `arena_alloc` (spilled); the second pass builds into the allocated string
+    // with no further call, so its working registers stay in registers.
+    // Pure string joining — no syscall — so it needs no `platform` (bug-331 §J).
+    const SEP: &str = "47";
+    let symbol = FS_PATH_JOIN_SYMBOL;
+
+    let length_loop = format!("{symbol}_length_loop");
+    let length_done = format!("{symbol}_length_done");
+    let alloc_ok = format!("{symbol}_alloc_ok");
+    let alloc_error = format!("{symbol}_alloc_error");
+    let build_loop = format!("{symbol}_build_loop");
+    let build_done = format!("{symbol}_build_done");
+    let skip_part = format!("{symbol}_skip_part");
+    let absolute = format!("{symbol}_absolute");
+    let copy_part = format!("{symbol}_copy_part");
+    let no_separator = format!("{symbol}_no_separator");
+    let copy_loop = format!("{symbol}_copy_loop");
+    let copy_done = format!("{symbol}_copy_done");
+    let done = format!("{symbol}_done");
+
+    let entry_size = COLLECTION_ENTRY_SIZE.to_string();
+    let mut vregs = Vregs::new();
+    let parts = vregs.next();
+    let result = vregs.next();
+    let count = vregs.next();
+    let total = vregs.next();
+    let index = vregs.next();
+    let entry = vregs.next();
+    let part_len = vregs.next();
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&parts, abi::return_register()),
+        // Pass 1: upper-bound length = sum(component lengths) + count separators.
+        abi::load_u64(&count, &parts, COLLECTION_OFFSET_COUNT),
+        abi::move_immediate(&total, "Integer", "0"),
+        abi::move_immediate(&index, "Integer", "0"),
+        abi::add_immediate(&entry, &parts, COLLECTION_HEADER_SIZE),
+        abi::label(&length_loop),
+        abi::compare_registers(&index, &count),
+        abi::branch_ge(&length_done),
+        abi::load_u64(&part_len, &entry, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::add_registers(&total, &total, &part_len),
+        abi::add_immediate(&entry, &entry, COLLECTION_ENTRY_SIZE),
+        abi::add_immediate(&index, &index, 1),
+        abi::branch(&length_loop),
+        abi::label(&length_done),
+        abi::add_registers(abi::return_register(), &total, &count),
+        abi::add_immediate(abi::return_register(), abi::return_register(), 9),
+        abi::move_immediate(abi::c_arg(1), "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+    ];
+    let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
+    let data_base = vregs.next();
+    let capacity = vregs.next();
+    let lookup = vregs.next();
+    let out_base = vregs.next();
+    let cursor = vregs.next();
+    let scratch = vregs.next();
+    let value_off = vregs.next();
+    let value_len = vregs.next();
+    let byte = vregs.next();
+    let prev = vregs.next();
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_eq(&alloc_ok),
+        abi::branch(&alloc_error),
+        abi::label(&alloc_ok),
+        abi::move_register(&result, abi::mfb_return(1)),
+        // Pass 2: build the joined path.
+        abi::load_u64(&count, &parts, COLLECTION_OFFSET_COUNT),
+        // data base = collection + header + capacity * entry_size (plan-01 §4.2:
+        // a grown list has capacity > count, so the data region sits past the
+        // full lookup capacity, not just the live entries).
+        abi::load_u64(&capacity, &parts, COLLECTION_OFFSET_CAPACITY),
+        abi::add_immediate(&data_base, &parts, COLLECTION_HEADER_SIZE),
+        abi::move_immediate(&scratch, "Integer", &entry_size),
+        abi::multiply_registers(&scratch, &capacity, &scratch),
+        abi::add_registers(&data_base, &data_base, &scratch),
+        abi::add_immediate(&lookup, &parts, COLLECTION_HEADER_SIZE),
+        abi::add_immediate(&out_base, &result, 8),
+        abi::move_register(&cursor, &out_base),
+        abi::move_immediate(&index, "Integer", "0"),
+        abi::label(&build_loop),
+        abi::compare_registers(&index, &count),
+        abi::branch_ge(&build_done),
+        abi::load_u64(&value_len, &lookup, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::compare_immediate(&value_len, "0"),
+        abi::branch_eq(&skip_part),
+        abi::load_u64(&value_off, &lookup, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::add_registers(&value_off, &data_base, &value_off),
+        abi::load_u8(&byte, &value_off, 0),
+        abi::compare_immediate(&byte, SEP),
+        abi::branch_eq(&absolute),
+        abi::compare_registers(&cursor, &out_base),
+        abi::branch_eq(&no_separator),
+        abi::subtract_immediate(&prev, &cursor, 1),
+        abi::load_u8(&scratch, &prev, 0),
+        abi::compare_immediate(&scratch, SEP),
+        abi::branch_eq(&no_separator),
+        abi::move_immediate(&scratch, "Byte", SEP),
+        abi::store_u8(&scratch, &cursor, 0),
+        abi::add_immediate(&cursor, &cursor, 1),
+        abi::branch(&copy_part),
+        abi::label(&absolute),
+        abi::move_register(&cursor, &out_base),
+        abi::label(&no_separator),
+        abi::label(&copy_part),
+        abi::label(&copy_loop),
+        abi::compare_immediate(&value_len, "0"),
+        abi::branch_eq(&copy_done),
+        abi::load_u8(&byte, &value_off, 0),
+        abi::store_u8(&byte, &cursor, 0),
+        abi::add_immediate(&value_off, &value_off, 1),
+        abi::add_immediate(&cursor, &cursor, 1),
+        abi::subtract_immediate(&value_len, &value_len, 1),
+        abi::branch(&copy_loop),
+        abi::label(&copy_done),
+        abi::label(&skip_part),
+        abi::add_immediate(&lookup, &lookup, COLLECTION_ENTRY_SIZE),
+        abi::add_immediate(&index, &index, 1),
+        abi::branch(&build_loop),
+        abi::label(&build_done),
+        abi::subtract_registers(&scratch, &cursor, &out_base),
+        abi::store_u64(&scratch, &result, 0),
+        abi::move_immediate(&byte, "Integer", "0"),
+        abi::store_u8(&byte, &cursor, 0),
+        abi::move_register(RESULT_VALUE_REGISTER, &result),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&alloc_error),
+    ]);
+    raise_error_into(
+        symbol,
+        "ErrOutOfMemory",
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
+    finalize_vreg_helper(
+        "runtime.fsPathJoin",
+        symbol,
+        "String",
+        instructions,
+        relocations,
+    )
 }

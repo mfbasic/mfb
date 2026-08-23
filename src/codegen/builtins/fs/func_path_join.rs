@@ -1,12 +1,12 @@
 //! `fs::pathJoin` — descriptor + docs.
 //!
 //! A `path*` string member: purely syntactic, no syscall. It lowers at the call
-//! site through the `Body::abi_inline_self` (self-lowering) (`native::lower_fs_path_join_nl`,
+//! site through the `Body::abi_inline_self` (self-lowering) (`gen_path_builder::lower_fs_path_join_nl`,
 //! delegating to the relocated `impl CodeBuilder` path emitters), which itself
 //! calls the standalone `lower_fs_path_join_helper` runtime helper so
 //! imported-package binary_repr joins identically.
 
-use super::native::lower_fs_path_join_nl;
+use super::gen_path_builder::lower_fs_path_join_nl;
 use super::{Body, DefaultValue, Implementation, Parameter, RegistryFunction, RegistryPackage};
 use crate::types::ParameterType;
 

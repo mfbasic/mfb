@@ -6,7 +6,8 @@
 //! them.
 
 // --- codegen tier imports (migration) ---
-use super::*;
+use crate::codegen::engine::types::*;
+use crate::codegen::engine::util::*;
 use crate::target::shared::abi;
 /// The runtime queries a backend answers about a live stream: bytes available,
 /// a blocking poll, a timed poll, and the xrun (over/underrun) counter.
