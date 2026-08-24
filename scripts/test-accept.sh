@@ -145,6 +145,22 @@ else
   target_label=""
 fi
 
+# plan-100: global opt-level switch, mirroring MFB_TARGET above. Unset (the
+# default) appends nothing, so every `mfb build` below is byte-for-byte the
+# command this harness has always run and the binary applies its own default of
+# -O1 -- today's exact codegen.
+#
+# Deliberately NOT folded into the echoed `$ mfb build …` label the way
+# `target_label` is: build.log is itself an exact-compared golden, so echoing
+# `-O1` would drift every fixture's build.log under MFB_OPT=1, breaking the very
+# gate (explicit -O1 == default) that MFB_OPT=1 exists to prove. The level is a
+# property of the run, not of the fixture.
+if [ -n "${MFB_OPT:-}" ]; then
+  opt_arg="-O$MFB_OPT"
+else
+  opt_arg=""
+fi
+
 failures=0
 ran=0
 skipped=0
@@ -323,7 +339,20 @@ while IFS= read -r project_json; do
   # A test with no golden/ directory is a behavioral (acceptance) test: run
   # `mfb test` and require exit 0 (all TESTING cases passed). Nothing is compared.
   if [ ! -d "$golden_dir" ]; then
-    test_out=$("$MFB_EXE" test "tests/$test_name" 2>&1)
+    # Through `run_with_watchdog` like every other subprocess this harness
+    # spawns, for its /dev/null stdin (bug-320) as much as its hang bound. Run
+    # bare, this `mfb test` inherited the driving loop's stdin -- which is the
+    # `find` pipe feeding `while read project_json` at the bottom of this file --
+    # so a fixture whose TESTING blocks read stdin ATE THE FIXTURE LIST. That
+    # produced two failures on every run, in both directions:
+    #   * the io EOF cases ("expected a trap with code 77020003, but none
+    #     occurred") saw pipe bytes instead of the EOF they assert; and
+    #   * the next fixture's path arrived truncated at a random prefix
+    #     ("could not read project name for fb/.claude/worktrees/..."), with a
+    #     nondeterministic number of fixtures silently swallowed (1193 of 1208
+    #     ran in one measured pair).
+    # Found while proving plan-100's gate; the bare call predates that plan.
+    test_out=$(run_with_watchdog "$MFB_EXE" test "tests/$test_name" 2>&1)
     test_status=$?
     {
       echo "\$ mfb test tests/$test_name"
@@ -382,11 +411,12 @@ while IFS= read -r project_json; do
     # prints on stdout, so the run-path extraction below is unaffected.
     echo "$ mfb build ${target_label}${console_flags} tests/$test_name"
     # shellcheck disable=SC2086
-    run_with_watchdog "$MFB_EXE" build -q $target_arg $console_flags "tests/$test_name"
+    run_with_watchdog "$MFB_EXE" build -q $target_arg $opt_arg $console_flags "tests/$test_name"
     echo "[exit $?]"
     if [ -f "$golden_dir/$package_name.mfp" ] || [ -f "$golden_dir/$package_name.info" ]; then
       echo "$ mfb build tests/$test_name"
-      run_with_watchdog "$MFB_EXE" build -q "tests/$test_name"
+      # shellcheck disable=SC2086
+      run_with_watchdog "$MFB_EXE" build -q $opt_arg "tests/$test_name"
       echo "[exit $?]"
     fi
     app_flags=""
@@ -398,7 +428,7 @@ while IFS= read -r project_json; do
     if [ -n "$app_flags" ]; then
       echo "$ mfb build ${target_label}-app${app_flags} tests/$test_name"
       # shellcheck disable=SC2086
-      run_with_watchdog "$MFB_EXE" build -q $target_arg -app $app_flags "tests/$test_name"
+      run_with_watchdog "$MFB_EXE" build -q $target_arg $opt_arg -app $app_flags "tests/$test_name"
       echo "[exit $?]"
     fi
     # A `<pkg>.run` golden forces the full `mfb build` (link + merge) path and
@@ -414,7 +444,7 @@ while IFS= read -r project_json; do
     #     README (tests/rt-behavior/security/README.md) points here.
     if [ -f "$golden_dir/$package_name.run" ]; then
       echo "$ mfb build ${target_label}tests/$test_name"
-      build_output=$(run_with_watchdog "$MFB_EXE" build -q $target_arg "tests/$test_name" 2>&1)
+      build_output=$(run_with_watchdog "$MFB_EXE" build -q $target_arg $opt_arg "tests/$test_name" 2>&1)
       build_status=$?
       printf '%s\n' "$build_output"
       echo "[exit $build_status]"
@@ -496,7 +526,10 @@ while IFS= read -r project_json; do
   if [ -f "$golden_dir/$package_name.testrun" ]; then
     {
       echo "\$ mfb test tests/$test_name"
-      "$MFB_EXE" test "tests/$test_name" 2>&1
+      # `</dev/null` for the same reason as the behavioral-test call above: this
+      # loop's stdin is the `find` pipe, and a fixture whose TESTING blocks read
+      # stdin would eat the fixture list (and see pipe bytes instead of EOF).
+      "$MFB_EXE" test "tests/$test_name" 2>&1 </dev/null
       echo "[exit $?]"
     } >"$testrun_path"
     # `mfb test` links an executable into the project dir; do not leave it behind.
@@ -507,7 +540,9 @@ while IFS= read -r project_json; do
   # machine-independent sidecars (relative-path slot map + per-slot counts +
   # failed source lines). Only when the fixture ships a covmap golden.
   if [ -f "$golden_dir/$package_name.covmap.json" ]; then
-    "$MFB_EXE" test --coverage "tests/$test_name" >/dev/null 2>&1
+    # `</dev/null`: see the behavioral-test call above -- this loop's stdin is
+    # the `find` pipe driving it.
+    "$MFB_EXE" test --coverage "tests/$test_name" >/dev/null 2>&1 </dev/null
     for ext in covmap.json covdata covfail; do
       if [ -f "$test_dir/coverage.$ext" ]; then
         cp "$test_dir/coverage.$ext" "$actual_dir/$package_name.$ext"

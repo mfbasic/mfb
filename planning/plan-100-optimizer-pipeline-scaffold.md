@@ -250,17 +250,17 @@ Mirror `RegallocKind` end to end, except the default is `OptLevel(1)`, not 0.
       reserved seams (`optimize_nir` by value, `optimize_mir` in place) leave input
       structurally unchanged at every level (no accidental fire). These pin both the
       gate and the identity of the empty seams.
-- Commit: `plan-100: absorb FMA+peephole Level-1 passes onto the -O dial; reserve Opt1/Opt2 seams`
+- Commit: `41ee2d909` — `plan-100: absorb FMA+peephole Level-1 passes onto the -O dial; reserve Opt1/Opt2 seams`
 
 ## 4. Phase 3 — harness opt-level switch + neutrality/correctness proof
 
-- [ ] `scripts/test-accept.sh`: add an `MFB_OPT` global switch mirroring
+- [x] `scripts/test-accept.sh`: add an `MFB_OPT` global switch mirroring
       `MFB_TARGET` (`:109-112`): when set, build an `opt_arg="-O$MFB_OPT"` there and
       append it to each `run_with_watchdog "$MFB_EXE" build` invocation (`:385`
       primary, `:401` app, `:417` pkg-`.run`). Default (unset) = no flag = the harness
       binary's own default = `-O1` = today's exact command, so the existing golden run
       is untouched.
-- [ ] **The gate — split by intent:**
+- [x] **The gate — split by intent:**
       1. **default (no `MFB_OPT`)** — clean diff against current goldens. Proves the
          dial defaulting to `-O1` moved nothing.
       2. **`MFB_OPT=1`** — clean diff. Proves explicit `-O1` == default.
@@ -288,12 +288,52 @@ Mirror `RegallocKind` end to end, except the default is `OptLevel(1)`, not 0.
          `-O0`, or a divergence failing any of (i)–(iv), is a real bug (an unguarded
          dependency on one of the passes); a pure codegen-artifact drift at `-O0` is
          expected and ignored.
-      **Exception set (enumerated + justified in Phase 3's own checkbox — leaving it
-      unenumerated is a failed gate, not a passed one).**
+      **Exception set — enumerated and justified.** Measured 2026-08-24,
+      `MFB_OPT=0 bash scripts/test-accept.sh target/release/mfb /tmp/accept-o0`:
+      8 mismatches over 1265 fixtures, of which **7 are `.ncode` codegen-artifact
+      drift** (expected, ignored by this gate) and **exactly 1 is behavior**:
+
+      | fixture | class | verdict |
+      |---|---|---|
+      | `rt-behavior/arithmetic/float-fma-fusion/build.log` | behavior | **exception, all four checks pass** |
+      | `rt-behavior/collections/func_map_getor_hash_probe/….ncode` | codegen | expected drift |
+      | `rt-behavior/collections/list-ops-codegen-rt/….ncode` | codegen | expected drift |
+      | `rt-behavior/control-flow/control-flow-if/….ncode` | codegen | expected drift |
+      | `syntax/app/macos-app-mode-io/….app.ncode` | codegen | expected drift |
+      | `syntax/app/macos-app-mode-plumbing/….app.ncode` | codegen | expected drift |
+      | `syntax/lexical/parser-hello-world/….ncode` | codegen | expected drift |
+      | `syntax/match/control-flow-match/….ncode` | codegen | expected drift |
+
+      The lone behavior exception against checks (i)–(iv):
+      (i) enumerated above — it is the *only* behavior divergence in 1265 fixtures.
+      (ii) its source is `LET r AS Float = a * 2.0 - a` with `a = 1.5e308`, and
+           `grep -c 'fmadd\|fmsub\|fnmsub'` on the `--ncode` dump gives **5 at `-O1`,
+           0 at `-O0`** — the fusion demonstrably is what changed.
+      (iii) the diff is *only* the contraction difference — the four preceding
+           printed values are byte-identical, and only the deliberately
+           overflow-probing line moves:
+           ```
+            2.0000 / 4.0000 / 2.5000     (identical)
+           -fused-finite-ok
+           -[exit 0]
+           +Error: 7-705-0015
+           +Floating-point arithmetic overflowed to infinity.
+           +[exit 255]
+           ```
+           No wrong control-flow path, no crash, no unrelated value.
+      (iv) the same fixture matches its golden at `-O1` — gates 1 and 2 are both
+           clean over it.
+
+      Sanity-checked that the 7 codegen drifts are the dial and not garbage: in
+      `control-flow-if` every hunk is `-{"op":"mov","dst":"x9","src":"x10"}` →
+      `+{"op":"ldr_u64","dst":"x9","base":"sp",…}` — the reload
+      `forward_stores_to_loads` folds at `-O1`, left as a real load at `-O0`.
+      The rt-error companion `arithmetic-float-fma-observed-rt` does **not**
+      diverge: it expects the trap at both levels.
       Runs 1–2: any diff is a gate bug, not a re-baseline — fix it, do not touch
       goldens (`AGENTS.md`).
-- [ ] Full `cargo test --no-fail-fast` green (parser parity + gate/identity tests).
-- [ ] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
+- [x] Full `cargo test --no-fail-fast` green (parser parity + gate/identity tests). 62 test binaries, 0 failures (2026-08-24).
+- [x] `rustup run 1.96.0 cargo fmt --all` + `cargo fmt --all --manifest-path repository/Cargo.toml`; no churn left.
 - Commit: `plan-100: MFB_OPT harness switch; prove -O1 byte-identical, -O0 correct`
 
 ## 5. Follow-on (out of scope — one pass at a time, later plans)
@@ -377,6 +417,32 @@ optional refinements (coalescing, remat, cost-based combining) become rows.
   `-O1` and so break this plan's core "default is byte-identical to today" goal. The
   observation that FP contraction is arguably a `†` semantic-relaxing row is left as
   a note for a future Level-6 plan; it changes nothing here.
+
+- **Added task, not in the plan: fixed a real harness bug that made the Phase-3
+  gate both flaky and wrong.** The first default-level gate run reported 2
+  failures and `1193 test(s) ran`; a control build of `main` (`git worktree add
+  --detach`, `cargo build --release`) reported the *same* 2 failures but
+  `1208 test(s) ran` — the same suite, a different fixture count, so the suite
+  was silently under-running. Root cause, in `scripts/test-accept.sh`: the
+  driving loop is `while IFS= read -r project_json; do … done < <(find … )`, and
+  the behavioral-test branch ran `test_out=$("$MFB_EXE" test …)` **bare** — the
+  one subprocess in the file not going through `run_with_watchdog`, which exists
+  precisely to give children `/dev/null` stdin (bug-320). So `mfb test` inherited
+  the `find` pipe as stdin, and any fixture whose `TESTING` blocks read stdin ate
+  the fixture list. That single defect produced *both* long-standing failures:
+  * `expected a trap with code 77020003, but none occurred` — the io EOF cases
+    saw pipe bytes instead of the EOF they assert; and
+  * `could not read project name for fb/.claude/worktrees/P-100/tests/…` — the
+    next fixture's path arrived truncated at a random prefix, with a
+    nondeterministic number of fixtures swallowed.
+
+  Fixed by routing that call through `run_with_watchdog`, and by adding
+  `</dev/null` to the two other loop-body `mfb test` invocations (the `.testrun`
+  capture and the `--coverage` run) that had the same inherited-stdin exposure.
+  **Result: 1265 fixtures run and the suite is green** — the fix recovered 72
+  fixtures that were never being executed and removed 2 permanent failures.
+  Recorded here because the plan's gate is only as trustworthy as the harness
+  running it; these two failures were previously written off as environmental.
 
 - **Added task, not in the plan: document the flag.** `-O` is user-facing surface,
   and `AGENTS.md` requires the embedded spec to track every compiler change. Phase 1
