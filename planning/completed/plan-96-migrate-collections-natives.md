@@ -1,5 +1,16 @@
 # Migrate all native `collections::` members to `Implementation::Native` Plan
 
+> **STATUS: STALE — NOT DOING (closed 2026-08-23).**
+> This plan's approach is obsolete. It builds on the `Implementation::Native` /
+> `Body::Native` legacy-lowering machinery (via `try_native_lower` / plan-95's
+> `func_get.rs`), but that machinery has since been deleted in favor of the
+> sanctioned `Body::abi_inline` + `Body::abi_function` pipeline (see commits
+> `a2a5cecce` "remove dead Body::Native/OsLower/NativeLower legacy lowering" and
+> `15bf1ac94` "migrate from Body::Intrinsic to Body::abi_function"). Migrating the
+> remaining `collections::` members is still worthwhile, but must be re-planned
+> against the current `abi_inline`/`abi_function` seams — none of the steps below
+> apply as written. Archived to `planning/completed/` unimplemented.
+
 Last updated: 2026-08-10
 Effort: x-large (1d–3d)
 
