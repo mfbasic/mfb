@@ -3,7 +3,7 @@
 Last updated: 2026-08-24
 Effort: large (3h–1d)
 Depends on: plan-108-B (batch-1 landed; the workflow has now run on 3
-packages beyond the pilot — any standard/harness amendments from B are in).
+packages beyond the pilot — any standard amendments from B are in).
 
 Author the remaining all-empty packages — **net (23 function pages), http
 (19), general (18), astrings (18), vector (17) = 95 pages** plus overviews
@@ -11,7 +11,8 @@ and types pages — through the plan-108-A four-step workflow. Also close out
 the ~10 empty straggler pages A's census found inside otherwise-filled
 packages (exact list from the census re-run; recorded here at kickoff).
 
-See plan-108-A §3 for the workflow, standard, and harness contract.
+See plan-108-A §3 for the workflow and the standard. Per A: verification is
+`mfb man` rendering + ad-hoc example/probe runs — no compiler test gates.
 
 References:
 
@@ -23,11 +24,10 @@ References:
   verifying claims, and the canonical example of content that must NOT leak
   into man prose (readiness/timeout machinery is spec/internals; the man
   page states developer-visible timeout/error behavior only).
-- Memory `editing-package-mfb-drifts-many-goldens` — http/net builtins have
-  MFBASIC package bodies whose line numbers feed embedded ErrorLoc goldens;
+- Memory `editing-package-mfb-drifts-many-goldens` — http/net have MFBASIC
+  `package.mfb` bodies whose line numbers feed embedded ErrorLoc goldens;
   prose fields in `mod.rs`/func files are fine, but NEVER touch
-  `package.mfb` files in this plan (that is a golden-drift event, out of
-  scope).
+  `package.mfb` files in this plan (out of scope, and a golden-drift event).
 
 ## Prerequisites
 
@@ -41,20 +41,20 @@ References:
   `intro`/`desc`/`example` + param descs; overviews and types pages
   reviewed/corrected; the straggler pages (list at kickoff) filled.
 - All claims behavior-verified; zero internals leakage.
-- Harness classification: general/astrings/vector run-enforced (pure);
-  net/http compile-only by default, run-enforced only for members that need
-  no live endpoint (decided per function, recorded in the harness table —
-  no example may depend on an external network).
-- Cross-model review (opus) per package; findings ledgers recorded here.
-- `scripts/man-census.sh` → 100% fill for all five packages AND for the
+- Every example compiled while authoring, and run where it needs no live
+  endpoint (no example may depend on an external network); compile-only
+  members noted per function in the ledger.
+- Cross-model review (Codex) per package; findings ledgers recorded here.
+- `scripts/man-census.sh` → 100% fill for all five packages AND the
   straggler list; at this letter's end, **every one of the census's 466
   function pages has desc+example** (the authoring half of plan-108 done).
 
 ### Non-goals (explicit constraints)
 
-- Per plan-108-A (byte-identical gate, no renderer/schema changes, no
-  byte-significant body edits, `src/docs/man/**` untouched).
-- No `package.mfb` edits (see References — golden-drift trap).
+- Per plan-108-A (no compiler testing; prose string fields only with
+  per-commit `git diff` check; no renderer/schema changes;
+  `src/docs/man/**` untouched).
+- No `package.mfb` edits (see References).
 - Found code bugs: fix or file via write-bug, recorded here — never doc'd
   around.
 
@@ -70,15 +70,15 @@ exactly at kickoff via the census script's per-function output).
 | What | Count | Command |
 |---|---|---|
 | pages to author | 95 + stragglers (list at kickoff) | `scripts/man-census.sh` at kickoff |
-| net/http members safe to run-enforce | decided per function in Phase 1 | harness table |
+| net/http members run vs compile-only | decided per function in Phase 2 | this letter's ledger |
 | old_man source coverage | measure at kickoff | `ls planning/old_man/builtins/{net,http,general,astrings,vector}` |
 
 ## 3. Design Overview
 
 Same production line as B: one package at a time, author+scope then
-review+apply, harness/census/suite per package. Order: general (broadest
-developer traffic), astrings, vector, then net, http (the two needing
-careful example classification and the most internals-leakage discipline).
+review+apply, census per package. Order: general (broadest developer
+traffic), astrings, vector, then net, http (the two needing the most
+internals-leakage discipline and per-function run-vs-compile calls).
 Stragglers last (small, scattered).
 
 **Risk concentration:** net/http prose drifting into transport-internals
@@ -89,46 +89,43 @@ with `.ai/net-tls.md` as the "this is what internals look like" foil.
 ### Rejected alternatives
 
 - **Skip examples for net/http since they can't hit the network.**
-  Rejected: A's harness contract requires an example everywhere;
-  compile-only classification exists precisely for this — a non-running
+  Rejected: the standard requires an example everywhere; a compile-verified
   example is still type-checked, current, and shown to developers.
 
 ## Compatibility / Format Impact
 
-None to codegen/wire. Summary re-pins only with 4-question-gate evidence.
+None to codegen/wire. Summary-pin update only if a pinned summary is itself
+corrected.
 
 ## Phases
 
 ### Phase 1 — general, astrings, vector
 
-- [ ] Author 18+18+17 pages + overviews + types pages; run-enforce all
-      three on the harness.
+- [ ] Author 18+18+17 pages + overviews + types pages; every example
+      compiled and run.
 - [ ] Cross-model review per package + apply; ledgers here.
-- [ ] Tests: `cargo test --no-fail-fast`; census 100% each;
-      `artifact-gate all` byte-identical.
+- [ ] Verify: rendering reads clean; census 100% each.
 
-Acceptance: three packages fully authored, reviewed, harness-enforced.
+Acceptance: three packages fully authored and reviewed.
 Commit: —
 
 ### Phase 2 — net, http
 
 - [ ] Author 23+19 pages + overviews + types pages; per-function
-      run/compile classification (no external-endpoint dependence).
+      run-vs-compile verification recorded (no external-endpoint
+      dependence).
 - [ ] Cross-model review + apply; ledgers.
-- [ ] Tests: as Phase 1.
+- [ ] Verify: rendering + census as Phase 1.
 
-Acceptance: both packages authored, reviewed, enforced with classification
-tables.
+Acceptance: both packages authored and reviewed, ledgered.
 Commit: —
 
 ### Phase 3 — stragglers
 
 - [ ] Fill the ~10 straggler pages (exact list recorded here at kickoff)
-      inside their filled packages; review rides along with D/E's sweep of
-      those packages EXCEPT accuracy/scope which happen now (a straggler is
-      authored to standard immediately).
-- [ ] Tests: as Phase 1; census shows **0 pages without desc+example
-      tree-wide**.
+      inside their filled packages, to standard, examples compiled/run;
+      their packages' full review rides with D/E's sweep.
+- [ ] Verify: census shows **0 pages without desc+example tree-wide**.
 
 Acceptance: census-wide authoring complete (466/466 pages carry
 desc+example).
@@ -136,17 +133,15 @@ Commit: —
 
 ## Validation Plan
 
-- Tests: `cargo test --no-fail-fast`; harness enforced for all five
-  packages.
-- Coverage check: census → zero empty pages anywhere.
-- Runtime proof: run-list examples execute via release `mfb`.
+- Verification: `mfb man <pkg> --all`/`types` per package;
+  `scripts/man-census.sh` → zero empty pages anywhere; examples/probes
+  compiled and run ad hoc during authoring.
 - Doc sync: none beyond content (F owns tooling docs).
-- Acceptance: full suite; `artifact-gate all`; `test-accept.sh` no NEW
-  mismatch; fmt both crates.
+- Hygiene: fmt at session end.
 
 ## Open Decisions
 
-- None entering — per-function classification decisions are made and
+- None entering — per-function run-vs-compile decisions are made and
   recorded in-phase.
 
 ## Corrections
@@ -157,5 +152,5 @@ Commit: —
 
 The authoring close-out: after this letter no builtin man page is a bare
 skeleton — every one of the 466 function pages has verified developer prose
-and a harness-checked example, leaving D/E to verify the pre-existing prose
-and F to certify.
+and a compiled example, leaving D/E to verify the pre-existing prose and F
+to certify.

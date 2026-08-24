@@ -2,24 +2,26 @@
 
 Last updated: 2026-08-24
 Effort: large (3h–1d)
-Depends on: plan-108-A (census script, `.ai/man-content.md` standard,
-`tests/man_examples.rs` harness, and the pilot-calibrated four-step workflow
-all exist; A's Prerequisites gate carries forward).
+Depends on: plan-108-A (census script, `.ai/man-content.md` standard, and the
+pilot-calibrated four-step workflow all exist; A's Prerequisites and no-test
+verification policy carry forward).
 
 Author the man prose for the first batch of all-empty packages — **strings
 (39 function pages), term (25), testing (12) = 76 pages** plus each package's
 overview and types page — through plan-108-A's four-step workflow: accuracy
 pass (author from code + old_man source material, every claim
-behavior-verified), scope pass (developer docs, never compiler internals),
-cross-model subagent review (opus), apply findings.
+behavior-verified, every example compiled and run while writing it), scope
+pass (developer docs, never compiler internals), cross-model review via the
+Codex CLI, apply findings.
 
 Batch composition: strings is the highest-developer-traffic empty package;
 term and testing round the batch to ~76 pages, and both stress the standard
-in useful ways (term: interactive/env-dependent examples → compile-only
-classification; testing: `expect` desugars — prose must describe developer
-semantics without leaking the lowering story).
+in useful ways (term: interactive examples that can only be compile-verified
+without a tty; testing: `expect` — prose must describe developer semantics
+without leaking the desugar story).
 
-See plan-108-A §3 for the workflow, the standard, and the harness contract.
+See plan-108-A §3 for the workflow and the standard. Per A: verification is
+`mfb man` rendering + ad-hoc example/probe runs — no compiler test gates.
 
 References:
 
@@ -40,29 +42,29 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-108-A complete | A's boxes ticked; harness enforces bits+thread | NOT MET until A lands |
+| plan-108-A complete | A's boxes ticked; census + standard committed | NOT MET until A lands |
 
 ## 1. Goal
 
 - Every function page in strings, term, testing has non-empty `intro` (per
-  A's intro policy decision), `desc`, `example`, and per-parameter `desc`;
-  the package overviews and types pages are reviewed/corrected.
+  A's intro policy), `desc`, `example`, and per-parameter `desc`; the
+  package overviews and types pages are reviewed/corrected.
 - Every claim behavior-verified (probe programs against the release binary
   or descriptor-table-derived); zero internals leakage per
   `.ai/man-content.md`.
-- Examples on the harness: strings + testing run-enforced; term's
-  classification decided per function (interactive members compile-only,
-  pure members like sizing/attribute helpers run where they don't need a
-  tty) and recorded in the harness table.
+- Every example compiled and run while authoring; term members that need a
+  tty are compile-verified only, noted per function in this letter's
+  ledger.
 - Cross-model review completed for all three packages; findings ledger
   (confirmed → fixed / rejected → disproving command) recorded here.
 - `scripts/man-census.sh` shows all three packages at 100% fill.
 
 ### Non-goals (explicit constraints)
 
-- Per plan-108-A: codegen byte-identical (`artifact-gate all`); no renderer
-  or registry-schema changes; no edits to byte-significant MFBASIC bodies;
-  `src/docs/man/**` prose guides untouched.
+- Per plan-108-A: no compiler testing (rendering is the verification);
+  prose string fields only (never a body, descriptor type, or error table —
+  `git diff` per commit shows string-literal prose changes only); no
+  renderer or registry-schema changes; `src/docs/man/**` untouched.
 - No behavior changes to the builtins themselves. **Exception discipline:**
   if the accuracy pass uncovers an actual code bug (doc says X, code does Y,
   and Y is wrong), that is a found bug — fix it or file it via write-bug per
@@ -82,14 +84,14 @@ total across all packages).
 |---|---|---|
 | pages to author | 76 (39+25+12) | A's census table; re-run `scripts/man-census.sh` at kickoff |
 | old_man source pages available per package | measure at kickoff | `ls planning/old_man/builtins/{strings,term,testing} \| wc -l` |
-| term functions needing compile-only classification | decided per function during Phase 1 | recorded in `tests/man_examples.rs` table |
+| term members compile-verified only (no tty) | decided per function during Phase 2 | recorded in this letter's ledger |
 
 ## 3. Design Overview
 
 Production-line: one package at a time through A's four steps, one commit
-per package per step-pair (author+scope, then review-fixes), harness +
-census + suite after each package. strings first (largest, best old_man
-coverage), then term, then testing.
+per package per step-pair (author+scope, then review-fixes), census re-run
+after each package. strings first (largest, best old_man coverage), then
+term, then testing.
 
 **Risk concentration:** silently inheriting a stale old_man claim. Held by
 A's accuracy rule (probe programs), the reviewer's verify-not-proofread
@@ -103,31 +105,30 @@ prompt, and this letter's ledger requiring evidence per finding.
 
 ## Compatibility / Format Impact
 
-None to codegen/wire. `cli_man_summary_plain.rs` re-pin only if a pinned
-summary is corrected (4-question gate evidence recorded).
+None to codegen/wire. `tests/cli_man_summary_plain.rs` pinned text updated
+in the same commit only if a pinned summary is itself corrected.
 
 ## Phases
 
 ### Phase 1 — strings
 
 - [ ] Author 39 pages + overview + types page (accuracy + scope passes);
-      add strings to the harness run-enforced list.
-- [ ] Cross-model review (opus) + apply; ledger recorded here.
-- [ ] Tests: `cargo test --no-fail-fast`; census 100% for strings;
-      `artifact-gate all` byte-identical.
+      every example compiled and run.
+- [ ] Cross-model review (Codex) + apply; ledger recorded here.
+- [ ] Verify: `mfb man strings --all` + `types` read clean; census 100%
+      for strings.
 
-Acceptance: strings fully authored, reviewed, harness-enforced.
+Acceptance: strings fully authored and reviewed.
 Commit: —
 
 ### Phase 2 — term
 
-- [ ] Author 25 pages + overview + types page; per-function run/compile
-      classification recorded in the harness table.
+- [ ] Author 25 pages + overview + types page; per-function run vs
+      compile-only verification noted in the ledger.
 - [ ] Cross-model review + apply; ledger.
-- [ ] Tests: as Phase 1.
+- [ ] Verify: rendering + census as Phase 1.
 
-Acceptance: term fully authored, reviewed, harness-enforced (with
-classification table).
+Acceptance: term fully authored and reviewed.
 Commit: —
 
 ### Phase 3 — testing
@@ -135,27 +136,23 @@ Commit: —
 - [ ] Author 12 pages + overview; describe `expect` semantics in developer
       terms (what a failed expectation reports; never the desugar story).
 - [ ] Cross-model review + apply; ledger.
-- [ ] Tests: as Phase 1.
+- [ ] Verify: rendering + census as Phase 1.
 
-Acceptance: testing fully authored, reviewed, harness-enforced.
+Acceptance: testing fully authored and reviewed.
 Commit: —
 
 ## Validation Plan
 
-- Tests: `cargo test --no-fail-fast` per package; `tests/man_examples.rs`
-  enforced for all three.
-- Coverage check: `scripts/man-census.sh` → 100% fill for strings, term,
-  testing.
-- Runtime proof: examples execute (run-list) via release `mfb`; probe
-  programs during authoring.
+- Verification: `mfb man <pkg> --all`/`types` rendering per package;
+  `scripts/man-census.sh` → 100% fill for strings, term, testing; examples
+  and probes compiled/run ad hoc during authoring.
 - Doc sync: none beyond the man content itself (F owns tooling/AGENTS.md).
-- Acceptance: full suite; `artifact-gate all`; `test-accept.sh` no NEW
-  mismatch; fmt both crates.
+- Hygiene: fmt at session end (prose lives in `.rs` files).
 
 ## Open Decisions
 
-- None entering the letter — classification calls (term run/compile) are
-  made per function during Phase 2 and recorded in the harness table, not
+- None entering the letter — run-vs-compile verification calls for term are
+  made per function during Phase 2 and recorded in the ledger, not
   deferred.
 
 ## Corrections
@@ -165,6 +162,6 @@ Commit: —
 ## Summary
 
 The first authoring batch: the most-used empty package (strings) plus two
-packages that stress-test the standard's example classification and
-internals-leakage rules, all landed through the calibrated four-step
-workflow with per-package review ledgers.
+packages that stress-test the standard's example and internals-leakage
+rules, all landed through the calibrated four-step workflow with
+per-package review ledgers.

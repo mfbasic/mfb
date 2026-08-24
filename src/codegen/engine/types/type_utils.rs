@@ -447,47 +447,10 @@ fn top_level_return_arrow(s: &str, mut depth: i32) -> Option<usize> {
 /// only, so a higher-order parameter type carrying its own `", "` (e.g.
 /// `FUNC(Integer, String) AS Bool`) is kept intact (bug-175 F). Byte-identical to
 /// `split(", ")` for parameter lists with no nested parens.
-fn split_top_level_params(params: &str) -> Vec<String> {
-    let bytes = params.as_bytes();
-    let mut depth = 0i32;
-    let mut out = Vec::new();
-    let mut start = 0;
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'(' => depth += 1,
-            b')' => depth -= 1,
-            b',' if depth == 0 && bytes.get(i + 1) == Some(&b' ') => {
-                out.push(params[start..i].to_string());
-                i += 2; // skip the ", " separator
-                start = i;
-                continue;
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    out.push(params[start..].to_string());
-    out
-}
 
 pub(crate) fn callable_return_type(type_: &str) -> Option<String> {
     let idx = top_level_return_arrow(type_, 0)?;
     Some(type_[idx + ") AS ".len()..].to_string())
-}
-
-pub(crate) fn function_type_parts(type_: &str) -> Option<(Vec<String>, String)> {
-    let rest = type_.strip_prefix("FUNC(")?;
-    // `rest` begins inside the parameter list, so one paren is already open.
-    let idx = top_level_return_arrow(rest, 1)?;
-    let params = &rest[..idx];
-    let returns = &rest[idx + ") AS ".len()..];
-    let params = if params.trim().is_empty() {
-        Vec::new()
-    } else {
-        split_top_level_params(params)
-    };
-    Some((params, returns.to_string()))
 }
 
 pub(crate) fn parse_map_entry_type(type_: &str) -> Option<(String, String)> {

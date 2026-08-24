@@ -9,9 +9,10 @@ Verify the remaining pre-filled packages — **crypto (17 function pages), os
 (15), io (15), process (15), audio (12), tls (10), json (5), csv (5), money
 (4), regex (4), app (3) = 105 pages** plus overviews and types pages —
 through the same verification cycle as D. This batch carries the plan's one
-KNOWN accuracy defect and most of the env-dependent example classification.
+KNOWN accuracy defect and most of the environment-dependent examples.
 
-See plan-108-A §3 for the workflow, standard, and harness contract.
+See plan-108-A §3 for the workflow and the standard. Per A: verification is
+`mfb man` rendering + ad-hoc example/probe runs — no compiler test gates.
 
 References:
 
@@ -24,12 +25,8 @@ References:
 - Memory `mfb-string-escape-is-u-not-x` — `\x{…}` is regex-PATTERN-only
   syntax, not a string escape: the regex pages must state this boundary
   precisely (it is exactly the confusion a developer hits).
-- Memory `committed-mfp-goes-stale-on-resource-requalification` /
-  `.ai/resources-packages.md` — resource internals foil: man pages state
+- `.ai/resources-packages.md` — resource-internals foil: man pages state
   developer-visible resource lifetime rules only.
-- Memory `test-accept-acceptance-eof-subtests-preexisting` — io examples
-  that read stdin are exactly the environment-fragile shape; classify
-  compile-only unless the harness can feed stdin deterministically.
 
 ## Prerequisites
 
@@ -42,22 +39,22 @@ References:
 - All 105 pages + 11 overviews + types pages verified claim-by-claim and
   scope-checked; the `process` resources-in-collections defect fixed with
   the corrected wording recorded.
-- Harness classification for the env-dependent set decided per function and
-  recorded: crypto/json/csv/money/regex run-enforced (pure); os/process
-  run-enforced where side-effect-safe (env reads, temp-dir spawns);
-  io/audio/tls/app compile-only by default, run-enforced only where
-  deterministic without a device/endpoint/tty.
-- Cross-model review (opus) per package; ledgers recorded here.
+- Every example compiled during the pass, and run where the environment
+  permits (crypto/json/csv/money/regex are pure — run them; os/process
+  where side-effect-safe: env reads, temp-dir spawns; io/audio/tls/app
+  compile-only where they need a tty/device/endpoint) — each compile-only
+  call noted per function in the ledger.
+- Cross-model review (Codex) per package; ledgers recorded here.
 - The `errorcode`/`perf` resolution from A executed if A assigned them here
   (whatever pages they own verified the same way, or the out-of-scope
   reason restated).
-- Harness enforced list now covers **every registry package**; census 100%.
+- Census still 100%; every registry package now authored or verified.
 
 ### Non-goals (explicit constraints)
 
-- Per plan-108-A (byte-identical gate; no renderer/schema changes; no
-  byte-significant body or `package.mfb` edits; `src/docs/man/**`
-  untouched).
+- Per plan-108-A (no compiler testing; prose string fields only with
+  per-commit `git diff` check; no renderer/schema changes; no
+  `package.mfb` edits; `src/docs/man/**` untouched).
 - No wording churn on accurate, in-scope prose.
 - Found code bugs: fix or file via write-bug, recorded here.
 
@@ -74,7 +71,7 @@ by memory + spec cite — it needs the fix, not a re-derivation.
 |---|---|---|
 | pages to verify | 105 (+11 overviews, types pages) | `scripts/man-census.sh` at kickoff |
 | known defects entering | 1 (`process` resources blurb) | memory + spec §15.6 |
-| run/compile classifications to record | one row per env-dependent function | harness table diff |
+| compile-only examples | one ledger row per function so classified | this letter's ledger |
 
 ## 3. Design Overview
 
@@ -82,11 +79,10 @@ Same per-package cycle as D. Order: process first (carries the known
 defect — land the certain fix early), then io, os, crypto, tls, audio, app,
 then the small pure four (json, csv, money, regex) as a closing sweep.
 
-**Risk concentration:** example classification optimism — a "runs fine
-here" example that is env-fragile in CI (stdin EOF, audio device, tls
-endpoint). Held by: default-compile-only for the four device/endpoint
-packages, run-enforcement only with a deterministic harness recipe recorded
-per function.
+**Risk concentration:** example optimism — an example that "runs fine here"
+but is environment-fragile (stdin EOF, audio device, tls endpoint). Held
+by: compile-only classification for tty/device/endpoint members, recorded
+per function — never an unrecorded skip (no silent gaps).
 
 ### Rejected alternatives
 
@@ -96,7 +92,8 @@ per function.
 
 ## Compatibility / Format Impact
 
-None to codegen/wire. Summary re-pins only with 4-question-gate evidence.
+None to codegen/wire. Summary-pin update only if a pinned summary is itself
+corrected.
 
 ## Phases
 
@@ -104,22 +101,21 @@ None to codegen/wire. Summary re-pins only with 4-question-gate evidence.
 
 - [ ] Verify 15+15+15 pages + overviews + types pages; fix the `process`
       resources-in-collections defect (ledger: old wording → new wording →
-      spec cite); classify io stdin examples.
+      spec cite); io stdin examples classified in the ledger.
 - [ ] Cross-model review per package + apply; ledgers.
-- [ ] Tests: `cargo test --no-fail-fast`; `artifact-gate all`
-      byte-identical.
+- [ ] Verify: rendering reads clean; census still 100%.
 
 Acceptance: three packages verified; known defect fixed and recorded.
 Commit: —
 
 ### Phase 2 — crypto, tls, audio, app
 
-- [ ] Verify 17+10+12+3 pages + overviews + types pages; classifications
-      recorded (tls/audio/app largely compile-only).
+- [ ] Verify 17+10+12+3 pages + overviews + types pages; compile-only
+      classifications recorded (tls/audio/app largely compile-only).
 - [ ] Cross-model review + apply; ledgers.
-- [ ] Tests: as Phase 1.
+- [ ] Verify: rendering + census as Phase 1.
 
-Acceptance: four packages verified, enforced per classification.
+Acceptance: four packages verified and reviewed.
 Commit: —
 
 ### Phase 3 — json, csv, money, regex (+ errorcode/perf per A's ruling)
@@ -128,22 +124,19 @@ Commit: —
       pattern-vs-escape boundary stated precisely; execute A's
       errorcode/perf assignment.
 - [ ] Cross-model review + apply; ledgers.
-- [ ] Tests: as Phase 1; harness enforced list = every registry package.
+- [ ] Verify: rendering + census as Phase 1; every registry package now
+      covered by a letter.
 
-Acceptance: all remaining packages verified; harness covers the whole
-registry.
+Acceptance: all remaining packages verified and reviewed.
 Commit: —
 
 ## Validation Plan
 
-- Tests: `cargo test --no-fail-fast`; harness enforced registry-wide.
-- Coverage check: census 100%; classification table has a row for every
-  non-run-enforced example (no silent gaps — memory: no silent caps).
-- Runtime proof: run-enforced examples execute via release `mfb`; probes
-  for behavioral claims.
+- Verification: `mfb man <pkg> --all`/`types` per package; census still
+  100%; examples/probes compiled and (where possible) run ad hoc; the
+  ledger has a row for every compile-only example (no silent gaps).
 - Doc sync: none beyond content.
-- Acceptance: full suite; `artifact-gate all`; `test-accept.sh` no NEW
-  mismatch; fmt both crates.
+- Hygiene: fmt at session end.
 
 ## Open Decisions
 
@@ -156,6 +149,6 @@ Commit: —
 ## Summary
 
 The verification close-out: every remaining migrated-prose package audited,
-the one defect we already knew about fixed with its disproof cited, and the
-example harness extended to the entire registry — leaving F to certify the
+the one defect we already knew about fixed with its disproof cited, and
+every example in the registry finally compiled — leaving F to certify the
 whole surface and retire the dead tooling.
