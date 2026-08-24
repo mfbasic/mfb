@@ -148,13 +148,13 @@ impl CodeBuilder<'_> {
     }
 
     pub(crate) fn load_empty_string_constant(&mut self) -> Result<VirtualRegister, String> {
-        let register = self.allocate_register()?;
+        let register = self.allocate_register();
         self.emit_load_static_string_symbol(&register, EMPTY_STRING_SYMBOL);
         Ok(register)
     }
 
     pub(crate) fn load_string_constant(&mut self, value: &str) -> Result<VirtualRegister, String> {
-        let register = self.allocate_register()?;
+        let register = self.allocate_register();
         self.emit_load_string_constant(&register, value)?;
         Ok(register)
     }
@@ -260,7 +260,7 @@ impl CodeBuilder<'_> {
         }
         self.deactivate_moved_thread_arguments(target, args);
         self.deactivate_moved_resource_arguments(target, args);
-        let register = self.allocate_register()?;
+        let register = self.allocate_register();
         self.emit(abi::move_register(&register, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
             origin: None,
@@ -284,8 +284,8 @@ impl CodeBuilder<'_> {
     ) -> Result<Vec<ValueResult>, String> {
         let arg_values = self.emit_prepared_call_args(args, "call_arg")?;
         let saved_env_slot = self.allocate_stack_object("closure_saved_env", 8);
-        let code_register = self.allocate_register()?;
-        let env_register = self.allocate_register()?;
+        let code_register = self.allocate_register();
+        let env_register = self.allocate_register();
         self.emit(abi::store_u64(
             CLOSURE_ENV_REGISTER,
             abi::stack_pointer(),
@@ -369,7 +369,7 @@ impl CodeBuilder<'_> {
             self.maybe_deactivate_moved_thread_local(arg);
         }
         self.deactivate_moved_resource_arguments(target, args);
-        let register = self.allocate_register()?;
+        let register = self.allocate_register();
         self.emit(abi::move_register(&register, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
             origin: None,
@@ -458,7 +458,7 @@ impl CodeBuilder<'_> {
             self.reset_temporary_registers();
             self.copy_value_to_current_arena(result_type, RESULT_VALUE_REGISTER)?
         } else {
-            let register = self.allocate_register()?;
+            let register = self.allocate_register();
             self.emit(abi::move_register(&register, RESULT_VALUE_REGISTER));
             register
         };

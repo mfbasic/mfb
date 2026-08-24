@@ -3,7 +3,6 @@ use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::function::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::regalloc;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
@@ -128,13 +127,13 @@ impl CodeBuilder<'_> {
             .ok_or_else(|| format!("native code state assignment unknown local '{resource}'"))?;
         let stack_offset = local.stack_offset;
         let resource_type = local.type_.name().into_owned();
-        let block = self.allocate_register()?;
+        let block = self.allocate_register();
         self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
         let record = self.emit_resource_record_ptr(&block, &resource_type)?;
-        let state_ptr = self.allocate_register()?;
+        let state_ptr = self.allocate_register();
         self.emit(abi::load_u64(&state_ptr, &record, RESOURCE_OFFSET_STATE));
         for (index, slot) in stores {
-            let value = self.allocate_register()?;
+            let value = self.allocate_register();
             self.emit(abi::load_u64(&value, abi::stack_pointer(), slot));
             self.emit(abi::store_u64(&value, &state_ptr, 8 * index));
         }
@@ -301,10 +300,10 @@ impl CodeBuilder<'_> {
         let stack_offset = local.stack_offset;
         let resource_type = local.type_.name().into_owned();
         let state_slot = self.allocate_stack_object("inline_state_ptr", 8);
-        let block = self.allocate_register()?;
+        let block = self.allocate_register();
         self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
         let record = self.emit_resource_record_ptr(&block, &resource_type)?;
-        let state_ptr = self.allocate_register()?;
+        let state_ptr = self.allocate_register();
         self.emit(abi::load_u64(&state_ptr, &record, RESOURCE_OFFSET_STATE));
         self.emit(abi::store_u64(&state_ptr, abi::stack_pointer(), state_slot));
 
@@ -339,9 +338,9 @@ impl CodeBuilder<'_> {
 
         // Write the (possibly new) STATE pointer back through the resource's shared
         // STATE slot so the owner and every alias observe the grown block (§15).
-        let nb = self.allocate_register()?;
+        let nb = self.allocate_register();
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), state_slot));
-        let block2 = self.allocate_register()?;
+        let block2 = self.allocate_register();
         self.emit(abi::load_u64(&block2, abi::stack_pointer(), stack_offset));
         let record2 = self.emit_resource_record_ptr(&block2, &resource_type)?;
         self.emit(abi::store_u64(&nb, &record2, RESOURCE_OFFSET_STATE));
@@ -816,7 +815,7 @@ impl CodeBuilder<'_> {
                             ));
                             let old_slot = self.allocate_stack_object("store_global_old", 8);
                             let address = self.load_global_address(name)?;
-                            let old_ptr = self.allocate_register()?;
+                            let old_ptr = self.allocate_register();
                             self.emit(abi::load_u64(&old_ptr, &address, 0));
                             self.emit(abi::store_u64(&old_ptr, abi::stack_pointer(), old_slot));
                             self.emit_owned_value_drop(&OwnedValueCleanup {
@@ -824,7 +823,7 @@ impl CodeBuilder<'_> {
                                 stack_offset: old_slot,
                                 closure_captures: None,
                             })?;
-                            let new_ptr = self.allocate_register()?;
+                            let new_ptr = self.allocate_register();
                             self.emit(abi::load_u64(&new_ptr, abi::stack_pointer(), new_slot));
                             let stored = ValueResult {
                                 origin: None,
@@ -998,7 +997,7 @@ impl CodeBuilder<'_> {
                             // `Float` is stored via `str d` (plan-01
                             // float-dnative).
                             let store_value = if let Some(slot) = assign_slot {
-                                let register = self.allocate_register()?;
+                                let register = self.allocate_register();
                                 self.emit(abi::load_u64(&register, abi::stack_pointer(), slot));
                                 ValueResult {
                                     origin: None,
@@ -1013,7 +1012,7 @@ impl CodeBuilder<'_> {
                                 // A reference local (non-escaping `MUT` by-ref capture): write
                                 // through the slot pointer so the live parent binding is
                                 // updated, not a local copy.
-                                let slot_pointer = self.allocate_register()?;
+                                let slot_pointer = self.allocate_register();
                                 self.emit(abi::load_u64(
                                     &slot_pointer,
                                     abi::stack_pointer(),
@@ -1082,10 +1081,10 @@ impl CodeBuilder<'_> {
                         self.observe_float(value, &result)?;
                         let value_slot = self.allocate_stack_object("state_assign_value", 8);
                         self.store_value_at(&result, abi::stack_pointer(), value_slot);
-                        let block = self.allocate_register()?;
+                        let block = self.allocate_register();
                         self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
                         let ptr = self.emit_resource_record_ptr(&block, &resource_type)?;
-                        let val = self.allocate_register()?;
+                        let val = self.allocate_register();
                         self.emit(abi::load_u64(&val, abi::stack_pointer(), value_slot));
                         self.emit(abi::store_u64(&val, &ptr, RESOURCE_OFFSET_STATE));
                     }
@@ -1176,7 +1175,7 @@ impl CodeBuilder<'_> {
                         ));
                         let end_label = self.label("match_end");
                         for case in cases {
-                            let matched_register = self.allocate_register()?;
+                            let matched_register = self.allocate_register();
                             self.emit(abi::load_u64(
                                 &matched_register,
                                 abi::stack_pointer(),
@@ -1772,11 +1771,6 @@ impl CodeBuilder<'_> {
         body: &[NirOp],
         exclude: Option<&str>,
     ) -> Result<Vec<String>, String> {
-        // A loop-carried register is only sound under the liveness-driven
-        // allocator; the bump oracle reuses `d0`–`d7` per statement.
-        if self.regalloc_kind != regalloc::RegallocKind::LinearScan {
-            return Ok(Vec::new());
-        }
         let mut top_assigns = std::collections::HashSet::new();
         let mut excluded = std::collections::HashSet::new();
         scan_loop_locals(body, 0, &mut top_assigns, &mut excluded);
@@ -1805,8 +1799,8 @@ impl CodeBuilder<'_> {
                 continue;
             }
             let stack_offset = local.stack_offset;
-            let gpr = self.allocate_register()?;
-            let d = self.allocate_fp_register()?;
+            let gpr = self.allocate_register();
+            let d = self.allocate_fp_register();
             self.emit(abi::load_u64(&gpr, abi::stack_pointer(), stack_offset));
             self.emit(abi::float_move_d_from_x(&d, &gpr));
             if let Some(local) = self.locals.get_mut(&name) {
@@ -1831,7 +1825,7 @@ impl CodeBuilder<'_> {
             let Some(stack_offset) = self.locals.get(&name).map(|local| local.stack_offset) else {
                 continue;
             };
-            let gpr = self.allocate_register()?;
+            let gpr = self.allocate_register();
             self.emit(abi::float_move_x_from_d(&gpr, &d));
             self.emit(abi::store_u64(&gpr, abi::stack_pointer(), stack_offset));
         }

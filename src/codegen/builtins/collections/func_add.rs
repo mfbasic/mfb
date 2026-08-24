@@ -137,11 +137,11 @@ pub(crate) fn lower_add(
     builder.store_value_at(&item, abi::stack_pointer(), item_slot);
     // The per-element value is a 1-byte `Boolean` TRUE.
     let true_slot = builder.allocate_stack_object("set_add_true", 8);
-    let true_reg = builder.allocate_register()?;
+    let true_reg = builder.allocate_register();
     builder.emit(abi::move_immediate(&true_reg, "Boolean", "true"));
     builder.emit(abi::store_u64(&true_reg, abi::stack_pointer(), true_slot));
     // Copy the set (tight, uniquely owned), then insert into the copy.
-    let source = builder.allocate_register()?;
+    let source = builder.allocate_register();
     builder.emit(abi::load_u64(&source, abi::stack_pointer(), source_slot));
     let copy = builder.copy_collection_tight(&set.type_.name(), &source)?;
     let copy_slot = builder.allocate_stack_object("set_add_copy", 8);

@@ -21,7 +21,7 @@ pub(crate) fn lower(
     }
     let value = &args[0];
     builder.require_string("strings.byteLen value", value)?;
-    let register = builder.allocate_register()?;
+    let register = builder.allocate_register();
     builder.emit(abi::load_u64(&register, &value.location, 0));
     Ok(ValueResult {
         origin: None,

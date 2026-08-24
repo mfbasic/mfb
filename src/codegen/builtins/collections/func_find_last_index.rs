@@ -191,7 +191,7 @@ impl CodeBuilder<'_> {
         self.free_collection_loop_item(item_slot, &element_type)?;
         // current index = remaining - 1 (reverse walk: the cursor sits at index
         // `remaining - 1` at the top of the body).
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), remaining_slot));
         self.emit(abi::subtract_immediate(&result, &result, 1));
         Ok(ValueResult {

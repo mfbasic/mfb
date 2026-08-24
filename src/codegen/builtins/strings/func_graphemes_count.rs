@@ -24,7 +24,7 @@ pub(crate) fn lower(
     let scratch16 = builder.temporary_vreg();
     let list = lower_strings_graphemes(builder, value)?;
     let list_slot = builder.spill_to_slot("strings_graphemes_count_list", &list.location);
-    let result = builder.allocate_register()?;
+    let result = builder.allocate_register();
     builder.emit(abi::load_u64(&scratch16, abi::stack_pointer(), list_slot));
     builder.emit(abi::load_u64(&result, &scratch16, COLLECTION_OFFSET_COUNT));
     Ok(ValueResult {

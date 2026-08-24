@@ -83,7 +83,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&nn, abi::stack_pointer(), n_slot));
         self.emit(abi::shift_left_immediate(&bb, &nn, 3));
         self.emit_write_collection_header_full(&layout, &base, &nn, &nn, &bb, &bb);
-        let reg = self.allocate_register()?;
+        let reg = self.allocate_register();
         self.emit(abi::load_u64(&reg, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
@@ -432,7 +432,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::shift_left_immediate(&goff, &r1, 3));
             self.emit(abi::store_u64(&goff, &grb, COLLECTION_OFFSET_DATA_LENGTH));
         }
-        let result_reg = self.allocate_register()?;
+        let result_reg = self.allocate_register();
         self.emit(abi::load_u64(
             &result_reg,
             abi::stack_pointer(),

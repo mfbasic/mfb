@@ -79,7 +79,7 @@ impl CodeBuilder<'_> {
             ));
             self.emit(abi::store_u64(&scratch9, abi::mfb_return(1), 16));
         }
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
     }
@@ -184,7 +184,7 @@ impl CodeBuilder<'_> {
         }
 
         self.emit(abi::label(&have_payload_label));
-        let register = self.allocate_register()?;
+        let register = self.allocate_register();
         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
@@ -341,7 +341,7 @@ impl CodeBuilder<'_> {
         let symbol = thread_copy_symbol(type_);
         self.emit(abi::move_register(abi::c_arg(0), source));
         self.emit_symbol_call(&symbol);
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::move_register(&result, abi::return_register()));
         Ok(result)
     }
@@ -355,7 +355,7 @@ impl CodeBuilder<'_> {
     ) -> Result<VirtualRegister, String> {
         match type_ {
             "Nothing" | "Boolean" | "Byte" | "Integer" | "Float" | "Fixed" | "Money" | "Scalar" => {
-                let result = self.allocate_register()?;
+                let result = self.allocate_register();
                 self.emit(abi::move_register(&result, source));
                 Ok(result)
             }
@@ -385,7 +385,7 @@ impl CodeBuilder<'_> {
             // does not share). The source temporary is consumed, so the handle is
             // owned and closed exactly once.
             other if crate::codegen::builtins::is_resource_type(other) => {
-                let result = self.allocate_register()?;
+                let result = self.allocate_register();
                 self.emit(abi::move_register(&result, source));
                 Ok(result)
             }
@@ -463,7 +463,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), result_slot));
         self.copy_record_fields_into_existing(type_, &scratch9, &scratch10)?;
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
     }
@@ -672,7 +672,7 @@ impl CodeBuilder<'_> {
         if !self.suppress_resource_source_flag {
             self.emit_flag_resource_source_moved(source_slot);
         }
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
     }
@@ -781,7 +781,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), result_slot));
         self.copy_union_fields_into_existing(type_, &scratch9, &scratch10)?;
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
     }
@@ -875,7 +875,7 @@ impl CodeBuilder<'_> {
             "thread_copy_collection",
         );
         self.fix_collection_transfer_payloads(type_, source_slot, result_slot)?;
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
     }

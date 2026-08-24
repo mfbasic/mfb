@@ -226,7 +226,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), dcap_slot));
         self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
         self.emit_write_collection_header_full(&layout, &nb, &zero, &scratch9, &zero, &scratch10);
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
@@ -529,7 +529,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&copy_loop));
         self.emit(abi::label(&copy_done));
 
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
@@ -750,7 +750,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(&scratch11, &scratch11, 1));
         self.emit(abi::branch(&copy_loop));
         self.emit(abi::label(&copy_done));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,

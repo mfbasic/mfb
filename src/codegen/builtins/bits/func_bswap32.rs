@@ -79,7 +79,7 @@ pub(crate) fn lower_bits_bswap32(
     if value.type_ != ParameterType::Integer {
         return Err(format!("bits.bswap32 does not accept {}", value.type_));
     }
-    let dst = builder.allocate_register()?;
+    let dst = builder.allocate_register();
     // `REV` on the `W` register reverses the four bytes and zero-extends, so the
     // result is a non-negative 32-bit quantity regardless of the high bits.
     builder.emit(abi::reverse_bytes_word(dst, &value.location));

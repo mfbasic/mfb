@@ -4,7 +4,7 @@
 //! (`crate::codegen::engine::regalloc`) queries: which physical registers
 //! exist, which class each belongs to, the caller/callee-saved partition per
 //! class, and the spill/reload/move emitters. Today these facts were scattered
-//! across the `abi::*` primitives and the bump allocator's fixed numbering; the
+//! across the `abi::*` primitives and the legacy bump allocator's fixed numbering; the
 //! allocator now asks this model instead of hardcoding names, so a future
 //! `src/arch/x86_64/` sibling supplies its own description without touching the
 //! core.
@@ -29,11 +29,11 @@ use crate::target::shared::regmodel::{RegClass, RegisterModel};
 /// this at selection, so the allocator sees the concrete register. (plan-34-A)
 pub(crate) const ARENA_BASE_REGISTER: &str = "x19";
 
-/// The integer registers the bump allocator hands out as temporaries, in the
-/// exact order `abi::temporary_register` produced them: caller-saved
-/// `x8`–`x14` first, then callee-saved `x21`–`x27`. Keeping this order makes the
-/// linear-scan allocator prefer caller-saved scratch (no save/restore cost) and
-/// fall through to callee-saved only under pressure, matching the legacy layout.
+/// The integer registers handed out as temporaries, in the exact order the
+/// legacy bump allocator produced them: caller-saved `x8`–`x14` first, then
+/// callee-saved `x21`–`x27`. Keeping this order makes the linear-scan
+/// allocator prefer caller-saved scratch (no save/restore cost) and fall
+/// through to callee-saved only under pressure, matching the legacy layout.
 // `x28` is deliberately absent: it realizes the `%closure_env` role token
 // ([`Aarch64RegisterModel::closure_env`], plan-34-C §2.5), so the allocator must
 // never color a body vreg onto it — the mirror of `x19`'s (arena-base) exclusion.

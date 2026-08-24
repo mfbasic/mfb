@@ -223,13 +223,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::float_move_d_from_x(s.y, y_loc));
         self.reset_temporary_registers();
 
-        let result = self.allocate_register()?;
-        let xs_o = self.allocate_register()?.render();
-        let xm_o = self.allocate_register()?.render();
-        let xt_o = self.allocate_register()?.render();
-        let xu_o = self.allocate_register()?.render();
-        let smask_o = self.allocate_register()?.render();
-        let nexp_o = self.allocate_register()?.render();
+        let result = self.allocate_register();
+        let xs_o = self.allocate_register().render();
+        let xm_o = self.allocate_register().render();
+        let xt_o = self.allocate_register().render();
+        let xu_o = self.allocate_register().render();
+        let smask_o = self.allocate_register().render();
+        let nexp_o = self.allocate_register().render();
         let (xs, xm, xt, xu, smask, nexp) = (
             xs_o.as_str(),
             xm_o.as_str(),
@@ -406,12 +406,12 @@ impl CodeBuilder<'_> {
         text: String,
     ) -> Result<ValueResult, String> {
         self.reset_temporary_registers();
-        let left_ptr = self.allocate_register()?;
+        let left_ptr = self.allocate_register();
         self.emit(abi::load_u64(&left_ptr, abi::stack_pointer(), left_slot));
-        let right_ptr = self.allocate_register()?;
+        let right_ptr = self.allocate_register();
         self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
-        let count = self.allocate_register()?;
-        let rcount = self.allocate_register()?;
+        let count = self.allocate_register();
+        let rcount = self.allocate_register();
         self.emit(abi::load_u64(&count, &left_ptr, COLLECTION_OFFSET_COUNT));
         self.emit(abi::load_u64(&rcount, &right_ptr, COLLECTION_OFFSET_COUNT));
         let lengths_ok = self.label("pow_arr_len_ok");
@@ -436,17 +436,17 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             result_slot,
         ));
-        let left_ptr = self.allocate_register()?;
+        let left_ptr = self.allocate_register();
         self.emit(abi::load_u64(&left_ptr, abi::stack_pointer(), left_slot));
-        let right_ptr = self.allocate_register()?;
+        let right_ptr = self.allocate_register();
         self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
-        let ldata = self.allocate_register()?;
+        let ldata = self.allocate_register();
         self.emit_collection_data_pointer_for(&ldata, &left_ptr, "Float");
         self.emit(abi::store_u64(&ldata, abi::stack_pointer(), ldata_slot));
-        let rdata = self.allocate_register()?;
+        let rdata = self.allocate_register();
         self.emit_collection_data_pointer_for(&rdata, &right_ptr, "Float");
         self.emit(abi::store_u64(&rdata, abi::stack_pointer(), rdata_slot));
-        let odata = self.allocate_register()?;
+        let odata = self.allocate_register();
         self.emit_collection_data_pointer_for(&odata, &result_base, "Float");
         self.emit(abi::store_u64(&odata, abi::stack_pointer(), odata_slot));
         self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), index_slot));
@@ -455,24 +455,24 @@ impl CodeBuilder<'_> {
         let loop_done = self.label("pow_arr_done");
         self.emit(abi::label(&loop_label));
         self.reset_temporary_registers();
-        let index = self.allocate_register()?;
-        let cnt = self.allocate_register()?;
+        let index = self.allocate_register();
+        let cnt = self.allocate_register();
         self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
         self.emit(abi::load_u64(&cnt, abi::stack_pointer(), count_slot));
         self.emit(abi::compare_registers(&index, &cnt));
         self.emit(abi::branch_ge(&loop_done));
         // offset = index*8
-        let off = self.allocate_register()?;
+        let off = self.allocate_register();
         self.emit(abi::shift_left_immediate(&off, &index, 3));
-        let lbase = self.allocate_register()?;
+        let lbase = self.allocate_register();
         self.emit(abi::load_u64(&lbase, abi::stack_pointer(), ldata_slot));
         self.emit(abi::add_registers(&lbase, &lbase, &off));
-        let lbits = self.allocate_register()?;
+        let lbits = self.allocate_register();
         self.emit(abi::load_u64(&lbits, &lbase, 0));
-        let rbase = self.allocate_register()?;
+        let rbase = self.allocate_register();
         self.emit(abi::load_u64(&rbase, abi::stack_pointer(), rdata_slot));
         self.emit(abi::add_registers(&rbase, &rbase, &off));
-        let rbits = self.allocate_register()?;
+        let rbits = self.allocate_register();
         self.emit(abi::load_u64(&rbits, &rbase, 0));
         let res = self.emit_pow_scalar(&lbits, &rbits)?; // resets the register file
         self.emit_float_result_check(&res, FloatInfinityError::Infinity)?;
@@ -480,14 +480,14 @@ impl CodeBuilder<'_> {
         let res_slot = self.allocate_stack_object("pow_arr_res", 8);
         self.emit(abi::store_u64(&res, abi::stack_pointer(), res_slot));
         self.reset_temporary_registers();
-        let index = self.allocate_register()?;
+        let index = self.allocate_register();
         self.emit(abi::load_u64(&index, abi::stack_pointer(), index_slot));
-        let off = self.allocate_register()?;
+        let off = self.allocate_register();
         self.emit(abi::shift_left_immediate(&off, &index, 3));
-        let obase = self.allocate_register()?;
+        let obase = self.allocate_register();
         self.emit(abi::load_u64(&obase, abi::stack_pointer(), odata_slot));
         self.emit(abi::add_registers(&obase, &obase, &off));
-        let res = self.allocate_register()?;
+        let res = self.allocate_register();
         self.emit(abi::load_u64(&res, abi::stack_pointer(), res_slot));
         self.emit(abi::store_u64(&res, &obase, 0));
         self.emit(abi::add_immediate(&index, &index, 1));
@@ -496,7 +496,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&loop_done));
 
         self.reset_temporary_registers();
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,

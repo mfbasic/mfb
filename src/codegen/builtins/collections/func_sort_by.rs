@@ -481,7 +481,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::store_u64(&r0, abi::stack_pointer(), gk_slot));
             self.emit(abi::branch(&gloop));
             self.emit(abi::label(&gdone));
-            let result_reg = self.allocate_register()?;
+            let result_reg = self.allocate_register();
             self.emit(abi::load_u64(
                 &result_reg,
                 abi::stack_pointer(),
@@ -514,7 +514,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::shift_left_immediate(&t0, &n, 3));
         self.emit(abi::store_u64(&t0, &r0, COLLECTION_OFFSET_DATA_LENGTH));
 
-        let result_reg = self.allocate_register()?;
+        let result_reg = self.allocate_register();
         self.emit(abi::load_u64(&result_reg, abi::stack_pointer(), items_slot));
         let threaded = ValueResult {
             origin: None,

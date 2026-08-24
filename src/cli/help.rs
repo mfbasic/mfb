@@ -135,7 +135,6 @@ Arguments:
 Options:
   --sign <owner>      Sign the resulting binary with the specified owner
   --target <os-arch>  Cross-compile to a specific target (e.g., linux-x86_64)
-  --regalloc <name>   Select the register-allocation strategy
   -O <level>          Optimization level: 0 off, 1 default (also -O0/-O1,
                       --optimize <level>)
   --app               Build as a standalone application instead of a library
@@ -167,7 +166,6 @@ Arguments:
 Options:
   --coverage          Emit coverage.html for the exercised source lines
   --target <os-arch>  Build for a specific target (only host targets are run)
-  --regalloc <name>   Select the register-allocation strategy
   -O <level>          Optimization level: 0 off, 1 default (also -O0/-O1,
                       --optimize <level>)";
 

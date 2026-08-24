@@ -249,9 +249,9 @@ impl CodeBuilder<'_> {
                 // exponent, which the result check turns into ErrFloatInf /
                 // ErrFloatNan (matching the scalar pow man page).
                 self.reset_temporary_registers();
-                let left_reg = self.allocate_register()?;
+                let left_reg = self.allocate_register();
                 self.emit(abi::load_u64(&left_reg, abi::stack_pointer(), left_slot));
-                let right_reg = self.allocate_register()?;
+                let right_reg = self.allocate_register();
                 self.emit(abi::load_u64(&right_reg, abi::stack_pointer(), right_slot));
                 let result = self.emit_pow_scalar(&left_reg, &right_reg)?;
                 self.emit_float_result_check(&result, FloatInfinityError::Infinity)?;
@@ -270,17 +270,17 @@ impl CodeBuilder<'_> {
                     _ => return Err(format!("math.{function} has no scalar Float binary kernel")),
                 };
                 self.reset_temporary_registers();
-                let left_reg = self.allocate_register()?;
+                let left_reg = self.allocate_register();
                 self.emit(abi::load_u64(&left_reg, abi::stack_pointer(), left_slot));
-                let right_reg = self.allocate_register()?;
+                let right_reg = self.allocate_register();
                 self.emit(abi::load_u64(&right_reg, abi::stack_pointer(), right_slot));
                 self.lower_simd_float_binary_scalar(kernel, &left_reg, &right_reg, text)
             }
             "Fixed" => {
                 self.reset_temporary_registers();
-                let left_reg = self.allocate_register()?;
+                let left_reg = self.allocate_register();
                 self.emit(abi::load_u64(&left_reg, abi::stack_pointer(), left_slot));
-                let right_reg = self.allocate_register()?;
+                let right_reg = self.allocate_register();
                 self.emit(abi::load_u64(&right_reg, abi::stack_pointer(), right_slot));
                 let values = vec![
                     ValueResult {
@@ -450,7 +450,7 @@ impl CodeBuilder<'_> {
     fn lower_math_abs(&mut self, arg: &ValueResult) -> Result<ValueResult, String> {
         let value = arg.clone();
         let value = self.materialize_float(value)?;
-        let dst = self.allocate_register()?;
+        let dst = self.allocate_register();
         let bound = self.temporary_vreg();
         match value.type_.name().as_ref() {
             // Money is a raw i64, so |x| and the INT64_MIN overflow check are the
@@ -629,9 +629,9 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             right_slot,
         ));
-        let dst = self.allocate_register()?;
-        let lhs = self.allocate_register()?;
-        let rhs = self.allocate_register()?;
+        let dst = self.allocate_register();
+        let lhs = self.allocate_register();
+        let rhs = self.allocate_register();
         self.emit(abi::load_u64(&lhs, abi::stack_pointer(), left_slot));
         self.emit(abi::load_u64(&rhs, abi::stack_pointer(), right_slot));
         if left.type_ != right.type_ {
@@ -717,10 +717,10 @@ impl CodeBuilder<'_> {
         if value.type_ != low.type_ || value.type_ != high.type_ {
             return Err("math.clamp requires three matching numeric arguments".to_string());
         }
-        let dst = self.allocate_register()?;
-        let value_reg = self.allocate_register()?;
-        let low_reg = self.allocate_register()?;
-        let high_reg = self.allocate_register()?;
+        let dst = self.allocate_register();
+        let value_reg = self.allocate_register();
+        let low_reg = self.allocate_register();
+        let high_reg = self.allocate_register();
         self.emit(abi::load_u64(&value_reg, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&low_reg, abi::stack_pointer(), low_slot));
         self.emit(abi::load_u64(&high_reg, abi::stack_pointer(), high_slot));
@@ -808,7 +808,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let value = arg.clone();
         let value = self.materialize_float(value)?;
-        let dst = self.allocate_register()?;
+        let dst = self.allocate_register();
         match value.type_.name().as_ref() {
             "Float" => {
                 self.emit(abi::float_move_d_from_x(
@@ -872,11 +872,11 @@ impl CodeBuilder<'_> {
         &mut self,
         source_bits: impl Into<Operand>,
     ) -> Result<(), String> {
-        let bits = self.allocate_register()?;
-        let exponent = self.allocate_register()?;
-        let sign = self.allocate_register()?;
-        let mantissa = self.allocate_register()?;
-        let mask = self.allocate_register()?;
+        let bits = self.allocate_register();
+        let exponent = self.allocate_register();
+        let sign = self.allocate_register();
+        let mantissa = self.allocate_register();
+        let mask = self.allocate_register();
         let ok = self.label("math_rounding_float_range_ok");
         let edge = self.label("math_rounding_float_range_edge");
         let edge_negative = self.label("math_rounding_float_range_edge_negative");
@@ -960,9 +960,9 @@ impl CodeBuilder<'_> {
         // loop; `_mfb_rng_next` clobbers the caller-saved registers so the span,
         // threshold, and min are reloaded from their slots after every call.
         self.reset_temporary_registers();
-        let min_reg = self.allocate_register()?;
-        let max_reg = self.allocate_register()?;
-        let range_reg = self.allocate_register()?;
+        let min_reg = self.allocate_register();
+        let max_reg = self.allocate_register();
+        let range_reg = self.allocate_register();
         self.emit(abi::load_u64(&min_reg, abi::stack_pointer(), min_slot));
         self.emit(abi::load_u64(&max_reg, abi::stack_pointer(), max_slot));
         let bounds_valid = self.label("math_rand_bounds_valid");
@@ -996,9 +996,9 @@ impl CodeBuilder<'_> {
         // tail width t = (2^64 mod span) must be redrawn. Compute
         //   t = (2^64 - span) mod span == (0 - span) mod span
         // once here while `span` is in a register (span != 0 on this path).
-        let neg_span = self.allocate_register()?;
-        let quotient = self.allocate_register()?;
-        let threshold = self.allocate_register()?;
+        let neg_span = self.allocate_register();
+        let quotient = self.allocate_register();
+        let threshold = self.allocate_register();
         self.emit(abi::subtract_registers(&neg_span, abi::ZERO, &range_reg));
         self.emit(abi::unsigned_divide_registers(
             &quotient, &neg_span, &range_reg,
@@ -1018,9 +1018,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&draw));
         self.emit_rng_next_call();
         self.reset_temporary_registers();
-        let span_reg = self.allocate_register()?;
-        let product_hi = self.allocate_register()?;
-        let product_lo = self.allocate_register()?;
+        let span_reg = self.allocate_register();
+        let product_hi = self.allocate_register();
+        let product_lo = self.allocate_register();
         self.emit(abi::load_u64(&span_reg, abi::stack_pointer(), range_slot));
         self.emit(abi::unsigned_multiply_high_registers(
             &product_hi,
@@ -1036,7 +1036,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_lo(&maybe_reject)); // lo < span => check the tail
         self.emit(abi::branch(&accept));
         self.emit(abi::label(&maybe_reject));
-        let threshold_reg = self.allocate_register()?;
+        let threshold_reg = self.allocate_register();
         self.emit(abi::load_u64(
             &threshold_reg,
             abi::stack_pointer(),
@@ -1045,8 +1045,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_registers(&product_lo, &threshold_reg));
         self.emit(abi::branch_lo(&draw)); // lo < t => biased tail, redraw
         self.emit(abi::label(&accept));
-        let min_reload = self.allocate_register()?;
-        let offset = self.allocate_register()?;
+        let min_reload = self.allocate_register();
+        let offset = self.allocate_register();
         self.emit(abi::load_u64(&min_reload, abi::stack_pointer(), min_slot));
         self.emit(abi::add_registers(&offset, &min_reload, &product_hi));
         self.emit(abi::store_u64(&offset, abi::stack_pointer(), result_slot));
@@ -1063,7 +1063,7 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::label(&done));
         self.reset_temporary_registers();
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
@@ -1118,7 +1118,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::branch_ge(&valid));
             self.raise_error("math.sqrt", "ErrFloatDomain")?;
             self.emit(abi::label(&valid));
-            let result = self.allocate_fp_register()?;
+            let result = self.allocate_fp_register();
             self.emit(abi::float_sqrt_d(&result, &src));
             return Ok(ValueResult {
                 origin: None,
@@ -1160,7 +1160,7 @@ impl CodeBuilder<'_> {
         let location = match function {
             "atan2" => self.emit_fixed_atan2(&values[0].location, &values[1].location)?,
             "atan" => {
-                let one = self.allocate_register()?;
+                let one = self.allocate_register();
                 self.emit(abi::move_immediate(
                     &one,
                     "Fixed",
@@ -1190,7 +1190,7 @@ impl CodeBuilder<'_> {
         let slot = self.allocate_stack_object("fixed_math_result", 8);
         self.emit(abi::store_u64(&location, abi::stack_pointer(), slot));
         self.reset_temporary_registers();
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), slot));
         Ok(ValueResult {
             origin: None,
@@ -1214,7 +1214,7 @@ impl CodeBuilder<'_> {
         // scratch registers) with one shift, one immediate, and one compare, and
         // it never hardcodes a result scratch register (see the negation note in
         // `lower_numeric_unary_negation`).
-        let magnitude = self.allocate_register()?;
+        let magnitude = self.allocate_register();
         let inf_bits = self.temporary_vreg();
         let ok = self.label("float_result_finite");
         let nan = self.label("float_result_nan");
@@ -1258,8 +1258,8 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         let nan = self.label("float_result_nan");
         let ok = self.label("float_result_finite");
-        let magnitude = self.allocate_fp_register()?;
-        let positive_inf = self.allocate_fp_register()?;
+        let magnitude = self.allocate_fp_register();
+        let positive_inf = self.allocate_fp_register();
         let inf_bits = self.temporary_vreg();
         // +inf bits == 0x7FF0000000000000. Materialized through a scratch vreg,
         // never a pooled physical GPR.

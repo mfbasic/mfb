@@ -54,8 +54,8 @@ impl CodeBuilder<'_> {
                 ));
             }
             "ceil" => {
-                let frac = self.allocate_register()?;
-                let mask = self.allocate_register()?;
+                let frac = self.allocate_register();
+                let mask = self.allocate_register();
                 let done = self.label("fixed_ceil_done");
                 self.emit(abi::arithmetic_shift_right_immediate(
                     dst.clone(),
@@ -74,10 +74,10 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&done));
             }
             "round" => {
-                let whole = self.allocate_register()?;
-                let frac = self.allocate_register()?;
-                let mask = self.allocate_register()?;
-                let threshold = self.allocate_register()?;
+                let whole = self.allocate_register();
+                let frac = self.allocate_register();
+                let mask = self.allocate_register();
+                let threshold = self.allocate_register();
                 let negative = self.label("fixed_round_negative");
                 let compare = self.label("fixed_round_compare");
                 let done = self.label("fixed_round_done");
@@ -145,18 +145,18 @@ impl CodeBuilder<'_> {
         let slot = self.allocate_stack_object("fixed_sqrt_input", 8);
         self.emit(abi::store_u64(src, abi::stack_pointer(), slot));
         self.reset_temporary_registers();
-        let input = self.allocate_register()?;
+        let input = self.allocate_register();
         self.emit(abi::load_u64(&input, abi::stack_pointer(), slot));
         let src = &input;
-        let dst = self.allocate_register()?;
-        let nhi = self.allocate_register()?;
-        let nlo = self.allocate_register()?;
-        let res = self.allocate_register()?;
-        let rem = self.allocate_register()?;
-        let digit = self.allocate_register()?;
-        let trial = self.allocate_register()?;
-        let counter = self.allocate_register()?;
-        let carry = self.allocate_register()?;
+        let dst = self.allocate_register();
+        let nhi = self.allocate_register();
+        let nlo = self.allocate_register();
+        let res = self.allocate_register();
+        let rem = self.allocate_register();
+        let digit = self.allocate_register();
+        let trial = self.allocate_register();
+        let counter = self.allocate_register();
+        let carry = self.allocate_register();
         let loop_label = self.label("fixed_sqrt_loop");
         let skip = self.label("fixed_sqrt_skip");
         let done = self.label("fixed_sqrt_done");
@@ -220,10 +220,10 @@ impl CodeBuilder<'_> {
         a: impl Into<Operand>,
         b: impl Into<Operand>,
     ) -> Result<VirtualRegister, String> {
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         let saved = self.next_register;
-        let s0 = self.allocate_register()?;
-        let s1 = self.allocate_register()?;
+        let s0 = self.allocate_register();
+        let s1 = self.allocate_register();
         self.emit_fixed_mul_inplace(&result, a, b, &s0, &s1);
         self.next_register = saved;
         Ok(result)
@@ -280,9 +280,9 @@ impl CodeBuilder<'_> {
         let a = a.into();
         let b = b.into();
         let z = z.into();
-        let sx = self.allocate_register()?;
-        let sy = self.allocate_register()?;
-        let konst = self.allocate_register()?;
+        let sx = self.allocate_register();
+        let sy = self.allocate_register();
+        let konst = self.allocate_register();
         let (prefix, driver): (&str, &Operand) = match mode {
             CordicMode::Vectoring => ("cordic_vec", &b),
             CordicMode::Rotation => ("cordic_rot", &z),
@@ -352,11 +352,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(y_src, abi::stack_pointer(), y_slot));
         self.emit(abi::store_u64(x_src, abi::stack_pointer(), x_slot));
         self.reset_temporary_registers();
-        let vy = self.allocate_register()?;
-        let vx = self.allocate_register()?;
-        let z = self.allocate_register()?;
-        let offset = self.allocate_register()?;
-        let result = self.allocate_register()?;
+        let vy = self.allocate_register();
+        let vx = self.allocate_register();
+        let z = self.allocate_register();
+        let offset = self.allocate_register();
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&vy, abi::stack_pointer(), y_slot));
         self.emit(abi::load_u64(&vx, abi::stack_pointer(), x_slot));
 
@@ -403,10 +403,10 @@ impl CodeBuilder<'_> {
         // operand, whose `0 - vx` reflection below is otherwise a two's-complement
         // no-op that leaves vx < 0 and breaks CORDIC's precondition (bug-128).
         let no_scale = self.label("fixed_atan2_no_scale");
-        let mag_x = self.allocate_register()?;
-        let mag_y = self.allocate_register()?;
-        let mag = self.allocate_register()?;
-        let mag_threshold = self.allocate_register()?;
+        let mag_x = self.allocate_register();
+        let mag_y = self.allocate_register();
+        let mag = self.allocate_register();
+        let mag_threshold = self.allocate_register();
         // |v| without overflow: v ^ (v>>63) is |v| for v>=0 and |v|-1 for v<0, so
         // even i64::MIN maps to i64::MAX (top bit clear) rather than overflowing.
         self.emit(abi::arithmetic_shift_right_immediate(&mag_x, &vx, 63));
@@ -462,40 +462,40 @@ impl CodeBuilder<'_> {
         let slot = self.allocate_stack_object("fixed_sincos_input", 8);
         self.emit(abi::store_u64(src, abi::stack_pointer(), slot));
         self.reset_temporary_registers();
-        let theta = self.allocate_register()?;
+        let theta = self.allocate_register();
         self.emit(abi::load_u64(&theta, abi::stack_pointer(), slot));
 
         // k = round(theta * 2/pi): the number of pi/2 quadrants.
-        let two_over_pi = self.allocate_register()?;
+        let two_over_pi = self.allocate_register();
         self.emit_const_i64(&two_over_pi, fixed_two_over_pi());
         let scaled = self.emit_fixed_mul(&theta, &two_over_pi)?;
-        let k = self.allocate_register()?;
+        let k = self.allocate_register();
         self.emit(abi::move_immediate(&k, "Integer", &FIXED_HALF.to_string()));
         self.emit(abi::add_registers(&k, &scaled, &k));
         self.emit(abi::arithmetic_shift_right_immediate(&k, &k, 32));
         // r = theta - k * (pi/2), computed modulo 2^64 so a large k*pi/2 that
         // overflows 64 bits still yields the correct small reduced angle.
-        let pi_over_2 = self.allocate_register()?;
+        let pi_over_2 = self.allocate_register();
         self.emit_const_i64(&pi_over_2, fixed_pi_over_2());
-        let kq = self.allocate_register()?;
+        let kq = self.allocate_register();
         self.emit(abi::multiply_registers(&kq, &k, &pi_over_2));
-        let r = self.allocate_register()?;
+        let r = self.allocate_register();
         self.emit(abi::subtract_registers(&r, &theta, &kq));
 
         // CORDIC rotation on the reduced angle.
-        let cosr = self.allocate_register()?;
-        let sinr = self.allocate_register()?;
+        let cosr = self.allocate_register();
+        let sinr = self.allocate_register();
         self.emit_const_i64(&cosr, cordic_gain_inverse());
         self.emit(abi::move_immediate(&sinr, "Integer", "0"));
         self.emit_cordic(CordicMode::Rotation, &cosr, &sinr, &r)?;
 
         // Quadrant selection from k mod 4.
-        let kmod = self.allocate_register()?;
-        let three = self.allocate_register()?;
+        let kmod = self.allocate_register();
+        let three = self.allocate_register();
         self.emit(abi::move_immediate(&three, "Integer", "3"));
         self.emit(abi::and_registers(&kmod, &k, &three));
-        let sin_out = self.allocate_register()?;
-        let cos_out = self.allocate_register()?;
+        let sin_out = self.allocate_register();
+        let cos_out = self.allocate_register();
         let q1 = self.label("fixed_sincos_q1");
         let q2 = self.label("fixed_sincos_q2");
         let q3 = self.label("fixed_sincos_q3");
@@ -551,13 +551,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&sin_out, abi::stack_pointer(), sin_slot));
         self.emit(abi::store_u64(&cos_out, abi::stack_pointer(), cos_slot));
         self.reset_temporary_registers();
-        let sin_reg = self.allocate_register()?;
-        let cos_reg = self.allocate_register()?;
+        let sin_reg = self.allocate_register();
+        let cos_reg = self.allocate_register();
         self.emit(abi::load_u64(&sin_reg, abi::stack_pointer(), sin_slot));
         self.emit(abi::load_u64(&cos_reg, abi::stack_pointer(), cos_slot));
         // `emit_fixed_divide` already fails with ErrInvalidArgument when the
         // divisor (cos) is zero, which matches the spec's undefined-point rule.
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit_fixed_divide(&result, &sin_reg, &cos_reg)?;
         Ok(result)
     }
@@ -573,10 +573,10 @@ impl CodeBuilder<'_> {
         let x_slot = self.allocate_stack_object("fixed_asin_x", 8);
         self.emit(abi::store_u64(src, abi::stack_pointer(), x_slot));
         self.reset_temporary_registers();
-        let x = self.allocate_register()?;
+        let x = self.allocate_register();
         self.emit(abi::load_u64(&x, abi::stack_pointer(), x_slot));
         // Domain check: |x| <= 1.
-        let one = self.allocate_register()?;
+        let one = self.allocate_register();
         self.emit(abi::move_immediate(&one, "Fixed", &FIXED_ONE.to_string()));
         let in_domain_upper = self.label("fixed_asin_upper_ok");
         let domain_error = self.label("fixed_asin_domain_error");
@@ -585,7 +585,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_le(&in_domain_upper));
         self.emit(abi::branch(&domain_error));
         self.emit(abi::label(&in_domain_upper));
-        let neg_one = self.allocate_register()?;
+        let neg_one = self.allocate_register();
         self.emit(abi::subtract_registers(&neg_one, abi::ZERO, &one));
         self.emit(abi::compare_registers(&x, &neg_one));
         self.emit(abi::branch_ge(&checked));
@@ -594,7 +594,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&checked));
         // s = sqrt(1 - x^2).
         let x2 = self.emit_fixed_mul(&x, &x)?;
-        let one_minus = self.allocate_register()?;
+        let one_minus = self.allocate_register();
         self.emit(abi::move_immediate(
             &one_minus,
             "Fixed",
@@ -602,7 +602,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::subtract_registers(&one_minus, &one_minus, &x2));
         let s = self.emit_fixed_sqrt(&one_minus)?; // resets register file
-        let xr = self.allocate_register()?;
+        let xr = self.allocate_register();
         self.emit(abi::load_u64(&xr, abi::stack_pointer(), x_slot));
         if is_acos {
             self.emit_fixed_atan2(&s, &xr)
@@ -621,30 +621,30 @@ impl CodeBuilder<'_> {
         let x_slot = self.allocate_stack_object("fixed_exp_x", 8);
         self.emit(abi::store_u64(src, abi::stack_pointer(), x_slot));
         self.reset_temporary_registers();
-        let x = self.allocate_register()?;
+        let x = self.allocate_register();
         self.emit(abi::load_u64(&x, abi::stack_pointer(), x_slot));
         // n = round(x / ln2).
-        let inv_ln2 = self.allocate_register()?;
+        let inv_ln2 = self.allocate_register();
         self.emit_const_i64(&inv_ln2, fixed_inv_ln2());
         let scaled = self.emit_fixed_mul(&x, &inv_ln2)?;
-        let n = self.allocate_register()?;
+        let n = self.allocate_register();
         self.emit(abi::move_immediate(&n, "Integer", &FIXED_HALF.to_string()));
         self.emit(abi::add_registers(&n, &scaled, &n));
         self.emit(abi::arithmetic_shift_right_immediate(&n, &n, 32));
         // r = x - n*ln2 (mod 2^64).
-        let ln2 = self.allocate_register()?;
+        let ln2 = self.allocate_register();
         self.emit_const_i64(&ln2, fixed_ln2());
-        let nl = self.allocate_register()?;
+        let nl = self.allocate_register();
         self.emit(abi::multiply_registers(&nl, &n, &ln2));
-        let r = self.allocate_register()?;
+        let r = self.allocate_register();
         self.emit(abi::subtract_registers(&r, &x, &nl));
         // exp(r) via Taylor series: sum = 1 + r + r^2/2! + ...
-        let sum = self.allocate_register()?;
-        let term = self.allocate_register()?;
-        let k = self.allocate_register()?;
-        let counter = self.allocate_register()?;
-        let s0 = self.allocate_register()?;
-        let s1 = self.allocate_register()?;
+        let sum = self.allocate_register();
+        let term = self.allocate_register();
+        let k = self.allocate_register();
+        let counter = self.allocate_register();
+        let s0 = self.allocate_register();
+        let s1 = self.allocate_register();
         self.emit(abi::move_immediate(&sum, "Fixed", &FIXED_ONE.to_string()));
         self.emit(abi::move_immediate(&term, "Fixed", &FIXED_ONE.to_string()));
         self.emit(abi::move_immediate(&k, "Integer", "1"));
@@ -676,8 +676,8 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         let value = value.into();
         let n = n.into();
-        let count = self.allocate_register()?;
-        let limit = self.allocate_register()?;
+        let count = self.allocate_register();
+        let limit = self.allocate_register();
         let negative = self.label("fixed_scale_negative");
         let up_loop = self.label("fixed_scale_up");
         let up_done = self.label("fixed_scale_up_done");
@@ -736,7 +736,7 @@ impl CodeBuilder<'_> {
         let x_slot = self.allocate_stack_object("fixed_log_x", 8);
         self.emit(abi::store_u64(src, abi::stack_pointer(), x_slot));
         self.reset_temporary_registers();
-        let x = self.allocate_register()?;
+        let x = self.allocate_register();
         self.emit(abi::load_u64(&x, abi::stack_pointer(), x_slot));
         let positive = self.label("fixed_log_positive");
         self.emit(abi::compare_immediate(&x, "0"));
@@ -744,10 +744,10 @@ impl CodeBuilder<'_> {
         self.raise_error_bare("ErrInvalidArgument")?;
         self.emit(abi::label(&positive));
         // Normalise x into [1, 2): m_raw in [2^32, 2^33), tracking exponent e.
-        let m = self.allocate_register()?;
-        let e = self.allocate_register()?;
-        let upper = self.allocate_register()?;
-        let lower = self.allocate_register()?;
+        let m = self.allocate_register();
+        let e = self.allocate_register();
+        let upper = self.allocate_register();
+        let lower = self.allocate_register();
         self.emit(abi::move_register(&m, &x));
         self.emit(abi::move_immediate(&e, "Integer", "0"));
         self.emit(abi::move_immediate(
@@ -779,9 +779,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&norm_low));
         self.emit(abi::label(&norm_low_done));
         // t = (m - 1)/(m + 1); ln(m) = 2*(t + t^3/3 + t^5/5 + ...).
-        let numerator = self.allocate_register()?;
-        let denominator = self.allocate_register()?;
-        let one = self.allocate_register()?;
+        let numerator = self.allocate_register();
+        let denominator = self.allocate_register();
+        let one = self.allocate_register();
         self.emit(abi::move_immediate(&one, "Fixed", &FIXED_ONE.to_string()));
         self.emit(abi::subtract_registers(&numerator, &m, &one));
         self.emit(abi::add_registers(&denominator, &m, &one));
@@ -793,26 +793,26 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&numerator, abi::stack_pointer(), num_slot));
         self.emit(abi::store_u64(&denominator, abi::stack_pointer(), den_slot));
         self.reset_temporary_registers();
-        let num_reg = self.allocate_register()?;
-        let den_reg = self.allocate_register()?;
+        let num_reg = self.allocate_register();
+        let den_reg = self.allocate_register();
         self.emit(abi::load_u64(&num_reg, abi::stack_pointer(), num_slot));
         self.emit(abi::load_u64(&den_reg, abi::stack_pointer(), den_slot));
-        let t = self.allocate_register()?;
+        let t = self.allocate_register();
         self.emit_fixed_divide(&t, &num_reg, &den_reg)?;
         // Series for ln(m) using t and t^2.
-        let t2 = self.allocate_register()?;
+        let t2 = self.allocate_register();
         let saved = self.next_register;
-        let ms0 = self.allocate_register()?;
-        let ms1 = self.allocate_register()?;
+        let ms0 = self.allocate_register();
+        let ms1 = self.allocate_register();
         self.emit_fixed_mul_inplace(&t2, &t, &t, &ms0, &ms1);
         self.next_register = saved;
-        let sum = self.allocate_register()?;
-        let term = self.allocate_register()?;
-        let k = self.allocate_register()?;
-        let counter = self.allocate_register()?;
-        let s0 = self.allocate_register()?;
-        let s1 = self.allocate_register()?;
-        let scratch = self.allocate_register()?;
+        let sum = self.allocate_register();
+        let term = self.allocate_register();
+        let k = self.allocate_register();
+        let counter = self.allocate_register();
+        let s0 = self.allocate_register();
+        let s1 = self.allocate_register();
+        let scratch = self.allocate_register();
         self.emit(abi::move_register(&sum, &t));
         self.emit(abi::move_register(&term, &t));
         self.emit(abi::move_immediate(&k, "Integer", "3"));
@@ -832,15 +832,15 @@ impl CodeBuilder<'_> {
         // ln(m) = 2 * sum.
         self.emit(abi::shift_left_immediate(&sum, &sum, 1));
         // ln(x) = e*ln2 + ln(m).
-        let e_reg = self.allocate_register()?;
-        let ln2 = self.allocate_register()?;
+        let e_reg = self.allocate_register();
+        let ln2 = self.allocate_register();
         self.emit(abi::load_u64(&e_reg, abi::stack_pointer(), e_slot));
         self.emit_const_i64(&ln2, fixed_ln2());
-        let elog = self.allocate_register()?;
+        let elog = self.allocate_register();
         self.emit(abi::multiply_registers(&elog, &e_reg, &ln2));
         self.emit(abi::add_registers(&sum, &sum, &elog));
         if base10 {
-            let inv_ln10 = self.allocate_register()?;
+            let inv_ln10 = self.allocate_register();
             self.emit_const_i64(&inv_ln10, fixed_inv_ln10());
             return self.emit_fixed_mul(&sum, &inv_ln10);
         }
@@ -872,11 +872,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(base, abi::stack_pointer(), base_slot));
         self.emit(abi::store_u64(exponent, abi::stack_pointer(), exp_slot));
         self.reset_temporary_registers();
-        let exp_reg = self.allocate_register()?;
+        let exp_reg = self.allocate_register();
         self.emit(abi::load_u64(&exp_reg, abi::stack_pointer(), exp_slot));
         // Whole-number exponent? (no fractional Q32.32 bits)
-        let frac = self.allocate_register()?;
-        let mask = self.allocate_register()?;
+        let frac = self.allocate_register();
+        let mask = self.allocate_register();
         self.emit(abi::move_immediate(
             &mask,
             "Integer",
@@ -889,15 +889,15 @@ impl CodeBuilder<'_> {
 
         // Integer exponent: exact repeated multiplication.
         let integer_result_slot = self.allocate_stack_object("fixed_pow_int_result", 8);
-        let n = self.allocate_register()?;
+        let n = self.allocate_register();
         self.emit(abi::arithmetic_shift_right_immediate(&n, &exp_reg, 32));
-        let count = self.allocate_register()?;
+        let count = self.allocate_register();
         self.emit(abi::move_register(&count, &n));
         self.emit_abs_i64(&count)?;
-        let base_reg = self.allocate_register()?;
+        let base_reg = self.allocate_register();
         self.emit(abi::load_u64(&base_reg, abi::stack_pointer(), base_slot));
-        let result = self.allocate_register()?;
-        let product = self.allocate_register()?;
+        let result = self.allocate_register();
+        let product = self.allocate_register();
         self.emit(abi::move_immediate(
             &result,
             "Fixed",
@@ -913,7 +913,7 @@ impl CodeBuilder<'_> {
         // Fixed constants are `±2^32`, which exceed the x86 CMP imm32 field and
         // fail to encode (bug-74). `result` already holds `FIXED_ONE`.
         let fixed_neg_one = -(FIXED_ONE as i64) as u64;
-        let neg_one_reg = self.allocate_register()?;
+        let neg_one_reg = self.allocate_register();
         self.emit(abi::move_immediate(
             &neg_one_reg,
             "Fixed",
@@ -924,8 +924,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_registers(&base_reg, &neg_one_reg));
         self.emit(abi::branch_ne(&mul_loop)); // |base| != 1.0: run the loop.
                                               // base == -1.0: 1.0 for an even |exponent|, -1.0 for an odd one.
-        let parity = self.allocate_register()?;
-        let one_bit = self.allocate_register()?;
+        let parity = self.allocate_register();
+        let one_bit = self.allocate_register();
         self.emit(abi::move_immediate(&one_bit, "Integer", "1"));
         self.emit(abi::and_registers(&parity, &count, &one_bit));
         self.emit(abi::compare_immediate(&parity, "0"));
@@ -955,9 +955,9 @@ impl CodeBuilder<'_> {
             integer_result_slot,
         ));
         self.reset_temporary_registers();
-        let denom = self.allocate_register()?;
-        let one = self.allocate_register()?;
-        let recip = self.allocate_register()?;
+        let denom = self.allocate_register();
+        let one = self.allocate_register();
+        let recip = self.allocate_register();
         self.emit(abi::load_u64(
             &denom,
             abi::stack_pointer(),
@@ -989,7 +989,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::label(&reload));
         self.reset_temporary_registers();
-        let int_result = self.allocate_register()?;
+        let int_result = self.allocate_register();
         self.emit(abi::load_u64(
             &int_result,
             abi::stack_pointer(),
@@ -1008,15 +1008,15 @@ impl CodeBuilder<'_> {
         // Fractional exponent: exp(exponent * ln(base)), requires base > 0.
         self.emit(abi::label(&fractional));
         self.reset_temporary_registers();
-        let base_reg = self.allocate_register()?;
+        let base_reg = self.allocate_register();
         self.emit(abi::load_u64(&base_reg, abi::stack_pointer(), base_slot));
         // ln(base) (also enforces base > 0 via ErrInvalidArgument).
         let ln_base = self.emit_fixed_log(&base_reg, false)?;
         let ln_slot = self.allocate_stack_object("fixed_pow_ln", 8);
         self.emit(abi::store_u64(&ln_base, abi::stack_pointer(), ln_slot));
         self.reset_temporary_registers();
-        let exp_reg = self.allocate_register()?;
-        let ln_reg = self.allocate_register()?;
+        let exp_reg = self.allocate_register();
+        let ln_reg = self.allocate_register();
         self.emit(abi::load_u64(&exp_reg, abi::stack_pointer(), exp_slot));
         self.emit(abi::load_u64(&ln_reg, abi::stack_pointer(), ln_slot));
         let product = self.emit_fixed_mul(&exp_reg, &ln_reg)?;
@@ -1029,7 +1029,7 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::label(&finish));
         self.reset_temporary_registers();
-        let final_result = self.allocate_register()?;
+        let final_result = self.allocate_register();
         self.emit(abi::load_u64(
             &final_result,
             abi::stack_pointer(),

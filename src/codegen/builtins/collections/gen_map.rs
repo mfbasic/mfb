@@ -354,10 +354,10 @@ impl CodeBuilder<'_> {
             let entry_slot =
                 self.emit_map_probe(collection_slot, key_slot, key_type, &not_found)?;
             self.reset_temporary_registers();
-            let collection = self.allocate_register()?;
-            let entry = self.allocate_register()?;
-            let value_offset = self.allocate_register()?;
-            let value_length = self.allocate_register()?;
+            let collection = self.allocate_register();
+            let entry = self.allocate_register();
+            let value_offset = self.allocate_register();
+            let value_length = self.allocate_register();
             self.emit(abi::load_u64(
                 &collection,
                 abi::stack_pointer(),
@@ -388,15 +388,15 @@ impl CodeBuilder<'_> {
             });
         }
         self.reset_temporary_registers();
-        let collection = self.allocate_register()?;
-        let key = self.allocate_register()?;
-        let count = self.allocate_register()?;
-        let index = self.allocate_register()?;
-        let entry = self.allocate_register()?;
-        let key_offset = self.allocate_register()?;
-        let key_length = self.allocate_register()?;
-        let value_offset = self.allocate_register()?;
-        let value_length = self.allocate_register()?;
+        let collection = self.allocate_register();
+        let key = self.allocate_register();
+        let count = self.allocate_register();
+        let index = self.allocate_register();
+        let entry = self.allocate_register();
+        let key_offset = self.allocate_register();
+        let key_length = self.allocate_register();
+        let value_offset = self.allocate_register();
+        let value_length = self.allocate_register();
         let loop_label = self.label("map_get_loop");
         let found = self.label("map_get_found");
         let next = self.label("map_get_next");
@@ -476,10 +476,10 @@ impl CodeBuilder<'_> {
             let entry_slot =
                 self.emit_map_probe(collection_slot, key_slot, key_type, &use_default)?;
             self.reset_temporary_registers();
-            let collection = self.allocate_register()?;
-            let entry = self.allocate_register()?;
-            let value_offset = self.allocate_register()?;
-            let value_length = self.allocate_register()?;
+            let collection = self.allocate_register();
+            let entry = self.allocate_register();
+            let value_offset = self.allocate_register();
+            let value_length = self.allocate_register();
             self.emit(abi::load_u64(
                 &collection,
                 abi::stack_pointer(),
@@ -505,7 +505,7 @@ impl CodeBuilder<'_> {
                 // return an owned `String` (found path materializes fresh); returning
                 // the alias double-frees it and corrupts the arena. See
                 // `emit_copy_owned_string`.
-                let default_ptr = self.allocate_register()?;
+                let default_ptr = self.allocate_register();
                 self.emit(abi::load_u64(
                     &default_ptr,
                     abi::stack_pointer(),
@@ -525,15 +525,15 @@ impl CodeBuilder<'_> {
             });
         }
         self.reset_temporary_registers();
-        let collection = self.allocate_register()?;
-        let key = self.allocate_register()?;
-        let count = self.allocate_register()?;
-        let index = self.allocate_register()?;
-        let entry = self.allocate_register()?;
-        let key_offset = self.allocate_register()?;
-        let key_length = self.allocate_register()?;
-        let value_offset = self.allocate_register()?;
-        let value_length = self.allocate_register()?;
+        let collection = self.allocate_register();
+        let key = self.allocate_register();
+        let count = self.allocate_register();
+        let index = self.allocate_register();
+        let entry = self.allocate_register();
+        let key_offset = self.allocate_register();
+        let key_length = self.allocate_register();
+        let value_offset = self.allocate_register();
+        let value_length = self.allocate_register();
         let loop_label = self.label("map_get_or_loop");
         let found = self.label("map_get_or_found");
         let next = self.label("map_get_or_next");
@@ -592,7 +592,7 @@ impl CodeBuilder<'_> {
             // return an owned `String` (found path materializes fresh); returning
             // the alias double-frees it and corrupts the arena. See
             // `emit_copy_owned_string`.
-            let default_ptr = self.allocate_register()?;
+            let default_ptr = self.allocate_register();
             self.emit(abi::load_u64(
                 &default_ptr,
                 abi::stack_pointer(),

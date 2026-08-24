@@ -9,96 +9,29 @@ use crate::target::shared::regmodel::RegClass;
 use std::collections::HashMap;
 impl CodeBuilder<'_> {
     /// Mint an integer virtual register. The physical register is assigned after
-    /// the whole function is lowered (`regalloc::allocate`).
-    ///
-    /// This is the **fallible** spelling: under `-regalloc bump` the eager
-    /// physical pool can be exhausted, and that `Err` is returned to the caller
-    /// to bubble. [`Self::temporary_vreg`] is the same allocation with the error
-    /// *recorded* on the builder instead of returned, for the many lowerings
-    /// that build an instruction list and have no `Result` to bubble through
-    /// (bug-70). Neither is more correct — pick by whether the call site can
-    /// propagate an error. Under linear-scan (the default) both are infallible.
-    pub(crate) fn allocate_register(&mut self) -> Result<VirtualRegister, String> {
+    /// the whole function is lowered (`regalloc::allocate`); the liveness-driven
+    /// coloring spills under pressure, so minting never fails.
+    /// [`Self::temporary_vreg`] is the same allocation under the name the many
+    /// scratch-register call sites use.
+    pub(crate) fn allocate_register(&mut self) -> VirtualRegister {
         let vreg = self.next_vreg;
         self.next_vreg += 1;
-        debug_assert_eq!(self.vreg_eager.len(), vreg as usize);
-        // Advance the bump counter for *both* strategies. Some lowerings advance
-        // it as a positional reservation (`while self.next_register <= 12 { … }`
-        // in `builder_numeric`), so it must always move or those loops never
-        // terminate; linear-scan simply ignores the counter when coloring.
-        let slot = self.next_register;
+        // Advance the bump counter: some lowerings advance it as a positional
+        // reservation (`while self.next_register <= 12 { … }` in
+        // `builder_numeric`), so it must always move or those loops never
+        // terminate; coloring ignores the counter.
         self.next_register += 1;
-        match self.regalloc_kind {
-            regalloc::RegallocKind::BumpAndReset => {
-                // Compute the bump allocator's eager physical now — both to drive
-                // the byte-identical `BumpAndReset` replay (index == virtual
-                // register number) and to mark its callee-saved use in the legacy
-                // order so the frame layout is unchanged (plan-03 Stage A §4.1).
-                match abi::temporary_register(slot) {
-                    Ok(physical) => {
-                        self.mark_register_used(&physical);
-                        self.vreg_eager.push(physical);
-                    }
-                    Err(err) => {
-                        // The fixed-pool bump oracle has no spilling, so a deep
-                        // single-statement expression can exhaust it. Keep
-                        // `vreg_eager` aligned with `next_vreg` (push a placeholder)
-                        // so later minting does not trip the length invariant, then
-                        // surface the graceful error — the caller aborts the build
-                        // before coloring rewrites this vreg (bug-70).
-                        self.vreg_eager.push(String::new());
-                        return Err(format!(
-                            "{err} while lowering native function '{}'",
-                            self.current_symbol
-                        ));
-                    }
-                }
-            }
-            regalloc::RegallocKind::LinearScan => {
-                // No eager physical: the liveness-driven coloring assigns physical
-                // registers (or spill slots) after the whole function is lowered,
-                // so a deep expression that would overflow the bump pool no longer
-                // fails — it spills instead (plan-03 Stage B §4.4).
-                self.vreg_eager.push(String::new());
-            }
-        }
-        Ok(VirtualRegister::new(RegClass::Int, vreg))
+        VirtualRegister::new(RegClass::Int, vreg)
     }
 
     /// Mint a floating-point (`d`-class) virtual register (plan-03 Stage C). The
     /// physical `d`-register is assigned after the whole function is lowered;
     /// chained float arithmetic stays resident in `d`-registers instead of
     /// round-tripping its bit pattern through a GPR.
-    pub(crate) fn allocate_fp_register(&mut self) -> Result<VirtualRegister, String> {
+    pub(crate) fn allocate_fp_register(&mut self) -> VirtualRegister {
         let vreg = self.next_fp_vreg;
         self.next_fp_vreg += 1;
-        debug_assert_eq!(self.fp_vreg_eager.len(), vreg as usize);
-        match self.regalloc_kind {
-            regalloc::RegallocKind::BumpAndReset => {
-                // The bump oracle replays a per-statement `d0`–`d7` sequence.
-                match abi::fp_temporary_register(self.next_fp_register) {
-                    Ok(physical) => {
-                        self.next_fp_register += 1;
-                        self.fp_vreg_eager.push(physical);
-                    }
-                    Err(err) => {
-                        // Fixed 8-deep FP pool; a deep float expression exhausts
-                        // it. Keep `fp_vreg_eager` aligned with `next_fp_vreg` and
-                        // surface the graceful error (bug-70); the caller aborts
-                        // before coloring runs.
-                        self.fp_vreg_eager.push(String::new());
-                        return Err(format!(
-                            "{err} while lowering native function '{}'",
-                            self.current_symbol
-                        ));
-                    }
-                }
-            }
-            regalloc::RegallocKind::LinearScan => {
-                self.fp_vreg_eager.push(String::new());
-            }
-        }
-        Ok(VirtualRegister::new(RegClass::Fp, vreg))
+        VirtualRegister::new(RegClass::Fp, vreg)
     }
 
     /// Color the fully-lowered instruction stream: rewrite every virtual
@@ -108,14 +41,6 @@ impl CodeBuilder<'_> {
     /// Must run after the body is fully emitted and before the peephole pass and
     /// `finalize_frame`, which both expect physical register names (plan-03).
     pub(crate) fn run_register_allocation(&mut self) -> Result<(), String> {
-        // Surface any scratch-register exhaustion an infallible vreg minter
-        // recorded (only `-regalloc bump` can exhaust) as a clean build error
-        // before coloring rewrites the placeholder vregs. Aborting here — rather
-        // than letting `regalloc::allocate`'s `rewrite` panic on the empty
-        // placeholder or the former `.expect` ICE — is the graceful path (bug-70).
-        if let Some(err) = self.regalloc_error.take() {
-            return Err(err);
-        }
         // Every register the builders and kernels once hardcoded — the GPR
         // scratch pool (x8-x17/x20-x28) and the SIMD kernels' high-FP file
         // (d/v/q 16-31) — is now minted as a virtual register at the emit site
@@ -163,10 +88,7 @@ impl CodeBuilder<'_> {
         // slot stride is `spill_slot_bytes()` = 16 on every backend).
         let spill_base = type_utils::align(self.stack_size, 16);
         let outcome = regalloc::allocate(
-            self.regalloc_kind,
             &mut self.instructions,
-            &self.vreg_eager,
-            &self.fp_vreg_eager,
             backend.register_model(),
             spill_base,
             &[],
@@ -189,45 +111,20 @@ impl CodeBuilder<'_> {
     }
 
     /// Mint a scratch virtual register for a builder that would otherwise name a
-    /// physical register directly. Infallible under linear-scan (the active
-    /// strategy); a convenience over `allocate_register` for the many builder
-    /// call sites that used fixed `xN` scratch and cannot bubble a `Result`.
-    ///
-    /// Under `-regalloc bump` a deep-enough single-statement expression can
-    /// exhaust the fixed pool. Rather than panic (the former `.expect`, an ICE),
-    /// the exhaustion is recorded in `regalloc_error` and surfaced as a clean
-    /// build error by `run_register_allocation`; a placeholder vreg is returned so
-    /// lowering can proceed to that checkpoint, where the build aborts before this
-    /// vreg is colored (bug-70).
+    /// physical register directly. The historical name for
+    /// [`Self::allocate_register`] from when the two spellings differed in
+    /// error handling (bug-70, `--regalloc bump`'s exhaustible pool — since
+    /// removed); kept because the scratch-register call sites read naturally
+    /// with it.
     pub(crate) fn temporary_vreg(&mut self) -> VirtualRegister {
-        match self.allocate_register() {
-            Ok(vreg) => vreg,
-            Err(err) => {
-                if self.regalloc_error.is_none() {
-                    self.regalloc_error = Some(err);
-                }
-                // `allocate_register` already advanced `next_vreg` and pushed the
-                // matching `vreg_eager` placeholder, so this names that vreg.
-                VirtualRegister::new(RegClass::Int, self.next_vreg - 1)
-            }
-        }
+        self.allocate_register()
     }
 
     /// Mint a floating-point virtual register for a builder that would otherwise
-    /// name a physical high-FP register (`d`/`v`/`q` 16–31) directly. Infallible
-    /// under linear-scan; the FP sibling of [`Self::temporary_vreg`] for the SIMD
-    /// kernels that used fixed FP homes and cannot bubble a `Result`. Records an
-    /// exhaustion under `-regalloc bump` like [`Self::temporary_vreg`] (bug-70).
+    /// name a physical high-FP register (`d`/`v`/`q` 16–31) directly. The FP
+    /// sibling of [`Self::temporary_vreg`].
     pub(crate) fn temporary_fp_vreg(&mut self) -> VirtualRegister {
-        match self.allocate_fp_register() {
-            Ok(vreg) => vreg,
-            Err(err) => {
-                if self.regalloc_error.is_none() {
-                    self.regalloc_error = Some(err);
-                }
-                VirtualRegister::new(RegClass::Fp, self.next_fp_vreg - 1)
-            }
-        }
+        self.allocate_fp_register()
     }
 
     pub(crate) fn mark_register_used(&mut self, register: &str) {
@@ -240,7 +137,6 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn reset_temporary_registers(&mut self) {
         self.next_register = 8;
-        self.next_fp_register = 0;
     }
 
     pub(crate) fn local_constants(&self) -> HashMap<String, Option<NirValue>> {

@@ -29,16 +29,16 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(a_loc, abi::stack_pointer(), a_slot));
         self.emit(abi::store_u64(b_loc, abi::stack_pointer(), b_slot));
         self.reset_temporary_registers();
-        let ux = self.allocate_register()?;
-        let uy = self.allocate_register()?;
+        let ux = self.allocate_register();
+        let uy = self.allocate_register();
         self.emit(abi::load_u64(&ux, abi::stack_pointer(), a_slot));
         self.emit(abi::load_u64(&uy, abi::stack_pointer(), b_slot));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         // Persistent constants.
-        let signmask = self.allocate_register()?;
-        let expmask = self.allocate_register()?;
-        let mantmask = self.allocate_register()?;
-        let implicit = self.allocate_register()?;
+        let signmask = self.allocate_register();
+        let expmask = self.allocate_register();
+        let mantmask = self.allocate_register();
+        let implicit = self.allocate_register();
         self.emit(abi::move_immediate(&signmask, "Integer", F64_SIGN_BIT)); // 1<<63
         self.emit(abi::move_immediate(&expmask, "Integer", "2047")); // 0x7ff
         self.emit(abi::move_immediate(&mantmask, "Integer", F64_MANTISSA_MASK)); // (1<<52)-1
@@ -48,12 +48,12 @@ impl CodeBuilder<'_> {
             "4503599627370496",
         )); // 1<<52
             // sign = ux & SIGN; ex = (ux>>52)&0x7ff; ey = (uy>>52)&0x7ff; uxi = ux.
-        let sign = self.allocate_register()?;
-        let ex = self.allocate_register()?;
-        let ey = self.allocate_register()?;
-        let uxi = self.allocate_register()?;
-        let i = self.allocate_register()?;
-        let shift = self.allocate_register()?;
+        let sign = self.allocate_register();
+        let ex = self.allocate_register();
+        let ey = self.allocate_register();
+        let uxi = self.allocate_register();
+        let i = self.allocate_register();
+        let shift = self.allocate_register();
         self.emit(abi::and_registers(&sign, &ux, &signmask));
         self.emit(abi::shift_right_immediate(&ex, &ux, 52));
         self.emit(abi::and_registers(&ex, &ex, &expmask));
@@ -194,7 +194,7 @@ impl CodeBuilder<'_> {
         let out_slot = self.allocate_stack_object("fmod_out", 8);
         self.emit(abi::store_u64(&result, abi::stack_pointer(), out_slot));
         self.reset_temporary_registers();
-        let out = self.allocate_register()?;
+        let out = self.allocate_register();
         self.emit(abi::load_u64(&out, abi::stack_pointer(), out_slot));
         Ok(out)
     }

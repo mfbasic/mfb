@@ -232,7 +232,7 @@ pub(crate) fn lower_sum(
     builder.emit(abi::add_immediate(&scratch10, &scratch10, 1));
     builder.emit(abi::branch(&loop_label));
     builder.emit(abi::label(&done));
-    let result = builder.allocate_register()?;
+    let result = builder.allocate_register();
     builder.emit(abi::move_register(&result, &scratch14));
     Ok(ValueResult {
         origin: None,

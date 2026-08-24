@@ -257,37 +257,37 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         let length = length.into();
         let value = value.into();
-        let data = self.allocate_register()?;
+        let data = self.allocate_register();
         self.emit_collection_data_pointer_for(&data, collection, stride_type);
         self.emit(abi::add_registers(&data, &data, offset));
         match type_ {
             "Boolean" | "Byte" => {
-                let candidate = self.allocate_register()?;
+                let candidate = self.allocate_register();
                 self.emit(abi::load_u8(&candidate, &data, 0));
                 self.emit(abi::compare_registers(&candidate, value.clone()));
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
             "Scalar" => {
-                let candidate = self.allocate_register()?;
+                let candidate = self.allocate_register();
                 self.emit(abi::load_u32(&candidate, &data, 0));
                 self.emit(abi::compare_registers(&candidate, value.clone()));
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
             "Integer" | "Float" | "Fixed" | "Money" => {
-                let candidate = self.allocate_register()?;
+                let candidate = self.allocate_register();
                 self.emit(abi::load_u64(&candidate, &data, 0));
                 self.emit(abi::compare_registers(&candidate, value.clone()));
                 self.emit(abi::branch_eq(equal_label));
                 self.emit(abi::branch(not_equal_label));
             }
             "String" => {
-                let value_len = self.allocate_register()?;
-                let value_cursor = self.allocate_register()?;
-                let remaining = self.allocate_register()?;
-                let packed_byte = self.allocate_register()?;
-                let value_byte = self.allocate_register()?;
+                let value_len = self.allocate_register();
+                let value_cursor = self.allocate_register();
+                let remaining = self.allocate_register();
+                let packed_byte = self.allocate_register();
+                let value_byte = self.allocate_register();
                 let loop_label = self.label("collection_string_match_loop");
                 self.emit(abi::load_u64(&value_len, value.clone(), 0));
                 self.emit(abi::compare_registers(length.clone(), &value_len));
@@ -306,7 +306,7 @@ impl CodeBuilder<'_> {
                 );
             }
             other if self.is_pointer_collection_payload_type(other) => {
-                let candidate = self.allocate_register()?;
+                let candidate = self.allocate_register();
                 self.emit(abi::load_u64(&candidate, &data, 0));
                 self.emit(abi::compare_registers(&candidate, value.clone()));
                 self.emit(abi::branch_eq(equal_label));

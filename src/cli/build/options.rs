@@ -1,8 +1,8 @@
 use super::*;
 
-/// Parse the `--target`/`--regalloc`/`-O` options shared verbatim by `mfb build`
-/// and `mfb test`. Returns `Ok(true)` when `arg` was one of them (updating
-/// `target`, `regalloc` or `opt`, consuming the value from `iter` for the
+/// Parse the `--target`/`-O` options shared verbatim by `mfb build` and
+/// `mfb test`. Returns `Ok(true)` when `arg` was one of them (updating
+/// `target` or `opt`, consuming the value from `iter` for the
 /// space-separated form), `Ok(false)` when `arg` is not a shared option, or
 /// `Err` on a malformed value. `cmd` is the subcommand word (`"build"` /
 /// `"test"`) for the error text.
@@ -11,7 +11,6 @@ fn parse_common_option(
     iter: &mut impl Iterator<Item = String>,
     cmd: &str,
     target: &mut Option<target::BuildTarget>,
-    regalloc: &mut crate::codegen::engine::regalloc::RegallocKind,
     opt: &mut crate::optimizer::OptLevel,
 ) -> Result<bool, String> {
     if arg == "--target" || arg == "-target" {
@@ -24,16 +23,6 @@ fn parse_common_option(
         .or_else(|| arg.strip_prefix("-target="))
     {
         *target = Some(target::BuildTarget::parse(value)?);
-    } else if arg == "--regalloc" || arg == "-regalloc" {
-        let Some(value) = iter.next() else {
-            return Err(format!("mfb {cmd} -regalloc requires a strategy name"));
-        };
-        *regalloc = crate::codegen::engine::regalloc::parse_kind(&value)?;
-    } else if let Some(value) = arg
-        .strip_prefix("--regalloc=")
-        .or_else(|| arg.strip_prefix("-regalloc="))
-    {
-        *regalloc = crate::codegen::engine::regalloc::parse_kind(value)?;
     } else if arg == "-O" || arg == "--optimize" || arg == "-optimize" {
         let Some(value) = iter.next() else {
             return Err(format!("mfb {cmd} -O requires an optimization level"));
@@ -62,7 +51,6 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
     let mut app_mode = false;
     let mut app_debug = false;
     let mut allow_unsigned = false;
-    let mut regalloc = crate::codegen::engine::regalloc::active_kind();
     let mut opt = crate::optimizer::active_opt_level();
     let mut verbosity: Option<Verbosity> = None;
     let mut iter = args.into_iter();
@@ -73,15 +61,8 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
                 return Err(format!("mfb build got duplicate output flag `{arg}`"));
             }
             outputs.push(output);
-        } else if parse_common_option(
-            &arg,
-            &mut iter,
-            "build",
-            &mut target,
-            &mut regalloc,
-            &mut opt,
-        )? {
-            // handled by the shared --target/--regalloc/-O parser
+        } else if parse_common_option(&arg, &mut iter, "build", &mut target, &mut opt)? {
+            // handled by the shared --target/-O parser
         } else if arg == "--sign" {
             let Some(value) = iter.next() else {
                 return Err("mfb build --sign requires <owner_name>".to_string());
@@ -130,7 +111,6 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
         // papercut with no upside.
         app_mode: app_mode || app_debug,
         app_debug,
-        regalloc,
         opt,
         allow_unsigned,
         mode: crate::testing::CompileMode::Build,
@@ -138,13 +118,12 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
     })
 }
 
-/// Parse `mfb test [location] [--coverage] [--target …] [--regalloc …] [-O …]`. The build
+/// Parse `mfb test [location] [--coverage] [--target …] [-O …]`. The build
 /// pipeline is shared with `mfb build`; only the compile mode and the always-run
 /// behavior differ (plan-18).
 pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, String> {
     let mut location = None;
     let mut target = None;
-    let mut regalloc = crate::codegen::engine::regalloc::active_kind();
     let mut opt = crate::optimizer::active_opt_level();
     let mut coverage = false;
     let mut iter = args.into_iter();
@@ -152,15 +131,8 @@ pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, Stri
     while let Some(arg) = iter.next() {
         if arg == "--coverage" {
             coverage = true;
-        } else if parse_common_option(
-            &arg,
-            &mut iter,
-            "test",
-            &mut target,
-            &mut regalloc,
-            &mut opt,
-        )? {
-            // handled by the shared --target/--regalloc/-O parser
+        } else if parse_common_option(&arg, &mut iter, "test", &mut target, &mut opt)? {
+            // handled by the shared --target/-O parser
         } else if arg.starts_with('-') {
             return Err(format!("unknown test option `{arg}`"));
         } else if location.replace(PathBuf::from(&arg)).is_some() {
@@ -178,7 +150,6 @@ pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, Stri
         // takes neither `--app` nor `--app-debug`; both land in the
         // `unknown test option` arm above (plan-51-C §4.7).
         app_debug: false,
-        regalloc,
         opt,
         allow_unsigned: false,
         mode: crate::testing::CompileMode::Test { coverage },

@@ -105,7 +105,7 @@ impl CodeBuilder<'_> {
             Some(local) => local.stack_offset,
             None => return Ok(()),
         };
-        let union_ptr = self.allocate_register()?;
+        let union_ptr = self.allocate_register();
         self.emit(abi::load_u64(
             &union_ptr,
             abi::stack_pointer(),
@@ -125,7 +125,7 @@ impl CodeBuilder<'_> {
         // `emit_return_exit` (bug-141's arm) for a returned union that is not
         // syntactically the local owning the cleanup.
         if let Some(escaping) = self.escaping_value_slot {
-            let escaping_ptr = self.allocate_register()?;
+            let escaping_ptr = self.allocate_register();
             self.emit(abi::load_u64(&escaping_ptr, abi::stack_pointer(), escaping));
             self.emit(abi::compare_registers(&union_ptr, &escaping_ptr));
             self.emit(abi::branch_eq(&done));
@@ -162,7 +162,7 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         let union_slot = self.allocate_stack_object("resource_union_drop_ptr", 8);
         self.emit(abi::store_u64(union_ptr, abi::stack_pointer(), union_slot));
-        let tag_register = self.allocate_register()?;
+        let tag_register = self.allocate_register();
         self.emit(abi::load_u64(&tag_register, union_ptr, 0));
         let tag_slot = self.allocate_stack_object("resource_union_drop_tag", 8);
         self.emit(abi::store_u64(
@@ -173,14 +173,14 @@ impl CodeBuilder<'_> {
         let payload_slot = self.allocate_stack_object("resource_union_drop_payload", 8);
         for (tag, symbol) in variants {
             let next = self.label("resource_union_drop_next");
-            let tag_reg = self.allocate_register()?;
+            let tag_reg = self.allocate_register();
             self.emit(abi::load_u64(&tag_reg, abi::stack_pointer(), tag_slot));
             self.emit(abi::compare_immediate(&tag_reg, &tag.to_string()));
             self.emit(abi::branch_ne(&next));
             // Load the variant's resource pointer (payload at offset 8) and close it.
-            let base = self.allocate_register()?;
+            let base = self.allocate_register();
             self.emit(abi::load_u64(&base, abi::stack_pointer(), union_slot));
-            let payload = self.allocate_register()?;
+            let payload = self.allocate_register();
             self.emit(abi::load_u64(&payload, &base, 8));
             self.emit(abi::store_u64(&payload, abi::stack_pointer(), payload_slot));
             let arg = NirValue::Local(format!("__resource_union_payload@{payload_slot}"));
@@ -285,7 +285,7 @@ impl CodeBuilder<'_> {
             .get(&cleanup.name)
             .map(|local| local.stack_offset);
         if let Some(offset) = resource_slot {
-            let ptr = self.allocate_register()?;
+            let ptr = self.allocate_register();
             self.emit(abi::load_u64(&ptr, abi::stack_pointer(), offset));
             self.emit(abi::compare_immediate(&ptr, "0"));
             self.emit(abi::branch_eq(&done));
@@ -304,7 +304,7 @@ impl CodeBuilder<'_> {
             // keeps §15.6's rule intact: on an error exit *before* the return the
             // resource has not escaped and is still closed here.
             if let Some(escaping) = self.escaping_value_slot {
-                let escaping_ptr = self.allocate_register()?;
+                let escaping_ptr = self.allocate_register();
                 self.emit(abi::load_u64(&escaping_ptr, abi::stack_pointer(), escaping));
                 self.emit(abi::compare_registers(&ptr, &escaping_ptr));
                 self.emit(abi::branch_eq(&done));
@@ -384,11 +384,11 @@ impl CodeBuilder<'_> {
         // for a moved resource — this guard makes that a property of the code
         // rather than of the caller (plan-52-B Open Decisions, the sharpest edge).
         let skip = self.label("resource_reclaim_skip");
-        let ptr = self.allocate_register()?;
+        let ptr = self.allocate_register();
         self.emit(abi::load_u64(&ptr, abi::stack_pointer(), resource_slot));
-        let flags = self.allocate_register()?;
+        let flags = self.allocate_register();
         self.emit(abi::load_u64(&flags, &ptr, FILE_OFFSET_CLOSED));
-        let moved_mask = self.allocate_register()?;
+        let moved_mask = self.allocate_register();
         self.emit(abi::move_immediate(
             &moved_mask,
             "Integer",
@@ -439,9 +439,9 @@ impl CodeBuilder<'_> {
         size: &str,
     ) -> Result<(), String> {
         let skip = self.label("resource_block_free_skip");
-        let ptr = self.allocate_register()?;
+        let ptr = self.allocate_register();
         self.emit(abi::load_u64(&ptr, abi::stack_pointer(), resource_slot));
-        let block = self.allocate_register()?;
+        let block = self.allocate_register();
         self.emit(abi::load_u64(&block, &ptr, offset));
         self.emit(abi::compare_immediate(&block, "0"));
         self.emit(abi::branch_eq(&skip));
@@ -450,7 +450,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(abi::c_arg(1), "Integer", size));
         self.emit_arena_free_call();
         // Reload: the call above destroyed every caller-saved register.
-        let ptr_after = self.allocate_register()?;
+        let ptr_after = self.allocate_register();
         self.emit(abi::load_u64(
             &ptr_after,
             abi::stack_pointer(),
@@ -472,9 +472,9 @@ impl CodeBuilder<'_> {
         let skip = self.label("resource_state_free_skip");
         let state_slot = self.allocate_stack_object("resource_state_free_ptr", 8);
         let size_slot = self.allocate_stack_object("resource_state_free_size", 8);
-        let ptr = self.allocate_register()?;
+        let ptr = self.allocate_register();
         self.emit(abi::load_u64(&ptr, abi::stack_pointer(), resource_slot));
-        let block = self.allocate_register()?;
+        let block = self.allocate_register();
         self.emit(abi::load_u64(&block, &ptr, RESOURCE_OFFSET_STATE));
         self.emit(abi::store_u64(&block, abi::stack_pointer(), state_slot));
         self.emit(abi::compare_immediate(&block, "0"));
@@ -491,7 +491,7 @@ impl CodeBuilder<'_> {
             size_slot,
         ));
         self.emit_arena_free_call();
-        let ptr_after = self.allocate_register()?;
+        let ptr_after = self.allocate_register();
         self.emit(abi::load_u64(
             &ptr_after,
             abi::stack_pointer(),

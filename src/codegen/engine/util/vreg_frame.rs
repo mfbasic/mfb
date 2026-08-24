@@ -154,8 +154,7 @@ pub(crate) fn finalize_frame(
 /// `arena_base` (the reserved arena register), the ABI `x0`–`x7` it loads call
 /// args into and reads results from — stay physical (the allocator never colors
 /// them, and the call clobber model spills any vreg live across a `bl`/`svc`).
-/// The helper makes no use of eager hints; it has no declared params (it uses the
-/// ABI registers directly).
+/// The helper has no declared params (it uses the ABI registers directly).
 pub(crate) fn finalize_vreg_helper(
     name: &str,
     symbol: &str,
@@ -213,10 +212,7 @@ pub(crate) fn finalize_vreg_body_with_locals(
         );
     }
     let outcome = regalloc::allocate(
-        regalloc::active_kind(),
         instructions,
-        &[],
-        &[],
         crate::codegen::engine::mir::active_backend().register_model(),
         local_size,
         reserved,

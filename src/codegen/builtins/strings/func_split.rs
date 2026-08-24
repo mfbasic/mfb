@@ -250,7 +250,7 @@ pub(crate) fn lower(
         &scratch20, &scratch21, &scratch22, &scratch24, &scratch9, &scratch14,
     )?;
     builder.emit(abi::label(&write_done));
-    let result = builder.allocate_register()?;
+    let result = builder.allocate_register();
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
     builder.emit(abi::branch(&done));
     builder.emit(abi::label(&invalid_delimiter));

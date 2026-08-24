@@ -108,9 +108,6 @@ pub(crate) struct BuildOptions {
     /// that changes a build's *validity* by target, which is worse than one that
     /// changes nothing.
     pub(crate) app_debug: bool,
-    /// Register-allocation strategy selected by `-regalloc <name>` (plan-03
-    /// §4.2). Defaults to the backend default.
-    pub(crate) regalloc: crate::codegen::engine::regalloc::RegallocKind,
     /// Optimization scale level selected by `-O<N>` / `--optimize <N>`
     /// (plan-100). Defaults to `-O1`, at which the shipping Level-1 passes run
     /// -- so the flagless build is today's exact codegen. `-O0` turns the dial
@@ -179,9 +176,6 @@ impl BuildOutput {
 }
 
 pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
-    // Record the register-allocation strategy for the native backend to read
-    // during lowering (plan-03 §4.2).
-    crate::codegen::engine::regalloc::set_strategy(options.regalloc);
     // Record the optimization level for the gated passes to read at their
     // seams (plan-100 §2). Default `-O1` runs the Level-1 rows, as today.
     crate::optimizer::set_opt_level(options.opt);
@@ -980,7 +974,7 @@ mod tests {
         assert_eq!(joined.target.name(), "linux-x86_64");
     }
 
-    /// plan-42: `--target`/`--regalloc`/`--app` are the documented spellings; the
+    /// plan-42: `--target`/`--app` are the documented spellings; the
     /// single-dash forms (space and `=`) stay working aliases that parse to the
     /// same options.
     #[test]
@@ -995,19 +989,6 @@ mod tests {
             let long = parse_build_options(long).expect("--target form");
             let short = parse_build_options(short).expect("-target form");
             assert_eq!(long.target.name(), short.target.name());
-        }
-
-        for (long, short) in [
-            (s(&["--regalloc", "bump"]), s(&["-regalloc", "bump"])),
-            (s(&["--regalloc=bump"]), s(&["-regalloc=bump"])),
-        ] {
-            let long = parse_build_options(long).expect("--regalloc form");
-            let short = parse_build_options(short).expect("-regalloc form");
-            assert_eq!(long.regalloc, short.regalloc);
-            assert_eq!(
-                long.regalloc,
-                crate::codegen::engine::regalloc::parse_kind("bump").expect("bump")
-            );
         }
 
         assert!(
@@ -1074,14 +1055,10 @@ mod tests {
             assert_eq!(long.target.name(), short.target.name());
         }
 
-        for (long, short) in [
-            (s(&["--regalloc", "bump"]), s(&["-regalloc", "bump"])),
-            (s(&["--regalloc=bump"]), s(&["-regalloc=bump"])),
-        ] {
-            let long = parse_test_options(long).expect("--regalloc form");
-            let short = parse_test_options(short).expect("-regalloc form");
-            assert_eq!(long.regalloc, short.regalloc);
-        }
+        // `--regalloc` was removed with the bump oracle; both spellings now
+        // land in the unknown-option arm like any other retired flag.
+        assert!(parse_test_options(s(&["--regalloc", "bump"])).is_err());
+        assert!(parse_test_options(s(&["-regalloc=bump"])).is_err());
 
         assert!(parse_test_options(s(&["--app"])).is_err());
         assert!(parse_test_options(s(&["-app"])).is_err());

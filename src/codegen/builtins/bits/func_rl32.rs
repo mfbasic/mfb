@@ -101,10 +101,10 @@ pub(crate) fn lower_bits_rl32(
     let count_reg = args[1].location.clone();
     let value_text = &args[0].text;
     let count_text = &args[1].text;
-    let dst = builder.allocate_register()?;
+    let dst = builder.allocate_register();
     // AArch64 has only rotate-right (`RORV`), so rotate-left by `count` is a
     // rotate-right by `-count` (the hardware reduces the amount modulo the width).
-    let neg = builder.allocate_register()?;
+    let neg = builder.allocate_register();
     builder.emit(abi::subtract_registers(neg, abi::ZERO, count_reg));
     builder.emit(abi::rotate_right_word_registers(dst, value_reg, neg));
     Ok(ValueResult {

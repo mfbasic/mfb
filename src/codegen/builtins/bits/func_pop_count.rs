@@ -98,7 +98,7 @@ pub(crate) fn lower_bits_pop_count(
     // into lane 0, and move the (0..=64) sum back — instead of the 12-instruction
     // SWAR. Other ISAs keep the portable SWAR below.
     if mir::active_backend().is_aarch64() {
-        let dst = builder.allocate_register()?;
+        let dst = builder.allocate_register();
         builder.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[0], &value.location));
         builder.emit(abi::vector_cnt8b(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
         builder.emit(abi::vector_addv8b(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
@@ -111,9 +111,9 @@ pub(crate) fn lower_bits_pop_count(
         });
     }
 
-    let acc = builder.allocate_register()?;
-    let temp = builder.allocate_register()?;
-    let mask = builder.allocate_register()?;
+    let acc = builder.allocate_register();
+    let temp = builder.allocate_register();
+    let mask = builder.allocate_register();
     builder.emit(abi::move_register(acc, &value.location));
 
     // acc = acc - ((acc >> 1) & 0x5555...)
@@ -124,7 +124,7 @@ pub(crate) fn lower_bits_pop_count(
 
     // acc = (acc & 0x3333...) + ((acc >> 2) & 0x3333...)
     builder.emit(abi::move_immediate(mask, "Integer", POPCOUNT_MASK_3333));
-    let low = builder.allocate_register()?;
+    let low = builder.allocate_register();
     builder.emit(abi::and_registers(low, acc, mask));
     builder.emit(abi::shift_right_immediate(temp, acc, 2));
     builder.emit(abi::and_registers(temp, temp, mask));

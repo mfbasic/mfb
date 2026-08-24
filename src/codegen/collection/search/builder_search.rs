@@ -336,7 +336,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             result_slot,
         ));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
 
         Ok(ValueResult {
@@ -468,7 +468,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&done));
         self.emit(abi::label(&done));
 
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
@@ -650,7 +650,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::label(&done));
 
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
@@ -919,7 +919,7 @@ impl CodeBuilder<'_> {
         self.emit_block_copy_advance(copy_dst, copy_src, copy_remaining, byte, "mid_copy");
         self.emit(abi::move_immediate(byte, "Integer", "0"));
         self.emit(abi::store_u8(byte, copy_dst, 0));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         let done = self.label("mid_done");
         self.emit(abi::branch(&done));
@@ -1308,7 +1308,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&done));
         self.emit(abi::label(&done));
 
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
