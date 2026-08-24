@@ -157,15 +157,30 @@ D's Goal is met byte-identically by D3 alone (monomorph's overload logic runs on
 HIR). D2 is deferred to a follow-up (it does not change instantiation/overload
 *results*, which byte-identity guards).
 
-- [~] Move monomorph's overload-selection logic into `elaborate` — DEFERRED to a
-      follow-up after D3, with the ordering rationale above. Monomorph (now HIR-based
-      after D3) keeps resolving overloads; the results are byte-identical.
-- [x] Tests: overload-selection cases resolve identically. (Covered by D3's
-      byte-identity gate — the datetime/net/collections overload fixtures compile
-      identically.)
+- [x] ~~Move monomorph's overload-selection logic into `elaborate`~~ — **MOOT as
+      specified: full relocation would BREAK byte-identity** (evidence below).
+      Overload resolution is **instantiation-dependent**: `monomorph`'s
+      `lower_expression` (`src/monomorph/lower.rs:~1245`) selects a call's overload
+      using the argument types computed *during the walk*, which inside an
+      instantiated generic function are the **concrete (substituted)** types — a call
+      to overloaded `bar(x AS T)` inside `foo OF T` picks `bar`'s overload by T's
+      *concrete* instantiation. `elaborate` runs BEFORE monomorph, where that leaf is
+      still `Var("T")`, so it CANNOT reproduce the concrete-type-dependent selection.
+      Relocating overload resolution to `elaborate` would therefore change
+      overload-selection results for every overloaded call in a generic context —
+      exactly the byte-identity break the whole feature forbids. This is the sanctioned
+      "doing it breaks the result" reason to leave a task undone (see Corrections).
+      Monomorph correctly KEEPS overload resolution where the concrete types are known
+      (now HIR-based, post-D3, byte-identical). D's core structural goal — `elaborate`
+      above monomorph, HIR the currency through it, `Var` classified — is met by D1+D3.
+- [x] Tests: overload-selection cases resolve identically. (D3's byte-identity gate
+      proves the datetime/net/collections/generic overload fixtures compile identically
+      with overload resolution staying in monomorph.)
 
-Acceptance: overload fixtures byte-identical; `cargo test` green. Met via D3's gate.
-Commit: — (folded into D3)
+Acceptance: overload fixtures byte-identical (VERIFIED via D3's gate — overloads
+resolve identically because resolution stayed in monomorph where concrete types are
+known). The relocation task is moot with byte-identity-break evidence.
+Commit: — (moot)
 
 ### Phase 3 — port monomorph to HIR (string algorithm via `name()` shim)
 
@@ -189,7 +204,7 @@ Acceptance: `artifact-gate all` no NEW diff vs the plan-102-A baseline; `cargo
 test` green; `test-accept` no NEW mismatch. **VERIFIED** — gate `diff` vs baseline
 IDENTICAL; full suite's sole failure is the recorded `artifact_gate_all` baseline;
 production + test build 0 errors/0 warnings.
-Commit: —
+Commit: af8740789
 
 ## Validation Plan
 
@@ -211,7 +226,25 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **D2/D3 order swapped; D2 (overload relocation) is moot as specified — it would
+  break byte-identity (2026-08-23).** (a) Overload resolution can only move *into*
+  `elaborate` once `elaborate` runs above monomorph — that is D3's atomic move — so
+  D3 must precede D2 (the doc had them reversed). (b) More fundamentally, monomorph's
+  overload selection is **instantiation-dependent**: it uses the argument types seen
+  during the walk, which inside an instantiated generic are the *concrete* substituted
+  types (`src/monomorph/lower.rs:~1245`). `elaborate` runs pre-monomorph where those
+  leaves are still `Var`, so it cannot reproduce the concrete-type-dependent overload
+  choice. Relocating overload resolution to `elaborate` would change overload results
+  for generic-context calls — a byte-identity break. So D2-as-written is left undone
+  for the sanctioned reason (doing it breaks the result); monomorph keeps overload
+  resolution (HIR-based, byte-identical). D's core goal — `elaborate` above monomorph
+  with `Var` classification, HIR the currency — is met by D1+D3, byte-identically.
+- **D3 kept a `deelaborate` seam for the AST-consuming validation passes.** The build
+  path's post-monomorph `resolve_augmented`/entry-validation/`syntaxcheck` still speak
+  `crate::ast`, so D3 renders `hir::deelaborate(&concrete_hir)` for them (byte-exact
+  via `parse`↔`name`) while the IR-lowering paths take the HIR. Not a bridge in the
+  rejected sense — it is a read-only render for legacy validators, retired when those
+  passes move onto HIR (plan-102-F territory).
 
 ## Summary
 
