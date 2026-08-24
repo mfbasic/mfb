@@ -127,13 +127,22 @@ None externally observable.
 
 ### Phase 1 — `Var` classification in `elaborate`; generic-HIR shape
 
-- [ ] `elaborate` walks with `template_params` in scope and emits `Var`/`Named`
-      leaves; generic HIR is representable end to end.
-- [ ] Tests: a generic decl elaborates to HIR whose `Var` leaves match the decl's
-      `template_params`.
+- [x] `elaborate` walks with `template_params` in scope and emits `Var`/`Named`
+      leaves; generic HIR is representable end to end. (Added
+      `ParameterType::with_vars(&[String])` — recursively reclassifies `Named` leaves
+      matching the template params to `Var`; `elaborate`'s parse helpers apply it and
+      the `template_params` are threaded through the whole elaborate chain — function/
+      type decl provide their `template_params`, top-level bindings use `&[]`.)
+- [x] Tests: a generic decl elaborates to HIR whose `Var` leaves match the decl's
+      `template_params`. (`generic_decls_classify_type_variables_as_var`: a generic
+      FUNC `first OF T (xs AS List OF T, i AS Integer) AS T` → `List OF Var`, `Integer`
+      scalar, `Var` return; a generic TYPE `Box OF E` → `Var` field vs `Integer`.)
 
 Acceptance: generic elaboration unit tests pass; `cargo test` green (elaborate not
-yet on the generic path in the build).
+yet on the generic path in the build). VERIFIED — 6/6 `hir::` tests pass, 3625 bin
+unit tests pass; **byte-identical** (monomorph clears `template_params` on every
+instantiated decl → `with_vars` is a no-op on the concrete post-monomorph input the
+build still feeds `elaborate`; gate `diff` vs baseline IDENTICAL).
 Commit: —
 
 ### Phase 2 — relocate overload resolution into `elaborate`

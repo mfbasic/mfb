@@ -137,6 +137,61 @@ impl ParameterType {
     pub(crate) fn named(name: &str) -> Self {
         ParameterType::Named(Symbol::intern(name))
     }
+
+    /// Reclassify every [`Named`](Self::Named) leaf whose name is one of
+    /// `type_params` as a [`Var`](Self::Var) type variable, recursing through the
+    /// container/function/thread structure. On an empty `type_params` this is an
+    /// identity rebuild. `elaborate` uses this to mark generic type variables from
+    /// the enclosing decl's `template_params` — the classification `parse` cannot do
+    /// alone because it has no scope (plan-102-D). Because `monomorph` clears
+    /// `template_params` on every instantiated decl, this is a no-op on concrete
+    /// (post-monomorph) input, so it stays byte-identical there.
+    pub(crate) fn with_vars(&self, type_params: &[String]) -> ParameterType {
+        match self {
+            ParameterType::Named(sym) => {
+                if type_params.iter().any(|param| param == sym.resolve()) {
+                    ParameterType::Var(*sym)
+                } else {
+                    ParameterType::Named(*sym)
+                }
+            }
+            ParameterType::ListOf(elem) => ParameterType::list_of(elem.with_vars(type_params)),
+            ParameterType::SetOf(elem) => ParameterType::set_of(elem.with_vars(type_params)),
+            ParameterType::MapOf(key, value) => {
+                ParameterType::map_of(key.with_vars(type_params), value.with_vars(type_params))
+            }
+            ParameterType::MapEntryOf(key, value) => {
+                ParameterType::map_entry_of(key.with_vars(type_params), value.with_vars(type_params))
+            }
+            ParameterType::ResultOf(success) => {
+                ParameterType::result_of(success.with_vars(type_params))
+            }
+            ParameterType::Res(inner) => ParameterType::res(inner.with_vars(type_params)),
+            ParameterType::Func(params, ret, isolated) => {
+                let params = params.iter().map(|p| p.with_vars(type_params)).collect();
+                let ret = ret.with_vars(type_params);
+                if *isolated {
+                    ParameterType::func_isolated(params, ret)
+                } else {
+                    ParameterType::func(params, ret)
+                }
+            }
+            ParameterType::ThreadHandle {
+                worker,
+                msg,
+                res,
+                out,
+            } => ParameterType::thread_handle(
+                *worker,
+                msg.with_vars(type_params),
+                res.with_vars(type_params),
+                out.with_vars(type_params),
+            ),
+            // Scalars, an existing `Var`, `Unknown`, and `Arg` carry no nominal leaf
+            // to reclassify.
+            other => other.clone(),
+        }
+    }
     /// A bindable type variable named `name`, interning the name to a [`Symbol`].
     pub(crate) fn var(name: &str) -> Self {
         ParameterType::Var(Symbol::intern(name))

@@ -791,7 +791,7 @@ fn lower_statement(
                     let ast_args = crate::hir::deelaborate_call_args(arguments);
                     let expanded_ast =
                         crate::testing::expand_expect(callee, &ast_args, uid, *call_line);
-                    let expanded = crate::hir::elaborate_statements(&expanded_ast);
+                    let expanded = crate::hir::elaborate_statements(&expanded_ast, &[]);
                     return lower_statement_block(&expanded, locals, context, trap_name);
                 }
             }
