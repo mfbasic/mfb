@@ -33,7 +33,7 @@ See plan-104-A §Prerequisites (shared). Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-104-A complete | `rg -c 'type_: String' src/target/shared/nir/mod.rs` → 0; A's phases all `[x]` with Commit hashes | NOT MET until A lands |
+| plan-104-A complete | `rg -c 'type_: String' src/target/shared/nir/mod.rs` → 0; A's phases all `[x]` with Commit hashes | MET 2026-08-24 (rg → no matches; A commits 219351599 / 61c97ea35) |
 
 ## 1. Goal
 
@@ -230,7 +230,7 @@ Acceptance: `cargo test --no-fail-fast` green; `artifact-gate all` no NEW diff
 vs `planning/plan-104-baseline-diffs.txt`; engine scalar-compare census
 (`rg -n '== "(Integer|…)"' src/codegen/engine/`) drops to 0 or each survivor is
 annotated as a deliberate string boundary (record the number).
-Commit: —
+Commit: 24ca75de7
 
 ## Validation Plan
 
@@ -243,13 +243,28 @@ Commit: —
 
 ## Open Decisions
 
-- **`numeric_binary_result_type`: replace vs add a typed twin.** Recommend a
-  typed twin and delete the string form when its last caller converts (C/D) —
-  keeps each sub-plan's diff minimal. (§3)
+- **`numeric_binary_result_type`: replace vs add a typed twin.** RESOLVED as
+  recommended: `typed_numeric_binary_result_type` added; the string form
+  survives for its remaining string callers (deleted when the last converts,
+  C/D). (§3)
 
 ## Corrections
 
-<Filled in during execution.>
+- **`GlobalValue.type_` (builder/mod.rs:428) was missing from every census** —
+  the Phase-1 triage keyed on `HashMap<String, String>` shapes and the plan's
+  store list named only `LocalValue`/`FieldTypes`, but `GlobalValue` is
+  `LocalValue`'s exact global twin (a `type_: String` store built from the
+  typed `NirGlobal`). Converted in Phase 2 with the same treatment.
+- **The data_objects pre-pass walks are signature-coupled to the engine's
+  typed maps**: `static_type_name_with_types`/`static_string_value_with_constants`/
+  `unicode_string_call_is_static` (src/codegen/memory/data/data_objects.rs)
+  share the `types`/`FieldTypes` maps with `type_utils`, so their `types`
+  params flipped to `HashMap<String, ParameterType>` in B even though the
+  memory tree is D's letter — threading, not scope creep; their `Option<String>`
+  returns still render (D converts the bodies).
+- **`link_thunk`'s `record_fields` params followed the `TypeModel` flip** (3
+  signatures + 1 test fixture) — it reads only field *names*, so no render was
+  added.
 
 ## Summary
 
