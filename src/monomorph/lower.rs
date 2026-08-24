@@ -167,7 +167,7 @@ impl<'a> Monomorphizer<'a> {
     fn resolve_imported_overload(
         &mut self,
         callee: &str,
-        arg_types: &[String],
+        arg_types: &[ParameterType],
         line: usize,
     ) -> Option<String> {
         let candidates = self.imported_overloads.get(callee)?;
@@ -178,9 +178,18 @@ impl<'a> Monomorphizer<'a> {
                     candidate.param_types.len() == arg_types.len()
                         && candidate.param_types.iter().zip(arg_types.iter()).all(
                             |(param, actual)| {
+                                // The candidate side is a DECODED PACKAGE signature
+                                // (`ImportedOverload::param_types`, stored bare as the
+                                // wire format spelled it), and `normalize_type` /
+                                // `types_compatible` are token algorithms over that
+                                // name domain — qualifier stripping and positional
+                                // `Unknown` wildcarding, neither expressible on the
+                                // typed side. So the call's argument type renders here,
+                                // at the wire boundary, rather than the package's
+                                // strings being parsed into types they may not spell.
                                 self.types_compatible(
                                     &self.normalize_type(param),
-                                    &self.normalize_type(actual),
+                                    &self.normalize_type(actual.name().as_ref()),
                                 )
                             },
                         )
@@ -422,14 +431,12 @@ impl<'a> Monomorphizer<'a> {
         }
         if let Some(value) = binding.value.take() {
             let mut context = self.function_context();
-            let expected = binding
-                .explicit_type
-                .then(|| binding.type_.name().into_owned());
+            let expected = binding.explicit_type.then(|| binding.type_.clone());
             binding.value = Some(self.lower_expression(
                 &value,
                 &HashMap::new(),
                 &mut context,
-                expected.as_deref(),
+                expected.as_ref(),
                 binding.line,
             ));
         }
@@ -482,12 +489,12 @@ impl<'a> Monomorphizer<'a> {
         }
 
         let mut context = self.function_context();
-        context.enclosing_return = opt_type_name(&function.returns);
+        context.enclosing_return = opt_type(&function.returns);
         for param in &function.params {
             if !matches!(param.type_, ParameterType::Unknown) {
                 context
                     .locals
-                    .insert(param.name.clone(), param.type_.name().into_owned());
+                    .insert(param.name.clone(), param.type_.clone());
             }
         }
         function.body = self.lower_statements(&function.body, substitutions, &mut context);
@@ -495,7 +502,7 @@ impl<'a> Monomorphizer<'a> {
             let mut trap_context = context.clone();
             trap_context
                 .locals
-                .insert(trap.name.clone(), "Error".to_string());
+                .insert(trap.name.clone(), ParameterType::named("Error"));
             trap.body = self.lower_statements(&trap.body, substitutions, &mut trap_context);
         }
         function
@@ -510,8 +517,8 @@ impl<'a> Monomorphizer<'a> {
         &self,
         callee: &str,
         arguments: &[HirCallArg],
-        arg_types: &[String],
-    ) -> Option<Vec<String>> {
+        arg_types: &[ParameterType],
+    ) -> Option<Vec<ParameterType>> {
         if !arguments
             .iter()
             .any(|argument| matches!(argument, HirCallArg::Named { .. }))
@@ -519,7 +526,7 @@ impl<'a> Monomorphizer<'a> {
             return None;
         }
         let params = &self.function_templates.get(callee)?.params;
-        let mut ordered: Vec<Option<String>> = vec![None; params.len()];
+        let mut ordered: Vec<Option<ParameterType>> = vec![None; params.len()];
         let mut next_positional = 0usize;
         for (index, argument) in arguments.iter().enumerate() {
             let arg_type = arg_types.get(index)?.clone();
@@ -581,7 +588,7 @@ impl<'a> Monomorphizer<'a> {
     fn instantiate_function(
         &mut self,
         name: &str,
-        arg_types: &[String],
+        arg_types: &[ParameterType],
         line: usize,
     ) -> Option<String> {
         let template = self.function_templates.get(name)?.clone();
@@ -613,7 +620,10 @@ impl<'a> Monomorphizer<'a> {
             if matches!(param.type_, ParameterType::Unknown) {
                 continue;
             }
-            let actual_name = self.template_view_type(actual);
+            // `template_view_type` is still name-in/name-out (plan-106-A
+            // Correction 3 → letter E); its result also spells the diagnostic
+            // below, so this render is a message-formatting site either way.
+            let actual_name = self.template_view_type(actual.name().as_ref());
             if !unify_type(
                 &param.type_,
                 &ParameterType::parse(&actual_name),
@@ -712,8 +722,8 @@ impl<'a> Monomorphizer<'a> {
         &mut self,
         name: &str,
         display: &str,
-        arg_types: &[String],
-        expected: Option<&str>,
+        arg_types: &[ParameterType],
+        expected: Option<&ParameterType>,
         line: usize,
     ) -> Option<String> {
         // Built-in-named overrides are routed by `resolve_general_builtin_override`,
@@ -741,7 +751,7 @@ impl<'a> Monomorphizer<'a> {
                 // call is ambiguous.
                 let mut by_return = param_matches
                     .iter()
-                    .filter(|function| opt_type_name(&function.returns).as_deref() == expected);
+                    .filter(|function| opt_type(&function.returns).as_ref() == expected);
                 match (by_return.next(), by_return.next()) {
                     (Some(unique), None) => unique.clone(),
                     _ => {
@@ -776,14 +786,21 @@ impl<'a> Monomorphizer<'a> {
     /// (scalar/collection args) is left as the bare built-in name for codegen to
     /// dispatch. Fires for a sole built-in-named overload too, unlike the ordinary
     /// `resolve_overload`.
-    fn resolve_general_builtin_override(&self, name: &str, arg_types: &[String]) -> Option<String> {
+    fn resolve_general_builtin_override(
+        &self,
+        name: &str,
+        arg_types: &[ParameterType],
+    ) -> Option<String> {
         if !crate::codegen::builtins::general::is_overridable(name) {
             return None;
         }
         // `name` is already gated to a general-overridable builtin above, so the
         // registry aggregate resolves it exactly as `general::resolve_call` did
-        // (plan-72-BB).
-        if crate::codegen::builtins::resolve_call_return_type(name, arg_types, false).is_some() {
+        // (plan-72-BB). plan-106-A: through the TYPED entry (plan-104-C's
+        // `resolve_call_return_type_typed`), so no type is rendered here.
+        if crate::codegen::builtins::resolve_call_return_type_typed(name, arg_types, false)
+            .is_some()
+        {
             return None;
         }
         let chosen = self
@@ -896,26 +913,28 @@ impl<'a> Monomorphizer<'a> {
                 // explicit `AS T` annotation carries its rendered type, an inferred
                 // `LET` carries `None`.
                 let type_name = explicit_type.then(|| type_.name().into_owned());
+                // `concrete_type_name` is still name-in/name-out (plan-106-A
+                // Correction 3 assigns its retype to letter E); parse its result
+                // ONCE here rather than at each consumer.
                 let lowered_type = type_name
                     .as_ref()
-                    .map(|type_name| self.concrete_type_name(type_name, substitutions));
+                    .map(|type_name| self.concrete_type_name(type_name, substitutions))
+                    .map(|type_name| ParameterType::parse(&type_name));
                 let lowered_state = state_type.as_ref().map(|state_type| {
                     self.concrete_type_name(state_type.name().as_ref(), substitutions)
                 });
-                let expected_source_type = type_name.as_ref().map(|type_name| {
-                    substitute_type_params(
-                        &crate::types::ParameterType::parse(type_name),
-                        substitutions,
-                    )
-                    .name()
-                    .into_owned()
-                });
+                // The declared type with this instantiation's template params
+                // substituted. `type_` IS the parse of `type_name` (they round-trip
+                // byte-exact), so substitute the HIR node directly rather than
+                // re-parsing a render of it.
+                let expected_source_type =
+                    explicit_type.then(|| substitute_type_params(type_, substitutions));
                 let lowered_value = value.as_ref().map(|value| {
                     self.lower_expression(
                         value,
                         substitutions,
                         context,
-                        expected_source_type.as_deref(),
+                        expected_source_type.as_ref(),
                         *line,
                     )
                 });
@@ -932,10 +951,7 @@ impl<'a> Monomorphizer<'a> {
                     resource: *resource,
                     state_type: lowered_state.map(|s| ParameterType::parse(&s)),
                     name: name.clone(),
-                    type_: lowered_type
-                        .as_deref()
-                        .map(ParameterType::parse)
-                        .unwrap_or(ParameterType::Unknown),
+                    type_: lowered_type.unwrap_or(ParameterType::Unknown),
                     explicit_type: *explicit_type,
                     value: lowered_value,
                     line: *line,
@@ -949,7 +965,7 @@ impl<'a> Monomorphizer<'a> {
                     let expected = matches!(value, HirExpression::Call { .. })
                         .then(|| context.enclosing_return.clone())
                         .flatten();
-                    self.lower_expression(value, substitutions, context, expected.as_deref(), *line)
+                    self.lower_expression(value, substitutions, context, expected.as_ref(), *line)
                 }),
                 line: *line,
             },
@@ -987,7 +1003,7 @@ impl<'a> Monomorphizer<'a> {
                         value,
                         substitutions,
                         context,
-                        expected.as_deref(),
+                        expected.as_ref(),
                         *line,
                     ),
                     line: *line,
@@ -1005,7 +1021,7 @@ impl<'a> Monomorphizer<'a> {
                         value,
                         substitutions,
                         context,
-                        expected.as_deref(),
+                        expected.as_ref(),
                         *line,
                     ),
                     line: *line,
@@ -1049,7 +1065,9 @@ impl<'a> Monomorphizer<'a> {
                         if let HirMatchPattern::Union { binding, type_ } = &case.pattern {
                             case_context.locals.insert(
                                 binding.clone(),
-                                self.concrete_type_name(type_.name().as_ref(), substitutions),
+                                ParameterType::parse(
+                                    &self.concrete_type_name(type_.name().as_ref(), substitutions),
+                                ),
                             );
                         }
                         HirMatchCase {
@@ -1130,8 +1148,12 @@ impl<'a> Monomorphizer<'a> {
                         let step_type = lowered_step
                             .as_ref()
                             .and_then(|value| self.expression_type(value, context))
-                            .unwrap_or_else(|| "Integer".to_string());
-                        promote_loop_numeric_type_name(&start_type, &end_type, &step_type)
+                            .unwrap_or(ParameterType::Integer);
+                        crate::numeric::typed_promote_loop_numeric_type(
+                            &start_type,
+                            &end_type,
+                            &step_type,
+                        )
                     })
                 {
                     nested.locals.insert(name.clone(), loop_type);
@@ -1154,22 +1176,18 @@ impl<'a> Monomorphizer<'a> {
                 let lowered_iterable =
                     self.lower_expression(iterable, substitutions, context, None, *line);
                 let mut nested = context.clone();
-                if let Some(type_name) = self.expression_type(&lowered_iterable, context) {
+                if let Some(iterable_type) = self.expression_type(&lowered_iterable, context) {
                     // plan-105-B: the iterable's element type, off the canonical
                     // grammar. Iterating a `Map` yields a `MapEntry` over the same
                     // key/value pair, which is now built structurally instead of by
                     // splicing the raw `K TO V` text behind a `MapEntry OF ` prefix.
-                    let loop_type = match crate::types::ParameterType::parse(&type_name) {
-                        crate::types::ParameterType::ListOf(element)
-                        | crate::types::ParameterType::SetOf(element) => {
-                            element.name().into_owned()
-                        }
-                        crate::types::ParameterType::MapOf(key, value) => {
-                            crate::types::ParameterType::MapEntryOf(key, value)
-                                .name()
-                                .into_owned()
-                        }
-                        _ => "Unknown".to_string(),
+                    // plan-106-A: the iterable's type arrives already typed, so the
+                    // match is on the value itself rather than on a re-parse of its
+                    // rendered name.
+                    let loop_type = match iterable_type {
+                        ParameterType::ListOf(element) | ParameterType::SetOf(element) => *element,
+                        ParameterType::MapOf(key, value) => ParameterType::MapEntryOf(key, value),
+                        _ => ParameterType::Unknown,
                     };
                     nested.locals.insert(name.clone(), loop_type);
                 }
@@ -1208,7 +1226,7 @@ impl<'a> Monomorphizer<'a> {
         expression: &HirExpression,
         substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
         context: &mut FunctionContext,
-        expected_type: Option<&str>,
+        expected_type: Option<&ParameterType>,
         line: usize,
     ) -> HirExpression {
         match expression {
@@ -1237,7 +1255,7 @@ impl<'a> Monomorphizer<'a> {
                                 value,
                                 substitutions,
                                 context,
-                                expected.as_deref(),
+                                expected.as_ref(),
                                 line,
                             ))
                         }
@@ -1252,7 +1270,7 @@ impl<'a> Monomorphizer<'a> {
                                     value,
                                     substitutions,
                                     context,
-                                    expected.as_deref(),
+                                    expected.as_ref(),
                                     *line,
                                 ),
                                 line: *line,
@@ -1269,7 +1287,7 @@ impl<'a> Monomorphizer<'a> {
                     .iter()
                     .map(|argument| {
                         self.expression_type(call_arg_value(argument), context)
-                            .unwrap_or_else(|| "Unknown".to_string())
+                            .unwrap_or(ParameterType::Unknown)
                     })
                     .collect::<Vec<_>>();
                 // The public callee (`encoding.utf8Decode`, `collections.sort`)
@@ -1340,9 +1358,7 @@ impl<'a> Monomorphizer<'a> {
                 let mut concrete_type = None;
                 // plan-105-B: read the expected type's template head/arguments off
                 // `UserOf` instead of re-splitting its rendered name.
-                if let Some(crate::types::ParameterType::UserOf(expected_name, expected_args)) =
-                    expected_type.map(crate::types::ParameterType::parse)
-                {
+                if let Some(ParameterType::UserOf(expected_name, expected_args)) = expected_type {
                     if expected_name.resolve() == type_name {
                         // Each type argument goes through `concrete_type_name` — the
                         // same walk `instantiate_type`'s other caller uses — so a
@@ -1354,7 +1370,7 @@ impl<'a> Monomorphizer<'a> {
                         // `Holder$Holder$OF$Integer` here, so the constructor's type
                         // failed to match its own binding (TYPE_BINDING_MISMATCH).
                         let mut args = Vec::with_capacity(expected_args.len());
-                        for arg in &expected_args {
+                        for arg in expected_args {
                             args.push(self.concrete_type_name(&arg.name(), substitutions));
                         }
                         concrete_type = Some(self.instantiate_type(expected_name.resolve(), &args));
@@ -1376,7 +1392,7 @@ impl<'a> Monomorphizer<'a> {
                             substitutions,
                             context,
                             line,
-                            expected_arg_type.as_deref(),
+                            expected_arg_type.as_ref(),
                         )
                     })
                     .collect::<Vec<_>>();
@@ -1399,12 +1415,7 @@ impl<'a> Monomorphizer<'a> {
                         if let Some(actual) =
                             self.expression_type(constructor_arg_value(argument), context)
                         {
-                            unify_type(
-                                &field.type_,
-                                &crate::types::ParameterType::parse(&actual),
-                                &param_set,
-                                &mut inferred,
-                            );
+                            unify_type(&field.type_, &actual, &param_set, &mut inferred);
                         }
                     }
                     let args = template
@@ -1451,7 +1462,7 @@ impl<'a> Monomorphizer<'a> {
                             value,
                             substitutions,
                             context,
-                            expected_element.as_deref(),
+                            expected_element.as_ref(),
                             line,
                         )
                     })
@@ -1472,7 +1483,7 @@ impl<'a> Monomorphizer<'a> {
                             value,
                             substitutions,
                             context,
-                            expected_element.as_deref(),
+                            expected_element.as_ref(),
                             line,
                         )
                     })
@@ -1545,9 +1556,11 @@ impl<'a> Monomorphizer<'a> {
                         let mut lowered = param.clone();
                         if !matches!(param.type_, ParameterType::Unknown) {
                             let type_name = param.type_.name().into_owned();
-                            let concrete = self.concrete_type_name(&type_name, substitutions);
+                            let concrete = ParameterType::parse(
+                                &self.concrete_type_name(&type_name, substitutions),
+                            );
                             nested.locals.insert(param.name.clone(), concrete.clone());
-                            lowered.type_ = ParameterType::parse(&concrete);
+                            lowered.type_ = concrete;
                         }
                         lowered
                     })
@@ -1575,7 +1588,7 @@ impl<'a> Monomorphizer<'a> {
                 let mut handler_context = context.clone();
                 handler_context
                     .locals
-                    .insert(binding.clone(), "Error".to_string());
+                    .insert(binding.clone(), ParameterType::named("Error"));
                 let lowered_handler =
                     self.lower_statements(handler, substitutions, &mut handler_context);
                 HirExpression::Trapped {
@@ -1599,7 +1612,7 @@ impl<'a> Monomorphizer<'a> {
         substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
         context: &mut FunctionContext,
         line: usize,
-        expected_type: Option<&str>,
+        expected_type: Option<&ParameterType>,
     ) -> HirConstructorArg {
         match argument {
             HirConstructorArg::Positional(value) => HirConstructorArg::Positional(
@@ -1788,28 +1801,9 @@ impl<'a> Monomorphizer<'a> {
     fn function_context(&self) -> FunctionContext {
         let mut context = FunctionContext::default();
         for (name, function) in &self.concrete_functions {
-            let returns = match function.kind {
-                crate::ast::FunctionKind::Func => {
-                    opt_type_name(&function.returns).unwrap_or_else(|| "Unknown".to_string())
-                }
-                crate::ast::FunctionKind::Sub => "Nothing".to_string(),
-            };
-            let params = function
-                .params
-                .iter()
-                .map(|param| opt_type_name(&param.type_).unwrap_or_else(|| "Unknown".to_string()))
-                .collect::<Vec<_>>();
-            context
-                .function_returns
-                .insert(name.clone(), returns.clone());
-            context.function_types.insert(
-                name.clone(),
-                format!(
-                    "{}FUNC({}) AS {returns}",
-                    if function.isolated { "ISOLATED " } else { "" },
-                    params.join(", ")
-                ),
-            );
+            let (returns, signature) = function_signature_types(function);
+            context.function_returns.insert(name.clone(), returns);
+            context.function_types.insert(name.clone(), signature);
         }
         for (name, type_decl) in &self.concrete_types {
             if matches!(type_decl.kind, TypeDeclKind::Type) {
@@ -1825,7 +1819,7 @@ impl<'a> Monomorphizer<'a> {
                 if binding.explicit_type {
                     context
                         .globals
-                        .insert(binding.name.clone(), binding.type_.name().into_owned());
+                        .insert(binding.name.clone(), binding.type_.clone());
                 }
             }
         }
@@ -1836,28 +1830,9 @@ impl<'a> Monomorphizer<'a> {
         let Some(function) = self.concrete_functions.get(name) else {
             return;
         };
-        let returns = match function.kind {
-            crate::ast::FunctionKind::Func => {
-                opt_type_name(&function.returns).unwrap_or_else(|| "Unknown".to_string())
-            }
-            crate::ast::FunctionKind::Sub => "Nothing".to_string(),
-        };
-        let params = function
-            .params
-            .iter()
-            .map(|param| opt_type_name(&param.type_).unwrap_or_else(|| "Unknown".to_string()))
-            .collect::<Vec<_>>();
-        context
-            .function_returns
-            .insert(name.to_string(), returns.clone());
-        context.function_types.insert(
-            name.to_string(),
-            format!(
-                "{}FUNC({}) AS {returns}",
-                if function.isolated { "ISOLATED " } else { "" },
-                params.join(", ")
-            ),
-        );
+        let (returns, signature) = function_signature_types(function);
+        context.function_returns.insert(name.to_string(), returns);
+        context.function_types.insert(name.to_string(), signature);
     }
 
     /// The return type of a builtin/package call, using the same per-package
@@ -1872,36 +1847,42 @@ impl<'a> Monomorphizer<'a> {
         callee: &str,
         arguments: &[HirCallArg],
         context: &FunctionContext,
-    ) -> Option<String> {
+    ) -> Option<ParameterType> {
         let arg_types = arguments
             .iter()
             .map(|argument| {
                 self.expression_type(call_arg_value(argument), context)
-                    .unwrap_or_else(|| "Unknown".to_string())
+                    .unwrap_or(ParameterType::Unknown)
             })
             .collect::<Vec<_>>();
-        crate::codegen::builtins::resolve_call_return_type(callee, &arg_types, false)
+        // plan-106-A: the TYPED registry entry (plan-104-C), so neither the
+        // argument types nor the resolved return crosses a string.
+        crate::codegen::builtins::resolve_call_return_type_typed(callee, &arg_types, false)
     }
 
+    /// Monomorph's type oracle: the (pre-instantiation) type of an expression,
+    /// or `None` when the environment cannot decide it.
+    ///
+    /// plan-106-A: returns a [`ParameterType`], built structurally. Every arm
+    /// that used to `format!` a spelling (`List OF …`, `Map OF … TO …`,
+    /// `FUNC(…) AS …`) now constructs the variant directly, and the scalar arms
+    /// are variants rather than `"Integer".to_string()`.
     fn expression_type(
         &self,
         expression: &HirExpression,
         context: &FunctionContext,
-    ) -> Option<String> {
+    ) -> Option<ParameterType> {
         match expression {
-            HirExpression::String(_) => Some("String".to_string()),
-            HirExpression::Number(value) => Some(
-                match crate::numeric::classify_literal(value).1 {
-                    crate::numeric::LiteralType::Integer => "Integer",
-                    crate::numeric::LiteralType::Float => "Float",
-                    crate::numeric::LiteralType::Fixed => "Fixed",
-                    crate::numeric::LiteralType::Money => "Money",
-                }
-                .to_string(),
-            ),
-            HirExpression::Scalar(_) => Some("Scalar".to_string()),
-            HirExpression::Boolean(_) => Some("Boolean".to_string()),
-            HirExpression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
+            HirExpression::String(_) => Some(ParameterType::String),
+            HirExpression::Number(value) => Some(match crate::numeric::classify_literal(value).1 {
+                crate::numeric::LiteralType::Integer => ParameterType::Integer,
+                crate::numeric::LiteralType::Float => ParameterType::Float,
+                crate::numeric::LiteralType::Fixed => ParameterType::Fixed,
+                crate::numeric::LiteralType::Money => ParameterType::Money,
+            }),
+            HirExpression::Scalar(_) => Some(ParameterType::named("Scalar")),
+            HirExpression::Boolean(_) => Some(ParameterType::Boolean),
+            HirExpression::Identifier(value) if value == "NOTHING" => Some(ParameterType::Nothing),
             HirExpression::Identifier(value) => context
                 .locals
                 .get(value)
@@ -1909,37 +1890,39 @@ impl<'a> Monomorphizer<'a> {
                 .or_else(|| context.function_types.get(value).cloned())
                 .or_else(|| context.globals.get(value).cloned()),
             HirExpression::Constructor { type_, .. } => match type_.name().as_ref() {
-                "Error" => Some("Error".to_string()),
-                "Ok" => Some("Result OF Unknown".to_string()),
-                name if context.record_fields.contains_key(name) => Some(name.to_string()),
+                "Error" => Some(ParameterType::named("Error")),
+                "Ok" => Some(ParameterType::ResultOf(Box::new(ParameterType::Unknown))),
+                name if context.record_fields.contains_key(name) => {
+                    Some(ParameterType::named(name))
+                }
                 _ => None,
             },
             HirExpression::WithUpdate { target, .. } => self.expression_type(target, context),
-            HirExpression::ListLiteral(values) => values
-                .first()
-                .and_then(|value| self.expression_type(value, context))
-                .map(|element| format!("List OF {element}"))
-                .or_else(|| Some("List OF Unknown".to_string())),
+            HirExpression::ListLiteral(values) => Some(ParameterType::ListOf(Box::new(
+                values
+                    .first()
+                    .and_then(|value| self.expression_type(value, context))
+                    .unwrap_or(ParameterType::Unknown),
+            ))),
             HirExpression::SetLiteral { element_type, .. } => {
-                Some(format!("Set OF {}", element_type.name()))
+                Some(ParameterType::SetOf(Box::new(element_type.clone())))
             }
             HirExpression::MapLiteral {
                 key_type,
                 value_type,
                 ..
-            } => Some(format!(
-                "Map OF {} TO {}",
-                key_type.name(),
-                value_type.name()
+            } => Some(ParameterType::MapOf(
+                Box::new(key_type.clone()),
+                Box::new(value_type.clone()),
             )),
             HirExpression::MemberAccess { target, member } => {
                 let target_type = self.expression_type(target, context)?;
                 context
                     .record_fields
-                    .get(&target_type)?
+                    .get(target_type.name().as_ref())?
                     .iter()
                     .find(|field| field.name == *member)
-                    .map(|field| field.type_.name().into_owned())
+                    .map(|field| field.type_.clone())
             }
             HirExpression::Call {
                 callee, arguments, ..
@@ -1957,19 +1940,23 @@ impl<'a> Monomorphizer<'a> {
                 let param_types = params
                     .iter()
                     .map(|param| {
-                        let type_name = param.type_.name().into_owned();
-                        nested.locals.insert(param.name.clone(), type_name.clone());
-                        type_name
+                        nested
+                            .locals
+                            .insert(param.name.clone(), param.type_.clone());
+                        param.type_.clone()
                     })
                     .collect::<Vec<_>>();
                 // An assignment-bodied lambda yields `Nothing`; otherwise its
                 // result type is the body expression's type.
                 let returns = if assign_target.is_some() {
-                    "Nothing".to_string()
+                    ParameterType::Nothing
                 } else {
                     self.expression_type(body, &nested)?
                 };
-                Some(format!("FUNC({}) AS {returns}", param_types.join(", ")))
+                // A lambda is never `ISOLATED` (that marker is only written on a
+                // declared FUNC), reproducing the un-prefixed `FUNC(…) AS …`
+                // spelling this arm used to `format!`.
+                Some(ParameterType::Func(param_types, Box::new(returns), false))
             }
             HirExpression::Binary {
                 operator,
@@ -1981,20 +1968,23 @@ impl<'a> Monomorphizer<'a> {
                     operator.as_str(),
                     "=" | "<>" | "<" | ">" | "<=" | ">=" | "AND" | "OR" | "XOR"
                 ) {
-                    return Some("Boolean".to_string());
+                    return Some(ParameterType::Boolean);
                 }
                 if operator == "&" {
-                    return Some("String".to_string());
+                    return Some(ParameterType::String);
                 }
                 let left = self.expression_type(left, context)?;
                 let right = self.expression_type(right, context)?;
-                Some(numeric_binary_result_type(operator, &left, &right).to_string())
+                Some(
+                    numeric::typed_binary_result_type(operator, &left, &right)
+                        .unwrap_or(ParameterType::Integer),
+                )
             }
             HirExpression::Unary {
                 operator, operand, ..
             } => {
                 if operator == "NOT" {
-                    Some("Boolean".to_string())
+                    Some(ParameterType::Boolean)
                 } else {
                     self.expression_type(operand, context)
                 }
@@ -2062,6 +2052,7 @@ impl<'a> Monomorphizer<'a> {
 mod tests {
     use super::super::{ImportedOverload, Monomorphizer};
     use crate::ast::{AstProject, Function, Item, TypeDecl};
+    use crate::types::ParameterType;
 
     /// Parse one or more `(relative_path, source)` files into an `AstProject`.
     fn project(files: &[(&str, &str)]) -> AstProject {
@@ -2847,13 +2838,13 @@ END FUNC
         // A concretely-typed argument selects exactly one overload.
         assert_eq!(
             monomorphizer
-                .resolve_imported_overload("pkg.f", &["List OF Integer".to_string()], 1)
+                .resolve_imported_overload("pkg.f", &[ParameterType::parse("List OF Integer")], 1)
                 .as_deref(),
             Some("pkg.f$ListOFInteger")
         );
         assert_eq!(
             monomorphizer
-                .resolve_imported_overload("pkg.f", &["List OF String".to_string()], 1)
+                .resolve_imported_overload("pkg.f", &[ParameterType::parse("List OF String")], 1)
                 .as_deref(),
             Some("pkg.f$ListOFString")
         );
@@ -2862,7 +2853,11 @@ END FUNC
         // `f([])` matches both through the `Unknown` wildcard: ambiguous, not
         // "whichever came first".
         assert_eq!(
-            monomorphizer.resolve_imported_overload("pkg.f", &["List OF Unknown".to_string()], 7),
+            monomorphizer.resolve_imported_overload(
+                "pkg.f",
+                &[ParameterType::parse("List OF Unknown")],
+                7
+            ),
             None
         );
         assert!(monomorphizer.had_error);
@@ -3195,10 +3190,13 @@ END SUB
 /// `strip_prefix("List OF ")` / `strip_prefix("Set OF ")` pair. `set` picks which
 /// container the caller is lowering, so a `List` literal in a `Set`-typed context
 /// still (correctly) gets no expected element type.
-fn expected_element_type(expected_type: Option<&str>, set: bool) -> Option<String> {
-    match crate::types::ParameterType::parse(expected_type?) {
-        crate::types::ParameterType::SetOf(element) if set => Some(element.name().into_owned()),
-        crate::types::ParameterType::ListOf(element) if !set => Some(element.name().into_owned()),
+fn expected_element_type(
+    expected_type: Option<&ParameterType>,
+    set: bool,
+) -> Option<ParameterType> {
+    match expected_type? {
+        ParameterType::SetOf(element) if set => Some((**element).clone()),
+        ParameterType::ListOf(element) if !set => Some((**element).clone()),
         _ => None,
     }
 }

@@ -1,7 +1,8 @@
 # plan-106-E: Consolidation + the terminal no-strings census
 
 Last updated: 2026-08-24
-Effort: medium (1h–2h) — grows to large only if the census finds stragglers
+Effort: large (3h–1d) — corrected from "medium (1h–2h)" by plan-106-A Correction 2:
+codegen's residual hand-rolled type-grammar sites survived plan-104 and land here
 Depends on: plan-106-D (every engine typed, no backward edge; this letter
 consolidates shared algebra and CERTIFIES the end state).
 
@@ -127,6 +128,27 @@ Commit: —
 - [ ] Run every census line from §1; paste the full results here.
 - [ ] Any hit outside the permitted boundaries is fixed in this phase (each
       one a listed task added here as found).
+
+Stragglers already identified by earlier letters (each a TASK here, not a
+deferral — see plan-106-A §Corrections 2 and 3 for the measurements):
+
+- [ ] **Codegen's residual hand-rolled type grammar** (plan-106-A Correction 2):
+      plan-104 typed the NIR data model but left ~15 `strip_prefix("List OF "…)`
+      sites and the name-keyed
+      `type_utils::numeric_binary_result_type` +
+      `type_utils::typed_numeric_binary_result_type` (which renders `name()`,
+      runs the string algorithm, and re-matches the result). Convert onto
+      `numeric::typed_binary_result_type` and structural matches.
+- [ ] **Monomorph's substitution walk** (plan-106-A Correction 3):
+      `concrete_type_name` (`src/monomorph/lower.rs:1630`) and its inverse
+      `template_view_type` (`:1738`) parse their input, recurse by rendered
+      child name, and `format!("List OF {…}")` the result — 14 type-grammar
+      `format!`s, plus five `ParameterType::parse(&self.concrete_type_name(…))`
+      re-parses at `lower.rs:421,475,481,862,1069`. Retype both to
+      `ParameterType -> ParameterType`, preserving the two behaviors the
+      by-name recursion encodes (the per-level `strip_type_group` unwrap —
+      bug-105 — and the `substitutions` lookup, whose keys are always bare
+      template-parameter names, so the probe belongs at `Named`/`Var` leaves).
 - [ ] `bench-lowering.sh` vs the 106 baseline: record; not slower.
 
 Acceptance: the census in this file shows the invariant HOLDS with every

@@ -1,3 +1,5 @@
+use crate::types::ParameterType;
+
 pub(crate) const TYPE_BYTE: &str = "Byte";
 pub(crate) const TYPE_FIXED: &str = "Fixed";
 pub(crate) const TYPE_FLOAT: &str = "Float";
@@ -375,27 +377,124 @@ pub(crate) fn money_conversion_from_decimal(value: &str) -> Result<MoneyConversi
     })
 }
 
+/// The name-keyed adapter over [`typed_binary_result_type`], for the callers
+/// that still hold type *names* (the AST and wire domains). Maps each operand
+/// name onto its scalar variant, runs the one algebra, and renders the closed
+/// result set back to its `&'static str` spelling — no parse, no second table.
 pub(crate) fn binary_result_type(operator: &str, left: &str, right: &str) -> Option<&'static str> {
-    if !is_numeric_type(left) || !is_numeric_type(right) {
+    let left = numeric_variant(left)?;
+    let right = numeric_variant(right)?;
+    numeric_variant_name(&typed_binary_result_type(operator, &left, &right)?)
+}
+
+/// The scalar numeric lattice as a [`ParameterType`]: `Byte`/`Fixed`/`Float`/
+/// `Integer`/`Money`. The lattice gate for [`typed_binary_result_type`] — a
+/// variant match, not a name compare (plan-106-A replaced the name-keyed
+/// `is_numeric_type` this grew from; the name domain now goes through
+/// [`numeric_variant`]).
+pub(crate) fn is_numeric(type_: &ParameterType) -> bool {
+    matches!(
+        type_,
+        ParameterType::Byte
+            | ParameterType::Fixed
+            | ParameterType::Float
+            | ParameterType::Integer
+            | ParameterType::Money
+    )
+}
+
+/// The **one** binary numeric-promotion algebra (plan-106-A): the result type of
+/// `left <operator> right`, or `None` when the pairing is not a numeric
+/// promotion — a non-numeric operand, or a dimensionally-invalid `Money`
+/// pairing (see [`typed_money_result_type`]).
+///
+/// This is the single source of truth for the compiler. Before plan-106-A the
+/// same table was reachable only through seven per-layer wrappers over the
+/// name-keyed [`binary_result_type`]; every typed engine now calls this
+/// directly and the name-keyed form is the adapter, not the primitive.
+pub(crate) fn typed_binary_result_type(
+    operator: &str,
+    left: &ParameterType,
+    right: &ParameterType,
+) -> Option<ParameterType> {
+    if !is_numeric(left) || !is_numeric(right) {
         return None;
     }
     // Money is a *dimensioned* numeric: any pairing that includes it obeys the
     // dimensional lattice (plan-29-A §4.2), not the ordinary promotion rules.
-    let l_money = left == TYPE_MONEY;
-    let r_money = right == TYPE_MONEY;
+    let l_money = matches!(left, ParameterType::Money);
+    let r_money = matches!(right, ParameterType::Money);
     if l_money || r_money {
-        return money_result_type(operator, l_money, r_money);
+        return typed_money_result_type(operator, l_money, r_money);
     }
     if operator == "DIV" {
-        Some(TYPE_FLOAT)
-    } else if left == TYPE_FIXED || right == TYPE_FIXED {
-        Some(TYPE_FIXED)
-    } else if left == TYPE_FLOAT || right == TYPE_FLOAT {
-        Some(TYPE_FLOAT)
-    } else if left == TYPE_BYTE && right == TYPE_BYTE {
-        Some(TYPE_BYTE)
+        Some(ParameterType::Float)
+    } else if matches!(left, ParameterType::Fixed) || matches!(right, ParameterType::Fixed) {
+        Some(ParameterType::Fixed)
+    } else if matches!(left, ParameterType::Float) || matches!(right, ParameterType::Float) {
+        Some(ParameterType::Float)
+    } else if matches!(left, ParameterType::Byte) && matches!(right, ParameterType::Byte) {
+        Some(ParameterType::Byte)
     } else {
-        Some(TYPE_INTEGER)
+        Some(ParameterType::Integer)
+    }
+}
+
+/// The `FOR` induction variable's promoted type: `+` folded across the loop's
+/// `start`, `end` and `step` operand types. A non-numeric operand degrades the
+/// fold to `Integer`, reproducing the `unwrap_or(TYPE_INTEGER)` that each
+/// per-layer `promote_loop_numeric_type_name` copy applied.
+pub(crate) fn typed_promote_loop_numeric_type(
+    start: &ParameterType,
+    end: &ParameterType,
+    step: &ParameterType,
+) -> ParameterType {
+    let first = typed_binary_result_type("+", start, end).unwrap_or(ParameterType::Integer);
+    typed_binary_result_type("+", &first, step).unwrap_or(ParameterType::Integer)
+}
+
+/// The name-keyed adapter over [`typed_promote_loop_numeric_type`], for the
+/// still-stringly `FOR` lowering sites. `ir::lower` and `monomorph::helpers`
+/// each carried a byte-identical hand-copy of this fold until plan-106-A;
+/// both now call here, and the callers disappear entirely once their engines
+/// are typed (plan-106-A Phases 2–3).
+pub(crate) fn promote_loop_numeric_type_name(start: &str, end: &str, step: &str) -> String {
+    let promoted = typed_promote_loop_numeric_type(
+        &numeric_variant(start).unwrap_or(ParameterType::Unknown),
+        &numeric_variant(end).unwrap_or(ParameterType::Unknown),
+        &numeric_variant(step).unwrap_or(ParameterType::Unknown),
+    );
+    numeric_variant_name(&promoted)
+        .unwrap_or(TYPE_INTEGER)
+        .to_string()
+}
+
+/// The [`ParameterType`] a numeric type *name* denotes, or `None` for anything
+/// outside the five-scalar lattice. A closed static match over this module's own
+/// `TYPE_*` constants — deliberately NOT [`ParameterType::parse`], which owns the
+/// type *grammar* (plan-106-A's one-parser invariant); this only maps a leaf name
+/// the lattice already enumerates.
+fn numeric_variant(name: &str) -> Option<ParameterType> {
+    match name {
+        TYPE_BYTE => Some(ParameterType::Byte),
+        TYPE_FIXED => Some(ParameterType::Fixed),
+        TYPE_FLOAT => Some(ParameterType::Float),
+        TYPE_INTEGER => Some(ParameterType::Integer),
+        TYPE_MONEY => Some(ParameterType::Money),
+        _ => None,
+    }
+}
+
+/// The `&'static str` spelling of a numeric scalar variant — the inverse of
+/// [`numeric_variant`], and the render half of the name-keyed adapters above.
+fn numeric_variant_name(type_: &ParameterType) -> Option<&'static str> {
+    match type_ {
+        ParameterType::Byte => Some(TYPE_BYTE),
+        ParameterType::Fixed => Some(TYPE_FIXED),
+        ParameterType::Float => Some(TYPE_FLOAT),
+        ParameterType::Integer => Some(TYPE_INTEGER),
+        ParameterType::Money => Some(TYPE_MONEY),
+        _ => None,
     }
 }
 
@@ -417,41 +516,44 @@ pub(crate) fn money_result_type(
     l_money: bool,
     r_money: bool,
 ) -> Option<&'static str> {
+    numeric_variant_name(&typed_money_result_type(operator, l_money, r_money)?)
+}
+
+/// The typed primitive behind [`money_result_type`] — the dimensional table
+/// itself, over [`ParameterType`] variants.
+pub(crate) fn typed_money_result_type(
+    operator: &str,
+    l_money: bool,
+    r_money: bool,
+) -> Option<ParameterType> {
     match operator {
-        "+" | "-" => (l_money && r_money).then_some(TYPE_MONEY),
+        "+" | "-" => (l_money && r_money).then_some(ParameterType::Money),
         "*" => {
             if l_money && r_money {
                 None
             } else {
-                Some(TYPE_MONEY)
+                Some(ParameterType::Money)
             }
         }
         "/" => {
             if l_money && r_money {
-                Some(TYPE_FLOAT)
+                Some(ParameterType::Float)
             } else if l_money {
-                Some(TYPE_MONEY)
+                Some(ParameterType::Money)
             } else {
                 None
             }
         }
         "DIV" => {
             if l_money {
-                Some(TYPE_FLOAT)
+                Some(ParameterType::Float)
             } else {
                 None
             }
         }
-        "MOD" => (l_money && r_money).then_some(TYPE_MONEY),
+        "MOD" => (l_money && r_money).then_some(ParameterType::Money),
         _ => None,
     }
-}
-
-pub(crate) fn is_numeric_type(type_: &str) -> bool {
-    matches!(
-        type_,
-        TYPE_BYTE | TYPE_FIXED | TYPE_FLOAT | TYPE_INTEGER | TYPE_MONEY
-    )
 }
 
 #[cfg(test)]
@@ -747,10 +849,14 @@ mod tests {
     #[test]
     fn is_numeric_type_accepts_only_the_five_numerics() {
         for t in [TYPE_BYTE, TYPE_FIXED, TYPE_FLOAT, TYPE_INTEGER, TYPE_MONEY] {
-            assert!(is_numeric_type(t), "{t} should be numeric");
+            assert!(legacy_is_numeric_type(t), "{t} should be numeric");
+            let variant = numeric_variant(t).unwrap_or_else(|| panic!("{t} has no variant"));
+            assert!(is_numeric(&variant), "{t} should be numeric");
+            assert_eq!(numeric_variant_name(&variant), Some(t));
         }
         for t in ["String", "Boolean", "Nothing", ""] {
-            assert!(!is_numeric_type(t), "{t} should not be numeric");
+            assert!(!legacy_is_numeric_type(t), "{t} should not be numeric");
+            assert_eq!(numeric_variant(t), None, "{t} should have no variant");
         }
     }
 
@@ -911,6 +1017,237 @@ mod tests {
             assert_eq!(binary_result_type("MOD", k, TYPE_MONEY), None, "{k} MOD M");
             assert_eq!(binary_result_type("^", k, TYPE_MONEY), None, "{k}^M");
         }
+    }
+
+    // ----- plan-106-A Phase 1: typed promotion equivalence ------------------
+    //
+    // `typed_binary_result_type` is now the single source of truth and
+    // `binary_result_type` delegates to it, so comparing the two would be
+    // vacuous. These tests instead pin the typed algebra against a **frozen
+    // verbatim copy** of the name-keyed table as it stood at plan-106-A's base
+    // (`94a38078b`), exhaustively over the whole scalar lattice × every
+    // operator the language spells. Any drift in the collapse — the exact
+    // "silent wrong value" class plan-106 exists to prevent — reds here.
+
+    /// The pre-plan-106-A `is_numeric_type` body, copied verbatim.
+    fn legacy_is_numeric_type(type_: &str) -> bool {
+        matches!(
+            type_,
+            TYPE_BYTE | TYPE_FIXED | TYPE_FLOAT | TYPE_INTEGER | TYPE_MONEY
+        )
+    }
+
+    /// The pre-plan-106-A `binary_result_type` body, copied verbatim. The
+    /// reference oracle; never call it from production code.
+    fn legacy_binary_result_type(operator: &str, left: &str, right: &str) -> Option<&'static str> {
+        if !legacy_is_numeric_type(left) || !legacy_is_numeric_type(right) {
+            return None;
+        }
+        let l_money = left == TYPE_MONEY;
+        let r_money = right == TYPE_MONEY;
+        if l_money || r_money {
+            return legacy_money_result_type(operator, l_money, r_money);
+        }
+        if operator == "DIV" {
+            Some(TYPE_FLOAT)
+        } else if left == TYPE_FIXED || right == TYPE_FIXED {
+            Some(TYPE_FIXED)
+        } else if left == TYPE_FLOAT || right == TYPE_FLOAT {
+            Some(TYPE_FLOAT)
+        } else if left == TYPE_BYTE && right == TYPE_BYTE {
+            Some(TYPE_BYTE)
+        } else {
+            Some(TYPE_INTEGER)
+        }
+    }
+
+    /// The pre-plan-106-A `money_result_type` body, copied verbatim.
+    fn legacy_money_result_type(
+        operator: &str,
+        l_money: bool,
+        r_money: bool,
+    ) -> Option<&'static str> {
+        match operator {
+            "+" | "-" => (l_money && r_money).then_some(TYPE_MONEY),
+            "*" => {
+                if l_money && r_money {
+                    None
+                } else {
+                    Some(TYPE_MONEY)
+                }
+            }
+            "/" => {
+                if l_money && r_money {
+                    Some(TYPE_FLOAT)
+                } else if l_money {
+                    Some(TYPE_MONEY)
+                } else {
+                    None
+                }
+            }
+            "DIV" => {
+                if l_money {
+                    Some(TYPE_FLOAT)
+                } else {
+                    None
+                }
+            }
+            "MOD" => (l_money && r_money).then_some(TYPE_MONEY),
+            _ => None,
+        }
+    }
+
+    /// The pre-plan-106-A `promote_loop_numeric_type_name` body (the shape
+    /// `ir::lower` and `monomorph` each hand-copied), over the legacy oracle.
+    fn legacy_promote_loop_numeric_type_name(start: &str, end: &str, step: &str) -> String {
+        let first = legacy_binary_result_type("+", start, end).unwrap_or(TYPE_INTEGER);
+        legacy_binary_result_type("+", first, step)
+            .unwrap_or(TYPE_INTEGER)
+            .to_string()
+    }
+
+    /// Every type name the promotion lattice can be asked about: the five
+    /// numeric scalars plus non-numeric names that must fall out as `None`.
+    const LATTICE_NAMES: [&str; 10] = [
+        TYPE_BYTE,
+        TYPE_FIXED,
+        TYPE_FLOAT,
+        TYPE_INTEGER,
+        TYPE_MONEY,
+        "String",
+        "Boolean",
+        "Nothing",
+        "List OF Integer",
+        "Unknown",
+    ];
+
+    /// The matching `ParameterType` for each `LATTICE_NAMES` entry, built
+    /// structurally (no parse) so the test never depends on the grammar.
+    fn lattice_types() -> Vec<(&'static str, ParameterType)> {
+        vec![
+            (TYPE_BYTE, ParameterType::Byte),
+            (TYPE_FIXED, ParameterType::Fixed),
+            (TYPE_FLOAT, ParameterType::Float),
+            (TYPE_INTEGER, ParameterType::Integer),
+            (TYPE_MONEY, ParameterType::Money),
+            ("String", ParameterType::String),
+            ("Boolean", ParameterType::Boolean),
+            ("Nothing", ParameterType::Nothing),
+            (
+                "List OF Integer",
+                ParameterType::ListOf(Box::new(ParameterType::Integer)),
+            ),
+            ("Unknown", ParameterType::Unknown),
+        ]
+    }
+
+    /// Every binary operator the language spells, so the equivalence covers the
+    /// `DIV`/`MOD`/`^` arms and the comparison/logical operators that fall
+    /// through to the default `Integer`.
+    const OPERATORS: [&str; 17] = [
+        "+", "-", "*", "/", "DIV", "MOD", "^", "&", "=", "<>", "<", ">", "<=", ">=", "AND", "OR",
+        "XOR",
+    ];
+
+    #[test]
+    fn typed_binary_result_type_matches_the_legacy_table_exhaustively() {
+        let types = lattice_types();
+        assert_eq!(types.len(), LATTICE_NAMES.len());
+        let mut checked = 0usize;
+        for operator in OPERATORS {
+            for (left_name, left) in &types {
+                for (right_name, right) in &types {
+                    let typed = typed_binary_result_type(operator, left, right);
+                    let rendered = typed.as_ref().and_then(numeric_variant_name);
+                    // A `Some` result is always a scalar the name map covers.
+                    assert_eq!(
+                        typed.is_some(),
+                        rendered.is_some(),
+                        "{left_name} {operator} {right_name}: typed result escaped the scalar lattice ({typed:?})"
+                    );
+                    assert_eq!(
+                        rendered,
+                        legacy_binary_result_type(operator, left_name, right_name),
+                        "{left_name} {operator} {right_name}"
+                    );
+                    // And the shipped adapter agrees with both.
+                    assert_eq!(
+                        binary_result_type(operator, left_name, right_name),
+                        rendered,
+                        "adapter drift at {left_name} {operator} {right_name}"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        // 17 operators x 10 x 10 operand pairs.
+        assert_eq!(checked, 1_700);
+    }
+
+    #[test]
+    fn typed_promote_loop_matches_the_legacy_fold_exhaustively() {
+        let types = lattice_types();
+        let mut checked = 0usize;
+        for (start_name, start) in &types {
+            for (end_name, end) in &types {
+                for (step_name, step) in &types {
+                    let typed = typed_promote_loop_numeric_type(start, end, step);
+                    let rendered = numeric_variant_name(&typed).unwrap_or_else(|| {
+                        panic!("loop promotion escaped the scalar lattice: {typed:?}")
+                    });
+                    let legacy =
+                        legacy_promote_loop_numeric_type_name(start_name, end_name, step_name);
+                    assert_eq!(
+                        rendered, legacy,
+                        "FOR {start_name} TO {end_name} STEP {step_name}"
+                    );
+                    // And the shipped name-keyed adapter — the one `ir::lower`
+                    // and `monomorph` now call in place of their hand-copies.
+                    assert_eq!(
+                        promote_loop_numeric_type_name(start_name, end_name, step_name),
+                        legacy,
+                        "adapter drift at FOR {start_name} TO {end_name} STEP {step_name}"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 1_000);
+    }
+
+    #[test]
+    fn typed_money_result_type_matches_the_legacy_table() {
+        for operator in OPERATORS {
+            for l_money in [false, true] {
+                for r_money in [false, true] {
+                    assert_eq!(
+                        typed_money_result_type(operator, l_money, r_money)
+                            .as_ref()
+                            .and_then(numeric_variant_name),
+                        legacy_money_result_type(operator, l_money, r_money),
+                        "{operator} l_money={l_money} r_money={r_money}"
+                    );
+                    // The shipped name-keyed adapter agrees too.
+                    assert_eq!(
+                        money_result_type(operator, l_money, r_money),
+                        legacy_money_result_type(operator, l_money, r_money),
+                        "adapter drift at {operator} l_money={l_money} r_money={r_money}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn is_numeric_agrees_with_the_name_keyed_predicate() {
+        for (name, type_) in lattice_types() {
+            assert_eq!(is_numeric(&type_), legacy_is_numeric_type(name), "{name}");
+        }
+        // Variants with no name in the lattice list are still non-numeric.
+        assert!(!is_numeric(&ParameterType::AttributeString));
+        assert!(!is_numeric(&ParameterType::SetOf(Box::new(
+            ParameterType::Integer
+        ))));
     }
 
     #[test]

@@ -895,7 +895,8 @@ fn lower_statement(
                 .as_ref()
                 .and_then(|value| expression_type(value, locals, context))
                 .unwrap_or_else(|| "Integer".to_string());
-            let loop_type = promote_loop_numeric_type_name(&start_type, &end_type, &step_type);
+            let loop_type =
+                numeric::promote_loop_numeric_type_name(&start_type, &end_type, &step_type);
             let iter_name = make_temp_local_name(context, "for_iter");
             let end_name = make_temp_local_name(context, "for_end");
             let step_name = make_temp_local_name(context, "for_step");
@@ -1578,11 +1579,6 @@ fn make_temp_local_name(context: &mut LowerContext<'_>, prefix: &str) -> String 
     let name = format!("${prefix}{}", context.next_temp_id);
     context.next_temp_id += 1;
     name
-}
-
-fn promote_loop_numeric_type_name(start: &str, end: &str, step: &str) -> String {
-    let first = numeric_binary_result_type("+", start, end);
-    numeric_binary_result_type("+", first, step).to_string()
 }
 
 fn numeric_constant_for_type(type_: &str, value: &str) -> IrValue {

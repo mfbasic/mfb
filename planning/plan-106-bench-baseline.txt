@@ -1,0 +1,10 @@
+plan-106 lowering perf baseline
+Captured 2026-08-24 in .claude/worktrees/P-106 at base main tip 94a38078b
+Command: scripts/bench-lowering.sh target/release/mfb
+
+== plan-78 lowering benchmark ==
+  trivial      debug 0.68       release 0.62
+  one-regex    debug 31.34      release 7.09
+  acceptance   debug 279.21     release 50.01
+== inlined regex function size (pre-allocation) ==
+  regex fn: function instructions=869181 int_vregs=143493 fp_vregs=0

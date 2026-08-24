@@ -76,9 +76,9 @@ Shared by every plan-106 letter; stated once here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-104 complete (NIR + codegen typed) | plan-104-A..D archived; `rg -c 'type_: String' src/target/shared/nir/mod.rs` → 0 | NOT MET — plan-104 not started |
-| plan-105 complete (driver + one grammar) | plan-105-A/B archived; `rg -n 'rsplit_once\(" AS "\)' src/` → 0; `rg -n 'user_template_parts' src/monomorph/` → 0 | NOT MET — plan-105 not started |
-| Feature worktree, baseline gate, green suite, perf baseline | as plan-104-A §Prerequisites (fresh capture for 106) | NOT MET — run first |
+| plan-104 complete (NIR + codegen typed) | plan-104-A..D archived; `rg -c 'type_: String' src/target/shared/nir/mod.rs` → 0 | **MET** 2026-08-24 — `ls planning/completed/ \| grep plan-104` → A/B/C/D all archived; the `rg -c` exits 1 with no output (0 matches) |
+| plan-105 complete (driver + one grammar) | plan-105-A/B archived; `rg -n 'rsplit_once\(" AS "\)' src/` → 0; `rg -n 'user_template_parts' src/monomorph/` → 0 | **MET** 2026-08-24 — both archived; both greps return only *historical comments / a test name* (`manifest/package.rs:1205`, `ir/types.rs:92`; `monomorph/helpers.rs:286,824,899,901`), 0 code sites |
+| Feature worktree, baseline gate, green suite, perf baseline | as plan-104-A §Prerequisites (fresh capture for 106) | **MET** 2026-08-24 — worktree `.claude/worktrees/P-106` on `worktree-P-106` (base `94a38078b`); `scripts/artifact-gate.sh target/release/mfb all` → `1255 tests, 1402 build(s), 1730 golden(s) checked, 0 diff(s)` (recorded in `planning/plan-106-baseline-diffs.txt`); `rustup run 1.96.0 cargo test --no-fail-fast` → exit 0, 0 FAILED; `scripts/bench-lowering.sh` recorded in `planning/plan-106-bench-baseline.txt` |
 
 Both plan dependencies are hard gates: 106's letters assume `ParameterType`
 below the IR (104) and one grammar + `UserOf` (105); without them the census
@@ -165,22 +165,101 @@ None externally observable.
 
 ### Phase 1 — one typed promotion source (+ equivalence proof)
 
-- [ ] Add the typed promotion fn(s) to `src/numeric.rs`; unit-test exhaustive
+- [x] Add the typed promotion fn(s) to `src/numeric.rs`; unit-test exhaustive
       equivalence against the ir/lower + monomorph copies (every operator ×
       scalar pair).
-- [ ] Tests green with the copies still in place (no behavior change yet).
+      **Landed:** `typed_binary_result_type`, `typed_money_result_type`,
+      `typed_promote_loop_numeric_type`, `is_numeric` — the table itself, over
+      `ParameterType` variants. The name-keyed `binary_result_type` /
+      `money_result_type` / the new `promote_loop_numeric_type_name` are now
+      *adapters* over them (`numeric_variant` / `numeric_variant_name`, a closed
+      five-arm match — **not** `ParameterType::parse`), so exactly one table
+      exists. Equivalence is pinned against **frozen verbatim copies** of the
+      pre-change bodies (`legacy_*` in the test module) rather than against the
+      shipped adapters, which now delegate and would make the comparison
+      vacuous: 17 operators × 10 × 10 operand pairs = **1,700** binary
+      assertions, 10³ = **1,000** loop-fold assertions, plus the full Money
+      dimensional table and the `is_numeric` lattice.
+- [x] Tests green with the copies still in place (no behavior change yet).
+      `rustup run 1.96.0 cargo test --bin mfb numeric::` → 28 passed, 0 failed;
+      `… monomorph::helpers` → 22 passed, 0 failed.
 
-Acceptance: equivalence tests pass; suite green.
+Two extra tasks this phase needed (both required to leave no dead code, per
+AGENTS.md "No blanket dead-code suppression"):
+
+- [x] Delete the two hand-copied `promote_loop_numeric_type_name` bodies
+      (`ir/lower.rs:1583`, `monomorph/helpers.rs:551`) and repoint their call
+      sites (`ir/lower.rs:898`, `monomorph/lower.rs:1134`, and
+      `monomorph/helpers.rs`'s two test assertions) at `numeric::`. Promotion
+      definitions: **7 → 5** (see Correction 1).
+- [x] Delete the name-keyed `numeric::is_numeric_type`, which lost its only
+      production caller when `binary_result_type` became an adapter over
+      `numeric_variant`. Its two tests are retargeted onto `is_numeric` /
+      `numeric_variant` and a frozen `legacy_is_numeric_type` oracle.
+      `cargo build --bin mfb` → **0 warnings**.
+
+Acceptance: equivalence tests pass; suite green. **MET** — see the Commit line's
+full-suite run.
 Commit: —
 
 ### Phase 2 — monomorph engine typed
 
-- [ ] `FunctionContext` maps + `enclosing_return` → `ParameterType`;
+- [x] `FunctionContext` maps + `enclosing_return` → `ParameterType`;
       `expression_type` → `Option<ParameterType>`; read sites native; the two
       local promotion copies deleted (call numeric.rs).
-- [ ] Tests: monomorph unit suite; generics fixtures (incl. plan-105-B's).
+- [x] Tests: monomorph unit suite; generics fixtures (incl. plan-105-B's).
+      `cargo test --bin mfb monomorph` → 61 passed, 0 failed.
 
-Acceptance: suite green; `artifact-gate all` no NEW diff.
+What the retype actually reached (the read sites are not confined to
+`expression_type` — each of these had to convert or the engine would not
+compile without a new render shim):
+
+- [x] `FunctionContext`: `locals`/`function_returns`/`function_types`/`globals`
+      values and `enclosing_return` → `ParameterType`. Keys stay `String` (they
+      are NAMES) per the plan's Open Decision in letter B.
+- [x] `expression_type` → `Option<ParameterType>`, every arm structural: the
+      `format!("List OF {…}")` / `"Set OF …"` / `"Map OF … TO …"` /
+      `"FUNC(…) AS …"` constructions became `ListOf`/`SetOf`/`MapOf`/`Func`
+      variants, and the scalar arms became variants instead of
+      `"Integer".to_string()`.
+- [x] `helpers::opt_type_name` → `opt_type` (returns the type); the render form
+      survives as a two-line wrapper for the **symbol-mangling** sites
+      (`mangle_name`, `overload_key`), which are render-out by definition.
+- [x] `params_match` compares `ParameterType`s structurally.
+- [x] The `expected_type` thread — `lower_expression`, `lower_constructor_arg`,
+      `resolve_overload`, `arg_slot_expected`, `constructor_arg_field_type`,
+      `expected_element_type` — is `Option<&ParameterType>`. This **deleted a
+      backward seam**: the constructor arm did
+      `expected_type.map(ParameterType::parse)` on a value that had been
+      rendered from a `ParameterType` two frames up (`lower.rs:1362`).
+- [x] The `arg_types` chain — `arg_types_in_param_order`,
+      `instantiate_function`, `resolve_general_builtin_override`,
+      `resolve_imported_overload` — takes `&[ParameterType]`. The generic-
+      inference `unify_type` call in the constructor arm no longer re-parses
+      (`unify_type(&field.type_, &actual, …)` directly).
+- [x] Builtin return-type resolution goes through the TYPED registry entry
+      (`resolve_call_return_type_typed`, plan-104-C) in both
+      `builtin_call_return_type` and `resolve_general_builtin_override`, so
+      neither the argument types nor the resolved return crosses a string.
+- [x] `ForEach`'s element type matches the iterable's `ParameterType` directly
+      instead of re-parsing its rendered name.
+- [x] The two byte-identical copies of the function-signature construction in
+      `function_context` / `add_function_to_context` collapse into one
+      `helpers::function_signature_types`.
+- [x] Two renders deliberately KEPT, each documented at its site:
+      `resolve_imported_overload` compares against a **decoded package
+      signature** (`ImportedOverload::param_types`, wire strings) using
+      `normalize_type`/`types_compatible` — qualifier stripping and positional
+      `Unknown` wildcarding, neither expressible structurally, so the call's
+      argument renders at that wire boundary; and `instantiate_function`
+      renders for `template_view_type`, whose result also spells the
+      `TYPE_CALL_ARGUMENT_MISMATCH` message (letter E retypes it).
+
+Acceptance: suite green; `artifact-gate all` no NEW diff. **MET**:
+`cargo test --bin mfb` → 3644 passed, 0 failed;
+`scripts/artifact-gate.sh target/release/mfb all` →
+`1255 tests, 1402 build(s), 1730 golden(s) checked, 0 diff(s)` — byte-identical
+to the 106 baseline.
 Commit: —
 
 ### Phase 3 — ir::lower engine typed
@@ -214,7 +293,142 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+### 1. The promotion-copy population is 7, not 6 — the plan's own grep undercounts
+
+The plan (§1 Goal, §2 Measured populations, and 106-E §1) measures the
+duplication with
+
+```
+rg -n 'fn (numeric_binary_result_type|promote_loop_numeric_type_name)' src/'   → 6
+```
+
+That alternation misses `syntaxcheck::helpers::promote_loop_numeric_type`
+(`src/syntaxcheck/helpers.rs:244`) — the loop fold, but named without the
+`_name` suffix because syntaxcheck's copy returns its private `Type`, not a
+string. The correct census command is the suffix-free pattern:
+
+```
+$ rg -n 'fn (numeric_binary_result_type|promote_loop_numeric_type)' src/
+src/syntaxcheck/helpers.rs:244:pub(super) fn promote_loop_numeric_type(...) -> Type
+src/syntaxcheck/helpers.rs:272:pub(super) fn numeric_binary_result_type(..., &Type, &Type) -> Type
+src/monomorph/helpers.rs:547:  pub(super) fn numeric_binary_result_type(..., &str, &str) -> &'static str
+src/monomorph/helpers.rs:551:  pub(super) fn promote_loop_numeric_type_name(...) -> String
+src/ir/lower.rs:1583:          fn promote_loop_numeric_type_name(...) -> String
+src/ir/lower.rs:3655:          fn numeric_binary_result_type(..., &str, &str) -> &'static str
+src/codegen/engine/types/type_utils.rs:462: pub(crate) fn numeric_binary_result_type(...)
+                                                                              → 7
+```
+
+Plus an eighth promotion-shaped function the pattern also misses,
+`type_utils::typed_numeric_binary_result_type` (plan-104-B's typed twin, which
+renders `name()` and re-parses the string result). Letter E's "→ exactly 1
+definition" acceptance is re-scoped against **8**, using the suffix-free grep
+above widened with `typed_`. Phase 1 took it to 5 (+ the typed twin) by
+deleting the two `promote_loop_numeric_type_name` hand-copies.
+
+Scope impact on other letters: none re-derived from the wrong number — A's goal
+text says "replacing 4 of the measured 6", and A still deletes exactly those 4
+(2 in Phase 1, 2 across Phases 2–3). C already owned syntaxcheck's copies; the
+correction only means C owns **two** (`numeric_binary_result_type` *and*
+`promote_loop_numeric_type`), and E's final count is 1 production definition,
+not "1 of 6".
+
+### 5. Phases 1 and 2 land in ONE commit (they cannot be split)
+
+The plan gives Phases 1 and 2 separate `Commit:` lines. They share a hash
+because a Phase-1-only tree does not compile:
+
+Phase 1's dead-code obligation (AGENTS.md forbids shipping an unused function
+or a blanket `#[allow(dead_code)]`) required *deleting* the two hand-copied
+`promote_loop_numeric_type_name` bodies and repointing their call sites — which
+lives in `src/monomorph/helpers.rs` and `src/monomorph/lower.rs`, the same two
+files Phase 2 then retypes. Committing only `src/numeric.rs` +
+`src/ir/lower.rs` would leave `monomorph` calling a function that no longer
+exists in its module.
+
+Both phases are independently *verified* (Phase 1: the 2,700-assertion
+equivalence suite green with every engine still stringly; Phase 2: full suite +
+byte-identical gate); only the commit boundary is shared.
+
+### 4. `test-accept` has NO environmental failures — the "2 documented" ones are fixed
+
+Every letter's Validation Plan says "`test-accept` no NEW mismatch (2 documented
+environmental failures excepted)", inherited from plan-104-A's "Known
+pre-existing noise" note (the 5 stdin-EOF `acceptance` io sub-tests and the
+`project_name` deep-worktree path bug). Both were a **real harness bug** — a
+bare `mfb test` consuming the find-pipe's stdin, which also silently skipped 72
+fixtures — fixed 2026-08-24 before this plan started. Measured at 106's base:
+
+```
+$ scripts/test-accept.sh target/release/mfb /tmp/p106-accept-out
+…
+acceptance tests passed (1271 test(s) ran)
+exit=0
+```
+
+The exception clause is therefore **deleted** for plan-106: every letter's
+acceptance is `test-accept` fully green at **1271 ran, 0 mismatches**, and the
+`N ran` count is watched between runs (a drop means fixtures were skipped, not
+that they passed).
+
+### 3. Monomorph's substitution walk is a parse↔render machine — assigned to E
+
+A's Goal names `expression_type` and `FunctionContext`. Retyping those does not
+by itself satisfy the Phase-3 "no-backward check", because monomorph's
+*substitution* walk sits beside them and is string-in/string-out:
+
+```
+$ rg -n 'fn concrete_type_name|fn template_view_type' src/monomorph/lower.rs
+src/monomorph/lower.rs:1630:  fn concrete_type_name(&mut self, type_name: &str, subs) -> String
+src/monomorph/lower.rs:1738:  fn template_view_type(&self, type_name: &str) -> String
+```
+
+Both `ParameterType::parse` their input, recurse **by rendered child name**, and
+`format!("List OF {…}")` the result back — 14 `format!` type-constructions
+between them. Their callers then re-parse (`ParameterType::parse(&self
+.concrete_type_name(…))` at `lower.rs:421,475,481,862,1069`). This is
+pre-existing (plan-105-B converted the *classification* to the canonical
+grammar but left the string carrier), NOT introduced by A.
+
+Assignment: **letter E**, whose stated job is the census and straggler
+burn-down, and which already owns the `format!("List OF …")` census line. It is
+listed as an explicit task in E §Phases Phase 2 (not "future work"). A's Phase-3
+no-backward check is therefore recorded as "0 NEW parse-of-render; the
+surviving sites are exactly `concrete_type_name`'s five callers, enumerated
+above and closed by E".
+
+Rationale for not braiding it into A Phase 2: the recursion is deliberately
+*by name* (the `strip_type_group` unwrap per level and the `substitutions`
+lookup keyed on the whole child spelling both depend on it — see the comment at
+`lower.rs:1659-1664`), so retyping it is a behavioral change to freshly-landed
+plan-105-B code, not a mechanical carrier swap. Converting it in the same diff
+as the `FunctionContext` retype would make a golden failure unattributable —
+exactly the reason C and D are separate letters.
+
+### 2. Plan-104 did NOT eliminate codegen's string type-grammar parsing
+
+A §1 and E §1 both assume "the codegen copy falls in plan-104". Measured at
+this plan's base (`94a38078b`, plan-104-A..D all archived):
+
+```
+$ rg -n 'fn numeric_binary_result_type' src/codegen/
+src/codegen/engine/types/type_utils.rs:462   # still &str -> &'static str
+```
+
+and the wider hand-rolled-grammar census still hits codegen in ~15 places
+(`rg -n 'strip_prefix\("(List OF |Set OF |Map OF |RES |Result OF |MapEntry OF )' src/`
+→ `codegen/engine/types/type_utils.rs` ×5, `codegen/memory/arena/…` ×2,
+`codegen/collection/layout/…` ×2, `codegen/cleanup/owned/…` ×2,
+`codegen/memory/{data,value}/…` ×2, `codegen/engine/{value,validation}/…` ×2,
+`codegen/builtins/math/gen_math.rs` ×1). Plan-104 typed the NIR *data model*
+and the engine's hot paths; it did not reach zero on the grammar census.
+
+This is **not** a prerequisite failure — 104's own acceptance never claimed the
+census — but it is scope E inherits. E's Phase 2 "straggler burn-down" is
+therefore *not* the small mop-up the plan estimated (medium, 1h–2h); it carries
+codegen's residual grammar sites. E's Effort line is corrected to **large**
+below, and the stragglers are enumerated as explicit tasks in E when Phase 2
+runs its census. They are tasks, not deferrals.
 
 ## Summary
 
