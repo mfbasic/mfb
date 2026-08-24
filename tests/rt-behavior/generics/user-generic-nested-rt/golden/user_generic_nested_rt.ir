@@ -1,0 +1,125 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "user_generic_nested_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 22,
+    "visibility": "public",
+    "name": "Holder$Integer",
+    "fields": [
+    { "visibility": null, "line": 23, "name": "held", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 22,
+    "visibility": "public",
+    "name": "Holder$List$OF$Integer",
+    "fields": [
+    { "visibility": null, "line": 23, "name": "held", "type": "List OF Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 17,
+    "visibility": "public",
+    "name": "Pairing$Integer$String",
+    "fields": [
+    { "visibility": null, "line": 18, "name": "first", "type": "Integer" },
+    { "visibility": null, "line": 19, "name": "second", "type": "String" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 30,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 34, "mutable": false, "name": "inner", "type": "Pairing$Integer$String", "value": { "kind": "constructor", "type": "Pairing$Integer$String", "args": [{ "kind": "const", "type": "Integer", "value": "7" }, { "kind": "const", "type": "String", "value": "seven" }] } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "inner=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "inner" }, "member": "first" }] } }, "right": { "kind": "const", "type": "String", "value": "," } }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "inner" }, "member": "second" } }] } },
+    { "op": "bind", "line": 38, "mutable": false, "name": "listy", "type": "Holder$List$OF$Integer", "value": { "kind": "constructor", "type": "Holder$List$OF$Integer", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] }] } },
+    { "op": "bind", "line": 39, "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "forEach",
+      "line": 40,
+      "name": "v",
+      "type": "Integer",
+      "iterable": { "kind": "call", "type": "List OF Integer", "target": "unhold$List$OF$Integer", "args": [{ "kind": "local", "name": "listy" }] },
+      "body": [
+      { "op": "assign", "line": 41, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "v" } } }
+      ]
+    },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "listy-sum=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "total" }] } }] } },
+    { "op": "bind", "line": 46, "mutable": true, "name": "boxes", "type": "List OF Holder$Integer", "value": { "kind": "list", "type": "List OF Holder$Integer", "values": [] } },
+    { "op": "assign", "line": 47, "name": "boxes", "value": { "kind": "call", "type": "List OF Holder$Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "boxes" }, { "kind": "constructor", "type": "Holder$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "4" }] }] } },
+    { "op": "assign", "line": 48, "name": "boxes", "value": { "kind": "call", "type": "List OF Holder$Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "boxes" }, { "kind": "constructor", "type": "Holder$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] }] } },
+    { "op": "bind", "line": 49, "mutable": true, "name": "boxSum", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "forEach",
+      "line": 50,
+      "name": "b",
+      "type": "Holder$Integer",
+      "iterable": { "kind": "local", "name": "boxes" },
+      "body": [
+      { "op": "assign", "line": 51, "name": "boxSum", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "boxSum" }, "right": { "kind": "call", "type": "Integer", "target": "unhold$Integer", "args": [{ "kind": "local", "name": "b" }] } } }
+      ]
+    },
+    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "boxes-sum=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "boxSum" }] } }] } },
+    { "op": "bind", "line": 57, "mutable": true, "name": "pairs", "type": "List OF Pairing$Integer$String", "value": { "kind": "list", "type": "List OF Pairing$Integer$String", "values": [] } },
+    { "op": "assign", "line": 58, "name": "pairs", "value": { "kind": "call", "type": "List OF Pairing$Integer$String", "target": "collections.append", "args": [{ "kind": "local", "name": "pairs" }, { "kind": "constructor", "type": "Pairing$Integer$String", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "String", "value": "one" }] }] } },
+    { "op": "assign", "line": 59, "name": "pairs", "value": { "kind": "call", "type": "List OF Pairing$Integer$String", "target": "collections.append", "args": [{ "kind": "local", "name": "pairs" }, { "kind": "constructor", "type": "Pairing$Integer$String", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "String", "value": "two" }] }] } },
+    { "op": "bind", "line": 60, "mutable": true, "name": "joined", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    {
+      "op": "forEach",
+      "line": 61,
+      "name": "p",
+      "type": "Pairing$Integer$String",
+      "iterable": { "kind": "local", "name": "pairs" },
+      "body": [
+      { "op": "assign", "line": 62, "name": "joined", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "joined" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "p" }, "member": "first" }] } }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "p" }, "member": "second" } }, "right": { "kind": "const", "type": "String", "value": ";" } } }
+      ]
+    },
+    { "op": "eval", "line": 64, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pairs=" }, "right": { "kind": "local", "name": "joined" } }] } },
+    { "op": "return", "line": 65, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "unhold$Integer",
+    "line": 26,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "h", "line": 26, "type": "Holder$Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 27, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "h" }, "member": "held" } }
+    ]
+  },
+  {
+    "name": "unhold$List$OF$Integer",
+    "line": 26,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "h", "line": 26, "type": "Holder$List$OF$Integer", "default": null }
+    ],
+    "returns": "List OF Integer",
+    "body": [
+    { "op": "return", "line": 27, "value": { "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "h" }, "member": "held" } }
+    ]
+  }
+  ]
+}

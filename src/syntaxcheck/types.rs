@@ -478,28 +478,6 @@ impl<'a> SyntaxChecker<'a> {
 /// which owns exactly one top-level ` TO ` — begins at byte `at` of `body`. The
 /// match must sit on a word boundary so a user template whose name merely ends
 /// in `Map` (`MyMap OF T`, which owns no ` TO `) is not counted.
-fn owns_a_to_separator(body: &str, at: usize) -> bool {
-    let bytes = body.as_bytes();
-    if at > 0 {
-        let prev = bytes[at - 1];
-        // An identifier-continue byte (or any UTF-8 continuation/lead byte of a
-        // multi-byte identifier char) before the keyword means we are mid-word.
-        if prev.is_ascii_alphanumeric()
-            || prev == b'_'
-            || prev == b'.'
-            || prev == b':'
-            || prev >= 0x80
-        {
-            return false;
-        }
-    }
-    // `List OF`/`Result OF`/user templates own no ` TO ` and are excluded. Each
-    // keyword is checked with its trailing ` OF ` so `MapEntry OF` is not seen as
-    // `Map OF` and `ThreadWorker OF` is not seen as `Thread OF`.
-    ["MapEntry OF ", "ThreadWorker OF ", "Map OF ", "Thread OF "]
-        .iter()
-        .any(|keyword| body[at..].starts_with(keyword))
-}
 
 /// Split a `Map OF` body `K TO V` (the text after the outer `Map OF ` prefix) on
 /// the ` TO ` that separates the outer key from its value. A leftmost
@@ -509,45 +487,21 @@ fn owns_a_to_separator(body: &str, at: usize) -> bool {
 /// and ignores separators inside parenthesized / `FUNC(...)` groups. Returns
 /// `None` when there is no top-level ` TO ` (a malformed body), so the caller
 /// falls through and the whole string is treated as a plain type name.
+/// Split a `Map OF` body `K TO V` (the text after the outer `Map OF ` prefix) on
+/// the ` TO ` that separates the outer key from its value.
+///
+/// plan-105-B: this was a verbatim third copy of the same depth-aware scan (the
+/// others lived in `monomorph::helpers` and `resolver::resolution`), which is
+/// precisely the lockstep-edit hazard the architectural review flagged
+/// (`planning/Compiler Pipeline.md:25`) — a fix like bug-41/bug-108.2 had to be
+/// applied to all of them or the compiler disagreed with itself about where a
+/// nested `Map OF Map OF String TO Integer TO Boolean` splits. It now delegates to
+/// the canonical [`crate::types::split_top_level_to`].
+///
+/// Returns `None` when there is no top-level ` TO ` (a malformed body), so the
+/// caller falls through and the whole string is treated as a plain type name.
 fn split_map_body(body: &str) -> Option<(&str, &str)> {
-    let bytes = body.as_bytes();
-    let mut depth: usize = 0;
-    // Nested `OF`-constructs seen at depth 0 whose ` TO ` has not yet appeared.
-    let mut pending: usize = 0;
-    let mut index = 0;
-    while index < body.len() {
-        match bytes[index] {
-            b'(' => {
-                depth += 1;
-                index += 1;
-            }
-            b')' => {
-                depth = depth.saturating_sub(1);
-                index += 1;
-            }
-            // `is_char_boundary` guards the slice: `.mfp`-decoded type strings are
-            // not guaranteed ASCII, so `index` can land on a UTF-8 continuation
-            // byte where `body[index..]` would panic (bug-169). A non-boundary
-            // byte never begins ` TO ` nor a keyword, so skipping it is correct.
-            _ if depth == 0
-                && body.is_char_boundary(index)
-                && body[index..].starts_with(" TO ") =>
-            {
-                if pending > 0 {
-                    pending -= 1;
-                    index += 4;
-                } else {
-                    return Some((&body[..index], &body[index + 4..]));
-                }
-            }
-            _ if depth == 0 && body.is_char_boundary(index) && owns_a_to_separator(body, index) => {
-                pending += 1;
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
+    crate::types::split_top_level_to(body)
 }
 
 #[cfg(test)]

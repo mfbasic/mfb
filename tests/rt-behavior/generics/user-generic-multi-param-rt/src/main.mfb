@@ -1,0 +1,47 @@
+IMPORT io
+
+' plan-105-B: golden coverage for a MULTI-parameter user generic.
+'
+' `Pairing OF A, B` is the shape that makes the user-generic grammar its own
+' problem: the comma between `A` and `B` is a TOP-LEVEL separator inside a single
+' type name, so splitting it needs depth awareness. That is exactly what
+' monomorph's `split_top_level_commas` string helper did, and what
+' `ParameterType::UserOf`'s parse arm must now do structurally.
+'
+' Argument-ORDER sensitivity is the point: `Pairing OF Integer, String` and
+' `Pairing OF String, Integer` are different instantiations and must stay so.
+
+TYPE Pairing OF A, B
+  first  AS A
+  second AS B
+END TYPE
+
+FUNC pairFirst OF A, B(p AS Pairing OF A, B) AS A
+  RETURN p.first
+END FUNC
+
+FUNC pairSecond OF A, B(p AS Pairing OF A, B) AS B
+  RETURN p.second
+END FUNC
+
+FUNC flipPair OF A, B(p AS Pairing OF A, B) AS Pairing OF B, A
+  RETURN Pairing[p.second, p.first]
+END FUNC
+
+FUNC main AS Integer
+  LET p AS Pairing OF Integer, String = Pairing[7, "seven"]
+  io::print("first=" & toString(pairFirst(p)))
+  io::print("second=" & pairSecond(p))
+
+  ' The flipped instantiation is a DISTINCT concrete type; if the two collapsed
+  ' onto one instantiation key the field types below would be crossed.
+  LET q AS Pairing OF String, Integer = flipPair(p)
+  io::print("flip-first=" & pairFirst(q))
+  io::print("flip-second=" & toString(pairSecond(q)))
+
+  ' Both parameters bound to the SAME concrete type — the degenerate case where
+  ' a name-keyed instantiation map could confuse arity.
+  LET r AS Pairing OF Integer, Integer = Pairing[1, 2]
+  io::print("same=" & toString(pairFirst(r)) & "," & toString(pairSecond(r)))
+  RETURN 0
+END FUNC

@@ -1,0 +1,66 @@
+IMPORT io
+IMPORT collections
+
+' plan-105-B: golden coverage for user generics nested with BUILT-IN containers,
+' in both directions.
+'
+' These are the nesting shapes the compiler accepts today, and they are the ones
+' whose mangled instantiation names are rendered straight from `name()` — so a
+' `ParameterType::UserOf` parse/render that lost a byte here would move goldens.
+'
+' `Holder OF Holder OF Integer` (a user generic nested inside a user generic) is
+' NOT here: it does not compile on the pre-plan-105-B compiler, which reports
+' `SYMBOL_UNKNOWN_TYPE: Type 'Holder OF Integer' is not a built-in or top-level
+' project type` against the template's own field. That gap is fixed in
+' plan-105-B Phase 2 and covered by `user-generic-nested-user-rt`.
+
+TYPE Pairing OF A, B
+  first  AS A
+  second AS B
+END TYPE
+
+TYPE Holder OF T
+  held AS T
+END TYPE
+
+FUNC unhold OF T(h AS Holder OF T) AS T
+  RETURN h.held
+END FUNC
+
+FUNC main AS Integer
+  ' A multi-parameter user generic: the comma is a top-level separator INSIDE one
+  ' type name, so splitting it needs the depth-aware rule `UserOf`'s parse arm
+  ' now owns.
+  LET inner AS Pairing OF Integer, String = Pairing[7, "seven"]
+  io::print("inner=" & toString(inner.first) & "," & inner.second)
+
+  ' A user generic whose argument is a built-in container.
+  LET listy AS Holder OF List OF Integer = Holder[[1, 2, 3]]
+  MUT total AS Integer = 0
+  FOR EACH v IN unhold(listy)
+    total = total + v
+  NEXT
+  io::print("listy-sum=" & toString(total))
+
+  ' The other direction: a built-in container whose element is a user generic.
+  MUT boxes AS List OF Holder OF Integer = []
+  boxes = collections::append(boxes, Holder[4])
+  boxes = collections::append(boxes, Holder[5])
+  MUT boxSum AS Integer = 0
+  FOR EACH b IN boxes
+    boxSum = boxSum + unhold(b)
+  NEXT
+  io::print("boxes-sum=" & toString(boxSum))
+
+  ' A built-in container over a MULTI-parameter user generic — the top-level
+  ' comma sits two levels down.
+  MUT pairs AS List OF Pairing OF Integer, String = []
+  pairs = collections::append(pairs, Pairing[1, "one"])
+  pairs = collections::append(pairs, Pairing[2, "two"])
+  MUT joined AS String = ""
+  FOR EACH p IN pairs
+    joined = joined & toString(p.first) & ":" & p.second & ";"
+  NEXT
+  io::print("pairs=" & joined)
+  RETURN 0
+END FUNC

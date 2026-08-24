@@ -1,0 +1,102 @@
+{
+  "project": "user_generic_unknown_refine_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "collections", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "pick",
+      "templateParams": ["T"],
+      "line": 23,
+      "params": [
+      { "name": "fallback", "type": "T", "default": null, "line": 23 },
+      { "name": "xs", "type": "List OF T", "default": null, "line": 23 }
+      ],
+      "returnType": "T",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "xs" }] }, "right": { "kind": "number", "value": "0" } },
+        "line": 24,
+        "then": [
+        { "kind": "return", "value": { "kind": "identifier", "value": "fallback" }, "line": 25 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "0" }] }, "line": 27 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Stack",
+      "templateParams": ["T"],
+      "line": 30,
+      "fields": [
+      { "visibility": null, "name": "items", "type": "List OF T", "line": 31 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "peek",
+      "templateParams": ["T"],
+      "line": 34,
+      "params": [
+      { "name": "fallback", "type": "T", "default": null, "line": 34 },
+      { "name": "s", "type": "Stack OF T", "default": null, "line": 34 }
+      ],
+      "returnType": "T",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "items" }] }, "right": { "kind": "number", "value": "0" } },
+        "line": 35,
+        "then": [
+        { "kind": "return", "value": { "kind": "identifier", "value": "fallback" }, "line": 36 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "items" }, { "kind": "number", "value": "0" }] }, "line": 38 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 41,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "rows", "type": "List OF List OF Integer", "value": { "kind": "list", "values": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, { "kind": "list", "values": [{ "kind": "number", "value": "3" }] }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rows-first=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "pick", "arguments": [{ "kind": "list", "values": [] }, { "kind": "identifier", "value": "rows" }] }] }] } }] }, "line": 44 },
+      { "kind": "binding", "mutable": true, "name": "none", "type": "List OF List OF Integer", "value": { "kind": "list", "values": [] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rows-none=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "pick", "arguments": [{ "kind": "list", "values": [] }, { "kind": "identifier", "value": "none" }] }] }] } }] }, "line": 48 },
+      { "kind": "binding", "mutable": false, "name": "cube", "type": "List OF List OF List OF Integer", "value": { "kind": "list", "values": [{ "kind": "list", "values": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }] }, { "kind": "list", "values": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }] }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cube-first=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "pick", "arguments": [{ "kind": "list", "values": [] }, { "kind": "identifier", "value": "cube" }] }] }] } }] }, "line": 52 },
+      { "kind": "binding", "mutable": false, "name": "maps", "type": "List OF Map OF String TO Integer", "value": { "kind": "list", "values": [{ "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [{ "key": { "kind": "string", "value": "a" }, "value": { "kind": "number", "value": "1" } }, { "key": { "kind": "string", "value": "b" }, "value": { "kind": "number", "value": "2" } }] }] }, "line": 57 },
+      { "kind": "binding", "mutable": false, "name": "fallbackMap", "type": "Map OF String TO Integer", "value": { "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [{ "key": { "kind": "string", "value": "z" }, "value": { "kind": "number", "value": "0" } }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "map-keys=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "collections.keys", "arguments": [{ "kind": "call", "callee": "pick", "arguments": [{ "kind": "identifier", "value": "fallbackMap" }, { "kind": "identifier", "value": "maps" }] }] }] }] } }] }, "line": 59 },
+      { "kind": "binding", "mutable": false, "name": "s", "type": "Stack OF List OF Integer", "value": { "kind": "constructor", "type": "Stack", "arguments": [{ "kind": "list", "values": [{ "kind": "list", "values": [{ "kind": "number", "value": "7" }, { "kind": "number", "value": "8" }, { "kind": "number", "value": "9" }] }] }] }, "line": 66 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "stack-first=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "peek", "arguments": [{ "kind": "list", "values": [] }, { "kind": "identifier", "value": "s" }] }] }] } }] }, "line": 67 },
+      { "kind": "binding", "mutable": false, "name": "ints", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "4" }, { "kind": "number", "value": "5" }] }, "line": 70 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "root=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "pick", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "identifier", "value": "ints" }] }] } }] }, "line": 71 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 72 }
+      ]
+    }
+    ]
+  }
+  ]
+}

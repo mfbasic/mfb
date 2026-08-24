@@ -1,0 +1,154 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "user_generic_nested_user_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 37,
+    "visibility": "public",
+    "name": "Holder$Holder$Integer",
+    "fields": [
+    { "visibility": null, "line": 38, "name": "held", "type": "Holder$Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 37,
+    "visibility": "public",
+    "name": "Holder$Holder$String",
+    "fields": [
+    { "visibility": null, "line": 38, "name": "held", "type": "Holder$String" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 37,
+    "visibility": "public",
+    "name": "Holder$Integer",
+    "fields": [
+    { "visibility": null, "line": 38, "name": "held", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 37,
+    "visibility": "public",
+    "name": "Holder$List$OF$Holder$Integer",
+    "fields": [
+    { "visibility": null, "line": 38, "name": "held", "type": "List OF Holder$Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 37,
+    "visibility": "public",
+    "name": "Holder$String",
+    "fields": [
+    { "visibility": null, "line": 38, "name": "held", "type": "String" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 45,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 46, "mutable": false, "name": "deep", "type": "Holder$Holder$Integer", "value": { "kind": "constructor", "type": "Holder$Holder$Integer", "args": [{ "kind": "constructor", "type": "Holder$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "9" }] }] } },
+    { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "deep=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "unhold$Integer", "args": [{ "kind": "call", "type": "Holder$Integer", "target": "unhold$Holder$OF$Integer", "args": [{ "kind": "local", "name": "deep" }] }] }] } }] } },
+    { "op": "bind", "line": 51, "mutable": false, "name": "a", "type": "Holder$Holder$Integer", "value": { "kind": "constructor", "type": "Holder$Holder$Integer", "args": [{ "kind": "constructor", "type": "Holder$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] }] } },
+    { "op": "bind", "line": 52, "mutable": false, "name": "b", "type": "Holder$Holder$String", "value": { "kind": "constructor", "type": "Holder$Holder$String", "args": [{ "kind": "constructor", "type": "Holder$String", "args": [{ "kind": "const", "type": "String", "value": "b" }] }] } },
+    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "a=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "unhold$Integer", "args": [{ "kind": "call", "type": "Holder$Integer", "target": "unhold$Holder$OF$Integer", "args": [{ "kind": "local", "name": "a" }] }] }] } }, "right": { "kind": "const", "type": "String", "value": " b=" } }, "right": { "kind": "call", "type": "String", "target": "unhold$String", "args": [{ "kind": "call", "type": "Holder$String", "target": "unhold$Holder$OF$String", "args": [{ "kind": "local", "name": "b" }] }] } }] } },
+    { "op": "bind", "line": 56, "mutable": false, "name": "mixed", "type": "Holder$List$OF$Holder$Integer", "value": { "kind": "constructor", "type": "Holder$List$OF$Holder$Integer", "args": [{ "kind": "list", "type": "List OF Holder$Integer", "values": [{ "kind": "constructor", "type": "Holder$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "4" }] }, { "kind": "constructor", "type": "Holder$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] }] }] } },
+    { "op": "bind", "line": 57, "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "forEach",
+      "line": 58,
+      "name": "h",
+      "type": "Holder$Integer",
+      "iterable": { "kind": "call", "type": "List OF Holder$Integer", "target": "unhold$List$OF$Holder$OF$Integer", "args": [{ "kind": "local", "name": "mixed" }] },
+      "body": [
+      { "op": "assign", "line": 59, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "call", "type": "Integer", "target": "unhold$Integer", "args": [{ "kind": "local", "name": "h" }] } } }
+      ]
+    },
+    { "op": "eval", "line": 61, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "mixed=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "total" }] } }] } },
+    { "op": "return", "line": 62, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "unhold$Holder$OF$Integer",
+    "line": 41,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "h", "line": 41, "type": "Holder$Holder$Integer", "default": null }
+    ],
+    "returns": "Holder$Integer",
+    "body": [
+    { "op": "return", "line": 42, "value": { "kind": "memberAccess", "type": "Holder$Integer", "target": { "kind": "local", "name": "h" }, "member": "held" } }
+    ]
+  },
+  {
+    "name": "unhold$Holder$OF$String",
+    "line": 41,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "h", "line": 41, "type": "Holder$Holder$String", "default": null }
+    ],
+    "returns": "Holder$String",
+    "body": [
+    { "op": "return", "line": 42, "value": { "kind": "memberAccess", "type": "Holder$String", "target": { "kind": "local", "name": "h" }, "member": "held" } }
+    ]
+  },
+  {
+    "name": "unhold$Integer",
+    "line": 41,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "h", "line": 41, "type": "Holder$Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 42, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "h" }, "member": "held" } }
+    ]
+  },
+  {
+    "name": "unhold$List$OF$Holder$OF$Integer",
+    "line": 41,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "h", "line": 41, "type": "Holder$List$OF$Holder$Integer", "default": null }
+    ],
+    "returns": "List OF Holder$Integer",
+    "body": [
+    { "op": "return", "line": 42, "value": { "kind": "memberAccess", "type": "List OF Holder$Integer", "target": { "kind": "local", "name": "h" }, "member": "held" } }
+    ]
+  },
+  {
+    "name": "unhold$String",
+    "line": 41,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "h", "line": 41, "type": "Holder$String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 42, "value": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "h" }, "member": "held" } }
+    ]
+  }
+  ]
+}

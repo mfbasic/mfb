@@ -1,0 +1,75 @@
+{
+  "project": "user_generic_single_param_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Box",
+      "templateParams": ["T"],
+      "line": 13,
+      "fields": [
+      { "visibility": null, "name": "value", "type": "T", "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "unbox",
+      "templateParams": ["T"],
+      "line": 17,
+      "params": [
+      { "name": "b", "type": "Box OF T", "default": null, "line": 17 }
+      ],
+      "returnType": "T",
+      "body": [
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "value" }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "rebox",
+      "templateParams": ["T"],
+      "line": 24,
+      "params": [
+      { "name": "v", "type": "T", "default": null, "line": 24 },
+      { "name": "b", "type": "Box OF T", "default": null, "line": 24 }
+      ],
+      "returnType": "Box OF T",
+      "body": [
+      { "kind": "return", "value": { "kind": "constructor", "type": "Box", "arguments": [{ "kind": "identifier", "value": "v" }] }, "line": 25 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 28,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "i", "type": "Box OF Integer", "value": { "kind": "constructor", "type": "Box", "arguments": [{ "kind": "number", "value": "7" }] }, "line": 29 },
+      { "kind": "binding", "mutable": false, "name": "s", "type": "Box OF String", "value": { "kind": "constructor", "type": "Box", "arguments": [{ "kind": "string", "value": "hi" }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "int=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "unbox", "arguments": [{ "kind": "identifier", "value": "i" }] }] } }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "str=" }, "right": { "kind": "call", "callee": "unbox", "arguments": [{ "kind": "identifier", "value": "s" }] } }] }, "line": 32 },
+      { "kind": "binding", "mutable": false, "name": "i2", "type": "Box OF Integer", "value": { "kind": "call", "callee": "rebox", "arguments": [{ "kind": "number", "value": "42" }, { "kind": "identifier", "value": "i" }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rebox=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "unbox", "arguments": [{ "kind": "identifier", "value": "i2" }] }] } }] }, "line": 37 },
+      { "kind": "binding", "mutable": false, "name": "s2", "type": "Box OF String", "value": { "kind": "call", "callee": "rebox", "arguments": [{ "kind": "string", "value": "there" }, { "kind": "identifier", "value": "s" }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "restr=" }, "right": { "kind": "call", "callee": "unbox", "arguments": [{ "kind": "identifier", "value": "s2" }] } }] }, "line": 40 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 41 }
+      ]
+    }
+    ]
+  }
+  ]
+}

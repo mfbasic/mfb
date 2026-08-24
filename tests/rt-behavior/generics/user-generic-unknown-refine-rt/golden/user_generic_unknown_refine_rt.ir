@@ -1,0 +1,168 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "user_generic_unknown_refine_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 30,
+    "visibility": "public",
+    "name": "Stack$List$OF$Integer",
+    "fields": [
+    { "visibility": null, "line": 31, "name": "items", "type": "List OF List OF Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 41,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 43, "mutable": false, "name": "rows", "type": "List OF List OF Integer", "value": { "kind": "list", "type": "List OF List OF Integer", "values": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "3" }] }] } },
+    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "rows-first=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF Integer", "target": "pick$List$OF$Integer", "args": [{ "kind": "list", "type": "List OF Integer", "values": [] }, { "kind": "local", "name": "rows" }] }] }] } }] } },
+    { "op": "bind", "line": 47, "mutable": true, "name": "none", "type": "List OF List OF Integer", "value": { "kind": "list", "type": "List OF List OF Integer", "values": [] } },
+    { "op": "eval", "line": 48, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "rows-none=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF Integer", "target": "pick$List$OF$Integer", "args": [{ "kind": "list", "type": "List OF Integer", "values": [] }, { "kind": "local", "name": "none" }] }] }] } }] } },
+    { "op": "bind", "line": 51, "mutable": false, "name": "cube", "type": "List OF List OF List OF Integer", "value": { "kind": "list", "type": "List OF List OF List OF Integer", "values": [{ "kind": "list", "type": "List OF List OF Integer", "values": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }] }, { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] }] }] } },
+    { "op": "eval", "line": 52, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "cube-first=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF List OF Integer", "target": "pick$List$OF$List$OF$Integer", "args": [{ "kind": "list", "type": "List OF List OF Integer", "values": [] }, { "kind": "local", "name": "cube" }] }] }] } }] } },
+    { "op": "bind", "line": 57, "mutable": false, "name": "maps", "type": "List OF Map OF String TO Integer", "value": { "kind": "list", "type": "List OF Map OF String TO Integer", "values": [{ "kind": "map", "type": "Map OF String TO Integer", "entries": [{ "key": { "kind": "const", "type": "String", "value": "a" }, "value": { "kind": "const", "type": "Integer", "value": "1" } }, { "key": { "kind": "const", "type": "String", "value": "b" }, "value": { "kind": "const", "type": "Integer", "value": "2" } }] }] } },
+    { "op": "bind", "line": 58, "mutable": false, "name": "fallbackMap", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [{ "key": { "kind": "const", "type": "String", "value": "z" }, "value": { "kind": "const", "type": "Integer", "value": "0" } }] } },
+    { "op": "eval", "line": 59, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "map-keys=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF String", "target": "collections.keys", "args": [{ "kind": "call", "type": "Map OF String TO Integer", "target": "pick$Map$OF$String$TO$Integer", "args": [{ "kind": "local", "name": "fallbackMap" }, { "kind": "local", "name": "maps" }] }] }] }] } }] } },
+    { "op": "bind", "line": 66, "mutable": false, "name": "s", "type": "Stack$List$OF$Integer", "value": { "kind": "constructor", "type": "Stack$List$OF$Integer", "args": [{ "kind": "list", "type": "List OF List OF Integer", "values": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "7" }, { "kind": "const", "type": "Integer", "value": "8" }, { "kind": "const", "type": "Integer", "value": "9" }] }] }] } },
+    { "op": "eval", "line": 67, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "stack-first=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF Integer", "target": "peek$List$OF$Integer", "args": [{ "kind": "list", "type": "List OF Integer", "values": [] }, { "kind": "local", "name": "s" }] }] }] } }] } },
+    { "op": "bind", "line": 70, "mutable": false, "name": "ints", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "5" }] } },
+    { "op": "eval", "line": 71, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "root=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "pick$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "ints" }] }] } }] } },
+    { "op": "return", "line": 72, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "peek$List$OF$Integer",
+    "line": 34,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "fallback", "line": 34, "type": "List OF Integer", "default": null },
+    { "name": "s", "line": 34, "type": "Stack$List$OF$Integer", "default": null }
+    ],
+    "returns": "List OF Integer",
+    "body": [
+    {
+      "op": "if",
+      "line": 35,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF List OF Integer", "target": { "kind": "local", "name": "s" }, "member": "items" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 36, "value": { "kind": "local", "name": "fallback" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 38, "value": { "kind": "call", "type": "List OF Integer", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF List OF Integer", "target": { "kind": "local", "name": "s" }, "member": "items" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
+    ]
+  },
+  {
+    "name": "pick$Integer",
+    "line": 23,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "fallback", "line": 23, "type": "Integer", "default": null },
+    { "name": "xs", "line": 23, "type": "List OF Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "line": 24,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "xs" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 25, "value": { "kind": "local", "name": "fallback" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 27, "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
+    ]
+  },
+  {
+    "name": "pick$List$OF$Integer",
+    "line": 23,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "fallback", "line": 23, "type": "List OF Integer", "default": null },
+    { "name": "xs", "line": 23, "type": "List OF List OF Integer", "default": null }
+    ],
+    "returns": "List OF Integer",
+    "body": [
+    {
+      "op": "if",
+      "line": 24,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "xs" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 25, "value": { "kind": "local", "name": "fallback" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 27, "value": { "kind": "call", "type": "List OF Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
+    ]
+  },
+  {
+    "name": "pick$List$OF$List$OF$Integer",
+    "line": 23,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "fallback", "line": 23, "type": "List OF List OF Integer", "default": null },
+    { "name": "xs", "line": 23, "type": "List OF List OF List OF Integer", "default": null }
+    ],
+    "returns": "List OF List OF Integer",
+    "body": [
+    {
+      "op": "if",
+      "line": 24,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "xs" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 25, "value": { "kind": "local", "name": "fallback" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 27, "value": { "kind": "call", "type": "List OF List OF Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
+    ]
+  },
+  {
+    "name": "pick$Map$OF$String$TO$Integer",
+    "line": 23,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "fallback", "line": 23, "type": "Map OF String TO Integer", "default": null },
+    { "name": "xs", "line": 23, "type": "List OF Map OF String TO Integer", "default": null }
+    ],
+    "returns": "Map OF String TO Integer",
+    "body": [
+    {
+      "op": "if",
+      "line": 24,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "xs" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 25, "value": { "kind": "local", "name": "fallback" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 27, "value": { "kind": "call", "type": "Map OF String TO Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
+    ]
+  }
+  ]
+}

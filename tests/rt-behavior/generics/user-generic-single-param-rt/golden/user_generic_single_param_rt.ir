@@ -1,0 +1,106 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "user_generic_single_param_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 13,
+    "visibility": "public",
+    "name": "Box$Integer",
+    "fields": [
+    { "visibility": null, "line": 14, "name": "value", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 13,
+    "visibility": "public",
+    "name": "Box$String",
+    "fields": [
+    { "visibility": null, "line": 14, "name": "value", "type": "String" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 28,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 29, "mutable": false, "name": "i", "type": "Box$Integer", "value": { "kind": "constructor", "type": "Box$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "bind", "line": 30, "mutable": false, "name": "s", "type": "Box$String", "value": { "kind": "constructor", "type": "Box$String", "args": [{ "kind": "const", "type": "String", "value": "hi" }] } },
+    { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "int=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "unbox$Integer", "args": [{ "kind": "local", "name": "i" }] }] } }] } },
+    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "str=" }, "right": { "kind": "call", "type": "String", "target": "unbox$String", "args": [{ "kind": "local", "name": "s" }] } }] } },
+    { "op": "bind", "line": 36, "mutable": false, "name": "i2", "type": "Box$Integer", "value": { "kind": "call", "type": "Box$Integer", "target": "rebox$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "42" }, { "kind": "local", "name": "i" }] } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "rebox=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "unbox$Integer", "args": [{ "kind": "local", "name": "i2" }] }] } }] } },
+    { "op": "bind", "line": 39, "mutable": false, "name": "s2", "type": "Box$String", "value": { "kind": "call", "type": "Box$String", "target": "rebox$String", "args": [{ "kind": "const", "type": "String", "value": "there" }, { "kind": "local", "name": "s" }] } },
+    { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "restr=" }, "right": { "kind": "call", "type": "String", "target": "unbox$String", "args": [{ "kind": "local", "name": "s2" }] } }] } },
+    { "op": "return", "line": 41, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "rebox$Integer",
+    "line": 24,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "v", "line": 24, "type": "Integer", "default": null },
+    { "name": "b", "line": 24, "type": "Box$Integer", "default": null }
+    ],
+    "returns": "Box$Integer",
+    "body": [
+    { "op": "return", "line": 25, "value": { "kind": "constructor", "type": "Box$Integer", "args": [{ "kind": "local", "name": "v" }] } }
+    ]
+  },
+  {
+    "name": "rebox$String",
+    "line": 24,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "v", "line": 24, "type": "String", "default": null },
+    { "name": "b", "line": 24, "type": "Box$String", "default": null }
+    ],
+    "returns": "Box$String",
+    "body": [
+    { "op": "return", "line": 25, "value": { "kind": "constructor", "type": "Box$String", "args": [{ "kind": "local", "name": "v" }] } }
+    ]
+  },
+  {
+    "name": "unbox$Integer",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "b", "line": 17, "type": "Box$Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 18, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "value" } }
+    ]
+  },
+  {
+    "name": "unbox$String",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "b", "line": 17, "type": "Box$String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 18, "value": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "b" }, "member": "value" } }
+    ]
+  }
+  ]
+}

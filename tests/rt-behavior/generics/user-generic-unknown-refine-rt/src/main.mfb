@@ -1,0 +1,73 @@
+IMPORT io
+IMPORT collections
+
+' REGRESSION (plan-105-B): a provisional template binding must be refined by a
+' later, more concrete actual even when the `Unknown` is NESTED inside a container.
+'
+' An empty `[]` literal types as `List OF Unknown`. Binding a template parameter
+' from one gives `T := List OF Unknown` — an `Unknown` one level down, not at the
+' root. bug-442's refinement rule only fired when the WHOLE existing binding was a
+' bare `Unknown`, so the later concrete `List OF Integer` was treated as a conflict
+' and the call was rejected outright:
+'
+'   error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]
+'     Call to `pick` cannot infer template arguments from `List OF List OF Integer`.
+'
+' — on a call whose second argument determines `T` completely. `unify_type` now
+' asks whether one binding REFINES the other (same shape, `Unknown` replaced by a
+' concrete type anywhere in it) instead of comparing only the root.
+'
+' Argument ORDER is the whole point: the empty literal must come first for the
+' provisional binding to be the one that loses.
+
+FUNC pick OF T(fallback AS T, xs AS List OF T) AS T
+  IF len(xs) = 0 THEN
+    RETURN fallback
+  END IF
+  RETURN collections::get(xs, 0)
+END FUNC
+
+TYPE Stack OF T
+  items AS List OF T
+END TYPE
+
+FUNC peek OF T(fallback AS T, s AS Stack OF T) AS T
+  IF len(s.items) = 0 THEN
+    RETURN fallback
+  END IF
+  RETURN collections::get(s.items, 0)
+END FUNC
+
+FUNC main AS Integer
+  ' Built-in containers only: T := List OF Unknown, refined to List OF Integer.
+  LET rows AS List OF List OF Integer = [[1, 2], [3]]
+  io::print("rows-first=" & toString(len(pick([], rows))))
+
+  ' The empty case still returns the (now concretely typed) fallback.
+  MUT none AS List OF List OF Integer = []
+  io::print("rows-none=" & toString(len(pick([], none))))
+
+  ' Nested two deep: T := List OF List OF Unknown refined to List OF List OF Integer.
+  LET cube AS List OF List OF List OF Integer = [[[1], [2, 3]]]
+  io::print("cube-first=" & toString(len(pick([], cube))))
+
+  ' A Map-shaped element, picked out of a list of maps. (`{}` is not an empty-map
+  ' literal in MFBASIC, so the fallback here is a real one-entry map — the
+  ' `Unknown`-refinement cases above are the List-shaped ones.)
+  LET maps AS List OF Map OF String TO Integer = [Map OF String TO Integer { "a" := 1, "b" := 2 }]
+  LET fallbackMap AS Map OF String TO Integer = Map OF String TO Integer { "z" := 0 }
+  io::print("map-keys=" & toString(len(collections::keys(pick(fallbackMap, maps)))))
+
+  ' The same refinement through a USER generic's parameter: `peek`'s `fallback AS T`
+  ' binds T from the empty literal first, then `s AS Stack OF T` must refine it.
+  ' (The constructor is written in a `LET` with a declared type deliberately — a
+  ' bare `Stack[...]` in a plain assignment has no expected type to instantiate
+  ' from, and reports `SYMBOL_UNKNOWN_TYPE: Type 'Stack' ...`.)
+  LET s AS Stack OF List OF Integer = Stack[[[7, 8, 9]]]
+  io::print("stack-first=" & toString(len(peek([], s))))
+
+  ' A bare (root-level) Unknown still refines, as it always did (bug-442).
+  LET ints AS List OF Integer = [4, 5]
+  io::print("root=" & toString(pick(0, ints)))
+  RETURN 0
+END FUNC

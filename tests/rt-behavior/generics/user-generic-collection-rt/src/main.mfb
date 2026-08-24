@@ -1,0 +1,64 @@
+IMPORT io
+IMPORT collections
+
+' plan-105-B: golden coverage for a user generic whose template parameter is
+' bound to a COLLECTION, and for a generic template that itself stores
+' collections of its parameter.
+'
+' `Stack OF T` (the spec's own example, ./mfb spec language templates) holds a
+' `List OF T`, so instantiating it substitutes T INSIDE a built-in container —
+' the recursion `substitute_type_params` performs and that `UserOf` must keep
+' byte-exact, because the field type is what the record layout is built from.
+
+TYPE Stack OF T
+  items AS List OF T
+END TYPE
+
+FUNC push OF T(value AS T, s AS Stack OF T) AS Stack OF T
+  RETURN WITH s { items := collections::append(s.items, value) }
+END FUNC
+
+FUNC depth OF T(s AS Stack OF T) AS Integer
+  RETURN len(s.items)
+END FUNC
+
+FUNC peek OF T(fallback AS T, s AS Stack OF T) AS T
+  IF len(s.items) = 0 THEN
+    RETURN fallback
+  END IF
+  RETURN collections::get(s.items, len(s.items) - 1)
+END FUNC
+
+FUNC main AS Integer
+  MUT ints AS Stack OF Integer = Stack[[]]
+  ints = push(1, ints)
+  ints = push(2, ints)
+  ints = push(3, ints)
+  io::print("int-depth=" & toString(depth(ints)))
+  io::print("int-peek=" & toString(peek(0, ints)))
+
+  MUT strs AS Stack OF String = Stack[[]]
+  strs = push("a", strs)
+  strs = push("b", strs)
+  io::print("str-depth=" & toString(depth(strs)))
+  io::print("str-peek=" & peek("", strs))
+
+  ' T bound to a collection type: the substituted field is `List OF List OF
+  ' Integer`, a container nested inside the template's own container.
+  MUT rows AS Stack OF List OF Integer = Stack[[]]
+  rows = push([1, 2], rows)
+  rows = push([3, 4, 5], rows)
+  io::print("rows-depth=" & toString(depth(rows)))
+  ' NOTE: the fallback is `[0]`, not `[]`. An empty literal types as `List OF
+  ' Unknown`, and a provisional `T := List OF Unknown` does not refine against
+  ' the later concrete `List OF Integer` on the pre-plan-105-B compiler
+  ' (TYPE_CALL_ARGUMENT_MISMATCH). That gap is fixed in Phase 2 and covered by
+  ' `user-generic-unknown-refine-rt`.
+  io::print("rows-peek-count=" & toString(len(peek([0], rows))))
+
+  ' Empty stack: the fallback path, and a `List OF T` that never grew.
+  LET empty AS Stack OF Integer = Stack[[]]
+  io::print("empty-depth=" & toString(depth(empty)))
+  io::print("empty-peek=" & toString(peek(-1, empty)))
+  RETURN 0
+END FUNC

@@ -59,6 +59,27 @@ pub(crate) enum ParameterType {
     /// the boundary by [`parse`](Self::parse). The name is an interned [`Symbol`]
     /// (`Copy`, integer-compared) rather than a leaked `&'static str`.
     Named(Symbol),
+    /// A **user** generic instantiation — `Pair OF Integer, String`, `Stack OF T`
+    /// — decomposed into its template name and its type arguments.
+    ///
+    /// The head is any name that is not one of the built-in type constructors
+    /// (`List`/`Set`/`Map`/`MapEntry`/`Result`/`Thread`/`ThreadWorker`/`FUNC`); the
+    /// [`parse`](Self::parse) arm is ordered after all of those, which is what
+    /// enforces it. `Thread OF …` deliberately keeps its own
+    /// [`ThreadHandle`](Self::ThreadHandle) variant — it carries the RES/STATE
+    /// planes — and is never a `UserOf`.
+    ///
+    /// Before plan-105-B this shape folded into an opaque [`Named`](Self::Named)
+    /// whose *name string* monomorph then re-split with a private grammar copy
+    /// (`user_template_parts` + `split_top_level_commas`). The variant is what lets
+    /// `unify`/`substitute`/`contains_var` recurse into the arguments structurally,
+    /// the same way they already do for `ListOf`/`MapOf`/`Func`.
+    ///
+    /// The argument list is separated by TOP-LEVEL commas, and a type argument may
+    /// itself be comma-bearing (`Holder OF Pair OF A, B`), so both the split and the
+    /// render are depth-aware. `name()` reproduces the exact source spelling, which
+    /// the monomorph mangler and every name-keyed type lookup depend on.
+    UserOf(Symbol, Vec<ParameterType>),
     /// A bindable type variable in a generic signature (`T`, `K`, `V`). The name is an
     /// interned [`Symbol`] — variables are declared in a descriptor via [`var`](Self::var)
     /// and, post-elaboration, minted by the front end.
@@ -131,6 +152,11 @@ impl ParameterType {
     pub(crate) fn res(inner: ParameterType) -> Self {
         ParameterType::Res(Box::new(inner))
     }
+    /// A user generic instantiation `name OF args[0], args[1], …`, interning the
+    /// template name to a [`Symbol`].
+    pub(crate) fn user_of(name: &str, args: Vec<ParameterType>) -> Self {
+        ParameterType::UserOf(Symbol::intern(name), args)
+    }
     /// A concrete nominal type named `name`, interning the name to a [`Symbol`]. This
     /// is the sole constructor for [`Named`](Self::Named): descriptors and the
     /// `parse` fallback both route through it, so the leaked `&'static str` is gone.
@@ -168,6 +194,12 @@ impl ParameterType {
                 ParameterType::result_of(success.with_vars(type_params))
             }
             ParameterType::Res(inner) => ParameterType::res(inner.with_vars(type_params)),
+            // The template HEAD is a nominal, never a type variable (`T OF Integer`
+            // is not expressible); only the arguments can name a declared param.
+            ParameterType::UserOf(name, args) => ParameterType::UserOf(
+                *name,
+                args.iter().map(|a| a.with_vars(type_params)).collect(),
+            ),
             ParameterType::Func(params, ret, isolated) => {
                 let params = params.iter().map(|p| p.with_vars(type_params)).collect();
                 let ret = ret.with_vars(type_params);
@@ -262,19 +294,17 @@ impl ParameterType {
         if let Some(elem) = name.strip_prefix("Set OF ") {
             return ParameterType::set_of(ParameterType::parse(elem));
         }
-        if let Some((key, value)) = name
-            .strip_prefix("Map OF ")
-            .and_then(|rest| rest.split_once(" TO "))
-        {
+        if let Some((key, value)) = name.strip_prefix("Map OF ").and_then(split_top_level_to) {
             return ParameterType::map_of(ParameterType::parse(key), ParameterType::parse(value));
         }
         // `MapEntry OF K TO V` — the key/value pair shape, split on the first top-level
         // ` TO ` exactly as the `Map OF ` arm above (so the two spellings decompose
-        // identically). `MapEntry OF …` does not start with `Map OF `, so the order
-        // relative to that arm is immaterial.
+        // identically), via the depth-aware [`split_top_level_to`]. `MapEntry OF …`
+        // does not start with `Map OF `, so the order relative to that arm is
+        // immaterial.
         if let Some((key, value)) = name
             .strip_prefix("MapEntry OF ")
-            .and_then(|rest| rest.split_once(" TO "))
+            .and_then(split_top_level_to)
         {
             return ParameterType::map_entry_of(
                 ParameterType::parse(key),
@@ -309,6 +339,20 @@ impl ParameterType {
                 };
             }
         }
+        // A user generic (`Pair OF Integer, String`). Ordered LAST among the ` OF `
+        // shapes so every built-in constructor above claims its own spelling first;
+        // what reaches here is by definition a non-builtin head. The argument list
+        // splits on TOP-LEVEL commas — the one place that rule now lives (it used to
+        // be duplicated in `monomorph::helpers::split_top_level_commas`).
+        if let Some((head, rest)) = Self::split_user_generic(name) {
+            return ParameterType::user_of(
+                head,
+                crate::codegen::builtins::split_top_level_commas(rest)
+                    .into_iter()
+                    .map(ParameterType::parse)
+                    .collect(),
+            );
+        }
         match name {
             "AttributeString" => ParameterType::AttributeString,
             "Boolean" => ParameterType::Boolean,
@@ -321,6 +365,39 @@ impl ParameterType {
             "String" => ParameterType::String,
             other => ParameterType::named(other),
         }
+    }
+
+    /// Split a user-generic spelling `Name OF a, b` into its head and its raw
+    /// argument text, or `None` when `name` is not one.
+    ///
+    /// This is the ONE definition of "is a user generic" in the compiler. It used
+    /// to be duplicated in `monomorph::helpers::user_template_parts`, which listed
+    /// the same built-in prefixes and had to be edited in lockstep whenever the
+    /// grammar grew (`planning/Compiler Pipeline.md:25`).
+    ///
+    /// The `OF` that separates head from arguments is the FIRST one, and the head
+    /// must be a single bare identifier: `List OF Integer` is excluded by the
+    /// built-in check, while `Holder OF Pair OF A, B` splits as
+    /// (`Holder`, `Pair OF A, B`) and recurses.
+    fn split_user_generic(name: &str) -> Option<(&str, &str)> {
+        let (head, rest) = name.split_once(" OF ")?;
+        // Every built-in constructor spelled with ` OF ` is claimed by its own
+        // `parse` arm above; reaching here with one would mean that arm failed to
+        // match (a malformed `Map OF K` with no ` TO `), and re-reading it as a user
+        // generic named `Map` would be wrong.
+        if matches!(
+            head,
+            "List" | "Set" | "Map" | "MapEntry" | "Result" | THREAD_TYPE | THREAD_WORKER_TYPE
+        ) {
+            return None;
+        }
+        // A head is a nominal type name, never a phrase: `RES fs.File` and
+        // `ISOLATED FUNC(...)` are handled above, but a malformed input could still
+        // leave a space here, and such a name is not a template.
+        if head.is_empty() || head.contains(' ') || rest.is_empty() {
+            return None;
+        }
+        Some((head, rest))
     }
 
     /// The parameter type's formatted name.
@@ -346,6 +423,11 @@ impl ParameterType {
             ParameterType::ResultOf(success) => Cow::Owned(format!("Result OF {}", success.name())),
             ParameterType::Res(inner) => Cow::Owned(format!("RES {}", inner.name())),
             ParameterType::Named(elem) => Cow::Borrowed(elem.resolve()),
+            ParameterType::UserOf(name, args) => Cow::Owned(format!(
+                "{} OF {}",
+                name.resolve(),
+                args.iter().map(|a| a.name()).collect::<Vec<_>>().join(", ")
+            )),
             ParameterType::Var(name) => Cow::Borrowed(name.resolve()),
             ParameterType::Func(params, ret, isolated) => Cow::Owned(format!(
                 "{}FUNC({}) AS {}",
@@ -423,6 +505,16 @@ impl fmt::Display for ParameterType {
 pub(crate) const THREAD_TYPE: &str = "Thread";
 /// The worker thread handle's type name.
 pub(crate) const THREAD_WORKER_TYPE: &str = "ThreadWorker";
+
+/// The `Thread`/`ThreadWorker` keyword for a [`ParameterType::ThreadHandle`]'s
+/// `worker` flag — the render-side inverse of the flag `parse` sets.
+pub(crate) fn thread_type_keyword(worker: bool) -> &'static str {
+    if worker {
+        THREAD_WORKER_TYPE
+    } else {
+        THREAD_TYPE
+    }
+}
 
 /// Render a thread type string from its parts, emitting the optional `RES Res`
 /// clause and the resource-only spelling (`message == "Nothing"`) symmetrically
@@ -537,6 +629,88 @@ fn split_thread_types(rest: &str) -> Option<(&str, Option<&str>, &str)> {
 
 /// Strip a fully-parenthesized outer group (`(Integer)` → `Integer`), leaving a
 /// non-span group (`(a), b`) unchanged.
+/// Split a `Map`/`MapEntry` body `K TO V` on the ` TO ` that separates the outer
+/// key from its value.
+///
+/// A leftmost `split_once(" TO ")` mis-parses a key that itself carries a top-level
+/// ` TO ` (`Map OF Map OF String TO Integer TO Boolean`, bug-108.2): separators
+/// inside parenthesized / `FUNC(...)` groups must be skipped, and so must the ` TO `
+/// owned by each nested `Map`/`MapEntry`/`Thread`/`ThreadWorker` sub-type. Returns
+/// `None` when there is no top-level ` TO `.
+///
+/// plan-105-B moved this here, into the canonical grammar, and pointed
+/// [`ParameterType::parse`] at it. Before that, `parse` used the naive leftmost
+/// split while `monomorph::helpers` kept this correct copy — so the "one grammar"
+/// consolidation could not simply route through `parse` without regressing
+/// bug-108.2. The two other copies (`monomorph`, `syntaxcheck::types::split_map_body`)
+/// are the lockstep-edit hazard the architectural review flagged
+/// (`planning/Compiler Pipeline.md:25`).
+pub(crate) fn split_top_level_to(body: &str) -> Option<(&str, &str)> {
+    let bytes = body.as_bytes();
+    let mut depth: usize = 0;
+    // Nested `OF`-constructs seen at depth 0 whose ` TO ` has not yet appeared.
+    let mut pending: usize = 0;
+    let mut index = 0;
+    while index < body.len() {
+        match bytes[index] {
+            b'(' => {
+                depth += 1;
+                index += 1;
+            }
+            b')' => {
+                depth = depth.saturating_sub(1);
+                index += 1;
+            }
+            // `is_char_boundary` guards the slice: `.mfp`-decoded type strings are
+            // not guaranteed ASCII, so `index` can land on a UTF-8 continuation
+            // byte where `body[index..]` would panic (bug-169). A non-boundary
+            // byte never begins ` TO ` nor a keyword, so skipping it is correct.
+            _ if depth == 0
+                && body.is_char_boundary(index)
+                && body[index..].starts_with(" TO ") =>
+            {
+                if pending > 0 {
+                    pending -= 1;
+                    index += 4;
+                } else {
+                    return Some((&body[..index], &body[index + 4..]));
+                }
+            }
+            _ if depth == 0
+                && body.is_char_boundary(index)
+                && type_owns_a_to_separator(body, index) =>
+            {
+                pending += 1;
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+/// Whether a `Map`/`MapEntry`/`Thread`/`ThreadWorker` `OF`-construct — each of
+/// which owns exactly one top-level ` TO ` — begins at byte `at` of `body`. The
+/// keyword must sit on a word boundary so a template whose name merely ends in
+/// `Map` is not counted.
+fn type_owns_a_to_separator(body: &str, at: usize) -> bool {
+    let bytes = body.as_bytes();
+    if at > 0 {
+        let prev = bytes[at - 1];
+        if prev.is_ascii_alphanumeric()
+            || prev == b'_'
+            || prev == b'.'
+            || prev == b':'
+            || prev >= 0x80
+        {
+            return false;
+        }
+    }
+    ["MapEntry OF ", "ThreadWorker OF ", "Map OF ", "Thread OF "]
+        .iter()
+        .any(|keyword| body[at..].starts_with(keyword))
+}
+
 pub(crate) fn strip_type_group(type_: &str) -> &str {
     let trimmed = type_.trim();
     if !(trimmed.starts_with('(') && trimmed.ends_with(')')) {

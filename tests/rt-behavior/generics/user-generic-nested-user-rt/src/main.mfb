@@ -1,0 +1,63 @@
+IMPORT io
+
+' REGRESSION (plan-105-B): a user generic nested inside a user generic.
+'
+' `Holder OF Holder OF Integer` did not compile before plan-105-B. Expanding the
+' outer template bound `T := Holder OF Integer` and `concrete_type_name` returned
+' that spelling VERBATIM from its substitution lookup, short-circuiting the walk
+' that instantiates a template — so the inner `Holder OF Integer` was never
+' lowered and the post-monomorph resolve pass rejected the outer template's own
+' field:
+'
+'   error[2-201-0015 SYMBOL_UNKNOWN_TYPE]: type name could not be resolved
+'     Type `Holder OF Integer` is not a built-in or top-level project type.
+'
+' Fixing that exposed a second half: the CONSTRUCTOR site passed raw type-argument
+' spellings to `instantiate_type` while the declaration site passed walked ones, so
+' the two mangled the same type differently — `Holder$Holder$Integer` for the
+' binding against `Holder$Holder$OF$Integer` for its initializer
+' (TYPE_BINDING_MISMATCH). Both callers now walk their arguments.
+'
+' TWO SHAPES REMAIN UNSUPPORTED, both verified against this build and recorded in
+' plan-105-B's Corrections rather than silently omitted:
+'
+'   1. A MULTI-parameter template nested inside a user generic
+'      (`Holder OF Pairing OF Integer, String`) is AMBIGUOUS in the surface
+'      grammar — textually indistinguishable from a two-argument
+'      `Holder OF (Pairing OF Integer), String`, and MFBASIC has no bracketing to
+'      separate them. Reports `cannot infer template arguments`. Needs a language
+'      change, not a compiler fix.
+'   2. THREE levels of user generic (`Holder OF Holder OF Holder OF String`) still
+'      reports `SYMBOL_UNKNOWN_TYPE: Type 'Holder' ...`: a doubly-nested
+'      constructor's expected type is the enclosing template's already-MANGLED
+'      field type, which no longer names a template, so the innermost constructor
+'      keeps the bare template name. Two levels — the shape this fixture pins — is
+'      what the fix delivers.
+
+TYPE Holder OF T
+  held AS T
+END TYPE
+
+FUNC unhold OF T(h AS Holder OF T) AS T
+  RETURN h.held
+END FUNC
+
+FUNC main AS Integer
+  LET deep AS Holder OF Holder OF Integer = Holder[Holder[9]]
+  io::print("deep=" & toString(unhold(unhold(deep))))
+
+  ' Two different inner instantiations of the same outer template must stay
+  ' distinct concrete types, not collapse onto one mangled symbol.
+  LET a AS Holder OF Holder OF Integer = Holder[Holder[1]]
+  LET b AS Holder OF Holder OF String = Holder[Holder["b"]]
+  io::print("a=" & toString(unhold(unhold(a))) & " b=" & unhold(unhold(b)))
+
+  ' A built-in container between two user-generic levels.
+  LET mixed AS Holder OF List OF Holder OF Integer = Holder[[Holder[4], Holder[5]]]
+  MUT total AS Integer = 0
+  FOR EACH h IN unhold(mixed)
+    total = total + unhold(h)
+  NEXT
+  io::print("mixed=" & toString(total))
+  RETURN 0
+END FUNC

@@ -1930,6 +1930,21 @@ fn unify(
         (ParameterType::ResultOf(success), ParameterType::ResultOf(concrete_success)) => {
             unify(success, concrete_success, bindings, strict)
         }
+        // A user generic unifies head-then-arguments, exactly like the container arms
+        // (plan-105-B). Same template name and same arity, then each argument
+        // recursively — so `Stack OF T` binds `T` from `Stack OF Integer` instead of
+        // comparing two opaque `Named` blobs by string equality.
+        (
+            ParameterType::UserOf(name, args),
+            ParameterType::UserOf(concrete_name, concrete_args),
+        ) => {
+            name == concrete_name
+                && args.len() == concrete_args.len()
+                && args
+                    .iter()
+                    .zip(concrete_args.iter())
+                    .all(|(a, c)| unify(a, c, bindings, strict))
+        }
         (
             ParameterType::Func(params, ret, isolated),
             ParameterType::Func(concrete_params, concrete_ret, concrete_isolated),
@@ -1978,6 +1993,7 @@ fn unify(
             | ParameterType::MapOf(_, _)
             | ParameterType::MapEntryOf(_, _)
             | ParameterType::ResultOf(_)
+            | ParameterType::UserOf(_, _)
             | ParameterType::Func(_, _, _)
             | ParameterType::ThreadHandle { .. },
             _,
@@ -2041,6 +2057,12 @@ fn substitute(
         ParameterType::ResultOf(success) => {
             ParameterType::result_of(substitute(success, bindings)?)
         }
+        ParameterType::UserOf(name, args) => ParameterType::UserOf(
+            *name,
+            args.iter()
+                .map(|a| substitute(a, bindings))
+                .collect::<Option<Vec<_>>>()?,
+        ),
         ParameterType::Func(params, ret, isolated) => {
             let params = params
                 .iter()
@@ -2086,6 +2108,7 @@ fn contains_var(ty: &ParameterType) -> bool {
         ParameterType::MapOf(key, value) | ParameterType::MapEntryOf(key, value) => {
             contains_var(key) || contains_var(value)
         }
+        ParameterType::UserOf(_, args) => args.iter().any(contains_var),
         ParameterType::Func(params, ret, _) => params.iter().any(contains_var) || contains_var(ret),
         ParameterType::ThreadHandle { msg, res, out, .. } => {
             contains_var(msg) || contains_var(res) || contains_var(out)

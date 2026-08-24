@@ -1,0 +1,225 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "user_generic_collection_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 13,
+    "visibility": "public",
+    "name": "Stack$Integer",
+    "fields": [
+    { "visibility": null, "line": 14, "name": "items", "type": "List OF Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 13,
+    "visibility": "public",
+    "name": "Stack$List$OF$Integer",
+    "fields": [
+    { "visibility": null, "line": 14, "name": "items", "type": "List OF List OF Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 13,
+    "visibility": "public",
+    "name": "Stack$String",
+    "fields": [
+    { "visibility": null, "line": 14, "name": "items", "type": "List OF String" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 32,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 33, "mutable": true, "name": "ints", "type": "Stack$Integer", "value": { "kind": "constructor", "type": "Stack$Integer", "args": [{ "kind": "list", "type": "List OF Integer", "values": [] }] } },
+    { "op": "assign", "line": 34, "name": "ints", "value": { "kind": "call", "type": "Stack$Integer", "target": "push$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "local", "name": "ints" }] } },
+    { "op": "assign", "line": 35, "name": "ints", "value": { "kind": "call", "type": "Stack$Integer", "target": "push$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "local", "name": "ints" }] } },
+    { "op": "assign", "line": 36, "name": "ints", "value": { "kind": "call", "type": "Stack$Integer", "target": "push$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "local", "name": "ints" }] } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "int-depth=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "depth$Integer", "args": [{ "kind": "local", "name": "ints" }] }] } }] } },
+    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "int-peek=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "peek$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "ints" }] }] } }] } },
+    { "op": "bind", "line": 40, "mutable": true, "name": "strs", "type": "Stack$String", "value": { "kind": "constructor", "type": "Stack$String", "args": [{ "kind": "list", "type": "List OF String", "values": [] }] } },
+    { "op": "assign", "line": 41, "name": "strs", "value": { "kind": "call", "type": "Stack$String", "target": "push$String", "args": [{ "kind": "const", "type": "String", "value": "a" }, { "kind": "local", "name": "strs" }] } },
+    { "op": "assign", "line": 42, "name": "strs", "value": { "kind": "call", "type": "Stack$String", "target": "push$String", "args": [{ "kind": "const", "type": "String", "value": "b" }, { "kind": "local", "name": "strs" }] } },
+    { "op": "eval", "line": 43, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "str-depth=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "depth$String", "args": [{ "kind": "local", "name": "strs" }] }] } }] } },
+    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "str-peek=" }, "right": { "kind": "call", "type": "String", "target": "peek$String", "args": [{ "kind": "const", "type": "String", "value": "" }, { "kind": "local", "name": "strs" }] } }] } },
+    { "op": "bind", "line": 48, "mutable": true, "name": "rows", "type": "Stack$List$OF$Integer", "value": { "kind": "constructor", "type": "Stack$List$OF$Integer", "args": [{ "kind": "list", "type": "List OF List OF Integer", "values": [] }] } },
+    { "op": "assign", "line": 49, "name": "rows", "value": { "kind": "call", "type": "Stack$List$OF$Integer", "target": "push$List$OF$Integer", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "local", "name": "rows" }] } },
+    { "op": "assign", "line": 50, "name": "rows", "value": { "kind": "call", "type": "Stack$List$OF$Integer", "target": "push$List$OF$Integer", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "5" }] }, { "kind": "local", "name": "rows" }] } },
+    { "op": "eval", "line": 51, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "rows-depth=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "depth$List$OF$Integer", "args": [{ "kind": "local", "name": "rows" }] }] } }] } },
+    { "op": "eval", "line": 57, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "rows-peek-count=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF Integer", "target": "peek$List$OF$Integer", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "0" }] }, { "kind": "local", "name": "rows" }] }] }] } }] } },
+    { "op": "bind", "line": 60, "mutable": false, "name": "empty", "type": "Stack$Integer", "value": { "kind": "constructor", "type": "Stack$Integer", "args": [{ "kind": "list", "type": "List OF Integer", "values": [] }] } },
+    { "op": "eval", "line": 61, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "empty-depth=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "depth$Integer", "args": [{ "kind": "local", "name": "empty" }] }] } }] } },
+    { "op": "eval", "line": 62, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "empty-peek=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "peek$Integer", "args": [{ "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "local", "name": "empty" }] }] } }] } },
+    { "op": "return", "line": 63, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "depth$Integer",
+    "line": 21,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 21, "type": "Stack$Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 22, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "s" }, "member": "items" }] } }
+    ]
+  },
+  {
+    "name": "depth$List$OF$Integer",
+    "line": 21,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 21, "type": "Stack$List$OF$Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 22, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF List OF Integer", "target": { "kind": "local", "name": "s" }, "member": "items" }] } }
+    ]
+  },
+  {
+    "name": "depth$String",
+    "line": 21,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 21, "type": "Stack$String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 22, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF String", "target": { "kind": "local", "name": "s" }, "member": "items" }] } }
+    ]
+  },
+  {
+    "name": "peek$Integer",
+    "line": 25,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "fallback", "line": 25, "type": "Integer", "default": null },
+    { "name": "s", "line": 25, "type": "Stack$Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "line": 26,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "s" }, "member": "items" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 27, "value": { "kind": "local", "name": "fallback" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 29, "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "s" }, "member": "items" }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "s" }, "member": "items" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+    ]
+  },
+  {
+    "name": "peek$List$OF$Integer",
+    "line": 25,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "fallback", "line": 25, "type": "List OF Integer", "default": null },
+    { "name": "s", "line": 25, "type": "Stack$List$OF$Integer", "default": null }
+    ],
+    "returns": "List OF Integer",
+    "body": [
+    {
+      "op": "if",
+      "line": 26,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF List OF Integer", "target": { "kind": "local", "name": "s" }, "member": "items" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 27, "value": { "kind": "local", "name": "fallback" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 29, "value": { "kind": "call", "type": "List OF Integer", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF List OF Integer", "target": { "kind": "local", "name": "s" }, "member": "items" }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF List OF Integer", "target": { "kind": "local", "name": "s" }, "member": "items" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+    ]
+  },
+  {
+    "name": "peek$String",
+    "line": 25,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "fallback", "line": 25, "type": "String", "default": null },
+    { "name": "s", "line": 25, "type": "Stack$String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    {
+      "op": "if",
+      "line": 26,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF String", "target": { "kind": "local", "name": "s" }, "member": "items" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 27, "value": { "kind": "local", "name": "fallback" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 29, "value": { "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF String", "target": { "kind": "local", "name": "s" }, "member": "items" }, { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF String", "target": { "kind": "local", "name": "s" }, "member": "items" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } }
+    ]
+  },
+  {
+    "name": "push$Integer",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 17, "type": "Integer", "default": null },
+    { "name": "s", "line": 17, "type": "Stack$Integer", "default": null }
+    ],
+    "returns": "Stack$Integer",
+    "body": [
+    { "op": "return", "line": 18, "value": { "kind": "with", "type": "Stack$Integer", "target": { "kind": "local", "name": "s" }, "updates": [{ "field": "items", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "s" }, "member": "items" }, { "kind": "local", "name": "value" }] } }] } }
+    ]
+  },
+  {
+    "name": "push$List$OF$Integer",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 17, "type": "List OF Integer", "default": null },
+    { "name": "s", "line": 17, "type": "Stack$List$OF$Integer", "default": null }
+    ],
+    "returns": "Stack$List$OF$Integer",
+    "body": [
+    { "op": "return", "line": 18, "value": { "kind": "with", "type": "Stack$List$OF$Integer", "target": { "kind": "local", "name": "s" }, "updates": [{ "field": "items", "value": { "kind": "call", "type": "List OF List OF Integer", "target": "collections.append", "args": [{ "kind": "memberAccess", "type": "List OF List OF Integer", "target": { "kind": "local", "name": "s" }, "member": "items" }, { "kind": "local", "name": "value" }] } }] } }
+    ]
+  },
+  {
+    "name": "push$String",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 17, "type": "String", "default": null },
+    { "name": "s", "line": 17, "type": "Stack$String", "default": null }
+    ],
+    "returns": "Stack$String",
+    "body": [
+    { "op": "return", "line": 18, "value": { "kind": "with", "type": "Stack$String", "target": { "kind": "local", "name": "s" }, "updates": [{ "field": "items", "value": { "kind": "call", "type": "List OF String", "target": "collections.append", "args": [{ "kind": "memberAccess", "type": "List OF String", "target": { "kind": "local", "name": "s" }, "member": "items" }, { "kind": "local", "name": "value" }] } }] } }
+    ]
+  }
+  ]
+}

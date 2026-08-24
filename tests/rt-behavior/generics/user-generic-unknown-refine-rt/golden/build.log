@@ -1,0 +1,15 @@
+$ mfb build -ast -ir tests/rt-behavior/generics/user-generic-unknown-refine-rt
+Wrote AST to tests/rt-behavior/generics/user-generic-unknown-refine-rt/user_generic_unknown_refine_rt.ast
+Wrote IR to tests/rt-behavior/generics/user-generic-unknown-refine-rt/user_generic_unknown_refine_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/generics/user-generic-unknown-refine-rt
+Wrote executable to tests/rt-behavior/generics/user-generic-unknown-refine-rt/build/user_generic_unknown_refine_rt.out
+[exit 0]
+$ tests/rt-behavior/generics/user-generic-unknown-refine-rt/build/user_generic_unknown_refine_rt.out
+rows-first=2
+rows-none=0
+cube-first=2
+map-keys=2
+stack-first=3
+root=4
+[exit 0]

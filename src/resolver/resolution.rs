@@ -1154,8 +1154,7 @@ impl Resolver<'_> {
                 element_type,
                 elements,
             } => {
-                let element_type = element_type.strip_prefix("RES ").unwrap_or(element_type);
-                self.resolve_type_name(file, element_type, line, imports);
+                self.resolve_type_name(file, &strip_res(element_type), line, imports);
                 for value in elements {
                     self.resolve_expression(file, value, line, imports, locals);
                 }
@@ -1168,8 +1167,7 @@ impl Resolver<'_> {
                 self.resolve_type_name(file, key_type, line, imports);
                 // A `Map OF K TO RES fs::File` literal value carries the resource
                 // ownership-axis marker (§15.6); resolve the underlying type.
-                let value_type = value_type.strip_prefix("RES ").unwrap_or(value_type);
-                self.resolve_type_name(file, value_type, line, imports);
+                self.resolve_type_name(file, &strip_res(value_type), line, imports);
                 for (key, value) in entries {
                     self.resolve_expression(file, key, line, imports, locals);
                     self.resolve_expression(file, value, line, imports, locals);
@@ -1305,18 +1303,6 @@ impl Resolver<'_> {
             self.resolve_function_type_name(file, rest, line, imports);
             return;
         }
-        if let Some(element) = type_name.strip_prefix("List OF ") {
-            // A `List OF RES fs::File` element carries the resource ownership-axis
-            // marker; resolve the underlying type (§15.6).
-            let element = element.strip_prefix("RES ").unwrap_or(element);
-            self.resolve_type_name(file, element, line, imports);
-            return;
-        }
-        if let Some(element) = type_name.strip_prefix("Set OF ") {
-            // `Set OF T` (plan-63): a single element type, no `RES`, no `TO`.
-            self.resolve_type_name(file, element, line, imports);
-            return;
-        }
         if let Some((_, message, resource, output)) = crate::types::thread_parts_full(type_name) {
             self.resolve_type_name(file, message, line, imports);
             if let Some(resource) = resource {
@@ -1325,20 +1311,36 @@ impl Resolver<'_> {
             self.resolve_type_name(file, output, line, imports);
             return;
         }
-        if let Some(rest) = type_name.strip_prefix("Map OF ") {
-            if let Some((key, value)) = split_top_level_to(rest) {
-                let value = value.strip_prefix("RES ").unwrap_or(value);
-                self.resolve_type_name(file, key, line, imports);
-                self.resolve_type_name(file, value, line, imports);
+        // The built-in container shapes, decomposed by the CANONICAL grammar
+        // (plan-105-B) rather than a resolver-local `strip_prefix` cascade. Each
+        // child recurses back through this function by name, so the `RES `
+        // ownership-axis marker (§15.6) and the `STATE` clause below are still
+        // peeled one level at a time exactly as before.
+        //
+        // A shape that does not decompose (`Map OF K` with no ` TO `) falls through
+        // to the `STATE` / user-generic / unknown-type tail below, as the cascade's
+        // non-returning `if let` arms did.
+        match crate::types::ParameterType::parse(type_name) {
+            crate::types::ParameterType::ListOf(element) => {
+                self.resolve_type_name(file, &strip_res(&element.name()), line, imports);
                 return;
             }
-        }
-        if let Some(rest) = type_name.strip_prefix("MapEntry OF ") {
-            if let Some((key, value)) = split_top_level_to(rest) {
-                self.resolve_type_name(file, key, line, imports);
-                self.resolve_type_name(file, value, line, imports);
+            crate::types::ParameterType::SetOf(element) => {
+                // `Set OF T` (plan-63): a single element type, no `RES`, no `TO`.
+                self.resolve_type_name(file, &element.name(), line, imports);
                 return;
             }
+            crate::types::ParameterType::MapOf(key, value) => {
+                self.resolve_type_name(file, &key.name(), line, imports);
+                self.resolve_type_name(file, &strip_res(&value.name()), line, imports);
+                return;
+            }
+            crate::types::ParameterType::MapEntryOf(key, value) => {
+                self.resolve_type_name(file, &key.name(), line, imports);
+                self.resolve_type_name(file, &value.name(), line, imports);
+                return;
+            }
+            _ => {}
         }
 
         // A resource type carrying `STATE T` (plan-52/54): resolve the base
@@ -1355,13 +1357,21 @@ impl Resolver<'_> {
             return;
         }
 
-        if let Some((base, args)) = type_name.split_once(" OF ") {
+        // A user generic (`Stack OF T`, `Pair OF A, B`). The argument list was split
+        // here by hand at top-level commas (bug-106: a nested `FUNC(...) AS R` or
+        // `Map OF K TO V` argument must not be split at its internal commas);
+        // plan-105-B moved that rule into `ParameterType::parse`'s `UserOf` arm, the
+        // single place it now lives.
+        //
+        // An unknown head is deliberately NOT consumed here: it falls through to the
+        // `SYMBOL_UNKNOWN_TYPE` report below, which names the whole spelling.
+        if let crate::types::ParameterType::UserOf(base, args) =
+            crate::types::ParameterType::parse(type_name)
+        {
+            let base = base.resolve();
             if self.types.contains(base) || self.active_template_params.contains(base) {
-                // Split at top-level commas only: a template argument may itself
-                // be a nested `FUNC(...) AS R` or `Map OF K TO V` whose internal
-                // commas must not split the argument list (bug-106).
-                for arg in crate::codegen::builtins::split_top_level_commas(args) {
-                    self.resolve_type_name(file, arg, line, imports);
+                for arg in &args {
+                    self.resolve_type_name(file, &arg.name(), line, imports);
                 }
                 return;
             }
@@ -1471,68 +1481,6 @@ impl Resolver<'_> {
 /// key, bug-108.2). Mirrors `syntaxcheck::types::split_map_body`: separators
 /// inside parenthesized / `FUNC(...)` groups and those owned by nested
 /// `Map`/`MapEntry`/`Thread`/`ThreadWorker` sub-types are skipped.
-fn split_top_level_to(body: &str) -> Option<(&str, &str)> {
-    let bytes = body.as_bytes();
-    let mut depth: usize = 0;
-    let mut pending: usize = 0;
-    let mut index = 0;
-    while index < body.len() {
-        match bytes[index] {
-            b'(' => {
-                depth += 1;
-                index += 1;
-            }
-            b')' => {
-                depth = depth.saturating_sub(1);
-                index += 1;
-            }
-            // `is_char_boundary` guards the slice: `.mfp`-decoded type strings are
-            // not guaranteed ASCII, so `index` can land on a UTF-8 continuation
-            // byte where `body[index..]` would panic (bug-169). A non-boundary
-            // byte never begins ` TO ` nor a keyword, so skipping it is correct.
-            _ if depth == 0
-                && body.is_char_boundary(index)
-                && body[index..].starts_with(" TO ") =>
-            {
-                if pending > 0 {
-                    pending -= 1;
-                    index += 4;
-                } else {
-                    return Some((&body[..index], &body[index + 4..]));
-                }
-            }
-            _ if depth == 0
-                && body.is_char_boundary(index)
-                && type_owns_a_to_separator(body, index) =>
-            {
-                pending += 1;
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-/// Whether a `Map`/`MapEntry`/`Thread`/`ThreadWorker` `OF`-construct (each owning
-/// exactly one top-level ` TO `) begins at byte `at`, on a word boundary.
-fn type_owns_a_to_separator(body: &str, at: usize) -> bool {
-    let bytes = body.as_bytes();
-    if at > 0 {
-        let prev = bytes[at - 1];
-        if prev.is_ascii_alphanumeric()
-            || prev == b'_'
-            || prev == b'.'
-            || prev == b':'
-            || prev >= 0x80
-        {
-            return false;
-        }
-    }
-    ["MapEntry OF ", "ThreadWorker OF ", "Map OF ", "Thread OF "]
-        .iter()
-        .any(|keyword| body[at..].starts_with(keyword))
-}
 
 #[cfg(test)]
 mod tests {
@@ -2409,5 +2357,19 @@ mod tests {
             "EXPORT FUNC scale(n AS Integer) AS Integer\n  RETURN n\nEND FUNC\n\n",
             "SUB main()\nEND SUB\n",
         )));
+    }
+}
+
+/// A collection element/value spelling with its `RES ` ownership-axis marker peeled
+/// off (§15.6). The marker rides on the element, not the container, and names a type
+/// that must still be resolved — `List OF RES fs::File` resolves `fs::File`.
+///
+/// One helper, routed through the canonical grammar, rather than a bare
+/// `strip_prefix("RES ")` repeated at each of the four sites that need it
+/// (plan-105-B).
+fn strip_res(type_name: &str) -> String {
+    match crate::types::ParameterType::parse(type_name) {
+        crate::types::ParameterType::Res(inner) => inner.name().into_owned(),
+        _ => type_name.to_string(),
     }
 }

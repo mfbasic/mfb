@@ -865,14 +865,17 @@ impl<'a> SyntaxChecker<'a> {
         let Type::User(type_name) = target_type else {
             return Type::Unknown;
         };
-        if let Some(rest) = type_name.strip_prefix("MapEntry OF ") {
-            if let Some((key, value)) = split_top_level_to(rest) {
-                return match member {
-                    "key" => self.parse_type(key),
-                    "value" => self.parse_type(value),
-                    _ => Type::Unknown,
-                };
-            }
+        // plan-105-B: decompose `MapEntry OF K TO V` with the canonical grammar,
+        // which owns the depth-aware top-level ` TO ` split (bug-108.2), instead of
+        // a local prefix strip plus a second copy of that splitter.
+        if let crate::types::ParameterType::MapEntryOf(key, value) =
+            crate::types::ParameterType::parse(&type_name)
+        {
+            return match member {
+                "key" => self.parse_type(&key.name()),
+                "value" => self.parse_type(&value.name()),
+                _ => Type::Unknown,
+            };
         }
         let Some(info) = self.type_infos.get(&type_name).cloned() else {
             return Type::Unknown;
@@ -1538,68 +1541,6 @@ impl<'a> SyntaxChecker<'a> {
 /// key, bug-108.2). Mirrors `syntaxcheck::types::split_map_body`: separators
 /// inside parenthesized / `FUNC(...)` groups and those owned by nested
 /// `Map`/`MapEntry`/`Thread`/`ThreadWorker` sub-types are skipped.
-fn split_top_level_to(body: &str) -> Option<(&str, &str)> {
-    let bytes = body.as_bytes();
-    let mut depth: usize = 0;
-    let mut pending: usize = 0;
-    let mut index = 0;
-    while index < body.len() {
-        match bytes[index] {
-            b'(' => {
-                depth += 1;
-                index += 1;
-            }
-            b')' => {
-                depth = depth.saturating_sub(1);
-                index += 1;
-            }
-            // `is_char_boundary` guards the slice: `.mfp`-decoded type strings are
-            // not guaranteed ASCII, so `index` can land on a UTF-8 continuation
-            // byte where `body[index..]` would panic (bug-169). A non-boundary
-            // byte never begins ` TO ` nor a keyword, so skipping it is correct.
-            _ if depth == 0
-                && body.is_char_boundary(index)
-                && body[index..].starts_with(" TO ") =>
-            {
-                if pending > 0 {
-                    pending -= 1;
-                    index += 4;
-                } else {
-                    return Some((&body[..index], &body[index + 4..]));
-                }
-            }
-            _ if depth == 0
-                && body.is_char_boundary(index)
-                && type_owns_a_to_separator(body, index) =>
-            {
-                pending += 1;
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-/// Whether a `Map`/`MapEntry`/`Thread`/`ThreadWorker` `OF`-construct (each owning
-/// exactly one top-level ` TO `) begins at byte `at`, on a word boundary.
-fn type_owns_a_to_separator(body: &str, at: usize) -> bool {
-    let bytes = body.as_bytes();
-    if at > 0 {
-        let prev = bytes[at - 1];
-        if prev.is_ascii_alphanumeric()
-            || prev == b'_'
-            || prev == b'.'
-            || prev == b':'
-            || prev >= 0x80
-        {
-            return false;
-        }
-    }
-    ["MapEntry OF ", "ThreadWorker OF ", "Map OF ", "Thread OF "]
-        .iter()
-        .any(|keyword| body[at..].starts_with(keyword))
-}
 
 /// Whether `expr` is a bare (suffixless) decimal literal that types as `Float`:
 /// the `Money`-scaling exactness nudge (plan-29-F §4.6) fires only on these, not
