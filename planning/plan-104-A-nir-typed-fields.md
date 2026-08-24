@@ -45,11 +45,11 @@ Shared by every plan-104 sub-plan; stated once here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-102 complete and landed on main | `ls planning/plan-102-* 2>/dev/null` → no matches (all six letters in `planning/completed/`) | MET (verified 2026-08-24) |
-| On a feature branch/worktree, not main | `git rev-parse --abbrev-ref HEAD` (≠ `main`) | NOT MET — create `worktree-P-104` first |
-| Baseline gate captured | `scripts/artifact-gate.sh target/release/mfb all` → record the DIFF set to `planning/plan-104-baseline-diffs.txt` | NOT MET — run first (at plan-writing time main's gate is **0 diffs**: `artifact-gate [all]: 1249 tests, 1718 golden(s) checked, 0 diff(s)`) |
-| Full suite green at HEAD | `rustup run 1.96.0 cargo test --no-fail-fast` | NOT MET — run first (green at plan-writing time) |
-| Lowering perf baseline captured | `scripts/bench-lowering.sh target/release/mfb` → record the three probe times to `planning/plan-104-bench-baseline.txt` | NOT MET — run first |
+| plan-102 complete and landed on main | `ls planning/plan-102-* 2>/dev/null` → no matches (all six letters in `planning/completed/`) | MET (re-verified 2026-08-24 in worktree: no matches, all six in `planning/completed/`) |
+| On a feature branch/worktree, not main | `git rev-parse --abbrev-ref HEAD` (≠ `main`) | MET — `worktree-P-104` at `.claude/worktrees/P-104` |
+| Baseline gate captured | `scripts/artifact-gate.sh target/release/mfb all` → record the DIFF set to `planning/plan-104-baseline-diffs.txt` | MET 2026-08-24 — 0 diffs (`artifact-gate [all]: 1249 tests, 1396 build(s), 1718 golden(s) checked, 0 diff(s)`), recorded |
+| Full suite green at HEAD | `rustup run 1.96.0 cargo test --no-fail-fast` | MET 2026-08-24 — run on a pristine detached worktree at main tip `cc93d4d67` (`git worktree add --detach /tmp/p104-baseline`): exit 0, 0 FAILED suites |
+| Lowering perf baseline captured | `scripts/bench-lowering.sh target/release/mfb` → record the three probe times to `planning/plan-104-bench-baseline.txt` | MET 2026-08-24 — trivial 0.65/0.35, one-regex 30.72/6.74, acceptance 276.06/49.85 (debug/release s), recorded |
 
 Everything below is written against the world where these hold.
 
@@ -250,13 +250,15 @@ internal to the compiler.
 One line: record the gate diff set (expected empty at plan-writing time) and the
 lowering perf probes, so later phases can prove "no NEW diff" and "not slower".
 
-- [ ] `rustup run 1.96.0 cargo build --release --bin mfb`; run
+- [x] `rustup run 1.96.0 cargo build --release --bin mfb`; run
       `scripts/artifact-gate.sh target/release/mfb all`; save the sorted
-      DIFF/FAILED set to `planning/plan-104-baseline-diffs.txt`.
-- [ ] Run `scripts/bench-lowering.sh target/release/mfb`; save the three probe
-      times to `planning/plan-104-bench-baseline.txt`.
-- [ ] `rustup run 1.96.0 cargo test --no-fail-fast` green (modulo the recorded
-      gate baseline, if any).
+      DIFF/FAILED set to `planning/plan-104-baseline-diffs.txt`. (0 diffs.)
+- [x] Run `scripts/bench-lowering.sh target/release/mfb`; save the three probe
+      times to `planning/plan-104-bench-baseline.txt`. (Script takes no exe
+      arg — it builds debug+release itself; run as `bash scripts/bench-lowering.sh`.)
+- [x] `rustup run 1.96.0 cargo test --no-fail-fast` green (run on a pristine
+      detached worktree at main tip `cc93d4d67`, exit 0 / 0 FAILED — the
+      in-worktree run was invalidated by Phase-2 edits landing mid-compile).
 
 Acceptance: both baseline files exist; suite green.
 Commit: —
@@ -320,7 +322,36 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **The claim "the IR is already typed" is false for the op-level fields**:
+  `IrOp::{Bind,For,ForEach}.type_` were still `String` (`src/ir/op.rs:8,78,93`;
+  plan-102-B typed the decl-level fields and `IrValue`, not `IrOp`), and
+  `ir/lower.rs` renders `.name().into_owned()` into them (e.g. `lower.rs:558`).
+  That is why the original `nir/lower.rs` used plain `.clone()` (no `.name()`
+  render) for those three arms — the 19-render census was correct but the
+  inference "clone = already typed" was not. Parsing at the NIR boundary would
+  have created a NEW name→parse backward seam (the exact plan-102 post-archive
+  defect class), so A's scope was extended: the three `IrOp` type fields flipped
+  to `ParameterType` too. Ripple handled: `ir/lower.rs` constructions parse
+  their (string-currency, plan-106-A-scoped) computed types at the IR mint
+  point; `ir/json.rs` renders `name()` at emit; `ir/binary.rs` decode parses the
+  wire string / encode renders (same pattern as the plan-102 fields);
+  `ir/verify/*`, `binary_repr/writer.rs`, `runtime/usage.rs` read via `.name()`
+  shims (retyped by plan-106-B). No plan-105/106 letter owned this flip
+  (`rg 'IrOp' planning/plan-105* planning/plan-106*` → no hits), so it belongs
+  here rather than deferred.
+- **`bench-lowering.sh` takes no binary argument** (the Prerequisites row's
+  `scripts/bench-lowering.sh target/release/mfb` spelling): the script builds
+  both debug and release compilers itself and ignores argv. Run bare.
+- **`lower_numeric_for` retyped to `&ParameterType`** (not a `.name()` shim):
+  its caller held the typed NIR `For.type_` and the callee re-constructed a
+  `NirValue::Const` from the string — a render→parse round-trip split across
+  the call boundary that the acceptance grep cannot see. The signature change
+  removes it; the callee's `LocalValue` store renders `name()` (B converts).
+- **Deliberately-kept forward parses on the compile path** (not round-trips,
+  named per the acceptance): `ir/lower.rs` `IrOp::{Bind,For,ForEach}`
+  construction sites parse ir/lower's internal string currency (retyped by
+  plan-106-A); `ir/binary.rs` decode parses wire strings (a genuine string
+  boundary). `codegen/` itself gained zero production parses.
 
 ## Summary
 
