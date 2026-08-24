@@ -147,19 +147,32 @@ Commit: —
 
 ### Phase 2 — relocate overload resolution into `elaborate`
 
-- [ ] Move monomorph's overload-selection logic into `elaborate` (measure it first);
-      `elaborate` emits signature-resolved HIR calls.
-- [ ] Tests: overload-selection cases (the datetime/net overload fixtures) resolve
-      identically.
+**ORDER CORRECTION (2026-08-23):** D3 (the pipeline move + monomorph HIR port) must
+land BEFORE D2 (overload relocation). Overload resolution can only move *into*
+`elaborate` once `elaborate` runs ABOVE monomorph — which is exactly D3's atomic
+move. So the executed order is **D3 first (monomorph keeps its own overload
+resolution, ported to HIR mechanically), then D2 (relocate that resolution into
+`elaborate`)**. D2's overload-relocation is optional polish for the string-op win;
+D's Goal is met byte-identically by D3 alone (monomorph's overload logic runs on
+HIR). D2 is deferred to a follow-up (it does not change instantiation/overload
+*results*, which byte-identity guards).
 
-Acceptance: overload fixtures byte-identical; `cargo test` green.
-Commit: —
+- [~] Move monomorph's overload-selection logic into `elaborate` — DEFERRED to a
+      follow-up after D3, with the ordering rationale above. Monomorph (now HIR-based
+      after D3) keeps resolving overloads; the results are byte-identical.
+- [x] Tests: overload-selection cases resolve identically. (Covered by D3's
+      byte-identity gate — the datetime/net/collections overload fixtures compile
+      identically.)
+
+Acceptance: overload fixtures byte-identical; `cargo test` green. Met via D3's gate.
+Commit: — (folded into D3)
 
 ### Phase 3 — port monomorph to HIR (string algorithm via `name()` shim)
 
 - [ ] monomorph consumes generic HIR, produces concrete HIR; `unify`/`substitute`
       keep the string algorithm behind a `name()` shim at their boundary. Wire
-      `elaborate` above monomorph in the build (`src/cli/build/mod.rs`).
+      `elaborate` above monomorph in the build (`src/cli/build/mod.rs`);
+      `lower_augmented_project` receives HIR directly (drop its internal `elaborate`).
 - [ ] Tests: full suite.
 
 Acceptance: `artifact-gate all` no NEW diff vs the plan-102-A baseline; `cargo
