@@ -397,13 +397,13 @@ fn apply_default_args(target: &str, args: &mut Vec<NirValue>, loc: NirSourceLoc)
 fn lower_value(value: &IrValue) -> NirValue {
     match value {
         IrValue::Const { type_, value } => NirValue::Const {
-            type_: type_.clone(),
+            type_: type_.name().into_owned(),
             value: value.clone(),
         },
         IrValue::Local(name) => NirValue::Local(name.clone()),
         IrValue::LocalRef { name, type_ } => NirValue::LocalRef {
             name: name.clone(),
-            type_: type_.clone(),
+            type_: type_.name().into_owned(),
         },
         IrValue::Global(name) => NirValue::Global {
             name: name.clone(),
@@ -411,7 +411,7 @@ fn lower_value(value: &IrValue) -> NirValue {
         },
         IrValue::FunctionRef { name, type_ } => NirValue::FunctionRef {
             name: name.clone(),
-            type_: type_.clone(),
+            type_: type_.name().into_owned(),
         },
         IrValue::Closure {
             name,
@@ -419,7 +419,7 @@ fn lower_value(value: &IrValue) -> NirValue {
             captures,
         } => NirValue::Closure {
             name: name.clone(),
-            type_: type_.clone(),
+            type_: type_.name().into_owned(),
             captures: captures.iter().map(lower_value).collect(),
         },
         IrValue::Capture {
@@ -428,7 +428,7 @@ fn lower_value(value: &IrValue) -> NirValue {
             by_ref,
         } => NirValue::Capture {
             index: *index as usize,
-            type_: type_.clone(),
+            type_: type_.name().into_owned(),
             by_ref: *by_ref,
         },
         IrValue::Call {
@@ -471,7 +471,7 @@ fn lower_value(value: &IrValue) -> NirValue {
             }
         }
         IrValue::Constructor { type_, args } => NirValue::Constructor {
-            type_: type_.clone(),
+            type_: type_.name().into_owned(),
             args: args.iter().map(lower_value).collect(),
         },
         IrValue::UnionWrap {
@@ -479,12 +479,12 @@ fn lower_value(value: &IrValue) -> NirValue {
             member_type,
             value,
         } => NirValue::UnionWrap {
-            union_type: union_type.clone(),
-            member_type: member_type.clone(),
+            union_type: union_type.name().into_owned(),
+            member_type: member_type.name().into_owned(),
             value: Box::new(lower_value(value)),
         },
         IrValue::UnionExtract { type_, value } => NirValue::UnionExtract {
-            type_: type_.clone(),
+            type_: type_.name().into_owned(),
             value: Box::new(lower_value(value)),
         },
         IrValue::ResultIsOk { value } => NirValue::ResultIsOk {
@@ -501,20 +501,20 @@ fn lower_value(value: &IrValue) -> NirValue {
             target,
             updates,
         } => NirValue::WithUpdate {
-            type_: type_.clone(),
+            type_: type_.name().into_owned(),
             target: Box::new(lower_value(target)),
             updates: updates.iter().map(lower_record_update).collect(),
         },
         IrValue::ListLiteral { type_, values } => NirValue::ListLiteral {
-            type_: type_.clone(),
+            type_: type_.name().into_owned(),
             values: values.iter().map(lower_value).collect(),
         },
         IrValue::SetLiteral { type_, values } => NirValue::SetLiteral {
-            type_: type_.clone(),
+            type_: type_.name().into_owned(),
             values: values.iter().map(lower_value).collect(),
         },
         IrValue::MapLiteral { type_, entries } => NirValue::MapLiteral {
-            type_: type_.clone(),
+            type_: type_.name().into_owned(),
             entries: entries
                 .iter()
                 .map(|(key, value)| (lower_value(key), lower_value(value)))

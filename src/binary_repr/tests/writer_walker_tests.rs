@@ -10,7 +10,7 @@ use crate::ir::{IrMatchCase, IrMatchPattern, IrParam, IrRecordUpdate, IrSourceLo
 fn file_local() -> IrValue {
     IrValue::LocalRef {
         name: "h".to_string(),
-        type_: "fs.File".to_string(),
+        type_: crate::types::ParameterType::parse("fs.File"),
     }
 }
 
@@ -19,66 +19,66 @@ fn file_local() -> IrValue {
 fn every_value() -> Vec<IrValue> {
     vec![
         IrValue::Const {
-            type_: "fs.File".to_string(),
+            type_: crate::types::ParameterType::parse("fs.File"),
             value: "0".to_string(),
         },
         IrValue::Local("a".to_string()),
         IrValue::Global("g".to_string()),
         IrValue::LocalRef {
             name: "a".to_string(),
-            type_: "fs.File".to_string(),
+            type_: crate::types::ParameterType::parse("fs.File"),
         },
         IrValue::FunctionRef {
             name: "dep.helper".to_string(),
-            type_: "fs.File".to_string(),
+            type_: crate::types::ParameterType::parse("fs.File"),
         },
         IrValue::Closure {
             name: "dep.helper".to_string(),
-            type_: "fs.File".to_string(),
+            type_: crate::types::ParameterType::parse("fs.File"),
             captures: vec![IrValue::Local("a".to_string())],
         },
         IrValue::Capture {
             index: 0,
-            type_: "fs.File".to_string(),
+            type_: crate::types::ParameterType::parse("fs.File"),
             by_ref: true,
         },
         IrValue::Call {
             target: "dep.helper".to_string(),
             args: vec![file_local()],
             loc: IrSourceLoc::default(),
-            type_: "fs.File".to_string(),
+            type_: crate::types::ParameterType::parse("fs.File"),
         },
         IrValue::CallResult {
             target: "dep.helper".to_string(),
             args: vec![file_local()],
             loc: IrSourceLoc::default(),
-            type_: "fs.File".to_string(),
+            type_: crate::types::ParameterType::parse("fs.File"),
         },
         IrValue::Constructor {
-            type_: "fs.File".to_string(),
+            type_: crate::types::ParameterType::parse("fs.File"),
             args: vec![file_local()],
         },
         IrValue::UnionWrap {
-            union_type: "U".to_string(),
-            member_type: "fs.File".to_string(),
+            union_type: crate::types::ParameterType::parse("U"),
+            member_type: crate::types::ParameterType::parse("fs.File"),
             value: Box::new(file_local()),
         },
         IrValue::UnionExtract {
-            type_: "fs.File".to_string(),
+            type_: crate::types::ParameterType::parse("fs.File"),
             value: Box::new(file_local()),
         },
         IrValue::ResultIsOk {
             value: Box::new(file_local()),
         },
         IrValue::ResultValue {
-            type_: "fs.File".to_string(),
+            type_: crate::types::ParameterType::parse("fs.File"),
             value: Box::new(file_local()),
         },
         IrValue::ResultError {
             value: Box::new(file_local()),
         },
         IrValue::WithUpdate {
-            type_: "fs.File".to_string(),
+            type_: crate::types::ParameterType::parse("fs.File"),
             target: Box::new(file_local()),
             updates: vec![IrRecordUpdate {
                 field: "x".to_string(),
@@ -86,30 +86,30 @@ fn every_value() -> Vec<IrValue> {
             }],
         },
         IrValue::ListLiteral {
-            type_: "fs.File".to_string(),
+            type_: crate::types::ParameterType::parse("fs.File"),
             values: vec![file_local()],
         },
         IrValue::MapLiteral {
-            type_: "fs.File".to_string(),
+            type_: crate::types::ParameterType::parse("fs.File"),
             entries: vec![(file_local(), file_local())],
         },
         IrValue::MemberAccess {
             target: Box::new(file_local()),
             member: "m".to_string(),
-            type_: "fs.File".to_string(),
+            type_: crate::types::ParameterType::parse("fs.File"),
         },
         IrValue::Binary {
             op: "+".to_string(),
             left: Box::new(file_local()),
             right: Box::new(file_local()),
             loc: IrSourceLoc::default(),
-            type_: "fs.File".to_string(),
+            type_: crate::types::ParameterType::parse("fs.File"),
         },
         IrValue::Unary {
             op: "-".to_string(),
             operand: Box::new(file_local()),
             loc: IrSourceLoc::default(),
-            type_: "fs.File".to_string(),
+            type_: crate::types::ParameterType::parse("fs.File"),
         },
     ]
 }
@@ -120,7 +120,7 @@ fn every_op_body() -> Vec<IrOp> {
         target: "dep.helper".to_string(),
         args: every_value(),
         loc: IrSourceLoc::default(),
-        type_: "fs.File".to_string(),
+        type_: crate::types::ParameterType::parse("fs.File"),
     };
     vec![
         IrOp::Bind {
@@ -284,66 +284,66 @@ fn plain_local() -> IrValue {
 fn every_plain_value() -> Vec<IrValue> {
     vec![
         IrValue::Const {
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             value: "0".to_string(),
         },
         IrValue::Local("a".to_string()),
         IrValue::Global("g".to_string()),
         IrValue::LocalRef {
             name: "a".to_string(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
         },
         IrValue::FunctionRef {
             name: "f".to_string(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
         },
         IrValue::Closure {
             name: "f".to_string(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             captures: vec![plain_local()],
         },
         IrValue::Capture {
             index: 0,
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             by_ref: false,
         },
         IrValue::Call {
             target: "f".to_string(),
             args: vec![plain_local()],
             loc: IrSourceLoc::default(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
         },
         IrValue::CallResult {
             target: "f".to_string(),
             args: vec![plain_local()],
             loc: IrSourceLoc::default(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
         },
         IrValue::Constructor {
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             args: vec![plain_local()],
         },
         IrValue::UnionWrap {
-            union_type: "U".to_string(),
-            member_type: "Integer".to_string(),
+            union_type: crate::types::ParameterType::parse("U"),
+            member_type: crate::types::ParameterType::parse("Integer"),
             value: Box::new(plain_local()),
         },
         IrValue::UnionExtract {
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             value: Box::new(plain_local()),
         },
         IrValue::ResultIsOk {
             value: Box::new(plain_local()),
         },
         IrValue::ResultValue {
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             value: Box::new(plain_local()),
         },
         IrValue::ResultError {
             value: Box::new(plain_local()),
         },
         IrValue::WithUpdate {
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             target: Box::new(plain_local()),
             updates: vec![IrRecordUpdate {
                 field: "x".to_string(),
@@ -351,30 +351,30 @@ fn every_plain_value() -> Vec<IrValue> {
             }],
         },
         IrValue::ListLiteral {
-            type_: "List OF Integer".to_string(),
+            type_: crate::types::ParameterType::parse("List OF Integer"),
             values: vec![plain_local()],
         },
         IrValue::MapLiteral {
-            type_: "Map OF String TO Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Map OF String TO Integer"),
             entries: vec![(plain_local(), plain_local())],
         },
         IrValue::MemberAccess {
             target: Box::new(plain_local()),
             member: "m".to_string(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
         },
         IrValue::Binary {
             op: "+".to_string(),
             left: Box::new(plain_local()),
             right: Box::new(plain_local()),
             loc: IrSourceLoc::default(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
         },
         IrValue::Unary {
             op: "-".to_string(),
             operand: Box::new(plain_local()),
             loc: IrSourceLoc::default(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
         },
     ]
 }

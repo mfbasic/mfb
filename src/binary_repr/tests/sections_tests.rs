@@ -222,7 +222,7 @@ fn const_pool_stores_every_scalar_kind() {
         pool.add(
             &mut strings,
             &IrValue::Const {
-                type_: type_.to_string(),
+                type_: crate::types::ParameterType::parse(type_),
                 value: value.to_string(),
             },
         )
@@ -286,7 +286,7 @@ fn const_pool_rejects_bad_values_and_types() {
             .add(
                 &mut strings,
                 &IrValue::Const {
-                    type_: type_.to_string(),
+                    type_: crate::types::ParameterType::parse(type_),
                     value: value.to_string(),
                 },
             )

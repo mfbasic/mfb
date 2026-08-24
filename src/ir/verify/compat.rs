@@ -19,7 +19,7 @@ impl TypeEnv {
         node: &IrValue,
         locals: &HashMap<String, String>,
     ) {
-        let Some(annotated) = usable_type(node.annotated_type()) else {
+        let Some(annotated) = usable_type(node.annotated_type().as_deref()) else {
             return;
         };
         let Some(target_type) = self.infer_type(target, locals) else {
@@ -43,7 +43,7 @@ impl TypeEnv {
     /// derived (an operand type is unknown, or the operands disagree), in which
     /// case the annotation is left alone.
     pub(super) fn check_operator_result_type(&self, node: &IrValue, derived: Option<String>) {
-        let (Some(derived), Some(annotated)) = (derived, usable_type(node.annotated_type())) else {
+        let (Some(derived), Some(annotated)) = (derived, usable_type(node.annotated_type().as_deref())) else {
             return;
         };
         if !self.compatible(&derived, &annotated) {
@@ -88,7 +88,7 @@ impl TypeEnv {
         if locals.contains_key(target) {
             return; // indirect call — no named signature
         }
-        let Some(annotated) = usable_type(node.annotated_type()) else {
+        let Some(annotated) = usable_type(node.annotated_type().as_deref()) else {
             return;
         };
         let declared = if let Some(sig) = self.functions.get(target) {
@@ -433,7 +433,7 @@ impl TypeEnv {
             return true;
         }
         if let IrValue::Const { type_, value } = value {
-            match (expected, type_.as_str()) {
+            match (expected, type_.name().as_ref()) {
                 ("Byte", "Integer") => {
                     return value.parse::<u16>().is_ok_and(|n| n <= u8::MAX as u16);
                 }
@@ -447,7 +447,7 @@ impl TypeEnv {
         if expected == "Fixed" || expected == "Money" {
             if let IrValue::Unary { op, operand, .. } = value {
                 if op == "-"
-                    && matches!(operand.as_ref(), IrValue::Const { type_, .. } if type_ == "Integer" || type_ == "Float")
+                    && matches!(operand.as_ref(), IrValue::Const { type_, .. } if matches!(type_, crate::types::ParameterType::Integer | crate::types::ParameterType::Float))
                 {
                     return true;
                 }

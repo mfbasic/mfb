@@ -648,7 +648,7 @@ impl ToJson for IrValue {
             IrValue::Const { type_, value } => {
                 format!(
                     "{{ \"kind\": \"const\", \"type\": {}, \"value\": {} }}",
-                    json_string(type_),
+                    json_string(&type_.name()),
                     json_string(value)
                 )
             }
@@ -665,14 +665,14 @@ impl ToJson for IrValue {
                 format!(
                     "{{ \"kind\": \"localRef\", \"name\": {}, \"type\": {} }}",
                     json_string(name),
-                    json_string(type_)
+                    json_string(&type_.name())
                 )
             }
             IrValue::FunctionRef { name, type_ } => {
                 format!(
                     "{{ \"kind\": \"functionRef\", \"name\": {}, \"type\": {} }}",
                     json_string(name),
-                    json_string(type_)
+                    json_string(&type_.name())
                 )
             }
             IrValue::Closure {
@@ -688,7 +688,7 @@ impl ToJson for IrValue {
                 format!(
                     "{{ \"kind\": \"closure\", \"name\": {}, \"type\": {}, \"captures\": [{}] }}",
                     json_string(name),
-                    json_string(type_),
+                    json_string(&type_.name()),
                     captures
                 )
             }
@@ -703,13 +703,13 @@ impl ToJson for IrValue {
                     format!(
                         "{{ \"kind\": \"capture\", \"index\": {}, \"type\": {}, \"byRef\": true }}",
                         index,
-                        json_string(type_)
+                        json_string(&type_.name())
                     )
                 } else {
                     format!(
                         "{{ \"kind\": \"capture\", \"index\": {}, \"type\": {} }}",
                         index,
-                        json_string(type_)
+                        json_string(&type_.name())
                     )
                 }
             }
@@ -726,7 +726,7 @@ impl ToJson for IrValue {
                     .join(", ");
                 format!(
                     "{{ \"kind\": \"call\", \"type\": {}, \"target\": {}, \"args\": [{}] }}",
-                    json_string(type_),
+                    json_string(&type_.name()),
                     json_string(target),
                     args
                 )
@@ -744,7 +744,7 @@ impl ToJson for IrValue {
                     .join(", ");
                 format!(
                     "{{ \"kind\": \"callResult\", \"type\": {}, \"target\": {}, \"args\": [{}] }}",
-                    json_string(type_),
+                    json_string(&type_.name()),
                     json_string(target),
                     args
                 )
@@ -757,7 +757,7 @@ impl ToJson for IrValue {
                     .join(", ");
                 format!(
                     "{{ \"kind\": \"constructor\", \"type\": {}, \"args\": [{}] }}",
-                    json_string(type_),
+                    json_string(&type_.name()),
                     args
                 )
             }
@@ -767,13 +767,13 @@ impl ToJson for IrValue {
                 value,
             } => format!(
                 "{{ \"kind\": \"unionWrap\", \"union\": {}, \"member\": {}, \"value\": {} }}",
-                json_string(union_type),
-                json_string(member_type),
+                json_string(&union_type.name()),
+                json_string(&member_type.name()),
                 value.to_json(0)
             ),
             IrValue::UnionExtract { type_, value } => format!(
                 "{{ \"kind\": \"unionExtract\", \"type\": {}, \"value\": {} }}",
-                json_string(type_),
+                json_string(&type_.name()),
                 value.to_json(0)
             ),
             IrValue::ResultIsOk { value } => format!(
@@ -782,7 +782,7 @@ impl ToJson for IrValue {
             ),
             IrValue::ResultValue { type_, value } => format!(
                 "{{ \"kind\": \"resultValue\", \"type\": {}, \"value\": {} }}",
-                json_string(type_),
+                json_string(&type_.name()),
                 value.to_json(0)
             ),
             IrValue::ResultError { value } => format!(
@@ -801,7 +801,7 @@ impl ToJson for IrValue {
                     .join(", ");
                 format!(
                     "{{ \"kind\": \"with\", \"type\": {}, \"target\": {}, \"updates\": [{}] }}",
-                    json_string(type_),
+                    json_string(&type_.name()),
                     target.to_json(0),
                     updates
                 )
@@ -814,7 +814,7 @@ impl ToJson for IrValue {
                     .join(", ");
                 format!(
                     "{{ \"kind\": \"list\", \"type\": {}, \"values\": [{}] }}",
-                    json_string(type_),
+                    json_string(&type_.name()),
                     values
                 )
             }
@@ -826,7 +826,7 @@ impl ToJson for IrValue {
                     .join(", ");
                 format!(
                     "{{ \"kind\": \"set\", \"type\": {}, \"values\": [{}] }}",
-                    json_string(type_),
+                    json_string(&type_.name()),
                     values
                 )
             }
@@ -844,7 +844,7 @@ impl ToJson for IrValue {
                     .join(", ");
                 format!(
                     "{{ \"kind\": \"map\", \"type\": {}, \"entries\": [{}] }}",
-                    json_string(type_),
+                    json_string(&type_.name()),
                     entries
                 )
             }
@@ -855,7 +855,7 @@ impl ToJson for IrValue {
             } => {
                 format!(
                     "{{ \"kind\": \"memberAccess\", \"type\": {}, \"target\": {}, \"member\": {} }}",
-                    json_string(type_),
+                    json_string(&type_.name()),
                     target.to_json(0),
                     json_string(member)
                 )
@@ -869,7 +869,7 @@ impl ToJson for IrValue {
             } => {
                 format!(
                     "{{ \"kind\": \"binary\", \"type\": {}, \"op\": {}, \"left\": {}, \"right\": {} }}",
-                    json_string(type_),
+                    json_string(&type_.name()),
                     json_string(op),
                     left.to_json(0),
                     right.to_json(0)
@@ -880,7 +880,7 @@ impl ToJson for IrValue {
             } => {
                 format!(
                     "{{ \"kind\": \"unary\", \"type\": {}, \"op\": {}, \"operand\": {} }}",
-                    json_string(type_),
+                    json_string(&type_.name()),
                     json_string(op),
                     operand.to_json(0)
                 )

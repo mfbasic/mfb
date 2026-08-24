@@ -52,7 +52,7 @@ fn ret_none() -> IrOp {
 
 fn const_of(ty: &str, v: &str) -> IrValue {
     IrValue::Const {
-        type_: ty.to_string(),
+        type_: crate::types::ParameterType::parse(ty),
         value: v.to_string(),
     }
 }
@@ -62,7 +62,7 @@ fn binary(op: &str, left: IrValue, right: IrValue, ty: &str) -> IrValue {
         op: op.to_string(),
         left: Box::new(left),
         right: Box::new(right),
-        type_: ty.to_string(),
+        type_: crate::types::ParameterType::parse(ty),
         loc: IrSourceLoc::default(),
     }
 }
@@ -71,7 +71,7 @@ fn unary(op: &str, operand: IrValue, ty: &str) -> IrValue {
     IrValue::Unary {
         op: op.to_string(),
         operand: Box::new(operand),
-        type_: ty.to_string(),
+        type_: crate::types::ParameterType::parse(ty),
         loc: IrSourceLoc::default(),
     }
 }
@@ -206,7 +206,7 @@ fn record(name: &str, fields: &[&str]) -> IrType {
 
 fn int_const(v: &str) -> IrValue {
     IrValue::Const {
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
         value: v.to_string(),
     }
 }
@@ -219,7 +219,7 @@ fn accepts_member_access_on_known_record_field() {
         value: Some(IrValue::MemberAccess {
             target: Box::new(IrValue::Local("p".to_string())),
             member: "x".to_string(),
-            type_: "Unknown".to_string(),
+            type_: crate::types::ParameterType::parse("Unknown"),
         }),
         loc: IrSourceLoc::default(),
     }];
@@ -234,7 +234,7 @@ fn rejects_member_access_on_integer() {
         value: Some(IrValue::MemberAccess {
             target: Box::new(int_const("0")),
             member: "x".to_string(),
-            type_: "Unknown".to_string(),
+            type_: crate::types::ParameterType::parse("Unknown"),
         }),
         loc: IrSourceLoc::default(),
     }];
@@ -255,7 +255,7 @@ fn rejects_member_access_on_money_and_scalar() {
             value: Some(IrValue::MemberAccess {
                 target: Box::new(IrValue::Local("v".to_string())),
                 member: "x".to_string(),
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
             }),
             loc: IrSourceLoc::default(),
         }];
@@ -276,7 +276,7 @@ fn rejects_member_access_missing_field_on_record() {
         value: Some(IrValue::MemberAccess {
             target: Box::new(IrValue::Local("p".to_string())),
             member: "z".to_string(),
-            type_: "Unknown".to_string(),
+            type_: crate::types::ParameterType::parse("Unknown"),
         }),
         loc: IrSourceLoc::default(),
     }];
@@ -294,7 +294,7 @@ fn skips_member_access_on_unknown_type() {
         value: Some(IrValue::MemberAccess {
             target: Box::new(IrValue::Local("w".to_string())),
             member: "anything".to_string(),
-            type_: "Unknown".to_string(),
+            type_: crate::types::ParameterType::parse("Unknown"),
         }),
         loc: IrSourceLoc::default(),
     }];
@@ -318,7 +318,7 @@ fn rejects_call_with_too_many_arguments() {
             target: "helper".to_string(),
             args: vec![int_const("1"), int_const("2")],
             loc: IrSourceLoc::default(),
-            type_: "Unknown".to_string(),
+            type_: crate::types::ParameterType::parse("Unknown"),
         }),
         loc: IrSourceLoc::default(),
     }];
@@ -344,7 +344,7 @@ fn accepts_call_omitting_defaulted_argument() {
             target: "helper".to_string(),
             args: vec![int_const("1")],
             loc: IrSourceLoc::default(),
-            type_: "Unknown".to_string(),
+            type_: crate::types::ParameterType::parse("Unknown"),
         }),
         loc: IrSourceLoc::default(),
     }];
@@ -364,7 +364,7 @@ fn skips_arity_for_unknown_call_targets() {
             target: "mystery.helper".to_string(),
             args: vec![int_const("1"), int_const("2"), int_const("3")],
             loc: IrSourceLoc::default(),
-            type_: "Unknown".to_string(),
+            type_: crate::types::ParameterType::parse("Unknown"),
         }),
         loc: IrSourceLoc::default(),
     }];
@@ -378,7 +378,7 @@ fn skips_arity_for_unknown_call_targets() {
 fn rejects_constructor_with_extra_arguments() {
     let body = vec![IrOp::Return {
         value: Some(IrValue::Constructor {
-            type_: "Point".to_string(),
+            type_: crate::types::ParameterType::parse("Point"),
             args: vec![int_const("1"), int_const("2"), int_const("3")],
         }),
         loc: IrSourceLoc::default(),
@@ -400,7 +400,7 @@ fn rejects_capture_index_past_slot_count() {
         vec![IrOp::Return {
             value: Some(IrValue::Capture {
                 index: 5,
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
                 by_ref: false,
             }),
             loc: IrSourceLoc::default(),
@@ -413,7 +413,7 @@ fn rejects_capture_index_past_slot_count() {
         vec![IrOp::Return {
             value: Some(IrValue::Closure {
                 name: "body".to_string(),
-                type_: "FUNC() AS Integer".to_string(),
+                type_: crate::types::ParameterType::parse("FUNC() AS Integer"),
                 captures: vec![int_const("7")],
             }),
             loc: IrSourceLoc::default(),
@@ -432,7 +432,7 @@ fn accepts_capture_index_within_slot_count() {
         vec![IrOp::Return {
             value: Some(IrValue::Capture {
                 index: 0,
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
                 by_ref: false,
             }),
             loc: IrSourceLoc::default(),
@@ -445,7 +445,7 @@ fn accepts_capture_index_within_slot_count() {
         vec![IrOp::Return {
             value: Some(IrValue::Closure {
                 name: "body".to_string(),
-                type_: "FUNC() AS Integer".to_string(),
+                type_: crate::types::ParameterType::parse("FUNC() AS Integer"),
                 captures: vec![int_const("7")],
             }),
             loc: IrSourceLoc::default(),
@@ -471,7 +471,7 @@ fn rejects_capture_in_non_closure_body() {
         vec![IrOp::Return {
             value: Some(IrValue::Capture {
                 index: 9999,
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
                 by_ref: false,
             }),
             loc: IrSourceLoc::default(),
@@ -492,13 +492,13 @@ fn ambiguous_closure_arity_does_not_disarm_the_capture_bounds_check() {
         vec![],
         vec![ret(IrValue::Capture {
             index: 9999,
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             by_ref: false,
         })],
     );
     let closure = |captures: Vec<IrValue>| IrValue::Closure {
         name: "body".to_string(),
-        type_: "FUNC() AS Integer".to_string(),
+        type_: crate::types::ParameterType::parse("FUNC() AS Integer"),
         captures,
     };
     let maker = func_returns(
@@ -548,13 +548,13 @@ fn a_body_captured_with_two_arities_is_rejected() {
         vec![],
         vec![ret(IrValue::Capture {
             index: 0,
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             by_ref: false,
         })],
     );
     let closure = |captures: Vec<IrValue>| IrValue::Closure {
         name: "body".to_string(),
-        type_: "FUNC() AS Integer".to_string(),
+        type_: crate::types::ParameterType::parse("FUNC() AS Integer"),
         captures,
     };
     let maker = func_returns(
@@ -652,8 +652,8 @@ fn resource_union_parameter_widening_is_directional() {
 fn rejects_union_wrap_of_foreign_variant() {
     let body = vec![IrOp::Return {
         value: Some(IrValue::UnionWrap {
-            union_type: "Shape".to_string(),
-            member_type: "Ghost".to_string(),
+            union_type: crate::types::ParameterType::parse("Shape"),
+            member_type: crate::types::ParameterType::parse("Ghost"),
             value: Box::new(int_const("0")),
         }),
         loc: IrSourceLoc::default(),
@@ -676,8 +676,8 @@ fn accepts_union_wrap_of_real_variant() {
     // IR, it only exercised the tag check in isolation.
     let body = vec![IrOp::Return {
         value: Some(IrValue::UnionWrap {
-            union_type: "Shape".to_string(),
-            member_type: "Circle".to_string(),
+            union_type: crate::types::ParameterType::parse("Shape"),
+            member_type: crate::types::ParameterType::parse("Circle"),
             value: Box::new(IrValue::Local("c".to_string())),
         }),
         loc: IrSourceLoc::default(),
@@ -704,7 +704,7 @@ fn rejects_result_value_with_fabricated_success_type() {
     // trusts the annotation, so a later member access reads `Account`'s record
     // layout off an Integer.
     let body = vec![ret(IrValue::ResultValue {
-        type_: "Account".to_string(),
+        type_: crate::types::ParameterType::parse("Account"),
         value: Box::new(IrValue::Local("r".to_string())),
     })];
     let f = func_returns(
@@ -721,7 +721,7 @@ fn rejects_result_value_with_fabricated_success_type() {
 #[test]
 fn accepts_result_value_with_matching_success_type() {
     let body = vec![ret(IrValue::ResultValue {
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
         value: Box::new(IrValue::Local("r".to_string())),
     })];
     let f = func_returns(
@@ -740,8 +740,8 @@ fn rejects_union_wrap_with_mismatched_payload() {
     // layout off the Integer — the read side is guarded (bug-162); this is the
     // wrap side.
     let body = vec![ret(IrValue::UnionWrap {
-        union_type: "Shape".to_string(),
-        member_type: "Circle".to_string(),
+        union_type: crate::types::ParameterType::parse("Shape"),
+        member_type: crate::types::ParameterType::parse("Circle"),
         value: Box::new(int_const("0")),
     })];
     let f = func_returns("run", "Shape", vec![], body);
@@ -762,7 +762,7 @@ fn rejects_with_update_with_fabricated_type() {
     // checked entirely against `Account`'s fields and `infer_type` returns the
     // trusted `Account`, so codegen updates by `Account`'s offsets.
     let body = vec![ret(IrValue::WithUpdate {
-        type_: "Account".to_string(),
+        type_: crate::types::ParameterType::parse("Account"),
         target: Box::new(IrValue::Local("b".to_string())),
         updates: vec![],
     })];
@@ -778,7 +778,7 @@ fn rejects_with_update_with_fabricated_type() {
 #[test]
 fn accepts_with_update_matching_target_type() {
     let body = vec![ret(IrValue::WithUpdate {
-        type_: "Account".to_string(),
+        type_: crate::types::ParameterType::parse("Account"),
         target: Box::new(IrValue::Local("a".to_string())),
         updates: vec![],
     })];
@@ -822,7 +822,7 @@ fn accepts_ordinary_function() {
                 left: Box::new(IrValue::Local("n".to_string())),
                 right: Box::new(int_const("2")),
                 loc: IrSourceLoc::default(),
-                type_: "Unknown".to_string(),
+                type_: crate::types::ParameterType::parse("Unknown"),
             }),
             loc: IrSourceLoc::default(),
         },
@@ -1030,11 +1030,11 @@ fn rejects_equality_not_comparable() {
     let body = vec![ret(binary(
         "=",
         IrValue::ListLiteral {
-            type_: "List OF Integer".to_string(),
+            type_: crate::types::ParameterType::parse("List OF Integer"),
             values: vec![],
         },
         IrValue::ListLiteral {
-            type_: "List OF Integer".to_string(),
+            type_: crate::types::ParameterType::parse("List OF Integer"),
             values: vec![],
         },
         "Boolean",
@@ -1542,7 +1542,7 @@ fn rejects_sub_call_in_value_position() {
         Some(IrValue::Call {
             target: "doit".to_string(),
             args: vec![],
-            type_: "Nothing".to_string(),
+            type_: crate::types::ParameterType::parse("Nothing"),
             loc: IrSourceLoc::default(),
         }),
         false,
@@ -1570,7 +1570,7 @@ fn rejects_a_sub_call_nested_under_a_statement_position_expression() {
     let sub_call = || IrValue::Call {
         target: "doit".to_string(),
         args: vec![],
-        type_: "Nothing".to_string(),
+        type_: crate::types::ParameterType::parse("Nothing"),
         loc: IrSourceLoc::default(),
     };
     // `Eval(Binary(1, doit()))` -- statement position, but the SUB call is an
@@ -1580,7 +1580,7 @@ fn rejects_a_sub_call_nested_under_a_statement_position_expression() {
             op: "+".to_string(),
             left: Box::new(int_const("1")),
             right: Box::new(sub_call()),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             loc: IrSourceLoc::default(),
         },
         loc: IrSourceLoc::default(),
@@ -1598,7 +1598,7 @@ fn rejects_a_sub_call_nested_under_a_statement_position_expression() {
         value: IrValue::Unary {
             op: "NOT".to_string(),
             operand: Box::new(sub_call()),
-            type_: "Boolean".to_string(),
+            type_: crate::types::ParameterType::parse("Boolean"),
             loc: IrSourceLoc::default(),
         },
         loc: IrSourceLoc::default(),
@@ -1619,7 +1619,7 @@ fn accepts_sub_call_in_statement_position() {
         value: IrValue::Call {
             target: "doit".to_string(),
             args: vec![],
-            type_: "Nothing".to_string(),
+            type_: crate::types::ParameterType::parse("Nothing"),
             loc: IrSourceLoc::default(),
         },
         loc: IrSourceLoc::default(),
@@ -1942,7 +1942,7 @@ fn accepts_for_each_list() {
             "xs",
             "List OF Integer",
             Some(IrValue::ListLiteral {
-                type_: "List OF Integer".to_string(),
+                type_: crate::types::ParameterType::parse("List OF Integer"),
                 values: vec![int_const("1")],
             }),
             false,
@@ -2037,7 +2037,7 @@ fn rejects_enum_match_not_exhaustive() {
             pattern: IrMatchPattern::Value(IrValue::MemberAccess {
                 target: Box::new(IrValue::Local("Color".to_string())),
                 member: "Red".to_string(),
-                type_: "Color".to_string(),
+                type_: crate::types::ParameterType::parse("Color"),
             }),
             guard: None,
             body: vec![ret_none()],
@@ -2213,7 +2213,7 @@ fn rejects_when_guard_non_boolean() {
 #[test]
 fn rejects_constructor_requires_record_for_union() {
     let body = vec![ret(IrValue::Constructor {
-        type_: "Shape".to_string(),
+        type_: crate::types::ParameterType::parse("Shape"),
         args: vec![],
     })];
     let f = func_returns("run", "Shape", vec![], body);
@@ -2226,7 +2226,7 @@ fn rejects_constructor_requires_record_for_union() {
 #[test]
 fn rejects_constructor_requires_record_for_enum() {
     let body = vec![ret(IrValue::Constructor {
-        type_: "Color".to_string(),
+        type_: crate::types::ParameterType::parse("Color"),
         args: vec![],
     })];
     let f = func_returns("run", "Color", vec![], body);
@@ -2239,7 +2239,7 @@ fn rejects_constructor_requires_record_for_enum() {
 #[test]
 fn rejects_constructor_arity() {
     let body = vec![ret(IrValue::Constructor {
-        type_: "Point".to_string(),
+        type_: crate::types::ParameterType::parse("Point"),
         args: vec![int_const("1")],
     })];
     let f = func_returns("run", "Point", vec![], body);
@@ -2252,7 +2252,7 @@ fn rejects_constructor_arity() {
 #[test]
 fn rejects_constructor_argument_mismatch() {
     let body = vec![ret(IrValue::Constructor {
-        type_: "Point".to_string(),
+        type_: crate::types::ParameterType::parse("Point"),
         args: vec![const_of("String", "a"), int_const("2")],
     })];
     let f = func_returns("run", "Point", vec![], body);
@@ -2265,7 +2265,7 @@ fn rejects_constructor_argument_mismatch() {
 #[test]
 fn accepts_valid_constructor() {
     let body = vec![ret(IrValue::Constructor {
-        type_: "Point".to_string(),
+        type_: crate::types::ParameterType::parse("Point"),
         args: vec![int_const("1"), int_const("2")],
     })];
     let f = func_returns("run", "Point", vec![], body);
@@ -2275,7 +2275,7 @@ fn accepts_valid_constructor() {
 #[test]
 fn rejects_construct_result_implicit() {
     let body = vec![ret(IrValue::Constructor {
-        type_: "Ok".to_string(),
+        type_: crate::types::ParameterType::parse("Ok"),
         args: vec![int_const("1")],
     })];
     let f = func_returns("run", "Integer", vec![], body);
@@ -2289,7 +2289,7 @@ fn rejects_read_only_record_update_error() {
     let body = vec![
         bind("e", "Error", None, false, false),
         ret(IrValue::WithUpdate {
-            type_: "Error".to_string(),
+            type_: crate::types::ParameterType::parse("Error"),
             target: Box::new(IrValue::Local("e".to_string())),
             updates: vec![],
         }),
@@ -2301,7 +2301,7 @@ fn rejects_read_only_record_update_error() {
 #[test]
 fn rejects_duplicate_with_field() {
     let body = vec![ret(IrValue::WithUpdate {
-        type_: "Point".to_string(),
+        type_: crate::types::ParameterType::parse("Point"),
         target: Box::new(IrValue::Local("p".to_string())),
         updates: vec![
             crate::ir::IrRecordUpdate {
@@ -2324,7 +2324,7 @@ fn rejects_duplicate_with_field() {
 #[test]
 fn rejects_with_update_field_mismatch() {
     let body = vec![ret(IrValue::WithUpdate {
-        type_: "Point".to_string(),
+        type_: crate::types::ParameterType::parse("Point"),
         target: Box::new(IrValue::Local("p".to_string())),
         updates: vec![crate::ir::IrRecordUpdate {
             field: "x".to_string(),
@@ -2341,7 +2341,7 @@ fn rejects_with_update_field_mismatch() {
 #[test]
 fn accepts_valid_with_update() {
     let body = vec![ret(IrValue::WithUpdate {
-        type_: "Point".to_string(),
+        type_: crate::types::ParameterType::parse("Point"),
         target: Box::new(IrValue::Local("p".to_string())),
         updates: vec![crate::ir::IrRecordUpdate {
             field: "x".to_string(),
@@ -2357,7 +2357,7 @@ fn accepts_valid_with_update() {
 #[test]
 fn rejects_list_element_mismatch() {
     let body = vec![ret(IrValue::ListLiteral {
-        type_: "List OF Integer".to_string(),
+        type_: crate::types::ParameterType::parse("List OF Integer"),
         values: vec![const_of("String", "x")],
     })];
     let f = func_returns("run", "List OF Integer", vec![], body);
@@ -2367,7 +2367,7 @@ fn rejects_list_element_mismatch() {
 #[test]
 fn accepts_valid_list_literal() {
     let body = vec![ret(IrValue::ListLiteral {
-        type_: "List OF Integer".to_string(),
+        type_: crate::types::ParameterType::parse("List OF Integer"),
         values: vec![int_const("1"), int_const("2")],
     })];
     let f = func_returns("run", "List OF Integer", vec![], body);
@@ -2377,7 +2377,7 @@ fn accepts_valid_list_literal() {
 #[test]
 fn rejects_map_key_mismatch() {
     let body = vec![ret(IrValue::MapLiteral {
-        type_: "Map OF String TO Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Map OF String TO Integer"),
         entries: vec![(int_const("1"), int_const("2"))],
     })];
     let f = func_returns("run", "Map OF String TO Integer", vec![], body);
@@ -2387,7 +2387,7 @@ fn rejects_map_key_mismatch() {
 #[test]
 fn rejects_map_value_mismatch() {
     let body = vec![ret(IrValue::MapLiteral {
-        type_: "Map OF String TO Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Map OF String TO Integer"),
         entries: vec![(const_of("String", "k"), const_of("String", "v"))],
     })];
     let f = func_returns("run", "Map OF String TO Integer", vec![], body);
@@ -2397,7 +2397,7 @@ fn rejects_map_value_mismatch() {
 #[test]
 fn accepts_valid_map_literal() {
     let body = vec![ret(IrValue::MapLiteral {
-        type_: "Map OF String TO Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Map OF String TO Integer"),
         entries: vec![(const_of("String", "k"), int_const("1"))],
     })];
     let f = func_returns("run", "Map OF String TO Integer", vec![], body);
@@ -2451,7 +2451,7 @@ fn with_update_unknown_type_infers_read_only_target() {
     let body = vec![
         bind("e", "Error", None, false, false),
         ret(IrValue::WithUpdate {
-            type_: "Unknown".to_string(),
+            type_: crate::types::ParameterType::parse("Unknown"),
             target: Box::new(IrValue::Local("e".to_string())),
             updates: vec![],
         }),
@@ -2465,7 +2465,7 @@ fn with_update_unknown_type_infers_read_only_target() {
 #[test]
 fn rejects_with_update_read_only_mapentry() {
     let body = vec![ret(IrValue::WithUpdate {
-        type_: "MapEntry OF String TO Integer".to_string(),
+        type_: crate::types::ParameterType::parse("MapEntry OF String TO Integer"),
         target: Box::new(IrValue::Local("e".to_string())),
         updates: vec![],
     })];
@@ -2483,7 +2483,7 @@ fn rejects_with_update_read_only_mapentry() {
 #[test]
 fn with_update_unknown_field_and_uninferable_value_are_skipped() {
     let body = vec![ret(IrValue::WithUpdate {
-        type_: "Point".to_string(),
+        type_: crate::types::ParameterType::parse("Point"),
         target: Box::new(IrValue::Local("p".to_string())),
         updates: vec![
             crate::ir::IrRecordUpdate {
@@ -2509,7 +2509,7 @@ fn with_update_unknown_field_and_uninferable_value_are_skipped() {
 #[test]
 fn rejects_set_literal_element_mismatch() {
     let body = vec![ret(IrValue::SetLiteral {
-        type_: "Set OF Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Set OF Integer"),
         values: vec![const_of("String", "x")],
     })];
     let f = func_returns("run", "Set OF Integer", vec![], body);
@@ -2520,7 +2520,7 @@ fn rejects_set_literal_element_mismatch() {
 #[test]
 fn accepts_valid_set_literal() {
     let body = vec![ret(IrValue::SetLiteral {
-        type_: "Set OF Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Set OF Integer"),
         values: vec![int_const("1"), int_const("2")],
     })];
     let f = func_returns("run", "Set OF Integer", vec![], body);
@@ -2637,7 +2637,7 @@ fn accepts_enum_member_access() {
     let body = vec![ret(IrValue::MemberAccess {
         target: Box::new(IrValue::Local("Color".to_string())),
         member: "Red".to_string(),
-        type_: "Color".to_string(),
+        type_: crate::types::ParameterType::parse("Color"),
     })];
     let f = func_returns("run", "Color", vec![], body);
     let got = rules(&project(
@@ -2657,7 +2657,7 @@ fn member_access_uninferable_target_is_skipped() {
     let body = vec![eval(IrValue::MemberAccess {
         target: Box::new(IrValue::Local("missing".to_string())),
         member: "field".to_string(),
-        type_: "Unknown".to_string(),
+        type_: crate::types::ParameterType::parse("Unknown"),
     })];
     let f = func_returns("run", "Nothing", vec![], body);
     let got = rules(&project(vec![f], vec![]));
@@ -2673,7 +2673,7 @@ fn rejects_read_state_on_stateless_resource() {
     let body = vec![eval(IrValue::MemberAccess {
         target: Box::new(IrValue::Local("h".to_string())),
         member: "state".to_string(),
-        type_: "Unknown".to_string(),
+        type_: crate::types::ParameterType::parse("Unknown"),
     })];
     let f = func_returns("run", "Nothing", vec![param("h", "fs.File", None)], body);
     expect_rule(&project(vec![f], vec![]), "TYPE_STATE_INVALID");
@@ -2870,7 +2870,7 @@ fn os_call_with_valid_args_is_accepted() {
     let body = vec![eval(IrValue::Call {
         target: "os.getEnv".to_string(),
         args: vec![const_of("String", "HOME")],
-        type_: "Result OF String".to_string(),
+        type_: crate::types::ParameterType::parse("Result OF String"),
         loc: IrSourceLoc::default(),
     })];
     let f = func_returns("run", "Nothing", vec![], body);
@@ -2893,7 +2893,7 @@ fn rejects_collections_find_wrong_arity() {
             int_const("2"),
             int_const("3"),
         ],
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
         loc: IrSourceLoc::default(),
     })];
     let f = func_returns(
@@ -2912,7 +2912,7 @@ fn accepts_collections_contains_comparable() {
     let body = vec![eval(IrValue::Call {
         target: "collections.contains".to_string(),
         args: vec![IrValue::Local("xs".to_string()), int_const("1")],
-        type_: "Boolean".to_string(),
+        type_: crate::types::ParameterType::parse("Boolean"),
         loc: IrSourceLoc::default(),
     })];
     let f = func_returns(
@@ -2953,7 +2953,7 @@ fn rejects_result_of_inner_mismatch() {
 #[test]
 fn rejects_union_extract_foreign_variant() {
     let body = vec![eval(IrValue::UnionExtract {
-        type_: "Ghost".to_string(),
+        type_: crate::types::ParameterType::parse("Ghost"),
         value: Box::new(IrValue::Local("u".to_string())),
     })];
     let f = func_returns("run", "Nothing", vec![param("u", "U", None)], body);
@@ -2970,7 +2970,7 @@ fn equality_with_unknown_operand_is_permissive() {
     let mystery = IrValue::Call {
         target: "mystery".to_string(),
         args: vec![],
-        type_: "Unknown".to_string(),
+        type_: crate::types::ParameterType::parse("Unknown"),
         loc: IrSourceLoc::default(),
     };
     let body = vec![eval(binary(
@@ -3048,7 +3048,7 @@ fn rejects_unknown_enum_member() {
     let body = vec![ret(IrValue::MemberAccess {
         target: Box::new(IrValue::Local("Color".to_string())),
         member: "Purple".to_string(),
-        type_: "Color".to_string(),
+        type_: crate::types::ParameterType::parse("Color"),
     })];
     let f = func_returns("run", "Color", vec![], body);
     expect_rule(
@@ -3062,7 +3062,7 @@ fn accepts_enum_member() {
     let body = vec![ret(IrValue::MemberAccess {
         target: Box::new(IrValue::Local("Color".to_string())),
         member: "Red".to_string(),
-        type_: "Color".to_string(),
+        type_: crate::types::ParameterType::parse("Color"),
     })];
     let f = func_returns("run", "Color", vec![], body);
     accept(&project(
@@ -3078,10 +3078,10 @@ fn accepts_error_member_access_chain() {
         target: Box::new(IrValue::MemberAccess {
             target: Box::new(IrValue::Local("err".to_string())),
             member: "source".to_string(),
-            type_: "Unknown".to_string(),
+            type_: crate::types::ParameterType::parse("Unknown"),
         }),
         member: "line".to_string(),
-        type_: "Unknown".to_string(),
+        type_: crate::types::ParameterType::parse("Unknown"),
     })];
     let f = func_returns("run", "Integer", vec![param("err", "Error", None)], body);
     accept(&project(vec![f], vec![]));
@@ -3190,7 +3190,7 @@ fn rejects_call_too_few_args() {
         value: IrValue::Call {
             target: "helper".to_string(),
             args: vec![int_const("1")],
-            type_: "Nothing".to_string(),
+            type_: crate::types::ParameterType::parse("Nothing"),
             loc: IrSourceLoc::default(),
         },
         loc: IrSourceLoc::default(),
@@ -3214,7 +3214,7 @@ fn rejects_call_argument_type() {
         value: IrValue::Call {
             target: "helper".to_string(),
             args: vec![const_of("String", "no")],
-            type_: "Nothing".to_string(),
+            type_: crate::types::ParameterType::parse("Nothing"),
             loc: IrSourceLoc::default(),
         },
         loc: IrSourceLoc::default(),
@@ -3231,7 +3231,7 @@ fn rejects_package_constant_not_callable() {
     let body = vec![ret(IrValue::Call {
         target: "math.pi".to_string(),
         args: vec![],
-        type_: "Float".to_string(),
+        type_: crate::types::ParameterType::parse("Float"),
         loc: IrSourceLoc::default(),
     })];
     let f = func_returns("run", "Float", vec![], body);
@@ -3245,7 +3245,7 @@ fn rejects_calling_non_function_local() {
         ret(IrValue::Call {
             target: "x".to_string(),
             args: vec![],
-            type_: "Unknown".to_string(),
+            type_: crate::types::ParameterType::parse("Unknown"),
             loc: IrSourceLoc::default(),
         }),
     ];
@@ -3258,7 +3258,7 @@ fn rejects_builtin_math_bad_args() {
     let body = vec![ret(IrValue::Call {
         target: "math.sqrt".to_string(),
         args: vec![const_of("String", "x")],
-        type_: "Float".to_string(),
+        type_: crate::types::ParameterType::parse("Float"),
         loc: IrSourceLoc::default(),
     })];
     let f = func_returns("run", "Float", vec![], body);
@@ -3270,7 +3270,7 @@ fn accepts_builtin_math_good_args() {
     let body = vec![ret(IrValue::Call {
         target: "math.sqrt".to_string(),
         args: vec![const_of("Float", "4.0")],
-        type_: "Float".to_string(),
+        type_: crate::types::ParameterType::parse("Float"),
         loc: IrSourceLoc::default(),
     })];
     let f = func_returns("run", "Float", vec![], body);
@@ -3424,7 +3424,7 @@ fn rejects_use_after_close() {
             value: IrValue::Call {
                 target: "fs.close".to_string(),
                 args: vec![IrValue::Local("h".to_string())],
-                type_: "Nothing".to_string(),
+                type_: crate::types::ParameterType::parse("Nothing"),
                 loc: IrSourceLoc::default(),
             },
             loc: IrSourceLoc::default(),
@@ -3433,7 +3433,7 @@ fn rejects_use_after_close() {
             value: IrValue::Call {
                 target: "fs.close".to_string(),
                 args: vec![IrValue::Local("h".to_string())],
-                type_: "Nothing".to_string(),
+                type_: crate::types::ParameterType::parse("Nothing"),
                 loc: IrSourceLoc::default(),
             },
             loc: IrSourceLoc::default(),
@@ -3460,7 +3460,7 @@ fn accepts_close_of_a_res_parameter() {
         value: IrValue::Call {
             target: "fs.close".to_string(),
             args: vec![IrValue::Local("h".to_string())],
-            type_: "Nothing".to_string(),
+            type_: crate::types::ParameterType::parse("Nothing"),
             loc: IrSourceLoc::default(),
         },
         loc: IrSourceLoc::default(),
@@ -3475,7 +3475,7 @@ fn fs_close(res: &str) -> IrOp {
     eval(IrValue::Call {
         target: "fs.close".to_string(),
         args: vec![IrValue::Local(res.to_string())],
-        type_: "Nothing".to_string(),
+        type_: crate::types::ParameterType::parse("Nothing"),
         loc: IrSourceLoc::default(),
     })
 }
@@ -3485,7 +3485,7 @@ fn grab(src: &str) -> IrValue {
     IrValue::Call {
         target: "grab".to_string(),
         args: vec![IrValue::Local(src.to_string())],
-        type_: "fs.File".to_string(),
+        type_: crate::types::ParameterType::parse("fs.File"),
         loc: IrSourceLoc::default(),
     }
 }
@@ -3535,7 +3535,7 @@ fn rebind_severs_alias() {
     let fresh = IrValue::Call {
         target: "fresh".to_string(),
         args: vec![],
-        type_: "fs.File".to_string(),
+        type_: crate::types::ParameterType::parse("fs.File"),
         loc: IrSourceLoc::default(),
     };
     let body = vec![
@@ -3653,7 +3653,7 @@ fn transfer_call(handle: &str, res: Option<&str>) -> IrOp {
         value: IrValue::Call {
             target: crate::codegen::builtins::thread::TRANSFER_RESOURCE.to_string(),
             args,
-            type_: "Nothing".to_string(),
+            type_: crate::types::ParameterType::parse("Nothing"),
             loc: IrSourceLoc::default(),
         },
         loc: IrSourceLoc::default(),
@@ -3687,7 +3687,7 @@ fn call_argument_of_uninferable_value_is_skipped() {
         value: IrValue::Call {
             target: "helper".to_string(),
             args: vec![IrValue::Local("missing".to_string())],
-            type_: "Nothing".to_string(),
+            type_: crate::types::ParameterType::parse("Nothing"),
             loc: IrSourceLoc::default(),
         },
         loc: IrSourceLoc::default(),
@@ -3714,7 +3714,7 @@ fn rejects_argument_state_retype() {
         value: IrValue::Call {
             target: "helper".to_string(),
             args: vec![IrValue::Local("g".to_string())],
-            type_: "Nothing".to_string(),
+            type_: crate::types::ParameterType::parse("Nothing"),
             loc: IrSourceLoc::default(),
         },
         loc: IrSourceLoc::default(),
@@ -3745,7 +3745,7 @@ fn rejects_argument_state_missing() {
         value: IrValue::Call {
             target: "helper".to_string(),
             args: vec![IrValue::Local("g".to_string())],
-            type_: "Nothing".to_string(),
+            type_: crate::types::ParameterType::parse("Nothing"),
             loc: IrSourceLoc::default(),
         },
         loc: IrSourceLoc::default(),
@@ -3770,7 +3770,7 @@ fn accepts_argument_state_agreement() {
         value: IrValue::Call {
             target: "helper".to_string(),
             args: vec![IrValue::Local("g".to_string())],
-            type_: "Nothing".to_string(),
+            type_: crate::types::ParameterType::parse("Nothing"),
             loc: IrSourceLoc::default(),
         },
         loc: IrSourceLoc::default(),
@@ -4812,7 +4812,7 @@ fn accepts_closure_valid_capture_in_bind() {
         vec![],
         vec![ret(IrValue::Capture {
             index: 0,
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             by_ref: false,
         })],
     );
@@ -4822,7 +4822,7 @@ fn accepts_closure_valid_capture_in_bind() {
         vec![],
         vec![ret(IrValue::Closure {
             name: "body".to_string(),
-            type_: "FUNC() AS Integer".to_string(),
+            type_: crate::types::ParameterType::parse("FUNC() AS Integer"),
             captures: vec![int_const("7")],
         })],
     );
@@ -4857,7 +4857,7 @@ fn accepts_global_list_and_map_values() {
             "xs",
             "List OF Integer",
             Some(IrValue::ListLiteral {
-                type_: "List OF Integer".to_string(),
+                type_: crate::types::ParameterType::parse("List OF Integer"),
                 values: vec![int_const("1")],
             }),
             false,
@@ -4867,7 +4867,7 @@ fn accepts_global_list_and_map_values() {
             "m",
             "Map OF String TO Integer",
             Some(IrValue::MapLiteral {
-                type_: "Map OF String TO Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Map OF String TO Integer"),
                 entries: vec![(const_of("String", "k"), int_const("2"))],
             }),
             false,
@@ -4933,7 +4933,7 @@ fn rejects_construct_private_type_cross_file() {
     // Type declared in other.mfb, constructed from src/main.mfb.
     let ty = private_record("Secret", "src/other.mfb", &[("x", "Integer")]);
     let body = vec![ret(IrValue::Constructor {
-        type_: "Secret".to_string(),
+        type_: crate::types::ParameterType::parse("Secret"),
         args: vec![int_const("1")],
     })];
     let f = func_returns("run", "Secret", vec![], body);
@@ -4947,7 +4947,7 @@ fn rejects_construct_hidden_field_cross_file() {
     ty.file = "src/other.mfb".to_string();
     ty.fields[1].visibility = Some("private".to_string());
     let body = vec![ret(IrValue::Constructor {
-        type_: "Widget".to_string(),
+        type_: crate::types::ParameterType::parse("Widget"),
         args: vec![int_const("1"), int_const("2")],
     })];
     let f = func_returns("run", "Widget", vec![], body);
@@ -4963,7 +4963,7 @@ fn rejects_member_access_hidden_field() {
     let body = vec![ret(IrValue::MemberAccess {
         target: Box::new(IrValue::Local("w".to_string())),
         member: "secret".to_string(),
-        type_: "Unknown".to_string(),
+        type_: crate::types::ParameterType::parse("Unknown"),
     })];
     let f = func_returns("run", "Integer", vec![param("w", "Widget", None)], body);
     expect_rule(&project(vec![f], vec![ty]), "TYPE_MEMBER_NOT_VISIBLE");
@@ -4973,7 +4973,7 @@ fn rejects_member_access_hidden_field() {
 fn rejects_read_only_record_constructor() {
     // Constructing a MapEntry (read-only builtin record).
     let body = vec![ret(IrValue::Constructor {
-        type_: "MapEntry OF String TO Integer".to_string(),
+        type_: crate::types::ParameterType::parse("MapEntry OF String TO Integer"),
         args: vec![],
     })];
     let f = func_returns("run", "Nothing", vec![], body);
@@ -4991,7 +4991,7 @@ fn rejects_term_call_arity() {
         value: IrValue::Call {
             target: "term.moveTo".to_string(),
             args: vec![int_const("1")],
-            type_: "Nothing".to_string(),
+            type_: crate::types::ParameterType::parse("Nothing"),
             loc: IrSourceLoc::default(),
         },
         loc: IrSourceLoc::default(),
@@ -5006,7 +5006,7 @@ fn rejects_term_call_argument() {
         value: IrValue::Call {
             target: "term.moveTo".to_string(),
             args: vec![const_of("String", "a"), const_of("String", "b")],
-            type_: "Nothing".to_string(),
+            type_: crate::types::ParameterType::parse("Nothing"),
             loc: IrSourceLoc::default(),
         },
         loc: IrSourceLoc::default(),
@@ -5021,7 +5021,7 @@ fn accepts_term_call_valid() {
         value: IrValue::Call {
             target: "term.moveTo".to_string(),
             args: vec![int_const("1"), int_const("2")],
-            type_: "Nothing".to_string(),
+            type_: crate::types::ParameterType::parse("Nothing"),
             loc: IrSourceLoc::default(),
         },
         loc: IrSourceLoc::default(),
@@ -5035,10 +5035,10 @@ fn rejects_collections_call_arity() {
     let body = vec![ret(IrValue::Call {
         target: "collections.append".to_string(),
         args: vec![IrValue::ListLiteral {
-            type_: "List OF Integer".to_string(),
+            type_: crate::types::ParameterType::parse("List OF Integer"),
             values: vec![],
         }],
-        type_: "Unknown".to_string(),
+        type_: crate::types::ParameterType::parse("Unknown"),
         loc: IrSourceLoc::default(),
     })];
     let f = func_returns("run", "Integer", vec![], body);
@@ -5053,11 +5053,11 @@ fn rejects_collections_contains_not_comparable() {
         args: vec![
             IrValue::Local("xs".to_string()),
             IrValue::ListLiteral {
-                type_: "List OF Integer".to_string(),
+                type_: crate::types::ParameterType::parse("List OF Integer"),
                 values: vec![],
             },
         ],
-        type_: "Boolean".to_string(),
+        type_: crate::types::ParameterType::parse("Boolean"),
         loc: IrSourceLoc::default(),
     })];
     let f = func_returns(
@@ -5074,7 +5074,7 @@ fn rejects_general_call_arity() {
     let body = vec![ret(IrValue::Call {
         target: "len".to_string(),
         args: vec![const_of("String", "a"), const_of("String", "b")],
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
         loc: IrSourceLoc::default(),
     })];
     let f = func_returns("run", "Integer", vec![], body);
@@ -5087,7 +5087,7 @@ fn rejects_general_call_bad_argument() {
     let body = vec![ret(IrValue::Call {
         target: "isEven".to_string(),
         args: vec![const_of("String", "no")],
-        type_: "Boolean".to_string(),
+        type_: crate::types::ParameterType::parse("Boolean"),
         loc: IrSourceLoc::default(),
     })];
     let f = func_returns("run", "Boolean", vec![], body);
@@ -5099,7 +5099,7 @@ fn accepts_general_len_string() {
     let body = vec![ret(IrValue::Call {
         target: "len".to_string(),
         args: vec![const_of("String", "abc")],
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
         loc: IrSourceLoc::default(),
     })];
     let f = func_returns("run", "Integer", vec![], body);
@@ -5112,7 +5112,7 @@ fn rejects_strings_call_bad_args() {
     let body = vec![ret(IrValue::Call {
         target: "strings.byteLen".to_string(),
         args: vec![int_const("1")],
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
         loc: IrSourceLoc::default(),
     })];
     let f = func_returns("run", "Integer", vec![], body);
@@ -5135,7 +5135,7 @@ fn func_returns_via_exhaustive_enum_match() {
                 pattern: IrMatchPattern::Value(IrValue::MemberAccess {
                     target: Box::new(IrValue::Local("Color".to_string())),
                     member: "Red".to_string(),
-                    type_: "Color".to_string(),
+                    type_: crate::types::ParameterType::parse("Color"),
                 }),
                 guard: None,
                 body: vec![ret(int_const("1"))],
@@ -5145,7 +5145,7 @@ fn func_returns_via_exhaustive_enum_match() {
                 pattern: IrMatchPattern::Value(IrValue::MemberAccess {
                     target: Box::new(IrValue::Local("Color".to_string())),
                     member: "Green".to_string(),
-                    type_: "Color".to_string(),
+                    type_: crate::types::ParameterType::parse("Color"),
                 }),
                 guard: None,
                 body: vec![ret(int_const("2"))],
@@ -5170,7 +5170,7 @@ fn func_missing_return_when_match_not_exhaustive() {
             pattern: IrMatchPattern::Value(IrValue::MemberAccess {
                 target: Box::new(IrValue::Local("Color".to_string())),
                 member: "Red".to_string(),
-                type_: "Color".to_string(),
+                type_: crate::types::ParameterType::parse("Color"),
             }),
             guard: None,
             body: vec![ret(int_const("1"))],
@@ -5233,7 +5233,7 @@ fn rejects_double_move_close_then_return() {
             value: IrValue::Call {
                 target: "fs.close".to_string(),
                 args: vec![IrValue::Local("h".to_string())],
-                type_: "Nothing".to_string(),
+                type_: crate::types::ParameterType::parse("Nothing"),
                 loc: IrSourceLoc::default(),
             },
             loc: IrSourceLoc::default(),
@@ -5257,7 +5257,7 @@ fn accepts_temporary_in_resource_list() {
     // exactly once, by that scope.
     // List OF RES fs.File with a non-local element (a call result).
     let body = vec![ret(IrValue::ListLiteral {
-        type_: "List OF RES fs.File".to_string(),
+        type_: crate::types::ParameterType::parse("List OF RES fs.File"),
         values: vec![IrValue::Call {
             // `fs.openFile`, not `fs.open`: the latter takes (path, mode), and
             // the one-arg call left a TYPE_CALL_ARGUMENT_MISMATCH that the old
@@ -5265,7 +5265,7 @@ fn accepts_temporary_in_resource_list() {
             // surfaced it.
             target: "fs.openFile".to_string(),
             args: vec![const_of("String", "f")],
-            type_: "fs.File".to_string(),
+            type_: crate::types::ParameterType::parse("fs.File"),
             loc: IrSourceLoc::default(),
         }],
     })];
@@ -5287,7 +5287,7 @@ fn rejects_capture_out_of_range_in_bind_value() {
                 "Integer",
                 Some(IrValue::Capture {
                     index: 3,
-                    type_: "Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("Integer"),
                     by_ref: false,
                 }),
                 false,
@@ -5302,7 +5302,7 @@ fn rejects_capture_out_of_range_in_bind_value() {
         vec![],
         vec![ret(IrValue::Closure {
             name: "body".to_string(),
-            type_: "FUNC() AS Integer".to_string(),
+            type_: crate::types::ParameterType::parse("FUNC() AS Integer"),
             captures: vec![int_const("1")],
         })],
     );
@@ -5324,7 +5324,7 @@ fn rejects_capture_out_of_range_in_match_pattern_and_guard() {
     // One capture slot exists; index 9999 is far outside it.
     let oob = || IrValue::Capture {
         index: 9999,
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
         by_ref: false,
     };
     let maker = |body: &str| {
@@ -5334,7 +5334,7 @@ fn rejects_capture_out_of_range_in_match_pattern_and_guard() {
             vec![],
             vec![ret(IrValue::Closure {
                 name: body.to_string(),
-                type_: "FUNC() AS Integer".to_string(),
+                type_: crate::types::ParameterType::parse("FUNC() AS Integer"),
                 captures: vec![int_const("1")],
             })],
         )
@@ -5415,7 +5415,7 @@ fn rejects_capture_out_of_range_in_match_pattern_and_guard() {
                     IrMatchCase {
                         pattern: IrMatchPattern::Value(IrValue::Capture {
                             index: 0,
-                            type_: "Integer".to_string(),
+                            type_: crate::types::ParameterType::parse("Integer"),
                             by_ref: false,
                         }),
                         guard: None,
@@ -5446,7 +5446,7 @@ fn rejects_capture_out_of_range_in_match_pattern_and_guard() {
 fn rejects_stray_capture_in_parameter_default_and_global_initializer() {
     let stray = || IrValue::Capture {
         index: 0,
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
         by_ref: false,
     };
 
@@ -5503,15 +5503,15 @@ fn captures_walked_through_nested_value_shapes() {
             op: "+".to_string(),
             left: Box::new(IrValue::Capture {
                 index: 0,
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
                 by_ref: false,
             }),
             right: Box::new(IrValue::Capture {
                 index: 9,
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
                 by_ref: false,
             }),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             loc: IrSourceLoc::default(),
         })],
     );
@@ -5521,7 +5521,7 @@ fn captures_walked_through_nested_value_shapes() {
         vec![],
         vec![ret(IrValue::Closure {
             name: "body".to_string(),
-            type_: "FUNC() AS Integer".to_string(),
+            type_: crate::types::ParameterType::parse("FUNC() AS Integer"),
             captures: vec![int_const("1")],
         })],
     );
@@ -5539,7 +5539,7 @@ fn accepts_byte_literal_into_byte_param() {
         value: IrValue::Call {
             target: "helper".to_string(),
             args: vec![int_const("5")],
-            type_: "Nothing".to_string(),
+            type_: crate::types::ParameterType::parse("Nothing"),
             loc: IrSourceLoc::default(),
         },
         loc: IrSourceLoc::default(),
@@ -5555,7 +5555,7 @@ fn accepts_integer_literal_into_fixed_param() {
         value: IrValue::Call {
             target: "helper".to_string(),
             args: vec![int_const("5")],
-            type_: "Nothing".to_string(),
+            type_: crate::types::ParameterType::parse("Nothing"),
             loc: IrSourceLoc::default(),
         },
         loc: IrSourceLoc::default(),
@@ -5585,7 +5585,7 @@ fn accepts_negated_literal_into_fixed_binding() {
 fn accepts_union_variant_return() {
     // Returning a variant record value where the union type is expected.
     let body = vec![ret(IrValue::Constructor {
-        type_: "Circle".to_string(),
+        type_: crate::types::ParameterType::parse("Circle"),
         args: vec![],
     })];
     let f = func_returns("run", "Shape", vec![], body);
@@ -5768,7 +5768,7 @@ fn record_include_cycle_terminates() {
     let body = vec![ret(IrValue::MemberAccess {
         target: Box::new(IrValue::Local("x".to_string())),
         member: "fb".to_string(),
-        type_: "Unknown".to_string(),
+        type_: crate::types::ParameterType::parse("Unknown"),
     })];
     let f = func_returns("run", "Integer", vec![param("x", "A", None)], body);
     accept(&project(vec![f], vec![a, b]));
@@ -5826,7 +5826,7 @@ fn eval_call(target: &str, args: Vec<IrValue>) -> IrOp {
         value: IrValue::Call {
             target: target.to_string(),
             args,
-            type_: "Unknown".to_string(),
+            type_: crate::types::ParameterType::parse("Unknown"),
             loc: IrSourceLoc::default(),
         },
         loc: IrSourceLoc::default(),
@@ -5927,7 +5927,7 @@ fn closure_body_captures_walked_over_all_shapes() {
     // all in range (index 0). Exercises walk_captures + collect_closures arms.
     let cap = || IrValue::Capture {
         index: 0,
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
         by_ref: false,
     };
     let body = vec![
@@ -5936,7 +5936,7 @@ fn closure_body_captures_walked_over_all_shapes() {
             "a",
             "Point",
             Some(IrValue::Constructor {
-                type_: "Point".to_string(),
+                type_: crate::types::ParameterType::parse("Point"),
                 args: vec![cap(), int_const("1")],
             }),
             false,
@@ -5949,7 +5949,7 @@ fn closure_body_captures_walked_over_all_shapes() {
             "l",
             "List OF Integer",
             Some(IrValue::ListLiteral {
-                type_: "List OF Integer".to_string(),
+                type_: crate::types::ParameterType::parse("List OF Integer"),
                 values: vec![cap()],
             }),
             false,
@@ -5960,7 +5960,7 @@ fn closure_body_captures_walked_over_all_shapes() {
             "m",
             "Map OF Integer TO Integer",
             Some(IrValue::MapLiteral {
-                type_: "Map OF Integer TO Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Map OF Integer TO Integer"),
                 entries: vec![(cap(), cap())],
             }),
             false,
@@ -5974,7 +5974,7 @@ fn closure_body_captures_walked_over_all_shapes() {
                 op: "+".to_string(),
                 left: Box::new(cap()),
                 right: Box::new(cap()),
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
                 loc: IrSourceLoc::default(),
             }),
             false,
@@ -5987,7 +5987,7 @@ fn closure_body_captures_walked_over_all_shapes() {
             Some(IrValue::Unary {
                 op: "-".to_string(),
                 operand: Box::new(cap()),
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
                 loc: IrSourceLoc::default(),
             }),
             false,
@@ -5998,7 +5998,7 @@ fn closure_body_captures_walked_over_all_shapes() {
             "wu",
             "Point",
             Some(IrValue::WithUpdate {
-                type_: "Point".to_string(),
+                type_: crate::types::ParameterType::parse("Point"),
                 target: Box::new(IrValue::Local("a".to_string())),
                 updates: vec![crate::ir::IrRecordUpdate {
                     field: "x".to_string(),
@@ -6015,7 +6015,7 @@ fn closure_body_captures_walked_over_all_shapes() {
             Some(IrValue::MemberAccess {
                 target: Box::new(IrValue::Local("a".to_string())),
                 member: "x".to_string(),
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
             }),
             false,
             false,
@@ -6025,7 +6025,7 @@ fn closure_body_captures_walked_over_all_shapes() {
             "io.print",
             vec![IrValue::Closure {
                 name: "inner".to_string(),
-                type_: "FUNC() AS Integer".to_string(),
+                type_: crate::types::ParameterType::parse("FUNC() AS Integer"),
                 captures: vec![cap()],
             }],
         ),
@@ -6038,7 +6038,7 @@ fn closure_body_captures_walked_over_all_shapes() {
         vec![],
         vec![ret(IrValue::Capture {
             index: 0,
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             by_ref: false,
         })],
     );
@@ -6048,7 +6048,7 @@ fn closure_body_captures_walked_over_all_shapes() {
         vec![],
         vec![ret(IrValue::Closure {
             name: "body".to_string(),
-            type_: "FUNC() AS Integer".to_string(),
+            type_: crate::types::ParameterType::parse("FUNC() AS Integer"),
             captures: vec![int_const("1")],
         })],
     );
@@ -6074,8 +6074,8 @@ fn accepts_function_with_union_and_result_value_shapes() {
             "w",
             "Shape",
             Some(IrValue::UnionWrap {
-                union_type: "Shape".to_string(),
-                member_type: "Circle".to_string(),
+                union_type: crate::types::ParameterType::parse("Shape"),
+                member_type: crate::types::ParameterType::parse("Circle"),
                 value: Box::new(IrValue::Local("c".to_string())),
             }),
             false,
@@ -6085,7 +6085,7 @@ fn accepts_function_with_union_and_result_value_shapes() {
             "e",
             "Circle",
             Some(IrValue::UnionExtract {
-                type_: "Circle".to_string(),
+                type_: crate::types::ParameterType::parse("Circle"),
                 value: Box::new(IrValue::Local("w".to_string())),
             }),
             false,
@@ -6104,7 +6104,7 @@ fn accepts_function_with_union_and_result_value_shapes() {
             "v",
             "Integer",
             Some(IrValue::ResultValue {
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
                 value: Box::new(IrValue::Local("r".to_string())),
             }),
             false,
@@ -6146,7 +6146,7 @@ fn accepts_localref_and_functionref_values() {
             "Integer",
             Some(IrValue::LocalRef {
                 name: "x".to_string(),
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
             }),
             false,
             false,
@@ -6156,7 +6156,7 @@ fn accepts_localref_and_functionref_values() {
             "FUNC() AS Integer",
             Some(IrValue::FunctionRef {
                 name: "helper".to_string(),
-                type_: "FUNC() AS Integer".to_string(),
+                type_: crate::types::ParameterType::parse("FUNC() AS Integer"),
             }),
             false,
             false,
@@ -6174,7 +6174,7 @@ fn get_call(list: &str, ret_type: &str) -> IrValue {
     IrValue::Call {
         target: "collections.get".to_string(),
         args: vec![IrValue::Local(list.to_string()), int_const("0")],
-        type_: ret_type.to_string(),
+        type_: crate::types::ParameterType::parse(ret_type),
         loc: IrSourceLoc::default(),
     }
 }
@@ -6477,12 +6477,12 @@ fn func_returns_via_oneof_exhaustive() {
                 IrValue::MemberAccess {
                     target: Box::new(IrValue::Local("Color".to_string())),
                     member: "Red".to_string(),
-                    type_: "Color".to_string(),
+                    type_: crate::types::ParameterType::parse("Color"),
                 },
                 IrValue::MemberAccess {
                     target: Box::new(IrValue::Local("Color".to_string())),
                     member: "Green".to_string(),
-                    type_: "Color".to_string(),
+                    type_: crate::types::ParameterType::parse("Color"),
                 },
             ]),
             guard: None,
@@ -6547,7 +6547,7 @@ fn enum_missing_member_wording() {
             pattern: IrMatchPattern::OneOf(vec![IrValue::MemberAccess {
                 target: Box::new(IrValue::Local("Color".to_string())),
                 member: "Red".to_string(),
-                type_: "Color".to_string(),
+                type_: crate::types::ParameterType::parse("Color"),
             }]),
             guard: None,
             body: vec![ret_none()],
@@ -6645,7 +6645,7 @@ fn close_eval(h: &str) -> IrOp {
         value: IrValue::Call {
             target: "fs.close".to_string(),
             args: vec![IrValue::Local(h.to_string())],
-            type_: "Nothing".to_string(),
+            type_: crate::types::ParameterType::parse("Nothing"),
             loc: IrSourceLoc::default(),
         },
         loc: IrSourceLoc::default(),
@@ -6774,7 +6774,7 @@ fn rejects_thread_result_member() {
     let body = vec![ret(IrValue::MemberAccess {
         target: Box::new(IrValue::Local("t".to_string())),
         member: "result".to_string(),
-        type_: "Unknown".to_string(),
+        type_: crate::types::ParameterType::parse("Unknown"),
     })];
     let f = func_returns(
         "run",
@@ -6819,7 +6819,7 @@ fn rejects_collections_get_bad_args() {
     let body = vec![ret(IrValue::Call {
         target: "collections.get".to_string(),
         args: vec![int_const("1"), int_const("2")],
-        type_: "Unknown".to_string(),
+        type_: crate::types::ParameterType::parse("Unknown"),
         loc: IrSourceLoc::default(),
     })];
     let f = func_returns("run", "Integer", vec![], body);
@@ -6837,10 +6837,10 @@ fn builtin_arg_check_skipped_when_arg_type_unknown() {
         args: vec![IrValue::Call {
             target: "mystery.helper".to_string(),
             args: vec![],
-            type_: "Unknown".to_string(),
+            type_: crate::types::ParameterType::parse("Unknown"),
             loc: IrSourceLoc::default(),
         }],
-        type_: "Float".to_string(),
+        type_: crate::types::ParameterType::parse("Float"),
         loc: IrSourceLoc::default(),
     })];
     let f = func_returns("run", "Float", vec![], body);
@@ -6870,8 +6870,8 @@ fn binding_unknown_expected_skips_mismatch() {
 #[test]
 fn union_wrap_empty_member_skipped() {
     let body = vec![ret(IrValue::UnionWrap {
-        union_type: "Shape".to_string(),
-        member_type: String::new(),
+        union_type: crate::types::ParameterType::parse("Shape"),
+        member_type: crate::types::ParameterType::parse(""),
         value: Box::new(int_const("0")),
     })];
     let f = func_returns("run", "Shape", vec![], body);
@@ -6944,10 +6944,10 @@ fn capture_out_of_range_inside_union_extract() {
         "Integer",
         vec![],
         vec![ret(IrValue::UnionExtract {
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             value: Box::new(IrValue::Capture {
                 index: 5,
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
                 by_ref: false,
             }),
         })],
@@ -6958,7 +6958,7 @@ fn capture_out_of_range_inside_union_extract() {
         vec![],
         vec![ret(IrValue::Closure {
             name: "body".to_string(),
-            type_: "FUNC() AS Integer".to_string(),
+            type_: crate::types::ParameterType::parse("FUNC() AS Integer"),
             captures: vec![int_const("1")],
         })],
     );
@@ -6974,15 +6974,15 @@ fn capture_out_of_range_inside_result_value_and_member() {
         vec![],
         vec![ret(IrValue::MemberAccess {
             target: Box::new(IrValue::ResultValue {
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
                 value: Box::new(IrValue::Capture {
                     index: 8,
-                    type_: "Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("Integer"),
                     by_ref: false,
                 }),
             }),
             member: "x".to_string(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
         })],
     );
     let maker = func_returns(
@@ -6991,7 +6991,7 @@ fn capture_out_of_range_inside_result_value_and_member() {
         vec![],
         vec![ret(IrValue::Closure {
             name: "body".to_string(),
-            type_: "FUNC() AS Integer".to_string(),
+            type_: crate::types::ParameterType::parse("FUNC() AS Integer"),
             captures: vec![int_const("1")],
         })],
     );
@@ -7012,7 +7012,7 @@ fn enum_member_access_returns_after_check() {
             Some(IrValue::MemberAccess {
                 target: Box::new(IrValue::Local("Color".to_string())),
                 member: "Red".to_string(),
-                type_: "Color".to_string(),
+                type_: crate::types::ParameterType::parse("Color"),
             }),
             false,
             false,
@@ -7046,11 +7046,11 @@ fn call_result_annotated_as_a_foreign_record_is_rejected() {
         target: Box::new(IrValue::Call {
             target: "getName".to_string(),
             args: vec![],
-            type_: "Account".to_string(),
+            type_: crate::types::ParameterType::parse("Account"),
             loc: IrSourceLoc::default(),
         }),
         member: "balance".to_string(),
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
     };
     let caller = func("run", vec![], vec![ret(confused)]);
     expect_rule(
@@ -7077,7 +7077,7 @@ fn string_call_annotated_integer_cannot_feed_arithmetic() {
         IrValue::Call {
             target: "getName".to_string(),
             args: vec![],
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             loc: IrSourceLoc::default(),
         },
         int_const("5"),
@@ -7105,7 +7105,7 @@ fn call_result_node_annotation_is_reconciled_too() {
         vec![ret(IrValue::CallResult {
             target: "getName".to_string(),
             args: vec![],
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             loc: IrSourceLoc::default(),
         })],
     );
@@ -7131,7 +7131,7 @@ fn a_truthful_call_annotation_is_accepted() {
         vec![ret(IrValue::Call {
             target: "getName".to_string(),
             args: vec![],
-            type_: "String".to_string(),
+            type_: crate::types::ParameterType::parse("String"),
             loc: IrSourceLoc::default(),
         })],
     );
@@ -7151,7 +7151,7 @@ fn a_truthful_call_annotation_is_accepted() {
         vec![ret(IrValue::Call {
             target: "getName".to_string(),
             args: vec![],
-            type_: "Unknown".to_string(),
+            type_: crate::types::ParameterType::parse("Unknown"),
             loc: IrSourceLoc::default(),
         })],
     );
@@ -7165,14 +7165,14 @@ fn member_access_annotated_against_its_field_type_is_rejected() {
     let confused = IrValue::MemberAccess {
         target: Box::new(IrValue::Local("acct".to_string())),
         member: "balance".to_string(),
-        type_: "String".to_string(),
+        type_: crate::types::ParameterType::parse("String"),
     };
     let body = vec![
         bind(
             "acct",
             "Account",
             Some(IrValue::Constructor {
-                type_: "Account".to_string(),
+                type_: crate::types::ParameterType::parse("Account"),
                 args: vec![int_const("1")],
             }),
             true,

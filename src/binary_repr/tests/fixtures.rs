@@ -11,7 +11,7 @@ pub(super) fn loc() -> IrSourceLoc {
 
 pub(super) fn const_int(value: &str) -> IrValue {
     IrValue::Const {
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
         value: value.to_string(),
     }
 }

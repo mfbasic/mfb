@@ -28,7 +28,7 @@ fn loc() -> IrSourceLoc {
 
 fn c(type_: &str, value: &str) -> IrValue {
     IrValue::Const {
-        type_: type_.to_string(),
+        type_: crate::types::ParameterType::parse(type_),
         value: value.to_string(),
     }
 }
@@ -60,15 +60,15 @@ fn every_value() -> Vec<IrValue> {
         IrValue::Global("g".to_string()),
         IrValue::LocalRef {
             name: "a".to_string(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
         },
         IrValue::FunctionRef {
             name: "f".to_string(),
-            type_: "() -> Integer".to_string(),
+            type_: crate::types::ParameterType::parse("() -> Integer"),
         },
         IrValue::Closure {
             name: "lam".to_string(),
-            type_: "() -> Integer".to_string(),
+            type_: crate::types::ParameterType::parse("() -> Integer"),
             captures: vec![
                 IrValue::Local("a".to_string()),
                 IrValue::Global("g".to_string()),
@@ -76,51 +76,51 @@ fn every_value() -> Vec<IrValue> {
         },
         IrValue::Capture {
             index: 0,
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             by_ref: false,
         },
         IrValue::Capture {
             index: 1,
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             by_ref: true,
         },
         IrValue::Call {
             target: "f".to_string(),
             args: vec![c("Integer", "2")],
             loc: loc(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
         },
         IrValue::CallResult {
             target: "toInt".to_string(),
             args: vec![IrValue::Local("s".to_string())],
             loc: loc(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
         },
         IrValue::Constructor {
-            type_: "Point".to_string(),
+            type_: crate::types::ParameterType::parse("Point"),
             args: vec![c("Integer", "1"), c("Integer", "2")],
         },
         IrValue::UnionWrap {
-            union_type: "Shape".to_string(),
-            member_type: "Point".to_string(),
+            union_type: crate::types::ParameterType::parse("Shape"),
+            member_type: crate::types::ParameterType::parse("Point"),
             value: Box::new(IrValue::Local("p".to_string())),
         },
         IrValue::UnionExtract {
-            type_: "Point".to_string(),
+            type_: crate::types::ParameterType::parse("Point"),
             value: Box::new(IrValue::Local("s".to_string())),
         },
         IrValue::ResultIsOk {
             value: Box::new(IrValue::Local("r".to_string())),
         },
         IrValue::ResultValue {
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             value: Box::new(IrValue::Local("r".to_string())),
         },
         IrValue::ResultError {
             value: Box::new(IrValue::Local("r".to_string())),
         },
         IrValue::WithUpdate {
-            type_: "Point".to_string(),
+            type_: crate::types::ParameterType::parse("Point"),
             target: Box::new(IrValue::Local("p".to_string())),
             updates: vec![IrRecordUpdate {
                 field: "x".to_string(),
@@ -128,34 +128,34 @@ fn every_value() -> Vec<IrValue> {
             }],
         },
         IrValue::ListLiteral {
-            type_: "List OF Integer".to_string(),
+            type_: crate::types::ParameterType::parse("List OF Integer"),
             values: vec![c("Integer", "1"), IrValue::Global("g".to_string())],
         },
         IrValue::MapLiteral {
-            type_: "Map OF String TO Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Map OF String TO Integer"),
             entries: vec![(c("String", "k"), IrValue::Global("g".to_string()))],
         },
         IrValue::SetLiteral {
-            type_: "Set OF Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Set OF Integer"),
             values: vec![c("Integer", "1"), IrValue::Global("g".to_string())],
         },
         IrValue::MemberAccess {
             target: Box::new(IrValue::Local("p".to_string())),
             member: "x".to_string(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
         },
         IrValue::Binary {
             op: "+".to_string(),
             left: Box::new(IrValue::Local("a".to_string())),
             right: Box::new(IrValue::Global("g".to_string())),
             loc: loc(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
         },
         IrValue::Unary {
             op: "NOT".to_string(),
             operand: Box::new(IrValue::Local("b".to_string())),
             loc: loc(),
-            type_: "Boolean".to_string(),
+            type_: crate::types::ParameterType::parse("Boolean"),
         },
     ]
 }
@@ -200,7 +200,7 @@ fn every_op() -> Vec<IrOp> {
                 target: "f".to_string(),
                 args: every_value(),
                 loc: loc(),
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
             },
             loc: loc(),
         },
@@ -906,7 +906,7 @@ fn decode_rejects_depth_limit() {
                     op: "NOT".to_string(),
                     operand: Box::new(v),
                     loc: loc(),
-                    type_: "Boolean".to_string(),
+                    type_: crate::types::ParameterType::parse("Boolean"),
                 };
             }
             let mut project = empty_project("deep");
@@ -1089,7 +1089,7 @@ fn prefix_and_apply_identity_rewrite_all_reference_shapes() {
                     target: "g".to_string(),
                     args: vec![IrValue::Global("gv".to_string())],
                     loc: loc(),
-                    type_: "Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("Integer"),
                 }),
                 loc: loc(),
             }];
@@ -1097,14 +1097,14 @@ fn prefix_and_apply_identity_rewrite_all_reference_shapes() {
             f.body.push(IrOp::Eval {
                 value: IrValue::FunctionRef {
                     name: "g".to_string(),
-                    type_: "() -> Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("() -> Integer"),
                 },
                 loc: loc(),
             });
             f.body.push(IrOp::Eval {
                 value: IrValue::Closure {
                     name: "g".to_string(),
-                    type_: "() -> Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("() -> Integer"),
                     captures: vec![IrValue::Global("gv".to_string())],
                 },
                 loc: loc(),
@@ -1115,7 +1115,7 @@ fn prefix_and_apply_identity_rewrite_all_reference_shapes() {
                     target: "g".to_string(),
                     args: vec![],
                     loc: loc(),
-                    type_: "Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("Integer"),
                 },
                 loc: loc(),
             });
@@ -1161,7 +1161,7 @@ fn prefix_and_apply_identity_rewrite_all_reference_shapes() {
                     target: "pkg.f".to_string(),
                     args: vec![],
                     loc: loc(),
-                    type_: "Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("Integer"),
                 },
                 loc: loc(),
             },
@@ -1191,7 +1191,7 @@ fn prefix_and_apply_identity_rewrite_all_reference_shapes() {
             target: "pkg.f".to_string(),
             args: vec![IrValue::Global("pkg.gv".to_string())],
             loc: loc(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
         }),
         loc: loc(),
     }];
@@ -1424,39 +1424,39 @@ fn visibility_name_covers_all_visibilities() {
 
 #[test]
 fn annotated_type_reports_every_annotated_variant() {
-    assert_eq!(c("Integer", "1").annotated_type(), Some("Integer"));
+    assert_eq!(c("Integer", "1").annotated_type().as_deref(), Some("Integer"));
     assert_eq!(
         IrValue::LocalRef {
             name: "a".to_string(),
-            type_: "Integer".to_string()
+            type_: crate::types::ParameterType::parse("Integer")
         }
-        .annotated_type(),
+        .annotated_type().as_deref(),
         Some("Integer")
     );
     assert_eq!(
         IrValue::FunctionRef {
             name: "f".to_string(),
-            type_: "() -> Integer".to_string()
+            type_: crate::types::ParameterType::parse("() -> Integer")
         }
-        .annotated_type(),
+        .annotated_type().as_deref(),
         Some("() -> Integer")
     );
     assert_eq!(
         IrValue::Closure {
             name: "l".to_string(),
-            type_: "() -> Integer".to_string(),
+            type_: crate::types::ParameterType::parse("() -> Integer"),
             captures: vec![]
         }
-        .annotated_type(),
+        .annotated_type().as_deref(),
         Some("() -> Integer")
     );
     assert_eq!(
         IrValue::Capture {
             index: 0,
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             by_ref: false
         }
-        .annotated_type(),
+        .annotated_type().as_deref(),
         Some("Integer")
     );
     assert_eq!(
@@ -1464,9 +1464,9 @@ fn annotated_type_reports_every_annotated_variant() {
             target: "f".to_string(),
             args: vec![],
             loc: loc(),
-            type_: "Integer".to_string()
+            type_: crate::types::ParameterType::parse("Integer")
         }
-        .annotated_type(),
+        .annotated_type().as_deref(),
         Some("Integer")
     );
     assert_eq!(
@@ -1474,67 +1474,67 @@ fn annotated_type_reports_every_annotated_variant() {
             target: "f".to_string(),
             args: vec![],
             loc: loc(),
-            type_: "Integer".to_string()
+            type_: crate::types::ParameterType::parse("Integer")
         }
-        .annotated_type(),
+        .annotated_type().as_deref(),
         Some("Integer")
     );
     assert_eq!(
         IrValue::Constructor {
-            type_: "Point".to_string(),
+            type_: crate::types::ParameterType::parse("Point"),
             args: vec![]
         }
-        .annotated_type(),
+        .annotated_type().as_deref(),
         Some("Point")
     );
     assert_eq!(
         IrValue::UnionExtract {
-            type_: "Point".to_string(),
+            type_: crate::types::ParameterType::parse("Point"),
             value: Box::new(c("Integer", "0"))
         }
-        .annotated_type(),
+        .annotated_type().as_deref(),
         Some("Point")
     );
     assert_eq!(
         IrValue::ResultValue {
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             value: Box::new(c("Integer", "0"))
         }
-        .annotated_type(),
+        .annotated_type().as_deref(),
         Some("Integer")
     );
     assert_eq!(
         IrValue::WithUpdate {
-            type_: "Point".to_string(),
+            type_: crate::types::ParameterType::parse("Point"),
             target: Box::new(c("Integer", "0")),
             updates: vec![]
         }
-        .annotated_type(),
+        .annotated_type().as_deref(),
         Some("Point")
     );
     assert_eq!(
         IrValue::ListLiteral {
-            type_: "List OF Integer".to_string(),
+            type_: crate::types::ParameterType::parse("List OF Integer"),
             values: vec![]
         }
-        .annotated_type(),
+        .annotated_type().as_deref(),
         Some("List OF Integer")
     );
     assert_eq!(
         IrValue::MapLiteral {
-            type_: "Map OF String TO Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Map OF String TO Integer"),
             entries: vec![]
         }
-        .annotated_type(),
+        .annotated_type().as_deref(),
         Some("Map OF String TO Integer")
     );
     assert_eq!(
         IrValue::MemberAccess {
             target: Box::new(c("Integer", "0")),
             member: "x".to_string(),
-            type_: "Integer".to_string()
+            type_: crate::types::ParameterType::parse("Integer")
         }
-        .annotated_type(),
+        .annotated_type().as_deref(),
         Some("Integer")
     );
     assert_eq!(
@@ -1543,9 +1543,9 @@ fn annotated_type_reports_every_annotated_variant() {
             left: Box::new(c("Integer", "1")),
             right: Box::new(c("Integer", "2")),
             loc: loc(),
-            type_: "Integer".to_string()
+            type_: crate::types::ParameterType::parse("Integer")
         }
-        .annotated_type(),
+        .annotated_type().as_deref(),
         Some("Integer")
     );
     assert_eq!(
@@ -1553,32 +1553,32 @@ fn annotated_type_reports_every_annotated_variant() {
             op: "NOT".to_string(),
             operand: Box::new(c("Boolean", "true")),
             loc: loc(),
-            type_: "Boolean".to_string()
+            type_: crate::types::ParameterType::parse("Boolean")
         }
-        .annotated_type(),
+        .annotated_type().as_deref(),
         Some("Boolean")
     );
     assert_eq!(
         IrValue::UnionWrap {
-            union_type: "Shape".to_string(),
-            member_type: "Point".to_string(),
+            union_type: crate::types::ParameterType::parse("Shape"),
+            member_type: crate::types::ParameterType::parse("Point"),
             value: Box::new(c("Integer", "0"))
         }
-        .annotated_type(),
+        .annotated_type().as_deref(),
         Some("Shape")
     );
     assert_eq!(
         IrValue::ResultIsOk {
             value: Box::new(c("Integer", "0"))
         }
-        .annotated_type(),
+        .annotated_type().as_deref(),
         Some("Boolean")
     );
     assert_eq!(
         IrValue::ResultError {
             value: Box::new(c("Integer", "0"))
         }
-        .annotated_type(),
+        .annotated_type().as_deref(),
         Some("Error")
     );
     // Local and Global resolve through the environment, not the node.

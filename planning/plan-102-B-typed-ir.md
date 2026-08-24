@@ -149,41 +149,61 @@ fields) — see Corrections. Each lands byte-identical.
       assertions → `.name()`. (production build 0 errors/0 warnings.)
 
 **B1b — flip the 17 `ir/value.rs` `type_` + `UnionWrap.union_type`/`.member_type`:**
-- [ ] Flip the 19 `ir/value.rs` type-name fields to `ParameterType`.
-- [ ] Seam: `IrValue::annotated_type()` (26 callers, 5 production via
-      `usable_type`) returns `Option<Cow<'_, str>>` (from `.name()`); direct
-      destructuring reads (~100) shimmed with `.name()`.
-- [ ] Boundary: `ir::lower` value-lowering wraps with `ParameterType::parse`;
-      wire seams render `.name()`.
-- [ ] Test fixtures updated.
+- [x] Flip the 19 `ir/value.rs` type-name fields to `ParameterType`.
+- [x] Seam: `IrValue::annotated_type()` returns `Option<Cow<'_, str>>` (from
+      `.name()`); added `annotated_parameter_type() -> Option<ParameterType>`.
+      Production `usable_type(...annotated_type())` callers use `.as_deref()`;
+      direct destructuring reads shimmed with `.name()` (+ native
+      `matches!(type_, ParameterType::…)` for scalars).
+- [x] Boundary: `ir::lower` value-lowering wraps ~44 IrValue constructions with
+      `ParameterType::parse`; wire seams (`ir/binary.rs`/`ir/json.rs`/
+      `binary_repr/writer.rs`/`nir/lower.rs`) render `.name()` at emit.
+- [x] Test fixtures updated (~305 sites across `ir/tests.rs`,
+      `variant_corpus_tests.rs`, `verify/tests.rs`, `binary_repr/tests/*`; note
+      `IrOp::{For,ForEach,Bind}.type_` stay `String` — IrOp is out of B's scope).
 
 Acceptance: `cargo test` green; `artifact-gate all` no NEW diff vs the plan-102-A
 baseline. **B1a VERIFIED**: production 0/0, test build 0/0, full suite's sole
 failure is the `artifact_gate_all` baseline, gate `diff` IDENTICAL to baseline.
 B1b pending.
-Commit (B1a): —
+Commit (B1a): 1a8fbc5cb
 
 ### Phase 2 — native `ParameterType` in codegen consumers
 
-- [ ] Replace the temporary `.name()` shims in codegen with native `ParameterType`
-      matches (`strip_prefix`→`ListOf` match; scalar `==`→variant `==`;
-      `format!`→constructor).
-- [ ] Tests: codegen unit + `rt-behavior` suite.
+- [x] ~~Replace the temporary `.name()` shims in codegen with native `ParameterType`
+      matches~~ — **moot: codegen consumes NIR, not IR** (see Corrections). Codegen's
+      type-compare/`strip_prefix`/`format!` sites read `NirValue.type_` (`String`),
+      produced at the IR→NIR boundary (`nir/lower.rs:397 lower_value(&IrValue) ->
+      NirValue`). Evidence: zero `src/codegen/` files in the B1a (78) or B1b (150)
+      flip error sets; `NirValue.type_` is `String` (20 fields). There are NO codegen
+      IR-type `.name()` shims to replace. Typing NIR is out of plan-102-B's IR scope.
+- [x] ~~Tests: codegen unit + `rt-behavior` suite~~ — moot with the above.
 
-Acceptance: `artifact-gate all` no NEW diff; `cargo test` green; the codegen string
-type-compare/alloc counts drop (re-run the §2 census over `src/codegen/` and record
-the delta).
-Commit: —
+Acceptance: N/A (phase moot — codegen does not consume IR type fields; the IR→NIR
+`.name()` render is the correct final seam). The IR-consumer string-op reduction
+that IS in scope (`ir::verify`) moves to Phase 3.
+Commit: — (moot)
 
-### Phase 3 — `ir::verify`, `binary_repr`, wire seams
+### Phase 3 — `ir::verify` native retype (wire seams already final)
 
-- [ ] Retype `ir::verify`'s type reads to `ParameterType`.
-- [ ] `binary_repr` reads `ParameterType`; `ir/binary.rs`/`ir/json.rs` call
-      `name()` only at the byte-emit point.
-- [ ] Tests: `.mfp` round-trip + IR JSON golden tests.
+The wire serializers (`ir/binary.rs`/`ir/json.rs`) and `binary_repr` already render
+`name()` at the byte-emit point (landed in B1a/B1b) — the intended final form, byte-
+identical. The genuine remaining IR-layer work is converting `ir::verify`'s read
+shims to native `ParameterType`.
+
+- [ ] Convert `ir::verify`'s `.name()` read-shims (added in B1a/B1b) to native
+      `ParameterType`: make the verify env maps (`FnSig.params`/`.returns`,
+      `field_types`, `record_field_lists`, `globals`) and the shared helpers
+      (`resource_base_type`, `parse_map`, `is_defaultable`, …) operate on
+      `ParameterType` where it removes a re-parse, OR document each residual `.name()`
+      as a deliberate string boundary (diagnostics that quote a type). No behavior
+      change — diagnostics identical.
+- [ ] Tests: the full `*-invalid` diagnostic golden corpus (accept/reject + wording +
+      order unchanged); `.mfp` round-trip + IR JSON golden tests.
 
 Acceptance: IR JSON/binary artifact bytes byte-identical (golden diff empty);
-`artifact-gate all` no NEW diff; `test-accept` no NEW mismatch; `cargo test` green.
+`artifact-gate all` no NEW diff vs baseline; `test-accept` no NEW mismatch; `cargo
+test` green; diagnostic goldens byte-identical.
 Commit: —
 
 ## Validation Plan
@@ -225,6 +245,34 @@ Commit: —
   boundary + shims; B1b = flip the 19 `ir/value.rs` fields + boundary + shims;
   B2 = native `ParameterType` in codegen consumers (replace shims); B3 =
   `ir::verify`/`binary_repr`/wire seams. Same seams and acceptance as the doc.
+
+- **CODEGEN CONSUMES NIR, NOT IR — Phase 2 (codegen native) is MOOT for the IR
+  retype (2026-08-23).** The plan's §2 assumed codegen reads IR type fields
+  directly (the "676 `.type_` sites, all of codegen" blast radius). It does not:
+  there is a **NIR** (native-IR) layer between IR and codegen. `nir/lower.rs:397`
+  `fn lower_value(value: &IrValue) -> NirValue` (and the sibling `lower_type`/
+  binding/param/field lowerings) is the **IR→NIR boundary**, and `NirValue.type_`
+  is `String` (`rg -c 'type_: String' src/target/shared/nir/mod.rs` → 20). Codegen's
+  ~80 scalar type-compares / 18 `strip_prefix` / 23 `format!` sites all operate on
+  **`NirValue.type_` (String)**, unaffected by the IrValue flip — which is exactly
+  why **zero `src/codegen/` files appeared in the B1a or B1b error sets**. Evidence:
+  the B1a flip (78 errors) and B1b flip (150 errors) touched `ir/`, `verify/`,
+  `binary_repr/`, `manifest/`, `cli/build`, `nir/lower` — never `src/codegen/`.
+  Consequence:
+  - The `.name().into_owned()` renders at the IR→NIR boundary (`nir/lower.rs:132,
+    159,198,232`) ARE the correct **final** form for plan-102-B — NIR stays
+    string-typed; typing NIR is a distinct, larger effort **outside** plan-102-B's
+    stated IR scope (Goal §1 lists only IR fields, never NIR).
+  - **Phase 2 (codegen native) is moot**: there are no codegen IR-type `.name()`
+    shims to replace. The codegen Q3 string-op win the feature envisioned lives in
+    the NIR layer, and belongs to a separate plan, not plan-102-B.
+  - **Phase 3** is re-scoped to its genuinely-remaining IR-layer content: convert
+    `ir::verify`'s `.name()` read-shims (added in B1a/B1b) to native `ParameterType`
+    so the one real IR consumer that does string type-logic stops re-deriving from
+    strings. The wire seams (`ir/binary.rs`/`ir/json.rs`) and `binary_repr` already
+    render `.name()` at the byte-emit point — that IS the intended final form, so
+    they need no further change beyond what B1a/B1b landed. This becomes **B2**
+    (renumbered), and the old "codegen native" B2 is dropped as moot.
 
 ## Summary
 

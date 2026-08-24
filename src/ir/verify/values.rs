@@ -75,7 +75,7 @@ impl TypeEnv {
                 for arg in args {
                     self.check_value_depth(arg, locals, depth + 1);
                 }
-                self.check_constructor(type_, args, locals);
+                self.check_constructor(&type_.name(), args, locals);
             }
             IrValue::UnionWrap {
                 union_type,
@@ -83,7 +83,7 @@ impl TypeEnv {
                 value,
             } => {
                 self.check_value_depth(value, locals, depth + 1);
-                self.check_union_wrap(union_type, member_type, value, locals);
+                self.check_union_wrap(&union_type.name(), &member_type.name(), value, locals);
             }
             IrValue::Closure { captures, .. } => {
                 for capture in captures {
@@ -92,11 +92,11 @@ impl TypeEnv {
             }
             IrValue::UnionExtract { type_, value } => {
                 self.check_value_depth(value, locals, depth + 1);
-                self.check_union_extract(type_, value, locals);
+                self.check_union_extract(&type_.name(), value, locals);
             }
             IrValue::ResultValue { type_, value } => {
                 self.check_value_depth(value, locals, depth + 1);
-                self.check_result_value_type(type_, value, locals);
+                self.check_result_value_type(&type_.name(), value, locals);
             }
             IrValue::ResultIsOk { value } | IrValue::ResultError { value } => {
                 self.check_value_depth(value, locals, depth + 1);
@@ -133,14 +133,15 @@ impl TypeEnv {
                 // Reconcile the (attacker-controlled) stamped `type_` against the
                 // target's actual type before any field/read-only rule trusts it
                 // (bug-404).
-                self.check_with_update_type(type_, target, locals);
+                let type_name = type_.name();
+                self.check_with_update_type(&type_name, target, locals);
                 // Compiler/runtime-owned records may never be updated —
                 // syntaxcheck's TYPE_READ_ONLY_RECORD_UPDATE (message differs for
                 // the Error pair vs the compiler-owned handle records). When
                 // lowering could not stamp the update's type (e.g. the target
                 // is a member access it didn't resolve), infer the target here.
                 let inferred;
-                let mut base = resource_base_type(type_);
+                let mut base = resource_base_type(&type_name);
                 if base.is_empty() || base == "Unknown" {
                     inferred = self.infer_type(target, locals);
                     if let Some(t) = &inferred {
@@ -165,7 +166,7 @@ impl TypeEnv {
                 }
                 // Each WITH update must match its field's declared type —
                 // syntaxcheck's WITH arm of TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH.
-                let fields = self.field_types.get(resource_base_type(type_));
+                let fields = self.field_types.get(resource_base_type(&type_name));
                 let mut seen_fields: HashSet<&str> = HashSet::new();
                 for update in updates {
                     self.check_value_depth(&update.value, locals, depth + 1);
@@ -206,7 +207,8 @@ impl TypeEnv {
                 // A crafted list whose elements do not match its element type is
                 // a type confusion: codegen lays out and reads elements
                 // uniformly by the declared element type.
-                if let Some(element) = type_.strip_prefix("List OF ") {
+                let type_name = type_.name();
+                if let Some(element) = type_name.strip_prefix("List OF ") {
                     for v in values {
                         self.check_literal_range(element, v);
                         if let Some(actual) = self.infer_type(v, locals) {
@@ -227,7 +229,8 @@ impl TypeEnv {
                 // A `Set OF T` element is laid out and read uniformly by the
                 // declared element type, so a crafted mismatch is a type
                 // confusion (mirrors the `List OF T` element check above).
-                if let Some(element) = type_.strip_prefix("Set OF ") {
+                let type_name = type_.name();
+                if let Some(element) = type_name.strip_prefix("Set OF ") {
                     for v in values {
                         self.check_literal_range(element, v);
                         if let Some(actual) = self.infer_type(v, locals) {
@@ -242,12 +245,13 @@ impl TypeEnv {
                 }
             }
             IrValue::MapLiteral { type_, entries } => {
+                let type_name = type_.name();
                 for (k, v) in entries {
                     self.check_value_depth(k, locals, depth + 1);
                     self.check_value_depth(v, locals, depth + 1);
                 }
-                self.check_map_key_comparable(type_);
-                if let Some((key_type, value_type)) = parse_map(type_) {
+                self.check_map_key_comparable(&type_name);
+                if let Some((key_type, value_type)) = parse_map(&type_name) {
                     for (k, v) in entries {
                         self.check_literal_range(key_type, k);
                         self.check_literal_range(value_type, v);
@@ -393,12 +397,12 @@ impl TypeEnv {
             )
         };
         match value {
-            IrValue::Const { type_, value } if numeric(type_) => {
+            IrValue::Const { type_, value } if numeric(&type_.name()) => {
                 self.check_const_literal(expected, value)
             }
             IrValue::Unary { op, operand, .. } if op == "-" => {
                 if let IrValue::Const { type_, value } = operand.as_ref() {
-                    if numeric(type_) {
+                    if numeric(&type_.name()) {
                         self.check_negated_const_literal(expected, value);
                     }
                 }

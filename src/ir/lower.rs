@@ -1126,7 +1126,7 @@ fn lower_inline_trap(
             target,
             args,
             // The fallible form's success type is the call's own result type.
-            type_: success_type.clone(),
+            type_: crate::types::ParameterType::parse(&success_type),
             loc,
         },
         other => other,
@@ -1166,7 +1166,7 @@ fn lower_inline_trap(
         Some(val_name) => vec![IrOp::Assign {
             name: val_name.clone(),
             value: IrValue::ResultValue {
-                type_: success_type.clone(),
+                type_: crate::types::ParameterType::parse(&success_type),
                 value: Box::new(IrValue::Local(res_name.clone())),
             },
             loc: stmt_loc,
@@ -1569,7 +1569,7 @@ fn promote_loop_numeric_type_name(start: &str, end: &str, step: &str) -> String 
 
 fn numeric_constant_for_type(type_: &str, value: &str) -> IrValue {
     IrValue::Const {
-        type_: type_.to_string(),
+        type_: crate::types::ParameterType::parse(type_),
         value: value.to_string(),
     }
 }
@@ -1619,7 +1619,7 @@ fn lower_match_case(
                 _ => "false",
             };
             IrMatchPattern::Value(IrValue::Const {
-                type_: "Boolean".to_string(),
+                type_: crate::types::ParameterType::parse("Boolean"),
                 value: matched.to_string(),
             })
         }
@@ -1685,7 +1685,7 @@ fn match_case_binding(
                         binding.clone(),
                         success.to_string(),
                         IrValue::ResultValue {
-                            type_: success.to_string(),
+                            type_: crate::types::ParameterType::parse(&success.to_string()),
                             value: Box::new(IrValue::Local(matched_local.to_string())),
                         },
                     )),
@@ -1714,7 +1714,7 @@ fn match_case_binding(
                 binding.clone(),
                 binding_type,
                 IrValue::UnionExtract {
-                    type_: type_name.clone(),
+                    type_: crate::types::ParameterType::parse(&type_name.clone()),
                     value: Box::new(IrValue::Local(matched_local.to_string())),
                 },
             ))
@@ -2492,12 +2492,12 @@ fn registry_record_constant(name: &str) -> Option<IrValue> {
             _ => return None,
         };
     Some(IrValue::Constructor {
-        type_: type_name.to_string(),
+        type_: crate::types::ParameterType::parse(&type_name.to_string()),
         args: components
             .iter()
             .enumerate()
             .map(|(index, value)| IrValue::Const {
-                type_: field_types.get(index).cloned().unwrap_or_default(),
+                type_: crate::types::ParameterType::parse(&field_types.get(index).cloned().unwrap_or_default()),
                 value: value.to_string(),
             })
             .collect(),
@@ -2541,7 +2541,7 @@ fn lower_expression_with_expected(
 ) -> IrValue {
     match expression {
         Expression::String(value) => IrValue::Const {
-            type_: "String".to_string(),
+            type_: crate::types::ParameterType::parse("String"),
             value: value.clone(),
         },
         Expression::Number(value) => {
@@ -2583,20 +2583,20 @@ fn lower_expression_with_expected(
                 .to_string()
             };
             IrValue::Const {
-                type_,
+                type_: crate::types::ParameterType::parse(&type_),
                 value: canonical,
             }
         }
         Expression::Scalar(code_point) => IrValue::Const {
-            type_: "Scalar".to_string(),
+            type_: crate::types::ParameterType::parse("Scalar"),
             value: code_point.to_string(),
         },
         Expression::Boolean(value) => IrValue::Const {
-            type_: "Boolean".to_string(),
+            type_: crate::types::ParameterType::parse("Boolean"),
             value: value.to_string(),
         },
         Expression::Identifier(value) if value == "NOTHING" => IrValue::Const {
-            type_: "Nothing".to_string(),
+            type_: crate::types::ParameterType::parse("Nothing"),
             value: "NOTHING".to_string(),
         },
         Expression::Identifier(value) => {
@@ -2616,7 +2616,7 @@ fn lower_expression_with_expected(
                 let value = builtins::package_constant_value(&canonical_value)
                     .expect("recognized package constant has a value")
                     .to_string();
-                return IrValue::Const { type_, value };
+                return IrValue::Const { type_: crate::types::ParameterType::parse(&type_), value };
             }
 
             let base = if locals.contains_key(value) {
@@ -2628,7 +2628,7 @@ fn lower_expression_with_expected(
             {
                 IrValue::FunctionRef {
                     name: canonical_value,
-                    type_: type_.clone(),
+                    type_: crate::types::ParameterType::parse(&type_.clone()),
                 }
             } else if context.binding_types.contains_key(value) {
                 IrValue::Global(value.clone())
@@ -2645,7 +2645,7 @@ fn lower_expression_with_expected(
             }) {
                 IrValue::FunctionRef {
                     name: value.clone(),
-                    type_,
+                    type_: crate::types::ParameterType::parse(&type_),
                 }
             } else {
                 IrValue::Local(value.clone())
@@ -2678,7 +2678,7 @@ fn lower_expression_with_expected(
                 // total lowering (plan-20-D) substitutes Unknown-typed const
                 // placeholders when they are absent rather than panicking.
                 let placeholder = || IrValue::Const {
-                    type_: "Unknown".to_string(),
+                    type_: crate::types::ParameterType::parse("Unknown"),
                     value: String::new(),
                 };
                 let code = lowered.next().unwrap_or_else(placeholder);
@@ -2709,7 +2709,7 @@ fn lower_expression_with_expected(
                                 })
                                 .map(|predicate_type| IrValue::FunctionRef {
                                     name: predicate.clone(),
-                                    type_: predicate_type,
+                                    type_: crate::types::ParameterType::parse(&predicate_type),
                                 })
                         }
                         _ => None,
@@ -2775,7 +2775,7 @@ fn lower_expression_with_expected(
                 args[0] = IrValue::Call {
                     target: "toString".to_string(),
                     args: vec![inner],
-                    type_: "String".to_string(),
+                    type_: crate::types::ParameterType::parse("String"),
                     loc,
                 };
             }
@@ -2795,7 +2795,7 @@ fn lower_expression_with_expected(
                     == Some("AttributedString")
             {
                 args.push(IrValue::Const {
-                    type_: "String".to_string(),
+                    type_: crate::types::ParameterType::parse("String"),
                     value: " ".to_string(),
                 });
             }
@@ -2805,17 +2805,17 @@ fn lower_expression_with_expected(
             for (type_, value) in &padding {
                 if type_.starts_with("List OF ") {
                     args.push(IrValue::ListLiteral {
-                        type_: type_.clone(),
+                        type_: crate::types::ParameterType::parse(&type_.clone()),
                         values: Vec::new(),
                     });
                 } else if parse_map_type(type_).is_some() {
                     args.push(IrValue::MapLiteral {
-                        type_: type_.clone(),
+                        type_: crate::types::ParameterType::parse(&type_.clone()),
                         entries: Vec::new(),
                     });
                 } else {
                     args.push(IrValue::Const {
-                        type_: type_.clone(),
+                        type_: crate::types::ParameterType::parse(&type_.clone()),
                         value: (*value).to_string(),
                     });
                 }
@@ -2989,7 +2989,7 @@ fn lower_expression_with_expected(
                 // (syntaxcheck already enforced their resource semantics).
                 target: thread_resource_plane_target(&resolved_target).to_string(),
                 args,
-                type_: result_type,
+                type_: crate::types::ParameterType::parse(&result_type),
                 loc,
             }
         }
@@ -3062,7 +3062,7 @@ fn lower_expression_with_expected(
                         // A closure's environment is far smaller than `u32::MAX`
                         // slots; the cast cannot lose an index a program produces.
                         index: index as u32,
-                        type_: capture.type_.clone(),
+                        type_: crate::types::ParameterType::parse(&capture.type_.clone()),
                         by_ref,
                     }),
                     loc,
@@ -3121,11 +3121,11 @@ fn lower_expression_with_expected(
                 .join(", ");
             let type_ = format!("FUNC({params}) AS {returns}");
             if captures.is_empty() {
-                IrValue::FunctionRef { name, type_ }
+                IrValue::FunctionRef { name, type_: crate::types::ParameterType::parse(&type_) }
             } else {
                 IrValue::Closure {
                     name,
-                    type_,
+                    type_: crate::types::ParameterType::parse(&type_),
                     captures: captures
                         .iter()
                         .zip(by_ref.iter())
@@ -3135,7 +3135,7 @@ fn lower_expression_with_expected(
                                 // the callback observes and updates the live binding.
                                 IrValue::LocalRef {
                                     name: capture.name.clone(),
-                                    type_: capture.type_.clone(),
+                                    type_: crate::types::ParameterType::parse(&capture.type_.clone()),
                                 }
                             } else {
                                 lower_expression(
@@ -3162,7 +3162,7 @@ fn lower_expression_with_expected(
                 .or_else(|| context.type_index.variant_fields.get(&canonical_type_name))
                 .or_else(|| context.type_index.variant_fields.get(type_name));
             let base = IrValue::Constructor {
-                type_: canonical_type_name,
+                type_: crate::types::ParameterType::parse(&canonical_type_name),
                 args: lower_constructor_args(arguments, fields, locals, context),
             };
             wrap_union_value(base, expression, expected, locals, context)
@@ -3191,7 +3191,7 @@ fn lower_expression_with_expected(
                 })
                 .collect();
             IrValue::WithUpdate {
-                type_,
+                type_: crate::types::ParameterType::parse(&type_),
                 target: lowered_target,
                 updates: lowered_updates,
             }
@@ -3211,7 +3211,7 @@ fn lower_expression_with_expected(
                     .unwrap_or_else(|| "Unknown".to_string())
             });
             IrValue::ListLiteral {
-                type_: format!("List OF {element_type}"),
+                type_: crate::types::ParameterType::parse(&format!("List OF {element_type}")),
                 values: lowered,
             }
         }
@@ -3229,7 +3229,7 @@ fn lower_expression_with_expected(
                 })
                 .collect::<Vec<_>>();
             IrValue::SetLiteral {
-                type_: format!("Set OF {element_type}"),
+                type_: crate::types::ParameterType::parse(&format!("Set OF {element_type}")),
                 values: lowered,
             }
         }
@@ -3242,7 +3242,7 @@ fn lower_expression_with_expected(
             let expected_key = expected_map.as_ref().map(|(key, _)| key.as_str());
             let expected_value = expected_map.as_ref().map(|(_, value)| value.as_str());
             IrValue::MapLiteral {
-                type_: format!("Map OF {key_type} TO {value_type}"),
+                type_: crate::types::ParameterType::parse(&format!("Map OF {key_type} TO {value_type}")),
                 entries: entries
                     .iter()
                     .map(|(key, value)| {
@@ -3260,7 +3260,7 @@ fn lower_expression_with_expected(
             IrValue::MemberAccess {
                 target: Box::new(lower_expression(target, locals, context)),
                 member: member.clone(),
-                type_: member_type,
+                type_: crate::types::ParameterType::parse(&member_type),
             }
         }
         Expression::Trapped { .. } => {
@@ -3292,7 +3292,7 @@ fn lower_expression_with_expected(
                         lower_expression(left, locals, context),
                         lower_expression(right, locals, context),
                     ],
-                    type_: "AttributedString".to_string(),
+                    type_: crate::types::ParameterType::parse("AttributedString"),
                     loc,
                 };
             }
@@ -3300,7 +3300,7 @@ fn lower_expression_with_expected(
                 op: operator.clone(),
                 left: Box::new(lower_expression(left, locals, context)),
                 right: Box::new(lower_expression(right, locals, context)),
-                type_: result_type,
+                type_: crate::types::ParameterType::parse(&result_type),
                 loc,
             }
         }
@@ -3347,12 +3347,12 @@ fn lower_expression_with_expected(
             // existing codegen/golden shifts.
             if operator == "-" {
                 if let IrValue::Const { type_, value } = &lowered_operand {
-                    if type_ == "Fixed"
+                    if matches!(type_, crate::types::ParameterType::Fixed)
                         && numeric::fixed_raw_from_decimal(value).is_err()
                         && numeric::fixed_raw_from_decimal(&format!("-{value}")).is_ok()
                     {
                         return IrValue::Const {
-                            type_: "Fixed".to_string(),
+                            type_: crate::types::ParameterType::parse("Fixed"),
                             value: format!("-{value}"),
                         };
                     }
@@ -3367,24 +3367,24 @@ fn lower_expression_with_expected(
                     // the positive magnitude does not fit an i64 *and* the
                     // negated form does, which is true solely at `i64::MIN`, so
                     // every in-range negated literal keeps its `Unary` shape.
-                    if type_ == "Integer"
+                    if matches!(type_, crate::types::ParameterType::Integer)
                         && value.parse::<i64>().is_err()
                         && format!("-{value}").parse::<i64>().is_ok()
                     {
                         return IrValue::Const {
-                            type_: "Integer".to_string(),
+                            type_: crate::types::ParameterType::parse("Integer"),
                             value: format!("-{value}"),
                         };
                     }
                     // The same fold for the most-negative Money
                     // (`-92233720368547.75808`), whose positive magnitude
                     // overflows the i64 raw (plan-29-B §4.2).
-                    if type_ == "Money"
+                    if matches!(type_, crate::types::ParameterType::Money)
                         && numeric::money_raw_from_decimal(value).is_err()
                         && numeric::money_raw_from_decimal(&format!("-{value}")).is_ok()
                     {
                         return IrValue::Const {
-                            type_: "Money".to_string(),
+                            type_: crate::types::ParameterType::parse("Money"),
                             value: format!("-{value}"),
                         };
                     }
@@ -3393,7 +3393,7 @@ fn lower_expression_with_expected(
             IrValue::Unary {
                 op: operator.clone(),
                 operand: Box::new(lowered_operand),
-                type_: result_type,
+                type_: crate::types::ParameterType::parse(&result_type),
                 loc: IrSourceLoc {
                     line: *line as u32,
                     column: *column as u32,
@@ -3406,18 +3406,18 @@ fn lower_expression_with_expected(
 /// Build an `ErrorLoc` record value for a compile-time source location.
 fn error_loc_value(file: &str, loc: IrSourceLoc) -> IrValue {
     IrValue::Constructor {
-        type_: "ErrorLoc".to_string(),
+        type_: crate::types::ParameterType::parse("ErrorLoc"),
         args: vec![
             IrValue::Const {
-                type_: "String".to_string(),
+                type_: crate::types::ParameterType::parse("String"),
                 value: file.to_string(),
             },
             IrValue::Const {
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
                 value: loc.line.to_string(),
             },
             IrValue::Const {
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
                 value: loc.column.to_string(),
             },
         ],
@@ -3427,7 +3427,7 @@ fn error_loc_value(file: &str, loc: IrSourceLoc) -> IrValue {
 /// Build an `Error` record value (code, message, source) for `error(...)`.
 fn build_error_value(code: IrValue, message: IrValue, file: &str, loc: IrSourceLoc) -> IrValue {
     IrValue::Constructor {
-        type_: "Error".to_string(),
+        type_: crate::types::ParameterType::parse("Error"),
         args: vec![code, message, error_loc_value(file, loc)],
     }
 }
@@ -3455,8 +3455,8 @@ fn wrap_union_value(
         .variant_belongs_to_union(&actual_type, union_type)
     {
         return IrValue::UnionWrap {
-            union_type: union_type.to_string(),
-            member_type: actual_type,
+            union_type: crate::types::ParameterType::parse(&union_type.to_string()),
+            member_type: crate::types::ParameterType::parse(&actual_type),
             value: Box::new(base),
         };
     }

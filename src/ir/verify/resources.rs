@@ -197,7 +197,8 @@ impl TypeEnv {
                         if let Some(IrValue::Call { args, type_, .. })
                         | Some(IrValue::CallResult { args, type_, .. }) = value
                         {
-                            let returned = resource_base_type(type_);
+                            let type_name = type_.name();
+                            let returned = resource_base_type(&type_name);
                             if self.close_op_for(returned).is_some() {
                                 for arg in args {
                                     if let IrValue::Local(source) = arg {

@@ -31,7 +31,7 @@ fn lower_package_project_resolves_external_calls() {
             target: "dep.helper".to_string(),
             args: vec![],
             loc: IrSourceLoc::default(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
         }),
         loc: IrSourceLoc::default(),
     }];

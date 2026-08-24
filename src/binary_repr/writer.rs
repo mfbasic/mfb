@@ -416,7 +416,7 @@ pub(super) fn value_uses_resource_type(value: &IrValue) -> bool {
         | IrValue::Constructor { type_, .. }
         | IrValue::ListLiteral { type_, .. }
         | IrValue::SetLiteral { type_, .. }
-        | IrValue::MapLiteral { type_, .. } => is_resource_type_name(type_),
+        | IrValue::MapLiteral { type_, .. } => is_resource_type_name(&type_.name()),
         IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
             builtins::call_return_type_name(target)
                 .as_deref()
@@ -563,7 +563,7 @@ pub(super) fn collect_resource_names_in_value(
         | IrValue::Constructor { type_, .. }
         | IrValue::ListLiteral { type_, .. }
         | IrValue::SetLiteral { type_, .. }
-        | IrValue::MapLiteral { type_, .. } => record(type_, names),
+        | IrValue::MapLiteral { type_, .. } => record(&type_.name(), names),
         IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
             if let Some(returns) = builtins::call_return_type_name(target) {
                 record(&returns, names);

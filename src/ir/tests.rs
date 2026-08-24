@@ -272,7 +272,7 @@ mod binary_repr_tests {
                 type_: "Integer".to_string(),
                 value: Some(IrValue::Capture {
                     index: u32::MAX,
-                    type_: "Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("Integer"),
                     by_ref: false,
                 }),
                 explicit_type: false,
@@ -334,7 +334,7 @@ mod binary_repr_tests {
                             target: "g".to_string(),
                             args: vec![],
                             loc: IrSourceLoc::default(),
-                            type_: "Unknown".to_string(),
+                            type_: crate::types::ParameterType::parse("Unknown"),
                         },
                         loc: IrSourceLoc::default(),
                     }],
@@ -374,7 +374,7 @@ mod binary_repr_tests {
                         target: "pkg.f".to_string(),
                         args: vec![],
                         loc: IrSourceLoc::default(),
-                        type_: "Unknown".to_string(),
+                        type_: crate::types::ParameterType::parse("Unknown"),
                     },
                     loc: IrSourceLoc::default(),
                 }],
@@ -559,15 +559,15 @@ mod binary_repr_tests {
                 name: "i".to_string(),
                 type_: "Integer".to_string(),
                 start: IrValue::Const {
-                    type_: "Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("Integer"),
                     value: "0".to_string(),
                 },
                 end: IrValue::Const {
-                    type_: "Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("Integer"),
                     value: "10".to_string(),
                 },
                 step: IrValue::Const {
-                    type_: "Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("Integer"),
                     value: "1".to_string(),
                 },
                 body: vec![
@@ -598,10 +598,10 @@ mod binary_repr_tests {
             IrOp::Eval {
                 value: IrValue::Closure {
                     name: "lam".to_string(),
-                    type_: "() -> Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("() -> Integer"),
                     captures: vec![IrValue::Capture {
                         index: 0,
-                        type_: "Integer".to_string(),
+                        type_: crate::types::ParameterType::parse("Integer"),
                         by_ref: false,
                     }],
                 },
@@ -613,7 +613,7 @@ mod binary_repr_tests {
             },
             IrOp::ExitProgram {
                 code: IrValue::Const {
-                    type_: "Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("Integer"),
                     value: "1".to_string(),
                 },
                 loc: IrSourceLoc::default(),
@@ -1226,7 +1226,7 @@ mod lower_tests {
         );
         let const_type = |body: &[IrOp], name: &str| -> String {
             match bind_value(body, name) {
-                Some(IrValue::Const { type_, .. }) => type_.clone(),
+                Some(IrValue::Const { type_, .. }) => type_.name().into_owned(),
                 _ => "<missing>".to_string(),
             }
         };
@@ -1261,7 +1261,7 @@ mod lower_tests {
             matches!(
                 bind_value(body, "min"),
                 Some(IrValue::Const { type_, value })
-                    if type_ == "Integer" && value == "-9223372036854775808"
+                    if type_.name() == "Integer" && value == "-9223372036854775808"
             ),
             "the most-negative Integer literal must fold to a signed Const",
         );
@@ -1295,7 +1295,7 @@ mod lower_tests {
         assert!(matches!(bind_value(body, "c"), Some(IrValue::Unary { .. })));
         assert!(matches!(
             bind_value(body, "s"),
-            Some(IrValue::Binary { type_, .. }) if type_ == "String"
+            Some(IrValue::Binary { type_, .. }) if type_.name() == "String"
         ));
     }
 
@@ -1337,7 +1337,7 @@ mod lower_tests {
         let ir = lower_src("SUB main\n  LET e AS Error = error(42, \"bad\")\nEND SUB\n");
         assert!(matches!(
             bind_value(main_body(&ir), "e"),
-            Some(IrValue::Constructor { type_, .. }) if type_ == "Error"
+            Some(IrValue::Constructor { type_, .. }) if type_.name() == "Error"
         ));
     }
 
@@ -1346,7 +1346,7 @@ mod lower_tests {
         let ir = lower_src("SUB main\n  LET s AS String = toString(5)\nEND SUB\n");
         assert!(matches!(
             bind_value(main_body(&ir), "s"),
-            Some(IrValue::Call { type_, .. }) if type_ == "String"
+            Some(IrValue::Call { type_, .. }) if type_.name() == "String"
         ));
     }
 
@@ -1368,7 +1368,7 @@ mod lower_tests {
             IrOp::Bind {
                 value: Some(IrValue::Constructor { type_, .. }),
                 ..
-            } if type_ == "Point"
+            } if type_.name() == "Point"
         )));
         assert!(f.body.iter().any(|op| matches!(
             op,
@@ -1442,7 +1442,7 @@ mod lower_tests {
             lower_src("IMPORT collections\nSUB main\n  LET xs AS List OF Integer = []\nEND SUB\n");
         assert!(matches!(
             bind_value(main_body(&ir), "xs"),
-            Some(IrValue::ListLiteral { type_, .. }) if type_ == "List OF Integer"
+            Some(IrValue::ListLiteral { type_, .. }) if type_.name() == "List OF Integer"
         ));
     }
 
@@ -2153,7 +2153,7 @@ mod lower_tests {
                 name,
                 value: Some(IrValue::Call { type_, .. }),
                 ..
-            } if name == "a" => Some(type_.clone()),
+            } if name == "a" => Some(type_.name().into_owned()),
             _ => None,
         });
         assert_eq!(sqrt_ty.as_deref(), Some("Float"));
@@ -2180,7 +2180,7 @@ mod lower_tests {
                 name,
                 value: Some(IrValue::Call { type_, .. }),
                 ..
-            } if name == "n" && type_ == "Integer"
+            } if name == "n" && type_.name() == "Integer"
         )));
     }
 
@@ -2433,7 +2433,7 @@ mod lower_tests {
             IrOp::Return {
                 value: Some(IrValue::Call { target, type_, .. }),
                 ..
-            } if target == "extAdd" => Some(type_.clone()),
+            } if target == "extAdd" => Some(type_.name().into_owned()),
             _ => None,
         });
         assert_eq!(call_ty.as_deref(), Some("Integer"));
@@ -2484,7 +2484,7 @@ mod lower_tests {
         );
         assert!(matches!(
             bind_value(&function(&ir, "run").body, "j"),
-            Some(IrValue::Call { type_, .. }) if type_ == "Json"
+            Some(IrValue::Call { type_, .. }) if type_.name() == "Json"
         ));
     }
 
@@ -3194,9 +3194,9 @@ mod lower_tests {
              SUB main\nEND SUB\n",
         );
         // The inner list literal was typed from its first (String) element.
-        fn find_list(v: &IrValue) -> Option<&str> {
+        fn find_list(v: &IrValue) -> Option<String> {
             match v {
-                IrValue::ListLiteral { type_, .. } => Some(type_.as_str()),
+                IrValue::ListLiteral { type_, .. } => Some(type_.name().into_owned()),
                 IrValue::Call { args, .. } => args.iter().find_map(find_list),
                 _ => None,
             }
@@ -3205,7 +3205,7 @@ mod lower_tests {
             IrOp::Return { value: Some(v), .. } => find_list(v),
             _ => None,
         });
-        assert_eq!(ty, Some("List OF String"));
+        assert_eq!(ty.as_deref(), Some("List OF String"));
     }
 
     #[test]
@@ -3285,7 +3285,7 @@ mod lower_tests {
         );
         fn list_type(v: &IrValue) -> Option<String> {
             match v {
-                IrValue::ListLiteral { type_, .. } => Some(type_.clone()),
+                IrValue::ListLiteral { type_, .. } => Some(type_.name().into_owned()),
                 IrValue::Call { args, .. } => args.iter().find_map(list_type),
                 _ => None,
             }
@@ -3788,14 +3788,14 @@ mod lower_construct_tests {
         );
         match bind_value(&ir, "f", "a") {
             IrValue::Const { type_, value } => {
-                assert_eq!(type_, "Fixed");
+                assert_eq!(type_.name(), "Fixed");
                 assert_eq!(value, "-2147483648.0");
             }
             _ => panic!("expected a folded Fixed const"),
         }
         match bind_value(&ir, "f", "c") {
             IrValue::Const { type_, value } => {
-                assert_eq!(type_, "Money");
+                assert_eq!(type_.name(), "Money");
                 assert!(value.starts_with('-'), "money value: {value}");
             }
             _ => panic!("expected a folded Money const"),
@@ -3818,7 +3818,7 @@ mod lower_construct_tests {
         );
         for (name, want) in [("m", "Money"), ("x", "Fixed"), ("b", "Byte")] {
             match bind_value(&ir, "f", name) {
-                IrValue::Const { type_, .. } => assert_eq!(type_, want, "`{name}`"),
+                IrValue::Const { type_, .. } => assert_eq!(type_.name(), want, "`{name}`"),
                 _ => panic!("expected a {want} const for `{name}`"),
             }
         }
@@ -3837,7 +3837,7 @@ mod lower_construct_tests {
         );
         match bind_value(&ir, "f", "s") {
             IrValue::SetLiteral { type_, values } => {
-                assert_eq!(type_, "Set OF Integer");
+                assert_eq!(type_.name(), "Set OF Integer");
                 assert_eq!(values.len(), 3);
             }
             _ => panic!("expected a SetLiteral"),
@@ -3935,7 +3935,7 @@ mod lower_construct_tests {
              SUB main\nEND SUB\n",
         );
         match bind_value(&ir, "f", "raw") {
-            IrValue::Const { type_, .. } => assert_eq!(type_, "Float"),
+            IrValue::Const { type_, .. } => assert_eq!(type_.name(), "Float"),
             _ => panic!("expected a Float const for a bare decimal literal"),
         }
     }

@@ -1300,7 +1300,7 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
     match v {
         IrValue::Const { type_, value } => {
             put_u8(out, 0);
-            put_str(out, type_);
+            put_str(out, &type_.name());
             put_str(out, value);
         }
         IrValue::Local(name) => {
@@ -1314,7 +1314,7 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
         IrValue::FunctionRef { name, type_ } => {
             put_u8(out, 3);
             put_str(out, name);
-            put_str(out, type_);
+            put_str(out, &type_.name());
         }
         IrValue::Closure {
             name,
@@ -1323,7 +1323,7 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
         } => {
             put_u8(out, 4);
             put_str(out, name);
-            put_str(out, type_);
+            put_str(out, &type_.name());
             put_vec(out, captures, encode_value);
         }
         IrValue::Capture {
@@ -1333,13 +1333,13 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
         } => {
             put_u8(out, 5);
             put_u32(out, *index);
-            put_str(out, type_);
+            put_str(out, &type_.name());
             put_bool(out, *by_ref);
         }
         IrValue::LocalRef { name, type_ } => {
             put_u8(out, 20);
             put_str(out, name);
-            put_str(out, type_);
+            put_str(out, &type_.name());
         }
         IrValue::Call {
             target,
@@ -1350,7 +1350,7 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
             put_u8(out, 6);
             put_str(out, target);
             put_vec(out, args, encode_value);
-            put_str(out, type_);
+            put_str(out, &type_.name());
             put_loc(out, *loc);
         }
         IrValue::CallResult {
@@ -1362,12 +1362,12 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
             put_u8(out, 7);
             put_str(out, target);
             put_vec(out, args, encode_value);
-            put_str(out, type_);
+            put_str(out, &type_.name());
             put_loc(out, *loc);
         }
         IrValue::Constructor { type_, args } => {
             put_u8(out, 8);
-            put_str(out, type_);
+            put_str(out, &type_.name());
             put_vec(out, args, encode_value);
         }
         IrValue::UnionWrap {
@@ -1376,13 +1376,13 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
             value,
         } => {
             put_u8(out, 9);
-            put_str(out, union_type);
-            put_str(out, member_type);
+            put_str(out, &union_type.name());
+            put_str(out, &member_type.name());
             encode_value(out, value);
         }
         IrValue::UnionExtract { type_, value } => {
             put_u8(out, 10);
-            put_str(out, type_);
+            put_str(out, &type_.name());
             encode_value(out, value);
         }
         IrValue::ResultIsOk { value } => {
@@ -1391,7 +1391,7 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
         }
         IrValue::ResultValue { type_, value } => {
             put_u8(out, 12);
-            put_str(out, type_);
+            put_str(out, &type_.name());
             encode_value(out, value);
         }
         IrValue::ResultError { value } => {
@@ -1404,7 +1404,7 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
             updates,
         } => {
             put_u8(out, 14);
-            put_str(out, type_);
+            put_str(out, &type_.name());
             encode_value(out, target);
             put_vec(out, updates, |o, u| {
                 put_str(o, &u.field);
@@ -1413,17 +1413,17 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
         }
         IrValue::ListLiteral { type_, values } => {
             put_u8(out, 15);
-            put_str(out, type_);
+            put_str(out, &type_.name());
             put_vec(out, values, encode_value);
         }
         IrValue::SetLiteral { type_, values } => {
             put_u8(out, 21);
-            put_str(out, type_);
+            put_str(out, &type_.name());
             put_vec(out, values, encode_value);
         }
         IrValue::MapLiteral { type_, entries } => {
             put_u8(out, 16);
-            put_str(out, type_);
+            put_str(out, &type_.name());
             put_vec(out, entries, |o, (k, val)| {
                 encode_value(o, k);
                 encode_value(o, val);
@@ -1437,7 +1437,7 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
             put_u8(out, 17);
             encode_value(out, target);
             put_str(out, member);
-            put_str(out, type_);
+            put_str(out, &type_.name());
         }
         IrValue::Binary {
             op,
@@ -1450,7 +1450,7 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
             put_str(out, op);
             encode_value(out, left);
             encode_value(out, right);
-            put_str(out, type_);
+            put_str(out, &type_.name());
             put_loc(out, *loc);
         }
         IrValue::Unary {
@@ -1462,7 +1462,7 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
             put_u8(out, 19);
             put_str(out, op);
             encode_value(out, operand);
-            put_str(out, type_);
+            put_str(out, &type_.name());
             put_loc(out, *loc);
         }
     }
@@ -1490,62 +1490,62 @@ fn decode_value_body(r: &mut IrReader) -> Result<IrValue, String> {
     let tag = r.u8()?;
     Ok(match tag {
         0 => IrValue::Const {
-            type_: r.string()?,
+            type_: crate::types::ParameterType::parse(&r.string()?),
             value: r.string()?,
         },
         1 => IrValue::Local(r.string()?),
         2 => IrValue::Global(r.string()?),
         3 => IrValue::FunctionRef {
             name: r.string()?,
-            type_: r.string()?,
+            type_: crate::types::ParameterType::parse(&r.string()?),
         },
         4 => IrValue::Closure {
             name: r.string()?,
-            type_: r.string()?,
+            type_: crate::types::ParameterType::parse(&r.string()?),
             captures: decode_vec(r, decode_value)?,
         },
         5 => IrValue::Capture {
             index: r.u32()?,
-            type_: r.string()?,
+            type_: crate::types::ParameterType::parse(&r.string()?),
             by_ref: r.bool()?,
         },
         6 => IrValue::Call {
             target: r.string()?,
             args: decode_vec(r, decode_value)?,
-            type_: r.string()?,
+            type_: crate::types::ParameterType::parse(&r.string()?),
             loc: get_loc(r)?,
         },
         7 => IrValue::CallResult {
             target: r.string()?,
             args: decode_vec(r, decode_value)?,
-            type_: r.string()?,
+            type_: crate::types::ParameterType::parse(&r.string()?),
             loc: get_loc(r)?,
         },
         8 => IrValue::Constructor {
-            type_: r.string()?,
+            type_: crate::types::ParameterType::parse(&r.string()?),
             args: decode_vec(r, decode_value)?,
         },
         9 => IrValue::UnionWrap {
-            union_type: r.string()?,
-            member_type: r.string()?,
+            union_type: crate::types::ParameterType::parse(&r.string()?),
+            member_type: crate::types::ParameterType::parse(&r.string()?),
             value: Box::new(decode_value(r)?),
         },
         10 => IrValue::UnionExtract {
-            type_: r.string()?,
+            type_: crate::types::ParameterType::parse(&r.string()?),
             value: Box::new(decode_value(r)?),
         },
         11 => IrValue::ResultIsOk {
             value: Box::new(decode_value(r)?),
         },
         12 => IrValue::ResultValue {
-            type_: r.string()?,
+            type_: crate::types::ParameterType::parse(&r.string()?),
             value: Box::new(decode_value(r)?),
         },
         13 => IrValue::ResultError {
             value: Box::new(decode_value(r)?),
         },
         14 => IrValue::WithUpdate {
-            type_: r.string()?,
+            type_: crate::types::ParameterType::parse(&r.string()?),
             target: Box::new(decode_value(r)?),
             updates: decode_vec(r, |r| {
                 Ok(IrRecordUpdate {
@@ -1555,15 +1555,15 @@ fn decode_value_body(r: &mut IrReader) -> Result<IrValue, String> {
             })?,
         },
         15 => IrValue::ListLiteral {
-            type_: r.string()?,
+            type_: crate::types::ParameterType::parse(&r.string()?),
             values: decode_vec(r, decode_value)?,
         },
         21 => IrValue::SetLiteral {
-            type_: r.string()?,
+            type_: crate::types::ParameterType::parse(&r.string()?),
             values: decode_vec(r, decode_value)?,
         },
         16 => IrValue::MapLiteral {
-            type_: r.string()?,
+            type_: crate::types::ParameterType::parse(&r.string()?),
             entries: decode_vec(r, |r| {
                 let k = decode_value(r)?;
                 let v = decode_value(r)?;
@@ -1573,24 +1573,24 @@ fn decode_value_body(r: &mut IrReader) -> Result<IrValue, String> {
         17 => IrValue::MemberAccess {
             target: Box::new(decode_value(r)?),
             member: r.string()?,
-            type_: r.string()?,
+            type_: crate::types::ParameterType::parse(&r.string()?),
         },
         18 => IrValue::Binary {
             op: r.string()?,
             left: Box::new(decode_value(r)?),
             right: Box::new(decode_value(r)?),
-            type_: r.string()?,
+            type_: crate::types::ParameterType::parse(&r.string()?),
             loc: get_loc(r)?,
         },
         19 => IrValue::Unary {
             op: r.string()?,
             operand: Box::new(decode_value(r)?),
-            type_: r.string()?,
+            type_: crate::types::ParameterType::parse(&r.string()?),
             loc: get_loc(r)?,
         },
         20 => IrValue::LocalRef {
             name: r.string()?,
-            type_: r.string()?,
+            type_: crate::types::ParameterType::parse(&r.string()?),
         },
         other => {
             return Err(format!(

@@ -557,7 +557,7 @@ impl ConstPool {
 
     pub(super) fn add(&mut self, strings: &mut StringPool, value: &IrValue) -> Result<u32, String> {
         let entry = match value {
-            IrValue::Const { type_, value } => match type_.as_str() {
+            IrValue::Const { type_, value } => match type_.name().as_ref() {
                 "Nothing" => ConstEntry {
                     kind: 1,
                     payload: Vec::new(),

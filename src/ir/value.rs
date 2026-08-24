@@ -1,4 +1,5 @@
 use super::*;
+use crate::types::ParameterType;
 
 #[derive(Clone)]
 pub(crate) struct IrMatchCase {
@@ -18,7 +19,7 @@ pub(crate) enum IrMatchPattern {
 #[derive(Clone)]
 pub(crate) enum IrValue {
     Const {
-        type_: String,
+        type_: ParameterType,
         value: String,
     },
     Local(String),
@@ -29,15 +30,15 @@ pub(crate) enum IrValue {
     /// binding through the slot.
     LocalRef {
         name: String,
-        type_: String,
+        type_: ParameterType,
     },
     FunctionRef {
         name: String,
-        type_: String,
+        type_: ParameterType,
     },
     Closure {
         name: String,
-        type_: String,
+        type_: ParameterType,
         captures: Vec<IrValue>,
     },
     Capture {
@@ -45,7 +46,7 @@ pub(crate) enum IrValue {
         /// the package format encodes, so the in-memory value cannot silently
         /// disagree with its serialization.
         index: u32,
-        type_: String,
+        type_: ParameterType,
         /// When set, the env slot at `index` holds a pointer to the parent
         /// binding's slot (a non-escaping `MUT` by-ref capture), so the capture binds a
         /// *reference* local: reads and writes deref through the slot pointer.
@@ -56,7 +57,7 @@ pub(crate) enum IrValue {
         target: String,
         args: Vec<IrValue>,
         // Result type of the call (the callee's return type; plan-20-B).
-        type_: String,
+        type_: ParameterType,
         // Source location of the call expression (origin for helper-generated errors).
         loc: IrSourceLoc,
     },
@@ -64,21 +65,21 @@ pub(crate) enum IrValue {
         target: String,
         args: Vec<IrValue>,
         // Success type of the fallible call (the `T` of `Result OF T`; plan-20-B).
-        type_: String,
+        type_: ParameterType,
         // Source location of the call expression (origin for helper-generated errors).
         loc: IrSourceLoc,
     },
     Constructor {
-        type_: String,
+        type_: ParameterType,
         args: Vec<IrValue>,
     },
     UnionWrap {
-        union_type: String,
-        member_type: String,
+        union_type: ParameterType,
+        member_type: ParameterType,
         value: Box<IrValue>,
     },
     UnionExtract {
-        type_: String,
+        type_: ParameterType,
         value: Box<IrValue>,
     },
     ResultIsOk {
@@ -86,44 +87,44 @@ pub(crate) enum IrValue {
     },
     ResultValue {
         // Success type extracted from the `Result` (plan-20-B).
-        type_: String,
+        type_: ParameterType,
         value: Box<IrValue>,
     },
     ResultError {
         value: Box<IrValue>,
     },
     WithUpdate {
-        type_: String,
+        type_: ParameterType,
         target: Box<IrValue>,
         updates: Vec<IrRecordUpdate>,
     },
     ListLiteral {
-        type_: String,
+        type_: ParameterType,
         values: Vec<IrValue>,
     },
     /// `Set OF T { … }` (plan-63): the elements build a deduplicated set. `type_`
     /// is the full `Set OF T` string; `values` are the element expressions in
     /// source order (duplicates collapse at build time).
     SetLiteral {
-        type_: String,
+        type_: ParameterType,
         values: Vec<IrValue>,
     },
     MapLiteral {
-        type_: String,
+        type_: ParameterType,
         entries: Vec<(IrValue, IrValue)>,
     },
     MemberAccess {
         target: Box<IrValue>,
         member: String,
         // Type of the accessed field/member (plan-20-B).
-        type_: String,
+        type_: ParameterType,
     },
     Binary {
         op: String,
         left: Box<IrValue>,
         right: Box<IrValue>,
         // Result type of the operation (plan-20-B).
-        type_: String,
+        type_: ParameterType,
         // Source location of the operator (origin for arithmetic-generated errors).
         loc: IrSourceLoc,
     },
@@ -131,7 +132,7 @@ pub(crate) enum IrValue {
         op: String,
         operand: Box<IrValue>,
         // Result type of the operation (plan-20-B).
-        type_: String,
+        type_: ParameterType,
         // Source location of the operator (origin for arithmetic-generated errors).
         loc: IrSourceLoc,
     },
@@ -142,7 +143,19 @@ impl IrValue {
     /// `ResultIsOk` is always `Boolean` and `ResultError` always `Error`;
     /// `Local`/`Global` resolve through the enclosing binding environment
     /// (master plan §4.1) and yield `None` here.
-    pub(crate) fn annotated_type(&self) -> Option<&str> {
+    ///
+    /// Rendered as a string via [`ParameterType::name`] at this seam so the many
+    /// string consumers keep working (a `Cow` because a container type name is a
+    /// freshly formatted `String` while a scalar/nominal borrows the interned name).
+    /// The typed accessor is [`annotated_parameter_type`](Self::annotated_parameter_type).
+    pub(crate) fn annotated_type(&self) -> Option<std::borrow::Cow<'_, str>> {
+        self.annotated_parameter_type().map(|t| t.name())
+    }
+
+    /// The node's annotated result type as a [`ParameterType`], or `None` for a
+    /// `Local`/`Global` (resolved through the binding environment instead). The
+    /// synthesized `ResultIsOk`/`ResultError` results are `Boolean`/`Error`.
+    pub(crate) fn annotated_parameter_type(&self) -> Option<ParameterType> {
         match self {
             IrValue::Const { type_, .. }
             | IrValue::LocalRef { type_, .. }
@@ -160,10 +173,10 @@ impl IrValue {
             | IrValue::MapLiteral { type_, .. }
             | IrValue::MemberAccess { type_, .. }
             | IrValue::Binary { type_, .. }
-            | IrValue::Unary { type_, .. } => Some(type_),
-            IrValue::UnionWrap { union_type, .. } => Some(union_type),
-            IrValue::ResultIsOk { .. } => Some("Boolean"),
-            IrValue::ResultError { .. } => Some("Error"),
+            | IrValue::Unary { type_, .. } => Some(type_.clone()),
+            IrValue::UnionWrap { union_type, .. } => Some(union_type.clone()),
+            IrValue::ResultIsOk { .. } => Some(ParameterType::Boolean),
+            IrValue::ResultError { .. } => Some(ParameterType::named("Error")),
             IrValue::Local(_) | IrValue::Global(_) => None,
         }
     }
@@ -323,7 +336,7 @@ mod visit_tests {
         IrValue::Unary {
             op: "-".to_string(),
             operand: Box::new(operand),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             loc: loc(),
         }
     }
@@ -335,7 +348,7 @@ mod visit_tests {
             op: "+".to_string(),
             left: Box::new(IrValue::Local("a".to_string())),
             right: Box::new(unary(IrValue::Local("b".to_string()))),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             loc: loc(),
         };
         let mut locals = Vec::new();
