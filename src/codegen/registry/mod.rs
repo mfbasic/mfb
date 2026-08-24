@@ -2038,7 +2038,9 @@ fn substitute(
         ParameterType::MapEntryOf(key, value) => {
             ParameterType::map_entry_of(substitute(key, bindings)?, substitute(value, bindings)?)
         }
-        ParameterType::ResultOf(success) => ParameterType::result_of(substitute(success, bindings)?),
+        ParameterType::ResultOf(success) => {
+            ParameterType::result_of(substitute(success, bindings)?)
+        }
         ParameterType::Func(params, ret, isolated) => {
             let params = params
                 .iter()
@@ -2932,8 +2934,17 @@ mod tests {
         let get = func(
             "get",
             vec![
-                generic_impl(vec![list_of(ParameterType::var("T")), Integer], ParameterType::var("T")),
-                generic_impl(vec![map_of(ParameterType::var("K"), ParameterType::var("V")), ParameterType::var("K")], ParameterType::var("V")),
+                generic_impl(
+                    vec![list_of(ParameterType::var("T")), Integer],
+                    ParameterType::var("T"),
+                ),
+                generic_impl(
+                    vec![
+                        map_of(ParameterType::var("K"), ParameterType::var("V")),
+                        ParameterType::var("K"),
+                    ],
+                    ParameterType::var("V"),
+                ),
             ],
         );
 
@@ -2991,7 +3002,10 @@ mod tests {
         let wait_for = func(
             "waitFor",
             vec![generic_impl(
-                vec![data_handle(ParameterType::var("Msg"), ParameterType::var("Out"))],
+                vec![data_handle(
+                    ParameterType::var("Msg"),
+                    ParameterType::var("Out"),
+                )],
                 ParameterType::var("Out"),
             )],
         );
@@ -3019,7 +3033,10 @@ mod tests {
         let receive = func(
             "receive",
             vec![generic_impl(
-                vec![data_handle(ParameterType::var("Msg"), ParameterType::var("Out"))],
+                vec![data_handle(
+                    ParameterType::var("Msg"),
+                    ParameterType::var("Out"),
+                )],
                 ParameterType::var("Msg"),
             )],
         );
@@ -3046,7 +3063,10 @@ mod tests {
         let send = func(
             "send",
             vec![generic_impl(
-                vec![data_handle(ParameterType::var("Msg"), ParameterType::var("Out")), ParameterType::var("Msg")],
+                vec![
+                    data_handle(ParameterType::var("Msg"), ParameterType::var("Out")),
+                    ParameterType::var("Msg"),
+                ],
                 Nothing,
             )],
         );
@@ -3084,7 +3104,15 @@ mod tests {
         let transfer = func(
             "transfer",
             vec![generic_impl(
-                vec![th(false, ParameterType::var("Msg"), ParameterType::var("Res"), ParameterType::var("Out")), ParameterType::var("Res")],
+                vec![
+                    th(
+                        false,
+                        ParameterType::var("Msg"),
+                        ParameterType::var("Res"),
+                        ParameterType::var("Out"),
+                    ),
+                    ParameterType::var("Res"),
+                ],
                 Nothing,
             )],
         );
@@ -3112,7 +3140,12 @@ mod tests {
         let accept = func(
             "accept",
             vec![generic_impl(
-                vec![th(false, ParameterType::var("Msg"), ParameterType::var("Res"), ParameterType::var("Out"))],
+                vec![th(
+                    false,
+                    ParameterType::var("Msg"),
+                    ParameterType::var("Res"),
+                    ParameterType::var("Out"),
+                )],
                 ParameterType::var("Res"),
             )],
         );
@@ -3158,7 +3191,15 @@ mod tests {
                 param(
                     "f",
                     ParameterType::func_isolated(
-                        vec![th(true, ParameterType::var("Msg"), worker_res, ParameterType::var("Out")), ParameterType::var("In")],
+                        vec![
+                            th(
+                                true,
+                                ParameterType::var("Msg"),
+                                worker_res,
+                                ParameterType::var("Out"),
+                            ),
+                            ParameterType::var("In"),
+                        ],
                         ParameterType::var("Out"),
                     ),
                 ),
@@ -3166,13 +3207,21 @@ mod tests {
                 opt_int("inboundLimit"),
                 opt_int("outboundLimit"),
             ],
-            return_type: th(false, ParameterType::var("Msg"), ret_res, ParameterType::var("Out")),
+            return_type: th(
+                false,
+                ParameterType::var("Msg"),
+                ret_res,
+                ParameterType::var("Out"),
+            ),
             errors: vec![],
             body: Body::Intrinsic,
         };
         let start = func(
             "start",
-            vec![overload(ParameterType::var("Res"), ParameterType::var("Res")), overload(Nothing, Nothing)],
+            vec![
+                overload(ParameterType::var("Res"), ParameterType::var("Res")),
+                overload(Nothing, Nothing),
+            ],
         );
 
         // Data-only worker: strict validation MUST accept (via the data overload), and
@@ -3275,7 +3324,10 @@ mod tests {
         use ParameterType::Integer;
         let get = func(
             "get",
-            vec![generic_impl(vec![list_of(ParameterType::var("T")), Integer], ParameterType::var("T"))],
+            vec![generic_impl(
+                vec![list_of(ParameterType::var("T")), Integer],
+                ParameterType::var("T"),
+            )],
         );
         // An Unknown collection leaves `T` unbound, so there is no concrete return.
         assert!(get.dispatch(&call(&["Unknown", "Integer"])).is_none());
@@ -3318,7 +3370,9 @@ mod tests {
             ParameterType::var("K"),
             Integer,
         )));
-        assert!(contains_var(&ParameterType::result_of(ParameterType::var("T"))));
+        assert!(contains_var(&ParameterType::result_of(ParameterType::var(
+            "T"
+        ))));
         assert!(!contains_var(&list_of(Integer)));
         assert!(!contains_var(&ParameterType::result_of(Integer)));
         assert!(!contains_var(&ParameterType::named("Instant")));
@@ -3329,14 +3383,18 @@ mod tests {
         use ParameterType::{Integer, String};
         // MapEntry OF K TO V: unify binds K/V from the concrete pair, then substitute
         // rebuilds the concrete pair from a fully-generic pattern.
-        let pattern =
-            ParameterType::map_entry_of(ParameterType::var("K"), ParameterType::var("V"));
+        let pattern = ParameterType::map_entry_of(ParameterType::var("K"), ParameterType::var("V"));
         let concrete = ParameterType::map_entry_of(String, Integer);
         let mut bindings = BTreeMap::new();
         assert!(unify(&pattern, &concrete, &mut bindings, false));
         assert_eq!(substitute(&pattern, &bindings), Some(concrete.clone()));
         // A mismatched shape (Map OF vs MapEntry OF) does not unify.
-        assert!(!unify(&pattern, &map_of(String, Integer), &mut BTreeMap::new(), false));
+        assert!(!unify(
+            &pattern,
+            &map_of(String, Integer),
+            &mut BTreeMap::new(),
+            false
+        ));
 
         // Result OF T: bind T, substitute back.
         let rpattern = ParameterType::result_of(ParameterType::var("T"));
@@ -3344,7 +3402,12 @@ mod tests {
         let mut rbindings = BTreeMap::new();
         assert!(unify(&rpattern, &rconcrete, &mut rbindings, false));
         assert_eq!(substitute(&rpattern, &rbindings), Some(rconcrete));
-        assert!(!unify(&rpattern, &list_of(Integer), &mut BTreeMap::new(), false));
+        assert!(!unify(
+            &rpattern,
+            &list_of(Integer),
+            &mut BTreeMap::new(),
+            false
+        ));
     }
 
     #[test]

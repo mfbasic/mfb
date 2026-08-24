@@ -313,7 +313,7 @@ Acceptance: round-trip + unify/substitute tests pass; `artifact-gate all` shows 
 NEW diff vs baseline; `cargo test` green. VERIFIED — new unit tests pass; gate
 `diff` vs baseline IDENTICAL; full suite's sole failure is the `artifact_gate_all`
 baseline.
-Commit: —
+Commit: f67c31783
 
 ## Validation Plan
 

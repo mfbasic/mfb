@@ -285,9 +285,7 @@ impl ParameterType {
             ParameterType::MapEntryOf(key, value) => {
                 Cow::Owned(format!("MapEntry OF {} TO {}", key.name(), value.name()))
             }
-            ParameterType::ResultOf(success) => {
-                Cow::Owned(format!("Result OF {}", success.name()))
-            }
+            ParameterType::ResultOf(success) => Cow::Owned(format!("Result OF {}", success.name())),
             ParameterType::Res(inner) => Cow::Owned(format!("RES {}", inner.name())),
             ParameterType::Named(elem) => Cow::Borrowed(elem.resolve()),
             ParameterType::Var(name) => Cow::Borrowed(name.resolve()),

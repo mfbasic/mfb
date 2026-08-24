@@ -58,8 +58,8 @@ impl Symbol {
         let leaked: &'static str = Box::leak(s.to_owned().into_boxed_str());
         // `strings.len()` is the 0-based index; the `Symbol` stores index + 1 so it
         // is non-zero. `u32` is ample: the table holds distinct type spellings.
-        let id = NonZeroU32::new(interner.strings.len() as u32 + 1)
-            .expect("interner overflowed u32");
+        let id =
+            NonZeroU32::new(interner.strings.len() as u32 + 1).expect("interner overflowed u32");
         let sym = Symbol(id);
         interner.strings.push(leaked);
         interner.map.insert(leaked, sym);
