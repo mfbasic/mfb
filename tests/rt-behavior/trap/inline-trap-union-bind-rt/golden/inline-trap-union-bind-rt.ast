@@ -1,0 +1,157 @@
+{
+  "project": "inline-trap-union-bind-rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 5 },
+    { "module": "json", "line": 6 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Circle",
+      "line": 8,
+      "fields": [
+      { "visibility": null, "name": "radius", "type": "Integer", "line": 9 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Rect",
+      "line": 11,
+      "fields": [
+      { "visibility": null, "name": "w", "type": "Integer", "line": 12 },
+      { "visibility": null, "name": "h", "type": "Integer", "line": 13 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "public",
+      "name": "Shape",
+      "line": 16,
+      "includes": [],
+      "variants": [
+      { "name": "Circle", "line": 17 },
+      { "name": "Rect", "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "makeShape",
+      "line": 21,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 21 }
+      ],
+      "returnType": "Shape",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "0" } },
+        "line": 22,
+        "then": [
+        { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "90004440" }, { "kind": "string", "value": "negative" }] }, "line": 22 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "constructor", "type": "Circle", "arguments": [{ "kind": "identifier", "value": "n" }] }, "line": 23 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "score",
+      "line": 26,
+      "params": [
+      { "name": "s", "type": "Shape", "default": null, "line": 26 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "s" },
+        "line": 27,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Circle", "binding": "c" },
+          "guard": null,
+          "line": 28,
+          "body": [
+          { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "radius" }, "line": 29 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Rect", "binding": "r" },
+          "guard": null,
+          "line": 30,
+          "body": [
+          { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "w" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "h" } }, "line": 31 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 35,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "ok", "type": "Shape", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 37,
+        "expression": { "kind": "call", "callee": "makeShape", "arguments": [{ "kind": "number", "value": "7" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "constructor", "type": "Rect", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 38 }
+        ]
+      }, "line": 37 },
+      { "kind": "binding", "mutable": false, "name": "bad", "type": "Shape", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 40,
+        "expression": { "kind": "call", "callee": "makeShape", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "constructor", "type": "Rect", "arguments": [{ "kind": "number", "value": "20" }, { "kind": "number", "value": "22" }] }, "line": 41 }
+        ]
+      }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "ok=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "score", "arguments": [{ "kind": "identifier", "value": "ok" }] }] } }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bad=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "score", "arguments": [{ "kind": "identifier", "value": "bad" }] }] } }] }, "line": 44 },
+      { "kind": "binding", "mutable": false, "name": "d", "type": "Json", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 47,
+        "expression": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "[1,2]" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "constructor", "type": "JsonNull", "arguments": [{ "kind": "identifier", "value": "NOTHING" }] }, "line": 48 }
+        ]
+      }, "line": 47 },
+      { "kind": "binding", "mutable": false, "name": "fallback", "type": "Json", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 50,
+        "expression": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "{oops" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "constructor", "type": "JsonNull", "arguments": [{ "kind": "identifier", "value": "NOTHING" }] }, "line": 51 }
+        ]
+      }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "d" }] }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "fallback" }] }] }, "line": 54 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 55 }
+      ]
+    }
+    ]
+  }
+  ]
+}

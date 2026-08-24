@@ -1,0 +1,56 @@
+' bug-444: binding a fallible DATA-union-returning call through an inline TRAP
+' must compile — the desugar's `bind $trap_valN AS <Union> = <default>` temp
+' needs a materializable data-union default. The default is never observed:
+' the success value or the RECOVER value supersedes it on every path.
+IMPORT io
+IMPORT json
+
+TYPE Circle
+  radius AS Integer
+END TYPE
+TYPE Rect
+  w AS Integer
+  h AS Integer
+END TYPE
+
+UNION Shape
+  Circle
+  Rect
+END UNION
+
+FUNC makeShape(n AS Integer) AS Shape
+  IF n < 0 THEN FAIL error(90004440, "negative")
+  RETURN Circle[n]
+END FUNC
+
+FUNC score(s AS Shape) AS Integer
+  MATCH s
+    CASE Circle(c)
+      RETURN c.radius
+    CASE Rect(r)
+      RETURN r.w + r.h
+  END MATCH
+END FUNC
+
+FUNC main() AS Integer
+  ' User union: success path binds the real value; failure path binds RECOVER.
+  LET ok AS Shape = makeShape(7) TRAP(e)
+    RECOVER Rect[1, 2]
+  END TRAP
+  LET bad AS Shape = makeShape(-1) TRAP(e)
+    RECOVER Rect[20, 22]
+  END TRAP
+  io::print("ok=" & toString(score(ok)))
+  io::print("bad=" & toString(score(bad)))
+
+  ' Builtin union: json::parse is the common fallible union-returning call.
+  LET d AS json::Json = json::parse("[1,2]") TRAP(e)
+    RECOVER JsonNull[NOTHING]
+  END TRAP
+  LET fallback AS json::Json = json::parse("{oops") TRAP(e)
+    RECOVER JsonNull[NOTHING]
+  END TRAP
+  io::print(json::stringify(d))
+  io::print(json::stringify(fallback))
+  RETURN 0
+END FUNC

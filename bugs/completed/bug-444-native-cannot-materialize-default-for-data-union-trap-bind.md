@@ -5,8 +5,9 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness (codegen feature gap — rejects valid source)
 
-Status: Open
-Regression Test: tests/rt-behavior/rt_union_trap_bind_default.rs (to be added)
+Status: FIXED
+Regression Test: tests/rt_union_trap_bind_default.rs (cargo) +
+tests/rt-behavior/trap/inline-trap-union-bind-rt (acceptance golden fixture)
 
 Binding the result of a **fallible call whose return type is a data UNION** to a
 `LET`/`MUT` with a local `TRAP` fails native codegen with
@@ -29,6 +30,11 @@ References:
 
 - `mfb spec` §15.6 / `mfb spec memory heap-values` — union value layout is
   `{ tag@0, variant-record-ptr@8 }`.
+  **Correction (found while fixing):** that layout is the RESOURCE-union form.
+  A *data* union is the flat `{ tag@0, size@8, variant-record-block inlined@16 }`
+  layout (plan-02 §4.3; `emit_wrap_record_in_union` in
+  `src/codegen/collection/layout/builder_collection_layout.rs`), and the fix
+  emits that form.
 - Sibling path that already works: resource unions and concrete resources get a
   materialized default (a closed record) in the same function — see Root Cause.
 - Found while building `examples/ai_chat` (parsing `claude --output-format
@@ -142,29 +148,77 @@ the closed-record arm above. Only the data-union case reaches the unhandled
 
 ## Fix (phased, test-first)
 
-1. **Failing test + audit (no behavior change).** Add
-   `tests/rt-behavior/rt_union_trap_bind_default.rs` that builds+runs the
-   minimal repro above (and a user-`UNION` variant). It must fail today with the
-   materialize error. NB: this must be a full-`mfb build` fixture — the error is
-   raised in native lowering, so a `tests/syntax/*` (`-ast -ir`) fixture would
-   pass spuriously and not guard the path (per project testing-gates notes).
-   Commit:
-2. **Add a data-union arm to `lower_default_value`.** Before the final record
-   arm, match a type present in `self.type_model.union_variant_fields`: pick a
-   defaultable variant (the first variant is the natural choice; confirm its
-   payload record is itself defaultable via the existing record path), build
-   that variant's default record, and emit the `{ tag, variant-record-ptr }`
-   union value with the chosen variant's tag. Mirror the resource-union tag
-   discipline in `emit_resource_record_ptr`/union construction so the layout is
-   identical to a normal union value. Commit:
-3. **Verify byte-neutrality + full suite.** Confirm no golden/`.ncode` drift for
-   programs that do not bind a fallible union through TRAP (the new arm is only
-   reached for the data-union default). Run the full `cargo test` and the
-   acceptance harness. Commit:
+1. [x] **Failing test + audit (no behavior change).** Add
+   `tests/rt_union_trap_bind_default.rs` (cargo integration test; the plan's
+   suggested `tests/rt-behavior/*.rs` path mixed the two conventions) that
+   builds+runs the minimal repro above (and a user-`UNION` variant). It must
+   fail today with the materialize error. NB: this must be a full-`mfb build`
+   test — the error is raised in native lowering, so a `tests/syntax/*`
+   (`-ast -ir`) fixture would pass spuriously and not guard the path (per
+   project testing-gates notes).
+   Commit: b5cd0650e (RED-verified: all 3 tests failed with the exact
+   materialize error for 'Json'/'Shape')
+2. [x] **Add a data-union arm to `lower_default_value`.** Before the final
+   record arm, match `union_is_data` (ordered after the resource checks): pick
+   the first canonically-ordered variant whose payload is statically
+   defaultable (`default_value_materializable` mirrors the emission arms, with
+   a defaulting-unions cycle guard threaded through
+   `lower_default_value_inner`), build that variant's default record via the
+   existing record path, and wrap it with `emit_wrap_record_in_union` — the
+   canonical flat data-union layout `{tag@0, size@8, record@16}` (NOT the
+   doc's `{tag, ptr}` sketch, which is the resource-union form; see the
+   References correction). Also adds the acceptance golden fixture
+   `tests/rt-behavior/trap/inline-trap-union-bind-rt`.
+   Commit: 83ad3f0f5 (rt_union_trap_bind_default 3/3 green; fixture passes
+   test-accept)
+3. [x] **Verify byte-neutrality + full suite.** Confirm no golden/`.ncode`
+   drift for programs that do not bind a fallible union through TRAP (the new
+   arm is only reached for the data-union default). Run the full `cargo test`
+   and the acceptance harness. Commit: (see STATUS below)
 
 ## Notes
 
 - Workaround in the field (no compiler change): route the fallible union call
   through a helper that returns a record/scalar and TRAP the call to *that*
   helper. `examples/ai_chat`'s `parseStreamLine` (returns a `Parsed` record) is
-  a worked example.
+  a worked example. (Obsolete once this fix lands — the direct bind compiles.)
+
+## STATUS: FIXED (83ad3f0f5)
+
+Fixed on `worktree-B-444` and merged to main. Verification record:
+
+- Repro: `mfb build` of the doc's minimal program (and the diverging form, and
+  a user-`UNION` equivalent) builds and runs, exit 0; only environment in the
+  matrix was macOS aarch64 and it passes there
+  (`target/release/mfb build /tmp/bug444-wt` + run).
+- Regression tests: `cargo test --test rt_union_trap_bind_default` — RED 0/3
+  before the arm (exact materialize error for 'Json'/'Shape'), GREEN 3/3 after.
+- Byte-neutrality: `artifact-gate [all]: 1249 tests, 1396 build(s), 1718
+  golden(s) checked, 0 diff(s)` (run inside the full `cargo test` via
+  `tests/golden.rs::artifact_gate_all`, release mfb). No pre-existing golden
+  shifted; the only new goldens are the new fixture's own.
+- Full suite: `cargo test --no-fail-fast` exit 0 — 62/62 targets
+  `test result: ok`, 0 FAILED.
+- Acceptance: full `test-accept.sh` run had 1 phantom mismatch
+  (`rt-behavior/collections/map-removekey-inplace-rt`, a `tests/tests/...`
+  doubled-path actual + missing ast/ir) caused by a CONCURRENT foreign
+  session's test-accept writing the same `/tmp/accept-out` actual dir (the
+  documented concurrent-clobber failure mode). Proven phantom by hand: the
+  fixture's `-ast -ir` dumps diff clean against its goldens, and its built
+  executable's run output is byte-identical to the golden `build.log` run
+  section on this compiler. Unrelated to this change.
+
+Deviations from the doc's fix sketch:
+
+- The doc's union layout `{tag@0, variant-record-ptr@8}` is the RESOURCE-union
+  form; the fix emits the actual data-union layout
+  `{tag@0, size@8, variant-record-block@16}` via `emit_wrap_record_in_union`
+  (References correction above).
+- The regression test lives at `tests/rt_union_trap_bind_default.rs` (cargo
+  integration test), not the doc's `tests/rt-behavior/*.rs` path, which mixed
+  the fixture-tree and cargo-test conventions; a golden fixture
+  `tests/rt-behavior/trap/inline-trap-union-bind-rt` covers the fixture tree.
+- Variant choice is the first canonically-ordered variant whose payload is
+  *statically* defaultable (`default_value_materializable`, a mirror of the
+  emission arms with a defaulting-unions cycle guard), not blindly the first
+  variant — so a self-reachable union picks a variant that terminates.
