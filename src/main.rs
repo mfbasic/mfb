@@ -9,6 +9,7 @@ mod doc;
 mod docs;
 mod fmt;
 mod html;
+mod intern;
 mod internal_name;
 mod ir;
 mod json;

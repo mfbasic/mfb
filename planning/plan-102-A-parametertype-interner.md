@@ -243,21 +243,26 @@ green suite, so every later phase can prove "no NEW diff".
 
 Acceptance: `planning/plan-102-baseline-diffs.txt` exists and `cargo test` is
 green except for the recorded pre-existing gate diffs. VERIFIED.
-Commit: —
+Commit: 19dd9ef86
 
 ### Phase 2 — add the `Copy` symbol interner (no `ParameterType` change yet)
 
 One line: introduce the interner as a standalone primitive with unit tests, before
 wiring it into `ParameterType` — a primitive with no callers is safe to land alone.
 
-- [ ] Add the interner (new module, e.g. `src/types.rs` submodule or
+- [x] Add the interner (new module, e.g. `src/types.rs` submodule or
       `src/intern.rs`): `Symbol(u32)`, `intern(&str) -> Symbol`,
       `Symbol::resolve(self) -> &'static str`. Append-only, `OnceLock`-backed.
-- [ ] Tests: interning the same string twice yields equal `Symbol`; distinct
+      (Added `src/intern.rs`: `Symbol(NonZeroU32)` over `OnceLock<Mutex<Interner>>`,
+      dedup map + index table, `resolve` returns `&'static str`; registered in
+      `main.rs`.)
+- [x] Tests: interning the same string twice yields equal `Symbol`; distinct
       strings yield distinct `Symbol`; `resolve(intern(s)) == s` for a corpus
-      including composite names.
+      including composite names. (5 unit tests, all pass.)
 
 Acceptance: interner unit tests pass; `cargo test` green (no other code changed).
+VERIFIED (5/5 intern:: tests pass). NOTE: standalone primitive emits transient
+dead_code warnings until Phase 3 wires it into `ParameterType` (next commit).
 Commit: —
 
 ### Phase 3 — switch `Named`/`Var` to `Symbol`; delete the leak
