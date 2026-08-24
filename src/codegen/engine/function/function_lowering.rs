@@ -2,8 +2,6 @@
 use crate::arch::ops::CodeOp;
 use crate::codegen::builtins::vector::vector_call_is_inlined;
 use crate::codegen::builtins::vector::vector_field_count;
-use crate::codegen::compiler::opt::fma_fusion;
-use crate::codegen::compiler::opt::peephole;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::mir;
 use crate::codegen::engine::operand::*;
@@ -11,6 +9,8 @@ use crate::codegen::engine::regalloc;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
+use crate::optimizer::opt2::fma_fusion;
+use crate::optimizer::opt2::peephole;
 use crate::target::shared::abi;
 use crate::target::shared::nir;
 use crate::target::shared::nir::*;

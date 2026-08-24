@@ -149,6 +149,16 @@ impl CodeBuilder<'_> {
         // capture above (rare, `-mir` only) already took its own borrowing copy.
         let neutral = mir::lower_to_mir_owned(std::mem::take(&mut self.instructions));
         self.instructions = backend.select(neutral);
+        // plan-100 §3: the reserved Opt2 seam — between selection and register
+        // allocation, the last point where the stream is still in virtual
+        // registers. Identity today; the future home of Plan2 (CFG + SSA/def-use
+        // and its demand-driven analyses) → Opt2 passes → out-of-SSA. The
+        // machine peepholes below deliberately stay post-regalloc: they read
+        // physical registers.
+        crate::optimizer::opt2::optimize_mir(
+            &mut self.instructions,
+            crate::optimizer::active_opt_level(),
+        );
         // 16-aligned so FP spill slots hit `str q`'s alignment requirement (the
         // slot stride is `spill_slot_bytes()` = 16 on every backend).
         let spill_base = type_utils::align(self.stack_size, 16);

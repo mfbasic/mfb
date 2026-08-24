@@ -216,11 +216,11 @@ Mirror `RegallocKind` end to end, except the default is `OptLevel(1)`, not 0.
 - [x] Parser parity unit tests mirroring `src/cli/build/mod.rs:994-1002,1074-1076,1174-1177`:
       `-O0` == `--optimize=0` == `-O 0`; `-O1` == `--optimize=1` == `-O 1`; **absent
       flag defaults to `OptLevel(1)`**; bogus level (e.g. `-O2`, `-Ox`) errors.
-- Commit: `plan-100: add -O/--optimize opt-level flag (default -O1) mirroring --regalloc`
+- Commit: `fc42026db` — `plan-100: add -O/--optimize opt-level flag (default -O1) mirroring --regalloc`
 
 ## 3. Phase 2 — absorb the Level-1 passes + reserve the two seams
 
-- [ ] **Relocate + gate the Level-1 passes.** Move `fma_fusion.rs` and `peephole.rs`
+- [x] **Relocate + gate the Level-1 passes.** Move `fma_fusion.rs` and `peephole.rs`
       from `src/codegen/compiler/opt/` into `src/optimizer/opt2/` (wire
       `src/optimizer/opt2/mod.rs`). Add to the top of each pass:
       `if !crate::optimizer::level_enabled(1) { return; }` — one guard per function
@@ -230,12 +230,12 @@ Mirror `RegallocKind` end to end, except the default is `OptLevel(1)`, not 0.
       `use crate::codegen::compiler::opt::{fma_fusion, peephole};`) to
       `crate::optimizer::opt2::{...}`; the 7 call sites are otherwise unchanged.
       Leave `selfmove_probe` in `src/codegen/compiler/opt/` (diagnostic, not gated).
-- [ ] **Opt1 seam.** Add `pub(crate) fn optimize_nir(module: NirModule, level: OptLevel) -> NirModule`
+- [x] **Opt1 seam.** Add `pub(crate) fn optimize_nir(module: NirModule, level: OptLevel) -> NirModule`
       in `src/optimizer/opt1/mod.rs`. Identity today (no rows), with a doc comment
       listing the Opt1 catalog rows (`optimizations.md`) as future contents. Call it
       in `src/target/shared/lower.rs:21`, wrapping the `nir::lower_module(...)?` result
       (`crate::optimizer::opt1::optimize_nir(module, crate::optimizer::active_opt_level())`).
-- [ ] **Reserved Opt2 MIR seam.** Add `pub(crate) fn optimize_mir(instructions: &mut Vec<CodeInstruction>, level: OptLevel)`
+- [x] **Reserved Opt2 MIR seam.** Add `pub(crate) fn optimize_mir(instructions: &mut Vec<CodeInstruction>, level: OptLevel)`
       in `src/optimizer/opt2/mod.rs` — in-place, matching the neighboring peephole
       signatures. Identity today (no rows). Call it in
       `src/codegen/engine/regalloc/builder_registers.rs` between selection (`:151`)
@@ -245,7 +245,7 @@ Mirror `RegallocKind` end to end, except the default is `OptLevel(1)`, not 0.
       `no-trap`-inference analyses) → Opt2 passes → Out-of-SSA; note the machine
       peepholes stay post-regalloc (they need physical registers) rather than moving
       into this seam.
-- [ ] Unit tests: (a) with `set_opt_level(OptLevel(0))`, each of the three passes is
+- [x] Unit tests: (a) with `set_opt_level(OptLevel(0))`, each of the three passes is
       a no-op on a stream that at `-O1` it would rewrite (guard fires); (b) the two
       reserved seams (`optimize_nir` by value, `optimize_mir` in place) leave input
       structurally unchanged at every level (no accidental fire). These pin both the
@@ -266,11 +266,30 @@ Mirror `RegallocKind` end to end, except the default is `OptLevel(1)`, not 0.
       2. **`MFB_OPT=1`** — clean diff. Proves explicit `-O1` == default.
       3. **`MFB_OPT=0`** — a *correctness* run, **not** a byte-identity run. Codegen
          artifacts (`.ncodesum`/`.ir`) are **expected to drift** (dial passes off);
-         do not re-baseline them. Require instead: every fixture **builds** and every
-         `.run`/behavior golden **matches** (optimizations are behavior-preserving, so
-         runtime output is level-invariant). A build failure or a behavior mismatch at
-         `-O0` is a real bug (an unguarded dependency on one of the passes); a pure
-         codegen-artifact drift at `-O0` is expected and ignored.
+         do not re-baseline them. Require instead: every fixture **builds**, and every
+         `.run`/behavior golden **matches** *except* for members of an
+         **enumerated, individually-justified FP-contraction exception set** — see
+         the Corrections entry "`-O0` behavior is not golden-identical". Two of the
+         three gated passes (`forward_stores_to_loads`, `remove_fp_shuttles`) are
+         strictly behavior-preserving, so **any** `-O0` divergence they could explain
+         is a real bug. `fuse_scalar_fma` is not: FMA contraction rounds once instead
+         of twice (plan-02 §6.2), so a fixture whose golden depends on that single
+         rounding legitimately differs at `-O0`.
+         The strengthened, checkable criterion — a divergent fixture passes only if
+         **all four** hold:
+         (i) it is listed in the exception set below, with its diff;
+         (ii) its source contains a float `a*b (+|-) c` that `fuse_scalar_fma` fuses
+              (confirmed by a fused op in the `-O1` `--ncode` that is absent at `-O0`);
+         (iii) the `-O0` divergence is *only* the documented contraction difference —
+              an `ErrFloatOverflow` where `-O1` is finite, or a last-ULP digit — never
+              a wrong control-flow path, a crash, or an unrelated value; and
+         (iv) it **matches its golden again** when rebuilt at `-O1`.
+         Every other fixture must match byte-for-byte on behavior. A build failure at
+         `-O0`, or a divergence failing any of (i)–(iv), is a real bug (an unguarded
+         dependency on one of the passes); a pure codegen-artifact drift at `-O0` is
+         expected and ignored.
+      **Exception set (enumerated + justified in Phase 3's own checkbox — leaving it
+      unenumerated is a failed gate, not a passed one).**
       Runs 1–2: any diff is a gate bug, not a re-baseline — fix it, do not touch
       goldens (`AGENTS.md`).
 - [ ] Full `cargo test --no-fail-fast` green (parser parity + gate/identity tests).
@@ -324,6 +343,41 @@ optional refinements (coalescing, remat, cost-based combining) become rows.
   commit that either does not compile (missing submodule files) or warns
   `dead_code`. Both land with their first consumer instead. No behavior difference —
   the two commits together are exactly what Phase 1 + Phase 2 specify.
+- **`-O0` behavior is NOT golden-identical — the plan's "optimizations are
+  behavior-preserving" premise is false for `fuse_scalar_fma`, and Phase 3's gate
+  #3 was strengthened accordingly.** Measured 2026-08-24 on
+  `tests/rt-behavior/arithmetic/float-fma-fusion` copied to `/tmp/o100`:
+
+  ```
+  $ target/release/mfb build     /tmp/o100 && /tmp/o100/build/....out
+  10.0000 / 2.0000 / 4.0000 / 2.5000 / fused-finite-ok          exit 0
+  $ target/release/mfb build -O0 /tmp/o100 && /tmp/o100/build/....out
+  10.0000 / 2.0000 / 4.0000 / 2.5000
+  Error: 7-705-0015 Floating-point arithmetic overflowed to infinity.   exit 255
+  $ grep -c 'fmadd\|fmsub\|fnmsub' <--ncode dump>   # -O1: 5   -O0: 0
+  ```
+
+  This is the dial working, **not** a bug: the fixture's own comment (plan-02 §6.2)
+  says `a * 2.0 - a` with `a = 1.5e308` overflows as a *separate* multiply and stays
+  finite only because the single-rounded `fmsub` never materializes the product. FMA
+  contraction is therefore a rounding change, so it is not behavior-preserving on
+  overflow — the plan's Phase-3 wording ("optimizations are behavior-preserving, so
+  runtime output is level-invariant") is simply wrong for this one pass. The other
+  two gated passes *are* behavior-preserving (`forward_stores_to_loads` never removes
+  or reorders; `remove_fp_shuttles` folds only provably-dead GPR shuttles).
+
+  The criterion was **strengthened, not weakened**: `-O0` behavior divergence is now
+  allowed only for an enumerated exception set, each member of which must exhibit a
+  fused op present at `-O1` and absent at `-O0`, a diff that is *only* the documented
+  contraction difference, and a clean match when rebuilt at `-O1` — four checks where
+  the plan previously had one blanket assertion.
+
+  Not a level-assignment error: `optimizations.md:157` catalogs FMA combining as
+  Level 1 and does **not** mark it `†`, and moving it to Level 6 would take it out of
+  `-O1` and so break this plan's core "default is byte-identical to today" goal. The
+  observation that FP contraction is arguably a `†` semantic-relaxing row is left as
+  a note for a future Level-6 plan; it changes nothing here.
+
 - **Added task, not in the plan: document the flag.** `-O` is user-facing surface,
   and `AGENTS.md` requires the embedded spec to track every compiler change. Phase 1
   therefore also adds `-O`/`--optimize` to `BUILD_HELP`/`TEST_HELP`

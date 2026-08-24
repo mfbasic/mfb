@@ -18,5 +18,12 @@ pub fn lower_project(
     // helper detection and codegen both see the complete, unified function set.
     let merged = nir::merge_packages(ir, packages)?;
     let helpers = runtime::required_helpers(&merged);
-    nir::lower_module(&merged, target_name, build_mode, stdin_log_cap, helpers)
+    let module = nir::lower_module(&merged, target_name, build_mode, stdin_log_cap, helpers)?;
+    // plan-100 §3: the Opt1 seam. This is the sole `NirModule` producer, so one
+    // wrap here covers all five targets. Identity today -- no catalog row
+    // occupies Opt1 yet.
+    Ok(crate::optimizer::opt1::optimize_nir(
+        module,
+        crate::optimizer::active_opt_level(),
+    ))
 }

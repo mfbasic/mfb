@@ -67,7 +67,15 @@ fn use_counts(instructions: &[CodeInstruction]) -> std::collections::HashMap<Str
 
 /// Rewrite single-use `a*b (+|-) c` chains into fused multiply-add ops, in place.
 /// Called by `lower_function` just before register allocation (plan-02 Phase 3).
+///
+/// A **Level-1** dial row -- `optimizations.md` "Instruction selection /
+/// combining" -- so it runs at `-O1` (the default) and up, and is skipped at
+/// `-O0`. The guard sits here rather than at the call site so it covers every
+/// caller and travels with the pass (plan-100 §3).
 pub(crate) fn fuse_scalar_fma(instructions: &mut Vec<CodeInstruction>) {
+    if !crate::optimizer::level_enabled(1) {
+        return;
+    }
     let counts = use_counts(instructions);
     let mut remove = vec![false; instructions.len()];
 

@@ -3,7 +3,7 @@
 //! The pass catalog lives in `planning/optimizations.md`; each row carries a
 //! *scale level* (0-6) describing how much shape distortion it is allowed to
 //! introduce. This module owns the process-wide selected level and the
-//! `level_enabled` predicate each pass self-guards with, so one `-ON` lights
+//! [`level_enabled`] predicate each pass self-guards with, so one `-ON` lights
 //! up rows across every seam (level is orthogonal to pipeline stage).
 //!
 //! The pipeline the dial gates:
@@ -14,12 +14,15 @@
 //!     -> gated[ FMA-combine ] -> regalloc -> gated[ machine peepholes ] -> code
 //! ```
 //!
-//! `opt1` is the `NirModule -> NirModule` seam; `opt2` holds the MIR/machine
+//! [`opt1`] is the `NirModule -> NirModule` seam; [`opt2`] holds the MIR/machine
 //! passes plus the reserved between-selection-and-regalloc MIR seam. The three
 //! Level-1 rows that ship today (`fuse_scalar_fma`, `forward_stores_to_loads`,
-//! `remove_fp_shuttles`) live in `opt2` and are gated at level 1.
+//! `remove_fp_shuttles`) live in [`opt2`] and are gated by [`level_enabled`].
 
 use std::sync::OnceLock;
+
+pub(crate) mod opt1;
+pub(crate) mod opt2;
 
 /// The optimization scale level requested on the command line by `-O<N>`.
 ///
@@ -68,6 +71,28 @@ pub(crate) fn parse_level(value: &str) -> Result<OptLevel, String> {
 
 static SELECTED: OnceLock<OptLevel> = OnceLock::new();
 
+// The dial is a write-once process global, which is right for a compiler run
+// but wrong for a test binary: every `#[test]` shares one process, so the first
+// `set_opt_level` would decide the level for all the others. Tests instead push
+// a *thread*-local level for the duration of a closure (`cargo test` gives each
+// test its own thread), leaving `SELECTED` alone. Load-bearing: without it the
+// `-O0`-disables-the-pass tests below and in `opt2` cannot exist at all, since
+// setting the real global would silently disable the passes for every other
+// codegen unit test in the binary.
+#[cfg(test)]
+thread_local! {
+    static TEST_LEVEL: std::cell::Cell<Option<OptLevel>> = const { std::cell::Cell::new(None) };
+}
+
+/// Run `body` with the dial pinned to `level` on this thread only.
+#[cfg(test)]
+pub(crate) fn with_opt_level<T>(level: OptLevel, body: impl FnOnce() -> T) -> T {
+    let previous = TEST_LEVEL.with(|slot| slot.replace(Some(level)));
+    let result = body();
+    TEST_LEVEL.with(|slot| slot.set(previous));
+    result
+}
+
 /// Record the process-wide optimization level chosen on the command line. May
 /// be called at most once per process; ignored if already set.
 pub(crate) fn set_opt_level(level: OptLevel) {
@@ -77,7 +102,21 @@ pub(crate) fn set_opt_level(level: OptLevel) {
 /// The active optimization level, defaulting to [`OptLevel`]'s `1` -- the level
 /// at which the three shipping Level-1 passes run, i.e. today's exact codegen.
 pub(crate) fn active_opt_level() -> OptLevel {
+    #[cfg(test)]
+    if let Some(level) = TEST_LEVEL.with(|slot| slot.get()) {
+        return level;
+    }
     *SELECTED.get().unwrap_or(&OptLevel(1))
+}
+
+/// Whether a catalog row tagged `row_level` runs under the active dial.
+///
+/// This is the per-row seam filter every gated pass self-guards with at its
+/// function entry, so the guard covers all call sites and travels with the
+/// pass. Level is orthogonal to stage: one `-ON` lights up rows in Opt1, Opt2
+/// and the post-regalloc machine peepholes alike.
+pub(crate) fn level_enabled(row_level: u8) -> bool {
+    row_level <= active_opt_level().0
 }
 
 #[cfg(test)]
@@ -93,6 +132,38 @@ mod tests {
     fn parse_level_accepts_zero_and_one() {
         assert_eq!(parse_level("0"), Ok(OptLevel(0)));
         assert_eq!(parse_level("1"), Ok(OptLevel(1)));
+    }
+
+    #[test]
+    fn level_enabled_is_row_level_at_most_active() {
+        with_opt_level(OptLevel(0), || {
+            assert!(level_enabled(0));
+            assert!(!level_enabled(1));
+        });
+        with_opt_level(OptLevel(1), || {
+            assert!(level_enabled(0));
+            assert!(level_enabled(1));
+            assert!(!level_enabled(2));
+        });
+        // Level 6 is the semantic-relaxation opt-in: reaching the top of the
+        // numeric dial must never light it up.
+        with_opt_level(OptLevel(5), || {
+            assert!(level_enabled(5));
+            assert!(!level_enabled(6));
+        });
+    }
+
+    /// The override is scoped: leaving `with_opt_level` restores what the
+    /// thread saw before, so one test cannot leak a level into another.
+    #[test]
+    fn with_opt_level_restores_the_previous_level() {
+        let before = active_opt_level();
+        with_opt_level(OptLevel(0), || {
+            assert_eq!(active_opt_level(), OptLevel(0));
+            with_opt_level(OptLevel(1), || assert_eq!(active_opt_level(), OptLevel(1)));
+            assert_eq!(active_opt_level(), OptLevel(0));
+        });
+        assert_eq!(active_opt_level(), before);
     }
 
     #[test]
