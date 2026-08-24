@@ -119,10 +119,10 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| `--regalloc` is threaded via `BuildOptions` field + a `set_*`/`active_*` `OnceLock` global | `rg -n 'regalloc::set_strategy\|active_kind\|struct BuildOptions' src/cli src/codegen/engine/regalloc/mod.rs` | MET (see References) |
-| The Opt1 seam site returns the sole `NirModule` for every target | `rg -n 'lower_project' src/target` | MET (single producer in `shared/lower.rs`) |
-| The three passes to gate are all Level 1 in the catalog | read `planning/optimizations.md` rows 103/138/156/200 | MET (FMA-combine, machine peephole, machine copy-prop = L1) |
-| Gating each pass at its function entry covers every call site | `rg -n 'fuse_scalar_fma\|forward_stores_to_loads\|remove_fp_shuttles' src/codegen/engine` | MET (1 + 3 + 3 sites, one guard each) |
+| `--regalloc` is threaded via `BuildOptions` field + a `set_*`/`active_*` `OnceLock` global | `rg -n 'regalloc::set_strategy\|active_kind\|struct BuildOptions' src/cli src/codegen/engine/regalloc/mod.rs` | MET 2026-08-24 — 7 hits: `regalloc/mod.rs:107` `active_kind`, `cli/build/mod.rs:91` `struct BuildOptions` + `:179` `set_strategy`, `options.rs:49,122` defaults, `pkg.rs:127,420` |
+| The Opt1 seam site returns the sole `NirModule` for every target | `rg -n 'lower_project' src/target` | MET 2026-08-24 — one definition (`shared/lower.rs:8`), 10 call sites across **five** targets (riscv64 too — see Corrections) |
+| The three passes to gate are all Level 1 in the catalog | read `planning/optimizations.md` rows 103/138/156/200 | MET 2026-08-24 — "Peephole optimization" L1, "Instruction selection / combining" L1, "Machine copy propagation / redundant-move elimination" L1 ("Store-to-load forwarding" row is L3 = the *future* alias-based broadening; the landed block-local machine version rides the L1 peephole row) |
+| Gating each pass at its function entry covers every call site | `rg -n 'fuse_scalar_fma\|forward_stores_to_loads\|remove_fp_shuttles' src/codegen/engine` | MET 2026-08-24 — exactly 1 + 3 + 3 production call sites in `function_lowering.rs` (1002 / 1066,1227,1524 / 1070,1228,1525), one guard each |
 | `-O1` (default) reproduces today's exact codegen | Phase 3 default + `MFB_OPT=1` golden runs are clean diffs | UNMEASURED — Phase 3 gate |
 | `-O0` builds and behaves identically (codegen may differ) | Phase 3 `MFB_OPT=0` run: builds pass + `.run` behavior matches | UNMEASURED — Phase 3 gate |
 
@@ -191,7 +191,7 @@ only path that moves, and it moves *on purpose* (optimizations off).
 
 Mirror `RegallocKind` end to end, except the default is `OptLevel(1)`, not 0.
 
-- [ ] New top-level module `src/optimizer/` — add `mod optimizer;` to
+- [x] New top-level module `src/optimizer/` — add `mod optimizer;` to
       `src/main.rs` (alphabetical, between `mod numeric;` and `mod os;`).
       `src/optimizer/mod.rs`: wires `pub(crate) mod opt1; pub(crate) mod opt2;` and
       holds the `OptLevel` global — `OptLevel(u8)` spanning `0..=6` with
@@ -202,18 +202,18 @@ Mirror `RegallocKind` end to end, except the default is `OptLevel(1)`, not 0.
       for the per-row seam filter. Copy the
       `src/codegen/engine/regalloc/mod.rs:60-109` shape; the one deliberate
       divergence from `RegallocKind` is the non-zero default.
-- [ ] `src/cli/build/options.rs`: add an `opt: &mut OptLevel` out-param to
+- [x] `src/cli/build/options.rs`: add an `opt: &mut OptLevel` out-param to
       `parse_common_option` (or a sibling), handling `-O`/`--optimize`/`-optimize`
       in both space and `=` forms (lines 25-34 pattern). Default from
       `crate::optimizer::active_opt_level()` in `parse_build_options` (`:49` pattern)
       and `parse_test_options` (`:122` pattern); store into the struct at
       `:109`/`:148`.
-- [ ] `src/cli/build/mod.rs:91`: add `pub(crate) opt: crate::optimizer::OptLevel` to
+- [x] `src/cli/build/mod.rs:91`: add `pub(crate) opt: crate::optimizer::OptLevel` to
       `BuildOptions`. `src/cli/pkg.rs:127,420`: default
       `opt: crate::optimizer::active_opt_level()`.
-- [ ] `src/cli/build/mod.rs:179`: add `crate::optimizer::set_opt_level(options.opt);`
+- [x] `src/cli/build/mod.rs:179`: add `crate::optimizer::set_opt_level(options.opt);`
       next to the `regalloc::set_strategy` call in `build_project`.
-- [ ] Parser parity unit tests mirroring `src/cli/build/mod.rs:994-1002,1074-1076,1174-1177`:
+- [x] Parser parity unit tests mirroring `src/cli/build/mod.rs:994-1002,1074-1076,1174-1177`:
       `-O0` == `--optimize=0` == `-O 0`; `-O1` == `--optimize=1` == `-O 1`; **absent
       flag defaults to `OptLevel(1)`**; bogus level (e.g. `-O2`, `-Ox`) errors.
 - Commit: `plan-100: add -O/--optimize opt-level flag (default -O1) mirroring --regalloc`
@@ -301,6 +301,36 @@ The always-on passes migrating in here are also the model for whether the *level
 infrastructure* rows (base instruction selection, register allocation) ever want a
 dial-gated *refinement* row — they do not move wholesale onto the dial; only their
 optional refinements (coalescing, remat, cost-based combining) become rows.
+
+## Corrections
+
+- **Five targets consume `lower_project`, not four.** The References line lists
+  "all four targets"; `rg -n 'lower_project' src/target` (2026-08-24) returns 10
+  call sites across **five** backends — `macos_aarch64` (6), `linux_aarch64`,
+  `linux_x86_64`, `win_x86_64`, **and `linux_riscv64/mod.rs:263`**. The Opt1 seam
+  covers riscv64 too. No scope change: one wrap in `shared/lower.rs` still covers
+  every target.
+- **"Store-to-load forwarding" is an L3 row; the landed pass rides the L1 peephole
+  row.** The Prerequisites row pointed at `optimizations.md` "rows 103/138/156/200"
+  for three Level-1 entries. The standalone "Store-to-load forwarding" row is
+  **Level 3** — it is the *future alias-analysis-based* broadening, and its own text
+  says the shipping `forward_stores_to_loads` is "gated as a **Level-1** machine
+  peephole under the 'Peephole optimization' row". So the three landed passes map to
+  L1 rows "Peephole optimization", "Instruction selection / combining", and "Machine
+  copy propagation / redundant-move elimination". Gating at level 1 is unchanged.
+- **`level_enabled` and the `mod opt1;`/`mod opt2;` lines moved from the Phase-1
+  commit to the Phase-2 commit.** Phase 1 lists them, but they have no consumer
+  until Phase 2 lands the passes and seams; committing them a phase early means a
+  commit that either does not compile (missing submodule files) or warns
+  `dead_code`. Both land with their first consumer instead. No behavior difference —
+  the two commits together are exactly what Phase 1 + Phase 2 specify.
+- **Added task, not in the plan: document the flag.** `-O` is user-facing surface,
+  and `AGENTS.md` requires the embedded spec to track every compiler change. Phase 1
+  therefore also adds `-O`/`--optimize` to `BUILD_HELP`/`TEST_HELP`
+  (`src/cli/help.rs`) and to the CLI reference (`src/docs/spec/tooling/07_cli-reference.md`:
+  flag table, `mfb test` usage row, single-dash alias list, and the malformed-value
+  diagnostics paragraph). A flag with no help line and no spec row is a flag users
+  cannot find.
 
 ## Open Decisions
 

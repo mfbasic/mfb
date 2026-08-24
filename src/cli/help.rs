@@ -136,6 +136,8 @@ Options:
   --sign <owner>      Sign the resulting binary with the specified owner
   --target <os-arch>  Cross-compile to a specific target (e.g., linux-x86_64)
   --regalloc <name>   Select the register-allocation strategy
+  -O <level>          Optimization level: 0 off, 1 default (also -O0/-O1,
+                      --optimize <level>)
   --app               Build as a standalone application instead of a library
   --app-debug         Like --app, but keep the intermediate build/<name>.AppDir
                       beside the AppImage (Linux; inert on macOS)
@@ -165,7 +167,9 @@ Arguments:
 Options:
   --coverage          Emit coverage.html for the exercised source lines
   --target <os-arch>  Build for a specific target (only host targets are run)
-  --regalloc <name>   Select the register-allocation strategy";
+  --regalloc <name>   Select the register-allocation strategy
+  -O <level>          Optimization level: 0 off, 1 default (also -O0/-O1,
+                      --optimize <level>)";
 
 pub(crate) const FMT_HELP: &str = "\
 Usage: mfb fmt [options] [path]
