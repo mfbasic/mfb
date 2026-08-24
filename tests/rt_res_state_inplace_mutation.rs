@@ -113,7 +113,6 @@ fn scalar_state_field_assign_stores_in_place() {
 /// whole accumulated buffer. After the fix the append emits an
 /// `append_inplace_realloc` label and no `state_assign_value` rebuild.
 #[test]
-#[ignore = "bug-430: out-of-line growable STATE collection fields — pending (split out of bug-424 Layer 2)"]
 fn collection_state_field_grows_in_place() {
     let plan = ncode(
         "b424_coll",

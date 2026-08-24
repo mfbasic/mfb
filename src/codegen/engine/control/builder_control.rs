@@ -135,6 +135,202 @@ impl CodeBuilder<'_> {
         Ok(true)
     }
 
+    /// True when `value` reads exactly `<resource>.state.<field>` — the
+    /// self-append source/alias check for bug-430.
+    fn value_is_state_field(&self, value: &NirValue, resource: &str, field: &str) -> bool {
+        let NirValue::MemberAccess { target, member } = value else {
+            return false;
+        };
+        if member != field {
+            return false;
+        }
+        let NirValue::MemberAccess {
+            target: inner,
+            member: inner_member,
+        } = target.as_ref()
+        else {
+            return false;
+        };
+        inner_member == "state" && matches!(inner.as_ref(), NirValue::Local(n) if n == resource)
+    }
+
+    /// If `field` is a `List` field of `record_type` that is inlined AND is the
+    /// **last inlined field** (no later field is inlined, so growing its trailing
+    /// sub-block extends the record block's tail without shifting any sibling),
+    /// return `(field_index, field_type)`. This is the shape bug-430's in-place
+    /// grow supports; every other shape falls back to the whole-record rebuild.
+    fn record_collection_last_inlined(
+        &self,
+        record_type: &str,
+        field: &str,
+    ) -> Option<(usize, String)> {
+        let fields = self.type_model.record_fields.get(record_type)?;
+        let index = fields.iter().position(|(name, _)| name == field)?;
+        let field_type = fields[index].1.clone();
+        // Only a `List` (kind-0/1/2) grows in place here; a Map/Set is not an
+        // `append` target.
+        if list_element_type(&field_type).is_none() {
+            return None;
+        }
+        if !self.record_field_is_inlined(record_type, &field_type) {
+            return None;
+        }
+        // No field after this one may be inlined, or growing this sub-block would
+        // shift the later sub-blocks (and their stored offsets).
+        if fields
+            .iter()
+            .skip(index + 1)
+            .any(|(_, ft)| self.record_field_is_inlined(record_type, ft))
+        {
+            return None;
+        }
+        Some((index, field_type))
+    }
+
+    /// bug-430: recognize `s.state.coll = collections::append(s.state.coll, x)`
+    /// where `coll` is a `List` field that is the last inlined field of the STATE
+    /// record, and grow it IN PLACE inside the existing STATE block (amortized
+    /// O(1) append with geometric headroom) instead of rebuilding the whole
+    /// record and re-inlining the accumulated buffer (the O(n²) path). `x` may be
+    /// a single element (`T`) or a whole list (`List OF T`, concatenation). On a
+    /// realloc the new STATE pointer is written back through the resource's shared
+    /// STATE slot, so the owner and every alias observe the grown block (§15).
+    /// Anything else — a non-last-inlined collection, a whole-state replace, or an
+    /// append whose source is not this same field — returns `false` and falls
+    /// through to the whole-record replace.
+    fn try_inplace_state_collection_append(
+        &mut self,
+        resource: &str,
+        value: &NirValue,
+    ) -> Result<bool, String> {
+        let NirValue::WithUpdate {
+            type_,
+            target,
+            updates,
+        } = value
+        else {
+            return Ok(false);
+        };
+        let NirValue::MemberAccess {
+            target: inner,
+            member,
+        } = target.as_ref()
+        else {
+            return Ok(false);
+        };
+        if member != "state" || !matches!(inner.as_ref(), NirValue::Local(n) if n == resource) {
+            return Ok(false);
+        }
+        if updates.len() != 1 {
+            return Ok(false);
+        }
+        let update = &updates[0];
+        // A live `FOR EACH` over exactly this state field snapshots an alias into
+        // the buffer the grow would free — take the non-freeing rebuild instead
+        // (bug-430; the alias analogue of the `for_each_iterable_locals` guard).
+        if self
+            .for_each_iterable_state_fields
+            .iter()
+            .any(|(res, field)| res == resource && field == &update.field)
+        {
+            return Ok(false);
+        }
+        let Some((field_index, field_type)) =
+            self.record_collection_last_inlined(type_, &update.field)
+        else {
+            return Ok(false);
+        };
+        let Some(element_type) = list_element_type(&field_type) else {
+            return Ok(false);
+        };
+        if CollectionTypeLayout::from_type(&field_type).is_none() {
+            return Ok(false);
+        }
+        let NirValue::Call {
+            target: call_target,
+            args,
+            ..
+        } = &update.value
+        else {
+            return Ok(false);
+        };
+        if crate::builtins::native_builtin_target(call_target) != Some("append") || args.len() != 2
+        {
+            return Ok(false);
+        }
+        // The appended-to source must be exactly this same field (self-append) —
+        // the invariant that makes an in-place grow sound.
+        if !self.value_is_state_field(&args[0], resource, &update.field) {
+            return Ok(false);
+        }
+        // Single element (item type == element type) vs bulk concatenation
+        // (item type == the whole list type).
+        let bulk = match self.static_type_name(&args[1]) {
+            Some(t) if t == element_type => false,
+            Some(t) if t == field_type => true,
+            _ => return Ok(false),
+        };
+        // Exclude the self-alias `append(field, field)`: the grow frees the old
+        // block out from under the RHS copy. Fall back to the value path.
+        if self.value_is_state_field(&args[1], resource, &update.field) {
+            return Ok(false);
+        }
+
+        // Load the shared STATE record pointer into a slot the grow helper repoints.
+        let local = self
+            .locals
+            .get(resource)
+            .ok_or_else(|| format!("native code state assignment unknown local '{resource}'"))?;
+        let stack_offset = local.stack_offset;
+        let resource_type = local.type_.clone();
+        let state_slot = self.allocate_stack_object("inline_state_ptr", 8);
+        let block = self.allocate_register()?;
+        self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
+        let record = self.emit_resource_record_ptr(&block, &resource_type)?;
+        let state_ptr = self.allocate_register()?;
+        self.emit(abi::load_u64(&state_ptr, &record, RESOURCE_OFFSET_STATE));
+        self.emit(abi::store_u64(&state_ptr, abi::stack_pointer(), state_slot));
+
+        // Evaluate the appended value and spill it for the grow helper.
+        let rhs = self.lower_value(&args[1])?;
+        self.observe_float(&args[1], &rhs)?;
+        let rhs = self.materialize_value(rhs)?;
+        let rhs_slot = self.allocate_stack_object("inline_state_rhs", 8);
+        self.emit(abi::store_u64(
+            &rhs.location,
+            abi::stack_pointer(),
+            rhs_slot,
+        ));
+
+        if bulk {
+            self.lower_inline_list_bulk_append_in_place(
+                state_slot,
+                field_index,
+                &field_type,
+                &element_type,
+                rhs_slot,
+            )?;
+        } else {
+            self.lower_inline_list_append_in_place(
+                state_slot,
+                field_index,
+                &field_type,
+                &element_type,
+                rhs_slot,
+            )?;
+        }
+
+        // Write the (possibly new) STATE pointer back through the resource's shared
+        // STATE slot so the owner and every alias observe the grown block (§15).
+        let nb = self.allocate_register()?;
+        self.emit(abi::load_u64(&nb, abi::stack_pointer(), state_slot));
+        let block2 = self.allocate_register()?;
+        self.emit(abi::load_u64(&block2, abi::stack_pointer(), stack_offset));
+        let record2 = self.emit_resource_record_ptr(&block2, &resource_type)?;
+        self.emit(abi::store_u64(&nb, &record2, RESOURCE_OFFSET_STATE));
+        Ok(true)
+    }
+
     fn lower_ops_inner(&mut self, ops: &[NirOp], cleanup_scope_start: usize) -> Result<(), String> {
         let zero_slot = self.temporary_vreg();
         for op in ops {
@@ -807,6 +1003,12 @@ impl CodeBuilder<'_> {
                         // existing STATE block in place; only a whole-record replace
                         // (or a not-yet-in-place inlined field) falls through here.
                         if self.try_inplace_state_scalar_assign(resource, value)? {
+                            return Ok(());
+                        }
+                        // bug-430 Layer 2: a collection field that is the last
+                        // inlined field grows in place inside the existing STATE
+                        // block (amortized O(1)) instead of rebuilding the record.
+                        if self.try_inplace_state_collection_append(resource, value)? {
                             return Ok(());
                         }
                         // Replace the resource's `STATE` payload: store the new
@@ -1673,6 +1875,34 @@ impl CodeBuilder<'_> {
         } else {
             false
         };
+        // bug-430: `FOR EACH x IN resource.state.field` snapshots an ALIAS into the
+        // STATE collection's inlined buffer, so record it — an in-place
+        // `resource.state.field = append(...)` in the body must NOT reallocate+free
+        // that buffer out from under the live iterator (it falls back to the
+        // non-freeing whole-record rebuild instead).
+        let pushed_state_field = if let NirValue::MemberAccess { target, member } = iterable {
+            if let NirValue::MemberAccess {
+                target: inner,
+                member: inner_member,
+            } = target.as_ref()
+            {
+                if inner_member == "state" {
+                    if let NirValue::Local(res) = inner.as_ref() {
+                        self.for_each_iterable_state_fields
+                            .push((res.clone(), member.clone()));
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
         self.emit(abi::load_u64(
             &collection,
             abi::stack_pointer(),
@@ -1884,6 +2114,9 @@ impl CodeBuilder<'_> {
         self.loop_stack.pop();
         if pushed_iterable {
             self.for_each_iterable_locals.pop();
+        }
+        if pushed_state_field {
+            self.for_each_iterable_state_fields.pop();
         }
         if let Some(previous) = previous {
             self.locals.insert(name.to_string(), previous);
