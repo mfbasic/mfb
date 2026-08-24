@@ -594,8 +594,12 @@ fn emit_linux_verify(
     ]);
     gen_cert::call_fn(FN, &v9, ins);
     ins.extend([
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), PKEY),
-        abi::compare_immediate(abi::return_register(), "0"),
+        // An external C call returns in the C-return bank (`rax`), not the aligned
+        // MFB-return bank (`rdi`) these bodies otherwise read; on x86-64 SysV the two
+        // differ, so the result must be read from `c_return(0)` (byte-identical on
+        // AArch64/RISC-V, where both banks are `x0`). See bug-450.
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), PKEY),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_eq(&invalid_fail),
     ]);
 
@@ -611,8 +615,9 @@ fn emit_linux_verify(
         rel,
     )?;
     gen_cert::call_fn(FN, &v9, ins);
+    // C result in `c_return(0)` (bug-450).
     ins.push(abi::store_u64(
-        abi::return_register(),
+        abi::c_return(0),
         abi::stack_pointer(),
         MDCTX,
     ));
@@ -628,11 +633,8 @@ fn emit_linux_verify(
         rel,
     )?;
     gen_cert::call_fn(FN, &v9, ins);
-    ins.push(abi::store_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        MD,
-    ));
+    // C result in `c_return(0)` (bug-450).
+    ins.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), MD));
     // EVP_MD_CTX_new returns NULL on OOM; route to the generic exit before it is
     // dereferenced by EVP_DigestVerifyInit.
     ins.extend([
@@ -662,8 +664,9 @@ fn emit_linux_verify(
     ]);
     gen_cert::call_fn(FN, &v9, ins);
     // An init failure is a real error, not a silent "invalid signature" verdict.
+    // C result in `c_return(0)` (bug-450).
     ins.extend([
-        abi::compare_immediate(abi::return_register(), "1"),
+        abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_ne(&verify_fail),
     ]);
 
@@ -687,8 +690,9 @@ fn emit_linux_verify(
         abi::load_u64(abi::c_arg(4), abi::stack_pointer(), MSGLEN),
     ]);
     gen_cert::call_fn(FN, &v9, ins);
+    // C result (the verify verdict) in `c_return(0)` (bug-450).
     ins.extend([
-        abi::compare_immediate(abi::return_register(), "1"),
+        abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_eq(&vtrue),
         abi::move_immediate(&v9, "Integer", "0"),
         abi::branch(&vstore),
