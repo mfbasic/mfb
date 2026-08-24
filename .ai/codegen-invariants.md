@@ -2,6 +2,17 @@
 
 Load-bearing facts about the MFB compiler's native code generation and IR lowering (aarch64 / riscv64 / x86-64 / macOS / Windows). Each section captures one invariant: the mechanism, the failure it causes, and the fix.
 
+## Types below the AST are `ParameterType`, with a nominal-name string boundary (plan-104)
+
+Every type-spelling STORE below the front end is `crate::types::ParameterType`, not `String`: the IR fields (incl. `IrOp::{Bind,For,ForEach}.type_`), every NIR field (`src/target/shared/nir/mod.rs` — the `.nir` JSON dump renders `name()` at the emit point only), and codegen's own stores — `ValueResult.type_`, `LocalValue.type_`, `GlobalValue.type_`, `FieldTypes`, `TypeModel.record_fields`/`union_variant_fields` values, `package_return_types`, the `static_nir_value_type` oracle (`Option<ParameterType>`, with `typed_numeric_binary_result_type` as the numeric twin). Structural questions (element/key/value/return types, is-collection, is-FUNC) are variant matches / the `typed_*` twins in `engine/types/type_utils.rs` — never `strip_prefix("List OF ")` on a rendered name. The registry resolves typed calls via `resolve_call_typed` / `resolve_call_return_type_typed` (no render/parse for generic members).
+
+The deliberate STRING boundaries that remain — render `name()` at these sinks, and do not "fix" them by parsing back:
+- The **nominal-name domain**: `TypeModel` maps are keyed by type NAMES, the layout/value-semantics classification web (`type_is_flat`, `record_field_is_inlined/pointer`, `CollectionTypeLayout::from_type`, the payload emitters) recurses over nominal names and `X STATE Y` composites — its `&str` params are name-domain sinks like symbol tables.
+- Mangled `$`-suffix fragments (`#collections_chunks$T`), symbol names, error/diagnostic text, `ValueResult.text`.
+- Wire strings: `.mfp` binary encode/decode (decode parses once), `IrLinkFunction` LINK types, the registry's string wrappers for the still-string front/middle end, and the bespoke `general`/`vector`/`strings` resolvers.
+
+`parse ∘ name = id` is load-bearing across every one of these seams; a construction like `ParameterType::parse(&format!("List OF {element}"))` is behavior-safe but directionally wrong when a typed head exists — prefer `ParameterType::list_of(element.clone())`.
+
 ## Owned-value drops must free-and-null the cleanup slot (loop double-free)
 
 `emit_owned_value_drop` / `emit_closure_drop` (`src/target/shared/code/builder_owned_cleanup.rs`) null-guard the cleanup slot — `if slot != 0 { arena_free(slot) }` — and the guard is sound ONLY if the slot reads 0 on every path that reaches the drop without a store. The slot is zero-initialized once at the prologue (`function_lowering.rs`, the `owned_value_slots` splice). That one-time init is NOT enough across a loop back-edge: a loop-scoped owned temp whose initializer is short-circuit-evaluated (e.g. a **record-returning call in a `WHILE` condition** that the last iteration skips) leaves the slot holding the *previous* iteration's already-freed pointer, so the drop frees it AGAIN. A non-immediate double-free (other allocs intervened, so `arena.rs`'s immediate-double-free idempotency guard misses it) corrupts the free-list and any live block that reused the freed one. Fix: zero the slot right after `arena_free` (free-and-null), so a re-reached drop reads 0 and skips (bug-440).

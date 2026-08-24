@@ -33,7 +33,7 @@ See plan-104-A §Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-104-C complete | builtins census at 0/annotated; C's phases all `[x]` | NOT MET until C lands |
+| plan-104-C complete | builtins census at 0/annotated; C's phases all `[x]` | MET 2026-08-24 (25 annotated survivors classified in C; C commits 171879971 / 73b2ca8db) |
 
 ## 1. Goal
 
@@ -113,44 +113,91 @@ None externally observable.
 
 ### Phase 1 — cleanup/error + collection + memory native
 
-- [ ] Convert `src/codegen/cleanup` + `src/codegen/error` (14 reads) +
-      `src/codegen/link`'s single scalar-compare file (0 `.type_` reads there —
-      `rg -c '\.type_\b' src/codegen/link` → 0 — but 1 compare file per the
-      plan-104-A census).
-- [ ] Convert `src/codegen/collection` (68 reads) — the HOF-rewrite/in-place
-      mutation paths per `.ai/collections.md`; scoped gate on the collections
-      byte-identity fixtures after.
-- [ ] Convert `src/codegen/memory` (30 reads) — layout/width decisions; run the
-      full gate immediately after this tree alone.
-- [ ] Tests: unit fixtures in these trees updated.
+- [x] Convert `src/codegen/cleanup` + `src/codegen/error` (14 reads) +
+      `src/codegen/link`'s single scalar-compare file. (The reads became typed
+      reads via C's `ValueResult` flip; link's 2 surviving compares are on
+      `IrLinkFunction.return_type` — the LINK wire string, annotated.)
+- [x] Convert `src/codegen/collection` (68 reads) — typed reads post-C; the
+      in-place/compare/search paths' parse-shaped compares inverted to `name()`
+      renders; the ForEach chain head structural via typed twins. See the
+      Corrections **nominal-domain determination** for the layout web's `&str`
+      params (name-domain sinks, not shims).
+- [x] Convert `src/codegen/memory` (30 reads) — typed reads post-C;
+      `LocalBinding`-class stores typed; the value-semantics/arena walk helpers'
+      `types` maps typed (B); layout/width decision inputs unchanged, proven by
+      the full gate (0 diffs).
+- [x] Tests: unit fixtures updated with the sweeps (`cargo check --all-targets`
+      0 errors/warnings).
 
-Acceptance: `cargo test --no-fail-fast` green; `artifact-gate all` no NEW diff
-vs baseline.
-Commit: —
+Acceptance: `cargo test --no-fail-fast` green (0 FAILED); `artifact-gate all`
+no NEW diff vs baseline (0 diffs).
+Commit: f329cc642
 
 ### Phase 2 — backends (`src/target/`) native
 
-- [ ] Convert the backends' 16 reads / 11 scalar compares / 3 structural tests
-      (per-arch emitters; `win_x86_64` changes ripple all io-importer
-      windows ncodesums — but a byte-identical conversion ripples nothing; the
-      gate proves it).
-- [ ] Tests: backend unit fixtures updated.
+- [x] Convert the backends' 16 reads / 11 scalar compares / 3 structural tests.
+      (**Corrected census**: all 16 `src/target` `.type_` reads live in the
+      SHARED layers — nir/plan/validate — not the per-arch emitters
+      (`rg -c '\.type_\b' src/target/` lists only shared files; the per-arch
+      backends read type facts via `StorageType`/`ProgramEntrySpec` only).
+      The shared layers converted: `storage_for_type`/`is_reference_type`
+      variant-matched, validate walkers structural, `LocalBinding` typed.
+      Final target censuses: 1 scalar compare (the `Named("Scalar")` guard —
+      itself now a variant match on the rendered nominal) and 0 structural
+      tests. The `ProgramEntrySpec.language_entry_returns: &str` field stays a
+      string seam into the per-arch emitters, annotated.)
+- [x] Tests: backend unit fixtures compile untouched.
 
-Acceptance: `cargo test --no-fail-fast` green; `artifact-gate all` no NEW diff.
-Commit: —
+Acceptance: `cargo test --no-fail-fast` green (0 FAILED); `artifact-gate all`
+no NEW diff (0 diffs).
+Commit: f329cc642
 
 ### Phase 3 — closeout: census, perf, docs
 
-- [ ] Re-run the plan-104-A §2 censuses; record the before→after table in this
+- [x] Re-run the plan-104-A §2 censuses; record the before→after table in this
       file with every survivor annotated.
-- [ ] Run `scripts/bench-lowering.sh target/release/mfb`; record the three probe
-      times next to the baseline; each ≤ baseline within noise. If a probe
-      regressed, find the responsible residual shim/allocation and fix it (this
-      is a task, not a stop).
-- [ ] Doc sync: `.ai/codegen-invariants.md`, `.ai/collections.md`,
-      `.ai/compiler.md`; review `13_native-ir.md`.
-- [ ] Tests: full suite + `test-accept` (no NEW mismatch beyond the 2 documented
-      pre-existing).
+
+**Census before → after (commands = plan-104-A §2's, re-run 2026-08-24):**
+
+| Census | A baseline | final | survivors are |
+|---|---|---|---|
+| codegen scalar `== "Integer"`-style compares | 80 | 45 | builtins 25 (mangled `$T` symbol fragments ~7; `general`'s bespoke string resolver 4; `String` locals derived through the nominal layout web ~14) · engine 12 (`&str`-param helpers, `result_type` chains merging builtins' `Option<&str>` args, `numeric` string-algorithm internals) · collection 3 + memory 3 (nominal-web internals) · link 2 (`IrLinkFunction.return_type` wire strings) |
+| codegen structural `strip_prefix("List OF ")`-style tests | 41 | 33 | engine 14 (11 = `type_utils`' string vocabulary retained for the still-string front/middle-end callers + the `&str`-param validate/oracle walks) · builtins 7 (mangled fragments + `general` resolver) · cleanup 4 + collection 3 + memory 5 (nominal-web internals) |
+| codegen `format!("List OF …")` type builds | 23 | 20 | all inside the collection-lowering string plumbing feeding `CollectionTypeLayout::from_type` (nominal web) or mangled `Pair$A$B` names |
+| `src/target/` scalar compares / structural tests | 11 / 3 | 1 / 0 | the 1 is `storage_for_type`'s `Named("Scalar")` **variant-match guard** (not a string compare on a store) |
+| registry boundary parses serving typed callers | 2 | 0 | `resolve_call`'s parse serves only the string wrapper; codegen resolves via `resolve_call_typed` |
+| transitional `ParameterType::parse` sites in codegen | ~8 (pre-existing registry/descriptor parses) | 117 | construction-site parses of strings produced inside the nominal web (behavior-safe by `parse∘name = id`; zero same-line `name()`→`parse` round-trips — grep 0); retired as the web's callers go typed (plan-106-E's terminal no-strings census owns the end state) |
+
+**The one load-bearing determination** (also in `.ai/codegen-invariants.md`):
+the layout/value-semantics classification web operates over the NOMINAL NAME
+domain — name-keyed `TypeModel`, variant-name recursion, `X STATE Y`
+composites — so its `&str` params are name-domain sinks (like symbol tables),
+entered by a single render from typed values. Converting it to `ParameterType`
+would ADD conversions (interning every recursion step) rather than remove
+string ops.
+- [x] Run `bash scripts/bench-lowering.sh` ×3 (medians per the Open Decision;
+      the script takes no binary arg — A's Correction); every probe ≤ baseline,
+      most FASTER:
+
+| Probe (debug/release s) | baseline | run medians | delta (release) |
+|---|---|---|---|
+| trivial | 0.65 / 0.35 | 0.65 / 0.36 | +0.01s (within noise) |
+| one-regex | 30.72 / 6.74 | 30.10 / 6.62 | **−1.8%** |
+| acceptance | 276.06 / 49.85 | 271.86 / 48.23 | **−3.3%** |
+
+      (Raw runs: trivial 0.65|0.65|0.66 / 0.35|0.36|0.36; one-regex
+      30.01|30.11|30.10 / 6.62|6.63|6.57; acceptance 272.08|271.86|269.98 /
+      48.23|48.59|47.41.)
+- [x] Doc sync: `.ai/codegen-invariants.md` gained the "Types below the AST are
+      ParameterType, with a nominal-name string boundary" invariant section;
+      `.ai/collections.md`/`.ai/compiler.md` scanned — no string-type-test
+      claims to fix (`rg` found none); `13_native-ir.md` reviewed — one
+      sentence corrected (`Global`'s empty `type_` is an empty *type*, rendered
+      as an empty string in the dump); serialized JSON unchanged.
+- [x] Tests: full suite green (0 FAILED) + `test-accept` 2 mismatches = the
+      documented pre-existing pair (stdin-EOF acceptance sub-tests at log:2 +
+      the `project_name` path-corruption harness bug at log:876) — no NEW
+      mismatch.
 
 Acceptance: censuses recorded with annotations; perf numbers recorded and ≤
 baseline; docs updated; `cargo test --no-fail-fast` green; `artifact-gate all`
@@ -170,12 +217,33 @@ Commit: —
 
 ## Open Decisions
 
-- **Perf-noise threshold for the bench comparison.** Recommend three runs per
-  probe, compare medians, flag > 3% regressions for investigation. (§3)
+- **Perf-noise threshold for the bench comparison.** RESOLVED as recommended:
+  three runs per probe, median comparison; no probe regressed >3% (the only
+  non-improvement is trivial-release +0.01s on a 0.35s probe). (§3)
 
 ## Corrections
 
-<Filled in during execution.>
+- **The "backends" census pointed at the shared layers, not the per-arch
+  emitters.** All 16 `src/target/` `.type_` reads live under
+  `src/target/shared/{nir,plan,validate}` (`rg -c '\.type_\b' src/target/`);
+  the per-arch backends (`linux_common`/`macos_aarch64`/`win_x86_64`) have
+  zero — they consume type facts only through `StorageType` and
+  `ProgramEntrySpec.language_entry_returns` (`&str`, an annotated seam). The
+  win_x86_64-ripple warning in Phase 2's text was therefore moot: no per-arch
+  file changed.
+- **`bash scripts/bench-lowering.sh` takes no binary argument** (inherited
+  from A's Correction; the Phase-3 command spelling
+  `scripts/bench-lowering.sh target/release/mfb` is ignored argv).
+- **Nominal-domain determination** (the load-bearing scope call, §Phase 1 and
+  `.ai/codegen-invariants.md`): the layout/value-semantics classification web
+  (`type_is_flat` family, `CollectionTypeLayout::from_type`, payload emitters)
+  is a NOMINAL-NAME-domain subsystem — name-keyed `TypeModel`, variant-name
+  recursion, `X STATE Y` composites. Its `&str` params are name-domain sinks
+  entered by one render from typed values; a `ParameterType` conversion would
+  intern/parse at every recursion step, ADDING conversions. The 117
+  transitional `ParameterType::parse` construction sites inside that plumbing
+  are behavior-safe (`parse∘name = id`, zero same-line round-trips) and are
+  the measured hand-off to plan-106-E's terminal no-strings census.
 
 ## Summary
 

@@ -714,10 +714,10 @@ impl CodeBuilder<'_> {
                 // consulted by try_mfb_fast_path below.
                 if let Some(local) = self.locals.get(target).cloned() {
                     if matches!(local.type_, ParameterType::Func(_, _, false)) {
-                        let return_type = typed_callable_return_type(&local.type_)
+                        let return_type_typed = typed_callable_return_type(&local.type_)
                             .expect("guarded by the Func match above")
-                            .name()
-                            .into_owned();
+                            .clone();
+                        let return_type = return_type_typed.name().into_owned();
                         let callable = ValueResult {
                             origin: None,
                             type_: local.type_.clone(),
@@ -878,10 +878,10 @@ impl CodeBuilder<'_> {
             NirValue::CallResult { target, args, .. } => {
                 if let Some(local) = self.locals.get(target).cloned() {
                     if matches!(local.type_, ParameterType::Func(_, _, false)) {
-                        let return_type = typed_callable_return_type(&local.type_)
+                        let return_type_typed = typed_callable_return_type(&local.type_)
                             .expect("guarded by the Func match above")
-                            .name()
-                            .into_owned();
+                            .clone();
+                        let return_type = return_type_typed.name().into_owned();
                         let callable = ValueResult {
                             origin: None,
                             type_: local.type_.clone(),
@@ -965,7 +965,7 @@ impl CodeBuilder<'_> {
                         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                         return Ok(ValueResult {
                             origin: None,
-                            type_: ParameterType::parse(&format!("Result OF {return_type}")),
+                            type_: ParameterType::result_of(return_type_typed.clone()),
                             location: Operand::from(register.render()),
                             text: format!("callResult {target}"),
                         });
@@ -1026,21 +1026,20 @@ impl CodeBuilder<'_> {
                     .get(target)
                     .cloned()
                     .unwrap_or_else(|| target.to_string());
-                let success_type = self
+                let success_type_typed = self
                     .functions
                     .get(target)
-                    .map(|function| function.returns.name().into_owned())
+                    .map(|function| function.returns.clone())
+                    .or_else(|| self.package_return_types.get(target).cloned())
                     .or_else(|| {
-                        self.package_return_types
-                            .get(target)
-                            .map(|type_| type_.name().into_owned())
-                    })
-                    .or_else(|| {
-                        builtins::call_return_type_name(target).map(std::borrow::Cow::into_owned)
+                        // A static descriptor name — a registry-literal boundary.
+                        builtins::call_return_type_name(target)
+                            .map(|type_| ParameterType::parse(&type_))
                     })
                     .ok_or_else(|| {
                         format!("native raw result call '{target}' has no return type")
                     })?;
+                let success_type = success_type_typed.name().into_owned();
                 let tag_slot = self.allocate_stack_object("raw_result_tag", 8);
                 let value_slot = self.allocate_stack_object("raw_result_value", 8);
                 let message_slot = self.allocate_stack_object("raw_result_message", 8);
@@ -1104,7 +1103,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
                     origin: None,
-                    type_: ParameterType::parse(&format!("Result OF {success_type}")),
+                    type_: ParameterType::result_of(success_type_typed.clone()),
                     location: Operand::from(register.render()),
                     text: format!("callResult {target}"),
                 })
