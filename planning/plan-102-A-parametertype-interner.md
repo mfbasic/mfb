@@ -33,9 +33,9 @@ Shared by every plan-102 sub-plan; stated once here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| On a feature branch, not main | `git rev-parse --abbrev-ref HEAD` (≠ `main`) | MET (worktree-builder) |
-| Baseline gate captured (the branch's pre-existing `.ncode` diff set) | `scripts/artifact-gate.sh target/release/mfb all` → record the DIFF set | NOT MET — run first |
-| Full suite green at HEAD | `rustup run 1.96.0 cargo test` | NOT MET — run first |
+| On a feature branch, not main | `git rev-parse --abbrev-ref HEAD` (≠ `main`) | MET (worktree-P-102) |
+| Baseline gate captured (the branch's pre-existing `.ncode` diff set) | `scripts/artifact-gate.sh target/release/mfb all` → record the DIFF set | MET — 13 diffs recorded in `planning/plan-102-baseline-diffs.txt` (2026-08-23) |
+| Full suite green at HEAD | `rustup run 1.96.0 cargo test` | MET — only failure is the recorded `artifact_gate_all` baseline (13 diffs); all other binaries green (`--no-fail-fast`) |
 
 > The Command column is the truth; re-run and update Status before continuing and
 > before deciding to stop. This whole feature is behavior-preserving, so the
@@ -232,15 +232,17 @@ is process-internal.
 One line: record the branch's pre-existing `.ncode`/`.ncodesum` diff set and a
 green suite, so every later phase can prove "no NEW diff".
 
-- [ ] Run `rustup run 1.96.0 cargo build --release --bin mfb`.
-- [ ] Run `scripts/artifact-gate.sh target/release/mfb all`; save the sorted DIFF
+- [x] Run `rustup run 1.96.0 cargo build --release --bin mfb`. (release built, 1m14s)
+- [x] Run `scripts/artifact-gate.sh target/release/mfb all`; save the sorted DIFF
       set to `planning/plan-102-baseline-diffs.txt` (git-ignored or noted as
-      scratch). This is the "pre-existing" set.
-- [ ] Run `rustup run 1.96.0 cargo test`; confirm the only failure (if any) is the
-      recorded `artifact_gate_all` pre-existing set.
+      scratch). This is the "pre-existing" set. (13 DIFF lines: 5 win64 `*_codegen_cover_rt`,
+      4 crypto-ec cross-arch, 4 macos-app-mode app.ncode — recorded.)
+- [x] Run `rustup run 1.96.0 cargo test`; confirm the only failure (if any) is the
+      recorded `artifact_gate_all` pre-existing set. (`--no-fail-fast`: sole failure
+      is `artifact_gate_all`; all other binaries green, 3612 lib + integration all ok.)
 
 Acceptance: `planning/plan-102-baseline-diffs.txt` exists and `cargo test` is
-green except for the recorded pre-existing gate diffs.
+green except for the recorded pre-existing gate diffs. VERIFIED.
 Commit: —
 
 ### Phase 2 — add the `Copy` symbol interner (no `ParameterType` change yet)
