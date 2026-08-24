@@ -64,7 +64,7 @@ pub(crate) mod helpers {
             let manifest = validate_project_manifest(&dir.join("project.json")).ok()?;
             let astp = ast::parse_project(project, &dir, &manifest).ok()?;
             resolver::resolve_project(&dir, &manifest, &astp).ok()?;
-            let concrete = monomorph::monomorphize_project(&dir, &astp).ok()?;
+            let concrete = crate::hir::deelaborate(&monomorph::monomorphize_project(&dir, &crate::hir::elaborate(&astp)).ok()?);
             resolver::resolve_project_with(&dir, &manifest, &concrete, false).ok()?;
             Some(lower_project_with_external_functions(
                 &concrete,
@@ -185,7 +185,7 @@ mod lowering_totality_tests {
             .ok_or(())?;
         let ast = ast::parse_project(&name, dir, &manifest)?;
         resolver::resolve_project(dir, &manifest, &ast)?;
-        let concrete = monomorph::monomorphize_project(dir, &ast)?;
+        let concrete = crate::hir::deelaborate(&monomorph::monomorphize_project(dir, &crate::hir::elaborate(&ast))?);
         resolver::resolve_project_with(dir, &manifest, &concrete, false)?;
         // Reached lowering: it must not panic. Entry + external package
         // functions are irrelevant to totality, so pass the minimal inputs.
@@ -5258,7 +5258,7 @@ END FUNC
             .unwrap();
         let ast = ast::parse_project(&name, &dir, &manifest).unwrap();
         resolver::resolve_project(&dir, &manifest, &ast).unwrap();
-        let concrete = monomorph::monomorphize_project(&dir, &ast).unwrap();
+        let concrete = crate::hir::deelaborate(&monomorph::monomorphize_project(&dir, &crate::hir::elaborate(&ast)).unwrap());
         resolver::resolve_project_with(&dir, &manifest, &concrete, false).unwrap();
         std::panic::set_hook(prev);
 

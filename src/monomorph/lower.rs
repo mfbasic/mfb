@@ -25,30 +25,30 @@ fn strip_qualifier_prefixes(input: &str, qualifier: &str) -> String {
 }
 
 impl<'a> Monomorphizer<'a> {
-    pub(super) fn new(project_dir: &'a Path, source: &'a AstProject) -> Self {
+    pub(super) fn new(project_dir: &'a Path, source: &'a HirProject) -> Self {
         let mut type_templates = HashMap::new();
         let mut function_templates = HashMap::new();
         let mut concrete_types = HashMap::new();
         let mut concrete_functions = HashMap::new();
-        let mut function_overloads: HashMap<String, Vec<Function>> = HashMap::new();
+        let mut function_overloads: HashMap<String, Vec<HirFunction>> = HashMap::new();
         let mut overload_names = HashMap::new();
         let mut function_files: HashMap<String, String> = HashMap::new();
 
         for file in &source.files {
             for item in &file.items {
                 match item {
-                    Item::Binding(_) => {}
-                    Item::Type(type_decl) if !type_decl.template_params.is_empty() => {
+                    HirItem::Binding(_) => {}
+                    HirItem::Type(type_decl) if !type_decl.template_params.is_empty() => {
                         type_templates.insert(type_decl.name.clone(), type_decl.clone());
                     }
-                    Item::Type(type_decl) => {
+                    HirItem::Type(type_decl) => {
                         concrete_types.insert(type_decl.name.clone(), type_decl.clone());
                     }
-                    Item::Function(function) if !function.template_params.is_empty() => {
+                    HirItem::Function(function) if !function.template_params.is_empty() => {
                         function_files.insert(function.name.clone(), file.path.clone());
                         function_templates.insert(function.name.clone(), function.clone());
                     }
-                    Item::Function(function) => {
+                    HirItem::Function(function) => {
                         function_files
                             .entry(function.name.clone())
                             .or_insert_with(|| file.path.clone());
@@ -60,11 +60,11 @@ impl<'a> Monomorphizer<'a> {
                     // Native LINK resources, re-export aliases, and LINK blocks
                     // carry no template parameters and are passed through
                     // unchanged (plan-link-update.md §15 Phase 1).
-                    Item::Resource(_) | Item::FuncAlias(_) | Item::Link(_) => {}
+                    HirItem::Resource(_) | HirItem::FuncAlias(_) | HirItem::Link(_) => {}
                     // DOC blocks carry no template parameters; passed through below.
-                    Item::Doc(_) => {}
+                    HirItem::Doc(_) => {}
                     // TESTING blocks are lowered away before monomorphization.
-                    Item::Testing(_) => {}
+                    HirItem::Testing(_) => {}
                 }
             }
         }
@@ -93,7 +93,7 @@ impl<'a> Monomorphizer<'a> {
                     overload_key(
                         &function.name,
                         &function.params,
-                        function.return_type.as_deref(),
+                        opt_type_name(&function.returns).as_deref(),
                     ),
                     concrete_name.clone(),
                 );
@@ -267,7 +267,7 @@ impl<'a> Monomorphizer<'a> {
         }
     }
 
-    pub(super) fn into_project(mut self) -> AstProject {
+    pub(super) fn into_project(mut self) -> HirProject {
         let mut emitted_types = HashSet::new();
         let mut emitted_functions = HashSet::new();
         let mut files = self
@@ -278,51 +278,51 @@ impl<'a> Monomorphizer<'a> {
                 let mut items = Vec::new();
                 for item in &file.items {
                     match item {
-                        Item::Binding(binding) => {
-                            items.push(Item::Binding(self.lower_binding(binding.clone())));
+                        HirItem::Binding(binding) => {
+                            items.push(HirItem::Binding(self.lower_binding(binding.clone())));
                         }
-                        Item::Type(type_decl) if type_decl.template_params.is_empty() => {
+                        HirItem::Type(type_decl) if type_decl.template_params.is_empty() => {
                             if let Some(concrete) = self.concrete_types.get(&type_decl.name) {
                                 emitted_types.insert(concrete.name.clone());
-                                items.push(Item::Type(concrete.clone()));
+                                items.push(HirItem::Type(concrete.clone()));
                             }
                         }
-                        Item::Function(function) if function.template_params.is_empty() => {
+                        HirItem::Function(function) if function.template_params.is_empty() => {
                             let concrete_name = self
                                 .overload_names
                                 .get(&overload_key(
                                     &function.name,
                                     &function.params,
-                                    function.return_type.as_deref(),
+                                    opt_type_name(&function.returns).as_deref(),
                                 ))
                                 .map(String::as_str)
                                 .unwrap_or(&function.name);
                             if let Some(concrete) = self.concrete_functions.get(concrete_name) {
                                 emitted_functions.insert(concrete.name.clone());
-                                items.push(Item::Function(concrete.clone()));
+                                items.push(HirItem::Function(concrete.clone()));
                             }
                         }
                         // Native LINK constructs are not monomorphized; preserve
                         // them verbatim so later stages (resolve, syntaxcheck,
                         // package metadata) still see them.
-                        Item::Resource(resource) => {
-                            items.push(Item::Resource(resource.clone()));
+                        HirItem::Resource(resource) => {
+                            items.push(HirItem::Resource(resource.clone()));
                         }
-                        Item::FuncAlias(alias) => {
-                            items.push(Item::FuncAlias(alias.clone()));
+                        HirItem::FuncAlias(alias) => {
+                            items.push(HirItem::FuncAlias(alias.clone()));
                         }
-                        Item::Link(link) => {
-                            items.push(Item::Link(link.clone()));
+                        HirItem::Link(link) => {
+                            items.push(HirItem::Link(link.clone()));
                         }
                         // Preserve DOC blocks verbatim so the post-monomorph
                         // resolve and IR lowering still see the documentation.
-                        Item::Doc(doc) => {
-                            items.push(Item::Doc(doc.clone()));
+                        HirItem::Doc(doc) => {
+                            items.push(HirItem::Doc(doc.clone()));
                         }
                         _ => {}
                     }
                 }
-                AstFile {
+                HirFile {
                     path: file.path.clone(),
                     imports: file.imports.clone(),
                     items,
@@ -364,7 +364,7 @@ impl<'a> Monomorphizer<'a> {
             generated_types.sort_by(|left, right| left.name.cmp(&right.name));
             first_file
                 .items
-                .extend(generated_types.into_iter().map(Item::Type));
+                .extend(generated_types.into_iter().map(HirItem::Type));
 
             let mut generated_functions = self
                 .concrete_functions
@@ -374,10 +374,10 @@ impl<'a> Monomorphizer<'a> {
             generated_functions.sort_by(|left, right| left.name.cmp(&right.name));
             first_file
                 .items
-                .extend(generated_functions.into_iter().map(Item::Function));
+                .extend(generated_functions.into_iter().map(HirItem::Function));
         }
 
-        AstProject {
+        HirProject {
             name: self.source.name.clone(),
             files,
         }
@@ -385,10 +385,10 @@ impl<'a> Monomorphizer<'a> {
 
     fn lower_type(
         &mut self,
-        mut type_decl: TypeDecl,
+        mut type_decl: HirTypeDecl,
         substitutions: &HashMap<String, String>,
         concrete_name: Option<String>,
-    ) -> TypeDecl {
+    ) -> HirTypeDecl {
         if let Some(name) = concrete_name {
             type_decl.name = name;
         }
@@ -414,17 +414,20 @@ impl<'a> Monomorphizer<'a> {
         type_decl
     }
 
-    fn lower_binding(&mut self, mut binding: TopLevelBinding) -> TopLevelBinding {
-        if let Some(type_name) = &binding.type_name {
-            binding.type_name = Some(self.concrete_type_name(type_name, &HashMap::new()));
+    fn lower_binding(&mut self, mut binding: HirTopLevelBinding) -> HirTopLevelBinding {
+        if binding.explicit_type {
+            let type_name = binding.type_.name().into_owned();
+            binding.type_ =
+                ParameterType::parse(&self.concrete_type_name(&type_name, &HashMap::new()));
         }
         if let Some(value) = binding.value.take() {
             let mut context = self.function_context();
+            let expected = binding.explicit_type.then(|| binding.type_.name().into_owned());
             binding.value = Some(self.lower_expression(
                 &value,
                 &HashMap::new(),
                 &mut context,
-                binding.type_name.as_deref(),
+                expected.as_deref(),
                 binding.line,
             ));
         }
@@ -433,10 +436,10 @@ impl<'a> Monomorphizer<'a> {
 
     fn lower_function(
         &mut self,
-        function: Function,
+        function: HirFunction,
         substitutions: &HashMap<String, String>,
         concrete_name: Option<String>,
-    ) -> Function {
+    ) -> HirFunction {
         // Attribute any diagnostic raised while lowering this body to the file
         // the function was declared in, restoring the caller's file afterward so
         // a nested instantiation doesn't leak its file to the enclosing frame
@@ -455,28 +458,34 @@ impl<'a> Monomorphizer<'a> {
 
     fn lower_function_inner(
         &mut self,
-        mut function: Function,
+        mut function: HirFunction,
         substitutions: &HashMap<String, String>,
         concrete_name: Option<String>,
-    ) -> Function {
+    ) -> HirFunction {
         if let Some(name) = concrete_name {
             function.name = name;
         }
         function.template_params.clear();
         for param in &mut function.params {
-            if let Some(type_name) = &param.type_name {
-                param.type_name = Some(self.concrete_type_name(type_name, substitutions));
+            if !matches!(param.type_, ParameterType::Unknown) {
+                let type_name = param.type_.name().into_owned();
+                param.type_ =
+                    ParameterType::parse(&self.concrete_type_name(&type_name, substitutions));
             }
         }
-        if let Some(return_type) = &function.return_type {
-            function.return_type = Some(self.concrete_type_name(return_type, substitutions));
+        if !matches!(function.returns, ParameterType::Unknown) {
+            let return_type = function.returns.name().into_owned();
+            function.returns =
+                ParameterType::parse(&self.concrete_type_name(&return_type, substitutions));
         }
 
         let mut context = self.function_context();
-        context.enclosing_return = function.return_type.clone();
+        context.enclosing_return = opt_type_name(&function.returns);
         for param in &function.params {
-            if let Some(type_name) = &param.type_name {
-                context.locals.insert(param.name.clone(), type_name.clone());
+            if !matches!(param.type_, ParameterType::Unknown) {
+                context
+                    .locals
+                    .insert(param.name.clone(), param.type_.name().into_owned());
             }
         }
         function.body = self.lower_statements(&function.body, substitutions, &mut context);
@@ -498,12 +507,12 @@ impl<'a> Monomorphizer<'a> {
     fn arg_types_in_param_order(
         &self,
         callee: &str,
-        arguments: &[CallArg],
+        arguments: &[HirCallArg],
         arg_types: &[String],
     ) -> Option<Vec<String>> {
         if !arguments
             .iter()
-            .any(|argument| matches!(argument, CallArg::Named { .. }))
+            .any(|argument| matches!(argument, HirCallArg::Named { .. }))
         {
             return None;
         }
@@ -513,7 +522,7 @@ impl<'a> Monomorphizer<'a> {
         for (index, argument) in arguments.iter().enumerate() {
             let arg_type = arg_types.get(index)?.clone();
             match argument {
-                CallArg::Positional(_) => {
+                HirCallArg::Positional(_) => {
                     while next_positional < ordered.len() && ordered[next_positional].is_some() {
                         next_positional += 1;
                     }
@@ -522,7 +531,7 @@ impl<'a> Monomorphizer<'a> {
                         next_positional += 1;
                     }
                 }
-                CallArg::Named { name, .. } => {
+                HirCallArg::Named { name, .. } => {
                     if let Some(slot) = params.iter().position(|param| param.name == *name) {
                         ordered[slot] = Some(arg_type);
                     }
@@ -592,12 +601,12 @@ impl<'a> Monomorphizer<'a> {
 
         let mut substitutions = HashMap::new();
         for (param, actual) in template.params.iter().zip(arg_types.iter()) {
-            let Some(pattern) = &param.type_name else {
+            let Some(pattern) = opt_type_name(&param.type_) else {
                 continue;
             };
             let actual = self.template_view_type(actual);
             if !unify_type(
-                pattern,
+                &pattern,
                 &actual,
                 &template.template_params,
                 &mut substitutions,
@@ -712,7 +721,7 @@ impl<'a> Monomorphizer<'a> {
                 // call is ambiguous.
                 let mut by_return = param_matches
                     .iter()
-                    .filter(|function| function.return_type.as_deref() == expected);
+                    .filter(|function| opt_type_name(&function.returns).as_deref() == expected);
                 match (by_return.next(), by_return.next()) {
                     (Some(unique), None) => unique.clone(),
                     _ => {
@@ -735,7 +744,7 @@ impl<'a> Monomorphizer<'a> {
             .get(&overload_key(
                 name,
                 &chosen.params,
-                chosen.return_type.as_deref(),
+                opt_type_name(&chosen.returns).as_deref(),
             ))
             .cloned()
     }
@@ -766,7 +775,7 @@ impl<'a> Monomorphizer<'a> {
             .get(&overload_key(
                 name,
                 &chosen.params,
-                chosen.return_type.as_deref(),
+                opt_type_name(&chosen.returns).as_deref(),
             ))
             .cloned()
     }
@@ -776,7 +785,7 @@ impl<'a> Monomorphizer<'a> {
     /// so a return-type-overloaded call passed as an argument resolves
     /// (plan-01-overload.md §F.2); `None` when the callee is overloaded, a package
     /// member, or unknown.
-    fn single_signature_params(&self, callee: &str) -> Option<Vec<crate::ast::Param>> {
+    fn single_signature_params(&self, callee: &str) -> Option<Vec<HirParam>> {
         let candidates = self.function_overloads.get(callee)?;
         (candidates.len() == 1).then(|| candidates[0].params.clone())
     }
@@ -822,20 +831,21 @@ impl<'a> Monomorphizer<'a> {
 
     fn lower_field(
         &mut self,
-        field: &TypeField,
+        field: &HirTypeField,
         substitutions: &HashMap<String, String>,
-    ) -> TypeField {
+    ) -> HirTypeField {
         let mut lowered = field.clone();
-        lowered.type_name = self.concrete_type_name(&field.type_name, substitutions);
+        let type_name = field.type_.name().into_owned();
+        lowered.type_ = ParameterType::parse(&self.concrete_type_name(&type_name, substitutions));
         lowered
     }
 
     fn lower_statements(
         &mut self,
-        statements: &[Statement],
+        statements: &[HirStatement],
         substitutions: &HashMap<String, String>,
         context: &mut FunctionContext,
-    ) -> Vec<Statement> {
+    ) -> Vec<HirStatement> {
         statements
             .iter()
             .map(|statement| self.lower_statement(statement, substitutions, context))
@@ -844,26 +854,31 @@ impl<'a> Monomorphizer<'a> {
 
     fn lower_statement(
         &mut self,
-        statement: &Statement,
+        statement: &HirStatement,
         substitutions: &HashMap<String, String>,
         context: &mut FunctionContext,
-    ) -> Statement {
+    ) -> HirStatement {
         match statement {
-            Statement::Let {
+            HirStatement::Let {
                 mutable,
                 resource,
                 state_type,
                 name,
-                type_name,
+                type_,
+                explicit_type,
                 value,
                 line,
             } => {
+                // Mirror the AST `Option<String>` the pre-D3 walk consumed: an
+                // explicit `AS T` annotation carries its rendered type, an inferred
+                // `LET` carries `None`.
+                let type_name = explicit_type.then(|| type_.name().into_owned());
                 let lowered_type = type_name
                     .as_ref()
                     .map(|type_name| self.concrete_type_name(type_name, substitutions));
                 let lowered_state = state_type
                     .as_ref()
-                    .map(|state_type| self.concrete_type_name(state_type, substitutions));
+                    .map(|state_type| self.concrete_type_name(state_type.name().as_ref(), substitutions));
                 let expected_source_type = type_name
                     .as_ref()
                     .map(|type_name| substitute_type_params(type_name, substitutions));
@@ -884,57 +899,61 @@ impl<'a> Monomorphizer<'a> {
                 if let Some(binding_type) = binding_type {
                     context.locals.insert(name.clone(), binding_type);
                 }
-                Statement::Let {
+                HirStatement::Let {
                     mutable: *mutable,
                     resource: *resource,
-                    state_type: lowered_state,
+                    state_type: lowered_state.map(|s| ParameterType::parse(&s)),
                     name: name.clone(),
-                    type_name: lowered_type,
+                    type_: lowered_type
+                        .as_deref()
+                        .map(ParameterType::parse)
+                        .unwrap_or(ParameterType::Unknown),
+                    explicit_type: *explicit_type,
                     value: lowered_value,
                     line: *line,
                 }
             }
-            Statement::Return { value, line } => Statement::Return {
+            HirStatement::Return { value, line } => HirStatement::Return {
                 value: value.as_ref().map(|value| {
                     // A `RETURN` of a call propagates the enclosing function's
                     // declared return type as the expected type so a return-type
                     // overload set resolves (plan-01-overload.md §F.2).
-                    let expected = matches!(value, Expression::Call { .. })
+                    let expected = matches!(value, HirExpression::Call { .. })
                         .then(|| context.enclosing_return.clone())
                         .flatten();
                     self.lower_expression(value, substitutions, context, expected.as_deref(), *line)
                 }),
                 line: *line,
             },
-            Statement::Exit { target, code, line } => Statement::Exit {
+            HirStatement::Exit { target, code, line } => HirStatement::Exit {
                 target: *target,
                 code: code
                     .as_ref()
                     .map(|value| self.lower_expression(value, substitutions, context, None, *line)),
                 line: *line,
             },
-            Statement::Continue { kind, line } => Statement::Continue {
+            HirStatement::Continue { kind, line } => HirStatement::Continue {
                 kind: *kind,
                 line: *line,
             },
-            Statement::Fail { error, line } => Statement::Fail {
+            HirStatement::Fail { error, line } => HirStatement::Fail {
                 error: self.lower_expression(error, substitutions, context, None, *line),
                 line: *line,
             },
-            Statement::Propagate { line } => Statement::Propagate { line: *line },
-            Statement::Recover { value, line } => Statement::Recover {
+            HirStatement::Propagate { line } => HirStatement::Propagate { line: *line },
+            HirStatement::Recover { value, line } => HirStatement::Recover {
                 value: value
                     .as_ref()
                     .map(|value| self.lower_expression(value, substitutions, context, None, *line)),
                 line: *line,
             },
-            Statement::Assign { name, value, line } => {
+            HirStatement::Assign { name, value, line } => {
                 // Pass the target local's declared type as the RHS expected type so
                 // a return-type-overloaded call disambiguates, exactly like the
                 // `LET … AS T = call()` form (bug-197). Only consulted by call
                 // overload resolution; other RHS expressions ignore it.
                 let expected = context.locals.get(name).cloned();
-                Statement::Assign {
+                HirStatement::Assign {
                     name: name.clone(),
                     value: self.lower_expression(
                         value,
@@ -946,13 +965,13 @@ impl<'a> Monomorphizer<'a> {
                     line: *line,
                 }
             }
-            Statement::StateAssign {
+            HirStatement::StateAssign {
                 resource,
                 value,
                 line,
             } => {
                 let expected = context.locals.get(resource).cloned();
-                Statement::StateAssign {
+                HirStatement::StateAssign {
                     resource: resource.clone(),
                     value: self.lower_expression(
                         value,
@@ -964,11 +983,11 @@ impl<'a> Monomorphizer<'a> {
                     line: *line,
                 }
             }
-            Statement::Expression { expression, line } => Statement::Expression {
+            HirStatement::Expression { expression, line } => HirStatement::Expression {
                 expression: self.lower_expression(expression, substitutions, context, None, *line),
                 line: *line,
             },
-            Statement::If {
+            HirStatement::If {
                 condition,
                 then_body,
                 else_body,
@@ -976,7 +995,7 @@ impl<'a> Monomorphizer<'a> {
             } => {
                 let mut then_context = context.clone();
                 let mut else_context = context.clone();
-                Statement::If {
+                HirStatement::If {
                     condition: self.lower_expression(
                         condition,
                         substitutions,
@@ -989,27 +1008,27 @@ impl<'a> Monomorphizer<'a> {
                     line: *line,
                 }
             }
-            Statement::Match {
+            HirStatement::Match {
                 expression,
                 cases,
                 line,
-            } => Statement::Match {
+            } => HirStatement::Match {
                 expression: self.lower_expression(expression, substitutions, context, None, *line),
                 cases: cases
                     .iter()
                     .map(|case| {
                         let mut case_context = context.clone();
-                        if let MatchPattern::Union { binding, type_name } = &case.pattern {
+                        if let HirMatchPattern::Union { binding, type_ } = &case.pattern {
                             case_context.locals.insert(
                                 binding.clone(),
-                                self.concrete_type_name(type_name, substitutions),
+                                self.concrete_type_name(type_.name().as_ref(), substitutions),
                             );
                         }
-                        MatchCase {
+                        HirMatchCase {
                             pattern: match &case.pattern {
-                                MatchPattern::Else => MatchPattern::Else,
-                                MatchPattern::Literal(expression) => {
-                                    MatchPattern::Literal(self.lower_expression(
+                                HirMatchPattern::Else => HirMatchPattern::Else,
+                                HirMatchPattern::Literal(expression) => {
+                                    HirMatchPattern::Literal(self.lower_expression(
                                         expression,
                                         substitutions,
                                         &mut case_context,
@@ -1017,11 +1036,13 @@ impl<'a> Monomorphizer<'a> {
                                         case.line,
                                     ))
                                 }
-                                MatchPattern::Union { type_name, binding } => MatchPattern::Union {
-                                    type_name: self.concrete_type_name(type_name, substitutions),
+                                HirMatchPattern::Union { type_, binding } => HirMatchPattern::Union {
+                                    type_: ParameterType::parse(
+                                        &self.concrete_type_name(type_.name().as_ref(), substitutions),
+                                    ),
                                     binding: binding.clone(),
                                 },
-                                MatchPattern::OneOf(expressions) => MatchPattern::OneOf(
+                                HirMatchPattern::OneOf(expressions) => HirMatchPattern::OneOf(
                                     expressions
                                         .iter()
                                         .map(|expression| {
@@ -1056,7 +1077,7 @@ impl<'a> Monomorphizer<'a> {
                     .collect(),
                 line: *line,
             },
-            Statement::For {
+            HirStatement::For {
                 name,
                 start,
                 end,
@@ -1084,7 +1105,7 @@ impl<'a> Monomorphizer<'a> {
                 {
                     nested.locals.insert(name.clone(), loop_type);
                 }
-                Statement::For {
+                HirStatement::For {
                     name: name.clone(),
                     start: lowered_start,
                     end: lowered_end,
@@ -1093,7 +1114,7 @@ impl<'a> Monomorphizer<'a> {
                     line: *line,
                 }
             }
-            Statement::ForEach {
+            HirStatement::ForEach {
                 name,
                 iterable,
                 body,
@@ -1114,29 +1135,29 @@ impl<'a> Monomorphizer<'a> {
                     };
                     nested.locals.insert(name.clone(), loop_type);
                 }
-                Statement::ForEach {
+                HirStatement::ForEach {
                     name: name.clone(),
                     iterable: lowered_iterable,
                     body: self.lower_statements(body, substitutions, &mut nested),
                     line: *line,
                 }
             }
-            Statement::While {
+            HirStatement::While {
                 kind,
                 condition,
                 body,
                 line,
-            } => Statement::While {
+            } => HirStatement::While {
                 kind: *kind,
                 condition: self.lower_expression(condition, substitutions, context, None, *line),
                 body: self.lower_statements(body, substitutions, &mut context.clone()),
                 line: *line,
             },
-            Statement::DoUntil {
+            HirStatement::DoUntil {
                 body,
                 condition,
                 line,
-            } => Statement::DoUntil {
+            } => HirStatement::DoUntil {
                 body: self.lower_statements(body, substitutions, &mut context.clone()),
                 condition: self.lower_expression(condition, substitutions, context, None, *line),
                 line: *line,
@@ -1146,14 +1167,14 @@ impl<'a> Monomorphizer<'a> {
 
     fn lower_expression(
         &mut self,
-        expression: &Expression,
+        expression: &HirExpression,
         substitutions: &HashMap<String, String>,
         context: &mut FunctionContext,
         expected_type: Option<&str>,
         line: usize,
-    ) -> Expression {
+    ) -> HirExpression {
         match expression {
-            Expression::Call {
+            HirExpression::Call {
                 callee,
                 arguments,
                 line: call_line,
@@ -1169,31 +1190,31 @@ impl<'a> Monomorphizer<'a> {
                     .iter()
                     .enumerate()
                     .map(|(index, argument)| match argument {
-                        CallArg::Positional(value) => {
+                        HirCallArg::Positional(value) => {
                             let expected =
                                 arg_slot_expected(value, sig_params.as_deref(), |params| {
                                     params.get(index)
                                 });
-                            CallArg::Positional(self.lower_expression(
+                            HirCallArg::Positional(self.lower_expression(
                                 value,
                                 substitutions,
                                 context,
-                                expected,
+                                expected.as_deref(),
                                 line,
                             ))
                         }
-                        CallArg::Named { name, value, line } => {
+                        HirCallArg::Named { name, value, line } => {
                             let expected =
                                 arg_slot_expected(value, sig_params.as_deref(), |params| {
                                     params.iter().find(|param| param.name == *name)
                                 });
-                            CallArg::Named {
+                            HirCallArg::Named {
                                 name: name.clone(),
                                 value: self.lower_expression(
                                     value,
                                     substitutions,
                                     context,
-                                    expected,
+                                    expected.as_deref(),
                                     *line,
                                 ),
                                 line: *line,
@@ -1269,22 +1290,20 @@ impl<'a> Monomorphizer<'a> {
                 if target != *callee {
                     self.add_function_to_context(&target, context);
                 }
-                Expression::Call {
+                HirExpression::Call {
                     callee: target,
                     arguments: lowered_args,
                     line: *call_line,
                     column: *column,
                 }
             }
-            Expression::Constructor {
-                type_name,
-                arguments,
-            } => {
+            HirExpression::Constructor { type_, arguments } => {
+                let type_name = type_.name().into_owned();
                 let mut concrete_type = None;
                 if let Some((expected_name, expected_args)) =
                     expected_type.and_then(user_template_parts)
                 {
-                    if expected_name == *type_name {
+                    if expected_name == type_name {
                         concrete_type = Some(self.instantiate_type(&expected_name, &expected_args));
                     }
                 }
@@ -1304,12 +1323,12 @@ impl<'a> Monomorphizer<'a> {
                             substitutions,
                             context,
                             line,
-                            expected_arg_type,
+                            expected_arg_type.as_deref(),
                         )
                     })
                     .collect::<Vec<_>>();
-                if concrete_type.is_none() && self.type_templates.contains_key(type_name) {
-                    let Some(template) = self.type_templates.get(type_name).cloned() else {
+                if concrete_type.is_none() && self.type_templates.contains_key(&type_name) {
+                    let Some(template) = self.type_templates.get(&type_name).cloned() else {
                         unreachable!();
                     };
                     let mut inferred = HashMap::new();
@@ -1323,7 +1342,7 @@ impl<'a> Monomorphizer<'a> {
                             self.expression_type(constructor_arg_value(argument), context)
                         {
                             unify_type(
-                                &field.type_name,
+                                field.type_.name().as_ref(),
                                 &actual,
                                 &template.template_params,
                                 &mut inferred,
@@ -1336,19 +1355,19 @@ impl<'a> Monomorphizer<'a> {
                         .map(|param| inferred.get(param).cloned())
                         .collect::<Option<Vec<_>>>();
                     if let Some(args) = args {
-                        concrete_type = Some(self.instantiate_type(type_name, &args));
+                        concrete_type = Some(self.instantiate_type(&type_name, &args));
                     }
                 }
-                Expression::Constructor {
-                    type_name: concrete_type.unwrap_or_else(|| type_name.clone()),
+                HirExpression::Constructor {
+                    type_: ParameterType::parse(&concrete_type.unwrap_or(type_name)),
                     arguments: lowered_args,
                 }
             }
-            Expression::WithUpdate { target, updates } => Expression::WithUpdate {
+            HirExpression::WithUpdate { target, updates } => HirExpression::WithUpdate {
                 target: Box::new(self.lower_expression(target, substitutions, context, None, line)),
                 updates: updates
                     .iter()
-                    .map(|update| RecordUpdate {
+                    .map(|update| HirRecordUpdate {
                         field: update.field.clone(),
                         value: self.lower_expression(
                             &update.value,
@@ -1361,7 +1380,7 @@ impl<'a> Monomorphizer<'a> {
                     })
                     .collect(),
             },
-            Expression::ListLiteral(values) => Expression::ListLiteral(
+            HirExpression::ListLiteral(values) => HirExpression::ListLiteral(
                 values
                     .iter()
                     .map(|value| {
@@ -1371,11 +1390,13 @@ impl<'a> Monomorphizer<'a> {
                     })
                     .collect(),
             ),
-            Expression::SetLiteral {
+            HirExpression::SetLiteral {
                 element_type,
                 elements,
-            } => Expression::SetLiteral {
-                element_type: self.concrete_type_name(element_type, substitutions),
+            } => HirExpression::SetLiteral {
+                element_type: ParameterType::parse(
+                    &self.concrete_type_name(element_type.name().as_ref(), substitutions),
+                ),
                 elements: elements
                     .iter()
                     .map(|value| {
@@ -1385,13 +1406,17 @@ impl<'a> Monomorphizer<'a> {
                     })
                     .collect(),
             },
-            Expression::MapLiteral {
+            HirExpression::MapLiteral {
                 key_type,
                 value_type,
                 entries,
-            } => Expression::MapLiteral {
-                key_type: self.concrete_type_name(key_type, substitutions),
-                value_type: self.concrete_type_name(value_type, substitutions),
+            } => HirExpression::MapLiteral {
+                key_type: ParameterType::parse(
+                    &self.concrete_type_name(key_type.name().as_ref(), substitutions),
+                ),
+                value_type: ParameterType::parse(
+                    &self.concrete_type_name(value_type.name().as_ref(), substitutions),
+                ),
                 entries: entries
                     .iter()
                     .map(|(key, value)| {
@@ -1402,29 +1427,29 @@ impl<'a> Monomorphizer<'a> {
                     })
                     .collect(),
             },
-            Expression::MemberAccess { target, member } => Expression::MemberAccess {
+            HirExpression::MemberAccess { target, member } => HirExpression::MemberAccess {
                 target: Box::new(self.lower_expression(target, substitutions, context, None, line)),
                 member: member.clone(),
             },
-            Expression::Binary {
+            HirExpression::Binary {
                 left,
                 operator,
                 right,
                 line: op_line,
                 column,
-            } => Expression::Binary {
+            } => HirExpression::Binary {
                 left: Box::new(self.lower_expression(left, substitutions, context, None, line)),
                 operator: operator.clone(),
                 right: Box::new(self.lower_expression(right, substitutions, context, None, line)),
                 line: *op_line,
                 column: *column,
             },
-            Expression::Unary {
+            HirExpression::Unary {
                 operator,
                 operand,
                 line: op_line,
                 column,
-            } => Expression::Unary {
+            } => HirExpression::Unary {
                 operator: operator.clone(),
                 operand: Box::new(self.lower_expression(
                     operand,
@@ -1436,7 +1461,7 @@ impl<'a> Monomorphizer<'a> {
                 line: *op_line,
                 column: *column,
             },
-            Expression::Lambda {
+            HirExpression::Lambda {
                 params,
                 body,
                 assign_target,
@@ -1446,17 +1471,18 @@ impl<'a> Monomorphizer<'a> {
                     .iter()
                     .map(|param| {
                         let mut lowered = param.clone();
-                        if let Some(type_name) = &param.type_name {
-                            lowered.type_name =
-                                Some(self.concrete_type_name(type_name, substitutions));
+                        if !matches!(param.type_, ParameterType::Unknown) {
+                            let type_name = param.type_.name().into_owned();
+                            let concrete = self.concrete_type_name(&type_name, substitutions);
                             nested
                                 .locals
-                                .insert(param.name.clone(), lowered.type_name.clone().unwrap());
+                                .insert(param.name.clone(), concrete.clone());
+                            lowered.type_ = ParameterType::parse(&concrete);
                         }
                         lowered
                     })
                     .collect::<Vec<_>>();
-                Expression::Lambda {
+                HirExpression::Lambda {
                     params: lowered_params,
                     body: Box::new(self.lower_expression(
                         body,
@@ -1468,7 +1494,7 @@ impl<'a> Monomorphizer<'a> {
                     assign_target: assign_target.clone(),
                 }
             }
-            Expression::Trapped {
+            HirExpression::Trapped {
                 expression,
                 binding,
                 handler,
@@ -1482,42 +1508,42 @@ impl<'a> Monomorphizer<'a> {
                     .insert(binding.clone(), "Error".to_string());
                 let lowered_handler =
                     self.lower_statements(handler, substitutions, &mut handler_context);
-                Expression::Trapped {
+                HirExpression::Trapped {
                     expression: lowered_expression,
                     binding: binding.clone(),
                     handler: lowered_handler,
                     line: *trap_line,
                 }
             }
-            Expression::Identifier(value) => Expression::Identifier(value.clone()),
-            Expression::String(value) => Expression::String(value.clone()),
-            Expression::Number(value) => Expression::Number(value.clone()),
-            Expression::Scalar(code_point) => Expression::Scalar(*code_point),
-            Expression::Boolean(value) => Expression::Boolean(*value),
+            HirExpression::Identifier(value) => HirExpression::Identifier(value.clone()),
+            HirExpression::String(value) => HirExpression::String(value.clone()),
+            HirExpression::Number(value) => HirExpression::Number(value.clone()),
+            HirExpression::Scalar(code_point) => HirExpression::Scalar(*code_point),
+            HirExpression::Boolean(value) => HirExpression::Boolean(*value),
         }
     }
 
     fn lower_constructor_arg(
         &mut self,
-        argument: &ConstructorArg,
+        argument: &HirConstructorArg,
         substitutions: &HashMap<String, String>,
         context: &mut FunctionContext,
         line: usize,
         expected_type: Option<&str>,
-    ) -> ConstructorArg {
+    ) -> HirConstructorArg {
         match argument {
-            ConstructorArg::Positional(value) => ConstructorArg::Positional(self.lower_expression(
+            HirConstructorArg::Positional(value) => HirConstructorArg::Positional(self.lower_expression(
                 value,
                 substitutions,
                 context,
                 expected_type,
                 line,
             )),
-            ConstructorArg::Named {
+            HirConstructorArg::Named {
                 name,
                 value,
                 line: arg_line,
-            } => ConstructorArg::Named {
+            } => HirConstructorArg::Named {
                 name: name.clone(),
                 value: self.lower_expression(
                     value,
@@ -1666,21 +1692,15 @@ impl<'a> Monomorphizer<'a> {
         let mut context = FunctionContext::default();
         for (name, function) in &self.concrete_functions {
             let returns = match function.kind {
-                crate::ast::FunctionKind::Func => function
-                    .return_type
-                    .clone()
-                    .unwrap_or_else(|| "Unknown".to_string()),
+                crate::ast::FunctionKind::Func => {
+                    opt_type_name(&function.returns).unwrap_or_else(|| "Unknown".to_string())
+                }
                 crate::ast::FunctionKind::Sub => "Nothing".to_string(),
             };
             let params = function
                 .params
                 .iter()
-                .map(|param| {
-                    param
-                        .type_name
-                        .clone()
-                        .unwrap_or_else(|| "Unknown".to_string())
-                })
+                .map(|param| opt_type_name(&param.type_).unwrap_or_else(|| "Unknown".to_string()))
                 .collect::<Vec<_>>();
             context
                 .function_returns
@@ -1704,11 +1724,11 @@ impl<'a> Monomorphizer<'a> {
         // Top-level `LET`/`MUT` bindings with an explicit `AS` type, so a call or
         // overload whose argument names a global can be typed (bug-103).
         for item in self.source.files.iter().flat_map(|file| &file.items) {
-            if let Item::Binding(binding) = item {
-                if let Some(type_name) = &binding.type_name {
+            if let HirItem::Binding(binding) = item {
+                if binding.explicit_type {
                     context
                         .globals
-                        .insert(binding.name.clone(), type_name.clone());
+                        .insert(binding.name.clone(), binding.type_.name().into_owned());
                 }
             }
         }
@@ -1720,21 +1740,15 @@ impl<'a> Monomorphizer<'a> {
             return;
         };
         let returns = match function.kind {
-            crate::ast::FunctionKind::Func => function
-                .return_type
-                .clone()
-                .unwrap_or_else(|| "Unknown".to_string()),
+            crate::ast::FunctionKind::Func => {
+                opt_type_name(&function.returns).unwrap_or_else(|| "Unknown".to_string())
+            }
             crate::ast::FunctionKind::Sub => "Nothing".to_string(),
         };
         let params = function
             .params
             .iter()
-            .map(|param| {
-                param
-                    .type_name
-                    .clone()
-                    .unwrap_or_else(|| "Unknown".to_string())
-            })
+            .map(|param| opt_type_name(&param.type_).unwrap_or_else(|| "Unknown".to_string()))
             .collect::<Vec<_>>();
         context
             .function_returns
@@ -1759,7 +1773,7 @@ impl<'a> Monomorphizer<'a> {
     fn builtin_call_return_type(
         &self,
         callee: &str,
-        arguments: &[CallArg],
+        arguments: &[HirCallArg],
         context: &FunctionContext,
     ) -> Option<String> {
         let arg_types = arguments
@@ -1774,12 +1788,12 @@ impl<'a> Monomorphizer<'a> {
 
     fn expression_type(
         &self,
-        expression: &Expression,
+        expression: &HirExpression,
         context: &FunctionContext,
     ) -> Option<String> {
         match expression {
-            Expression::String(_) => Some("String".to_string()),
-            Expression::Number(value) => Some(
+            HirExpression::String(_) => Some("String".to_string()),
+            HirExpression::Number(value) => Some(
                 match crate::numeric::classify_literal(value).1 {
                     crate::numeric::LiteralType::Integer => "Integer",
                     crate::numeric::LiteralType::Float => "Float",
@@ -1788,55 +1802,52 @@ impl<'a> Monomorphizer<'a> {
                 }
                 .to_string(),
             ),
-            Expression::Scalar(_) => Some("Scalar".to_string()),
-            Expression::Boolean(_) => Some("Boolean".to_string()),
-            Expression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
-            Expression::Identifier(value) => context
+            HirExpression::Scalar(_) => Some("Scalar".to_string()),
+            HirExpression::Boolean(_) => Some("Boolean".to_string()),
+            HirExpression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
+            HirExpression::Identifier(value) => context
                 .locals
                 .get(value)
                 .cloned()
                 .or_else(|| context.function_types.get(value).cloned())
                 .or_else(|| context.globals.get(value).cloned()),
-            Expression::Constructor { type_name, .. } => {
-                if type_name == "Error" {
-                    Some("Error".to_string())
-                } else if type_name == "Ok" {
-                    Some("Result OF Unknown".to_string())
-                } else if context.record_fields.contains_key(type_name) {
-                    Some(type_name.clone())
-                } else {
-                    None
-                }
-            }
-            Expression::WithUpdate { target, .. } => self.expression_type(target, context),
-            Expression::ListLiteral(values) => values
+            HirExpression::Constructor { type_, .. } => match type_.name().as_ref() {
+                "Error" => Some("Error".to_string()),
+                "Ok" => Some("Result OF Unknown".to_string()),
+                name if context.record_fields.contains_key(name) => Some(name.to_string()),
+                _ => None,
+            },
+            HirExpression::WithUpdate { target, .. } => self.expression_type(target, context),
+            HirExpression::ListLiteral(values) => values
                 .first()
                 .and_then(|value| self.expression_type(value, context))
                 .map(|element| format!("List OF {element}"))
                 .or_else(|| Some("List OF Unknown".to_string())),
-            Expression::SetLiteral { element_type, .. } => Some(format!("Set OF {element_type}")),
-            Expression::MapLiteral {
+            HirExpression::SetLiteral { element_type, .. } => {
+                Some(format!("Set OF {}", element_type.name()))
+            }
+            HirExpression::MapLiteral {
                 key_type,
                 value_type,
                 ..
-            } => Some(format!("Map OF {key_type} TO {value_type}")),
-            Expression::MemberAccess { target, member } => {
+            } => Some(format!("Map OF {} TO {}", key_type.name(), value_type.name())),
+            HirExpression::MemberAccess { target, member } => {
                 let target_type = self.expression_type(target, context)?;
                 context
                     .record_fields
                     .get(&target_type)?
                     .iter()
                     .find(|field| field.name == *member)
-                    .map(|field| field.type_name.clone())
+                    .map(|field| field.type_.name().into_owned())
             }
-            Expression::Call {
+            HirExpression::Call {
                 callee, arguments, ..
             } => context
                 .function_returns
                 .get(callee)
                 .cloned()
                 .or_else(|| self.builtin_call_return_type(callee, arguments, context)),
-            Expression::Lambda {
+            HirExpression::Lambda {
                 params,
                 body,
                 assign_target,
@@ -1845,10 +1856,7 @@ impl<'a> Monomorphizer<'a> {
                 let param_types = params
                     .iter()
                     .map(|param| {
-                        let type_name = param
-                            .type_name
-                            .clone()
-                            .unwrap_or_else(|| "Unknown".to_string());
+                        let type_name = param.type_.name().into_owned();
                         nested.locals.insert(param.name.clone(), type_name.clone());
                         type_name
                     })
@@ -1862,7 +1870,7 @@ impl<'a> Monomorphizer<'a> {
                 };
                 Some(format!("FUNC({}) AS {returns}", param_types.join(", ")))
             }
-            Expression::Binary {
+            HirExpression::Binary {
                 operator,
                 left,
                 right,
@@ -1881,7 +1889,7 @@ impl<'a> Monomorphizer<'a> {
                 let right = self.expression_type(right, context)?;
                 Some(numeric_binary_result_type(operator, &left, &right).to_string())
             }
-            Expression::Unary {
+            HirExpression::Unary {
                 operator, operand, ..
             } => {
                 if operator == "NOT" {
@@ -1890,7 +1898,7 @@ impl<'a> Monomorphizer<'a> {
                     self.expression_type(operand, context)
                 }
             }
-            Expression::Trapped { expression, .. } => self.expression_type(expression, context),
+            HirExpression::Trapped { expression, .. } => self.expression_type(expression, context),
         }
     }
 
@@ -1980,9 +1988,9 @@ mod tests {
         let dir = std::env::temp_dir();
         let prev = std::panic::take_hook();
         // Silence the front end's diagnostic printing during error-path tests.
-        let result = super::super::monomorphize_project(&dir, &ast);
+        let result = super::super::monomorphize_project(&dir, &crate::hir::elaborate(&ast));
         std::panic::set_hook(prev);
-        result
+        result.map(|hir| crate::hir::deelaborate(&hir))
     }
 
     fn functions(project: &AstProject) -> Vec<&Function> {
@@ -2072,7 +2080,8 @@ END SUB
             "FUNC main() AS Integer\n  RETURN 0\nEND FUNC\n",
         )]);
         let dir = std::env::temp_dir();
-        let mut mono = Monomorphizer::new(&dir, &ast);
+        let hir = crate::hir::elaborate(&ast);
+        let mut mono = Monomorphizer::new(&dir, &hir);
         for i in 0..super::super::MAX_TOTAL_INSTANTIATIONS {
             assert!(
                 mono.charge_instantiation("f", 1),
@@ -2121,7 +2130,8 @@ END SUB
             "TYPE Box OF T\n  value AS T\nEND TYPE\nFUNC main() AS Integer\n  RETURN 0\nEND FUNC\n",
         )]);
         let dir = std::env::temp_dir();
-        let mut mono = Monomorphizer::new(&dir, &ast);
+        let hir = crate::hir::elaborate(&ast);
+        let mut mono = Monomorphizer::new(&dir, &hir);
 
         // Two distinct type-argument strings that `sanitize_type_name` maps to the
         // same suffix — `(`/`)` and `{`/`}` both sanitize to `$`.
@@ -2151,8 +2161,16 @@ END SUB
             .concrete_types
             .get(&name_b)
             .expect("second concrete Box survives");
-        assert_eq!(type_a.fields[0].type_name, a, "first keeps its field type");
-        assert_eq!(type_b.fields[0].type_name, b, "second keeps its field type");
+        assert_eq!(
+            type_a.fields[0].type_.name().as_ref(),
+            a.as_str(),
+            "first keeps its field type"
+        );
+        assert_eq!(
+            type_b.fields[0].type_.name().as_ref(),
+            b.as_str(),
+            "second keeps its field type"
+        );
     }
 
     #[test]
@@ -2673,7 +2691,8 @@ END FUNC
             files: vec![],
         };
         let dir = tempfile::tempdir().expect("tempdir");
-        let mut monomorphizer = Monomorphizer::new(dir.path(), &ast);
+        let hir = crate::hir::elaborate(&ast);
+        let mut monomorphizer = Monomorphizer::new(dir.path(), &hir);
         monomorphizer.imported_overloads.insert(
             "pkg.f".to_string(),
             vec![
@@ -2753,7 +2772,7 @@ END FUNC
             name: "app".to_string(),
             files: vec![file],
         };
-        let concrete = super::super::monomorphize_project(dir.path(), &ast).expect("monomorphizes");
+        let concrete = crate::hir::deelaborate(&super::super::monomorphize_project(dir.path(), &crate::hir::elaborate(&ast)).expect("monomorphizes"));
         // The `main` body's call to `package_simple.score` is rewritten to the
         // package-qualified mangled symbol.
         let main = functions(&concrete)
@@ -2948,7 +2967,7 @@ END FUNC
         };
         // The Vec2-typed argument selects the `score(Vec2)` overload; assert the
         // pass completes without panicking (resolution branch runs regardless).
-        let _ = super::super::monomorphize_project(dir.path(), &ast);
+        let _ = super::super::monomorphize_project(dir.path(), &crate::hir::elaborate(&ast));
     }
 
     #[test]

@@ -169,14 +169,26 @@ Commit: — (folded into D3)
 
 ### Phase 3 — port monomorph to HIR (string algorithm via `name()` shim)
 
-- [ ] monomorph consumes generic HIR, produces concrete HIR; `unify`/`substitute`
+- [x] monomorph consumes generic HIR, produces concrete HIR; `unify`/`substitute`
       keep the string algorithm behind a `name()` shim at their boundary. Wire
       `elaborate` above monomorph in the build (`src/cli/build/mod.rs`);
       `lower_augmented_project` receives HIR directly (drop its internal `elaborate`).
-- [ ] Tests: full suite.
+      (Pipeline: `augment → hir::elaborate(generic AST) → generic HIR →
+      monomorphize_project(HIR)->concrete HIR`; the AST-consuming validation passes
+      — `resolve_augmented`, entry validation, `syntaxcheck` — read
+      `hir::deelaborate(&concrete_hir)` [byte-exact via `parse`↔`name`], while the 5
+      IR-lowering paths take `&concrete_hir`. Monomorph's `Monomorphizer`/walk ported
+      to HIR templates/nodes, rendering `.name()` for its String machinery
+      [unify_type/substitute_type_params/mangle_name unchanged]; instantiated decls
+      still `.clear()` their `template_params`. Monomorph KEEPS its overload
+      resolution [D2 deferred].)
+- [x] Tests: full suite. (3625 bin unit tests + all integration binaries pass;
+      monomorph test fixtures ported to HIR.)
 
 Acceptance: `artifact-gate all` no NEW diff vs the plan-102-A baseline; `cargo
-test` green; `test-accept` no NEW mismatch.
+test` green; `test-accept` no NEW mismatch. **VERIFIED** — gate `diff` vs baseline
+IDENTICAL; full suite's sole failure is the recorded `artifact_gate_all` baseline;
+production + test build 0 errors/0 warnings.
 Commit: —
 
 ## Validation Plan

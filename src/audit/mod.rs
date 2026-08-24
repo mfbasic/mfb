@@ -99,10 +99,15 @@ pub fn run(options: &AuditOptions) -> i32 {
     let Ok(augmented) = crate::resolver::augment_project(&ast) else {
         return 3;
     };
-    let Ok(concrete_ast) = crate::monomorph::monomorphize_project(&options.location, &augmented)
+    // plan-102-D3: monomorph consumes/produces HIR; audit's downstream passes
+    // still consume `crate::ast`, so de-elaborate the concrete HIR back to its
+    // byte-identical AST.
+    let Ok(concrete_hir) =
+        crate::monomorph::monomorphize_project(&options.location, &crate::hir::elaborate(&augmented))
     else {
         return 3;
     };
+    let concrete_ast = crate::hir::deelaborate(&concrete_hir);
     if crate::resolver::resolve_augmented(&options.location, &manifest, &concrete_ast, false)
         .is_err()
     {

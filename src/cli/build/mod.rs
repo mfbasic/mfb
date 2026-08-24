@@ -329,7 +329,16 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // monomorphizer sees them (in particular so a builtin's native overload set is
     // mangled to private symbols like a user overload, not collided at codegen).
     let augmented = resolver::augment_project(&ast)?;
-    let concrete_ast = monomorph::monomorphize_project(&options.location, &augmented)?;
+    // plan-102-D3: elaborate ABOVE monomorph, then monomorphize the generic HIR
+    // into concrete HIR, which `ir::lower_augmented_project` consumes directly.
+    let generic_hir = crate::hir::elaborate(&augmented);
+    let concrete_hir = monomorph::monomorphize_project(&options.location, &generic_hir)?;
+    // De-elaborate the concrete HIR back to its byte-identical AST for the
+    // validation passes below (`resolve_augmented`, entry validation,
+    // `syntaxcheck`) that still consume `crate::ast`. The IR lowering paths take
+    // `&concrete_hir` instead. `ParameterType::parse`↔`.name()` round-trips
+    // byte-exact, so this AST equals the pre-D3 monomorph output.
+    let concrete_ast = crate::hir::deelaborate(&concrete_hir);
     // Skip DOC validation on the post-monomorph pass: monomorphization renames
     // overloaded/generic declarations, so their doc headers would falsely appear
     // unresolved. The original-AST pass above already validated them. The AST is
@@ -414,7 +423,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             .filter(|(name, _)| source_external_types.contains_key(name))
             .collect();
     let source_ir = ir::lower_augmented_project(
-        &concrete_ast,
+        &concrete_hir,
         entry.clone(),
         &source_external_types,
         &source_external_params,
@@ -488,7 +497,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     eprintln!("error: {err}");
                 })?;
             let mut ir = ir::lower_augmented_project(
-                &concrete_ast,
+                &concrete_hir,
                 entry.clone(),
                 &external_functions,
                 &external_params,
@@ -704,7 +713,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     eprintln!("error: {err}");
                 })?;
             let mut ir = ir::lower_augmented_project(
-                &concrete_ast,
+                &concrete_hir,
                 entry.clone(),
                 &external_functions,
                 &external_params,
@@ -777,7 +786,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 let (external_functions, external_params) =
                     external_package_function_types(&options.location, &manifest);
                 let ir = ir::lower_augmented_project(
-                    &concrete_ast,
+                    &concrete_hir,
                     entry.clone(),
                     &external_functions,
                     &external_params,
@@ -820,7 +829,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     eprintln!("error: {err}");
                 })?;
             let mut lowered = ir::lower_augmented_project(
-                &concrete_ast,
+                &concrete_hir,
                 entry.clone(),
                 &external_functions,
                 &external_params,

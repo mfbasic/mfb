@@ -134,7 +134,7 @@ pub fn lower_project_with_external_functions(
     let augmented = crate::codegen::builtins::encoding::augmented_project(&augmented)
         .expect("built-in encoding package source must parse");
     lower_augmented_project(
-        &augmented,
+        &crate::hir::elaborate(&augmented),
         entry,
         external_function_types,
         external_function_params,
@@ -147,19 +147,22 @@ pub fn lower_project_with_external_functions(
 /// calls this directly on the post-monomorph AST; [`lower_project_with_external_
 /// functions`] is the augmenting wrapper the in-process tests use on a bare AST.
 pub fn lower_augmented_project(
-    ast: &AstProject,
+    hir: &crate::hir::HirProject,
     entry: Option<EntryPoint>,
     external_function_types: &HashMap<String, String>,
     external_function_params: &HashMap<String, Vec<ExternalFunctionParam>>,
     imported_types: &[ImportedTypeDef],
 ) -> IrProject {
-    let hir = crate::hir::elaborate(ast);
+    // The native-binding (`RESOURCE`/`FUNC alias`/`LINK`) and documentation
+    // extractors below still consume `crate::ast`; those items are reused verbatim
+    // in the HIR, so de-elaborating reproduces them byte-for-byte.
+    let ast = crate::hir::deelaborate(hir);
     let mut types = Vec::new();
     let mut functions = Vec::new();
-    let mut function_returns = function_returns(&hir);
-    let mut function_types = function_types(&hir);
-    let mut function_params = function_params(&hir);
-    let binding_types = declared_binding_types(&hir);
+    let mut function_returns = function_returns(hir);
+    let mut function_types = function_types(hir);
+    let mut function_params = function_params(hir);
+    let binding_types = declared_binding_types(hir);
     function_types.extend(external_function_types.clone());
     for (name, params) in external_function_params {
         function_params.insert(
@@ -179,7 +182,7 @@ pub fn lower_augmented_project(
             function_returns.insert(name.clone(), return_type);
         }
     }
-    let type_index = TypeIndex::new(&hir, imported_types);
+    let type_index = TypeIndex::new(hir, imported_types);
     let mut context = LowerContext {
         function_returns: &function_returns,
         function_types: &function_types,
@@ -198,8 +201,8 @@ pub fn lower_augmented_project(
         nonescaping_callback: false,
         current_loc: IrSourceLoc::default(),
     };
-    infer_binding_types(&hir, &mut context);
-    let bindings = lower_bindings(&hir, &mut context);
+    infer_binding_types(hir, &mut context);
+    let bindings = lower_bindings(hir, &mut context);
     context.bindings = bindings.clone();
 
     for file in &hir.files {
@@ -235,11 +238,11 @@ pub fn lower_augmented_project(
         bindings,
         types,
         functions,
-        native_resources: native_resources(ast),
-        link_functions: link_functions(ast),
-        link_cstructs: link_cstructs(ast),
-        link_aliases: link_aliases(ast),
-        docs: collect_project_docs(ast),
+        native_resources: native_resources(&ast),
+        link_functions: link_functions(&ast),
+        link_cstructs: link_cstructs(&ast),
+        link_aliases: link_aliases(&ast),
+        docs: collect_project_docs(&ast),
         // Assembled from the manifest by the build path (plan-46-B §4.3), which
         // is where project.json is read; the AST carries no manifest data.
         native_libraries: crate::binary_repr::NativeLibraryTable::default(),

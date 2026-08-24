@@ -1,40 +1,55 @@
 use super::*;
 
+/// The `Option<String>` an AST type field reconstructs to from a HIR bare type:
+/// [`ParameterType::Unknown`] (an absent `AS T` annotation) → `None`, any concrete
+/// type → `Some(rendered)`. Mirrors `crate::hir::unrender_optional_type`, so every
+/// type STRING the monomorph string algorithm reads is byte-identical to the
+/// pre-D3 AST `type_name`/`return_type` field it replaced (parse↔name round-trips
+/// byte-exact).
+pub(super) fn opt_type_name(type_: &ParameterType) -> Option<String> {
+    match type_ {
+        ParameterType::Unknown => None,
+        other => Some(other.name().into_owned()),
+    }
+}
+
 /// The expected (contextual) type for an argument slot: the selected parameter's
 /// declared type, but only when the argument is itself a call — the one position
 /// where a return-type overload set needs the context to resolve
 /// (plan-01-overload.md §F.2). Returns `None` otherwise so literals keep their own
 /// inferred typing.
 pub(super) fn arg_slot_expected<'a>(
-    value: &Expression,
-    params: Option<&'a [crate::ast::Param]>,
-    select: impl FnOnce(&'a [crate::ast::Param]) -> Option<&'a crate::ast::Param>,
-) -> Option<&'a str> {
-    if !matches!(value, Expression::Call { .. }) {
+    value: &HirExpression,
+    params: Option<&'a [HirParam]>,
+    select: impl FnOnce(&'a [HirParam]) -> Option<&'a HirParam>,
+) -> Option<String> {
+    if !matches!(value, HirExpression::Call { .. }) {
         return None;
     }
-    select(params?)?.type_name.as_deref()
+    opt_type_name(&select(params?)?.type_)
 }
 
-pub(super) fn call_arg_value(argument: &CallArg) -> &Expression {
+pub(super) fn call_arg_value(argument: &HirCallArg) -> &HirExpression {
     match argument {
-        CallArg::Positional(value) => value,
-        CallArg::Named { value, .. } => value,
+        HirCallArg::Positional(value) => value,
+        HirCallArg::Named { value, .. } => value,
     }
 }
 
 pub(super) fn constructor_arg_field_type<'a>(
-    argument: &ConstructorArg,
+    argument: &HirConstructorArg,
     index: usize,
-    fields: Option<&'a [TypeField]>,
-) -> Option<&'a str> {
+    fields: Option<&'a [HirTypeField]>,
+) -> Option<String> {
     let fields = fields?;
     match argument {
-        ConstructorArg::Positional(_) => fields.get(index).map(|field| field.type_name.as_str()),
-        ConstructorArg::Named { name, .. } => fields
+        HirConstructorArg::Positional(_) => {
+            fields.get(index).map(|field| field.type_.name().into_owned())
+        }
+        HirConstructorArg::Named { name, .. } => fields
             .iter()
             .find(|field| field.name == *name)
-            .map(|field| field.type_name.as_str()),
+            .map(|field| field.type_.name().into_owned()),
     }
 }
 
@@ -316,7 +331,7 @@ pub(super) fn split_top_level_commas(value: &str) -> Vec<String> {
 /// prefixes for argument-type normalization (plan-linker.md §12, overloads).
 pub(super) fn collect_imported_overloads(
     project_dir: &Path,
-    source: &AstProject,
+    source: &HirProject,
 ) -> (HashMap<String, Vec<ImportedOverload>>, Vec<String>) {
     let mut overloads: HashMap<String, Vec<ImportedOverload>> = HashMap::new();
     let mut qualifiers: HashSet<String> = HashSet::new();
@@ -389,7 +404,7 @@ pub(super) fn mangle_name(name: &str, args: &[String]) -> String {
 }
 
 pub(super) fn overload_concrete_name(
-    function: &Function,
+    function: &HirFunction,
     overloaded: bool,
     return_disambiguated: bool,
 ) -> String {
@@ -399,12 +414,7 @@ pub(super) fn overload_concrete_name(
     let mut args = function
         .params
         .iter()
-        .map(|param| {
-            param
-                .type_name
-                .clone()
-                .unwrap_or_else(|| "Unknown".to_string())
-        })
+        .map(|param| opt_type_name(&param.type_).unwrap_or_else(|| "Unknown".to_string()))
         .collect::<Vec<_>>();
     // Append an `AS <return type>` segment so two overloads differing only by
     // result type get distinct concrete symbols (plan-01-overload.md §F). `AS` is
@@ -412,12 +422,7 @@ pub(super) fn overload_concrete_name(
     // never collide with a parameter-distinguished overload's mangled name.
     if return_disambiguated {
         args.push("AS".to_string());
-        args.push(
-            function
-                .return_type
-                .clone()
-                .unwrap_or_else(|| "Nothing".to_string()),
-        );
+        args.push(opt_type_name(&function.returns).unwrap_or_else(|| "Nothing".to_string()));
     }
     mangle_name(&function.name, &args)
 }
@@ -427,17 +432,12 @@ pub(super) fn overload_concrete_name(
 /// to its own distinct concrete symbol.
 pub(super) fn overload_key(
     name: &str,
-    params: &[crate::ast::Param],
+    params: &[HirParam],
     return_type: Option<&str>,
 ) -> String {
     let params = params
         .iter()
-        .map(|param| {
-            param
-                .type_name
-                .clone()
-                .unwrap_or_else(|| "Unknown".to_string())
-        })
+        .map(|param| opt_type_name(&param.type_).unwrap_or_else(|| "Unknown".to_string()))
         .collect::<Vec<_>>()
         .join(",");
     format!("{name}({params}) AS {}", return_type.unwrap_or("Nothing"))
@@ -445,23 +445,23 @@ pub(super) fn overload_key(
 
 /// Whether two functions have identical ordered parameter type lists (the
 /// equivalence that defines a return-type overload set, §F.1).
-pub(super) fn param_types_eq(a: &Function, b: &Function) -> bool {
+pub(super) fn param_types_eq(a: &HirFunction, b: &HirFunction) -> bool {
     a.params.len() == b.params.len()
         && a.params
             .iter()
             .zip(&b.params)
-            .all(|(x, y)| x.type_name == y.type_name)
+            .all(|(x, y)| x.type_ == y.type_)
 }
 
 /// Whether a function's parameter types exactly match an argument-type list (the
 /// same exact-match rule ordinary overload resolution uses).
-pub(super) fn params_match(function: &Function, arg_types: &[String]) -> bool {
+pub(super) fn params_match(function: &HirFunction, arg_types: &[String]) -> bool {
     function.params.len() == arg_types.len()
         && function
             .params
             .iter()
             .zip(arg_types.iter())
-            .all(|(param, actual)| param.type_name.as_deref() == Some(actual.as_str()))
+            .all(|(param, actual)| opt_type_name(&param.type_).as_deref() == Some(actual.as_str()))
 }
 
 pub(super) fn sanitize_type_name(value: &str) -> String {
@@ -486,17 +486,21 @@ pub(super) fn promote_loop_numeric_type_name(start: &str, end: &str, step: &str)
     numeric_binary_result_type("+", first, step).to_string()
 }
 
-pub(super) fn constructor_arg_value(argument: &ConstructorArg) -> &Expression {
+pub(super) fn constructor_arg_value(argument: &HirConstructorArg) -> &HirExpression {
     match argument {
-        ConstructorArg::Positional(value) => value,
-        ConstructorArg::Named { value, .. } => value,
+        HirConstructorArg::Positional(value) => value,
+        HirConstructorArg::Named { value, .. } => value,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{FunctionKind, Param, Visibility};
+    use crate::ast::{FunctionKind, Visibility};
+    use crate::hir::{
+        HirCallArg, HirConstructorArg, HirExpression, HirFunction, HirParam, HirTypeField,
+    };
+    use crate::types::ParameterType;
 
     fn subs(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs
@@ -505,10 +509,10 @@ mod tests {
             .collect()
     }
 
-    fn param(name: &str, type_name: Option<&str>) -> Param {
-        Param {
+    fn param(name: &str, type_name: Option<&str>) -> HirParam {
+        HirParam {
             name: name.to_string(),
-            type_name: type_name.map(str::to_string),
+            type_: type_name.map_or(ParameterType::Unknown, ParameterType::parse),
             resource: false,
             state_type: None,
             default: None,
@@ -516,15 +520,15 @@ mod tests {
         }
     }
 
-    fn func(name: &str, params: Vec<Param>, return_type: Option<&str>) -> Function {
-        Function {
+    fn func(name: &str, params: Vec<HirParam>, return_type: Option<&str>) -> HirFunction {
+        HirFunction {
             kind: FunctionKind::Func,
             visibility: Visibility::Private,
             isolated: false,
             name: name.to_string(),
             template_params: Vec::new(),
             params,
-            return_type: return_type.map(str::to_string),
+            returns: return_type.map_or(ParameterType::Unknown, ParameterType::parse),
             return_resource: false,
             return_state_type: None,
             body: Vec::new(),
@@ -814,20 +818,19 @@ mod tests {
 
     #[test]
     fn arg_slot_expected_only_for_call_arguments() {
-        use crate::ast::Expression;
         let params = [param("a", Some("Integer"))];
-        let call = Expression::Call {
+        let call = HirExpression::Call {
             callee: "f".to_string(),
             arguments: Vec::new(),
             line: 1,
             column: 1,
         };
         assert_eq!(
-            arg_slot_expected(&call, Some(&params), |p| p.first()),
+            arg_slot_expected(&call, Some(&params), |p| p.first()).as_deref(),
             Some("Integer")
         );
         // Non-call arguments get no contextual type.
-        let lit = Expression::Number("1".to_string());
+        let lit = HirExpression::Number("1".to_string());
         assert_eq!(arg_slot_expected(&lit, Some(&params), |p| p.first()), None);
         // No params available.
         assert_eq!(arg_slot_expected(&call, None, |p| p.first()), None);
@@ -835,33 +838,32 @@ mod tests {
 
     #[test]
     fn constructor_arg_field_type_positional_and_named() {
-        use crate::ast::Expression;
         let fields = [
-            TypeField {
+            HirTypeField {
                 visibility: None,
                 name: "x".to_string(),
-                type_name: "Integer".to_string(),
+                type_: ParameterType::parse("Integer"),
                 line: 1,
             },
-            TypeField {
+            HirTypeField {
                 visibility: None,
                 name: "y".to_string(),
-                type_name: "String".to_string(),
+                type_: ParameterType::parse("String"),
                 line: 1,
             },
         ];
-        let pos = ConstructorArg::Positional(Expression::Number("1".to_string()));
+        let pos = HirConstructorArg::Positional(HirExpression::Number("1".to_string()));
         assert_eq!(
-            constructor_arg_field_type(&pos, 1, Some(&fields)),
+            constructor_arg_field_type(&pos, 1, Some(&fields)).as_deref(),
             Some("String")
         );
-        let named = ConstructorArg::Named {
+        let named = HirConstructorArg::Named {
             name: "x".to_string(),
-            value: Expression::Number("1".to_string()),
+            value: HirExpression::Number("1".to_string()),
             line: 1,
         };
         assert_eq!(
-            constructor_arg_field_type(&named, 0, Some(&fields)),
+            constructor_arg_field_type(&named, 0, Some(&fields)).as_deref(),
             Some("Integer")
         );
         // No fields known.
@@ -870,23 +872,22 @@ mod tests {
 
     #[test]
     fn arg_and_constructor_value_accessors() {
-        use crate::ast::Expression;
-        let pos = CallArg::Positional(Expression::Number("1".to_string()));
-        let named = CallArg::Named {
+        let pos = HirCallArg::Positional(HirExpression::Number("1".to_string()));
+        let named = HirCallArg::Named {
             name: "a".to_string(),
-            value: Expression::Number("2".to_string()),
+            value: HirExpression::Number("2".to_string()),
             line: 1,
         };
-        assert!(matches!(call_arg_value(&pos), Expression::Number(n) if n == "1"));
-        assert!(matches!(call_arg_value(&named), Expression::Number(n) if n == "2"));
-        let cpos = ConstructorArg::Positional(Expression::Number("3".to_string()));
-        let cnamed = ConstructorArg::Named {
+        assert!(matches!(call_arg_value(&pos), HirExpression::Number(n) if n == "1"));
+        assert!(matches!(call_arg_value(&named), HirExpression::Number(n) if n == "2"));
+        let cpos = HirConstructorArg::Positional(HirExpression::Number("3".to_string()));
+        let cnamed = HirConstructorArg::Named {
             name: "a".to_string(),
-            value: Expression::Number("4".to_string()),
+            value: HirExpression::Number("4".to_string()),
             line: 1,
         };
-        assert!(matches!(constructor_arg_value(&cpos), Expression::Number(n) if n == "3"));
-        assert!(matches!(constructor_arg_value(&cnamed), Expression::Number(n) if n == "4"));
+        assert!(matches!(constructor_arg_value(&cpos), HirExpression::Number(n) if n == "3"));
+        assert!(matches!(constructor_arg_value(&cnamed), HirExpression::Number(n) if n == "4"));
     }
 
     #[test]
@@ -925,11 +926,11 @@ mod tests {
         // A project with no import bindings and no packages directory yields no
         // overloads and no qualifiers.
         let dir = std::env::temp_dir();
-        let project = AstProject {
+        let project = crate::ast::AstProject {
             name: "p".to_string(),
             files: Vec::new(),
         };
-        let (overloads, qualifiers) = collect_imported_overloads(&dir, &project);
+        let (overloads, qualifiers) = collect_imported_overloads(&dir, &crate::hir::elaborate(&project));
         assert!(overloads.is_empty());
         assert!(qualifiers.is_empty());
     }
@@ -951,12 +952,13 @@ mod tests {
         let file =
             crate::ast::parse_source(std::path::Path::new("src/main.mfb"), "src/main.mfb", src)
                 .expect("parse");
-        let project = AstProject {
+        let project = crate::ast::AstProject {
             name: "app".to_string(),
             files: vec![file],
         };
 
-        let (overloads, qualifiers) = collect_imported_overloads(dir.path(), &project);
+        let (overloads, qualifiers) =
+            collect_imported_overloads(dir.path(), &crate::hir::elaborate(&project));
         // Overload sets are keyed by `binding.base`.
         assert!(
             overloads.contains_key("package_simple.score"),

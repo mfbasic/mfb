@@ -1,18 +1,24 @@
-use crate::ast::{
-    AstFile, AstProject, CallArg, ConstructorArg, Expression, Function, Item, MatchCase,
-    MatchPattern, RecordUpdate, Statement, TopLevelBinding, TypeDecl, TypeDeclKind, TypeField,
-    UnionVariant,
+use crate::ast::{TypeDeclKind, UnionVariant};
+use crate::hir::{
+    HirCallArg, HirConstructorArg, HirExpression, HirFile, HirFunction, HirItem, HirMatchCase,
+    HirMatchPattern, HirParam, HirProject, HirRecordUpdate, HirStatement, HirTopLevelBinding,
+    HirTypeDecl, HirTypeField,
 };
 use crate::numeric;
 use crate::rules;
+use crate::types::ParameterType;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-pub fn monomorphize_project(project_dir: &Path, ast: &AstProject) -> Result<AstProject, ()> {
-    // NOTE: `ast` is expected to be already augmented with the builtin package
-    // sources (see `resolver::augment_project`, run before this in the build), so
-    // the overload machinery below can mangle a builtin's native overload set.
-    let mut mono = Monomorphizer::new(project_dir, ast);
+pub fn monomorphize_project(project_dir: &Path, hir: &HirProject) -> Result<HirProject, ()> {
+    // NOTE: `hir` is the elaborated mirror of the already-augmented AST (the
+    // builtin package sources injected by `resolver::augment_project`, run before
+    // this in the build), so the overload machinery below can mangle a builtin's
+    // native overload set. Monomorphization walks and produces HIR (plan-102-D3);
+    // every type field carries a `ParameterType` read back with `.name()`, which
+    // round-trips byte-exact, so the concrete HIR is byte-identical to elaborating
+    // the pre-D3 concrete AST.
+    let mut mono = Monomorphizer::new(project_dir, hir);
     mono.run();
     if mono.had_error {
         Err(())
@@ -23,12 +29,12 @@ pub fn monomorphize_project(project_dir: &Path, ast: &AstProject) -> Result<AstP
 
 struct Monomorphizer<'a> {
     project_dir: &'a Path,
-    source: &'a AstProject,
-    type_templates: HashMap<String, TypeDecl>,
-    function_templates: HashMap<String, Function>,
-    concrete_types: HashMap<String, TypeDecl>,
-    concrete_functions: HashMap<String, Function>,
-    function_overloads: HashMap<String, Vec<Function>>,
+    source: &'a HirProject,
+    type_templates: HashMap<String, HirTypeDecl>,
+    function_templates: HashMap<String, HirFunction>,
+    concrete_types: HashMap<String, HirTypeDecl>,
+    concrete_functions: HashMap<String, HirFunction>,
+    function_overloads: HashMap<String, Vec<HirFunction>>,
     overload_names: HashMap<String, String>,
     /// Overloaded functions exported by imported packages, keyed by the
     /// importer-facing `binding.base` name. Lets a call to an imported overload
@@ -90,7 +96,7 @@ struct FunctionContext {
     locals: HashMap<String, String>,
     function_returns: HashMap<String, String>,
     function_types: HashMap<String, String>,
-    record_fields: HashMap<String, Vec<TypeField>>,
+    record_fields: HashMap<String, Vec<HirTypeField>>,
     /// Declared type of each top-level `LET`/`MUT` binding, keyed by name. Lets
     /// `expression_type` resolve an identifier that names a global so a generic /
     /// overloaded call taking that global infers its type instead of being falsely

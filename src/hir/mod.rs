@@ -1204,6 +1204,82 @@ fn deelaborate_expression(expression: &HirExpression) -> crate::ast::Expression 
     }
 }
 
+/// De-elaborate a whole project back to its (byte-identical) AST form — the exact
+/// inverse of [`elaborate`]. Used by the build path (plan-102-D3) to hand the
+/// post-monomorph concrete program to the AST-consuming validation passes
+/// (`resolver::resolve_augmented`, `syntaxcheck::check_project_collect`,
+/// `validate_entry_point`) while `ir::lower` consumes the HIR directly. Every
+/// [`ParameterType`] renders back with `.name()`, which round-trips byte-exact, so
+/// the reconstructed AST is identical to the pre-D3 monomorph output.
+pub(crate) fn deelaborate(project: &HirProject) -> crate::ast::AstProject {
+    crate::ast::AstProject {
+        name: project.name.clone(),
+        files: project.files.iter().map(deelaborate_file).collect(),
+    }
+}
+
+fn deelaborate_file(file: &HirFile) -> crate::ast::AstFile {
+    crate::ast::AstFile {
+        path: file.path.clone(),
+        imports: file.imports.clone(),
+        items: file.items.iter().map(deelaborate_item).collect(),
+        internal: file.internal,
+    }
+}
+
+fn deelaborate_item(item: &HirItem) -> crate::ast::Item {
+    match item {
+        HirItem::Binding(binding) => crate::ast::Item::Binding(deelaborate_binding(binding)),
+        HirItem::Function(function) => crate::ast::Item::Function(deelaborate_function(function)),
+        HirItem::Type(decl) => crate::ast::Item::Type(deelaborate_type_decl(decl)),
+        HirItem::Resource(decl) => crate::ast::Item::Resource(decl.clone()),
+        HirItem::FuncAlias(alias) => crate::ast::Item::FuncAlias(alias.clone()),
+        HirItem::Link(block) => crate::ast::Item::Link(block.clone()),
+        HirItem::Doc(block) => crate::ast::Item::Doc(block.clone()),
+        HirItem::Testing(block) => crate::ast::Item::Testing(block.clone()),
+    }
+}
+
+fn deelaborate_binding(binding: &HirTopLevelBinding) -> crate::ast::TopLevelBinding {
+    crate::ast::TopLevelBinding {
+        visibility: binding.visibility,
+        mutable: binding.mutable,
+        resource: binding.resource,
+        state_type: unrender_state(&binding.state_type),
+        name: binding.name.clone(),
+        type_name: if binding.explicit_type {
+            Some(binding.type_.name().into_owned())
+        } else {
+            None
+        },
+        value: binding.value.as_ref().map(deelaborate_expression),
+        line: binding.line,
+    }
+}
+
+fn deelaborate_type_decl(decl: &HirTypeDecl) -> crate::ast::TypeDecl {
+    crate::ast::TypeDecl {
+        kind: decl.kind,
+        visibility: decl.visibility,
+        name: decl.name.clone(),
+        template_params: decl.template_params.clone(),
+        fields: decl.fields.iter().map(deelaborate_type_field).collect(),
+        includes: decl.includes.clone(),
+        variants: decl.variants.clone(),
+        members: decl.members.clone(),
+        line: decl.line,
+    }
+}
+
+fn deelaborate_type_field(field: &HirTypeField) -> crate::ast::TypeField {
+    crate::ast::TypeField {
+        visibility: field.visibility,
+        name: field.name.clone(),
+        type_name: field.type_.name().into_owned(),
+        line: field.line,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
