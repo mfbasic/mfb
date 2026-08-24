@@ -95,7 +95,7 @@ deferral (plan-106-E's rule).
 
 **Risk concentration:** the scope grep's vocabulary list being too narrow
 (leakage in words the grep doesn't know). Mitigation: the grep is the
-floor; one final cross-model reviewer (opus) reads the three largest
+floor; one final cross-model review run (Codex) reads the three largest
 packages' rendered output end-to-end as a spot-check of the sweep itself,
 and its findings calibrate whether a wider sweep is needed (recorded
 either way).

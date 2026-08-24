@@ -11,8 +11,8 @@ Author the man prose for the first batch of all-empty packages — **strings
 overview and types page — through plan-108-A's four-step workflow: accuracy
 pass (author from code + old_man source material, every claim
 behavior-verified, every example compiled and run while writing it), scope
-pass (developer docs, never compiler internals), cross-model subagent review
-(opus), apply findings.
+pass (developer docs, never compiler internals), cross-model review via the
+Codex CLI, apply findings.
 
 Batch composition: strings is the highest-developer-traffic empty package;
 term and testing round the batch to ~76 pages, and both stress the standard
@@ -114,7 +114,7 @@ in the same commit only if a pinned summary is itself corrected.
 
 - [ ] Author 39 pages + overview + types page (accuracy + scope passes);
       every example compiled and run.
-- [ ] Cross-model review (opus) + apply; ledger recorded here.
+- [ ] Cross-model review (Codex) + apply; ledger recorded here.
 - [ ] Verify: `mfb man strings --all` + `types` read clean; census 100%
       for strings.
 

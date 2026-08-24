@@ -44,7 +44,7 @@ References:
   where side-effect-safe: env reads, temp-dir spawns; io/audio/tls/app
   compile-only where they need a tty/device/endpoint) — each compile-only
   call noted per function in the ledger.
-- Cross-model review (opus) per package; ledgers recorded here.
+- Cross-model review (Codex) per package; ledgers recorded here.
 - The `errorcode`/`perf` resolution from A executed if A assigned them here
   (whatever pages they own verified the same way, or the out-of-scope
   reason restated).
