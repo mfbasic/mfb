@@ -359,6 +359,39 @@ pub(crate) fn resolve_call_return_type(
     None
 }
 
+/// Typed twin of [`resolve_call_return_type`] (plan-104-C): the entry codegen
+/// uses so no type is rendered only to be re-parsed at the registry boundary.
+/// The generic registry path goes through
+/// [`crate::codegen::registry::resolve_call_typed`] with **no strings**. The
+/// three bespoke per-package resolvers (`general`, `vector`, `strings` — each a
+/// computed-return special case the generic matcher cannot express) still speak
+/// strings, so that pocket renders `name()` in and parses the result out —
+/// a deliberate boundary recorded in plan-104-C, retired if those resolvers
+/// ever retype.
+pub(crate) fn resolve_call_return_type_typed(
+    callee: &str,
+    arg_types: &[crate::types::ParameterType],
+    strict: bool,
+) -> Option<crate::types::ParameterType> {
+    let bespoke = general::is_general_call(callee)
+        || matches!(
+            crate::codegen::registry::registry().owning_package(callee),
+            Some("vector") | Some("strings")
+        );
+    if bespoke {
+        let arg_names: Vec<String> = arg_types
+            .iter()
+            .map(|type_| type_.name().into_owned())
+            .collect();
+        return resolve_call_return_type(callee, &arg_names, strict)
+            .map(|return_type| crate::types::ParameterType::parse(&return_type));
+    }
+    if crate::codegen::registry::registry().is_member(callee) {
+        return crate::codegen::registry::resolve_call_typed(callee, arg_types, strict);
+    }
+    None
+}
+
 /// The static (argument-independent) nominal return type of a builtin call —
 /// plan-72-BB: the owning module's `DefaultResolver::return_type_name` (a
 /// `Custom`-return call has no static nominal and yields `None`; the arg-validated

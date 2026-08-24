@@ -44,10 +44,7 @@ pub(crate) fn static_nir_value_type(
         NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
             let arg_types = args
                 .iter()
-                .map(|arg| {
-                    static_nir_value_type(arg, locals, fields)
-                        .map(|type_| type_.name().into_owned())
-                })
+                .map(|arg| static_nir_value_type(arg, locals, fields))
                 .collect::<Option<Vec<_>>>()?;
             // plan-72-BB: the narrow `general`/`collections`/`strings` return-type
             // resolution (the argument-computed types codegen needs) goes through
@@ -55,15 +52,16 @@ pub(crate) fn static_nir_value_type(
             // package's computed return never widens this oracle (the aggregate is
             // byte-identical to each package's own `resolve_call`). Other builtins
             // fall through to the nominal `call_return_type_name`, as before.
-            // The per-argument `name()` render and the `parse` of the resolved
-            // return are the registry's string boundary — plan-104-C retypes it.
+            // plan-104-C: the typed entry — no render/parse for `collections`
+            // (the bespoke `general`/`strings` resolvers keep their string pocket
+            // inside the twin); the nominal fallback parses a static descriptor
+            // name, a registry-literal boundary.
             match builtins::builtin_package_name(target) {
                 Some("general" | "collections" | "strings") => {
-                    builtins::resolve_call_return_type(target, &arg_types, false)
+                    builtins::resolve_call_return_type_typed(target, &arg_types, false)
                 }
                 _ => None,
             }
-            .map(|type_| ParameterType::parse(&type_))
             .or_else(|| {
                 builtins::call_return_type_name(target).map(|type_| ParameterType::parse(&type_))
             })
