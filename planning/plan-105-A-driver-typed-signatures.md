@@ -198,7 +198,7 @@ None. `.mfp` bytes unchanged; `.ir`/`.nir` dumps unchanged; no CLI surface.
 Acceptance: MET — `cargo test --no-fail-fast` green (61/61 non-gate suites `ok`;
 the `golden.rs` gate suite was blocked by a peer session's artifact-gate lock and
 was run standalone, see Phase 2).
-Commit: 4a2ea52d3
+Commit: 15f495ebc
 
 ### Phase 2 — thread it; delete the round-trip and the splitters
 
@@ -249,7 +249,7 @@ Acceptance: MET (2026-08-24).
 - **no-backward check**: `grep -rn '"FUNC(' src/cli/build/` → 0 hits. No
   signature-string construction remains on the driver path; the round-trip is
   gone in both directions.
-Commit: 4a2ea52d3
+Commit: 15f495ebc
 
 ## Validation Plan
 
