@@ -124,6 +124,33 @@ None externally observable. HIR is internal; IR/wire format unchanged.
 
 > Re-measure and split into C1/C2/C3 at kickoff.
 
+**Kickoff design decisions (2026-08-23), from studying `ast/types.rs` + `ir/lower.rs`:**
+- **`elaborate` carries DECLARED types only; expression-type INFERENCE stays in
+  `ir::lower`.** AST expressions carry no result type — `ir::lower` INFERS it
+  (`expression_type` `src/ir/lower.rs:1931`, plus the String maps
+  `function_returns`:1749/`function_types`:1800/`function_params`:1870/
+  `declared_binding_types`:1896) and stamps it onto `IrValue.type_`. So `elaborate`
+  is a structural copy that attaches only the DECLARED type annotations (param/return/
+  binding/field types, `SetLiteral.element_type`, `MapLiteral.key/value_type`,
+  `Constructor.type_name`, `MatchPattern::Union.type_name`) via `ParameterType::parse`
+  (concrete input → concrete type, no `Var`). The inference machinery is NOT moved
+  into `elaborate` in C — it stays in `ir::lower` and, in C3, reads HIR instead of the
+  AST. (Moving overload resolution/inference up is plan-102-D, not C.)
+- **RES/STATE stay sibling fields** (`resource: bool`, `state_type: Option<ParameterType>`),
+  mirroring the AST — HIR type fields carry the BARE `ParameterType` (verified: AST
+  separates them at `types.rs:475/477,534/536,567/569`).
+- **Absent annotation → `parse("Unknown")`**, matching `ir::lower`'s
+  `.unwrap_or_else(|| "Unknown".to_string())` in `lower_param`/`lower_binding`.
+- **Native/link/doc/testing `Item`s reuse the AST structs** in HIR (`HirItem::Resource(
+  ast::ResourceDecl)` …) — they carry no source type strings needing retyping on
+  concrete code; the ParameterType retype focuses on Binding/Function/Type/Statement/
+  Expression.
+- **Split executed as: C1+C2 = HIR node module (`src/hir/mod.rs`, full decls +
+  statements + expressions) + `elaborate` for the whole AST + round-trip test**
+  (landed together to avoid a stub-body HIR); **C3 = rewire `ir::lower` front-half to
+  consume HIR** (the byte-identity-critical step). C1+C2 is not wired into the build
+  (transient dead_code until C3, same pattern as A-phase-2's interner).
+
 ### Phase 1 — HIR node module + `elaborate` skeleton (decls), round-trip validated
 
 - [ ] Add `src/hir/` node types mirroring `ast/types.rs` decls, type fields
@@ -148,6 +175,21 @@ Acceptance: `elaborate` covers the whole fixture corpus; `cargo test` green.
 Commit: —
 
 ### Phase 3 — switch `ir::lower` to HIR → IR
+
+**C3 approach (kickoff):** a mechanical **input-swap**. `lower_augmented_project`
+and its front-half helpers change their AST parameter to the HIR: `ast: &AstProject`
+→ `hir: &HirProject`, and every read of an AST type string (`node.type_name`,
+`.return_type`, `.element_type`, …) repoints to the HIR node's `ParameterType` field,
+rendered back with `.name()` where ir::lower's existing **String** inference
+machinery (`expression_type`, `function_returns`/`function_types` maps) needs a
+string. Because `ParameterType::parse`→`.name()` round-trips byte-exact (plan-102-A
+guarantee), elaborate-then-render is a no-op on the type spellings, so codegen output
+is byte-identical. This establishes the HIR→IR boundary (C's real purpose — the
+scaffold D builds on) WITHOUT rewriting ir::lower's internal String inference to
+native `ParameterType` (that native conversion is deferrable, exactly like the
+`ir::verify` internal-representation conversion in plan-102-B Phase 3). The
+non-type structural reads (names, bodies, `line`s) repoint to the identical HIR
+fields.
 
 - [ ] Rewrite `ir::lower`'s front half to read HIR; wire `elaborate` into the build
       after monomorph (`src/cli/build/mod.rs`, all 5 `lower_augmented_project` call
