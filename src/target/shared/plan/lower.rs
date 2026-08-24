@@ -71,7 +71,7 @@ pub(super) fn lower_function(
         .params
         .iter()
         .map(|param| {
-            let storage = storage_for_type(&param.type_, type_storage)?;
+            let storage = storage_for_type(&param.type_.name(), type_storage)?;
             Ok(PlannedParam {
                 name: param.name.clone(),
                 storage,
@@ -97,7 +97,7 @@ pub(super) fn lower_function(
     Ok(PlannedFunction {
         name: function.name.clone(),
         symbol: nir::function_symbol(&function.name),
-        returns: storage_for_type(&function.returns, type_storage)?,
+        returns: storage_for_type(&function.returns.name(), type_storage)?,
         params,
         local_slots: builder.local_slots,
         labels: builder.labels,

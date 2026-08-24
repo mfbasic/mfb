@@ -13,6 +13,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn lower_boolean_binary(
         &mut self,
@@ -782,7 +783,7 @@ impl CodeBuilder<'_> {
         let NirValue::Const { type_, value } = right else {
             return false;
         };
-        if type_ != "Integer" {
+        if !matches!(type_, ParameterType::Integer) {
             return false;
         }
         let Ok(c) = value.parse::<i64>() else {
@@ -805,7 +806,7 @@ impl CodeBuilder<'_> {
         if !self.integer_strict_upper.contains(name) {
             return false;
         }
-        matches!(right, NirValue::Const { type_, value } if type_ == "Integer" && value == "1")
+        matches!(right, NirValue::Const { type_, value } if matches!(type_, ParameterType::Integer) && value == "1")
     }
 
     /// plan-39 I1: the lower bound a guard condition establishes on its fall-through
@@ -822,7 +823,9 @@ impl CodeBuilder<'_> {
             return None;
         };
         let (name, konst) = match (left.as_ref(), right.as_ref()) {
-            (NirValue::Local(n), NirValue::Const { type_, value }) if type_ == "Integer" => {
+            (NirValue::Local(n), NirValue::Const { type_, value })
+                if matches!(type_, ParameterType::Integer) =>
+            {
                 (n.clone(), value.parse::<i64>().ok()?)
             }
             _ => return None,

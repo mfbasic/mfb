@@ -138,7 +138,7 @@ impl CodeBuilder<'_> {
             return Ok(false);
         }
         let Some((field_index, field_type)) =
-            self.record_collection_last_inlined(type_, &update.field)
+            self.record_collection_last_inlined(&type_.name(), &update.field)
         else {
             return Ok(false);
         };

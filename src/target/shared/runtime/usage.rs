@@ -169,7 +169,9 @@ fn push_op_helpers(
                 // `validate.rs` unused-runtime-helper check. Mirrors
                 // `Builder::value_aliases_live_resource`; keep the two in step.
                 if !value.as_ref().is_some_and(value_aliases_live_resource) {
-                    if let Some(close) = crate::codegen::builtins::resource_close_function(type_) {
+                    if let Some(close) =
+                        crate::codegen::builtins::resource_close_function(&type_.name())
+                    {
                         if let Some(helper) = helper_for_call(close) {
                             push_unique(helpers, helper);
                         }
@@ -180,7 +182,8 @@ fn push_op_helpers(
                     // suffix so the variant close helpers are declared — else the
                     // validator marks them used (from the transfer copy) while they
                     // stay undeclared (plan-75 gap 1).
-                    let base = crate::codegen::resource::base_resource_name(type_);
+                    let type_name = type_.name();
+                    let base = crate::codegen::resource::base_resource_name(&type_name);
                     if let Some(closes) = resource_union_closes.get(base) {
                         for close in closes {
                             if let Some(helper) = helper_for_call(close) {

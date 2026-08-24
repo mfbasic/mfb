@@ -4,7 +4,7 @@ pub(super) fn unique_global_names(module: &NirModule) -> Result<HashSet<String>,
     let mut names = HashSet::new();
     let mut symbols = HashSet::new();
     for global in &module.globals {
-        if global.name.is_empty() || global.symbol.is_empty() || global.type_.is_empty() {
+        if global.name.is_empty() || global.symbol.is_empty() || global.type_.name().is_empty() {
             return Err("NIR global name, symbol, and type must not be empty".to_string());
         }
         if !matches!(global.visibility.as_str(), "private" | "public" | "export") {

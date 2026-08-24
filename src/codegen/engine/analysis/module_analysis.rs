@@ -5,6 +5,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::nir;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 use std::collections::HashSet;
 pub(crate) fn module_requires_empty_string_constant(module: &NirModule) -> bool {
@@ -26,10 +27,14 @@ fn op_requires_empty_string_constant(op: &NirOp, type_model: &TypeModel) -> bool
         // demands the sentinel even though `value` is `Some` — checking only
         // `value: None` left the relocation dangling (bug-256, bug-05 class).
         NirOp::Bind { type_, value, .. } => {
-            crate::codegen::resource::state_type_name(type_).is_some_and(|state| {
+            crate::codegen::resource::state_type_name(&type_.name()).is_some_and(|state| {
                 type_requires_empty_string_constant(state, type_model, &mut HashSet::new())
             }) || (value.is_none()
-                && type_requires_empty_string_constant(type_, type_model, &mut HashSet::new()))
+                && type_requires_empty_string_constant(
+                    &type_.name(),
+                    type_model,
+                    &mut HashSet::new(),
+                ))
         }
         NirOp::If {
             then_body,
@@ -147,7 +152,7 @@ fn module_drops_resource_union_close(module: &NirModule, target: &str) -> bool {
 
 fn ops_bind_type_in(ops: &[NirOp], names: &std::collections::HashSet<&str>) -> bool {
     ops.iter().any(|op| match op {
-        NirOp::Bind { type_, .. } => names.contains(type_.as_str()),
+        NirOp::Bind { type_, .. } => names.contains(type_.name().as_ref()),
         NirOp::If {
             then_body,
             else_body,
@@ -183,7 +188,7 @@ pub(crate) fn module_may_record_cleanup_failure(module: &NirModule) -> bool {
 fn ops_may_record_cleanup_failure(ops: &[NirOp]) -> bool {
     ops.iter().any(|op| match op {
         NirOp::Bind { type_, .. } => {
-            crate::codegen::builtins::resource_close_function(type_).is_some()
+            crate::codegen::builtins::resource_close_function(&type_.name()).is_some()
         }
         NirOp::If {
             then_body,
@@ -234,7 +239,7 @@ pub(crate) fn module_field_types(module: &NirModule) -> FieldTypes {
                 for field in &type_.fields {
                     fields.insert(
                         (type_.name.clone(), field.name.clone()),
-                        field.type_.clone(),
+                        field.type_.name().into_owned(),
                     );
                 }
             }
@@ -243,7 +248,7 @@ pub(crate) fn module_field_types(module: &NirModule) -> FieldTypes {
                     for field in &variant.fields {
                         fields.insert(
                             (variant.name.clone(), field.name.clone()),
-                            field.type_.clone(),
+                            field.type_.name().into_owned(),
                         );
                     }
                 }
@@ -286,7 +291,7 @@ pub(crate) fn module_may_emit_float_numeric_error(module: &NirModule) -> bool {
         let mut locals = function
             .params
             .iter()
-            .map(|param| (param.name.clone(), param.type_.clone()))
+            .map(|param| (param.name.clone(), param.type_.name().into_owned()))
             .collect::<HashMap<_, _>>();
         ops_may_emit_float_arithmetic_error(&function.body, &mut locals, &fields)
     })
@@ -305,8 +310,8 @@ fn ops_may_emit_float_arithmetic_error(
                 let emits = value.as_ref().is_some_and(|value| {
                     value_may_emit_float_arithmetic_error(value, locals, fields)
                 });
-                if !type_.is_empty() {
-                    locals.insert(name.clone(), type_.clone());
+                if !type_.name().is_empty() {
+                    locals.insert(name.clone(), type_.name().into_owned());
                 }
                 emits
             }
@@ -360,8 +365,8 @@ fn ops_may_emit_float_arithmetic_error(
                 ..
             } => {
                 let mut body_locals = locals.clone();
-                body_locals.insert(name.clone(), type_.clone());
-                type_ == "Float"
+                body_locals.insert(name.clone(), type_.name().into_owned());
+                matches!(type_, ParameterType::Float)
                     || value_may_emit_float_arithmetic_error(start, locals, fields)
                     || value_may_emit_float_arithmetic_error(end, locals, fields)
                     || value_may_emit_float_arithmetic_error(step, locals, fields)
@@ -378,7 +383,7 @@ fn ops_may_emit_float_arithmetic_error(
                 body,
             } => {
                 let mut body_locals = locals.clone();
-                body_locals.insert(name.clone(), type_.clone());
+                body_locals.insert(name.clone(), type_.name().into_owned());
                 value_may_emit_float_arithmetic_error(iterable, locals, fields)
                     || ops_may_emit_float_arithmetic_error(body, &mut body_locals, fields)
             }
@@ -575,7 +580,7 @@ pub(crate) fn collect_function_value_refs(module: &NirModule) -> Vec<(String, St
     impl NirVisitor for Collector<'_> {
         fn visit_value(&mut self, value: &NirValue) {
             if let NirValue::FunctionRef { name, type_ } = value {
-                self.refs.push((name.clone(), type_.clone()));
+                self.refs.push((name.clone(), type_.name().into_owned()));
             }
             walk_value(self, value);
         }
@@ -713,7 +718,7 @@ fn ops_use_unicode_runtime_tables(
             NirOp::Bind {
                 name, type_, value, ..
             } => {
-                types.insert(name.clone(), type_.clone());
+                types.insert(name.clone(), type_.name().into_owned());
                 if let Some(value) = value {
                     if value_uses_unicode_runtime_tables(value, constants, types, fields) {
                         return true;
@@ -854,7 +859,7 @@ fn ops_use_unicode_runtime_tables(
                 let mut body_constants = constants.clone();
                 let mut body_types = types.clone();
                 body_constants.remove(name);
-                body_types.insert(name.clone(), type_.clone());
+                body_types.insert(name.clone(), type_.name().into_owned());
                 if ops_use_unicode_runtime_tables(
                     body,
                     &mut body_constants,
@@ -889,7 +894,7 @@ fn ops_use_unicode_runtime_tables(
                 let mut body_constants = constants.clone();
                 let mut body_types = types.clone();
                 body_constants.remove(name);
-                body_types.insert(name.clone(), type_.clone());
+                body_types.insert(name.clone(), type_.name().into_owned());
                 if ops_use_unicode_runtime_tables(
                     body,
                     &mut body_constants,

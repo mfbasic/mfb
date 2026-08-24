@@ -622,7 +622,7 @@ fn lower_statement(
             vec![IrOp::Bind {
                 mutable: *mutable,
                 name: name.clone(),
-                type_: lowered_type,
+                type_: ParameterType::parse(&lowered_type),
                 value: lowered_value,
                 explicit_type: *explicit_type,
                 loc,
@@ -834,7 +834,7 @@ fn lower_statement(
             let mut ops = vec![IrOp::Bind {
                 mutable: false,
                 name: matched_name.clone(),
-                type_: matched_type.clone(),
+                type_: ParameterType::parse(&matched_type),
                 value: Some(lower_match_expression(
                     expression,
                     &matched_type,
@@ -855,7 +855,7 @@ fn lower_statement(
                 ops.push(IrOp::Bind {
                     mutable: false,
                     name: match_flag_name.clone(),
-                    type_: "Boolean".to_string(),
+                    type_: ParameterType::Boolean,
                     value: Some(IrValue::ResultIsOk {
                         value: Box::new(IrValue::Local(matched_name.clone())),
                     }),
@@ -924,7 +924,7 @@ fn lower_statement(
             let mut loop_body = vec![IrOp::Bind {
                 mutable: false,
                 name: name.clone(),
-                type_: loop_type.clone(),
+                type_: ParameterType::parse(&loop_type),
                 value: Some(iter_local.clone()),
                 loc,
                 explicit_type: false,
@@ -935,7 +935,7 @@ fn lower_statement(
                 IrOp::Bind {
                     mutable: false,
                     name: end_name,
-                    type_: loop_type.clone(),
+                    type_: ParameterType::parse(&loop_type),
                     value: Some(end_value),
                     loc,
                     explicit_type: false,
@@ -943,14 +943,14 @@ fn lower_statement(
                 IrOp::Bind {
                     mutable: false,
                     name: step_name,
-                    type_: loop_type.clone(),
+                    type_: ParameterType::parse(&loop_type),
                     value: Some(step_value),
                     loc,
                     explicit_type: false,
                 },
                 IrOp::For {
                     name: iter_name,
-                    type_: loop_type.clone(),
+                    type_: ParameterType::parse(&loop_type),
                     start: start_value,
                     end: end_local,
                     step: step_local,
@@ -976,7 +976,7 @@ fn lower_statement(
             nested.insert(name.clone(), element_type.clone());
             vec![IrOp::ForEach {
                 name: name.clone(),
-                type_: element_type,
+                type_: ParameterType::parse(&element_type),
                 iterable: lower_expression(iterable, locals, context),
                 body: lower_statement_block(body, &nested, context, trap_name),
                 loc,
@@ -1150,7 +1150,7 @@ fn lower_inline_trap(
     let mut ops = vec![IrOp::Bind {
         mutable: false,
         name: res_name.clone(),
-        type_: result_type.clone(),
+        type_: ParameterType::parse(&result_type),
         value: Some(call_result),
         loc: stmt_loc,
         explicit_type: false,
@@ -1165,7 +1165,7 @@ fn lower_inline_trap(
             ops.push(IrOp::Bind {
                 mutable: true,
                 name: val_name.clone(),
-                type_: success_type.clone(),
+                type_: ParameterType::parse(&success_type),
                 value: None,
                 loc: stmt_loc,
                 explicit_type: false,
@@ -1209,7 +1209,7 @@ fn lower_inline_trap(
         else_body.push(IrOp::Bind {
             mutable: false,
             name: binding.to_string(),
-            type_: "Error".to_string(),
+            type_: ParameterType::parse("Error"),
             value: Some(IrValue::ResultError {
                 value: Box::new(IrValue::Local(res_name.clone())),
             }),
@@ -1238,7 +1238,7 @@ fn lower_inline_trap(
             ops.push(IrOp::Bind {
                 mutable,
                 name: name.clone(),
-                type_: type_.clone(),
+                type_: ParameterType::parse(&type_),
                 value: Some(IrValue::Local(slot.expect("bind target has a value slot"))),
                 explicit_type,
                 loc: stmt_loc,
@@ -1662,7 +1662,7 @@ fn lower_match_case(
         body.push(IrOp::Bind {
             mutable: false,
             name: binding,
-            type_: binding_type,
+            type_: ParameterType::parse(&binding_type),
             value: Some(value),
             loc,
             explicit_type: false,
@@ -3066,7 +3066,7 @@ fn lower_expression_with_expected(
                 .map(|(index, (capture, &by_ref))| IrOp::Bind {
                     mutable: by_ref,
                     name: capture.name.clone(),
-                    type_: capture.type_.clone(),
+                    type_: ParameterType::parse(&capture.type_),
                     value: Some(IrValue::Capture {
                         // A closure's environment is far smaller than `u32::MAX`
                         // slots; the cast cannot lose an index a program produces.

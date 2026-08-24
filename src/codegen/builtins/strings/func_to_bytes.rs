@@ -23,7 +23,7 @@ pub(crate) fn lower(
                 .as_bytes()
                 .iter()
                 .map(|byte| NirValue::Const {
-                    type_: "Byte".to_string(),
+                    type_: ParameterType::Byte,
                     value: byte.to_string(),
                 })
                 .collect::<Vec<_>>();

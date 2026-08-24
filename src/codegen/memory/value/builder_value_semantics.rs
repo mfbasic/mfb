@@ -6,6 +6,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// Resolve a resource *value* pointer (held in `value_ptr`) of declared
     /// `type_` to the pointer to its resource **record**, whose `STATE`
@@ -767,7 +768,7 @@ impl CodeBuilder<'_> {
             NirValue::Call { target, args, .. } if target == "toString" && args.len() == 1 => self
                 .static_primitive_text(&args[0])
                 .map(|value| NirValue::Const {
-                    type_: "String".to_string(),
+                    type_: ParameterType::String,
                     value,
                 }),
             NirValue::RuntimeCall { target, args, .. }
@@ -775,7 +776,7 @@ impl CodeBuilder<'_> {
             {
                 self.static_primitive_text(&args[0])
                     .map(|value| NirValue::Const {
-                        type_: "String".to_string(),
+                        type_: ParameterType::String,
                         value,
                     })
             }
@@ -784,14 +785,14 @@ impl CodeBuilder<'_> {
             {
                 self.static_type_name(&args[0])
                     .map(|value| NirValue::Const {
-                        type_: "String".to_string(),
+                        type_: ParameterType::String,
                         value,
                     })
             }
             NirValue::Binary { op, .. } if op == "&" => {
                 self.static_string_value(value)
                     .map(|value| NirValue::Const {
-                        type_: "String".to_string(),
+                        type_: ParameterType::String,
                         value,
                     })
             }
@@ -812,7 +813,9 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn static_string_value(&self, value: &NirValue) -> Option<String> {
         match value {
-            NirValue::Const { type_, value } if type_ == "String" => Some(value.clone()),
+            NirValue::Const { type_, value } if matches!(type_, ParameterType::String) => {
+                Some(value.clone())
+            }
             NirValue::Local(name) => self
                 .locals
                 .get(name)
@@ -885,10 +888,10 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn static_primitive_text(&self, value: &NirValue) -> Option<String> {
         match value {
-            NirValue::Const { type_, value } => match type_.as_str() {
+            NirValue::Const { type_, value } => match type_.name().as_ref() {
                 // Float/Fixed constants fold to the runtime formatter's
                 // default-precision rendering (2 places; bug-358, plan-28-B).
-                "Float" | "Fixed" => crate::numeric::default_to_string_text(type_, value),
+                "Float" | "Fixed" => crate::numeric::default_to_string_text(&type_.name(), value),
                 "Integer" | "Byte" | "String" => Some(value.clone()),
                 "Boolean" => match value.as_str() {
                     "true" => Some("TRUE".to_string()),
@@ -909,14 +912,14 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn static_type_name(&self, value: &NirValue) -> Option<String> {
         match value {
-            NirValue::Const { type_, .. } => Some(type_.clone()),
+            NirValue::Const { type_, .. } => Some(type_.name().into_owned()),
             NirValue::Local(name) => self.locals.get(name).map(|local| local.type_.clone()),
-            NirValue::LocalRef { type_, .. } => Some(type_.clone()),
+            NirValue::LocalRef { type_, .. } => Some(type_.name().into_owned()),
             NirValue::Global { name, type_ } => {
-                if type_.is_empty() {
+                if type_.name().is_empty() {
                     self.globals.get(name).map(|global| global.type_.clone())
                 } else {
-                    Some(type_.clone())
+                    Some(type_.name().into_owned())
                 }
             }
             NirValue::FunctionRef { type_, .. }
@@ -926,9 +929,9 @@ impl CodeBuilder<'_> {
             | NirValue::WithUpdate { type_, .. }
             | NirValue::ListLiteral { type_, .. }
             | NirValue::SetLiteral { type_, .. }
-            | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
-            NirValue::UnionWrap { union_type, .. } => Some(union_type.clone()),
-            NirValue::UnionExtract { type_, .. } => Some(type_.clone()),
+            | NirValue::MapLiteral { type_, .. } => Some(type_.name().into_owned()),
+            NirValue::UnionWrap { union_type, .. } => Some(union_type.name().into_owned()),
+            NirValue::UnionExtract { type_, .. } => Some(type_.name().into_owned()),
             NirValue::ResultIsOk { .. } => Some("Boolean".to_string()),
             NirValue::ResultValue { value } => self
                 .static_type_name(value)

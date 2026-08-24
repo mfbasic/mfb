@@ -712,7 +712,7 @@ pub(crate) fn lower_module_for_platform(
             (
                 global.name.clone(),
                 GlobalValue {
-                    type_: global.type_.clone(),
+                    type_: global.type_.name().into_owned(),
                     offset: ENTRY_GLOBALS_OFFSET + index * 8,
                 },
             )
@@ -1204,7 +1204,7 @@ pub(crate) fn lower_module_for_platform(
                 &ProgramEntrySpec {
                     entry_symbol: MACAPP_PROGRAM_SYMBOL,
                     language_entry_symbol: &language_entry_symbol,
-                    language_entry_returns: &entry.returns,
+                    language_entry_returns: &entry.returns.name(),
                     language_entry_accepts_args: entry.accepts_args,
                     global_initializer_symbol: global_initializer_symbol.as_deref(),
                     link_init_symbol,
@@ -1242,7 +1242,7 @@ pub(crate) fn lower_module_for_platform(
                 &ProgramEntrySpec {
                     entry_symbol: "_main",
                     language_entry_symbol: &language_entry_symbol,
-                    language_entry_returns: &entry.returns,
+                    language_entry_returns: &entry.returns.name(),
                     language_entry_accepts_args: entry.accepts_args,
                     global_initializer_symbol: global_initializer_symbol.as_deref(),
                     link_init_symbol,

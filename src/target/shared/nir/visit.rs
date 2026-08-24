@@ -189,6 +189,7 @@ mod tests {
     use super::*;
     use crate::target::shared::nir::{NirMatchCase, NirRecordUpdate, NirSourceLoc};
     use crate::target::shared::runtime::RuntimeHelper;
+    use crate::types::ParameterType;
 
     /// Records the discriminant tag of every `NirValue` the walk reaches, so a
     /// test can assert the default recursion visits every variant — including
@@ -247,30 +248,30 @@ mod tests {
     fn one_of_every_value_variant() -> Vec<NirValue> {
         vec![
             NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: "1".to_string(),
             },
             local("plain"),
             NirValue::LocalRef {
                 name: "r".to_string(),
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
             },
             NirValue::Global {
                 name: "g".to_string(),
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
             },
             NirValue::FunctionRef {
                 name: "f".to_string(),
-                type_: "Function".to_string(),
+                type_: ParameterType::named("Function"),
             },
             NirValue::Closure {
                 name: "c".to_string(),
-                type_: "Function".to_string(),
+                type_: ParameterType::named("Function"),
                 captures: vec![local("closure_child")],
             },
             NirValue::Capture {
                 index: 0,
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 by_ref: false,
             },
             NirValue::Call {
@@ -290,16 +291,16 @@ mod tests {
                 loc: NirSourceLoc::default(),
             },
             NirValue::Constructor {
-                type_: "T".to_string(),
+                type_: ParameterType::named("T"),
                 args: vec![local("constructor_child")],
             },
             NirValue::UnionWrap {
-                union_type: "U".to_string(),
-                member_type: "M".to_string(),
+                union_type: ParameterType::named("U"),
+                member_type: ParameterType::named("M"),
                 value: boxed(local("unionwrap_child")),
             },
             NirValue::UnionExtract {
-                type_: "M".to_string(),
+                type_: ParameterType::named("M"),
                 value: boxed(local("unionextract_child")),
             },
             NirValue::ResultIsOk {
@@ -312,7 +313,7 @@ mod tests {
                 value: boxed(local("resulterror_child")),
             },
             NirValue::WithUpdate {
-                type_: "T".to_string(),
+                type_: ParameterType::named("T"),
                 target: boxed(local("withupdate_target")),
                 updates: vec![NirRecordUpdate {
                     field: "x".to_string(),
@@ -320,15 +321,15 @@ mod tests {
                 }],
             },
             NirValue::ListLiteral {
-                type_: "List OF Integer".to_string(),
+                type_: ParameterType::list_of(ParameterType::Integer),
                 values: vec![local("list_child")],
             },
             NirValue::SetLiteral {
-                type_: "Set OF Integer".to_string(),
+                type_: ParameterType::set_of(ParameterType::Integer),
                 values: vec![local("set_child")],
             },
             NirValue::MapLiteral {
-                type_: "Map OF Integer TO Integer".to_string(),
+                type_: ParameterType::map_of(ParameterType::Integer, ParameterType::Integer),
                 entries: vec![(local("map_key"), local("map_value"))],
             },
             NirValue::MemberAccess {
@@ -468,7 +469,7 @@ mod tests {
             NirOp::Bind {
                 mutable: false,
                 name: "x".to_string(),
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: Some(local("x_init")),
             },
             NirOp::If {

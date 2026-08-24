@@ -126,21 +126,21 @@ impl TypeEnv {
                                 ),
                             );
                         }
-                        let range_errored =
-                            self.check_literal_range_errored(resource_base_type(type_), value);
+                        let range_errored = self
+                            .check_literal_range_errored(resource_base_type(&type_.name()), value);
                         // Only an explicit `AS T` annotation can disagree with
                         // the initializer; an inferred type is the initializer's
                         // type by construction (matches syntaxcheck).
                         if !range_errored && *explicit_type {
-                            self.check_binding_type(name, type_, value, locals);
+                            self.check_binding_type(name, &type_.name(), value, locals);
                         }
                     }
                     // A declared map type's key must be comparable; the
                     // inferred case is covered at its MapLiteral (checking it
                     // here too would double-report).
                     if *explicit_type {
-                        self.check_map_key_comparable(type_);
-                        self.check_collection_res_axis(resource_base_type(type_));
+                        self.check_map_key_comparable(&type_.name());
+                        self.check_collection_res_axis(resource_base_type(&type_.name()));
                     }
                     // The RES ownership axis (syntaxcheck's
                     // check_resource_declaration): a resource-typed binding
@@ -194,7 +194,8 @@ impl TypeEnv {
                                 | IrValue::Capture { .. }
                         )
                     );
-                    let base = resource_base_type(type_);
+                    let type_name = type_.name();
+                    let base = resource_base_type(&type_name);
                     let is_resource = self.is_resource_or_resource_union(base);
                     if !synthesized_bind && !name.starts_with('$') {
                         let is_res_declared = self.current_owners.borrow().contains(name.as_str());
@@ -232,7 +233,9 @@ impl TypeEnv {
                     // can only be *written*, so an inferred binding has nothing
                     // new for them to check.
                     if *explicit_type && !name.starts_with('$') {
-                        if let Some(state_type) = crate::codegen::resource::state_type_name(type_) {
+                        if let Some(state_type) =
+                            crate::codegen::resource::state_type_name(&type_.name())
+                        {
                             if !self.is_defaultable(state_type, &mut HashSet::new()) {
                                 self.emit(
                                     "TYPE_STATE_INVALID",
@@ -243,7 +246,7 @@ impl TypeEnv {
                             }
                         }
                         if is_resource {
-                            self.check_binding_state_agreement(name, type_, value, locals);
+                            self.check_binding_state_agreement(name, &type_.name(), value, locals);
                         }
                     }
                     // plan-59-E: RES-binding a collection element used to be
@@ -267,7 +270,7 @@ impl TypeEnv {
                                 "TYPE_LET_REQUIRES_VALUE",
                                 format!("Immutable binding `{name}` must have an initializer."),
                             );
-                        } else if !self.is_defaultable(type_, &mut HashSet::new()) {
+                        } else if !self.is_defaultable(&type_.name(), &mut HashSet::new()) {
                             self.emit(
                                 "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
                                 format!(
@@ -276,7 +279,7 @@ impl TypeEnv {
                             );
                         }
                     }
-                    locals.insert(name.clone(), type_.clone());
+                    locals.insert(name.clone(), type_.name().into_owned());
                     // A capture bind's `mutable` reflects the by-ref/non-escaping
                     // proof, not the outer binding's MUTness — syntaxcheck judges
                     // assignments to captures at the lambda site (as
@@ -553,7 +556,7 @@ impl TypeEnv {
                                 let IrOp::Bind { name, type_, .. } = op else {
                                     break;
                                 };
-                                case_locals.insert(name.clone(), type_.clone());
+                                case_locals.insert(name.clone(), type_.name().into_owned());
                             }
                             // bug-297: same omission as the pattern values above.
                             self.check_value_captures(guard, closure_slots);
@@ -647,7 +650,7 @@ impl TypeEnv {
                     }
                     let mut branch = locals.clone();
                     let mut branch_muts = muts.clone();
-                    branch.insert(name.clone(), type_.clone());
+                    branch.insert(name.clone(), type_.name().into_owned());
                     // The loop counter is immutable inside the body (syntaxcheck
                     // registers it `mutable: false`).
                     branch_muts.insert(name.clone(), false);
@@ -710,7 +713,7 @@ impl TypeEnv {
                     }
                     let mut branch = locals.clone();
                     let mut branch_muts = muts.clone();
-                    branch.insert(name.clone(), type_.clone());
+                    branch.insert(name.clone(), type_.name().into_owned());
                     // The element binding is an immutable, non-owning view.
                     branch_muts.insert(name.clone(), false);
                     self.loop_stack.borrow_mut().push(crate::ast::LoopKind::For);

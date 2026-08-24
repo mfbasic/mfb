@@ -5,6 +5,7 @@ use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::numeric;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 /// Declared field types of every composite a `NirValue::MemberAccess` can name,
 /// keyed `(owning type name, field name)`. Built by
@@ -30,7 +31,7 @@ pub(crate) fn static_nir_value_type(
         | NirValue::WithUpdate { type_, .. }
         | NirValue::ListLiteral { type_, .. }
         | NirValue::SetLiteral { type_, .. }
-        | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
+        | NirValue::MapLiteral { type_, .. } => Some(type_.name().into_owned()),
         NirValue::Local(name) => locals.get(name).cloned(),
         NirValue::Binary {
             op, left, right, ..
@@ -139,13 +140,13 @@ pub(crate) fn local_constant_value_with_constants(
         NirValue::Local(name) => constants.get(name).cloned(),
         NirValue::Call { target, args, .. } if target == "toString" && args.len() == 1 => {
             static_primitive_text_with_constants(&args[0], constants).map(|value| NirValue::Const {
-                type_: "String".to_string(),
+                type_: ParameterType::String,
                 value,
             })
         }
         NirValue::RuntimeCall { target, args, .. } if target == "toString" && args.len() == 1 => {
             static_primitive_text_with_constants(&args[0], constants).map(|value| NirValue::Const {
-                type_: "String".to_string(),
+                type_: ParameterType::String,
                 value,
             })
         }
@@ -156,7 +157,7 @@ pub(crate) fn local_constant_value_with_constants(
         {
             static_type_name_for_fold_with_types(&args[0], types, fields).map(|value| {
                 NirValue::Const {
-                    type_: "String".to_string(),
+                    type_: ParameterType::String,
                     value,
                 }
             })
@@ -169,7 +170,7 @@ pub(crate) fn local_constant_value_with_constants(
         {
             strings_package_static_string_value(target, args, constants, types, fields).map(
                 |value| NirValue::Const {
-                    type_: "String".to_string(),
+                    type_: ParameterType::String,
                     value,
                 },
             )
@@ -177,7 +178,7 @@ pub(crate) fn local_constant_value_with_constants(
         NirValue::Binary { op, .. } if op == "&" => {
             static_string_value_with_constants(value, constants, types, fields).map(|value| {
                 NirValue::Const {
-                    type_: "String".to_string(),
+                    type_: ParameterType::String,
                     value,
                 }
             })
@@ -243,13 +244,13 @@ pub(crate) fn static_primitive_text_with_constants(
     constants: &HashMap<String, NirValue>,
 ) -> Option<String> {
     match value {
-        NirValue::Const { type_, value } => match type_.as_str() {
+        NirValue::Const { type_, value } => match type_.name().as_ref() {
             // A Float/Fixed constant folds to the runtime formatter's
             // default-precision rendering (2 places), so the same value prints
             // identically whether or not the argument was foldable (bug-358).
             // Scientific notation goes through the same conversions, so `2.5e2`
             // still reads the same as the plain literal (plan-28-B).
-            "Float" | "Fixed" => numeric::default_to_string_text(type_, value),
+            "Float" | "Fixed" => numeric::default_to_string_text(&type_.name(), value),
             "Integer" | "Byte" | "String" => Some(value.clone()),
             "Boolean" => match value.as_str() {
                 "true" => Some("TRUE".to_string()),

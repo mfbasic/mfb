@@ -985,7 +985,7 @@ fn encode_op(out: &mut Vec<u8>, op: &IrOp) {
             put_u8(out, 0);
             put_bool(out, *mutable);
             put_str(out, name);
-            put_str(out, type_);
+            put_str(out, &type_.name());
             put_opt_value(out, value);
             put_bool(out, *explicit_type);
             put_loc(out, *loc);
@@ -1087,7 +1087,7 @@ fn encode_op(out: &mut Vec<u8>, op: &IrOp) {
         } => {
             put_u8(out, 14);
             put_str(out, name);
-            put_str(out, type_);
+            put_str(out, &type_.name());
             encode_value(out, start);
             encode_value(out, end);
             encode_value(out, step);
@@ -1113,7 +1113,7 @@ fn encode_op(out: &mut Vec<u8>, op: &IrOp) {
         } => {
             put_u8(out, 9);
             put_str(out, name);
-            put_str(out, type_);
+            put_str(out, &type_.name());
             encode_value(out, iterable);
             put_vec(out, body, encode_op);
             put_loc(out, *loc);
@@ -1140,7 +1140,7 @@ fn decode_op_body(r: &mut IrReader) -> Result<IrOp, String> {
         0 => IrOp::Bind {
             mutable: r.bool()?,
             name: r.string()?,
-            type_: r.string()?,
+            type_: ParameterType::parse(&r.string()?),
             value: r.opt_value()?,
             explicit_type: r.bool()?,
             loc: get_loc(r)?,
@@ -1203,7 +1203,7 @@ fn decode_op_body(r: &mut IrReader) -> Result<IrOp, String> {
         },
         9 => IrOp::ForEach {
             name: r.string()?,
-            type_: r.string()?,
+            type_: ParameterType::parse(&r.string()?),
             iterable: decode_value(r)?,
             body: decode_vec(r, decode_op)?,
             loc: get_loc(r)?,
@@ -1215,7 +1215,7 @@ fn decode_op_body(r: &mut IrReader) -> Result<IrOp, String> {
         },
         14 => IrOp::For {
             name: r.string()?,
-            type_: r.string()?,
+            type_: ParameterType::parse(&r.string()?),
             start: decode_value(r)?,
             end: decode_value(r)?,
             step: decode_value(r)?,

@@ -294,7 +294,7 @@ impl ToJson for IrOp {
                     loc.line,
                     mutable,
                     json_string(name),
-                    json_string(type_),
+                    json_string(&type_.name()),
                     value
                 )
             }
@@ -491,7 +491,7 @@ impl ToJson for IrOp {
                     pad,
                     json_string(name),
                     pad,
-                    json_string(type_),
+                    json_string(&type_.name()),
                     pad,
                     start.to_json(indent),
                     pad,
@@ -555,7 +555,7 @@ impl ToJson for IrOp {
                     pad,
                     json_string(name),
                     pad,
-                    json_string(type_),
+                    json_string(&type_.name()),
                     pad,
                     iterable.to_json(indent),
                     pad,

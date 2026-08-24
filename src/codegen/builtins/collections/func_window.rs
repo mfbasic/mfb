@@ -8,6 +8,7 @@ use crate::codegen::engine::types::list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 /// Native fast path for `#collections_window$T` with constant `size >= 1` /
 /// `stride >= 1`: fixed-width (stride 1) via the contiguous-block builder, String
 /// (any stride) via per-window slice construction. Everything else declines
@@ -22,7 +23,9 @@ pub(crate) fn window_fast_path(
     };
     let const_i64 = |v: &NirValue| -> Option<i64> {
         match v {
-            NirValue::Const { type_, value } if type_ == "Integer" => value.parse::<i64>().ok(),
+            NirValue::Const { type_, value } if matches!(type_, ParameterType::Integer) => {
+                value.parse::<i64>().ok()
+            }
             _ => None,
         }
     };

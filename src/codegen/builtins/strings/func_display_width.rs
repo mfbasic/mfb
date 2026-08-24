@@ -31,7 +31,7 @@ pub(crate) fn lower(
                 })
                 .sum();
             return builder.lower_value(&NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: width.to_string(),
             });
         }

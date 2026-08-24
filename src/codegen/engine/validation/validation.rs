@@ -260,7 +260,7 @@ impl TypeModel {
                         type_
                             .fields
                             .iter()
-                            .map(|field| (field.name.clone(), field.type_.clone()))
+                            .map(|field| (field.name.clone(), field.type_.name().into_owned()))
                             .collect(),
                     );
                 }
@@ -284,7 +284,7 @@ impl TypeModel {
                             variant
                                 .fields
                                 .iter()
-                                .map(|field| (field.name.clone(), field.type_.clone()))
+                                .map(|field| (field.name.clone(), field.type_.name().into_owned()))
                                 .collect(),
                         );
                     }

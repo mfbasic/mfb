@@ -1,5 +1,6 @@
 use super::*;
 
+use crate::types::ParameterType;
 use std::collections::HashMap;
 
 use super::nir::constfold::{
@@ -50,7 +51,7 @@ impl FunctionPlanBuilder<'_> {
                         type_,
                         initializer
                     ));
-                    self.add_stack_slot(name, type_, *mutable)?;
+                    self.add_stack_slot(name, &type_.name(), *mutable)?;
                 }
                 NirOp::StateAssign { value, .. } => {
                     self.lower_value(value)?;
@@ -73,7 +74,7 @@ impl FunctionPlanBuilder<'_> {
                         .as_ref()
                         .map(describe_value)
                         .unwrap_or_else(|| "default".to_string());
-                    let type_suffix = if type_.is_empty() {
+                    let type_suffix = if type_.name().is_empty() {
                         String::new()
                     } else {
                         format!(" AS {type_}")
@@ -207,7 +208,7 @@ impl FunctionPlanBuilder<'_> {
                     ));
                     self.operations.push(format!("label {loop_label}"));
                     self.constants.clear();
-                    self.add_stack_slot(name, type_, true)?;
+                    self.add_stack_slot(name, &type_.name(), true)?;
                     self.lower_ops(body)?;
                     self.operations.push(format!("branch -> {loop_label}"));
                     self.operations.push(format!("label {end_label}"));
@@ -243,7 +244,7 @@ impl FunctionPlanBuilder<'_> {
                     // body (the iteration re-enters the head); restore them after
                     // so code following the loop can still fold them (bug-139.1).
                     self.constants.clear();
-                    self.add_stack_slot(name, type_, false)?;
+                    self.add_stack_slot(name, &type_.name(), false)?;
                     self.lower_ops(body)?;
                     self.constants = constants_before_loop;
                     self.operations.push("next".to_string());
@@ -343,21 +344,21 @@ impl FunctionPlanBuilder<'_> {
             }
             NirValue::Unary { operand, .. } => self.lower_value(operand)?,
             NirValue::Const { type_, .. } => {
-                storage_for_type(type_, self.type_storage)?;
+                storage_for_type(&type_.name(), self.type_storage)?;
             }
             NirValue::FunctionRef { type_, .. } => {
-                storage_for_type(type_, self.type_storage)?;
+                storage_for_type(&type_.name(), self.type_storage)?;
             }
             NirValue::Closure {
                 type_, captures, ..
             } => {
-                storage_for_type(type_, self.type_storage)?;
+                storage_for_type(&type_.name(), self.type_storage)?;
                 for value in captures {
                     self.lower_value(value)?;
                 }
             }
             NirValue::Capture { type_, .. } => {
-                storage_for_type(type_, self.type_storage)?;
+                storage_for_type(&type_.name(), self.type_storage)?;
             }
             NirValue::Local(_) | NirValue::LocalRef { .. } | NirValue::Global { .. } => {}
         }
@@ -617,7 +618,7 @@ pub(super) fn collect_string_literals(value: &NirValue, literals: &mut Vec<Strin
     impl NirVisitor for Collector<'_> {
         fn visit_value(&mut self, value: &NirValue) {
             if let NirValue::Const { type_, value } = value {
-                if type_ == "String" && !self.literals.contains(value) {
+                if matches!(type_, ParameterType::String) && !self.literals.contains(value) {
                     self.literals.push(value.clone());
                 }
             }

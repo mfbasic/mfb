@@ -8,6 +8,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// Whether a statement unconditionally branches away (so the fall-through
     /// statement-scope temp free would be unreachable): `RETURN`, `EXIT`,
@@ -73,7 +74,12 @@ impl CodeBuilder<'_> {
         {
             return Ok(false);
         }
-        let Some(fields) = self.type_model.record_fields.get(type_).cloned() else {
+        let Some(fields) = self
+            .type_model
+            .record_fields
+            .get(type_.name().as_ref())
+            .cloned()
+        else {
             return Ok(false);
         };
         // Every updated field must be a plain inline scalar. A `String`/collection/
@@ -89,7 +95,7 @@ impl CodeBuilder<'_> {
             else {
                 return Ok(false);
             };
-            if self.record_field_is_inlined(type_, field_type)
+            if self.record_field_is_inlined(&type_.name(), field_type)
                 || self.record_field_is_pointer(field_type)
             {
                 return Ok(false);
@@ -246,7 +252,7 @@ impl CodeBuilder<'_> {
             return Ok(false);
         }
         let Some((field_index, field_type)) =
-            self.record_collection_last_inlined(type_, &update.field)
+            self.record_collection_last_inlined(&type_.name(), &update.field)
         else {
             return Ok(false);
         };
@@ -396,7 +402,7 @@ impl CodeBuilder<'_> {
                         self.locals.insert(
                             name.clone(),
                             LocalValue {
-                                type_: type_.clone(),
+                                type_: type_.name().into_owned(),
                                 stack_offset,
                                 constant,
                                 by_ref: by_ref_capture_slot,
@@ -464,14 +470,14 @@ impl CodeBuilder<'_> {
                         // (the container owns the element). String `get` returns an
                         // OWNED fresh block, so it is excluded and keeps its copy+free.
                         let is_borrow_get = self.borrow_get_locals.contains(name)
-                            && self.is_freeable_flat_value(type_)
-                            && type_ != "String";
+                            && self.is_freeable_flat_value(&type_.name())
+                            && !matches!(type_, ParameterType::String);
                         let owns_freeable_value = !aliases_union_variant
                             && !by_ref_capture_slot
                             && !runtime_managed
                             && !promote_vector
                             && !is_borrow_get
-                            && self.is_freeable_flat_value(type_);
+                            && self.is_freeable_flat_value(&type_.name());
                         // This binding will register a resource-close cleanup (a
                         // plain resource or a resource union) rather than a flat-value
                         // free. Its slot faces the same not-yet-initialized hazard as
@@ -490,13 +496,13 @@ impl CodeBuilder<'_> {
                         let aliases_live_resource = value
                             .as_ref()
                             .is_some_and(Self::value_aliases_live_resource);
-                        let owns_resource_slot = !Self::is_thread_type(type_)
+                        let owns_resource_slot = !Self::is_thread_type(&type_.name())
                             && !aliases_union_variant
                             && !by_ref_capture_slot
                             && !floats_to_collection
                             && !aliases_live_resource
-                            && (self.resource_cleanup_symbol(type_).is_some()
-                                || self.resource_union_cleanup(type_).is_some());
+                            && (self.resource_cleanup_symbol(&type_.name()).is_some()
+                                || self.resource_union_cleanup(&type_.name()).is_some());
                         // plan-77 M6: a closure binding is non-escaping when its
                         // name is never used as a value (only a direct invoke
                         // target) — see `collect_value_used_locals`. Such a closure
@@ -543,14 +549,14 @@ impl CodeBuilder<'_> {
                                 let result = self.lower_value(value)?;
                                 if let Some(lanes) = self.vector_native_lanes(&result) {
                                     self.promoted_vector_locals
-                                        .insert(name.clone(), (type_.clone(), lanes));
+                                        .insert(name.clone(), (type_.name().into_owned(), lanes));
                                 } else {
                                     let block = self.vector_value_as_block(result)?;
                                     self.claim_pending_temp(&block);
                                     self.store_value_at(&block, abi::stack_pointer(), stack_offset);
                                     self.active_cleanups.push(ActiveCleanup::OwnedValue(
                                         OwnedValueCleanup {
-                                            type_: type_.clone(),
+                                            type_: type_.name().into_owned(),
                                             stack_offset,
                                             closure_captures: None,
                                         },
@@ -597,7 +603,7 @@ impl CodeBuilder<'_> {
                             // float-dnative); every other value via `str x`.
                             self.store_value_at(&result, abi::stack_pointer(), stack_offset);
                         } else {
-                            let result = self.lower_default_value(type_)?;
+                            let result = self.lower_default_value(&type_.name())?;
                             // The default empty `String` is static rodata; copy it
                             // into the arena so this binding owns an arena block its
                             // scope-drop free can reclaim (collections/records
@@ -622,8 +628,8 @@ impl CodeBuilder<'_> {
                         // blocks (§15.6) gets a runtime owned-list anchored at
                         // this scope; it is drained on every exit path.
                         if self.owner_collections.contains(name) {
-                            self.setup_owned_list(name, type_)?;
-                        } else if Self::is_res_marked_resource_collection(type_)
+                            self.setup_owned_list(name, &type_.name())?;
+                        } else if Self::is_res_marked_resource_collection(&type_.name())
                             && matches!(
                                 value,
                                 Some(NirValue::Call { .. } | NirValue::CallResult { .. })
@@ -632,9 +638,9 @@ impl CodeBuilder<'_> {
                             // A `List OF RES File` bound from a call adopts the
                             // resources transferred out by the callee: this scope
                             // owns them and closes each once at exit (§15.6).
-                            self.setup_owned_list(name, type_)?;
+                            self.setup_owned_list(name, &type_.name())?;
                             if let Some(element_type) =
-                                crate::codegen::engine::types::list_element_type(type_)
+                                crate::codegen::engine::types::list_element_type(&type_.name())
                             {
                                 self.emit_owned_list_seed_from_collection(
                                     name,
@@ -649,7 +655,7 @@ impl CodeBuilder<'_> {
                             .get(name)
                             .cloned()
                             .unwrap_or(crate::ir::resource_escape::ResOwner::Local);
-                        if Self::is_thread_type(type_) {
+                        if Self::is_thread_type(&type_.name()) {
                             self.active_cleanups
                                 .push(ActiveCleanup::Thread(ThreadCleanup {
                                     name: name.clone(),
@@ -678,8 +684,8 @@ impl CodeBuilder<'_> {
                                 self.deactivate_resource_cleanup(src);
                             }
                         } else if aliases_live_resource
-                            && (self.resource_cleanup_symbol(type_).is_some()
-                                || self.resource_union_cleanup(type_).is_some())
+                            && (self.resource_cleanup_symbol(&type_.name()).is_some()
+                                || self.resource_union_cleanup(&type_.name()).is_some())
                         {
                             // Non-owning — this bind only copies a pointer to a
                             // resource the owning scope already closes exactly
@@ -688,16 +694,18 @@ impl CodeBuilder<'_> {
                             // Gated on the resource-typed cleanups alone so a
                             // plain aliasing bind of a flat value still takes the
                             // `owns_freeable_value` branch below and is freed.
-                        } else if let Some(symbol) = self.resource_cleanup_symbol(type_) {
+                        } else if let Some(symbol) = self.resource_cleanup_symbol(&type_.name()) {
                             self.active_cleanups
                                 .push(ActiveCleanup::Resource(ResourceCleanup {
                                     name: name.clone(),
                                     symbol,
-                                    state_type: crate::codegen::resource::state_type_name(type_)
-                                        .map(str::to_string),
-                                    has_io_buffers: Self::resource_uses_io_buffers(type_),
+                                    state_type: crate::codegen::resource::state_type_name(
+                                        &type_.name(),
+                                    )
+                                    .map(str::to_string),
+                                    has_io_buffers: Self::resource_uses_io_buffers(&type_.name()),
                                 }));
-                        } else if let Some(variants) = self.resource_union_cleanup(type_) {
+                        } else if let Some(variants) = self.resource_union_cleanup(&type_.name()) {
                             // A resource union drops by dispatching on its tag to
                             // the active variant's registered close op, then frees
                             // the active variant record's uniform STATE (plan-74).
@@ -705,8 +713,10 @@ impl CodeBuilder<'_> {
                                 ResourceUnionCleanup {
                                     name: name.clone(),
                                     variants,
-                                    state_type: crate::codegen::resource::state_type_name(type_)
-                                        .map(str::to_string),
+                                    state_type: crate::codegen::resource::state_type_name(
+                                        &type_.name(),
+                                    )
+                                    .map(str::to_string),
                                 },
                             ));
                         } else if owns_freeable_value {
@@ -717,7 +727,7 @@ impl CodeBuilder<'_> {
                             // unaliased, so the free is sound and once-only.
                             self.active_cleanups.push(ActiveCleanup::OwnedValue(
                                 OwnedValueCleanup {
-                                    type_: type_.clone(),
+                                    type_: type_.name().into_owned(),
                                     stack_offset,
                                     closure_captures: None,
                                 },
@@ -737,7 +747,7 @@ impl CodeBuilder<'_> {
                                     .collect();
                                 self.active_cleanups.push(ActiveCleanup::OwnedValue(
                                     OwnedValueCleanup {
-                                        type_: type_.clone(),
+                                        type_: type_.name().into_owned(),
                                         stack_offset,
                                         closure_captures: Some(capture_types),
                                     },
@@ -749,17 +759,23 @@ impl CodeBuilder<'_> {
                         // The owning binding allocates the state record on first
                         // bind; a moved/returned resource that already carries a
                         // state keeps it (the slot is non-null).
-                        if let Some(state_type) = crate::codegen::resource::state_type_name(type_) {
+                        if let Some(state_type) =
+                            crate::codegen::resource::state_type_name(&type_.name())
+                        {
                             let state_type = state_type.to_string();
-                            self.emit_resource_state_init(stack_offset, &state_type, type_)?;
+                            self.emit_resource_state_init(
+                                stack_offset,
+                                &state_type,
+                                &type_.name(),
+                            )?;
                         }
                     }
                     NirOp::StoreGlobal { name, type_, value } => {
                         let global = self.global_value(name)?;
-                        let value_type = if type_.is_empty() {
+                        let value_type = if type_.name().is_empty() {
                             global.type_.clone()
                         } else {
-                            type_.clone()
+                            type_.name().into_owned()
                         };
                         // A global outlives every scope, so it must own its value
                         // independently: deep-copy an aliasing source so freeing a
@@ -1207,7 +1223,7 @@ impl CodeBuilder<'_> {
                                     case_locals.insert(
                                         name.clone(),
                                         LocalValue {
-                                            type_: type_.clone(),
+                                            type_: type_.name().into_owned(),
                                             stack_offset: local.stack_offset,
                                             constant: local.constant,
                                             by_ref: local.by_ref,
@@ -1333,7 +1349,7 @@ impl CodeBuilder<'_> {
                         iterable,
                         body,
                     } => {
-                        self.lower_for_each(name, type_, iterable, body)?;
+                        self.lower_for_each(name, &type_.name(), iterable, body)?;
                     }
                     NirOp::Trap { body, .. } => {
                         let (label, trap_name, trap_offset) = self
@@ -1488,7 +1504,7 @@ impl CodeBuilder<'_> {
         step: &NirValue,
         body: &[NirOp],
     ) -> Option<(String, i64)> {
-        let is_int_const = |v: &NirValue, want: &str| matches!(v, NirValue::Const { type_, value } if type_ == "Integer" && value == want);
+        let is_int_const = |v: &NirValue, want: &str| matches!(v, NirValue::Const { type_, value } if matches!(type_, ParameterType::Integer) && value == want);
         // The IR desugars the bound/step into synthetic locals — resolve them.
         let start = self.resolve_for_local(start);
         let step = self.resolve_for_local(step);
@@ -1509,7 +1525,7 @@ impl CodeBuilder<'_> {
         let NirValue::Const { type_, value } = right.as_ref() else {
             return None;
         };
-        if type_ != "Integer" {
+        if !matches!(type_, ParameterType::Integer) {
             return None;
         }
         let k: i64 = value.parse().ok()?;
@@ -1555,7 +1571,7 @@ impl CodeBuilder<'_> {
                 op, left, right, ..
             }) if op == "+" => match (left.as_ref(), right.as_ref()) {
                 (NirValue::Local(i), NirValue::Const { type_, value })
-                    if type_ == "Integer" && value == "1" =>
+                    if matches!(type_, ParameterType::Integer) && value == "1" =>
                 {
                     (i.as_str(), 2i64)
                 }
@@ -1569,7 +1585,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn lower_numeric_for(
         &mut self,
         name: &str,
-        type_: &str,
+        type_: &ParameterType,
         start: &NirValue,
         end: &NirValue,
         step: &NirValue,
@@ -1585,7 +1601,7 @@ impl CodeBuilder<'_> {
         let previous = self.locals.insert(
             name.to_string(),
             LocalValue {
-                type_: type_.to_string(),
+                type_: type_.name().into_owned(),
                 stack_offset: local_slot,
                 constant: None,
                 by_ref: false,
@@ -1608,7 +1624,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&loop_label));
         let iter = NirValue::Local(name.to_string());
         let zero = NirValue::Const {
-            type_: type_.to_string(),
+            type_: type_.clone(),
             value: "0".to_string(),
         };
         // The loop bound comparisons are infallible (comparisons never overflow),

@@ -8,6 +8,7 @@ use crate::codegen::engine::types::list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 /// Native fast path for `#collections_chunks$T` with a constant `size >= 1`:
 /// fixed-width via the contiguous-block builder, String via per-chunk slice
 /// construction. Everything else declines (`Ok(None)`). Free fn.
@@ -21,7 +22,7 @@ pub(crate) fn chunks_fast_path(
     };
     if matches!(t, "Integer" | "Float" | "Fixed" | "Money" | "String") && args.len() == 2 {
         if let Some(NirValue::Const { type_, value }) = args.get(1) {
-            if type_ == "Integer" {
+            if matches!(type_, ParameterType::Integer) {
                 if let Ok(sz) = value.parse::<i64>() {
                     if sz >= 1 {
                         if t == "String" {

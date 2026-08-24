@@ -9,6 +9,7 @@ use crate::codegen::engine::types::{collection_has_buckets, list_element_type, m
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 /// Native fast path for `#collections_merge$K$V` with a String key, fixed-width
 /// value, and compile-time-`TRUE` `preferB` (presized copy + in-place bulk
 /// insert). Other shapes decline (`Ok(None)`). Free fn.
@@ -26,7 +27,7 @@ pub(crate) fn merge_fast_path(
     let parts: Vec<&str> = params.split('$').collect();
     let prefer_true = matches!(
         &args[2],
-        NirValue::Const { type_, value } if type_ == "Boolean" && value == "true"
+        NirValue::Const { type_, value } if matches!(type_, ParameterType::Boolean) && value == "true"
     );
     let ok = parts.len() == 2
         && parts[0] == "String"

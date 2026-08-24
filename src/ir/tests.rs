@@ -1,4 +1,5 @@
 use super::*;
+use crate::types::ParameterType;
 
 /// Shared source-driven test helpers (plan-12 IR coverage). These write a
 /// throwaway project to a temp dir and run the real front-end pipeline
@@ -274,7 +275,7 @@ mod binary_repr_tests {
             IrOp::Bind {
                 mutable: false,
                 name: "$captured".to_string(),
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: Some(IrValue::Capture {
                     index: u32::MAX,
                     type_: crate::types::ParameterType::parse("Integer"),
@@ -562,7 +563,7 @@ mod binary_repr_tests {
         let body = vec![
             IrOp::For {
                 name: "i".to_string(),
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 start: IrValue::Const {
                     type_: crate::types::ParameterType::parse("Integer"),
                     value: "0".to_string(),
@@ -677,7 +678,7 @@ mod binary_repr_tests {
         let body = vec![IrOp::Bind {
             mutable: false,
             name: "x".to_string(),
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             value: None,
             loc: IrSourceLoc::default(),
             explicit_type: true,
@@ -1049,7 +1050,7 @@ mod lower_tests {
             "SUB main\n  FOR x = 1.0 TO 2.0 STEP 0.5\n    LET y AS Float = x\n  NEXT\nEND SUB\n",
         );
         assert!(main_body(&ir).iter().any(|op| match op {
-            IrOp::For { type_, .. } => type_ == "Float",
+            IrOp::For { type_, .. } => type_.name() == "Float",
             _ => false,
         }));
     }
@@ -1064,7 +1065,7 @@ mod lower_tests {
              END SUB\n",
         );
         assert!(main_body(&ir).iter().any(|op| match op {
-            IrOp::ForEach { type_, .. } => type_ == "Integer",
+            IrOp::ForEach { type_, .. } => type_.name() == "Integer",
             _ => false,
         }));
     }
@@ -1079,7 +1080,7 @@ mod lower_tests {
              END SUB\n",
         );
         assert!(main_body(&ir).iter().any(|op| match op {
-            IrOp::ForEach { type_, .. } => type_.starts_with("MapEntry OF "),
+            IrOp::ForEach { type_, .. } => type_.name().starts_with("MapEntry OF "),
             _ => false,
         }));
     }
@@ -3360,7 +3361,7 @@ mod lower_tests {
         // `evens` inferred as List OF Integer from the filter call.
         assert!(function(&ir, "run").body.iter().any(|op| matches!(
             op,
-            IrOp::Bind { name, type_, .. } if name == "evens" && type_ == "List OF Integer"
+            IrOp::Bind { name, type_, .. } if name == "evens" && type_.name() == "List OF Integer"
         )));
     }
 
@@ -3410,7 +3411,7 @@ mod lower_tests {
         );
         assert!(function(&ir, "parse").body.iter().any(|op| matches!(
             op,
-            IrOp::Bind { name, type_, .. } if name == "n" && type_ == "Integer"
+            IrOp::Bind { name, type_, .. } if name == "n" && type_.name() == "Integer"
         )));
     }
 
@@ -3656,11 +3657,11 @@ mod lower_tests {
         let f = function(&ir, "main");
         assert!(f.body.iter().any(|op| matches!(
             op,
-            IrOp::Bind { type_, .. } if type_ == "Fixed"
+            IrOp::Bind { type_, .. } if type_.name() == "Fixed"
         )));
         assert!(f.body.iter().any(|op| matches!(
             op,
-            IrOp::Bind { type_, .. } if type_ == "Money"
+            IrOp::Bind { type_, .. } if type_.name() == "Money"
         )));
     }
 
@@ -3908,7 +3909,7 @@ mod lower_construct_tests {
                 _ => None,
             })
             .expect("ys binding");
-        assert_eq!(bind, "List OF Integer");
+        assert_eq!(bind.name(), "List OF Integer");
     }
 
     // A builtin call mixing positional and named arguments drives
@@ -6360,7 +6361,7 @@ END FUNC
         // g is bound with an ISOLATED FUNC type.
         let has_iso = body.iter().any(|op| {
             matches!(op,
-            IrOp::Bind { type_, .. } if type_.starts_with("ISOLATED FUNC("))
+            IrOp::Bind { type_, .. } if type_.name().starts_with("ISOLATED FUNC("))
         });
         assert!(has_iso, "expected an ISOLATED FUNC-typed local");
     }

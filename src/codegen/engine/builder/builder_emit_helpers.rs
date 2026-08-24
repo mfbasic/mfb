@@ -226,7 +226,7 @@ impl CodeBuilder<'_> {
             .or_else(|| {
                 self.functions
                     .get(target)
-                    .map(|function| function.returns.clone())
+                    .map(|function| function.returns.name().into_owned())
             })
             .or_else(|| self.package_return_types.get(target).cloned())
             .unwrap_or_else(|| "Unknown".to_string());

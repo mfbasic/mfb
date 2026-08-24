@@ -261,27 +261,35 @@ lowering perf probes, so later phases can prove "no NEW diff" and "not slower".
       in-worktree run was invalidated by Phase-2 edits landing mid-compile).
 
 Acceptance: both baseline files exist; suite green.
-Commit: —
+Commit: 219351599
 
 ### Phase 2 — flip the 25 fields + boundary + JSON emit
 
 One line: the data-model flip with the boundary simplification, `.nir` bytes
 unchanged.
 
-- [ ] Flip the 25 type fields in `src/target/shared/nir/mod.rs` to
-      `ParameterType`.
-- [ ] `src/target/shared/nir/lower.rs`: replace the 19 `.name().into_owned()`
+- [x] Flip the 25 type fields in `src/target/shared/nir/mod.rs` to
+      `ParameterType`. (`rg -c 'type_: String|returns: String|union_type: String|member_type: String' src/target/shared/nir/mod.rs` → 0.)
+- [x] `src/target/shared/nir/lower.rs`: replace the 19 `.name().into_owned()`
       renders with clones of the IR's typed fields.
-- [ ] `src/target/shared/nir/constfold.rs`: the 3 folded Consts construct
-      `ParameterType::String`.
-- [ ] `src/target/shared/nir/json.rs`: render `name()` at each type/returns
-      emit point.
-- [ ] Consumer shim sweep (compile-driven): `.name()` at read sites across
-      `src/codegen/` (533 reads) and `src/target/` (16 reads); take the native
-      `matches!` form for local scalar-compare edits where trivial.
-- [ ] Tests: existing suite compiles; fix test fixtures constructing NIR nodes
-      with string type fields (`ParameterType::parse("…")` per the plan-102-B
-      fixture pattern; assertions compare via `.name()`).
+      (`rg -c '\.name\(\)' src/target/shared/nir/lower.rs` → 0. The three
+      empty-string type sentinels — link-import `returns`, `AssignGlobal`'s
+      StoreGlobal, `Global` — became `ParameterType::named("")`, whose `name()`
+      is byte-exactly `""`.)
+- [x] `src/target/shared/nir/constfold.rs`: the 3 folded Consts construct
+      `ParameterType::String` (reads went native `matches!`/variant-match).
+- [x] `src/target/shared/nir/json.rs`: render `name()` at each type/returns
+      emit point (IR link-function params untouched — they stay IR strings).
+- [x] Consumer shim sweep (compile-driven): `.name()` at read sites across
+      `src/codegen/` and `src/target/`; native `matches!` for local
+      scalar-compare edits. **Scope grew** (see Corrections): the flip extended
+      into `IrOp::{Bind,For,ForEach}.type_` (src/ir/op.rs) with its
+      lower/json/binary/verify/writer/usage ripple, because the plan's
+      "IR is already typed" claim was false for those fields and parsing at
+      the NIR boundary would have minted a new backward seam.
+- [x] Tests: suite compiles; NIR/IR-constructing fixtures updated
+      (`ParameterType::parse("…")`/direct variants; assertions compare via
+      `.name()` byte-preserved).
 
 Acceptance: `cargo test --no-fail-fast` green; `artifact-gate all` shows **no
 NEW diff** vs `planning/plan-104-baseline-diffs.txt` (in particular every
@@ -314,11 +322,13 @@ Commit: —
 ## Open Decisions
 
 - **Shim form during A: `.name()` everywhere vs native `matches!` where the
-  edit is local.** Recommend native for scalar compares touched anyway (free,
-  reduces transient perf risk), shims for everything else. (§4)
-- **`NirEntryPoint.returns`: `ParameterType` vs keep `String`.** It is consumed
-  once (entry glue). Recommend flipping for uniformity — the field is in the 25.
-  (§4)
+  edit is local.** RESOLVED as recommended: scalar-literal compares on NIR
+  `Const`/`Bind` types took native `matches!` (collections fast paths,
+  builder_control loop analyses, builder_numeric bound provers, data_objects
+  string collection, function_builder literals); everything else reads via
+  `.name()` shims for B–D to convert.
+- **`NirEntryPoint.returns`: `ParameterType` vs keep `String`.** RESOLVED:
+  flipped with the rest of the 25.
 
 ## Corrections
 

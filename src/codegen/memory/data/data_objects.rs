@@ -8,6 +8,7 @@ use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 use std::collections::HashSet;
 /// Materialize the address of an internal symbol (data or code) into `dst` via
@@ -542,19 +543,19 @@ fn collect_type_name_values(module: &NirModule, values: &mut Vec<String>) {
     for type_ in &module.types {
         push_string_value(values, type_.name.clone());
         for field in &type_.fields {
-            push_string_value(values, field.type_.clone());
+            push_string_value(values, field.type_.name().into_owned());
         }
         for variant in &type_.variants {
             push_string_value(values, variant.name.clone());
             for field in &variant.fields {
-                push_string_value(values, field.type_.clone());
+                push_string_value(values, field.type_.name().into_owned());
             }
         }
     }
     for function in &module.functions {
-        push_string_value(values, function.returns.clone());
+        push_string_value(values, function.returns.name().into_owned());
         for param in &function.params {
-            push_string_value(values, param.type_.clone());
+            push_string_value(values, param.type_.name().into_owned());
         }
         collect_type_name_values_from_ops(&function.body, values);
     }
@@ -568,12 +569,14 @@ fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
     impl NirVisitor for Collector<'_> {
         fn visit_op(&mut self, op: &NirOp) {
             match op {
-                NirOp::Bind { type_, .. } => push_string_value(self.values, type_.clone()),
-                NirOp::StoreGlobal { type_, .. } if !type_.is_empty() => {
-                    push_string_value(self.values, type_.clone())
+                NirOp::Bind { type_, .. } => {
+                    push_string_value(self.values, type_.name().into_owned())
+                }
+                NirOp::StoreGlobal { type_, .. } if !type_.name().is_empty() => {
+                    push_string_value(self.values, type_.name().into_owned())
                 }
                 NirOp::For { type_, .. } | NirOp::ForEach { type_, .. } => {
-                    push_string_value(self.values, type_.clone())
+                    push_string_value(self.values, type_.name().into_owned())
                 }
                 _ => {}
             }
@@ -589,15 +592,15 @@ fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
                 | NirValue::MapLiteral { type_, .. }
                 | NirValue::UnionExtract { type_, .. }
                 | NirValue::WithUpdate { type_, .. } => {
-                    push_string_value(self.values, type_.clone())
+                    push_string_value(self.values, type_.name().into_owned())
                 }
                 NirValue::UnionWrap {
                     union_type,
                     member_type,
                     ..
                 } => {
-                    push_string_value(self.values, union_type.clone());
-                    push_string_value(self.values, member_type.clone());
+                    push_string_value(self.values, union_type.name().into_owned());
+                    push_string_value(self.values, member_type.name().into_owned());
                 }
                 _ => {}
             }
@@ -812,7 +815,7 @@ fn collect_string_values_from_function(
     let mut types: HashMap<String, String> = function
         .params
         .iter()
-        .map(|param| (param.name.clone(), param.type_.clone()))
+        .map(|param| (param.name.clone(), param.type_.name().into_owned()))
         .collect();
     collect_string_values_from_ops_with_constants(
         &function.body,
@@ -835,7 +838,7 @@ fn collect_string_values_from_ops_with_constants(
             NirOp::Bind {
                 name, type_, value, ..
             } => {
-                types.insert(name.clone(), type_.clone());
+                types.insert(name.clone(), type_.name().into_owned());
                 if let Some(value) = value {
                     collect_string_values_from_value(value, values, constants, types, fields);
                     if let Some(constant) =
@@ -976,7 +979,7 @@ fn collect_string_values_from_ops_with_constants(
                 let mut body_constants = constants.clone();
                 let mut body_types = types.clone();
                 body_constants.remove(name);
-                body_types.insert(name.clone(), type_.clone());
+                body_types.insert(name.clone(), type_.name().into_owned());
                 collect_string_values_from_ops_with_constants(
                     body,
                     values,
@@ -1007,7 +1010,7 @@ fn collect_string_values_from_ops_with_constants(
                 let mut body_constants = constants.clone();
                 let mut body_types = types.clone();
                 body_constants.remove(name);
-                body_types.insert(name.clone(), type_.clone());
+                body_types.insert(name.clone(), type_.name().into_owned());
                 collect_string_values_from_ops_with_constants(
                     body,
                     values,
@@ -1066,7 +1069,7 @@ fn collect_string_values_from_value(
         push_string_value(values, err_msg("ErrInvalidFormat"));
     }
     match value {
-        NirValue::Const { type_, value } if type_ == "String" => {
+        NirValue::Const { type_, value } if matches!(type_, ParameterType::String) => {
             push_string_value(values, value.clone());
         }
         NirValue::Call { args, .. }
@@ -1141,7 +1144,9 @@ pub(crate) fn static_string_value_with_constants(
     fields: &FieldTypes,
 ) -> Option<String> {
     match value {
-        NirValue::Const { type_, value } if type_ == "String" => Some(value.clone()),
+        NirValue::Const { type_, value } if matches!(type_, ParameterType::String) => {
+            Some(value.clone())
+        }
         NirValue::Local(name) => constants.get(name).and_then(|constant| {
             static_string_value_with_constants(constant, constants, types, fields)
         }),
@@ -1180,10 +1185,12 @@ pub(crate) fn static_type_name_with_types(
     fields: &FieldTypes,
 ) -> Option<String> {
     match value {
-        NirValue::Const { type_, .. } => Some(type_.clone()),
+        NirValue::Const { type_, .. } => Some(type_.name().into_owned()),
         NirValue::Local(name) => types.get(name).cloned(),
-        NirValue::LocalRef { type_, .. } => Some(type_.clone()),
-        NirValue::Global { type_, .. } if !type_.is_empty() => Some(type_.clone()),
+        NirValue::LocalRef { type_, .. } => Some(type_.name().into_owned()),
+        NirValue::Global { type_, .. } if !type_.name().is_empty() => {
+            Some(type_.name().into_owned())
+        }
         NirValue::Global { .. } => None,
         NirValue::FunctionRef { type_, .. }
         | NirValue::Closure { type_, .. }
@@ -1192,9 +1199,9 @@ pub(crate) fn static_type_name_with_types(
         | NirValue::WithUpdate { type_, .. }
         | NirValue::ListLiteral { type_, .. }
         | NirValue::SetLiteral { type_, .. }
-        | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
-        NirValue::UnionWrap { union_type, .. } => Some(union_type.clone()),
-        NirValue::UnionExtract { type_, .. } => Some(type_.clone()),
+        | NirValue::MapLiteral { type_, .. } => Some(type_.name().into_owned()),
+        NirValue::UnionWrap { union_type, .. } => Some(union_type.name().into_owned()),
+        NirValue::UnionExtract { type_, .. } => Some(type_.name().into_owned()),
         NirValue::Call { target, .. }
         | NirValue::CallResult { target, .. }
         | NirValue::RuntimeCall { target, .. } => match target.as_str() {
@@ -1374,10 +1381,11 @@ fn collect_builtin_function_refs_in_ops(
     impl NirVisitor for Collector<'_> {
         fn visit_value(&mut self, value: &NirValue) {
             if let NirValue::FunctionRef { name, type_ } = value {
-                if let Some(symbol) = builtin_function_symbol_for_type(name, type_) {
+                if let Some(symbol) = builtin_function_symbol_for_type(name, &type_.name()) {
                     let key = format!("{name}\0{type_}");
                     if self.seen.insert(key) {
-                        self.refs.push((name.clone(), type_.clone(), symbol));
+                        self.refs
+                            .push((name.clone(), type_.name().into_owned(), symbol));
                     }
                 }
             }
@@ -1395,7 +1403,7 @@ mod tests {
 
     fn const_of(type_: &str) -> NirValue {
         NirValue::Const {
-            type_: type_.to_string(),
+            type_: ParameterType::parse(type_),
             value: String::new(),
         }
     }

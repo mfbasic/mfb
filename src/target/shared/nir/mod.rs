@@ -5,6 +5,7 @@ use crate::ir::{
     IrParam, IrProject, IrRecordUpdate, IrType, IrValue, IrVariant,
 };
 use crate::json::json_string;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -83,7 +84,7 @@ pub(crate) fn link_thunk_symbol(alias: &str, name: &str) -> String {
 
 pub(crate) struct NirEntryPoint {
     pub(crate) name: String,
-    pub(crate) returns: String,
+    pub(crate) returns: ParameterType,
     pub(crate) accepts_args: bool,
 }
 
@@ -100,7 +101,7 @@ pub(crate) struct NirType {
 pub(crate) struct NirField {
     pub(crate) visibility: Option<String>,
     pub(crate) name: String,
-    pub(crate) type_: String,
+    pub(crate) type_: ParameterType,
 }
 
 pub(crate) struct NirVariant {
@@ -119,11 +120,11 @@ pub(crate) struct NirImport {
     pub(crate) kind: String,
     pub(crate) isolated: bool,
     pub(crate) params: Vec<NirImportParam>,
-    pub(crate) returns: String,
+    pub(crate) returns: ParameterType,
 }
 
 pub(crate) struct NirImportParam {
-    pub(crate) type_: String,
+    pub(crate) type_: ParameterType,
     pub(crate) has_default: bool,
 }
 
@@ -132,7 +133,7 @@ pub(crate) struct NirGlobal {
     pub(crate) symbol: String,
     pub(crate) visibility: String,
     pub(crate) mutable: bool,
-    pub(crate) type_: String,
+    pub(crate) type_: ParameterType,
     pub(crate) value: Option<NirValue>,
 }
 
@@ -142,7 +143,7 @@ pub(crate) struct NirFunction {
     pub(crate) kind: String,
     pub(crate) isolated: bool,
     pub(crate) params: Vec<NirParam>,
-    pub(crate) returns: String,
+    pub(crate) returns: ParameterType,
     pub(crate) body: Vec<NirOp>,
     /// Project-relative source file this function was lowered from. Used to build
     /// `ErrorLoc.filename` for errors that originate inside this function.
@@ -154,7 +155,7 @@ pub(crate) struct NirFunction {
 
 pub(crate) struct NirParam {
     pub(crate) name: String,
-    pub(crate) type_: String,
+    pub(crate) type_: ParameterType,
     pub(crate) default: Option<NirValue>,
 }
 
@@ -162,12 +163,12 @@ pub(crate) enum NirOp {
     Bind {
         mutable: bool,
         name: String,
-        type_: String,
+        type_: ParameterType,
         value: Option<NirValue>,
     },
     StoreGlobal {
         name: String,
-        type_: String,
+        type_: ParameterType,
         value: Option<NirValue>,
     },
     Assign {
@@ -213,7 +214,7 @@ pub(crate) enum NirOp {
     },
     For {
         name: String,
-        type_: String,
+        type_: ParameterType,
         start: NirValue,
         end: NirValue,
         step: NirValue,
@@ -227,7 +228,7 @@ pub(crate) enum NirOp {
     },
     ForEach {
         name: String,
-        type_: String,
+        type_: ParameterType,
         iterable: NirValue,
         body: Vec<NirOp>,
     },
@@ -252,7 +253,7 @@ pub(crate) enum NirMatchPattern {
 #[derive(Clone)]
 pub(crate) enum NirValue {
     Const {
-        type_: String,
+        type_: ParameterType,
         value: String,
     },
     Local(String),
@@ -261,24 +262,24 @@ pub(crate) enum NirValue {
     /// callback's environment.
     LocalRef {
         name: String,
-        type_: String,
+        type_: ParameterType,
     },
     Global {
         name: String,
-        type_: String,
+        type_: ParameterType,
     },
     FunctionRef {
         name: String,
-        type_: String,
+        type_: ParameterType,
     },
     Closure {
         name: String,
-        type_: String,
+        type_: ParameterType,
         captures: Vec<NirValue>,
     },
     Capture {
         index: usize,
-        type_: String,
+        type_: ParameterType,
         /// When set, the env slot holds a pointer to the parent binding's slot:
         /// the capture binds a *reference* local whose reads and writes deref
         /// through the slot pointer.
@@ -301,16 +302,16 @@ pub(crate) enum NirValue {
         loc: NirSourceLoc,
     },
     Constructor {
-        type_: String,
+        type_: ParameterType,
         args: Vec<NirValue>,
     },
     UnionWrap {
-        union_type: String,
-        member_type: String,
+        union_type: ParameterType,
+        member_type: ParameterType,
         value: Box<NirValue>,
     },
     UnionExtract {
-        type_: String,
+        type_: ParameterType,
         value: Box<NirValue>,
     },
     ResultIsOk {
@@ -323,21 +324,21 @@ pub(crate) enum NirValue {
         value: Box<NirValue>,
     },
     WithUpdate {
-        type_: String,
+        type_: ParameterType,
         target: Box<NirValue>,
         updates: Vec<NirRecordUpdate>,
     },
     ListLiteral {
-        type_: String,
+        type_: ParameterType,
         values: Vec<NirValue>,
     },
     /// `Set OF T { … }` (plan-63): elements build a deduplicated set at runtime.
     SetLiteral {
-        type_: String,
+        type_: ParameterType,
         values: Vec<NirValue>,
     },
     MapLiteral {
-        type_: String,
+        type_: ParameterType,
         entries: Vec<(NirValue, NirValue)>,
     },
     MemberAccess {

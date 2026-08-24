@@ -73,7 +73,7 @@ pub(super) fn validate_param(
     param: &NirParam,
     locals: &mut HashMap<String, LocalBinding>,
 ) -> Result<(), String> {
-    if param.name.is_empty() || param.type_.is_empty() {
+    if param.name.is_empty() || param.type_.name().is_empty() {
         return Err(format!(
             "NIR function '{}' has a parameter with empty name or type",
             function.name
@@ -84,7 +84,7 @@ pub(super) fn validate_param(
             param.name.clone(),
             LocalBinding {
                 mutable: false,
-                type_: param.type_.clone(),
+                type_: param.type_.name().into_owned(),
             },
         )
         .is_some()
@@ -114,7 +114,7 @@ pub(super) fn validate_ops(
                 value,
                 mutable,
             } => {
-                if name.is_empty() || type_.is_empty() {
+                if name.is_empty() || type_.name().is_empty() {
                     return Err("NIR bind op has empty name or type".to_string());
                 }
                 if let Some(value) = value {
@@ -133,7 +133,7 @@ pub(super) fn validate_ops(
                         name.clone(),
                         LocalBinding {
                             mutable: *mutable,
-                            type_: type_.clone(),
+                            type_: type_.name().into_owned(),
                         },
                     )
                     .is_some()
@@ -341,7 +341,7 @@ pub(super) fn validate_ops(
                         guard_locals.insert(
                             name.clone(),
                             LocalBinding {
-                                type_: type_.clone(),
+                                type_: type_.name().into_owned(),
                                 mutable: false,
                             },
                         );
@@ -376,7 +376,7 @@ pub(super) fn validate_ops(
                 iterable,
                 body,
             } => {
-                if name.is_empty() || type_.is_empty() {
+                if name.is_empty() || type_.name().is_empty() {
                     return Err("NIR forEach op has empty name or type".to_string());
                 }
                 validate_value(
@@ -393,7 +393,7 @@ pub(super) fn validate_ops(
                     name.clone(),
                     LocalBinding {
                         mutable: false,
-                        type_: type_.clone(),
+                        type_: type_.name().into_owned(),
                     },
                 );
                 validate_ops(
@@ -415,7 +415,7 @@ pub(super) fn validate_ops(
                 body,
                 ..
             } => {
-                if name.is_empty() || type_.is_empty() {
+                if name.is_empty() || type_.name().is_empty() {
                     return Err("NIR for op has empty name or type".to_string());
                 }
                 validate_value(
@@ -450,7 +450,7 @@ pub(super) fn validate_ops(
                     name.clone(),
                     LocalBinding {
                         mutable: true,
-                        type_: type_.clone(),
+                        type_: type_.name().into_owned(),
                     },
                 );
                 validate_ops(
@@ -541,7 +541,7 @@ pub(super) fn validate_value(
     used_helpers: &mut Vec<RuntimeHelper>,
 ) -> Result<(), String> {
     match value {
-        NirValue::Const { type_, .. } => validate_type_name(type_),
+        NirValue::Const { type_, .. } => validate_type_name(&type_.name()),
         NirValue::Local(name) => {
             // bug-176 B: resolve a capitalized `Local` against the explicit name
             // tables — union variant / enum member constructors, type namespaces,
@@ -560,7 +560,7 @@ pub(super) fn validate_value(
             }
         }
         NirValue::LocalRef { name, type_ } => {
-            validate_type_name(type_)?;
+            validate_type_name(&type_.name())?;
             if locals.contains_key(name) {
                 Ok(())
             } else {
@@ -568,8 +568,8 @@ pub(super) fn validate_value(
             }
         }
         NirValue::Global { name, type_ } => {
-            if !type_.is_empty() {
-                validate_type_name(type_)?;
+            if !type_.name().is_empty() {
+                validate_type_name(&type_.name())?;
             }
             if global_names.contains(name) {
                 Ok(())
@@ -578,11 +578,14 @@ pub(super) fn validate_value(
             }
         }
         NirValue::FunctionRef { name, type_ } => {
-            validate_type_name(type_)?;
+            validate_type_name(&type_.name())?;
             if function_names.contains(name)
                 || import_names.contains(name)
-                || crate::codegen::builtins::general::builtin_function_id_for_type(name, type_)
-                    .is_some()
+                || crate::codegen::builtins::general::builtin_function_id_for_type(
+                    name,
+                    &type_.name(),
+                )
+                .is_some()
             {
                 Ok(())
             } else {
@@ -594,7 +597,7 @@ pub(super) fn validate_value(
             type_,
             captures,
         } => {
-            validate_type_name(type_)?;
+            validate_type_name(&type_.name())?;
             if !(function_names.contains(name) || import_names.contains(name)) {
                 return Err(format!("NIR closure target '{name}' does not resolve"));
             }
@@ -611,7 +614,7 @@ pub(super) fn validate_value(
             }
             Ok(())
         }
-        NirValue::Capture { type_, .. } => validate_type_name(type_),
+        NirValue::Capture { type_, .. } => validate_type_name(&type_.name()),
         NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
             for arg in args {
                 validate_value(
@@ -698,7 +701,7 @@ pub(super) fn validate_value(
             Ok(())
         }
         NirValue::Constructor { type_, args } => {
-            validate_type_name(type_)?;
+            validate_type_name(&type_.name())?;
             for arg in args {
                 validate_value(
                     arg,
@@ -717,8 +720,8 @@ pub(super) fn validate_value(
             member_type,
             value,
         } => {
-            validate_type_name(union_type)?;
-            validate_type_name(member_type)?;
+            validate_type_name(&union_type.name())?;
+            validate_type_name(&member_type.name())?;
             validate_value(
                 value,
                 locals,
@@ -730,7 +733,7 @@ pub(super) fn validate_value(
             )
         }
         NirValue::UnionExtract { type_, value } => {
-            validate_type_name(type_)?;
+            validate_type_name(&type_.name())?;
             validate_value(
                 value,
                 locals,
@@ -757,7 +760,7 @@ pub(super) fn validate_value(
             target,
             updates,
         } => {
-            validate_type_name(type_)?;
+            validate_type_name(&type_.name())?;
             validate_value(
                 target,
                 locals,
@@ -781,7 +784,7 @@ pub(super) fn validate_value(
             Ok(())
         }
         NirValue::ListLiteral { type_, values } | NirValue::SetLiteral { type_, values } => {
-            validate_type_name(type_)?;
+            validate_type_name(&type_.name())?;
             for value in values {
                 validate_value(
                     value,
@@ -796,7 +799,7 @@ pub(super) fn validate_value(
             Ok(())
         }
         NirValue::MapLiteral { type_, entries } => {
-            validate_type_name(type_)?;
+            validate_type_name(&type_.name())?;
             for (key, value) in entries {
                 validate_value(
                     key,

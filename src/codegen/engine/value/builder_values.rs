@@ -10,6 +10,7 @@ use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::target::shared::runtime;
+use crate::types::ParameterType;
 
 impl<'a> CodeBuilder<'a> {
     /// Build an [`AbiCtx`] from the builder's own platform/imports/build-mode for an
@@ -366,11 +367,11 @@ impl CodeBuilder<'_> {
                 // arm only reaches non-String scalar constants. bug-175 C: the dead
                 // `type_ == "String"` branch was removed.
                 let register = self.allocate_register()?;
-                let immediate = native_immediate_value(type_, value)?;
-                self.emit(abi::move_immediate(&register, type_, &immediate));
+                let immediate = native_immediate_value(&type_.name(), value)?;
+                self.emit(abi::move_immediate(&register, &type_.name(), &immediate));
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.clone(),
+                    type_: type_.name().into_owned(),
                     location: Operand::from(register.render()),
                     text: format!("{type_}({value})"),
                 })
@@ -475,17 +476,17 @@ impl CodeBuilder<'_> {
                 ));
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.clone(),
+                    type_: type_.name().into_owned(),
                     location: Operand::from(register.render()),
                     text: format!("&{name}"),
                 })
             }
             NirValue::Global { name, type_ } => {
                 let global = self.global_value(name)?;
-                let value_type = if type_.is_empty() {
+                let value_type = if type_.name().is_empty() {
                     global.type_.clone()
                 } else {
-                    type_.clone()
+                    type_.name().into_owned()
                 };
                 let address = self.load_global_address(name)?;
                 // A `Float` global loads straight into an FP register under the
@@ -518,7 +519,7 @@ impl CodeBuilder<'_> {
                 // descriptor on every evaluation, so a lambda in a loop no longer
                 // grows the arena (bug-78). All indirect-call/env-access consumers
                 // read `{code, env}` off this pointer exactly as before.
-                let symbol = builtin_function_symbol_for_type(name, type_)
+                let symbol = builtin_function_symbol_for_type(name, &type_.name())
                     .or_else(|| self.function_symbols.get(name).cloned())
                     .unwrap_or_else(|| name.clone());
                 let desc_symbol = closure_descriptor_symbol(&symbol);
@@ -545,7 +546,7 @@ impl CodeBuilder<'_> {
                 });
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.clone(),
+                    type_: type_.name().into_owned(),
                     location: Operand::from(closure_register.render()),
                     text: name.clone(),
                 })
@@ -671,7 +672,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_register(&closure_register, abi::mfb_return(1)));
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.clone(),
+                    type_: type_.name().into_owned(),
                     location: Operand::from(closure_register.render()),
                     text: name.clone(),
                 })
@@ -685,7 +686,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, CLOSURE_ENV_REGISTER, index * 8));
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.clone(),
+                    type_: type_.name().into_owned(),
                     location: Operand::from(register.render()),
                     text: format!("capture[{index}]"),
                 })
@@ -1032,7 +1033,7 @@ impl CodeBuilder<'_> {
                 let success_type = self
                     .functions
                     .get(target)
-                    .map(|function| function.returns.clone())
+                    .map(|function| function.returns.name().into_owned())
                     .or_else(|| self.package_return_types.get(target).cloned())
                     .or_else(|| {
                         builtins::call_return_type_name(target).map(std::borrow::Cow::into_owned)
@@ -1153,7 +1154,7 @@ impl CodeBuilder<'_> {
                 // (`vector_value_as_block`). Each lane is finiteness-observed exactly
                 // as the record-field boundary would (plan-17), so behavior is
                 // bit-identical to the heap-record constructor.
-                if let Some(count) = vector_field_count(type_) {
+                if let Some(count) = vector_field_count(&type_.name()) {
                     if args.len() == count {
                         let mut lanes = Vec::with_capacity(count);
                         for arg in args {
@@ -1161,7 +1162,7 @@ impl CodeBuilder<'_> {
                             self.observe_float(arg, &value)?;
                             lanes.push(value);
                         }
-                        return Ok(self.make_vector_native(type_, lanes));
+                        return Ok(self.make_vector_native(&type_.name(), lanes));
                     }
                 }
                 // A fresh nested owned block passed as a field (e.g. the `ErrorLoc`
@@ -1189,11 +1190,15 @@ impl CodeBuilder<'_> {
                     arg_values.push(value);
                     arg_slots.push(slot);
                 }
-                if self.type_model.record_fields.contains_key(type_) {
+                if self
+                    .type_model
+                    .record_fields
+                    .contains_key(type_.name().as_ref())
+                {
                     // A record inlines its `String` fields into a trailing data
                     // region (the slot holds a block-relative offset); scalar and
                     // pointer fields stay inline at `8*index` (plan-02 §4.2).
-                    let register = self.emit_build_inlined_record(type_, &arg_slots)?;
+                    let register = self.emit_build_inlined_record(&type_.name(), &arg_slots)?;
                     // The record now owns byte-inlined copies of every field, so the
                     // consumed nested arg blocks are dead — free them (the record
                     // register is live across these frees and preserved by the vreg
@@ -1206,7 +1211,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
                     return Ok(ValueResult {
                         origin: None,
-                        type_: type_.clone(),
+                        type_: type_.name().into_owned(),
                         location: Operand::from(result.render()),
                         text: format!("construct {type_}({})", join_texts(&arg_values)),
                     });
@@ -1215,7 +1220,7 @@ impl CodeBuilder<'_> {
                 let tag = self
                     .type_model
                     .union_variant_tags
-                    .get(type_)
+                    .get(type_.name().as_ref())
                     .copied()
                     .ok_or_else(|| {
                         format!("native code union variant '{type_}' does not resolve")
@@ -1223,9 +1228,9 @@ impl CodeBuilder<'_> {
                 let union_name = self
                     .type_model
                     .union_variants
-                    .get(type_)
+                    .get(type_.name().as_ref())
                     .cloned()
-                    .unwrap_or_else(|| type_.clone());
+                    .unwrap_or_else(|| type_.name().into_owned());
                 // bug-175 C: size the union block the same way the `UnionWrap` path
                 // does — a resource variant occupies one word (its handle pointer)
                 // rather than being skipped, so a union mixing resource and data
@@ -1307,13 +1312,14 @@ impl CodeBuilder<'_> {
                 // A resource-union variant is a bare resource whose payload is
                 // the resource pointer itself (one word at offset 8), not record
                 // fields.
-                let is_resource_variant = crate::codegen::builtins::is_resource_type(member_type);
+                let is_resource_variant =
+                    crate::codegen::builtins::is_resource_type(&member_type.name());
                 let fields = if is_resource_variant {
                     Vec::new()
                 } else {
                     self.type_model
                         .record_fields
-                        .get(member_type)
+                        .get(member_type.name().as_ref())
                         .cloned()
                         .ok_or_else(|| {
                             format!("native code union wrap member '{member_type}' is not a record")
@@ -1322,7 +1328,7 @@ impl CodeBuilder<'_> {
                 let tag = self
                     .type_model
                     .union_variant_tags
-                    .get(member_type)
+                    .get(member_type.name().as_ref())
                     .copied()
                     .ok_or_else(|| {
                         format!("native code union variant '{member_type}' does not resolve")
@@ -1334,10 +1340,10 @@ impl CodeBuilder<'_> {
                 if !is_resource_variant {
                     let _ = &fields;
                     let register =
-                        self.emit_wrap_record_in_union(member_type, tag, wrapped_slot)?;
+                        self.emit_wrap_record_in_union(&member_type.name(), tag, wrapped_slot)?;
                     return Ok(ValueResult {
                         origin: None,
-                        type_: union_type.clone(),
+                        type_: union_type.name().into_owned(),
                         location: Operand::from(register.render()),
                         text: format!("wrap {member_type} as {union_type}"),
                     });
@@ -1347,7 +1353,7 @@ impl CodeBuilder<'_> {
                 // field count.
                 let max_payload = self
                     .type_model
-                    .variants_for_union(union_type)
+                    .variants_for_union(&union_type.name())
                     .map(|variant| {
                         if crate::codegen::builtins::is_resource_type(variant) {
                             1
@@ -1401,7 +1407,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
                     origin: None,
-                    type_: union_type.clone(),
+                    type_: union_type.name().into_owned(),
                     location: Operand::from(register.render()),
                     text: format!("wrap {member_type} as {union_type}"),
                 })
@@ -1409,13 +1415,13 @@ impl CodeBuilder<'_> {
             NirValue::UnionExtract { type_, value } => {
                 // A resource-union variant's payload is the resource pointer
                 // itself (offset 8): extracting it yields that pointer directly.
-                if crate::codegen::builtins::is_resource_type(type_) {
+                if crate::codegen::builtins::is_resource_type(&type_.name()) {
                     let source = self.lower_value(value)?;
                     let register = self.allocate_register()?;
                     self.emit(abi::load_u64(&register, &source.location, 8));
                     return Ok(ValueResult {
                         origin: None,
-                        type_: type_.clone(),
+                        type_: type_.name().into_owned(),
                         location: Operand::from(register.render()),
                         text: format!("extract {type_} from {}", source.text),
                     });
@@ -1428,7 +1434,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::add_immediate(&register, &source.location, 16));
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.clone(),
+                    type_: type_.name().into_owned(),
                     location: Operand::from(register.render()),
                     text: format!("extract {type_} from {}", source.text),
                 })
@@ -1497,7 +1503,7 @@ impl CodeBuilder<'_> {
                 type_,
                 target,
                 updates,
-            } => self.lower_with_update(type_, target, updates),
+            } => self.lower_with_update(&type_.name(), target, updates),
             NirValue::MemberAccess { target, member } => match target.as_ref() {
                 _ if member == "result" => {
                     if let Some(output_type) = self.static_type_name(target).and_then(|type_| {
@@ -1591,9 +1597,13 @@ impl CodeBuilder<'_> {
                     self.current_symbol
                 ))
             }
-            NirValue::ListLiteral { type_, values } => self.lower_list_literal(type_, values),
-            NirValue::SetLiteral { type_, values } => self.lower_set_literal(type_, values),
-            NirValue::MapLiteral { type_, entries } => self.lower_map_literal(type_, entries),
+            NirValue::ListLiteral { type_, values } => {
+                self.lower_list_literal(&type_.name(), values)
+            }
+            NirValue::SetLiteral { type_, values } => self.lower_set_literal(&type_.name(), values),
+            NirValue::MapLiteral { type_, entries } => {
+                self.lower_map_literal(&type_.name(), entries)
+            }
         }
     }
 
@@ -1919,7 +1929,7 @@ impl CodeBuilder<'_> {
         }
         if target == "io.input" && helper_args.is_empty() {
             helper_args.push(NirValue::Const {
-                type_: "String".to_string(),
+                type_: ParameterType::String,
                 value: String::new(),
             });
         } else if target == "io.pollInput" && helper_args.is_empty() {
@@ -1931,13 +1941,13 @@ impl CodeBuilder<'_> {
             // and a negative meant "block", the exact POSIX inversion the convention
             // removes.
             helper_args.push(NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
             });
         } else if target == "thread.start" {
             while helper_args.len() < 4 {
                 helper_args.push(NirValue::Const {
-                    type_: "Integer".to_string(),
+                    type_: ParameterType::Integer,
                     value: "64".to_string(),
                 });
             }
@@ -1952,7 +1962,7 @@ impl CodeBuilder<'_> {
             // (immediate `ErrTimeout` when full) and `transferResource` was NOT padded
             // at all — its timeout arg was uninitialised (plan-73-A Corrections C2).
             helper_args.push(NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
             });
         } else if matches!(target, "thread.receive" | "thread.acceptResource")
@@ -1964,7 +1974,7 @@ impl CodeBuilder<'_> {
             // on it and rejects every other negative timeout. (`accept` had no padding
             // before, so its no-arg blocking form is enabled here.)
             helper_args.push(NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
             });
         } else if matches!(target, "thread.openStdIn" | "thread.closeStdIn")
@@ -1973,12 +1983,12 @@ impl CodeBuilder<'_> {
             // No-arg self form: pass a null handle sentinel; the helper subscribes
             // the calling thread when the handle is 0 (plan-15 §4.5).
             helper_args.push(NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: "0".to_string(),
             });
         } else if target == "net.lookup" && helper_args.len() == 1 {
             helper_args.push(NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: "0".to_string(),
             });
         } else if target == "net.connectTcp" {
@@ -1992,13 +2002,13 @@ impl CodeBuilder<'_> {
             let target_args = if is_address { 2 } else { 3 };
             while helper_args.len() < target_args {
                 helper_args.push(NirValue::Const {
-                    type_: "Integer".to_string(),
+                    type_: ParameterType::Integer,
                     value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
                 });
             }
         } else if target == "net.listenTcp" && helper_args.len() == 2 {
             helper_args.push(NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: "128".to_string(),
             });
         } else if target == "net.poll" && helper_args.len() == 1 {
@@ -2006,7 +2016,7 @@ impl CodeBuilder<'_> {
             // readable (the convention's readiness-query omit rule). Pad with the
             // unbounded sentinel; the poll helper routes it to a -1 (infinite) poll.
             helper_args.push(NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
             });
         } else if target == "net.accept" && helper_args.len() == 1 {
@@ -2016,7 +2026,7 @@ impl CodeBuilder<'_> {
             // treats `0` as one immediate attempt (`ErrTimeout` if none pending),
             // and rejects other negatives.
             helper_args.push(NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
             });
         }
