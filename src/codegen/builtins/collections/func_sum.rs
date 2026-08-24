@@ -153,7 +153,7 @@ pub(crate) fn lower_sum(
     let scratch15 = builder.temporary_vreg();
     let scratch16 = builder.temporary_vreg();
     let collection = &args[0];
-    let Some(element_type) = list_element_type(&collection.type_) else {
+    let Some(element_type) = list_element_type(&collection.type_.name()) else {
         return Err(format!(
             "native collection sum does not accept {}",
             collection.type_
@@ -236,7 +236,7 @@ pub(crate) fn lower_sum(
     builder.emit(abi::move_register(&result, &scratch14));
     Ok(ValueResult {
         origin: None,
-        type_: element_type,
+        type_: ParameterType::parse(&element_type),
         location: Operand::from(result.render()),
         text: format!("sum({})", collection.type_),
     })

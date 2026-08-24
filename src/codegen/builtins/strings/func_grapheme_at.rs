@@ -31,7 +31,7 @@ pub(crate) fn lower(
     let scratch14 = builder.temporary_vreg();
     let scratch15 = builder.temporary_vreg();
     let index = index.clone();
-    if index.type_ != "Integer" {
+    if index.type_ != ParameterType::Integer {
         return Err(format!(
             "strings.graphemeAt index must be Integer, got {}",
             index.type_
@@ -94,7 +94,7 @@ pub(crate) fn lower(
     let result = builder.emit_materialize_string_from_bytes(&scratch15, &scratch14)?;
     Ok(ValueResult {
         origin: None,
-        type_: "String".to_string(),
+        type_: ParameterType::String,
         location: Operand::from(result.render()),
         text: "strings.graphemeAt".to_string(),
     })

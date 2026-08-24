@@ -8,6 +8,7 @@ use crate::codegen::engine::types::list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 /// Native fast path for `#collections_sort$T` (String or signed 8-byte
 /// fixed-width, 1 arg): an index-permutation merge. Float and everything else
 /// decline (`Ok(None)`). Free fn.
@@ -86,7 +87,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&reg, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: "List OF Integer".to_string(),
+            type_: ParameterType::parse("List OF Integer"),
             location: Operand::from(reg.render()),
             text: "index-list".to_string(),
         })
@@ -106,7 +107,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let source = self.lower_value(&args[0])?;
         let list_type = source.type_.clone();
-        let elem = list_element_type(&list_type)
+        let elem = list_element_type(&list_type.name())
             .ok_or_else(|| format!("native sort does not accept {list_type}"))?;
         // String sorts lexicographically (byte compare + materialized gather);
         // signed-8-byte fixed-width items (Integer/Fixed/Money) sort by a direct
@@ -340,7 +341,7 @@ impl CodeBuilder<'_> {
 
         // Gather: items_slot holds the sorted index permutation; build the result
         // by copying source[idx] in order, then free the two index buffers.
-        let result = self.lower_reserved_list(&list_type, coll_slot)?;
+        let result = self.lower_reserved_list(&list_type.name(), coll_slot)?;
         let result_slot = self.allocate_stack_object("sort_result", 8);
         self.emit(abi::store_u64(
             &result.location,
@@ -376,7 +377,7 @@ impl CodeBuilder<'_> {
             self.emit_element_value_offset(&gvoff, &gvlen, &gcoll, &gidx, &gscr1, &gscr2, "String");
             let gitem = self.emit_load_collection_payload("String", &gcoll, &gvoff, &gvlen)?;
             self.emit(abi::store_u64(&gitem, abi::stack_pointer(), gitem_slot));
-            self.lower_list_append_in_place(result_slot, gitem_slot, &list_type, "String")?;
+            self.lower_list_append_in_place(result_slot, gitem_slot, &list_type.name(), "String")?;
             self.free_collection_loop_item(gitem_slot, "String")?;
             self.emit(abi::load_u64(&r0, abi::stack_pointer(), gk_slot));
             self.emit(abi::add_immediate(&r0, &r0, 1));

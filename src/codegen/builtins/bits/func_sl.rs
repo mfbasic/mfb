@@ -89,10 +89,10 @@ pub(crate) fn lower_bits_sl(
     args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    if args[0].type_ != "Integer" {
+    if args[0].type_ != ParameterType::Integer {
         return Err(format!("bits.sl does not accept {}", args[0].type_));
     }
-    if args[1].type_ != "Integer" {
+    if args[1].type_ != ParameterType::Integer {
         return Err(format!("bits.sl does not accept {}", args[1].type_));
     }
     let value_reg = args[0].location.clone();
@@ -112,7 +112,7 @@ pub(crate) fn lower_bits_sl(
     builder.emit(abi::shift_left_variable(dst, value_reg, &count_reg));
     Ok(ValueResult {
         origin: None,
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         location: Operand::from(dst.render()),
         text: format!("bits.sl({value_text}, {count_text})"),
     })

@@ -3,6 +3,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 // Vectorized / per-lane Fixed (Q32.32) transcendentals — plan-01-simd Phase 4.
 //
 // `sqrt(Fixed[])` is genuine 2-lane NEON: the scalar digit-by-digit restoring
@@ -109,7 +110,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: "List OF Fixed".to_string(),
+            type_: ParameterType::parse("List OF Fixed"),
             location: Operand::from(result_base.render()),
             text,
         })
@@ -352,7 +353,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result_base, abi::stack_pointer(), base_slot));
         Ok(ValueResult {
             origin: None,
-            type_: "List OF Fixed".to_string(),
+            type_: ParameterType::parse("List OF Fixed"),
             location: Operand::from(result_base.render()),
             text,
         })

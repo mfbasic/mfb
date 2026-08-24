@@ -30,6 +30,7 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 pub(crate) const ERRNO_ENOMEM: &str = "12";
 pub(crate) const OS_ARGC_GLOBAL_SYMBOL: &str = "_mfb_rt_os_argc";
 pub(crate) const OS_ARGV_GLOBAL_SYMBOL: &str = "_mfb_rt_os_argv";
@@ -79,7 +80,7 @@ pub(crate) type OsBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize)
 pub(crate) fn void_result(text: &str) -> ValueResult {
     ValueResult {
         origin: None,
-        type_: "Nothing".to_string(),
+        type_: ParameterType::Nothing,
         location: crate::codegen::engine::operand::Operand::from("void"),
         text: text.to_string(),
     }

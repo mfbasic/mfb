@@ -4,6 +4,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// Insert collection `B` (insert_slot) into list `A` (base_slot) at
     /// `index_slot` using the offset-stable scheme (plan-01 §4.1): copy `A`'s and
@@ -442,7 +443,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: list_type.to_string(),
+            type_: ParameterType::parse(&list_type),
             location: Operand::from(result.render()),
             text: format!("list update {list_type} over {element_type}"),
         })
@@ -868,7 +869,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             origin: None,
-            type_: list_type.to_string(),
+            type_: ParameterType::parse(&list_type),
             location: Operand::from(result.render()),
             text: format!("append in place {list_type} over {element_type}"),
         })
@@ -2392,7 +2393,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             origin: None,
-            type_: list_type.to_string(),
+            type_: ParameterType::parse(&list_type),
             location: Operand::from(result.render()),
             text: format!("bulk append in place {list_type} over {element_type}"),
         })
@@ -2937,7 +2938,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             origin: None,
-            type_: list_type.to_string(),
+            type_: ParameterType::parse(&list_type),
             location: Operand::from(result.render()),
             text: format!("prepend in place {list_type} over {element_type}"),
         })
@@ -3167,7 +3168,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&keep, abi::stack_pointer(), buffer_slot));
         let threaded = ValueResult {
             origin: None,
-            type_: list_type.to_string(),
+            type_: ParameterType::parse(&list_type),
             location: Operand::from(keep.render()),
             text: String::new(),
         };
@@ -3184,7 +3185,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             origin: None,
-            type_: list_type.to_string(),
+            type_: ParameterType::parse(&list_type),
             location: Operand::from(result.render()),
             text: format!("set in place {list_type} over {element_type}"),
         })
@@ -3479,7 +3480,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: list_type.to_string(),
+            type_: ParameterType::parse(&list_type),
             location: Operand::from(result.render()),
             text: format!("removeAt({list_type}, Integer) over {element_type}"),
         })

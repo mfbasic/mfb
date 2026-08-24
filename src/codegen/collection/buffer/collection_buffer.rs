@@ -3,6 +3,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// Free an intermediate collection block (a materialized singleton or a
     /// consumed `removeAt` result) after the operation that copied out of it,
@@ -57,7 +58,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&keep, abi::stack_pointer(), slot));
         let threaded = ValueResult {
             origin: None,
-            type_: type_.to_string(),
+            type_: ParameterType::parse(&type_),
             location: Operand::from(keep.render()),
             text: String::new(),
         };

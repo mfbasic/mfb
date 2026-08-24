@@ -21,6 +21,7 @@ use crate::codegen::memory::data::*;
 use crate::codegen::os::syscall::*;
 use crate::codegen::registry::AbiCtx;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 
 /// Shared `abi_function` body for `io::input` (with a prompt) and `io::readLine`
 /// (no prompt), selected by `with_prompt` and labeled `text`. Emits its vreg body
@@ -44,7 +45,7 @@ pub(crate) fn lower_read_line_family(
             .ok_or_else(|| super::app_unsupported(ctx.platform))??;
         return Ok(ValueResult {
             origin: None,
-            type_: "String".to_string(),
+            type_: ParameterType::String,
             location: Operand::from("void"),
             text: text.to_string(),
         });
@@ -490,7 +491,7 @@ pub(crate) fn lower_read_line_family(
     builder.stack_size = FRAME_SIZE;
     Ok(ValueResult {
         origin: None,
-        type_: "String".to_string(),
+        type_: ParameterType::String,
         location: Operand::from("void"),
         text: text.to_string(),
     })

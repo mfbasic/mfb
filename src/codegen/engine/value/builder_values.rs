@@ -89,7 +89,7 @@ impl CodeBuilder<'_> {
         if Self::is_vector_native(result) {
             return;
         }
-        if !self.is_freeable_flat_value(&result.type_)
+        if !self.is_freeable_flat_value(&result.type_.name())
             || self.value_needs_owning_copy(value)
             || Self::value_is_runtime_managed(value)
         {
@@ -105,13 +105,13 @@ impl CodeBuilder<'_> {
         // corrupts the arena. String temps therefore leak until scope exit as
         // they did pre-plan-25; the benchmark's poison is large *list* temps,
         // which are freed.
-        if result.type_ == "String" {
+        if result.type_ == ParameterType::String {
             return;
         }
         let slot = self.allocate_stack_object("pending_temp", 8);
         self.emit(abi::store_u64(&result.location, abi::stack_pointer(), slot));
         self.pending_temp_frees.push(PendingTemp {
-            type_: result.type_.clone(),
+            type_: result.type_.name().into_owned(),
             slot,
             location: result.location.clone(),
         });
@@ -180,8 +180,9 @@ impl CodeBuilder<'_> {
             self.claim_pending_temp(&block);
             return Ok(block);
         }
-        if self.value_needs_owning_copy(value) && self.is_freeable_flat_value(&result.type_) {
-            let copied = self.copy_flat_block(&result.type_, &result.location)?;
+        if self.value_needs_owning_copy(value) && self.is_freeable_flat_value(&result.type_.name())
+        {
+            let copied = self.copy_flat_block(&result.type_.name(), &result.location)?;
             return Ok(ValueResult {
                 origin: None,
                 type_: result.type_,
@@ -355,7 +356,7 @@ impl CodeBuilder<'_> {
             let register = self.load_string_constant(&string_value)?;
             return Ok(ValueResult {
                 origin: None,
-                type_: "String".to_string(),
+                type_: ParameterType::String,
                 location: Operand::from(register.render()),
                 text: format!("String({string_value})"),
             });
@@ -371,7 +372,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, &type_.name(), &immediate));
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.name().into_owned(),
+                    type_: type_.clone(),
                     location: Operand::from(register.render()),
                     text: format!("{type_}({value})"),
                 })
@@ -380,7 +381,7 @@ impl CodeBuilder<'_> {
                 if self.type_model.union_variants.contains_key(name) {
                     return Ok(ValueResult {
                         origin: None,
-                        type_: "VariantTag".to_string(),
+                        type_: ParameterType::parse("VariantTag"),
                         location: Operand::from(name.clone()),
                         text: name.clone(),
                     });
@@ -402,7 +403,7 @@ impl CodeBuilder<'_> {
                     if self.dnative_floats() {
                         return Ok(ValueResult {
                             origin: None,
-                            type_: "Float".to_string(),
+                            type_: ParameterType::Float,
                             location: Operand::from(d),
                             text: name.clone(),
                         });
@@ -412,7 +413,7 @@ impl CodeBuilder<'_> {
                     self.float_residents.insert(register.render(), d);
                     return Ok(ValueResult {
                         origin: None,
-                        type_: "Float".to_string(),
+                        type_: ParameterType::Float,
                         location: Operand::from(register.render()),
                         text: name.clone(),
                     });
@@ -435,7 +436,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_double(&d, abi::stack_pointer(), stack_offset));
                     return Ok(ValueResult {
                         origin: None,
-                        type_: type_name,
+                        type_: ParameterType::parse(&type_name),
                         location: Operand::from(d.render()),
                         text: name.clone(),
                     });
@@ -451,7 +452,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_name,
+                    type_: ParameterType::parse(&type_name),
                     location: Operand::from(register.render()),
                     text: name.clone(),
                 })
@@ -477,7 +478,7 @@ impl CodeBuilder<'_> {
                 ));
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.name().into_owned(),
+                    type_: type_.clone(),
                     location: Operand::from(register.render()),
                     text: format!("&{name}"),
                 })
@@ -498,7 +499,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_double(&d, &address, 0));
                     return Ok(ValueResult {
                         origin: None,
-                        type_: value_type.name().into_owned(),
+                        type_: value_type.clone(),
                         location: Operand::from(d.render()),
                         text: name.clone(),
                     });
@@ -507,7 +508,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, &address, 0));
                 Ok(ValueResult {
                     origin: None,
-                    type_: value_type.name().into_owned(),
+                    type_: value_type.clone(),
                     location: Operand::from(register.render()),
                     text: name.clone(),
                 })
@@ -547,7 +548,7 @@ impl CodeBuilder<'_> {
                 });
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.name().into_owned(),
+                    type_: type_.clone(),
                     location: Operand::from(closure_register.render()),
                     text: name.clone(),
                 })
@@ -673,7 +674,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_register(&closure_register, abi::mfb_return(1)));
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.name().into_owned(),
+                    type_: type_.clone(),
                     location: Operand::from(closure_register.render()),
                     text: name.clone(),
                 })
@@ -687,7 +688,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, CLOSURE_ENV_REGISTER, index * 8));
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.name().into_owned(),
+                    type_: type_.clone(),
                     location: Operand::from(register.render()),
                     text: format!("capture[{index}]"),
                 })
@@ -719,7 +720,7 @@ impl CodeBuilder<'_> {
                         let return_type = return_type.name().into_owned();
                         let callable = ValueResult {
                             origin: None,
-                            type_: local.type_.name().into_owned(),
+                            type_: local.type_.clone(),
                             location: {
                                 let register = self.allocate_register()?;
                                 self.emit(abi::load_u64(
@@ -753,7 +754,7 @@ impl CodeBuilder<'_> {
                         self.emit(abi::load_u64(&register, &address, 0));
                         let callable = ValueResult {
                             origin: None,
-                            type_: global.type_.name().into_owned(),
+                            type_: global.type_.clone(),
                             location: Operand::from(register.render()),
                             text: target.clone(),
                         };
@@ -818,7 +819,7 @@ impl CodeBuilder<'_> {
                     let register = self.load_string_constant(&type_name)?;
                     return Ok(ValueResult {
                         origin: None,
-                        type_: "String".to_string(),
+                        type_: ParameterType::String,
                         location: Operand::from(register.render()),
                         text: format!("typeName({type_name})"),
                     });
@@ -883,7 +884,7 @@ impl CodeBuilder<'_> {
                         let return_type = return_type.name().into_owned();
                         let callable = ValueResult {
                             origin: None,
-                            type_: local.type_.name().into_owned(),
+                            type_: local.type_.clone(),
                             location: {
                                 let register = self.allocate_register()?;
                                 self.emit(abi::load_u64(
@@ -964,7 +965,7 @@ impl CodeBuilder<'_> {
                         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                         return Ok(ValueResult {
                             origin: None,
-                            type_: format!("Result OF {return_type}"),
+                            type_: ParameterType::parse(&format!("Result OF {return_type}")),
                             location: Operand::from(register.render()),
                             text: format!("callResult {target}"),
                         });
@@ -1103,7 +1104,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
                     origin: None,
-                    type_: format!("Result OF {success_type}"),
+                    type_: ParameterType::parse(&format!("Result OF {success_type}")),
                     location: Operand::from(register.render()),
                     text: format!("callResult {target}"),
                 })
@@ -1139,7 +1140,7 @@ impl CodeBuilder<'_> {
                     let register = self.load_string_constant(&type_name)?;
                     return Ok(ValueResult {
                         origin: None,
-                        type_: "String".to_string(),
+                        type_: ParameterType::String,
                         location: Operand::from(register.render()),
                         text: format!("typeName({type_name})"),
                     });
@@ -1210,7 +1211,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
                     return Ok(ValueResult {
                         origin: None,
-                        type_: type_.name().into_owned(),
+                        type_: type_.clone(),
                         location: Operand::from(result.render()),
                         text: format!("construct {type_}({})", join_texts(&arg_values)),
                     });
@@ -1291,7 +1292,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
                     origin: None,
-                    type_: union_name,
+                    type_: ParameterType::parse(&union_name),
                     location: Operand::from(register.render()),
                     text: format!("construct {type_}({})", join_texts(&arg_values)),
                 })
@@ -1342,7 +1343,7 @@ impl CodeBuilder<'_> {
                         self.emit_wrap_record_in_union(&member_type.name(), tag, wrapped_slot)?;
                     return Ok(ValueResult {
                         origin: None,
-                        type_: union_type.name().into_owned(),
+                        type_: union_type.clone(),
                         location: Operand::from(register.render()),
                         text: format!("wrap {member_type} as {union_type}"),
                     });
@@ -1406,7 +1407,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
                     origin: None,
-                    type_: union_type.name().into_owned(),
+                    type_: union_type.clone(),
                     location: Operand::from(register.render()),
                     text: format!("wrap {member_type} as {union_type}"),
                 })
@@ -1420,7 +1421,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_u64(&register, &source.location, 8));
                     return Ok(ValueResult {
                         origin: None,
-                        type_: type_.name().into_owned(),
+                        type_: type_.clone(),
                         location: Operand::from(register.render()),
                         text: format!("extract {type_} from {}", source.text),
                     });
@@ -1433,7 +1434,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::add_immediate(&register, &source.location, 16));
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.name().into_owned(),
+                    type_: type_.clone(),
                     location: Operand::from(register.render()),
                     text: format!("extract {type_} from {}", source.text),
                 })
@@ -1453,7 +1454,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&end_label));
                 Ok(ValueResult {
                     origin: None,
-                    type_: "Boolean".to_string(),
+                    type_: ParameterType::Boolean,
                     location: Operand::from(register.render()),
                     text: "resultIsOk".to_string(),
                 })
@@ -1462,6 +1463,7 @@ impl CodeBuilder<'_> {
                 let result = self.lower_value(value)?;
                 let type_ = result
                     .type_
+                    .name()
                     .strip_prefix("Result OF ")
                     .ok_or_else(|| {
                         format!(
@@ -1481,7 +1483,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     origin: None,
-                    type_,
+                    type_: ParameterType::parse(&type_),
                     location: Operand::from(register.render()),
                     text: "resultValue".to_string(),
                 })
@@ -1493,7 +1495,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::add_immediate(&register, &result.location, 16));
                 Ok(ValueResult {
                     origin: None,
-                    type_: "Error".to_string(),
+                    type_: ParameterType::parse("Error"),
                     location: Operand::from(register.render()),
                     text: "resultError".to_string(),
                 })
@@ -1539,7 +1541,7 @@ impl CodeBuilder<'_> {
                         ));
                         return Ok(ValueResult {
                             origin: None,
-                            type_: type_name.clone(),
+                            type_: ParameterType::parse(&type_name),
                             location: Operand::from(register.render()),
                             text: format!("{type_name}.{member}"),
                         });
@@ -1564,7 +1566,7 @@ impl CodeBuilder<'_> {
             }
             NirValue::Unary { op, operand, .. } => {
                 let operand = self.lower_value(operand)?;
-                if op == "NOT" && operand.type_ == "Boolean" {
+                if op == "NOT" && operand.type_ == ParameterType::Boolean {
                     let register = self.allocate_register()?;
                     let true_label = self.label("bool_not_true");
                     let done_label = self.label("bool_not_done");
@@ -1577,14 +1579,14 @@ impl CodeBuilder<'_> {
                     self.emit(abi::label(&done_label));
                     return Ok(ValueResult {
                         origin: None,
-                        type_: "Boolean".to_string(),
+                        type_: ParameterType::Boolean,
                         location: Operand::from(register.render()),
                         text: format!("(NOT {})", operand.text),
                     });
                 }
                 if op == "-"
                     && matches!(
-                        operand.type_.as_str(),
+                        operand.type_.name().as_ref(),
                         "Byte" | "Integer" | "Fixed" | "Float" | "Money"
                     )
                 {
@@ -1789,7 +1791,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::label(&capture));
         let success_type = success.type_.clone();
-        self.materialize_current_result(&success_type, format!("callResult {target}"), false)
+        self.materialize_current_result(&success_type.name(), format!("callResult {target}"), false)
     }
 
     /// Inline `TRAP` on a provably-infallible inline built-in (plan-26-A). Unlike
@@ -1813,7 +1815,7 @@ impl CodeBuilder<'_> {
             "Integer",
             RESULT_OK_TAG,
         ));
-        self.materialize_current_result(&success_type, format!("callResult {target}"), false)
+        self.materialize_current_result(&success_type.name(), format!("callResult {target}"), false)
     }
 
     /// Dispatch a provably-infallible inline built-in to its normal lowering. The
@@ -1846,7 +1848,7 @@ impl CodeBuilder<'_> {
             let register = self.load_string_constant(&type_name)?;
             return Ok(ValueResult {
                 origin: None,
-                type_: "String".to_string(),
+                type_: ParameterType::String,
                 location: Operand::from(register.render()),
                 text: format!("typeName({type_name})"),
             });

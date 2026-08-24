@@ -128,7 +128,7 @@ pub(crate) fn lower(
     builder.emit(abi::move_register(&result, total));
     Ok(ValueResult {
         origin: None,
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         location: Operand::from(result.render()),
         text: "strings.displayWidth".to_string(),
     })

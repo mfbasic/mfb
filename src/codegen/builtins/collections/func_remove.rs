@@ -95,7 +95,7 @@ pub(crate) fn lower_remove(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let set = args[0].clone();
-    let Some(element_type) = set_element_type(&set.type_) else {
+    let Some(element_type) = set_element_type(&set.type_.name()) else {
         return Err(format!(
             "native collection remove does not accept {}",
             set.type_
@@ -108,7 +108,7 @@ pub(crate) fn lower_remove(
         set_slot,
     ));
     let item = args[1].clone();
-    if item.type_ != element_type {
+    if item.type_.name() != element_type.as_str() {
         return Err(format!(
             "native collection remove element must be {element_type}, got {}",
             item.type_
@@ -116,5 +116,5 @@ pub(crate) fn lower_remove(
     }
     let item_slot = builder.allocate_stack_object("set_remove_item", 8);
     builder.store_value_at(&item, abi::stack_pointer(), item_slot);
-    builder.lower_map_remove_key(set_slot, item_slot, &set.type_, &element_type)
+    builder.lower_map_remove_key(set_slot, item_slot, &set.type_.name(), &element_type)
 }

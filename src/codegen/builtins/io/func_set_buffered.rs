@@ -55,7 +55,7 @@ pub(crate) fn lower_set_buffered(
     builder.stack_size = FRAME_SIZE;
     Ok(ValueResult {
         origin: None,
-        type_: "Nothing".to_string(),
+        type_: ParameterType::Nothing,
         location: Operand::from("void"),
         text: "io.setBuffered".to_string(),
     })

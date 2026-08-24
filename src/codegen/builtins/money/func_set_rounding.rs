@@ -95,7 +95,7 @@ pub(crate) fn lower_money_set_rounding(
     ));
     Ok(ValueResult {
         origin: None,
-        type_: "Nothing".to_string(),
+        type_: ParameterType::Nothing,
         location: abi::return_register(),
         text,
     })

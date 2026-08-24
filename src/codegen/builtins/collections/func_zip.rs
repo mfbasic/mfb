@@ -9,6 +9,7 @@ use crate::codegen::engine::types::list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 /// Native fast path for `#collections_zip$A$B` over two fixed-width scalar lists
 /// (or both-String). `try_inline_zip_op` already self-gates and returns `Ok(None)`
 /// to decline. Free fn (an `impl` method would not coerce to `MfbFastPath`).
@@ -254,8 +255,8 @@ impl CodeBuilder<'_> {
         // s20 = a blob base, s21 = b blob base, s22 = result blob base. The two
         // inputs are separate lists with their own element types, so each takes
         // its own stride (plan-57-D).
-        let a_element = list_element_type(&a.type_).unwrap_or_default();
-        let b_element = list_element_type(&b.type_).unwrap_or_default();
+        let a_element = list_element_type(&a.type_.name()).unwrap_or_default();
+        let b_element = list_element_type(&b.type_.name()).unwrap_or_default();
         // Both inputs are fixed-width by `try_inline_zip_op`'s guard, so under
         // the entry-free representation BOTH are kind 2 and neither has an entry
         // to read. s12/s13 then carry a byte OFFSET from the blob base rather
@@ -379,7 +380,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: list_type.to_string(),
+            type_: ParameterType::parse(&list_type),
             location: Operand::from(result.render()),
             text: format!("zip({list_type})"),
         })
@@ -512,7 +513,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), outer_slot));
         Ok(ValueResult {
             origin: None,
-            type_: list_type.to_string(),
+            type_: ParameterType::parse(&list_type),
             location: Operand::from(result.render()),
             text: format!("zip({list_type} String)"),
         })

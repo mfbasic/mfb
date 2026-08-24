@@ -608,7 +608,7 @@ impl CodeBuilder<'_> {
                             // into the arena so this binding owns an arena block its
                             // scope-drop free can reclaim (collections/records
                             // default to arena allocations already).
-                            let location = if result.type_ == "String" {
+                            let location = if result.type_ == ParameterType::String {
                                 Operand::from(
                                     self.copy_flat_block("String", &result.location)?.render(),
                                 )
@@ -912,7 +912,7 @@ impl CodeBuilder<'_> {
                             // Observation boundary: a `Float` reassignment must
                             // be finite (plan-17).
                             self.observe_float(value, &result)?;
-                            let assign_slot = if Self::is_thread_type(&result.type_) {
+                            let assign_slot = if Self::is_thread_type(&result.type_.name()) {
                                 let slot = self.allocate_stack_object("thread_assign_value", 8);
                                 self.emit(abi::store_u64(
                                     &result.location,
@@ -921,7 +921,8 @@ impl CodeBuilder<'_> {
                                 ));
                                 self.emit_thread_cleanup_for_name(name)?;
                                 Some(slot)
-                            } else if let Some(symbol) = self.resource_cleanup_symbol(&result.type_)
+                            } else if let Some(symbol) =
+                                self.resource_cleanup_symbol(&result.type_.name())
                             {
                                 let slot = self.allocate_stack_object("resource_assign_value", 8);
                                 self.emit(abi::store_u64(
@@ -933,15 +934,17 @@ impl CodeBuilder<'_> {
                                     name: name.clone(),
                                     symbol,
                                     state_type: crate::codegen::resource::state_type_name(
-                                        &result.type_,
+                                        &result.type_.name(),
                                     )
                                     .map(str::to_string),
-                                    has_io_buffers: Self::resource_uses_io_buffers(&result.type_),
+                                    has_io_buffers: Self::resource_uses_io_buffers(
+                                        &result.type_.name(),
+                                    ),
                                 };
                                 self.emit_resource_cleanup_call(&cleanup)?;
                                 Some(slot)
                             } else if !by_ref
-                                && self.is_freeable_flat_value(&result.type_)
+                                && self.is_freeable_flat_value(&result.type_.name())
                                 && !self.for_each_iterable_locals.iter().any(|n| n == name)
                                 // bug-430: a live `FOR EACH x IN name.field` holds an
                                 // alias into this record's block; freeing the block
@@ -981,7 +984,7 @@ impl CodeBuilder<'_> {
                                     slot,
                                 ));
                                 self.emit_owned_value_drop(&OwnedValueCleanup {
-                                    type_: result.type_.clone(),
+                                    type_: result.type_.name().into_owned(),
                                     stack_offset,
                                     closure_captures: None,
                                 })?;
@@ -1868,14 +1871,14 @@ impl CodeBuilder<'_> {
         let payload_off = self.temporary_vreg();
         let payload_len = self.temporary_vreg();
         let iterable_value = self.lower_value(iterable)?;
-        if !is_collection_type(&iterable_value.type_) {
+        if !is_collection_type(&iterable_value.type_.name()) {
             return Err(format!(
                 "native code FOR EACH target '{}' is not a collection",
                 iterable_value.type_
             ));
         }
-        let map_entry_types = if iterable_value.type_.starts_with("Map OF ") {
-            Some(map_type_parts(&iterable_value.type_).ok_or_else(|| {
+        let map_entry_types = if iterable_value.type_.name().starts_with("Map OF ") {
+            Some(map_type_parts(&iterable_value.type_.name()).ok_or_else(|| {
                 format!(
                     "native code FOR EACH target '{}' is not a valid map type",
                     iterable_value.type_
@@ -1885,12 +1888,12 @@ impl CodeBuilder<'_> {
             None
         };
         let list_element_type =
-            crate::codegen::engine::types::list_element_type(&iterable_value.type_);
+            crate::codegen::engine::types::list_element_type(&iterable_value.type_.name());
         // A `Set OF T` iterates its Map-shaped entries yielding the element `T`
         // (the entry key), not a `MapEntry` (plan-63-B). Computed here so the loop
         // body below can read the key payload directly into the loop local.
         let set_element_type =
-            crate::codegen::engine::types::set_element_type(&iterable_value.type_);
+            crate::codegen::engine::types::set_element_type(&iterable_value.type_.name());
         let item_value_type = list_element_type.as_deref();
         let collection_slot = self.allocate_stack_object("for_each_collection", 8);
         let cursor_slot = self.allocate_stack_object("for_each_cursor", 8);

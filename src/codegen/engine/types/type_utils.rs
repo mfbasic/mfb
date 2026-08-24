@@ -301,6 +301,91 @@ pub(crate) fn is_collection_type(type_: &str) -> bool {
     type_.starts_with("List OF ") || type_.starts_with("Map OF ") || is_set_type(type_)
 }
 
+// --- Typed structural twins (plan-104-C) -----------------------------------
+//
+// Variant-match equivalents of the string vocabulary above, for consumers that
+// hold a `ParameterType` (post-`ValueResult` flip). Each mirrors its string
+// twin's semantics exactly — including the RES-marker strips — and the string
+// forms survive for the remaining string callers (retired when the last
+// converts).
+
+/// Typed twin of [`is_collection_type`].
+pub(crate) fn typed_is_collection_type(type_: &ParameterType) -> bool {
+    matches!(
+        type_,
+        ParameterType::ListOf(_) | ParameterType::MapOf(..) | ParameterType::SetOf(_)
+    )
+}
+
+/// Typed twin of [`is_set_type`].
+pub(crate) fn typed_is_set_type(type_: &ParameterType) -> bool {
+    matches!(type_, ParameterType::SetOf(_))
+}
+
+/// Typed twin of [`collection_has_buckets`].
+pub(crate) fn typed_collection_has_buckets(type_: &ParameterType) -> bool {
+    matches!(type_, ParameterType::MapOf(..) | ParameterType::SetOf(_))
+}
+
+/// Typed twin of [`set_element_type`].
+pub(crate) fn typed_set_element_type(type_: &ParameterType) -> Option<&ParameterType> {
+    match type_ {
+        ParameterType::SetOf(element) => Some(element),
+        _ => None,
+    }
+}
+
+/// Typed twin of [`list_element_type`] — the `RES` ownership-axis marker is
+/// stripped from the element exactly as the string form does (§15.6).
+pub(crate) fn typed_list_element_type(type_: &ParameterType) -> Option<&ParameterType> {
+    match type_ {
+        ParameterType::ListOf(element) => Some(typed_strip_res_marker(element)),
+        _ => None,
+    }
+}
+
+/// Typed twin of [`map_type_parts`] (the value side RES-stripped, like the
+/// string form).
+pub(crate) fn typed_map_type_parts(
+    type_: &ParameterType,
+) -> Option<(&ParameterType, &ParameterType)> {
+    match type_ {
+        ParameterType::MapOf(key, value) => Some((key, typed_strip_res_marker(value))),
+        _ => None,
+    }
+}
+
+/// Typed twin of [`strip_res_marker`].
+pub(crate) fn typed_strip_res_marker(type_: &ParameterType) -> &ParameterType {
+    match type_ {
+        ParameterType::Res(inner) => inner,
+        other => other,
+    }
+}
+
+/// Typed twin of [`is_function_type`] (both isolation flavors).
+pub(crate) fn typed_is_function_type(type_: &ParameterType) -> bool {
+    matches!(type_, ParameterType::Func(..))
+}
+
+/// Typed twin of [`callable_return_type`].
+pub(crate) fn typed_callable_return_type(type_: &ParameterType) -> Option<&ParameterType> {
+    match type_ {
+        ParameterType::Func(_, return_type, _) => Some(return_type),
+        _ => None,
+    }
+}
+
+/// Typed twin of [`parse_map_entry_type`].
+pub(crate) fn typed_map_entry_type_parts(
+    type_: &ParameterType,
+) -> Option<(&ParameterType, &ParameterType)> {
+    match type_ {
+        ParameterType::MapEntryOf(key, value) => Some((key, value)),
+        _ => None,
+    }
+}
+
 /// Whether `type_` is a `Set OF T` (plan-63).
 pub(crate) fn is_set_type(type_: &str) -> bool {
     type_.starts_with("Set OF ")

@@ -4,6 +4,7 @@ use crate::codegen::engine::control::{nir_value_reads_local, string_self_append_
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// Recognize `name = collections::append(name, item)` for a single element
     /// appended to a uniquely-owned `MUT` list local, and lower it as an in-place
@@ -433,7 +434,7 @@ impl CodeBuilder<'_> {
             _ => return Ok(false),
         }
         let rhs = self.lower_value(&args[1])?;
-        if rhs.type_ != list_type.name().as_ref() {
+        if rhs.type_ != list_type {
             return Err(format!(
                 "native bulk append sublist must be {list_type}, got {}",
                 rhs.type_
@@ -515,7 +516,7 @@ impl CodeBuilder<'_> {
             // static element-type check is needed; the post-lowering `item.type_`
             // check catches any mismatch.
             let index = self.lower_value(&args[1])?;
-            if index.type_ != "Integer" {
+            if index.type_ != ParameterType::Integer {
                 return Err(format!(
                     "native collection set list index must be Integer, got {}",
                     index.type_
@@ -531,7 +532,7 @@ impl CodeBuilder<'_> {
             // Observation boundary: an in-place replacement `Float` element must
             // be finite (plan-17).
             self.observe_float(&args[2], &item)?;
-            if item.type_ != element_type {
+            if item.type_.name() != element_type.as_str() {
                 return Err(format!(
                     "native collection set list item must be {element_type}, got {}",
                     item.type_
@@ -563,7 +564,7 @@ impl CodeBuilder<'_> {
             // Observation boundary: an in-place `Float` map key must be finite
             // (plan-17).
             self.observe_float(&args[1], &key)?;
-            if key.type_ != key_type {
+            if key.type_.name() != key_type.as_str() {
                 return Err(format!(
                     "native collection set map key must be {key_type}, got {}",
                     key.type_
@@ -580,7 +581,7 @@ impl CodeBuilder<'_> {
             // Observation boundary: an in-place `Float` map value must be finite
             // (plan-17).
             self.observe_float(&args[2], &val)?;
-            if val.type_ != value_type {
+            if val.type_.name() != value_type.as_str() {
                 return Err(format!(
                     "native collection set map value must be {value_type}, got {}",
                     val.type_
@@ -665,7 +666,7 @@ impl CodeBuilder<'_> {
         // Observation boundary: an in-place prepended `Float` must be finite
         // (plan-17).
         self.observe_float(&args[1], &item)?;
-        if item.type_ != element_type {
+        if item.type_.name() != element_type.as_str() {
             return Err(format!(
                 "native collection prepend item must be {element_type}, got {}",
                 item.type_
@@ -751,7 +752,7 @@ impl CodeBuilder<'_> {
         operand: &NirValue,
     ) -> Result<(), String> {
         let right = self.lower_value(operand)?;
-        if right.type_ != "String" {
+        if right.type_ != ParameterType::String {
             return Err(format!(
                 "native string self-append operand must be String, got {}",
                 right.type_

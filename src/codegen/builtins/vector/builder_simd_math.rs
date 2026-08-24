@@ -4,6 +4,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 /// Signed 64-bit minimum, written as its unsigned bit pattern (`abs`/`neg`
 /// overflow sentinel for Integer and Fixed lanes).
 /// `0x7FFF_FFFF_FFFF_FFFF` — clears the IEEE-754 sign bit (scalar Float `abs`).
@@ -254,7 +255,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: result_type.to_string(),
+            type_: ParameterType::parse(&result_type),
             location: Operand::from(result_base.render()),
             text,
         })
@@ -709,7 +710,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: result_type.to_string(),
+            type_: ParameterType::parse(&result_type),
             location: Operand::from(result_base.render()),
             text,
         })
@@ -924,7 +925,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: result_type.to_string(),
+            type_: ParameterType::parse(&result_type),
             location: Operand::from(result_base.render()),
             text,
         })

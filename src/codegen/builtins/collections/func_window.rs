@@ -66,13 +66,13 @@ impl CodeBuilder<'_> {
         stride: i64,
     ) -> Result<ValueResult, String> {
         let source = self.lower_value(&args[0])?;
-        let elem = list_element_type(&source.type_)
+        let elem = list_element_type(&source.type_.name())
             .ok_or_else(|| format!("native window does not accept {}", source.type_))?;
         let inner_type = source.type_.clone();
         let outer_type = format!("List OF {inner_type}");
         let outer_layout = CollectionTypeLayout::from_type(&outer_type)
             .ok_or_else(|| format!("native window cannot resolve {outer_type}"))?;
-        let inner_layout = CollectionTypeLayout::from_type(&inner_type)
+        let inner_layout = CollectionTypeLayout::from_type(&inner_type.name())
             .ok_or_else(|| format!("native window cannot resolve {inner_type}"))?;
         let _ = elem;
         let inner_block_size = COLLECTION_HEADER_SIZE + (size as usize) * 8;
@@ -256,7 +256,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: outer_type,
+            type_: ParameterType::parse(&outer_type),
             location: Operand::from(result.render()),
             text: format!("window({})", source.type_),
         })
@@ -318,7 +318,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_gt(&done_l));
         // inner = source[start .. start+size]; append into outer; free inner.
         let inner_slot = self.emit_string_list_slice_block(source_slot, start_slot, count_slot)?;
-        self.lower_list_append_in_place(outer_slot, inner_slot, &outer_type, &inner_type)?;
+        self.lower_list_append_in_place(outer_slot, inner_slot, &outer_type, &inner_type.name())?;
         self.emit_free_owned_kind0_list_block(inner_slot)?;
         // start += stride
         self.emit(abi::load_u64(&scratch, abi::stack_pointer(), start_slot));
@@ -330,7 +330,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), outer_slot));
         Ok(ValueResult {
             origin: None,
-            type_: outer_type,
+            type_: ParameterType::parse(&outer_type),
             location: Operand::from(result.render()),
             text: format!("window({}, {size}, {stride})", source.type_),
         })

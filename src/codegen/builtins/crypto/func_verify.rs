@@ -1526,7 +1526,7 @@ pub(crate) fn lower_verify(
 
     Ok(ValueResult {
         origin: None,
-        type_: "Boolean".to_string(),
+        type_: ParameterType::Boolean,
         location: Operand::from("void"),
         text: "crypto.verify".to_string(),
     })

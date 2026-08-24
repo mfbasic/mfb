@@ -105,7 +105,7 @@ pub(crate) fn lower_values(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let collection = &args[0];
-    let Some((_, value_type)) = map_type_parts(&collection.type_) else {
+    let Some((_, value_type)) = map_type_parts(&collection.type_.name()) else {
         return Err(format!(
             "native collection values does not accept {}",
             collection.type_

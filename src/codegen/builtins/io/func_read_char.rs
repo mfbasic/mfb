@@ -277,7 +277,7 @@ pub(crate) fn lower_read_char(
     builder.stack_size = FRAME_SIZE;
     Ok(ValueResult {
         origin: None,
-        type_: "String".to_string(),
+        type_: ParameterType::String,
         location: Operand::from("void"),
         text: "io.readChar".to_string(),
     })

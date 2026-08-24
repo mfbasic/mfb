@@ -5,6 +5,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 impl CodeBuilder<'_> {
     /// Build a flat `Result` value `{tag @0, size @8, payload @16}` (plan-02
@@ -187,7 +188,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: format!("Result OF {success_type}"),
+            type_: ParameterType::parse(&format!("Result OF {success_type}")),
             location: Operand::from(register.render()),
             text,
         })

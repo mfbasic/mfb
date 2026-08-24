@@ -181,7 +181,7 @@ impl CodeBuilder<'_> {
         self.vector_natives.insert(marker.clone(), lanes);
         ValueResult {
             origin: None,
-            type_: type_.to_string(),
+            type_: ParameterType::parse(&type_),
             location: Operand::from(marker),
             text: format!("vecnative {type_}"),
         }
@@ -216,7 +216,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::store_u64(&lane.location, abi::stack_pointer(), slot));
             slots.push(slot);
         }
-        let register = self.emit_build_inlined_record(&value.type_, &slots)?;
+        let register = self.emit_build_inlined_record(&value.type_.name(), &slots)?;
         let block = ValueResult {
             origin: None,
             type_: value.type_,
@@ -233,7 +233,7 @@ impl CodeBuilder<'_> {
         let slot = self.allocate_stack_object("pending_temp", 8);
         self.emit(abi::store_u64(&block.location, abi::stack_pointer(), slot));
         self.pending_temp_frees.push(PendingTemp {
-            type_: block.type_.clone(),
+            type_: block.type_.name().into_owned(),
             slot,
             location: block.location.clone(),
         });

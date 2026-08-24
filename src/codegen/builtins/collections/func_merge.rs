@@ -161,7 +161,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let a = self.lower_value(&args[0])?;
         let map_type = a.type_.clone();
-        let (key_type, value_type) = map_type_parts(&map_type)
+        let (key_type, value_type) = map_type_parts(&map_type.name())
             .ok_or_else(|| format!("native merge on non-map type '{map_type}'"))?;
         let a_slot = self.allocate_stack_object("merge_a", 8);
         self.emit(abi::store_u64(&a.location, abi::stack_pointer(), a_slot));
@@ -178,14 +178,18 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&t, abi::stack_pointer(), extra_count_slot));
         self.emit(abi::load_u64(&t, &bt, COLLECTION_OFFSET_DATA_LENGTH));
         self.emit(abi::store_u64(&t, abi::stack_pointer(), extra_data_slot));
-        let result_slot =
-            self.copy_map_with_capacity(&map_type, a_slot, extra_count_slot, extra_data_slot)?;
+        let result_slot = self.copy_map_with_capacity(
+            &map_type.name(),
+            a_slot,
+            extra_count_slot,
+            extra_data_slot,
+        )?;
         // Insert each of b's entries into the presized result.
         let i_slot = self.allocate_stack_object("merge_i", 8);
         let n_slot = self.allocate_stack_object("merge_n", 8);
         let key_slot = self.allocate_stack_object("merge_key", 8);
         let value_slot = self.allocate_stack_object("merge_val", 8);
-        let element = list_element_type(&map_type).unwrap_or_default();
+        let element = list_element_type(&map_type.name()).unwrap_or_default();
         let z = self.temporary_vreg();
         self.emit(abi::move_immediate(&z, "Integer", "0"));
         self.emit(abi::store_u64(&z, abi::stack_pointer(), i_slot));
@@ -279,7 +283,7 @@ impl CodeBuilder<'_> {
             result_slot,
             key_slot,
             value_slot,
-            &map_type,
+            &map_type.name(),
             &key_type,
             &value_type,
         )?;

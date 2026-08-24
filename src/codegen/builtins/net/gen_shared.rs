@@ -25,6 +25,7 @@ use crate::codegen::string::validate::*;
 use std::collections::HashMap;
 
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 /// The socket-call symbols the shared `net` lowering issues. Every hardcoded
 /// libc symbol literal routes through [`net_symbol`] so a platform whose socket
 /// ABI diverges from POSIX (Windows/Winsock) can rename it in one place instead
@@ -1070,7 +1071,7 @@ pub(crate) type NetBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize
 pub(crate) fn void_result(call: &str) -> ValueResult {
     ValueResult {
         origin: None,
-        type_: "Nothing".to_string(),
+        type_: ParameterType::Nothing,
         location: Operand::from("void"),
         text: call.to_string(),
     }

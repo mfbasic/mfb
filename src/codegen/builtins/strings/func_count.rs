@@ -92,7 +92,7 @@ pub(crate) fn lower(
     builder.emit(abi::label(&after));
     Ok(ValueResult {
         origin: None,
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         location: Operand::from(result.render()),
         text: "strings.count".to_string(),
     })

@@ -183,7 +183,7 @@ pub(crate) fn lower_money_round(
     builder.emit_checked_integer_multiply(result, rounded, divisor)?;
     Ok(ValueResult {
         origin: None,
-        type_: "Money".to_string(),
+        type_: ParameterType::Money,
         location: Operand::from(result.render()),
         text,
     })

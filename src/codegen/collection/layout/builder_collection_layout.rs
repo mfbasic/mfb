@@ -5,6 +5,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn inline_collection_payload_size(&self, type_: &str) -> Option<usize> {
         if let Some(fields) = self.type_model.record_fields.get(type_) {
@@ -1078,7 +1079,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn lower_len(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(value)?;
-        if value.type_ == "String" {
+        if value.type_ == ParameterType::String {
             let count_slot = self.allocate_stack_object("len_string_count", 8);
             let remaining = self.allocate_register()?;
             let cursor = self.allocate_register()?;
@@ -1114,11 +1115,11 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(&register, abi::stack_pointer(), count_slot));
             Ok(ValueResult {
                 origin: None,
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 location: Operand::from(register.render()),
                 text: format!("len({})", value.text),
             })
-        } else if is_collection_type(&value.type_) {
+        } else if is_collection_type(&value.type_.name()) {
             let register = self.allocate_register()?;
             self.emit(abi::load_u64(
                 &register,
@@ -1127,7 +1128,7 @@ impl CodeBuilder<'_> {
             ));
             Ok(ValueResult {
                 origin: None,
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 location: Operand::from(register.render()),
                 text: format!("len({})", value.text),
             })
@@ -1164,7 +1165,7 @@ impl CodeBuilder<'_> {
                 key: None,
                 value: PayloadSlot {
                     slot,
-                    type_: value.type_,
+                    type_: value.type_.name().into_owned(),
                 },
             });
         }
@@ -1227,7 +1228,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&register, abi::stack_pointer(), set_slot));
         Ok(ValueResult {
             origin: None,
-            type_: type_.to_string(),
+            type_: ParameterType::parse(&type_),
             location: Operand::from(register.render()),
             text: format!("set literal {type_}"),
         })
@@ -1266,11 +1267,11 @@ impl CodeBuilder<'_> {
             slots.push(CollectionValueSlot {
                 key: Some(PayloadSlot {
                     slot: key_slot,
-                    type_: key.type_,
+                    type_: key.type_.name().into_owned(),
                 }),
                 value: PayloadSlot {
                     slot: value_slot,
-                    type_: value.type_,
+                    type_: value.type_.name().into_owned(),
                 },
             });
         }
@@ -1407,7 +1408,7 @@ impl CodeBuilder<'_> {
         ));
         Ok(ValueResult {
             origin: None,
-            type_: type_.to_string(),
+            type_: ParameterType::parse(&type_),
             location: Operand::from(register.render()),
             text: format!("{label} {type_}"),
         })

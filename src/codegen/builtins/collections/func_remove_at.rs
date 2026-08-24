@@ -115,7 +115,7 @@ pub(crate) fn lower_remove_at(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let list = args[0].clone();
-    let Some(element_type) = list_element_type(&list.type_) else {
+    let Some(element_type) = list_element_type(&list.type_.name()) else {
         return Err(format!(
             "native collection removeAt does not accept {}",
             list.type_
@@ -128,7 +128,7 @@ pub(crate) fn lower_remove_at(
         list_slot,
     ));
     let index = args[1].clone();
-    if index.type_ != "Integer" {
+    if index.type_ != ParameterType::Integer {
         return Err(format!(
             "native collection removeAt index must be Integer, got {}",
             index.type_
@@ -140,5 +140,5 @@ pub(crate) fn lower_remove_at(
         abi::stack_pointer(),
         index_slot,
     ));
-    builder.lower_list_remove_at(list_slot, index_slot, &list.type_, &element_type)
+    builder.lower_list_remove_at(list_slot, index_slot, &list.type_.name(), &element_type)
 }

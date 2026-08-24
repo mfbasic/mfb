@@ -432,7 +432,7 @@ pub(crate) struct GlobalValue {
 
 #[derive(Clone)]
 pub(crate) struct ValueResult {
-    pub(crate) type_: String,
+    pub(crate) type_: ParameterType,
     pub(crate) location: Operand,
     pub(crate) text: String,
     /// The `NirValue` this result was lowered from, preserved so a **pre-lowered**

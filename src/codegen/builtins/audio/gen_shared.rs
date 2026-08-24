@@ -17,6 +17,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 
 // --- AudioHandle: arena record, pointer-sized reference (plan-33-A §5.1) ------
@@ -131,7 +132,7 @@ pub(crate) type AudioBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usi
 pub(crate) fn void_result(call: &str) -> ValueResult {
     ValueResult {
         origin: None,
-        type_: "Nothing".to_string(),
+        type_: ParameterType::Nothing,
         location: Operand::from("void"),
         text: call.to_string(),
     }

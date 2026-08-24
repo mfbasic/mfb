@@ -18,6 +18,7 @@ use crate::codegen::engine::types::list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// plan-39 A4: intercept the internal `#collections_slice$T` helper and lower
     /// it as a native contiguous-range copy. The only callers are the window/chunks
@@ -406,7 +407,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: format!("List OF {element_type}"),
+            type_: ParameterType::parse(&format!("List OF {element_type}")),
             location: Operand::from(result.render()),
             text: format!("slice(List OF {element_type})"),
         })

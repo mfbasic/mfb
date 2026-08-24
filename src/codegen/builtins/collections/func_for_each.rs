@@ -129,14 +129,14 @@ pub(crate) fn lower_for_each(
     let scratch12 = builder.temporary_vreg();
     let scratch17 = builder.temporary_vreg();
     let collection = args[0].clone();
-    let Some(element_type) = list_element_type(&collection.type_) else {
+    let Some(element_type) = list_element_type(&collection.type_.name()) else {
         return Err(format!(
             "native collection forEach does not accept {}",
             collection.type_
         ));
     };
     let action = args[1].clone();
-    if !action.type_.starts_with("FUNC(") {
+    if !matches!(action.type_, ParameterType::Func(_, _, false)) {
         return Err(format!(
             "native collection forEach action must be a function, got {}",
             action.type_
@@ -272,7 +272,7 @@ pub(crate) fn lower_for_each(
     builder.emit(abi::label(&done));
     Ok(ValueResult {
         origin: None,
-        type_: "Nothing".to_string(),
+        type_: ParameterType::Nothing,
         location: Operand::from("void"),
         text: format!("forEach({}, {})", collection.type_, action.text),
     })

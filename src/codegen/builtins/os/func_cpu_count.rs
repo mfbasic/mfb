@@ -93,7 +93,7 @@ pub(crate) fn lower_cpu_count(
     builder.stack_size = stack_size;
     Ok(ValueResult {
         origin: None,
-        type_: "Nothing".to_string(),
+        type_: ParameterType::Nothing,
         location: Operand::from("void"),
         text: "os.cpuCount".to_string(),
     })

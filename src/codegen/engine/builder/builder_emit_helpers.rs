@@ -246,7 +246,7 @@ impl CodeBuilder<'_> {
             self.deactivate_moved_resource_arguments(target, args);
             return Ok(ValueResult {
                 origin: None,
-                type_: result_type,
+                type_: ParameterType::parse(&result_type),
                 location: Operand::from("void"),
                 text: format!("call {target}({})", join_texts(&arg_values)),
             });
@@ -264,7 +264,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&register, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
             origin: None,
-            type_: result_type,
+            type_: ParameterType::parse(&result_type),
             location: Operand::from(register.render()),
             text: format!("call {target}({})", join_texts(&arg_values)),
         })
@@ -353,7 +353,7 @@ impl CodeBuilder<'_> {
             self.deactivate_moved_resource_arguments(target, args);
             return Ok(ValueResult {
                 origin: None,
-                type_: result_type,
+                type_: ParameterType::parse(&result_type),
                 location: Operand::from("void"),
                 text: format!("call {target}({})", join_texts(&arg_values)),
             });
@@ -373,7 +373,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&register, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
             origin: None,
-            type_: result_type,
+            type_: ParameterType::parse(&result_type),
             location: Operand::from(register.render()),
             text: format!("call {target}({})", join_texts(&arg_values)),
         })
@@ -441,7 +441,7 @@ impl CodeBuilder<'_> {
         if result_type == "Nothing" {
             return Ok(ValueResult {
                 origin: None,
-                type_: result_type.to_string(),
+                type_: ParameterType::parse(&result_type),
                 location: Operand::from("void"),
                 text: format!("call {target}({})", join_texts(&arg_values)),
             });
@@ -464,7 +464,7 @@ impl CodeBuilder<'_> {
         };
         Ok(ValueResult {
             origin: None,
-            type_: result_type.to_string(),
+            type_: ParameterType::parse(&result_type),
             location: Operand::from(register.render()),
             text: format!("call {target}({})", join_texts(&arg_values)),
         })

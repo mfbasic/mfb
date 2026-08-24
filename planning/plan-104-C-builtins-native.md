@@ -35,7 +35,7 @@ See plan-104-A §Prerequisites. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-104-B complete | `static_nir_value_type` returns `Option<ParameterType>`; B's phases all `[x]` | NOT MET until B lands |
+| plan-104-B complete | `static_nir_value_type` returns `Option<ParameterType>`; B's phases all `[x]` | MET 2026-08-24 (`rg 'fn static_nir_value_type' -A4` → `Option<ParameterType>`; B commits 7c0ecf8fa / 24ca75de7) |
 
 ## 1. Goal
 
@@ -142,32 +142,61 @@ None externally observable.
 
 ### Phase 1 — typed registry entry
 
-- [ ] Add `resolve_call_typed` (registry) + the typed
+- [x] Add `resolve_call_typed` (registry) + the typed
       `resolve_call_return_type` twin (builtins aggregate); string forms become
-      wrappers. Repoint `type_utils`'s oracle fallback (from B) to the typed
-      entry.
-- [ ] Tests: a registry unit test that the typed entry and the string wrapper
-      agree on a corpus incl. containers, `RES`, unions, `Unknown`, and a
-      strict-`Nothing` rejection.
+      wrappers over the one `resolved_return_type` selection core (the string
+      wrapper keeps its byte-verbatim `Arg(n)` echo of the caller's original
+      string). Repoint `type_utils`'s oracle fallback (from B) to the typed
+      entry. The three bespoke resolvers (`general`/`vector`/`strings`) keep a
+      string pocket inside the typed twin — annotated deliberate boundary.
+- [x] Tests: `typed_and_string_resolution_agree` (registry unit) — corpus incl.
+      containers, `RES` echo (`List OF RES fs.File` preserved), FUNC params,
+      `Unknown`, strict-`Nothing` rejection, and an unowned name. (Registry
+      members key as `pkg.member` with a dot — the plan's `::` spellings
+      resolve nothing.)
 
-Acceptance: unit tests pass; `cargo test --no-fail-fast` green;
-`artifact-gate all` no NEW diff.
-Commit: —
+Acceptance: unit tests pass; `cargo test --no-fail-fast` green (exit 0, 0
+FAILED); `artifact-gate all` no NEW diff (0 diffs).
+Commit: 171879971
 
 ### Phase 2 — builtins sweep (per-package, scoped gate each)
 
-- [ ] Convert the builtins tree package-by-package (compile-driven; scoped
-      `artifact-gate.sh <builtin>` after each package): shims → native matches;
-      `format!` builds → constructors; string-helper call sites → structural
-      destructuring or an annotated `name()` boundary.
-- [ ] Tests: existing builtins unit tests updated where fixtures construct type
-      strings.
+- [x] Convert the builtins tree (compile-driven): **the sweep's mechanism was
+      the `ValueResult.type_` flip to `ParameterType`** (see Corrections — the
+      298 reads were `ValueResult` reads, not A-shims). Typed structural twins
+      added for the container vocabulary (`typed_list_element_type`,
+      `typed_map_type_parts`, `typed_is_collection_type`,
+      `typed_callable_return_type`, …); scalar-literal compares on typed
+      operands are variant `matches!`; FUNC checks on typed operands are
+      structural `Func(..)` matches (isolation-exclusion preserved); compares
+      the fixer had mis-shaped as per-compare parses were inverted to
+      allocation-cheap `name()` renders; the fixer's stacked
+      `parse(name())` round-trips were collapsed to clones (final same-line
+      round-trip grep → 0). Note: the per-package scoped-gate cadence the plan
+      prescribed was replaced by whole-tree `artifact-gate all` runs — the
+      flip is a single crosscutting store change that cannot land
+      per-package.
+- [x] Tests: fixtures constructing type strings converted with the sweep
+      (`cargo check --all-targets` → 0 errors/warnings).
 
 Acceptance: `cargo test --no-fail-fast` green; `artifact-gate all` no NEW diff
-vs baseline; builtins scalar-compare census
-(`rg -n '== "(Integer|…)"' src/codegen/builtins/`) → 0 or annotated survivors
-(record the number); the two registry boundary parse sites serve only string
-wrappers.
+vs baseline (0 diffs, verified mid-sweep and re-verified on the final tree);
+builtins scalar-compare census
+(`rg -n '== "(Integer|…)"' src/codegen/builtins/` → **25**, every survivor on a
+`String`/`&str` carrier, none on a typed store — classified below); the two
+registry boundary parse sites serve only string wrappers (`resolve_call`'s
+wrapper parse + `rewrite_target`, whose callers are the string-speaking
+front/middle end).
+
+**Survivor classification (25):** ~7 compare mangled-name `$T` suffix fragments
+(`target.strip_prefix("#collections_chunks$")` etc. — symbol strings, kept by
+the plan's non-goals), 4 live in `general/mod.rs`'s bespoke string resolver
+(the annotated Phase-1 pocket), and ~14 compare `String` locals derived through
+the still-string helper chains in the collection lowerings — plan-104-D's
+collection-tree conversion consumes them. Directional debt handed to D,
+measured: 66 `ParameterType::parse` sites and 129 `name()` renders in
+`src/codegen/builtins/` (mostly construction-site parses of helper-derived
+strings), to be re-censused at D's closeout.
 Commit: —
 
 ## Validation Plan
@@ -191,7 +220,19 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **The builtins' 298 `.type_` reads are `ValueResult.type_` reads, not A-phase
+  shims.** Measured: `rg -n '\.type_\b' src/codegen/builtins/` receivers are
+  `collection`/`value`/`list`/… — all `ValueResult`s from `lower_value`
+  (`rg -c 'name\(\)' src/codegen/builtins/` → 15, i.e. almost no A-shims
+  exist there). The plan's mechanism ("replace A's `.name()` shims") was
+  therefore wrong: builtins always read codegen's own String-typed interchange
+  struct. C's stated goal (native variant matches in builtins) is achievable
+  only by flipping **`ValueResult.type_` to `ParameterType`** — a store no
+  letter named (289 constructions across 117 files,
+  `rg -c 'ValueResult \{' src/`). Done in C Phase 2 as the sweep's mechanism,
+  with typed structural twins for the shared container splitters; the D trees
+  take `.name()` shims where compile-driven and D finishes their native
+  conversion per its own acceptance.
 
 ## Summary
 

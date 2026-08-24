@@ -6,6 +6,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// plan-77 U4: fast-forward a scalar-walk loop over runs of ASCII bytes.
     /// While at least 8 more scalars are needed to reach `target`, at least 8
@@ -92,7 +93,7 @@ impl CodeBuilder<'_> {
         let scratch23 = self.temporary_vreg();
         let scratch24 = self.temporary_vreg();
         let haystack = self.lower_value(&args[0])?;
-        if let Some(element_type) = list_element_type(&haystack.type_) {
+        if let Some(element_type) = list_element_type(&haystack.type_.name()) {
             let haystack_slot = self.allocate_stack_object("find_list_haystack", 8);
             self.emit(abi::store_u64(
                 &haystack.location,
@@ -106,7 +107,7 @@ impl CodeBuilder<'_> {
             let start_slot = self.allocate_stack_object("find_list_start", 8);
             if let Some(start) = args.get(2) {
                 let start = self.lower_value(start)?;
-                if start.type_ != "Integer" {
+                if start.type_ != ParameterType::Integer {
                     return Err(format!(
                         "native list find start must be Integer, got {}",
                         start.type_
@@ -122,12 +123,12 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), start_slot));
             }
 
-            if needle.type_ == element_type {
+            if needle.type_.name() == element_type.as_str() {
                 return self.lower_list_find_item(
                     haystack_slot,
                     needle_slot,
                     start_slot,
-                    &haystack.type_,
+                    &haystack.type_.name(),
                     &element_type,
                 );
             }
@@ -136,7 +137,7 @@ impl CodeBuilder<'_> {
                     haystack_slot,
                     needle_slot,
                     start_slot,
-                    &haystack.type_,
+                    &haystack.type_.name(),
                     &element_type,
                 );
             }
@@ -145,7 +146,7 @@ impl CodeBuilder<'_> {
                 element_type, haystack.type_, needle.type_
             ));
         }
-        if haystack.type_ != "String" {
+        if haystack.type_ != ParameterType::String {
             return Err(format!(
                 "native string find haystack must be String, got {}",
                 haystack.type_
@@ -159,7 +160,7 @@ impl CodeBuilder<'_> {
         ));
 
         let needle = self.lower_value(&args[1])?;
-        if needle.type_ != "String" {
+        if needle.type_ != ParameterType::String {
             return Err(format!(
                 "native string find needle must be String, got {}",
                 needle.type_
@@ -175,7 +176,7 @@ impl CodeBuilder<'_> {
         let start_slot = self.allocate_stack_object("find_start", 8);
         if let Some(start) = args.get(2) {
             let start = self.lower_value(start)?;
-            if start.type_ != "Integer" {
+            if start.type_ != ParameterType::Integer {
                 return Err(format!(
                     "native string find start must be Integer, got {}",
                     start.type_
@@ -340,7 +341,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             location: Operand::from(result.render()),
             text: "find(String, String)".to_string(),
         })
@@ -471,7 +472,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             location: Operand::from(result.render()),
             text: format!("find({list_type}, {element_type})"),
         })
@@ -653,7 +654,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             location: Operand::from(result.render()),
             text: format!("find({list_type}, {list_type}) over {element_type}"),
         })
@@ -677,7 +678,7 @@ impl CodeBuilder<'_> {
         let scratch24 = self.temporary_vreg();
         let scratch25 = self.temporary_vreg();
         let value = self.lower_value(&args[0])?;
-        if let Some(element_type) = list_element_type(&value.type_) {
+        if let Some(element_type) = list_element_type(&value.type_.name()) {
             let value_slot = self.allocate_stack_object("mid_list_value", 8);
             self.emit(abi::store_u64(
                 &value.location,
@@ -685,7 +686,7 @@ impl CodeBuilder<'_> {
                 value_slot,
             ));
             let start = self.lower_value(&args[1])?;
-            if start.type_ != "Integer" {
+            if start.type_ != ParameterType::Integer {
                 return Err(format!(
                     "native list mid start must be Integer, got {}",
                     start.type_
@@ -698,7 +699,7 @@ impl CodeBuilder<'_> {
                 start_slot,
             ));
             let count = self.lower_value(&args[2])?;
-            if count.type_ != "Integer" {
+            if count.type_ != ParameterType::Integer {
                 return Err(format!(
                     "native list mid count must be Integer, got {}",
                     count.type_
@@ -714,11 +715,11 @@ impl CodeBuilder<'_> {
                 value_slot,
                 start_slot,
                 count_slot,
-                &value.type_,
+                &value.type_.name(),
                 &element_type,
             );
         }
-        if value.type_ != "String" {
+        if value.type_ != ParameterType::String {
             return Err(format!(
                 "native string mid value must be String, got {}",
                 value.type_
@@ -732,7 +733,7 @@ impl CodeBuilder<'_> {
         ));
 
         let start = self.lower_value(&args[1])?;
-        if start.type_ != "Integer" {
+        if start.type_ != ParameterType::Integer {
             return Err(format!(
                 "native string mid start must be Integer, got {}",
                 start.type_
@@ -746,7 +747,7 @@ impl CodeBuilder<'_> {
         ));
 
         let count = self.lower_value(&args[2])?;
-        if count.type_ != "Integer" {
+        if count.type_ != ParameterType::Integer {
             return Err(format!(
                 "native string mid count must be Integer, got {}",
                 count.type_
@@ -929,7 +930,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: "String".to_string(),
+            type_: ParameterType::String,
             location: Operand::from(result.render()),
             text: "mid(String, Integer, Integer)".to_string(),
         })
@@ -1311,7 +1312,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: list_type.to_string(),
+            type_: ParameterType::parse(&list_type),
             location: Operand::from(result.render()),
             text: format!("mid({list_type}, Integer, Integer) over {element_type}"),
         })

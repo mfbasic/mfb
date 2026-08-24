@@ -29,7 +29,7 @@ pub(crate) fn lower(
     builder.emit(abi::load_u64(&result, &scratch16, COLLECTION_OFFSET_COUNT));
     Ok(ValueResult {
         origin: None,
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         location: Operand::from(result.render()),
         text: "strings.graphemesCount".to_string(),
     })

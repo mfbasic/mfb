@@ -124,7 +124,7 @@ pub(crate) fn lower_insert(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let list = args[0].clone();
-    let Some(element_type) = list_element_type(&list.type_) else {
+    let Some(element_type) = list_element_type(&list.type_.name()) else {
         return Err(format!(
             "native collection insert does not accept {}",
             list.type_
@@ -137,7 +137,7 @@ pub(crate) fn lower_insert(
         list_slot,
     ));
     let index = args[1].clone();
-    if index.type_ != "Integer" {
+    if index.type_ != ParameterType::Integer {
         return Err(format!(
             "native collection insert index must be Integer, got {}",
             index.type_
@@ -158,16 +158,16 @@ pub(crate) fn lower_insert(
     // Materialize a `d`-native float before the payload spill (plan-01).
     let item = builder.materialize_value(item)?;
     let (insert_slot, materialized) =
-        builder.collection_argument_as_list_slot(&list.type_, &element_type, item)?;
+        builder.collection_argument_as_list_slot(&list.type_.name(), &element_type, item)?;
     let result = builder.lower_list_insert_collection(
         list_slot,
         index_slot,
         insert_slot,
-        &list.type_,
+        &list.type_.name(),
         &element_type,
     )?;
     if materialized {
-        return builder.free_intermediate_collection(insert_slot, &list.type_, result);
+        return builder.free_intermediate_collection(insert_slot, &list.type_.name(), result);
     }
     Ok(result)
 }

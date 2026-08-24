@@ -3,6 +3,7 @@
 use crate::codegen::engine::types::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 
 /// The `(instructions, relocations, stack_size)` an `fs` OS-seam body emits before
 /// the `abi_function` wrapper finalizes it — the successor to the finalized
@@ -17,7 +18,7 @@ pub(crate) type FsBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize)
 pub(crate) fn void_result(call: &str) -> crate::codegen::engine::builder::ValueResult {
     crate::codegen::engine::builder::ValueResult {
         origin: None,
-        type_: "Nothing".to_string(),
+        type_: ParameterType::Nothing,
         location: crate::codegen::engine::operand::Operand::from("void"),
         text: call.to_string(),
     }

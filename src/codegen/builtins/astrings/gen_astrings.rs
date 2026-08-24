@@ -2,6 +2,7 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// Dispatch an `astrings::` package call to its native lowering, or `None`
     /// when `target` is not a native `astrings` member (so the caller falls
@@ -35,7 +36,7 @@ impl CodeBuilder<'_> {
     /// value-semantic copy/drop reuse the generic record machinery.
     fn lower_astrings_from_string(&mut self, args: &[ValueResult]) -> Result<ValueResult, String> {
         let text = args[0].clone();
-        if text.type_ != "String" {
+        if text.type_ != ParameterType::String {
             return Err(format!(
                 "astrings::fromString expects a String argument, got {}",
                 text.type_
@@ -63,7 +64,7 @@ impl CodeBuilder<'_> {
             self.emit_build_inlined_record("AttributedString", &[text_slot, spans_slot])?;
         Ok(ValueResult {
             origin: None,
-            type_: "AttributedString".to_string(),
+            type_: ParameterType::parse("AttributedString"),
             location: Operand::from(register.render()),
             text: format!("astrings::fromString({})", text.text),
         })
@@ -103,7 +104,7 @@ impl CodeBuilder<'_> {
         let copied = self.copy_value_to_current_arena("List OF AttrSpan", &spans_alias)?;
         Ok(ValueResult {
             origin: None,
-            type_: "List OF AttrSpan".to_string(),
+            type_: ParameterType::parse("List OF AttrSpan"),
             location: Operand::from(copied.render()),
             text: format!("astrings::readSpans({})", value.text),
         })
@@ -155,7 +156,7 @@ impl CodeBuilder<'_> {
         );
         Ok(ValueResult {
             origin: None,
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             location: Operand::from(count.render()),
             text: format!("astrings::scalarLen({})", value.text),
         })
@@ -179,7 +180,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&text_alias, abi::stack_pointer(), text_slot));
 
         let spans = args[1].clone();
-        if spans.type_ != "List OF AttrSpan" {
+        if spans.type_.name() != "List OF AttrSpan" {
             return Err(format!(
                 "astrings::writeSpans expects a List OF AttrSpan, got {}",
                 spans.type_
@@ -197,7 +198,7 @@ impl CodeBuilder<'_> {
             self.emit_build_inlined_record("AttributedString", &[text_slot, spans_slot])?;
         Ok(ValueResult {
             origin: None,
-            type_: "AttributedString".to_string(),
+            type_: ParameterType::parse("AttributedString"),
             location: Operand::from(register.render()),
             text: format!("astrings::writeSpans({}, {})", value.text, spans.text),
         })

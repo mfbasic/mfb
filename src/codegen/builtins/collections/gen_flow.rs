@@ -23,6 +23,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::regalloc;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn emit_callback_failure_exit(
         &mut self,
@@ -64,7 +65,7 @@ impl CodeBuilder<'_> {
         name: &str,
         action: &ValueResult,
     ) -> Result<(), String> {
-        if !action.type_.starts_with("FUNC(") {
+        if !matches!(action.type_, ParameterType::Func(_, _, false)) {
             return Err(format!(
                 "native collection {name} action must be a function, got {}",
                 action.type_

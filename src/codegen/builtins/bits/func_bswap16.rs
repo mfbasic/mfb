@@ -72,7 +72,7 @@ pub(crate) fn lower_bits_bswap16(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let value = &args[0];
-    if value.type_ != "Integer" {
+    if value.type_ != ParameterType::Integer {
         return Err(format!("bits.bswap16 does not accept {}", value.type_));
     }
     let dst = builder.allocate_register()?;
@@ -82,7 +82,7 @@ pub(crate) fn lower_bits_bswap16(
     builder.emit(abi::shift_right_immediate(dst, dst, 16));
     Ok(ValueResult {
         origin: None,
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         location: Operand::from(dst.render()),
         text: format!("bits.bswap16({})", value.text),
     })

@@ -27,6 +27,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::{collection_payload_alignment_for_code, list_element_type};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// Shared body of `append`/`prepend`: insert a single item at one end of a
     /// list. The two differ only in the insertion index (`count` for append, `0`
@@ -42,7 +43,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let scratch8 = self.temporary_vreg();
         let list = args[0].clone();
-        let Some(element_type) = list_element_type(&list.type_) else {
+        let Some(element_type) = list_element_type(&list.type_.name()) else {
             return Err(format!(
                 "native collection {op} does not accept {}",
                 list.type_
@@ -64,7 +65,7 @@ impl CodeBuilder<'_> {
         // spilled into the collection payload (plan-01 float-dnative).
         let item = self.materialize_value(item)?;
         let (insert_slot, materialized) =
-            self.collection_argument_as_list_slot(&list.type_, &element_type, item)?;
+            self.collection_argument_as_list_slot(&list.type_.name(), &element_type, item)?;
         let index_slot = self.allocate_stack_object(&format!("{op}_index"), 8);
         if at_start {
             self.emit(abi::move_immediate(&scratch8, "Integer", "0"));
@@ -77,11 +78,11 @@ impl CodeBuilder<'_> {
             list_slot,
             index_slot,
             insert_slot,
-            &list.type_,
+            &list.type_.name(),
             &element_type,
         )?;
         if materialized {
-            return self.free_intermediate_collection(insert_slot, &list.type_, result);
+            return self.free_intermediate_collection(insert_slot, &list.type_.name(), result);
         }
         Ok(result)
     }
@@ -97,12 +98,12 @@ impl CodeBuilder<'_> {
         element_type: &str,
         item: ValueResult,
     ) -> Result<(usize, bool), String> {
-        if item.type_ == list_type {
+        if item.type_.name() == list_type {
             let slot = self.allocate_stack_object("collection_insert_list", 8);
             self.emit(abi::store_u64(&item.location, abi::stack_pointer(), slot));
             return Ok((slot, false));
         }
-        if item.type_ != element_type {
+        if item.type_.name() != element_type {
             return Err(format!(
                 "native collection list item must be {}, got {}",
                 element_type, item.type_
@@ -229,7 +230,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: output_type.to_string(),
+            type_: ParameterType::parse(&output_type),
             location: Operand::from(result.render()),
             text: format!("reserved list {output_type}"),
         })
@@ -532,7 +533,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: map_type.to_string(),
+            type_: ParameterType::parse(&map_type),
             location: Operand::from(result.render()),
             text: format!("map concat {map_type}"),
         })
@@ -753,7 +754,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: map_type.to_string(),
+            type_: ParameterType::parse(&map_type),
             location: Operand::from(result.render()),
             text: format!("removeKey({map_type}, {key_type})"),
         })

@@ -15,6 +15,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn lower_list_get(
         &mut self,
@@ -125,7 +126,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: element_type.to_string(),
+            type_: ParameterType::parse(&element_type),
             location: Operand::from(result.render()),
             text,
         })

@@ -132,7 +132,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, "Integer", "0"));
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.to_string(),
+                    type_: ParameterType::parse(&type_),
                     location: Operand::from(register.render()),
                     text: "default Nothing".to_string(),
                 })
@@ -142,7 +142,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, "Boolean", "0"));
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.to_string(),
+                    type_: ParameterType::parse(&type_),
                     location: Operand::from(register.render()),
                     text: "default Boolean".to_string(),
                 })
@@ -152,7 +152,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&register, type_, "0"));
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.to_string(),
+                    type_: ParameterType::parse(&type_),
                     location: Operand::from(register.render()),
                     text: format!("default {type_}"),
                 })
@@ -161,7 +161,7 @@ impl CodeBuilder<'_> {
                 let register = self.load_empty_string_constant()?;
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.to_string(),
+                    type_: ParameterType::parse(&type_),
                     location: Operand::from(register.render()),
                     text: "default String".to_string(),
                 })
@@ -232,7 +232,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.to_string(),
+                    type_: ParameterType::parse(&type_),
                     location: Operand::from(block.render()),
                     text: format!("closed union {type_}"),
                 })
@@ -265,7 +265,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.to_string(),
+                    type_: ParameterType::parse(&type_),
                     location: Operand::from(record.render()),
                     text: format!("closed {type_}"),
                 })
@@ -324,7 +324,7 @@ impl CodeBuilder<'_> {
                 let register = self.emit_wrap_record_in_union(&variant, tag, record_slot)?;
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.to_string(),
+                    type_: ParameterType::parse(&type_),
                     location: Operand::from(register.render()),
                     text: format!("default {type_}"),
                 })
@@ -348,7 +348,7 @@ impl CodeBuilder<'_> {
                 let register = self.emit_build_inlined_record(type_, &field_slots)?;
                 Ok(ValueResult {
                     origin: None,
-                    type_: type_.to_string(),
+                    type_: ParameterType::parse(&type_),
                     location: Operand::from(register.render()),
                     text: format!("default {type_}"),
                 })
@@ -419,96 +419,109 @@ impl CodeBuilder<'_> {
         // from the resource record. Because a resource value is a pointer to its
         // record, an alias and the owner address the same payload.
         if member == "state" {
-            if let Some(state_type) = crate::codegen::resource::state_type_name(&target_value.type_)
+            if let Some(state_type) =
+                crate::codegen::resource::state_type_name(&target_value.type_.name())
             {
                 let state_type = state_type.to_string();
                 // A resource union value is a `{tag, record-ptr}` block; the STATE
                 // lives in the active variant's record reached via `+8` (plan-74).
                 // For a concrete resource the value already IS the record.
-                let record =
-                    self.emit_resource_record_ptr(&target_value.location, &target_value.type_)?;
+                let record = self
+                    .emit_resource_record_ptr(&target_value.location, &target_value.type_.name())?;
                 let register = self.allocate_register()?;
                 self.emit(abi::load_u64(&register, &record, RESOURCE_OFFSET_STATE));
                 return Ok(ValueResult {
                     origin: None,
-                    type_: state_type,
+                    type_: ParameterType::parse(&state_type),
                     location: Operand::from(register.render()),
                     text: "state".to_string(),
                 });
             }
         }
-        let (field_index, field_type, payload_offset, inline_string) =
-            if let Some((key_type, value_type)) = parse_map_entry_type(&target_value.type_) {
-                match member {
-                    "key" => (0, key_type, 0, false),
-                    "value" => (1, value_type, 0, false),
-                    _ => {
-                        return Err(format!(
-                            "native code map entry '{}' has no field '{}'",
-                            target_value.type_, member
-                        ));
-                    }
+        let (field_index, field_type, payload_offset, inline_string) = if let Some((
+            key_type,
+            value_type,
+        )) =
+            parse_map_entry_type(&target_value.type_.name())
+        {
+            match member {
+                "key" => (0, key_type, 0, false),
+                "value" => (1, value_type, 0, false),
+                _ => {
+                    return Err(format!(
+                        "native code map entry '{}' has no field '{}'",
+                        target_value.type_, member
+                    ));
                 }
-            } else if let Some(fields) = self.type_model.record_fields.get(&target_value.type_) {
-                let Some((index, (_, field_type))) = fields
-                    .iter()
-                    .enumerate()
-                    .find(|(_, (name, _))| name == member)
-                else {
-                    return Err(format!(
-                        "native code record '{}' has no field '{}'",
-                        target_value.type_, member
-                    ));
-                };
-                let inline_string =
-                    self.record_field_is_inlined(&target_value.type_, &field_type.name());
-                (index, field_type.name().into_owned(), 0, inline_string)
-            } else if let Some(fields) = self
-                .type_model
-                .union_variant_fields
-                .get(&target_value.type_)
-            {
-                let Some((index, (_, field_type))) = fields
-                    .iter()
-                    .enumerate()
-                    .find(|(_, (name, _))| name == member)
-                else {
-                    return Err(format!(
-                        "native code variant '{}' has no field '{}'",
-                        target_value.type_, member
-                    ));
-                };
-                (index, field_type.name().into_owned(), 8, false)
-            } else if self.type_model.union_names.contains(&target_value.type_) {
-                // bug-147: a field name shared by two variants must resolve to a
-                // deterministic offset. Walk the variants in the stable
-                // canonical order (`variants_for_union`) rather than iterating
-                // `union_variant_fields` in HashMap order, which produced a
-                // build-nondeterministic offset for ambiguous field names.
-                let Some((index, field_type)) = self
-                    .type_model
-                    .variants_for_union(&target_value.type_)
-                    .filter_map(|variant| self.type_model.union_variant_fields.get(variant))
-                    .find_map(|fields| {
-                        fields
-                            .iter()
-                            .enumerate()
-                            .find(|(_, (name, _))| name == member)
-                            .map(|(index, (_, field_type))| (index, field_type.name().into_owned()))
-                    })
-                else {
-                    return Err(format!(
-                        "native code union '{}' has no payload field '{}'",
-                        target_value.type_, member
-                    ));
-                };
-                (index, field_type, 8, false)
-            } else {
+            }
+        } else if let Some(fields) = self
+            .type_model
+            .record_fields
+            .get(target_value.type_.name().as_ref())
+        {
+            let Some((index, (_, field_type))) = fields
+                .iter()
+                .enumerate()
+                .find(|(_, (name, _))| name == member)
+            else {
                 return Err(format!(
-                    "native code field access target '{}' is not a record or variant",
-                    target_value.type_
+                    "native code record '{}' has no field '{}'",
+                    target_value.type_, member
                 ));
             };
+            let inline_string =
+                self.record_field_is_inlined(&target_value.type_.name(), &field_type.name());
+            (index, field_type.name().into_owned(), 0, inline_string)
+        } else if let Some(fields) = self
+            .type_model
+            .union_variant_fields
+            .get(target_value.type_.name().as_ref())
+        {
+            let Some((index, (_, field_type))) = fields
+                .iter()
+                .enumerate()
+                .find(|(_, (name, _))| name == member)
+            else {
+                return Err(format!(
+                    "native code variant '{}' has no field '{}'",
+                    target_value.type_, member
+                ));
+            };
+            (index, field_type.name().into_owned(), 8, false)
+        } else if self
+            .type_model
+            .union_names
+            .contains(target_value.type_.name().as_ref())
+        {
+            // bug-147: a field name shared by two variants must resolve to a
+            // deterministic offset. Walk the variants in the stable
+            // canonical order (`variants_for_union`) rather than iterating
+            // `union_variant_fields` in HashMap order, which produced a
+            // build-nondeterministic offset for ambiguous field names.
+            let Some((index, field_type)) = self
+                .type_model
+                .variants_for_union(&target_value.type_.name())
+                .filter_map(|variant| self.type_model.union_variant_fields.get(variant))
+                .find_map(|fields| {
+                    fields
+                        .iter()
+                        .enumerate()
+                        .find(|(_, (name, _))| name == member)
+                        .map(|(index, (_, field_type))| (index, field_type.name().into_owned()))
+                })
+            else {
+                return Err(format!(
+                    "native code union '{}' has no payload field '{}'",
+                    target_value.type_, member
+                ));
+            };
+            (index, field_type, 8, false)
+        } else {
+            return Err(format!(
+                "native code field access target '{}' is not a record or variant",
+                target_value.type_
+            ));
+        };
         let register = self.allocate_register()?;
         self.emit(abi::load_u64(
             &register,
@@ -527,7 +540,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             origin: None,
-            type_: field_type,
+            type_: ParameterType::parse(&field_type),
             location: Operand::from(register.render()),
             text: format!("{}.{}", target_value.text, member),
         })
@@ -608,7 +621,7 @@ impl CodeBuilder<'_> {
         let register = self.emit_build_inlined_record(type_, &field_slots)?;
         Ok(ValueResult {
             origin: None,
-            type_: type_.to_string(),
+            type_: ParameterType::parse(&type_),
             location: Operand::from(register.render()),
             text: format!("with {}", target_value.text),
         })
@@ -620,7 +633,7 @@ impl CodeBuilder<'_> {
         right: &NirValue,
     ) -> Result<ValueResult, String> {
         let left = self.lower_value(left)?;
-        if left.type_ != "String" {
+        if left.type_ != ParameterType::String {
             return Err(format!(
                 "native string concat left operand must be String, got {}",
                 left.type_
@@ -633,7 +646,7 @@ impl CodeBuilder<'_> {
             left_slot,
         ));
         let right = self.lower_value(right)?;
-        if right.type_ != "String" {
+        if right.type_ != ParameterType::String {
             return Err(format!(
                 "native string concat right operand must be String, got {}",
                 right.type_
@@ -735,7 +748,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: "String".to_string(),
+            type_: ParameterType::String,
             location: Operand::from(result_ptr.render()),
             text: format!("({} & {})", left.text, right.text),
         })
@@ -1162,12 +1175,15 @@ impl CodeBuilder<'_> {
                 // literal pattern whose block is distinct from the scrutinee's, so
                 // every such CASE was dead (bug-140). Route content-typed scrutinees
                 // through the byte-comparison helper; scalars keep the register test.
-                if matched.type_ == "String"
-                    || self.type_model.record_fields.contains_key(&matched.type_)
+                if matched.type_ == ParameterType::String
+                    || self
+                        .type_model
+                        .record_fields
+                        .contains_key(matched.type_.name().as_ref())
                 {
                     let not_equal = self.label("match_compare_not_equal");
                     self.emit_comparable_values_match_branch(
-                        &matched.type_,
+                        &matched.type_.name(),
                         &matched.location,
                         &pattern.location,
                         label,

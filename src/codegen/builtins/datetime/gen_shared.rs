@@ -27,6 +27,7 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 // Frame layout (16-aligned). `LOCALS_SIZE` is the size of this locals region,
 // which `finalize_vreg_body_with_locals` rounds to 16 and reserves; the vreg
 // frame owns saving the link register, not a slot named here.
@@ -128,7 +129,7 @@ pub(crate) fn emit_libc_clock_nanos(
 pub(crate) fn void_int_result(call: &str) -> ValueResult {
     ValueResult {
         origin: None,
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         location: Operand::from("void"),
         text: call.to_string(),
     }
