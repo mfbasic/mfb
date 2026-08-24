@@ -147,7 +147,7 @@ the deliberate string boundaries — `concrete_type_name`'s instantiation recurs
 the user-generic fallback), `format!(" OF ")` builds **8** (post). The unify/
 substitute hot pair itself is fully native; the residual string ops live in the
 mangling/instantiation-key/user-generic boundaries the Non-goals §2 explicitly keep.
-Commit: —
+Commit: a4f1a709f
 
 ## Validation Plan
 
