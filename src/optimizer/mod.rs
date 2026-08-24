@@ -11,13 +11,21 @@
 //! ```text
 //! AST -> HIR -> IR -> NIR -> gated[Opt1(NIR)] -> Plan1(storage/symbols) -> MIR
 //!     -> gated[ Plan2(CFG + SSA/def-use) -> Opt2(MIR) -> Out-of-SSA(MIR) ]
-//!     -> gated[ FMA-combine ] -> regalloc -> gated[ machine peepholes ] -> code
+//!     -> FMA-combine (Level 0) -> regalloc -> gated[ machine peepholes ] -> code
 //! ```
 //!
 //! [`opt1`] is the `NirModule -> NirModule` seam; [`opt2`] holds the MIR/machine
-//! passes plus the reserved between-selection-and-regalloc MIR seam. The three
-//! Level-1 rows that ship today (`fuse_scalar_fma`, `forward_stores_to_loads`,
-//! `remove_fp_shuttles`) live in [`opt2`] and are gated by [`level_enabled`].
+//! passes plus the reserved between-selection-and-regalloc MIR seam. The **two**
+//! Level-1 rows that ship today (`forward_stores_to_loads`, `remove_fp_shuttles`)
+//! live in [`opt2`] and are gated by [`level_enabled`].
+//!
+//! **The dial's contract: `-O0`..`-O5` change the emitted code, never the
+//! observable results.** Only a pass that is behavior-preserving *by
+//! construction* may ride the dial. A pass that can change a value or a trap is
+//! **Level 0** if the language requires it, or **Level 6** if the user must opt
+//! in — never in between. `fuse_scalar_fma` is the worked example: contraction
+//! rounds once instead of twice, so it is Level 0 and lives ungated in
+//! `crate::codegen::compiler::opt::fma_fusion` (plan-100 Corrections).
 
 use std::sync::OnceLock;
 
@@ -27,7 +35,11 @@ pub(crate) mod opt2;
 /// The optimization scale level requested on the command line by `-O<N>`.
 ///
 /// Levels `0..=5` are the cumulative *risk dial*: each step permits more shape
-/// distortion at **preserved observable behavior**. Level `6` is orthogonal --
+/// distortion at **preserved observable behavior**. Level `0` is below the dial:
+/// always on, not gated in code (a `level_enabled(0)` guard could never fail),
+/// for lowering the language *requires* -- FMA contraction, most-negative-literal
+/// folding, branch relaxation, base selection, register allocation. Level `6` is
+/// orthogonal --
 /// the explicit opt-in for semantic-relaxing passes (fast-math, trap-order
 /// relaxation) -- and is never reached by escalating the dial, not even at
 /// `-O5`/"max".
@@ -49,9 +61,11 @@ impl Default for OptLevel {
 ///
 /// The [`OptLevel`] type spans `0..=6` so later rows slot in without a type
 /// change, but the parser accepts only the levels that actually select
-/// something today. Every landed row is Level 1, so `-O1`..`-O5` would be
+/// something today. Every landed *dial* row is Level 1, so `-O1`..`-O5` would be
 /// indistinguishable; `2..=5` open up as rows land, and `6` additionally
-/// requires an explicit request (plan-100 Non-goals).
+/// requires an explicit request (plan-100 Non-goals). Level 0 is accepted
+/// because it means "dial passes off", not because it selects a row -- Level-0
+/// rows run unconditionally and are never gated.
 pub(crate) fn available_levels() -> &'static [&'static str] {
     &["0", "1"]
 }
@@ -100,7 +114,7 @@ pub(crate) fn set_opt_level(level: OptLevel) {
 }
 
 /// The active optimization level, defaulting to [`OptLevel`]'s `1` -- the level
-/// at which the three shipping Level-1 passes run, i.e. today's exact codegen.
+/// at which the two shipping Level-1 passes run, i.e. today's exact codegen.
 pub(crate) fn active_opt_level() -> OptLevel {
     #[cfg(test)]
     if let Some(level) = TEST_LEVEL.with(|slot| slot.get()) {
