@@ -242,7 +242,20 @@ Commit: d37581ec7
 
 ## Corrections
 
-<Filled in during execution.>
+- **POST-ARCHIVE CORRECTION (2026-08-24): C3 was ticked with backward (HIR→AST)
+  seams still inside the lowering path — the goal "the AST → IR path is retired"
+  did NOT hold as reported.** `lower_augmented_project` internally de-elaborated
+  the whole project to feed the native/link/doc extractors (which needed no AST
+  at all — HIR reuses those structs verbatim), `resource_escape::analyze_function`
+  was fed a per-function de-elaboration, and the inline `expect(...)` desugar
+  round-tripped through AST. Byte-identity could not catch this: a
+  `parse↔name`-exact round-trip satisfies the gate while violating the
+  stay-typed design. Fixed in commit `6db8e040b` (extractors walk HIR;
+  `resource_escape` and `expand_expect` ported to HIR with a new `hir::build`
+  module; dead render helpers deleted). The one remaining de-elaboration is the
+  post-monomorph validator seam (`cli/build/mod.rs:341`, `audit/mod.rs:111` —
+  resolver/entry/syntaxcheck), recorded in plan-102-D's Corrections and retired
+  when those validators move onto HIR/`ir::verify`.
 
 ## Summary
 
