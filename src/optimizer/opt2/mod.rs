@@ -2,16 +2,23 @@
 //!
 //! Two distinct things live here:
 //!
-//! 1. **The landed Level-1 passes.** [`fma_fusion::fuse_scalar_fma`] runs on the
-//!    target-neutral MIR stream just before register allocation;
-//!    [`peephole::forward_stores_to_loads`] and [`peephole::remove_fp_shuttles`]
-//!    run *after* register allocation, on physical registers. Each self-guards
-//!    with [`crate::optimizer::level_enabled`]`(1)`, so `-O0` turns all three off
-//!    and `-O1` (the default) runs them exactly where and as they always have.
+//! 1. **The landed Level-1 passes.** [`peephole::forward_stores_to_loads`] and
+//!    [`peephole::remove_fp_shuttles`] run *after* register allocation, on
+//!    physical registers. Each self-guards with
+//!    [`crate::optimizer::level_enabled`]`(1)`, so `-O0` turns both off and `-O1`
+//!    (the default) runs them exactly where and as they always have. Both are
+//!    strictly **behavior-preserving** -- forwarding never removes or reorders an
+//!    instruction, and the shuttle fold fires only on a GPR proven dead by
+//!    integer liveness -- which is what makes `-O0` a pure "less optimized, same
+//!    answers" path.
+//!
+//!    `fuse_scalar_fma` deliberately does **not** live here: FMA contraction
+//!    rounds once instead of twice and so changes float results, making it
+//!    mandatory lowering rather than a dial row. It stays in
+//!    `crate::codegen::compiler::opt::fma_fusion` (plan-100 Corrections).
 //! 2. **The reserved between-selection-and-regalloc MIR seam**, [`optimize_mir`].
 //!    Identity today; no catalog row occupies it yet.
 
-pub(crate) mod fma_fusion;
 pub(crate) mod peephole;
 
 use crate::codegen::engine::types::CodeInstruction;
@@ -80,9 +87,10 @@ mod tests {
             .collect()
     }
 
-    /// `%f2 = %f0 * %f1 ; %f3 = %f2 + %f9` — the canonical stream
-    /// `fuse_scalar_fma` collapses into one `fmadd_d` at `-O1`.
-    fn fusable() -> Vec<CodeInstruction> {
+    /// A stream with no dial row in it -- used to prove the reserved seam is an
+    /// identity, and (in `fma_fusion`'s own tests) that contraction still fires
+    /// regardless of level.
+    fn plain() -> Vec<CodeInstruction> {
         vec![
             ci("fmul_d", &[("dst", "%f2"), ("lhs", "%f0"), ("rhs", "%f1")]),
             ci("fadd_d", &[("dst", "%f3"), ("lhs", "%f2"), ("rhs", "%f9")]),
@@ -118,18 +126,6 @@ mod tests {
     /// *does* rewrite at `-O1`. The two halves share one input, so a pass that
     /// silently stopped firing would fail the `-O1` half rather than passing
     /// both vacuously.
-    #[test]
-    fn level_zero_disables_fma_fusion() {
-        let mut off = fusable();
-        with_opt_level(OptLevel(0), || fma_fusion::fuse_scalar_fma(&mut off));
-        assert_eq!(shape(&off), shape(&fusable()), "-O0 must not fuse");
-
-        let mut on = fusable();
-        with_opt_level(OptLevel(1), || fma_fusion::fuse_scalar_fma(&mut on));
-        assert_eq!(on.len(), 1, "-O1 must still fuse");
-        assert_eq!(on[0].op, CodeOp::FMaddD);
-    }
-
     #[test]
     fn level_zero_disables_store_to_load_forwarding() {
         let mut off = forwardable();
@@ -173,9 +169,9 @@ mod tests {
     #[test]
     fn optimize_mir_is_identity_at_every_level() {
         for level in 0..=6u8 {
-            let mut stream = fusable();
+            let mut stream = plain();
             optimize_mir(&mut stream, OptLevel(level));
-            assert_eq!(shape(&stream), shape(&fusable()), "level {level}");
+            assert_eq!(shape(&stream), shape(&plain()), "level {level}");
         }
     }
 }

@@ -72,9 +72,13 @@ under `MFB_OPT=1` and break the very "explicit `-O1` == default" gate that run
 exists to prove. `MFB_OPT=0` is a **correctness** run, not a byte-identity run —
 `.ncode` artifacts are expected to drift (the dial passes are off) and must NOT be
 re-baselined; what must hold is that every fixture builds and behavior matches,
-with one enumerated exception class: FMA contraction is a single-rounding change,
-so a fixture whose golden depends on `a*b±c` staying finite legitimately raises
-`ErrFloatOverflow` at `-O0` (`rt-behavior/arithmetic/float-fma-fusion`).
+with **no exceptions** — both dial rows are behavior-preserving. If a `-O0` run
+ever shows a *behavior* mismatch, that is a real bug, not an expected difference.
+(FMA contraction looks like a counter-example and is not: it changes float results
+— `a*b-c` staying finite vs. trapping `ErrFloatOverflow` — which is exactly why
+`fuse_scalar_fma` is **not** on the dial. It is mandatory lowering in
+`src/codegen/compiler/opt/`, pinned by `rt-behavior/arithmetic/float-fma-fusion`
+plus `rt-error/arithmetic/arithmetic-float-fma-observed-rt`.)
 
 **The fixture count is a signal.** The summary line is `acceptance tests passed
 (N test(s) ran)`. If `N` moves between two runs of the same tree, the harness is

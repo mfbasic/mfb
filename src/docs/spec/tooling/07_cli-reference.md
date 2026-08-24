@@ -128,7 +128,7 @@ package).
 | `--ncode` | `NativeCodePlan` | `<name>.ncode` |
 | `--mir` | `Mir` | `<name>.mir` (target-neutral machine IR, virtual registers, no `target`/`arch`) |
 | `--regalloc <bump,linear-scan>` / `--regalloc=…` | — | register-allocation strategy; default `linear-scan`. `bump` is the byte-identical reference oracle |
-| `-O <0,1>` / `-O0` / `-O=0` / `--optimize <0,1>` / `--optimize=…` | — | optimization scale level; default `1`. At `-O1` the Level-1 passes (FMA combining, the post-regalloc machine peepholes) run; `-O0` turns them off |
+| `-O <0,1>` / `-O0` / `-O=0` / `--optimize <0,1>` / `--optimize=…` | — | optimization scale level; default `1`. At `-O1` the Level-1 passes (the post-regalloc machine peepholes) run; `-O0` turns them off. Both are behavior-preserving, so `-O0` changes only the emitted code, never a program's observable results |
 | `--target os-arch` / `--target=os-arch` | — | native target instead of host (`BuildTarget::parse`) |
 | `--sign owner` / `--sign=owner` | — | sign the artifact as `owner` (one-off key + proof + attestation); at most one |
 | `--app` | — | GUI app-mode runtime; at most one |

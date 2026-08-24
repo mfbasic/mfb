@@ -68,14 +68,25 @@ fn use_counts(instructions: &[CodeInstruction]) -> std::collections::HashMap<Str
 /// Rewrite single-use `a*b (+|-) c` chains into fused multiply-add ops, in place.
 /// Called by `lower_function` just before register allocation (plan-02 Phase 3).
 ///
-/// A **Level-1** dial row -- `optimizations.md` "Instruction selection /
-/// combining" -- so it runs at `-O1` (the default) and up, and is skipped at
-/// `-O0`. The guard sits here rather than at the call site so it covers every
-/// caller and travels with the pass (plan-100 §3).
+/// **NOT gated by the `-O` dial, and deliberately so (plan-100).** Contraction is
+/// part of MFBASIC's specified `Float` semantics, not an optimization: fusing
+/// rounds once instead of twice, so it changes *which values exist*, not just how
+/// fast they are computed. With `a = 1.5e308`, the separate `a * 2.0` rounds to
+/// `+inf` and `LET r = a * 2.0 - a` traps `ErrFloatOverflow` at the binding's
+/// observation boundary, while the fused `fmsub` never materializes the product
+/// and yields a finite `1.5e308`. Two fixtures pin exactly that pair as a
+/// contract -- `rt-behavior/arithmetic/float-fma-fusion` asserts the single-use
+/// product fuses and stays finite, and `rt-error/arithmetic/
+/// arithmetic-float-fma-observed-rt` asserts an *observed* product still traps.
+///
+/// So this pass is **mandatory lowering**, in the same class as the adrp/add and
+/// cmp/branch fusions: `optimizations.md`'s "Instruction selection / combining"
+/// row says base selection is not level-gated and only the optional cost-based
+/// combining is a dial pass. Putting it on the dial would make `-O0` quietly emit
+/// different float results, which is precisely what the catalog reserves Level 6
+/// for -- and `-O0` is a *safety* request, so it must not opt you into different
+/// results any more than `-O5` may.
 pub(crate) fn fuse_scalar_fma(instructions: &mut Vec<CodeInstruction>) {
-    if !crate::optimizer::level_enabled(1) {
-        return;
-    }
     let counts = use_counts(instructions);
     let mut remove = vec![false; instructions.len()];
 
@@ -204,6 +215,28 @@ mod tests {
             inst = inst.field(k, v);
         }
         inst
+    }
+
+    /// plan-100: contraction is language semantics, not a dial row, so it must
+    /// fire at **every** `-O` level -- including `-O0`. Gating it would make
+    /// `-O0` trap `ErrFloatOverflow` on `a * 2.0 - a` where `-O1` yields a finite
+    /// value, i.e. silently change float results on a *safety* request. The pair
+    /// `rt-behavior/arithmetic/float-fma-fusion` +
+    /// `rt-error/arithmetic/arithmetic-float-fma-observed-rt` pins that contract
+    /// end-to-end; this is its unit-level guard.
+    #[test]
+    fn fuses_at_every_opt_level_including_zero() {
+        for level in 0..=6u8 {
+            let mut ins = vec![
+                ci("fmul_d", &[("dst", "%f2"), ("lhs", "%f0"), ("rhs", "%f1")]),
+                ci("fadd_d", &[("dst", "%f3"), ("lhs", "%f2"), ("rhs", "%f9")]),
+            ];
+            crate::optimizer::with_opt_level(crate::optimizer::OptLevel(level), || {
+                fuse_scalar_fma(&mut ins)
+            });
+            assert_eq!(ins.len(), 1, "level {level} must still fuse");
+            assert_eq!(ins[0].op, CodeOp::FMaddD, "level {level}");
+        }
     }
 
     /// `%2 = %0 * %1 ; %3 = %2 + %c` fuses to `fmadd_d %3, %c, %0, %1`.
