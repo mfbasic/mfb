@@ -123,8 +123,8 @@ References:
 | The Opt1 seam site returns the sole `NirModule` for every target | `rg -n 'lower_project' src/target` | MET 2026-08-24 — one definition (`shared/lower.rs:8`), 10 call sites across **five** targets (riscv64 too — see Corrections) |
 | The three passes to gate are all Level 1 in the catalog | read `planning/optimizations.md` rows 103/138/156/200 | MET 2026-08-24 — "Peephole optimization" L1, "Instruction selection / combining" L1, "Machine copy propagation / redundant-move elimination" L1 ("Store-to-load forwarding" row is L3 = the *future* alias-based broadening; the landed block-local machine version rides the L1 peephole row) |
 | Gating each pass at its function entry covers every call site | `rg -n 'fuse_scalar_fma\|forward_stores_to_loads\|remove_fp_shuttles' src/codegen/engine` | MET 2026-08-24 — exactly 1 + 3 + 3 production call sites in `function_lowering.rs` (1002 / 1066,1227,1524 / 1070,1228,1525), one guard each |
-| `-O1` (default) reproduces today's exact codegen | Phase 3 default + `MFB_OPT=1` golden runs are clean diffs | UNMEASURED — Phase 3 gate |
-| `-O0` builds and behaves identically (codegen may differ) | Phase 3 `MFB_OPT=0` run: builds pass + `.run` behavior matches | UNMEASURED — Phase 3 gate |
+| `-O1` (default) reproduces today's exact codegen | Phase 3 default + `MFB_OPT=1` golden runs are clean diffs | MET 2026-08-24 — both runs `acceptance tests passed (1265 test(s) ran)`, zero mismatches |
+| `-O0` builds and behaves identically (codegen may differ) | Phase 3 `MFB_OPT=0` run: builds pass + `.run` behavior matches | MET 2026-08-24 — 1265/1265 build; 8 mismatches = 7 expected `.ncode` drifts + 1 enumerated FP-contraction behavior exception (see Phase 3) |
 
 The whole value of this plan is that the **default (`-O1`) changes nothing** — the
 Level-1 passes still run, so default codegen is byte-identical to today. `-O0` is the
@@ -334,7 +334,7 @@ Mirror `RegallocKind` end to end, except the default is `OptLevel(1)`, not 0.
       goldens (`AGENTS.md`).
 - [x] Full `cargo test --no-fail-fast` green (parser parity + gate/identity tests). 62 test binaries, 0 failures (2026-08-24).
 - [x] `rustup run 1.96.0 cargo fmt --all` + `cargo fmt --all --manifest-path repository/Cargo.toml`; no churn left.
-- Commit: `plan-100: MFB_OPT harness switch; prove -O1 byte-identical, -O0 correct`
+- Commit: `56891c051` — `plan-100: MFB_OPT harness switch; prove -O1 byte-identical, -O0 correct`
 
 ## 5. Follow-on (out of scope — one pass at a time, later plans)
 
