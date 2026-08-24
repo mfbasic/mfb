@@ -2487,6 +2487,42 @@ END FUNC
     }
 
     #[test]
+    fn constructor_infers_param_despite_unknown_field_declared_first() {
+        // bug-442: a generic record whose `List OF T` field (bound to an empty
+        // `[]` => `List OF Unknown`) is declared BEFORE the `FUNC(T)` field that
+        // carries the concrete type must still resolve `T` from the later field,
+        // instantiating `Box$Integer` rather than `Box$Unknown`.
+        let src = "\
+IMPORT io
+TYPE Box OF T
+  items AS List OF T
+  fn    AS FUNC(T) AS Boolean
+END TYPE
+FUNC makeBox OF T(fn AS FUNC(T) AS Boolean) AS Box OF T
+  RETURN Box[items := [], fn := fn]
+END FUNC
+FUNC even(n AS Integer) AS Boolean
+  RETURN n MOD 2 = 0
+END FUNC
+FUNC main() AS Integer
+  MUT a AS Box OF Integer = makeBox(even)
+  io::print(toString(len(a.items)))
+  RETURN 0
+END FUNC
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        let type_names: Vec<&str> = types(&project).iter().map(|t| t.name.as_str()).collect();
+        assert!(
+            type_names.iter().any(|n| n.starts_with("Box$Integer")),
+            "expected Box$Integer, got {type_names:?}"
+        );
+        assert!(
+            !type_names.iter().any(|n| n.starts_with("Box$Unknown")),
+            "Box$Unknown must not be instantiated: {type_names:?}"
+        );
+    }
+
+    #[test]
     fn record_member_access_and_with_update_types_are_inferred() {
         // Member access and WITH-update expression typing feed a generic call so
         // the corresponding expression_type arms run.
