@@ -42,9 +42,9 @@ Shared by both plan-105 sub-plans; stated once here.
 | Must be true | Command | Status |
 |---|---|---|
 | plan-102 complete and landed | `ls planning/plan-102-* 2>/dev/null` → no matches (archived) | MET (verified 2026-08-24) |
-| On a feature worktree, not main | `git rev-parse --abbrev-ref HEAD` ≠ `main` | NOT MET — create `worktree-P-105` |
-| Baseline gate captured | `scripts/artifact-gate.sh target/release/mfb all` → record to `planning/plan-105-baseline-diffs.txt` (0 diffs at plan-writing time) | NOT MET — run first |
-| Full suite green | `rustup run 1.96.0 cargo test --no-fail-fast` | NOT MET — run first (green at plan-writing time) |
+| On a feature worktree, not main | `git rev-parse --abbrev-ref HEAD` ≠ `main` | MET (verified 2026-08-24: `worktree-P-105`) |
+| Baseline gate captured | `scripts/artifact-gate.sh target/release/mfb all` → record to `planning/plan-105-baseline-diffs.txt` (0 diffs at plan-writing time) | MET (verified 2026-08-24: 1249 tests, 1718 goldens, **0 diffs**) |
+| Full suite green | `rustup run 1.96.0 cargo test --no-fail-fast` | MET (verified 2026-08-24: 62 suites `ok`, 0 `FAILED`) |
 
 plan-105 does NOT depend on plan-104 (its scope — driver/resolver/monomorph —
 is disjoint from NIR/codegen); the two may land in either order. plan-106
