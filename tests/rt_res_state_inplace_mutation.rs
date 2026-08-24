@@ -203,3 +203,67 @@ fn string_state_field_still_rebuilds() {
          place at a fixed slot; it must keep the whole-record rebuild."
     );
 }
+
+/// bug-430 case B: the idiomatic MUT-record update
+/// `rec = WITH rec { coll := collections::append(rec.coll, x) }`, when `coll` is
+/// the last inlined field, grows the field's buffer in place (amortized O(1))
+/// instead of rebuilding the whole record every append — the MUT-local analogue
+/// of the STATE grow. It emits an `append_inplace_realloc` label. This is a
+/// value-preserving `WITH` reassignment of a uniquely-owned mutable binding; the
+/// language grows no `a.field = v` statement (records update only via `WITH`).
+#[test]
+fn record_field_append_grows_in_place() {
+    let plan = ncode(
+        "b430_recfield",
+        "IMPORT collections\n\
+         TYPE Doc\n\
+        \x20 body AS List OF String\n\
+        \x20 n    AS Integer\n\
+         END TYPE\n\
+         FUNC add(a AS Doc, line AS String) AS Doc\n\
+        \x20 MUT b AS Doc = a\n\
+        \x20 b = WITH b { body := collections::append(b.body, line) }\n\
+        \x20 RETURN b\n\
+         END FUNC\n\
+         FUNC main AS Integer\n\
+        \x20 RETURN 0\n\
+         END FUNC\n",
+    );
+    assert!(
+        label_count(&plan, "_mfb_fn_add", "append_inplace_realloc") >= 1,
+        "bug-430: a MUT-record `WITH`-append of a last-inlined collection field \
+         must grow the field in place (`append_inplace_realloc`), not rebuild the \
+         whole record on every append."
+    );
+}
+
+/// NON-GOAL guard for bug-430 case B. When the appended collection is NOT the
+/// last inlined field (an inlined `String` field follows it), growing its
+/// sub-block would shift the later sub-blocks, so the update must keep the
+/// whole-record rebuild — no in-place grow label.
+#[test]
+fn record_field_append_not_last_inlined_rebuilds() {
+    let plan = ncode(
+        "b430_recfield_mid",
+        "IMPORT collections\n\
+         TYPE Doc\n\
+        \x20 body  AS List OF String\n\
+        \x20 title AS String\n\
+         END TYPE\n\
+         FUNC add(a AS Doc, line AS String) AS Doc\n\
+        \x20 MUT b AS Doc = a\n\
+        \x20 b = WITH b { body := collections::append(b.body, line) }\n\
+        \x20 RETURN b\n\
+         END FUNC\n\
+         FUNC main AS Integer\n\
+        \x20 RETURN 0\n\
+         END FUNC\n",
+    );
+    assert_eq!(
+        label_count(&plan, "_mfb_fn_add", "append_inplace_realloc"),
+        0,
+        "bug-430 non-goal: a collection that is not the last inlined field cannot \
+         grow in place (a following inlined `String` field would shift); it must \
+         keep the whole-record rebuild."
+    );
+}

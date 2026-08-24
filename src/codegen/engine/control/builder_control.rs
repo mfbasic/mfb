@@ -154,12 +154,22 @@ impl CodeBuilder<'_> {
         inner_member == "state" && matches!(inner.as_ref(), NirValue::Local(n) if n == resource)
     }
 
+    /// True when `value` reads exactly `<local>.<field>` — the self-append
+    /// source/alias check for a MUT record field grow (bug-430).
+    pub(crate) fn value_is_record_field(&self, value: &NirValue, local: &str, field: &str) -> bool {
+        matches!(
+            value,
+            NirValue::MemberAccess { target, member }
+                if member == field && matches!(target.as_ref(), NirValue::Local(n) if n == local)
+        )
+    }
+
     /// If `field` is a `List` field of `record_type` that is inlined AND is the
     /// **last inlined field** (no later field is inlined, so growing its trailing
     /// sub-block extends the record block's tail without shifting any sibling),
     /// return `(field_index, field_type)`. This is the shape bug-430's in-place
     /// grow supports; every other shape falls back to the whole-record rebuild.
-    fn record_collection_last_inlined(
+    pub(crate) fn record_collection_last_inlined(
         &self,
         record_type: &str,
         field: &str,
@@ -871,6 +881,12 @@ impl CodeBuilder<'_> {
                                 by_ref,
                             )?
                             && !self.try_inplace_concat_assign(name, value, stack_offset, by_ref)?
+                            && !self.try_inplace_record_field_append(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
                         {
                             // Reassignment installs a fresh independent block; the old
                             // block remains owned by this binding's scope-drop free
@@ -911,6 +927,16 @@ impl CodeBuilder<'_> {
                             } else if !by_ref
                                 && self.is_freeable_flat_value(&result.type_)
                                 && !self.for_each_iterable_locals.iter().any(|n| n == name)
+                                // bug-430: a live `FOR EACH x IN name.field` holds an
+                                // alias into this record's block; freeing the block
+                                // mid-loop is a use-after-free (this rebuild is the
+                                // fallback the in-place record grow declines to for
+                                // exactly this reason). Leak the old block instead,
+                                // matching the `for_each_iterable_locals` case above.
+                                && !self
+                                    .for_each_iterable_record_fields
+                                    .iter()
+                                    .any(|(base, _)| base == name)
                             {
                                 // Free the binding's previous block before
                                 // overwriting the slot. A reassignment installs a
@@ -1903,6 +1929,20 @@ impl CodeBuilder<'_> {
         } else {
             false
         };
+        // bug-430: `FOR EACH x IN local.field` over a MUT record local snapshots an
+        // alias into the record's inlined collection buffer — record it so an
+        // in-place record-field grow in the body falls back to the rebuild.
+        let pushed_record_field = if let NirValue::MemberAccess { target, member } = iterable {
+            if let NirValue::Local(base) = target.as_ref() {
+                self.for_each_iterable_record_fields
+                    .push((base.clone(), member.clone()));
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
         self.emit(abi::load_u64(
             &collection,
             abi::stack_pointer(),
@@ -2117,6 +2157,9 @@ impl CodeBuilder<'_> {
         }
         if pushed_state_field {
             self.for_each_iterable_state_fields.pop();
+        }
+        if pushed_record_field {
+            self.for_each_iterable_record_fields.pop();
         }
         if let Some(previous) = previous {
             self.locals.insert(name.to_string(), previous);
