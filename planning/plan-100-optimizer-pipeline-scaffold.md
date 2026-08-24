@@ -289,9 +289,29 @@ Mirror `RegallocKind` end to end, except the default is `OptLevel(1)`, not 0.
          semantics, not an optimization".)*
       Runs 1–2: any diff is a gate bug, not a re-baseline — fix it, do not touch
       goldens (`AGENTS.md`).
+
+      **Measured result (2026-08-24, 1265 fixtures each):**
+      1. default — `acceptance tests passed (1265 test(s) ran)`, zero mismatches.
+      2. `MFB_OPT=1` — `acceptance tests passed (1265 test(s) ran)`, zero mismatches.
+      3. `MFB_OPT=0` — 1265/1265 build; **7 mismatches, every one a `.ncode`
+         codegen artifact, ZERO behavior mismatches** (run twice to confirm).
+         The drifts are `func_map_getor_hash_probe`, `list-ops-codegen-rt`,
+         `control-flow-if`, `macos-app-mode-io`, `macos-app-mode-plumbing`,
+         `parser-hello-world`, `control-flow-match`. Spot-checked that they are the
+         dial and not garbage: `control-flow-if` is uniformly
+         `-{"op":"mov","dst":"x9","src":"x10"}` → `+{"op":"ldr_u64",…}` — the reload
+         `forward_stores_to_loads` folds at `-O1` and leaves alone at `-O0`.
+      Plus `artifact-gate.sh <exe> all` (the only checker that reads `.ncodesum`,
+      across all five targets): **1249 tests, 1396 builds, 1718 goldens, 0 diff(s)**
+      — default-level codegen is byte-identical everywhere, not just where
+      test-accept looks.
 - [x] Full `cargo test --no-fail-fast` green (parser parity + gate/identity tests). 62 test binaries, 0 failures (2026-08-24).
 - [x] `rustup run 1.96.0 cargo fmt --all` + `cargo fmt --all --manifest-path repository/Cargo.toml`; no churn left.
 - Commit: `56891c051` — `plan-100: MFB_OPT harness switch; prove -O1 byte-identical, -O0 correct`
+- Follow-up commits on the same phase:
+  `7ebe220e5` — document the MFB_OPT switch + loop-stdin invariant in `.ai/testing-gates.md`;
+  `74458a522` — take FMA contraction OFF the dial (see Corrections), which is what
+  made gate #3's original no-exceptions form true.
 
 ## 5. Follow-on (out of scope — one pass at a time, later plans)
 
