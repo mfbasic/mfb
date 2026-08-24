@@ -202,7 +202,7 @@ string ops.
 Acceptance: censuses recorded with annotations; perf numbers recorded and ≤
 baseline; docs updated; `cargo test --no-fail-fast` green; `artifact-gate all`
 no NEW diff; `test-accept` no NEW mismatch; fmt both crates.
-Commit: —
+Commit: f438de0f1
 
 ## Validation Plan
 
