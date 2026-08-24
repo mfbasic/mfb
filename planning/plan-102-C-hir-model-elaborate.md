@@ -217,7 +217,7 @@ Acceptance: `artifact-gate all` no NEW diff vs the plan-102-A baseline; `cargo
 test` green; `test-accept` no NEW mismatch. **VERIFIED** — gate `diff` vs baseline
 IDENTICAL; full suite's sole failure is the recorded `artifact_gate_all` baseline;
 production + test build 0 errors/0 warnings.
-Commit: —
+Commit: d37581ec7
 
 ## Validation Plan
 
