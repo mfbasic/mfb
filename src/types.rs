@@ -160,9 +160,10 @@ impl ParameterType {
             ParameterType::MapOf(key, value) => {
                 ParameterType::map_of(key.with_vars(type_params), value.with_vars(type_params))
             }
-            ParameterType::MapEntryOf(key, value) => {
-                ParameterType::map_entry_of(key.with_vars(type_params), value.with_vars(type_params))
-            }
+            ParameterType::MapEntryOf(key, value) => ParameterType::map_entry_of(
+                key.with_vars(type_params),
+                value.with_vars(type_params),
+            ),
             ParameterType::ResultOf(success) => {
                 ParameterType::result_of(success.with_vars(type_params))
             }

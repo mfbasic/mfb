@@ -43,9 +43,9 @@ pub(super) fn constructor_arg_field_type<'a>(
 ) -> Option<String> {
     let fields = fields?;
     match argument {
-        HirConstructorArg::Positional(_) => {
-            fields.get(index).map(|field| field.type_.name().into_owned())
-        }
+        HirConstructorArg::Positional(_) => fields
+            .get(index)
+            .map(|field| field.type_.name().into_owned()),
         HirConstructorArg::Named { name, .. } => fields
             .iter()
             .find(|field| field.name == *name)
@@ -548,11 +548,7 @@ pub(super) fn overload_concrete_name(
 /// The internal overload-map key: `name(param,types) AS ReturnType`. The return
 /// type is part of the key so a return-type overload set (§F.1) maps each member
 /// to its own distinct concrete symbol.
-pub(super) fn overload_key(
-    name: &str,
-    params: &[HirParam],
-    return_type: Option<&str>,
-) -> String {
+pub(super) fn overload_key(name: &str, params: &[HirParam], return_type: Option<&str>) -> String {
     let params = params
         .iter()
         .map(|param| opt_type_name(&param.type_).unwrap_or_else(|| "Unknown".to_string()))
@@ -934,10 +930,7 @@ mod tests {
         assert_eq!(substitute_str("T", &s), "Integer");
         assert_eq!(substitute_str("List OF T", &s), "List OF Integer");
         assert_eq!(substitute_str("Set OF T", &s), "Set OF Integer");
-        assert_eq!(
-            substitute_str("Result OF T", &s),
-            "Result OF Integer"
-        );
+        assert_eq!(substitute_str("Result OF T", &s), "Result OF Integer");
         assert_eq!(
             substitute_str("Map OF T TO U", &s),
             "Map OF Integer TO String"
@@ -1130,7 +1123,8 @@ mod tests {
             name: "p".to_string(),
             files: Vec::new(),
         };
-        let (overloads, qualifiers) = collect_imported_overloads(&dir, &crate::hir::elaborate(&project));
+        let (overloads, qualifiers) =
+            collect_imported_overloads(&dir, &crate::hir::elaborate(&project));
         assert!(overloads.is_empty());
         assert!(qualifiers.is_empty());
     }

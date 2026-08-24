@@ -556,16 +556,22 @@ fn elaborate_statement(statement: &crate::ast::Statement, type_params: &[String]
             name: name.clone(),
             type_: parse_optional_type(type_name, type_params),
             explicit_type: type_name.is_some(),
-            value: value.as_ref().map(|__v| elaborate_expression(__v, type_params)),
+            value: value
+                .as_ref()
+                .map(|__v| elaborate_expression(__v, type_params)),
             line: *line,
         },
         Statement::Return { value, line } => HirStatement::Return {
-            value: value.as_ref().map(|__v| elaborate_expression(__v, type_params)),
+            value: value
+                .as_ref()
+                .map(|__v| elaborate_expression(__v, type_params)),
             line: *line,
         },
         Statement::Exit { target, code, line } => HirStatement::Exit {
             target: *target,
-            code: code.as_ref().map(|__v| elaborate_expression(__v, type_params)),
+            code: code
+                .as_ref()
+                .map(|__v| elaborate_expression(__v, type_params)),
             line: *line,
         },
         Statement::Continue { kind, line } => HirStatement::Continue {
@@ -578,7 +584,9 @@ fn elaborate_statement(statement: &crate::ast::Statement, type_params: &[String]
         },
         Statement::Propagate { line } => HirStatement::Propagate { line: *line },
         Statement::Recover { value, line } => HirStatement::Recover {
-            value: value.as_ref().map(|__v| elaborate_expression(__v, type_params)),
+            value: value
+                .as_ref()
+                .map(|__v| elaborate_expression(__v, type_params)),
             line: *line,
         },
         Statement::Assign { name, value, line } => HirStatement::Assign {
@@ -606,8 +614,14 @@ fn elaborate_statement(statement: &crate::ast::Statement, type_params: &[String]
             line,
         } => HirStatement::If {
             condition: elaborate_expression(condition, type_params),
-            then_body: then_body.iter().map(|__v| elaborate_statement(__v, type_params)).collect(),
-            else_body: else_body.iter().map(|__v| elaborate_statement(__v, type_params)).collect(),
+            then_body: then_body
+                .iter()
+                .map(|__v| elaborate_statement(__v, type_params))
+                .collect(),
+            else_body: else_body
+                .iter()
+                .map(|__v| elaborate_statement(__v, type_params))
+                .collect(),
             line: *line,
         },
         Statement::Match {
@@ -616,7 +630,10 @@ fn elaborate_statement(statement: &crate::ast::Statement, type_params: &[String]
             line,
         } => HirStatement::Match {
             expression: elaborate_expression(expression, type_params),
-            cases: cases.iter().map(|__v| elaborate_match_case(__v, type_params)).collect(),
+            cases: cases
+                .iter()
+                .map(|__v| elaborate_match_case(__v, type_params))
+                .collect(),
             line: *line,
         },
         Statement::For {
@@ -630,8 +647,13 @@ fn elaborate_statement(statement: &crate::ast::Statement, type_params: &[String]
             name: name.clone(),
             start: elaborate_expression(start, type_params),
             end: elaborate_expression(end, type_params),
-            step: step.as_ref().map(|__v| elaborate_expression(__v, type_params)),
-            body: body.iter().map(|__v| elaborate_statement(__v, type_params)).collect(),
+            step: step
+                .as_ref()
+                .map(|__v| elaborate_expression(__v, type_params)),
+            body: body
+                .iter()
+                .map(|__v| elaborate_statement(__v, type_params))
+                .collect(),
             line: *line,
         },
         Statement::ForEach {
@@ -642,7 +664,10 @@ fn elaborate_statement(statement: &crate::ast::Statement, type_params: &[String]
         } => HirStatement::ForEach {
             name: name.clone(),
             iterable: elaborate_expression(iterable, type_params),
-            body: body.iter().map(|__v| elaborate_statement(__v, type_params)).collect(),
+            body: body
+                .iter()
+                .map(|__v| elaborate_statement(__v, type_params))
+                .collect(),
             line: *line,
         },
         Statement::While {
@@ -653,7 +678,10 @@ fn elaborate_statement(statement: &crate::ast::Statement, type_params: &[String]
         } => HirStatement::While {
             kind: *kind,
             condition: elaborate_expression(condition, type_params),
-            body: body.iter().map(|__v| elaborate_statement(__v, type_params)).collect(),
+            body: body
+                .iter()
+                .map(|__v| elaborate_statement(__v, type_params))
+                .collect(),
             line: *line,
         },
         Statement::DoUntil {
@@ -661,7 +689,10 @@ fn elaborate_statement(statement: &crate::ast::Statement, type_params: &[String]
             condition,
             line,
         } => HirStatement::DoUntil {
-            body: body.iter().map(|__v| elaborate_statement(__v, type_params)).collect(),
+            body: body
+                .iter()
+                .map(|__v| elaborate_statement(__v, type_params))
+                .collect(),
             condition: elaborate_expression(condition, type_params),
             line: *line,
         },
@@ -671,31 +702,48 @@ fn elaborate_statement(statement: &crate::ast::Statement, type_params: &[String]
 fn elaborate_match_case(case: &crate::ast::MatchCase, type_params: &[String]) -> HirMatchCase {
     HirMatchCase {
         pattern: elaborate_match_pattern(&case.pattern, type_params),
-        guard: case.guard.as_ref().map(|__v| elaborate_expression(__v, type_params)),
-        body: case.body.iter().map(|__v| elaborate_statement(__v, type_params)).collect(),
+        guard: case
+            .guard
+            .as_ref()
+            .map(|__v| elaborate_expression(__v, type_params)),
+        body: case
+            .body
+            .iter()
+            .map(|__v| elaborate_statement(__v, type_params))
+            .collect(),
         line: case.line,
     }
 }
 
-fn elaborate_match_pattern(pattern: &crate::ast::MatchPattern, type_params: &[String]) -> HirMatchPattern {
+fn elaborate_match_pattern(
+    pattern: &crate::ast::MatchPattern,
+    type_params: &[String],
+) -> HirMatchPattern {
     use crate::ast::MatchPattern;
     match pattern {
         MatchPattern::Else => HirMatchPattern::Else,
-        MatchPattern::Literal(expr) => HirMatchPattern::Literal(elaborate_expression(expr, type_params)),
+        MatchPattern::Literal(expr) => {
+            HirMatchPattern::Literal(elaborate_expression(expr, type_params))
+        }
         MatchPattern::Union { type_name, binding } => HirMatchPattern::Union {
             type_: parse_type(type_name, type_params),
             binding: binding.clone(),
         },
-        MatchPattern::OneOf(exprs) => {
-            HirMatchPattern::OneOf(exprs.iter().map(|__v| elaborate_expression(__v, type_params)).collect())
-        }
+        MatchPattern::OneOf(exprs) => HirMatchPattern::OneOf(
+            exprs
+                .iter()
+                .map(|__v| elaborate_expression(__v, type_params))
+                .collect(),
+        ),
     }
 }
 
 fn elaborate_call_arg(arg: &crate::ast::CallArg, type_params: &[String]) -> HirCallArg {
     use crate::ast::CallArg;
     match arg {
-        CallArg::Positional(expr) => HirCallArg::Positional(elaborate_expression(expr, type_params)),
+        CallArg::Positional(expr) => {
+            HirCallArg::Positional(elaborate_expression(expr, type_params))
+        }
         CallArg::Named { name, value, line } => HirCallArg::Named {
             name: name.clone(),
             value: elaborate_expression(value, type_params),
@@ -704,7 +752,10 @@ fn elaborate_call_arg(arg: &crate::ast::CallArg, type_params: &[String]) -> HirC
     }
 }
 
-fn elaborate_constructor_arg(arg: &crate::ast::ConstructorArg, type_params: &[String]) -> HirConstructorArg {
+fn elaborate_constructor_arg(
+    arg: &crate::ast::ConstructorArg,
+    type_params: &[String],
+) -> HirConstructorArg {
     use crate::ast::ConstructorArg;
     match arg {
         ConstructorArg::Positional(expr) => {
@@ -718,7 +769,10 @@ fn elaborate_constructor_arg(arg: &crate::ast::ConstructorArg, type_params: &[St
     }
 }
 
-fn elaborate_record_update(update: &crate::ast::RecordUpdate, type_params: &[String]) -> HirRecordUpdate {
+fn elaborate_record_update(
+    update: &crate::ast::RecordUpdate,
+    type_params: &[String],
+) -> HirRecordUpdate {
     HirRecordUpdate {
         field: update.field.clone(),
         value: elaborate_expression(&update.value, type_params),
@@ -726,7 +780,10 @@ fn elaborate_record_update(update: &crate::ast::RecordUpdate, type_params: &[Str
     }
 }
 
-fn elaborate_expression(expression: &crate::ast::Expression, type_params: &[String]) -> HirExpression {
+fn elaborate_expression(
+    expression: &crate::ast::Expression,
+    type_params: &[String],
+) -> HirExpression {
     use crate::ast::Expression;
     match expression {
         Expression::String(value) => HirExpression::String(value.clone()),
@@ -764,7 +821,10 @@ fn elaborate_expression(expression: &crate::ast::Expression, type_params: &[Stri
             column,
         } => HirExpression::Call {
             callee: callee.clone(),
-            arguments: arguments.iter().map(|__v| elaborate_call_arg(__v, type_params)).collect(),
+            arguments: arguments
+                .iter()
+                .map(|__v| elaborate_call_arg(__v, type_params))
+                .collect(),
             line: *line,
             column: *column,
         },
@@ -773,7 +833,10 @@ fn elaborate_expression(expression: &crate::ast::Expression, type_params: &[Stri
             body,
             assign_target,
         } => HirExpression::Lambda {
-            params: params.iter().map(|__p| elaborate_param(__p, type_params)).collect(),
+            params: params
+                .iter()
+                .map(|__p| elaborate_param(__p, type_params))
+                .collect(),
             body: Box::new(elaborate_expression(body, type_params)),
             assign_target: assign_target.clone(),
         },
@@ -782,21 +845,33 @@ fn elaborate_expression(expression: &crate::ast::Expression, type_params: &[Stri
             arguments,
         } => HirExpression::Constructor {
             type_: parse_type(type_name, type_params),
-            arguments: arguments.iter().map(|__v| elaborate_constructor_arg(__v, type_params)).collect(),
+            arguments: arguments
+                .iter()
+                .map(|__v| elaborate_constructor_arg(__v, type_params))
+                .collect(),
         },
         Expression::WithUpdate { target, updates } => HirExpression::WithUpdate {
             target: Box::new(elaborate_expression(target, type_params)),
-            updates: updates.iter().map(|__v| elaborate_record_update(__v, type_params)).collect(),
+            updates: updates
+                .iter()
+                .map(|__v| elaborate_record_update(__v, type_params))
+                .collect(),
         },
-        Expression::ListLiteral(elements) => {
-            HirExpression::ListLiteral(elements.iter().map(|__v| elaborate_expression(__v, type_params)).collect())
-        }
+        Expression::ListLiteral(elements) => HirExpression::ListLiteral(
+            elements
+                .iter()
+                .map(|__v| elaborate_expression(__v, type_params))
+                .collect(),
+        ),
         Expression::SetLiteral {
             element_type,
             elements,
         } => HirExpression::SetLiteral {
             element_type: parse_type(element_type, type_params),
-            elements: elements.iter().map(|__v| elaborate_expression(__v, type_params)).collect(),
+            elements: elements
+                .iter()
+                .map(|__v| elaborate_expression(__v, type_params))
+                .collect(),
         },
         Expression::MapLiteral {
             key_type,
@@ -807,7 +882,12 @@ fn elaborate_expression(expression: &crate::ast::Expression, type_params: &[Stri
             value_type: parse_type(value_type, type_params),
             entries: entries
                 .iter()
-                .map(|(key, value)| (elaborate_expression(key, type_params), elaborate_expression(value, type_params)))
+                .map(|(key, value)| {
+                    (
+                        elaborate_expression(key, type_params),
+                        elaborate_expression(value, type_params),
+                    )
+                })
                 .collect(),
         },
         Expression::MemberAccess { target, member } => HirExpression::MemberAccess {
@@ -822,7 +902,10 @@ fn elaborate_expression(expression: &crate::ast::Expression, type_params: &[Stri
         } => HirExpression::Trapped {
             expression: Box::new(elaborate_expression(expression, type_params)),
             binding: binding.clone(),
-            handler: handler.iter().map(|__v| elaborate_statement(__v, type_params)).collect(),
+            handler: handler
+                .iter()
+                .map(|__v| elaborate_statement(__v, type_params))
+                .collect(),
             line: *line,
         },
         Expression::Identifier(name) => HirExpression::Identifier(name.clone()),
@@ -833,8 +916,14 @@ fn elaborate_expression(expression: &crate::ast::Expression, type_params: &[Stri
 /// [`elaborate_statement`], exposed for `ir::lower`'s inline `expect(...)`
 /// desugar, which builds fresh AST statements (`testing::expand_expect`) that
 /// then re-enter the HIR statement-lowering path.
-pub(crate) fn elaborate_statements(statements: &[crate::ast::Statement], type_params: &[String]) -> Vec<HirStatement> {
-    statements.iter().map(|__v| elaborate_statement(__v, type_params)).collect()
+pub(crate) fn elaborate_statements(
+    statements: &[crate::ast::Statement],
+    type_params: &[String],
+) -> Vec<HirStatement> {
+    statements
+        .iter()
+        .map(|__v| elaborate_statement(__v, type_params))
+        .collect()
 }
 
 // --- De-elaboration (HIR → AST) ------------------------------------------------
@@ -1180,9 +1269,7 @@ fn deelaborate_expression(expression: &HirExpression) -> crate::ast::Expression 
             value_type: value_type.name().into_owned(),
             entries: entries
                 .iter()
-                .map(|(key, value)| {
-                    (deelaborate_expression(key), deelaborate_expression(value))
-                })
+                .map(|(key, value)| (deelaborate_expression(key), deelaborate_expression(value)))
                 .collect(),
         },
         HirExpression::MemberAccess { target, member } => Expression::MemberAccess {
@@ -1351,7 +1438,10 @@ mod tests {
         // `List OF T`: the element `T` is a `Var`, not a `Named`.
         match &function.params[0].type_ {
             ParameterType::ListOf(elem) => {
-                assert!(matches!(elem.as_ref(), ParameterType::Var(_)), "T should be Var");
+                assert!(
+                    matches!(elem.as_ref(), ParameterType::Var(_)),
+                    "T should be Var"
+                );
             }
             other => panic!("expected List OF, got {other:?}"),
         }
@@ -1404,9 +1494,8 @@ mod tests {
 
     #[test]
     fn type_record_fields_carry_bare_spellings() {
-        let items = elaborated_items(
-            "TYPE Point\n  x AS Integer\n  PRIVATE y AS Float\nEND TYPE\n",
-        );
+        let items =
+            elaborated_items("TYPE Point\n  x AS Integer\n  PRIVATE y AS Float\nEND TYPE\n");
         let decl = match &items[0] {
             HirItem::Type(decl) => decl,
             other => panic!("expected type decl, got {other:?}"),

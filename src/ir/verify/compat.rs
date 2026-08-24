@@ -43,7 +43,9 @@ impl TypeEnv {
     /// derived (an operand type is unknown, or the operands disagree), in which
     /// case the annotation is left alone.
     pub(super) fn check_operator_result_type(&self, node: &IrValue, derived: Option<String>) {
-        let (Some(derived), Some(annotated)) = (derived, usable_type(node.annotated_type().as_deref())) else {
+        let (Some(derived), Some(annotated)) =
+            (derived, usable_type(node.annotated_type().as_deref()))
+        else {
             return;
         };
         if !self.compatible(&derived, &annotated) {

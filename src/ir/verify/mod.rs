@@ -1060,7 +1060,10 @@ fn usable_type(annotated: Option<&str>) -> Option<String> {
 fn numeric_literal_is_zero(value: &IrValue) -> bool {
     match value {
         IrValue::Const { type_, value }
-            if matches!(type_.name().as_ref(), "Integer" | "Float" | "Byte" | "Fixed") =>
+            if matches!(
+                type_.name().as_ref(),
+                "Integer" | "Float" | "Byte" | "Fixed"
+            ) =>
         {
             value.parse::<f64>().is_ok_and(|n| n == 0.0)
         }
@@ -1113,7 +1116,12 @@ fn fold_match_coverage(
 /// `syntaxcheck::helpers::integer_constant_value` on the IR shape.
 fn integer_constant_value(value: &IrValue) -> Option<i128> {
     match value {
-        IrValue::Const { type_, value } if matches!(type_, crate::types::ParameterType::Integer | crate::types::ParameterType::Byte) => {
+        IrValue::Const { type_, value }
+            if matches!(
+                type_,
+                crate::types::ParameterType::Integer | crate::types::ParameterType::Byte
+            ) =>
+        {
             value.parse::<i128>().ok()
         }
         IrValue::Unary { op, operand, .. } if op == "-" => {

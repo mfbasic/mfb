@@ -102,9 +102,10 @@ pub fn run(options: &AuditOptions) -> i32 {
     // plan-102-D3: monomorph consumes/produces HIR; audit's downstream passes
     // still consume `crate::ast`, so de-elaborate the concrete HIR back to its
     // byte-identical AST.
-    let Ok(concrete_hir) =
-        crate::monomorph::monomorphize_project(&options.location, &crate::hir::elaborate(&augmented))
-    else {
+    let Ok(concrete_hir) = crate::monomorph::monomorphize_project(
+        &options.location,
+        &crate::hir::elaborate(&augmented),
+    ) else {
         return 3;
     };
     let concrete_ast = crate::hir::deelaborate(&concrete_hir);

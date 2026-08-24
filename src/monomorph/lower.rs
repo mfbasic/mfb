@@ -422,7 +422,9 @@ impl<'a> Monomorphizer<'a> {
         }
         if let Some(value) = binding.value.take() {
             let mut context = self.function_context();
-            let expected = binding.explicit_type.then(|| binding.type_.name().into_owned());
+            let expected = binding
+                .explicit_type
+                .then(|| binding.type_.name().into_owned());
             binding.value = Some(self.lower_expression(
                 &value,
                 &HashMap::new(),
@@ -897,9 +899,9 @@ impl<'a> Monomorphizer<'a> {
                 let lowered_type = type_name
                     .as_ref()
                     .map(|type_name| self.concrete_type_name(type_name, substitutions));
-                let lowered_state = state_type
-                    .as_ref()
-                    .map(|state_type| self.concrete_type_name(state_type.name().as_ref(), substitutions));
+                let lowered_state = state_type.as_ref().map(|state_type| {
+                    self.concrete_type_name(state_type.name().as_ref(), substitutions)
+                });
                 let expected_source_type = type_name.as_ref().map(|type_name| {
                     substitute_type_params(
                         &crate::types::ParameterType::parse(type_name),
@@ -1062,12 +1064,15 @@ impl<'a> Monomorphizer<'a> {
                                         case.line,
                                     ))
                                 }
-                                HirMatchPattern::Union { type_, binding } => HirMatchPattern::Union {
-                                    type_: ParameterType::parse(
-                                        &self.concrete_type_name(type_.name().as_ref(), substitutions),
-                                    ),
-                                    binding: binding.clone(),
-                                },
+                                HirMatchPattern::Union { type_, binding } => {
+                                    HirMatchPattern::Union {
+                                        type_: ParameterType::parse(&self.concrete_type_name(
+                                            type_.name().as_ref(),
+                                            substitutions,
+                                        )),
+                                        binding: binding.clone(),
+                                    }
+                                }
                                 HirMatchPattern::OneOf(expressions) => HirMatchPattern::OneOf(
                                     expressions
                                         .iter()
@@ -1509,9 +1514,7 @@ impl<'a> Monomorphizer<'a> {
                         if !matches!(param.type_, ParameterType::Unknown) {
                             let type_name = param.type_.name().into_owned();
                             let concrete = self.concrete_type_name(&type_name, substitutions);
-                            nested
-                                .locals
-                                .insert(param.name.clone(), concrete.clone());
+                            nested.locals.insert(param.name.clone(), concrete.clone());
                             lowered.type_ = ParameterType::parse(&concrete);
                         }
                         lowered
@@ -1567,13 +1570,9 @@ impl<'a> Monomorphizer<'a> {
         expected_type: Option<&str>,
     ) -> HirConstructorArg {
         match argument {
-            HirConstructorArg::Positional(value) => HirConstructorArg::Positional(self.lower_expression(
-                value,
-                substitutions,
-                context,
-                expected_type,
-                line,
-            )),
+            HirConstructorArg::Positional(value) => HirConstructorArg::Positional(
+                self.lower_expression(value, substitutions, context, expected_type, line),
+            ),
             HirConstructorArg::Named {
                 name,
                 value,
@@ -1865,7 +1864,11 @@ impl<'a> Monomorphizer<'a> {
                 key_type,
                 value_type,
                 ..
-            } => Some(format!("Map OF {} TO {}", key_type.name(), value_type.name())),
+            } => Some(format!(
+                "Map OF {} TO {}",
+                key_type.name(),
+                value_type.name()
+            )),
             HirExpression::MemberAccess { target, member } => {
                 let target_type = self.expression_type(target, context)?;
                 context
@@ -2843,7 +2846,10 @@ END FUNC
             name: "app".to_string(),
             files: vec![file],
         };
-        let concrete = crate::hir::deelaborate(&super::super::monomorphize_project(dir.path(), &crate::hir::elaborate(&ast)).expect("monomorphizes"));
+        let concrete = crate::hir::deelaborate(
+            &super::super::monomorphize_project(dir.path(), &crate::hir::elaborate(&ast))
+                .expect("monomorphizes"),
+        );
         // The `main` body's call to `package_simple.score` is rewritten to the
         // package-qualified mangled symbol.
         let main = functions(&concrete)

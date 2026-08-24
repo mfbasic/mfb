@@ -3,8 +3,8 @@ use super::*;
 use super::lower_link::{link_aliases, link_cstructs, link_functions, native_resources};
 use crate::hir::{
     HirCallArg, HirConstructorArg, HirExpression, HirFunction, HirItem, HirMatchCase,
-    HirMatchPattern, HirParam, HirProject, HirStatement, HirTopLevelBinding,
-    HirTypeDecl, HirTypeField,
+    HirMatchPattern, HirParam, HirProject, HirStatement, HirTopLevelBinding, HirTypeDecl,
+    HirTypeField,
 };
 use crate::types::ParameterType;
 
@@ -554,8 +554,7 @@ fn lower_statement(
             // The explicit `AS T` annotation as the AST's `Option<String>`
             // (`None` when unannotated), reconstructed byte-exact from the HIR
             // `type_`/`explicit_type` pair.
-            let type_name: Option<String> =
-                explicit_type.then(|| type_.name().into_owned());
+            let type_name: Option<String> = explicit_type.then(|| type_.name().into_owned());
             if let Some(HirExpression::Trapped {
                 expression,
                 binding,
@@ -1397,7 +1396,10 @@ fn treeify_handler(stmts: &[HirStatement]) -> Vec<HirStatement> {
 }
 
 /// Appends `continuation` to a block's fall-through paths, then normalizes it.
-fn distribute_continuation(body: &[HirStatement], continuation: &[HirStatement]) -> Vec<HirStatement> {
+fn distribute_continuation(
+    body: &[HirStatement],
+    continuation: &[HirStatement],
+) -> Vec<HirStatement> {
     if block_terminates(body) {
         treeify_handler(body)
     } else {
@@ -1523,7 +1525,9 @@ fn statement_can_terminate(statement: &HirStatement) -> bool {
             else_body,
             ..
         } => block_can_terminate(then_body) || block_can_terminate(else_body),
-        HirStatement::Match { cases, .. } => cases.iter().any(|case| block_can_terminate(&case.body)),
+        HirStatement::Match { cases, .. } => {
+            cases.iter().any(|case| block_can_terminate(&case.body))
+        }
         HirStatement::For { body, .. }
         | HirStatement::ForEach { body, .. }
         | HirStatement::While { body, .. }
@@ -1825,10 +1829,7 @@ fn function_types(hir: &HirProject) -> HashMap<String, String> {
                 let params = function
                     .params
                     .iter()
-                    .map(|param| {
-                        param
-                            .type_.name().into_owned()
-                    })
+                    .map(|param| param.type_.name().into_owned())
                     .collect::<Vec<_>>()
                     .join(", ");
                 // A first-class reference's return carries the STATE for the same
@@ -1897,8 +1898,7 @@ fn function_params(hir: &HirProject) -> HashMap<String, Vec<CallParam>> {
                         .iter()
                         .map(|param| CallParam {
                             name: param.name.clone(),
-                            type_: param
-                                .type_.name().into_owned(),
+                            type_: param.type_.name().into_owned(),
                             default: param.default.clone(),
                         })
                         .collect(),
@@ -1914,8 +1914,7 @@ fn declared_binding_types(hir: &HirProject) -> HashMap<String, String> {
     for file in &hir.files {
         for item in &file.items {
             if let HirItem::Binding(binding) = item {
-                let type_ = binding
-                    .type_.name().into_owned();
+                let type_ = binding.type_.name().into_owned();
                 bindings.insert(binding.name.clone(), type_);
             }
         }
@@ -2167,8 +2166,7 @@ fn expression_type(
             let param_types = params
                 .iter()
                 .map(|param| {
-                    let type_ = param
-                        .type_.name().into_owned();
+                    let type_ = param.type_.name().into_owned();
                     nested.insert(param.name.clone(), type_.clone());
                     type_
                 })
@@ -2510,7 +2508,9 @@ fn registry_record_constant(name: &str) -> Option<IrValue> {
             .iter()
             .enumerate()
             .map(|(index, value)| IrValue::Const {
-                type_: crate::types::ParameterType::parse(&field_types.get(index).cloned().unwrap_or_default()),
+                type_: crate::types::ParameterType::parse(
+                    &field_types.get(index).cloned().unwrap_or_default(),
+                ),
                 value: value.to_string(),
             })
             .collect(),
@@ -2629,7 +2629,10 @@ fn lower_expression_with_expected(
                 let value = builtins::package_constant_value(&canonical_value)
                     .expect("recognized package constant has a value")
                     .to_string();
-                return IrValue::Const { type_: crate::types::ParameterType::parse(&type_), value };
+                return IrValue::Const {
+                    type_: crate::types::ParameterType::parse(&type_),
+                    value,
+                };
             }
 
             let base = if locals.contains_key(value) {
@@ -3050,8 +3053,7 @@ fn lower_expression_with_expected(
             let ir_params = params
                 .iter()
                 .map(|param| {
-                    let type_ = param
-                        .type_.name().into_owned();
+                    let type_ = param.type_.name().into_owned();
                     lambda_locals.insert(param.name.clone(), type_.clone());
                     IrParam {
                         name: param.name.clone(),
@@ -3122,15 +3124,15 @@ fn lower_expression_with_expected(
             });
             let params = params
                 .iter()
-                .map(|param| {
-                    param
-                        .type_.name().into_owned()
-                })
+                .map(|param| param.type_.name().into_owned())
                 .collect::<Vec<_>>()
                 .join(", ");
             let type_ = format!("FUNC({params}) AS {returns}");
             if captures.is_empty() {
-                IrValue::FunctionRef { name, type_: crate::types::ParameterType::parse(&type_) }
+                IrValue::FunctionRef {
+                    name,
+                    type_: crate::types::ParameterType::parse(&type_),
+                }
             } else {
                 IrValue::Closure {
                     name,
@@ -3144,7 +3146,9 @@ fn lower_expression_with_expected(
                                 // the callback observes and updates the live binding.
                                 IrValue::LocalRef {
                                     name: capture.name.clone(),
-                                    type_: crate::types::ParameterType::parse(&capture.type_.clone()),
+                                    type_: crate::types::ParameterType::parse(
+                                        &capture.type_.clone(),
+                                    ),
                                 }
                             } else {
                                 lower_expression(
@@ -3253,7 +3257,9 @@ fn lower_expression_with_expected(
             let expected_key = expected_map.as_ref().map(|(key, _)| key.as_str());
             let expected_value = expected_map.as_ref().map(|(_, value)| value.as_str());
             IrValue::MapLiteral {
-                type_: crate::types::ParameterType::parse(&format!("Map OF {key_type} TO {value_type}")),
+                type_: crate::types::ParameterType::parse(&format!(
+                    "Map OF {key_type} TO {value_type}"
+                )),
                 entries: entries
                     .iter()
                     .map(|(key, value)| {
