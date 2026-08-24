@@ -6,6 +6,7 @@ use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::target::shared::runtime;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// Whether a resource kind uses the per-`File` output/read buffer words
     /// (`BUF_PTR` @24 … `READ_AT_EOF` @72) — i.e. whether it is a `File`.
@@ -186,7 +187,7 @@ impl CodeBuilder<'_> {
             self.locals.insert(
                 format!("__resource_union_payload@{payload_slot}"),
                 LocalValue {
-                    type_: "fs.File".to_string(),
+                    type_: ParameterType::named("fs.File"),
                     stack_offset: payload_slot,
                     constant: None,
                     by_ref: false,
@@ -225,7 +226,8 @@ impl CodeBuilder<'_> {
             let Some(local) = self.locals.get(name) else {
                 continue;
             };
-            let Some(close) = crate::codegen::builtins::resource_close_function(&local.type_)
+            let Some(close) =
+                crate::codegen::builtins::resource_close_function(&local.type_.name())
             else {
                 continue;
             };
@@ -244,7 +246,9 @@ impl CodeBuilder<'_> {
                 // path (after the result-tag branch), so the sender keeps
                 // ownership and cleanup when the transfer fails with `Err`.
                 index == 1
-                    && crate::codegen::builtins::is_thread_sendable_resource_type(&local.type_)
+                    && crate::codegen::builtins::is_thread_sendable_resource_type(
+                        &local.type_.name(),
+                    )
             } else if crate::codegen::builtins::is_builtin_call(target) {
                 false
             } else {

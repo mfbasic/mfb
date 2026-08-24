@@ -3,6 +3,7 @@ use crate::ir::{
     IrBinding, IrField, IrFunction, IrMatchCase, IrMatchPattern, IrOp, IrParam, IrProject,
     IrSourceLoc, IrType, IrValue, IrVariant,
 };
+use crate::types::ParameterType;
 use std::collections::HashMap;
 
 fn project(functions: Vec<IrFunction>, types: Vec<IrType>) -> IrProject {
@@ -80,7 +81,7 @@ fn bind(name: &str, ty: &str, value: Option<IrValue>, explicit: bool, mutable: b
     IrOp::Bind {
         mutable,
         name: name.to_string(),
-        type_: ty.to_string(),
+        type_: ParameterType::parse(ty),
         value,
         explicit_type: explicit,
         loc: IrSourceLoc::default(),
@@ -811,7 +812,7 @@ fn accepts_ordinary_function() {
         IrOp::Bind {
             mutable: false,
             name: "n".to_string(),
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             value: Some(int_const("1")),
             loc: IrSourceLoc::default(),
             explicit_type: false,
@@ -1844,7 +1845,7 @@ fn accepts_do_until_valid() {
 fn rejects_for_non_numeric_bound() {
     let body = vec![IrOp::For {
         name: "i".to_string(),
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         start: const_of("String", "a"),
         end: int_const("10"),
         step: int_const("1"),
@@ -1861,7 +1862,7 @@ fn rejects_for_non_numeric_bound() {
 fn rejects_for_step_zero() {
     let body = vec![IrOp::For {
         name: "i".to_string(),
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         start: int_const("0"),
         end: int_const("10"),
         step: int_const("0"),
@@ -1878,7 +1879,7 @@ fn rejects_for_step_zero() {
 fn accepts_valid_for() {
     let body = vec![IrOp::For {
         name: "i".to_string(),
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         start: int_const("0"),
         end: int_const("10"),
         step: int_const("1"),
@@ -1901,7 +1902,7 @@ fn for_step_resolved_through_temp() {
         bind("$for0", "Integer", Some(int_const("0")), false, false),
         IrOp::For {
             name: "i".to_string(),
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             start: int_const("0"),
             end: int_const("10"),
             step: IrValue::Local("$for0".to_string()),
@@ -1923,7 +1924,7 @@ fn rejects_for_each_non_collection() {
         bind("x", "Integer", Some(int_const("1")), false, false),
         IrOp::ForEach {
             name: "e".to_string(),
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             iterable: IrValue::Local("x".to_string()),
             body: vec![],
             loc: IrSourceLoc::default(),
@@ -1950,7 +1951,7 @@ fn accepts_for_each_list() {
         ),
         IrOp::ForEach {
             name: "e".to_string(),
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             iterable: IrValue::Local("xs".to_string()),
             body: vec![IrOp::ContinueLoop {
                 kind: crate::ast::LoopKind::For,
@@ -3560,7 +3561,7 @@ fn foreach_body_move_leaks_to_outer() {
     let body = vec![
         IrOp::ForEach {
             name: "x".to_string(),
-            type_: "fs.File".to_string(),
+            type_: ParameterType::parse("fs.File"),
             iterable: IrValue::Local("items".to_string()),
             body: vec![fs_close("a")],
             loc: IrSourceLoc::default(),
@@ -5783,7 +5784,7 @@ fn for_unknown_bound_is_skipped() {
         bind("u", "Unknown", Some(int_const("0")), false, false),
         IrOp::For {
             name: "i".to_string(),
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             start: int_const("0"),
             end: IrValue::Local("u".to_string()),
             step: int_const("1"),
@@ -5805,7 +5806,7 @@ fn foreach_unknown_iterable_is_skipped() {
         bind("u", "Unknown", Some(int_const("0")), false, false),
         IrOp::ForEach {
             name: "e".to_string(),
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             iterable: IrValue::Local("u".to_string()),
             body: vec![],
             loc: IrSourceLoc::default(),
@@ -6734,7 +6735,7 @@ fn close_in_foreach_body_is_accepted() {
     // really protecting — only the verdict changed.
     let fe = IrOp::ForEach {
         name: "el".to_string(),
-        type_: "fs.File".to_string(),
+        type_: ParameterType::parse("fs.File"),
         iterable: IrValue::Local("xs".to_string()),
         body: vec![close_eval("el")],
         loc: IrSourceLoc::default(),

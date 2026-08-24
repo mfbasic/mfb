@@ -30,6 +30,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 /// The un-encodable prefix marking a `ValueResult.location` as a register-native
 /// vector whose lanes live in the `vector_natives` side-table. Chosen so it can
 /// never be a physical register / vreg / stack slot: if one leaks to a GP or
@@ -180,7 +181,7 @@ impl CodeBuilder<'_> {
         self.vector_natives.insert(marker.clone(), lanes);
         ValueResult {
             origin: None,
-            type_: type_.to_string(),
+            type_: ParameterType::parse(&type_),
             location: Operand::from(marker),
             text: format!("vecnative {type_}"),
         }
@@ -215,7 +216,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::store_u64(&lane.location, abi::stack_pointer(), slot));
             slots.push(slot);
         }
-        let register = self.emit_build_inlined_record(&value.type_, &slots)?;
+        let register = self.emit_build_inlined_record(&value.type_.name(), &slots)?;
         let block = ValueResult {
             origin: None,
             type_: value.type_,
@@ -232,7 +233,7 @@ impl CodeBuilder<'_> {
         let slot = self.allocate_stack_object("pending_temp", 8);
         self.emit(abi::store_u64(&block.location, abi::stack_pointer(), slot));
         self.pending_temp_frees.push(PendingTemp {
-            type_: block.type_.clone(),
+            type_: block.type_.name().into_owned(),
             slot,
             location: block.location.clone(),
         });
@@ -323,7 +324,7 @@ impl CodeBuilder<'_> {
         let previous = self.locals.insert(
             len_name.clone(),
             LocalValue {
-                type_: "Float".to_string(),
+                type_: ParameterType::Float,
                 stack_offset: len_slot,
                 constant: None,
                 by_ref: false,
@@ -334,7 +335,7 @@ impl CodeBuilder<'_> {
             "=",
             NirValue::Local(len_name.clone()),
             NirValue::Const {
-                type_: "Float".to_string(),
+                type_: ParameterType::Float,
                 value: "0.0".to_string(),
             },
         ))?;
@@ -357,7 +358,7 @@ impl CodeBuilder<'_> {
             })
             .collect();
         let result = self.lower_value(&NirValue::Constructor {
-            type_: type_name.to_string(),
+            type_: ParameterType::named(type_name),
             args: lanes,
         });
         match previous {
@@ -403,7 +404,7 @@ impl CodeBuilder<'_> {
         // Build a vector-returning result by constructing `type_name` from `lanes`.
         let build = |this: &mut Self, lanes: Vec<NirValue>| -> Result<ValueResult, String> {
             this.lower_value(&NirValue::Constructor {
-                type_: type_name.to_string(),
+                type_: ParameterType::named(type_name),
                 args: lanes,
             })
         };
@@ -452,11 +453,11 @@ impl CodeBuilder<'_> {
                     args: vec![
                         t.clone(),
                         NirValue::Const {
-                            type_: "Float".to_string(),
+                            type_: ParameterType::Float,
                             value: "0.0".to_string(),
                         },
                         NirValue::Const {
-                            type_: "Float".to_string(),
+                            type_: ParameterType::Float,
                             value: "1.0".to_string(),
                         },
                     ],

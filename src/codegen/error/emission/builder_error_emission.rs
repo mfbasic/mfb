@@ -5,6 +5,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// plan-88: raise a runtime error by its `errorCode` NAME, on behalf of the
     /// builtin `function_id`. Validates the name is declared in that function's
@@ -631,18 +632,20 @@ impl CodeBuilder<'_> {
         let slots = self.ensure_pending_result_slots();
         let scratch9 = self.temporary_vreg();
         let value_register = if let Some(value) = value {
-            if value.type_ == "Nothing" {
+            if value.type_ == ParameterType::Nothing {
                 let register = self.allocate_register()?;
                 self.emit(abi::move_immediate(&register, "Integer", "0"));
                 Operand::from(register.render())
             } else if !already_standalone
-                && self.inline_collection_payload_size(&value.type_).is_some()
+                && self
+                    .inline_collection_payload_size(&value.type_.name())
+                    .is_some()
             {
                 // An alias / inline-payload return is promoted to a standalone
                 // arena block. A value already deep-copied by
                 // `lower_returned_value` is standalone and skips this.
                 Operand::from(
-                    self.materialize_inline_value_in_arena(&value.type_, &value.location)?
+                    self.materialize_inline_value_in_arena(&value.type_.name(), &value.location)?
                         .render(),
                 )
             } else {
@@ -910,7 +913,7 @@ impl CodeBuilder<'_> {
         // orphaned on every failure (a per-FAIL leak). The loose registers stay set
         // for the top-level exit printer and the OOM fallback.
         let error = self.lower_value_owned(error)?;
-        if error.type_ != "Error" {
+        if error.type_.name() != "Error" {
             return Err(format!(
                 "cleanup error exit expects Error value, got `{}`",
                 error.type_
@@ -946,7 +949,7 @@ impl CodeBuilder<'_> {
         // so it keeps the legacy loose-register path and the catcher rebuilds a copy.
         let adopt = !Self::value_is_aliasing_source(error);
         let error = self.lower_value(error)?;
-        if error.type_ != "Error" {
+        if error.type_.name() != "Error" {
             return Err(format!(
                 "native code fail expects Error value, got `{}`",
                 error.type_
@@ -986,7 +989,7 @@ impl CodeBuilder<'_> {
         error: &NirValue,
     ) -> Result<(), String> {
         let error = self.lower_value(error)?;
-        if error.type_ != "Error" {
+        if error.type_.name() != "Error" {
             return Err(format!(
                 "trap routing expects Error value, got `{}`",
                 error.type_

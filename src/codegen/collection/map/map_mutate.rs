@@ -4,6 +4,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// Set `key -> value` in the map whose buffer pointer lives in `map_slot`,
     /// **mutating the buffer in place** (plan-02 §4.3). Linear-scans for the key
@@ -912,7 +913,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), map_slot));
         Ok(ValueResult {
             origin: None,
-            type_: map_type.to_string(),
+            type_: ParameterType::parse(&map_type),
             location: Operand::from(result.render()),
             text: format!("map set in place {map_type}"),
         })
@@ -1038,7 +1039,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), map_slot));
         Ok(ValueResult {
             origin: None,
-            type_: map_type.to_string(),
+            type_: ParameterType::parse(&map_type),
             location: Operand::from(result.render()),
             text: format!("removeKey_in_place({map_type}, {key_type})"),
         })

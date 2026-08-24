@@ -132,9 +132,9 @@ pub(crate) fn lower_has_key(
 
     // A Map keys on its key type; a Set (reached via `contains`, plan-63-B)
     // keys on its element type — both are the bytes the probe compares.
-    let Some(key_type) = map_type_parts(&collection.type_)
+    let Some(key_type) = map_type_parts(&collection.type_.name())
         .map(|(key, _)| key.to_string())
-        .or_else(|| set_element_type(&collection.type_))
+        .or_else(|| set_element_type(&collection.type_.name()))
     else {
         return Err(format!(
             "native collection hasKey/contains does not accept {}",
@@ -142,7 +142,7 @@ pub(crate) fn lower_has_key(
         ));
     };
     let key_type = key_type.as_str();
-    if key.type_ != key_type {
+    if key.type_.name() != key_type {
         return Err(format!(
             "native collection hasKey key must be {}, got {}",
             key_type, key.type_
@@ -153,6 +153,6 @@ pub(crate) fn lower_has_key(
         key_slot,
         key_type,
         "has_key",
-        &collection.type_,
+        &collection.type_.name(),
     )
 }

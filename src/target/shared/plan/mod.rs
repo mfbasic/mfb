@@ -392,6 +392,7 @@ mod tests {
     use super::*;
     use crate::target::shared::nir::{NirEntryPoint, NirFunction, NirModule, NirOp, NirValue};
     use crate::target::shared::runtime::{RuntimeHelper, RuntimeHelperSpec};
+    use crate::types::ParameterType;
 
     struct TestPlatform;
 
@@ -474,7 +475,7 @@ mod tests {
             project: "hello".to_string(),
             entry: Some(NirEntryPoint {
                 name: "main".to_string(),
-                returns: "Nothing".to_string(),
+                returns: ParameterType::Nothing,
                 accepts_args: false,
             }),
             types: Vec::new(),
@@ -487,13 +488,13 @@ mod tests {
                 kind: "sub".to_string(),
                 isolated: false,
                 params: Vec::new(),
-                returns: "Nothing".to_string(),
+                returns: ParameterType::Nothing,
                 body: vec![NirOp::Eval {
                     value: NirValue::RuntimeCall {
                         helper: RuntimeHelper::Io,
                         target: "io.print".to_string(),
                         args: vec![NirValue::Const {
-                            type_: "String".to_string(),
+                            type_: ParameterType::String,
                             value: "Hello World".to_string(),
                         }],
                         loc: nir::NirSourceLoc::default(),

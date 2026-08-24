@@ -14,6 +14,7 @@ use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 use std::collections::HashSet;
 pub(crate) fn expanded_nir_union_variants<'a>(
@@ -482,7 +483,7 @@ pub(crate) fn promotable_vector_locals(
 /// or an inlined vector op), so a binding of it starts life in lanes.
 fn is_vector_native_producing(value: &NirValue) -> bool {
     match value {
-        NirValue::Constructor { type_, .. } => vector_field_count(type_).is_some(),
+        NirValue::Constructor { type_, .. } => vector_field_count(&type_.name()).is_some(),
         NirValue::Call { target, args, .. } => vector_call_is_inlined(target, args),
         _ => false,
     }
@@ -496,7 +497,9 @@ fn collect_vector_native_bindings(ops: &[NirOp], out: &mut HashSet<String>) {
                 type_,
                 value: Some(value),
                 ..
-            } if vector_field_count(type_).is_some() && is_vector_native_producing(value) => {
+            } if vector_field_count(&type_.name()).is_some()
+                && is_vector_native_producing(value) =>
+            {
                 out.insert(name.clone());
             }
             NirOp::Bind { .. }
@@ -797,7 +800,7 @@ pub(crate) fn lower_function(
     function: &NirFunction,
     function_symbols: &HashMap<String, String>,
     functions: &HashMap<String, &NirFunction>,
-    package_return_types: &HashMap<String, String>,
+    package_return_types: &HashMap<String, ParameterType>,
     platform_imports: &HashMap<String, String>,
     platform: &dyn crate::codegen::engine::types::CodegenPlatform,
     build_mode: crate::target::NativeBuildMode,
@@ -826,7 +829,7 @@ pub(crate) fn lower_function(
             };
             Ok(CodeParam {
                 name: param.name.clone(),
-                type_: param.type_.clone(),
+                type_: param.type_.name().into_owned(),
                 location,
             })
         })
@@ -913,7 +916,9 @@ pub(crate) fn lower_function(
         builder.locals.insert(
             param.name.clone(),
             LocalValue {
-                type_: param.type_.clone(),
+                // The typed NIR param, not the rendered `CodeParam` string —
+                // `params[i]` was built 1:1 from `function.params[i]` above.
+                type_: function.params[index].type_.clone(),
                 stack_offset,
                 constant: None,
                 by_ref: false,
@@ -954,7 +959,7 @@ pub(crate) fn lower_function(
         builder.locals.insert(
             name.clone(),
             LocalValue {
-                type_: "Error".to_string(),
+                type_: ParameterType::named("Error"),
                 stack_offset,
                 constant: None,
                 by_ref: false,
@@ -1080,7 +1085,7 @@ pub(crate) fn lower_function(
         name: function.name.clone(),
         symbol: nir::function_symbol(&function.name),
         params,
-        returns: function.returns.clone(),
+        returns: function.returns.name().into_owned(),
         frame,
         instructions,
         relocations: builder.relocations,
@@ -1095,7 +1100,7 @@ pub(crate) fn lower_builtin_function_wrapper(
     symbol: &str,
     function_symbols: &HashMap<String, String>,
     functions: &HashMap<String, &NirFunction>,
-    package_return_types: &HashMap<String, String>,
+    package_return_types: &HashMap<String, ParameterType>,
     platform_imports: &HashMap<String, String>,
     platform: &dyn crate::codegen::engine::types::CodegenPlatform,
     build_mode: crate::target::NativeBuildMode,
@@ -1191,7 +1196,9 @@ pub(crate) fn lower_builtin_function_wrapper(
     builder.locals.insert(
         "value".to_string(),
         LocalValue {
-            type_: param.type_.clone(),
+            // The wrapper's param type arrives as a `FUNC(...)` string split
+            // (a registry-descriptor boundary until plan-104-C); parse once here.
+            type_: ParameterType::parse(&param.type_),
             stack_offset,
             constant: None,
             by_ref: false,
@@ -1287,7 +1294,7 @@ pub(crate) fn lower_abi_function_helper(
     // duration of this call.
     let function_symbols: HashMap<String, String> = HashMap::new();
     let functions: HashMap<String, &NirFunction> = HashMap::new();
-    let package_return_types: HashMap<String, String> = HashMap::new();
+    let package_return_types: HashMap<String, ParameterType> = HashMap::new();
     let globals: HashMap<String, GlobalValue> = HashMap::new();
     let string_symbols: HashMap<String, String> = HashMap::new();
 
@@ -1369,7 +1376,7 @@ pub(crate) fn lower_abi_function_helper(
     for index in 0..arity {
         args.push(ValueResult {
             origin: None,
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             location: abi::argument_register(index)?,
             text: format!("abiArg{index}"),
         });
@@ -1426,7 +1433,7 @@ pub(crate) fn lower_thread_copy_function(
     symbol: &str,
     function_symbols: &HashMap<String, String>,
     functions: &HashMap<String, &NirFunction>,
-    package_return_types: &HashMap<String, String>,
+    package_return_types: &HashMap<String, ParameterType>,
     platform_imports: &HashMap<String, String>,
     platform: &dyn crate::codegen::engine::types::CodegenPlatform,
     build_mode: crate::target::NativeBuildMode,
@@ -1547,12 +1554,13 @@ pub(crate) fn lower_thread_copy_function(
 mod m6_escape_tests {
     use super::collect_value_used_locals;
     use crate::target::shared::nir::{NirOp, NirSourceLoc, NirValue};
+    use crate::types::ParameterType;
     use std::collections::HashSet;
 
     fn closure() -> NirValue {
         NirValue::Closure {
             name: "lambda_impl".to_string(),
-            type_: "FUNC(Integer) AS Integer".to_string(),
+            type_: ParameterType::parse("FUNC(Integer) AS Integer"),
             captures: vec![],
         }
     }
@@ -1572,7 +1580,7 @@ mod m6_escape_tests {
             NirOp::Bind {
                 mutable: false,
                 name: "f".to_string(),
-                type_: "FUNC(Integer) AS Integer".to_string(),
+                type_: ParameterType::parse("FUNC(Integer) AS Integer"),
                 value: Some(closure()),
             },
             // `f(x)` lowers to Call { target: "f" } — the target is a String, not a
@@ -1581,7 +1589,7 @@ mod m6_escape_tests {
                 value: NirValue::Call {
                     target: "f".to_string(),
                     args: vec![NirValue::Const {
-                        type_: "Integer".to_string(),
+                        type_: ParameterType::Integer,
                         value: "5".to_string(),
                     }],
                     loc: NirSourceLoc::default(),
@@ -1623,14 +1631,14 @@ mod m6_escape_tests {
             NirOp::Bind {
                 mutable: false,
                 name: "k".to_string(),
-                type_: "FUNC(Integer) AS Integer".to_string(),
+                type_: ParameterType::parse("FUNC(Integer) AS Integer"),
                 value: Some(NirValue::Local("f".to_string())),
             },
             // A LocalRef of `m` (address taken) is also an escape.
             NirOp::Eval {
                 value: NirValue::LocalRef {
                     name: "m".to_string(),
-                    type_: "FUNC(Integer) AS Integer".to_string(),
+                    type_: ParameterType::parse("FUNC(Integer) AS Integer"),
                 },
             },
         ];

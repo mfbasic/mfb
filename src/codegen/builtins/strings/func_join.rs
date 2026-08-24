@@ -32,7 +32,7 @@ pub(crate) fn lower(
     let scratch14 = builder.temporary_vreg();
     let scratch15 = builder.temporary_vreg();
     let parts = parts.clone();
-    if list_element_type(&parts.type_).as_deref() != Some("String") {
+    if list_element_type(&parts.type_.name()).as_deref() != Some("String") {
         return Err(format!(
             "strings.join parts must be List OF String, got {}",
             parts.type_
@@ -201,7 +201,7 @@ pub(crate) fn lower(
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
     Ok(ValueResult {
         origin: None,
-        type_: "String".to_string(),
+        type_: ParameterType::String,
         location: Operand::from(result.render()),
         text: "strings.join".to_string(),
     })

@@ -79,7 +79,7 @@ impl ToNirJson for NirGlobal {
             json_string(&self.symbol),
             json_string(&self.visibility),
             self.mutable,
-            json_string(&self.type_),
+            json_string(&self.type_.name()),
             value
         )
     }
@@ -99,7 +99,7 @@ impl ToNirJson for NirEntryPoint {
             pad,
             json_string(&self.name),
             pad,
-            json_string(&self.returns),
+            json_string(&self.returns.name()),
             pad,
             self.accepts_args,
             pad
@@ -208,7 +208,7 @@ impl ToNirJson for NirField {
             pad,
             visibility,
             json_string(&self.name),
-            json_string(&self.type_)
+            json_string(&self.type_.name())
         )
     }
 }
@@ -274,7 +274,7 @@ impl ToNirJson for NirImport {
                 .collect::<Vec<_>>()
                 .join(", "),
             pad,
-            json_string(&self.returns),
+            json_string(&self.returns.name()),
             pad
         )
     }
@@ -284,7 +284,7 @@ impl ToNirJson for NirImportParam {
     fn to_json(&self, _indent: usize) -> String {
         format!(
             "{{ \"type\": {}, \"hasDefault\": {} }}",
-            json_string(&self.type_),
+            json_string(&self.type_.name()),
             self.has_default
         )
     }
@@ -348,7 +348,7 @@ impl ToNirJson for NirFunction {
             join_json(&self.params, indent + 2),
             pad,
             pad,
-            json_string(&self.returns),
+            json_string(&self.returns.name()),
             pad,
             join_json(&self.body, indent + 2),
             pad,
@@ -529,7 +529,7 @@ impl ToNirJson for NirParam {
             "\n{}{{ \"name\": {}, \"type\": {}, \"default\": {} }}",
             pad,
             json_string(&self.name),
-            json_string(&self.type_),
+            json_string(&self.type_.name()),
             default
         )
     }
@@ -554,7 +554,7 @@ impl ToNirJson for NirOp {
                     pad,
                     mutable,
                     json_string(name),
-                    json_string(type_),
+                    json_string(&type_.name()),
                     value
                 )
             }
@@ -579,7 +579,7 @@ impl ToNirJson for NirOp {
                     "\n{}{{ \"op\": \"storeGlobal\", \"name\": {}, \"type\": {}, \"value\": {} }}",
                     pad,
                     json_string(name),
-                    json_string(type_),
+                    json_string(&type_.name()),
                     value
                 )
             }
@@ -714,7 +714,7 @@ impl ToNirJson for NirOp {
                 pad,
                 json_string(name),
                 pad,
-                json_string(type_),
+                json_string(&type_.name()),
                 pad,
                 start.to_json(indent),
                 pad,
@@ -763,7 +763,7 @@ impl ToNirJson for NirOp {
                 pad,
                 json_string(name),
                 pad,
-                json_string(type_),
+                json_string(&type_.name()),
                 pad,
                 iterable.to_json(indent),
                 pad,
@@ -846,7 +846,7 @@ impl ToNirJson for NirValue {
         match self {
             NirValue::Const { type_, value } => format!(
                 "{{ \"kind\": \"const\", \"type\": {}, \"value\": {} }}",
-                json_string(type_),
+                json_string(&type_.name()),
                 json_string(value)
             ),
             NirValue::Local(name) => {
@@ -855,17 +855,17 @@ impl ToNirJson for NirValue {
             NirValue::LocalRef { name, type_ } => format!(
                 "{{ \"kind\": \"localRef\", \"name\": {}, \"type\": {} }}",
                 json_string(name),
-                json_string(type_)
+                json_string(&type_.name())
             ),
             NirValue::Global { name, type_ } => format!(
                 "{{ \"kind\": \"global\", \"name\": {}, \"type\": {} }}",
                 json_string(name),
-                json_string(type_)
+                json_string(&type_.name())
             ),
             NirValue::FunctionRef { name, type_ } => format!(
                 "{{ \"kind\": \"functionRef\", \"name\": {}, \"type\": {} }}",
                 json_string(name),
-                json_string(type_)
+                json_string(&type_.name())
             ),
             NirValue::Closure {
                 name,
@@ -874,7 +874,7 @@ impl ToNirJson for NirValue {
             } => format!(
                 "{{ \"kind\": \"closure\", \"name\": {}, \"type\": {}, \"captures\": [{}] }}",
                 json_string(name),
-                json_string(type_),
+                json_string(&type_.name()),
                 join_values(captures)
             ),
             NirValue::Capture {
@@ -886,13 +886,13 @@ impl ToNirJson for NirValue {
                     format!(
                         "{{ \"kind\": \"capture\", \"index\": {}, \"type\": {}, \"byRef\": true }}",
                         index,
-                        json_string(type_)
+                        json_string(&type_.name())
                     )
                 } else {
                     format!(
                         "{{ \"kind\": \"capture\", \"index\": {}, \"type\": {} }}",
                         index,
-                        json_string(type_)
+                        json_string(&type_.name())
                     )
                 }
             }
@@ -919,7 +919,7 @@ impl ToNirJson for NirValue {
             ),
             NirValue::Constructor { type_, args } => format!(
                 "{{ \"kind\": \"constructor\", \"type\": {}, \"args\": [{}] }}",
-                json_string(type_),
+                json_string(&type_.name()),
                 join_values(args)
             ),
             NirValue::UnionWrap {
@@ -928,13 +928,13 @@ impl ToNirJson for NirValue {
                 value,
             } => format!(
                 "{{ \"kind\": \"unionWrap\", \"union\": {}, \"member\": {}, \"value\": {} }}",
-                json_string(union_type),
-                json_string(member_type),
+                json_string(&union_type.name()),
+                json_string(&member_type.name()),
                 value.to_json(0)
             ),
             NirValue::UnionExtract { type_, value } => format!(
                 "{{ \"kind\": \"unionExtract\", \"type\": {}, \"value\": {} }}",
-                json_string(type_),
+                json_string(&type_.name()),
                 value.to_json(0)
             ),
             NirValue::ResultIsOk { value } => format!(
@@ -955,7 +955,7 @@ impl ToNirJson for NirValue {
                 updates,
             } => format!(
                 "{{ \"kind\": \"with\", \"type\": {}, \"target\": {}, \"updates\": [{}] }}",
-                json_string(type_),
+                json_string(&type_.name()),
                 target.to_json(0),
                 updates
                     .iter()
@@ -965,12 +965,12 @@ impl ToNirJson for NirValue {
             ),
             NirValue::ListLiteral { type_, values } => format!(
                 "{{ \"kind\": \"list\", \"type\": {}, \"values\": [{}] }}",
-                json_string(type_),
+                json_string(&type_.name()),
                 join_values(values)
             ),
             NirValue::SetLiteral { type_, values } => format!(
                 "{{ \"kind\": \"set\", \"type\": {}, \"values\": [{}] }}",
-                json_string(type_),
+                json_string(&type_.name()),
                 join_values(values)
             ),
             NirValue::MapLiteral { type_, entries } => {
@@ -987,7 +987,7 @@ impl ToNirJson for NirValue {
                     .join(", ");
                 format!(
                     "{{ \"kind\": \"map\", \"type\": {}, \"entries\": [{}] }}",
-                    json_string(type_),
+                    json_string(&type_.name()),
                     entries
                 )
             }
@@ -1051,7 +1051,7 @@ mod tests {
             fields: vec![NirField {
                 visibility: None,
                 name: "id".to_string(),
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
             }],
             includes: Vec::new(),
             variants: Vec::new(),

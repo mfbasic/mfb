@@ -13,6 +13,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn lower_boolean_binary(
         &mut self,
@@ -49,7 +50,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
         Ok(ValueResult {
             origin: None,
-            type_: "Boolean".to_string(),
+            type_: ParameterType::Boolean,
             location: Operand::from(result.render()),
             text: format!("({} AND {})", left.text, right.text),
         })
@@ -74,7 +75,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
         Ok(ValueResult {
             origin: None,
-            type_: "Boolean".to_string(),
+            type_: ParameterType::Boolean,
             location: Operand::from(result.render()),
             text: format!("({} OR {})", left.text, right.text),
         })
@@ -126,7 +127,7 @@ impl CodeBuilder<'_> {
         ));
         Ok(ValueResult {
             origin: None,
-            type_: "Boolean".to_string(),
+            type_: ParameterType::Boolean,
             location: Operand::from(result.render()),
             text: format!("({left_text} XOR {right_text})"),
         })
@@ -160,7 +161,7 @@ impl CodeBuilder<'_> {
         // decides the result type without lowering it twice; an unknown type
         // conservatively falls through to the general path.
         if self.dnative_floats()
-            && left.type_ == "Float"
+            && left.type_ == ParameterType::Float
             && matches!(op, "+" | "-" | "*" | "/" | "DIV")
         {
             let result_is_float = self
@@ -194,7 +195,9 @@ impl CodeBuilder<'_> {
         ));
         let left_text = left.text.clone();
         let right_text = right.text.clone();
-        let result_type = numeric_binary_result_type(op, &left.type_, &right.type_).to_string();
+        let result_type = typed_numeric_binary_result_type(op, &left.type_, &right.type_)
+            .name()
+            .into_owned();
         self.reset_temporary_registers();
         let left_register = self.allocate_register()?;
         let right_register = self.allocate_register()?;
@@ -245,7 +248,7 @@ impl CodeBuilder<'_> {
                 )?;
             }
             "Fixed" => {
-                if left.type_ == "Fixed" && right.type_ == "Fixed" {
+                if left.type_ == ParameterType::Fixed && right.type_ == ParameterType::Fixed {
                     self.emit_fixed_binary(op, &left, &right, &register)?;
                 } else {
                     // Float-to-Fixed conversion uses x8-x12 as internal scratch registers.
@@ -275,13 +278,13 @@ impl CodeBuilder<'_> {
                     ));
                     let left = ValueResult {
                         origin: None,
-                        type_: "Fixed".to_string(),
+                        type_: ParameterType::Fixed,
                         location: Operand::from(left_fixed.render()),
                         text: left.text.clone(),
                     };
                     let right = ValueResult {
                         origin: None,
-                        type_: "Fixed".to_string(),
+                        type_: ParameterType::Fixed,
                         location: Operand::from(right_fixed.render()),
                         text: right.text.clone(),
                     };
@@ -292,7 +295,7 @@ impl CodeBuilder<'_> {
                 // A Money operand with a Float result is the `M / M` ratio or a
                 // `Money DIV …` — routed through the Money dispatcher, which
                 // produces the f64 result (plan-29-E §4.3/§4.5).
-                if left.type_ == "Money" || right.type_ == "Money" {
+                if left.type_ == ParameterType::Money || right.type_ == ParameterType::Money {
                     result_location = self.emit_money_binary(op, &left, &right, &register)?;
                 } else {
                     result_location = self.emit_float_binary(op, &left, &right, &register)?;
@@ -311,7 +314,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             origin: None,
-            type_: result_type,
+            type_: ParameterType::parse(&result_type),
             location: Operand::from(result_location),
             text: format!("({} {op} {})", left.text, right.text),
         })
@@ -332,7 +335,9 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let left_text = left.text.clone();
         let right = self.lower_value(right)?;
-        let result_type = numeric_binary_result_type(op, &left.type_, &right.type_).to_string();
+        let result_type = typed_numeric_binary_result_type(op, &left.type_, &right.type_)
+            .name()
+            .into_owned();
         let right_text = right.text.clone();
         // `dst` is used only by the GP-result operators (`MOD`/`^`); the pure-FP
         // operators ignore it and return their FP register.
@@ -340,7 +345,7 @@ impl CodeBuilder<'_> {
         let location = self.emit_float_binary(op, &left, &right, &dst)?;
         Ok(ValueResult {
             origin: None,
-            type_: result_type,
+            type_: ParameterType::parse(&result_type),
             location: Operand::from(location),
             text: format!(
                 "({op_left} {op} {op_right})",
@@ -356,7 +361,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let register = self.allocate_register()?;
         let mut location = register.clone();
-        match operand.type_.as_str() {
+        match operand.type_.name().as_ref() {
             "Byte" => {
                 let ok = self.label("byte_unary_ok");
                 self.emit(abi::compare_immediate(&operand.location, "0"));
@@ -443,9 +448,9 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             left_slot,
         ));
-        if left.type_ == "String" {
+        if left.type_ == ParameterType::String {
             let right = self.lower_value(right)?;
-            if right.type_ != "String" {
+            if right.type_ != ParameterType::String {
                 return Err(format!(
                     "native code comparison requires matching String operands, got {} and {}",
                     left.type_, right.type_
@@ -485,7 +490,7 @@ impl CodeBuilder<'_> {
             return self.lower_string_comparison_binary(op, &left, &right);
         }
         if matches!(
-            left.type_.as_str(),
+            left.type_.name().as_ref(),
             "Byte" | "Integer" | "Fixed" | "Float" | "Money"
         ) {
             let right = self.lower_value(right)?;
@@ -523,7 +528,11 @@ impl CodeBuilder<'_> {
             };
             return self.lower_numeric_comparison_binary(op, &left, &right);
         }
-        if self.type_model.record_fields.contains_key(&left.type_) {
+        if self
+            .type_model
+            .record_fields
+            .contains_key(left.type_.name().as_ref())
+        {
             if !matches!(op, "=" | "<>") {
                 return Err(format!(
                     "native code does not lower record comparison operator '{op}'"
@@ -560,7 +569,7 @@ impl CodeBuilder<'_> {
                 right_slot,
             ));
             self.emit_comparable_values_match_branch(
-                &left.type_,
+                &left.type_.name(),
                 &left_register,
                 &right_register,
                 &equal_label,
@@ -582,7 +591,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done_label));
             return Ok(ValueResult {
                 origin: None,
-                type_: "Boolean".to_string(),
+                type_: ParameterType::Boolean,
                 location: Operand::from(result.render()),
                 text: format!("({} {op} {})", left.text, right.text),
             });
@@ -631,7 +640,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
         Ok(ValueResult {
             origin: None,
-            type_: "Boolean".to_string(),
+            type_: ParameterType::Boolean,
             location: Operand::from(result.render()),
             text: format!("({} {op} {})", left.text, right.text),
         })
@@ -682,12 +691,15 @@ impl CodeBuilder<'_> {
             text: right.text.clone(),
         };
 
-        let promoted = if left.type_ == "Float" || right.type_ == "Float" {
+        let promoted = if left.type_ == ParameterType::Float || right.type_ == ParameterType::Float
+        {
             "Float".to_string()
-        } else if left.type_ == "Fixed" || right.type_ == "Fixed" {
+        } else if left.type_ == ParameterType::Fixed || right.type_ == ParameterType::Fixed {
             "Fixed".to_string()
         } else {
-            numeric_binary_result_type("+", &left.type_, &right.type_).to_string()
+            typed_numeric_binary_result_type("+", &left.type_, &right.type_)
+                .name()
+                .into_owned()
         };
         let result = self.allocate_register()?;
         let true_label = self.label("cmp_true");
@@ -758,7 +770,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done_label));
         Ok(ValueResult {
             origin: None,
-            type_: "Boolean".to_string(),
+            type_: ParameterType::Boolean,
             location: Operand::from(result.render()),
             text: format!("({} {op} {})", left.text, right.text),
         })
@@ -782,7 +794,7 @@ impl CodeBuilder<'_> {
         let NirValue::Const { type_, value } = right else {
             return false;
         };
-        if type_ != "Integer" {
+        if !matches!(type_, ParameterType::Integer) {
             return false;
         }
         let Ok(c) = value.parse::<i64>() else {
@@ -805,7 +817,7 @@ impl CodeBuilder<'_> {
         if !self.integer_strict_upper.contains(name) {
             return false;
         }
-        matches!(right, NirValue::Const { type_, value } if type_ == "Integer" && value == "1")
+        matches!(right, NirValue::Const { type_, value } if matches!(type_, ParameterType::Integer) && value == "1")
     }
 
     /// plan-39 I1: the lower bound a guard condition establishes on its fall-through
@@ -822,7 +834,9 @@ impl CodeBuilder<'_> {
             return None;
         };
         let (name, konst) = match (left.as_ref(), right.as_ref()) {
-            (NirValue::Local(n), NirValue::Const { type_, value }) if type_ == "Integer" => {
+            (NirValue::Local(n), NirValue::Const { type_, value })
+                if matches!(type_, ParameterType::Integer) =>
+            {
                 (n.clone(), value.parse::<i64>().ok()?)
             }
             _ => return None,
@@ -1116,7 +1130,8 @@ impl CodeBuilder<'_> {
     /// store) and materialized into a GPR on demand by [`Self::float_value_as_gpr`]
     /// for every site that needs the raw bits.
     pub(crate) fn float_is_dnative(value: &ValueResult) -> bool {
-        value.type_ == "Float" && regalloc::parse_fp_vreg(&value.location.render()).is_some()
+        value.type_ == ParameterType::Float
+            && regalloc::parse_fp_vreg(&value.location.render()).is_some()
     }
 
     /// The single choke point every consumer that needs a `Float`'s **bit
@@ -1178,7 +1193,7 @@ impl CodeBuilder<'_> {
         if Self::float_is_dnative(value) {
             return Ok(value.location.render());
         }
-        if value.type_ == "Float" {
+        if value.type_ == ParameterType::Float {
             if let Some(resident) = self.float_residents.get(&value.location.render()).cloned() {
                 return Ok(resident);
             }
@@ -1644,7 +1659,7 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         let dst = dst.into();
         let fixed_scratch = self.temporary_vreg();
-        match value.type_.as_str() {
+        match value.type_.name().as_ref() {
             // A `d`-native float is already in an FP register: move it `d`-to-`d`
             // (no GPR round-trip). A GP-native float carries its bits in `value
             // .location` and is moved across the `fmov d, x` boundary.
@@ -1681,7 +1696,7 @@ impl CodeBuilder<'_> {
         value: &ValueResult,
     ) -> Result<(), String> {
         let dst = dst.into();
-        match value.type_.as_str() {
+        match value.type_.name().as_ref() {
             "Fixed" => self.emit(abi::move_register(dst, &value.location)),
             "Byte" | "Integer" => self.emit_integer_to_fixed_value(&value.location, dst)?,
             "Float" => {

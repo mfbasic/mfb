@@ -5,6 +5,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::nir;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 use std::collections::HashSet;
 pub(crate) fn module_requires_empty_string_constant(module: &NirModule) -> bool {
@@ -26,10 +27,14 @@ fn op_requires_empty_string_constant(op: &NirOp, type_model: &TypeModel) -> bool
         // demands the sentinel even though `value` is `Some` — checking only
         // `value: None` left the relocation dangling (bug-256, bug-05 class).
         NirOp::Bind { type_, value, .. } => {
-            crate::codegen::resource::state_type_name(type_).is_some_and(|state| {
+            crate::codegen::resource::state_type_name(&type_.name()).is_some_and(|state| {
                 type_requires_empty_string_constant(state, type_model, &mut HashSet::new())
             }) || (value.is_none()
-                && type_requires_empty_string_constant(type_, type_model, &mut HashSet::new()))
+                && type_requires_empty_string_constant(
+                    &type_.name(),
+                    type_model,
+                    &mut HashSet::new(),
+                ))
         }
         NirOp::If {
             then_body,
@@ -85,9 +90,9 @@ fn type_requires_empty_string_constant(
     if !seen.insert(type_.to_string()) {
         return false;
     }
-    let result = fields
-        .iter()
-        .any(|(_, field_type)| type_requires_empty_string_constant(field_type, type_model, seen));
+    let result = fields.iter().any(|(_, field_type)| {
+        type_requires_empty_string_constant(&field_type.name(), type_model, seen)
+    });
     seen.remove(type_);
     result
 }
@@ -147,7 +152,7 @@ fn module_drops_resource_union_close(module: &NirModule, target: &str) -> bool {
 
 fn ops_bind_type_in(ops: &[NirOp], names: &std::collections::HashSet<&str>) -> bool {
     ops.iter().any(|op| match op {
-        NirOp::Bind { type_, .. } => names.contains(type_.as_str()),
+        NirOp::Bind { type_, .. } => names.contains(type_.name().as_ref()),
         NirOp::If {
             then_body,
             else_body,
@@ -183,7 +188,7 @@ pub(crate) fn module_may_record_cleanup_failure(module: &NirModule) -> bool {
 fn ops_may_record_cleanup_failure(ops: &[NirOp]) -> bool {
     ops.iter().any(|op| match op {
         NirOp::Bind { type_, .. } => {
-            crate::codegen::builtins::resource_close_function(type_).is_some()
+            crate::codegen::builtins::resource_close_function(&type_.name()).is_some()
         }
         NirOp::If {
             then_body,
@@ -294,7 +299,7 @@ pub(crate) fn module_may_emit_float_numeric_error(module: &NirModule) -> bool {
 
 fn ops_may_emit_float_arithmetic_error(
     ops: &[NirOp],
-    locals: &mut HashMap<String, String>,
+    locals: &mut HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> bool {
     for op in ops {
@@ -305,7 +310,7 @@ fn ops_may_emit_float_arithmetic_error(
                 let emits = value.as_ref().is_some_and(|value| {
                     value_may_emit_float_arithmetic_error(value, locals, fields)
                 });
-                if !type_.is_empty() {
+                if !type_.name().is_empty() {
                     locals.insert(name.clone(), type_.clone());
                 }
                 emits
@@ -361,7 +366,7 @@ fn ops_may_emit_float_arithmetic_error(
             } => {
                 let mut body_locals = locals.clone();
                 body_locals.insert(name.clone(), type_.clone());
-                type_ == "Float"
+                matches!(type_, ParameterType::Float)
                     || value_may_emit_float_arithmetic_error(start, locals, fields)
                     || value_may_emit_float_arithmetic_error(end, locals, fields)
                     || value_may_emit_float_arithmetic_error(step, locals, fields)
@@ -395,7 +400,7 @@ fn ops_may_emit_float_arithmetic_error(
 
 fn value_may_emit_float_arithmetic_error(
     value: &NirValue,
-    locals: &HashMap<String, String>,
+    locals: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> bool {
     match value {
@@ -405,10 +410,10 @@ fn value_may_emit_float_arithmetic_error(
             let result_type = static_nir_value_type(left, locals, fields)
                 .zip(static_nir_value_type(right, locals, fields))
                 .map(|(left_type, right_type)| {
-                    numeric_binary_result_type(op, &left_type, &right_type)
+                    typed_numeric_binary_result_type(op, &left_type, &right_type)
                 });
             (matches!(op.as_str(), "+" | "-" | "*" | "/" | "DIV" | "MOD" | "^")
-                && result_type == Some("Float"))
+                && result_type == Some(ParameterType::Float))
                 || value_may_emit_float_arithmetic_error(left, locals, fields)
                 || value_may_emit_float_arithmetic_error(right, locals, fields)
         }
@@ -445,7 +450,7 @@ fn value_may_emit_float_arithmetic_error(
         }
         NirValue::Unary { op, operand, .. } => {
             (op == "-"
-                && static_nir_value_type(operand, locals, fields).as_deref() == Some("Float"))
+                && static_nir_value_type(operand, locals, fields) == Some(ParameterType::Float))
                 || value_may_emit_float_arithmetic_error(operand, locals, fields)
         }
         NirValue::Closure { captures, .. } => captures
@@ -575,7 +580,7 @@ pub(crate) fn collect_function_value_refs(module: &NirModule) -> Vec<(String, St
     impl NirVisitor for Collector<'_> {
         fn visit_value(&mut self, value: &NirValue) {
             if let NirValue::FunctionRef { name, type_ } = value {
-                self.refs.push((name.clone(), type_.clone()));
+                self.refs.push((name.clone(), type_.name().into_owned()));
             }
             walk_value(self, value);
         }
@@ -705,7 +710,7 @@ pub(crate) fn module_uses_unicode_runtime_tables(module: &NirModule) -> bool {
 fn ops_use_unicode_runtime_tables(
     ops: &[NirOp],
     constants: &mut HashMap<String, NirValue>,
-    types: &mut HashMap<String, String>,
+    types: &mut HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> bool {
     for op in ops {
@@ -919,7 +924,7 @@ fn ops_use_unicode_runtime_tables(
 fn value_uses_unicode_runtime_tables(
     value: &NirValue,
     constants: &HashMap<String, NirValue>,
-    types: &HashMap<String, String>,
+    types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> bool {
     match value {
@@ -991,7 +996,7 @@ fn value_uses_unicode_runtime_tables(
 pub(crate) fn value_may_return_invalid_format(
     value: &NirValue,
     constants: &HashMap<String, NirValue>,
-    types: &HashMap<String, String>,
+    types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> bool {
     (match value {

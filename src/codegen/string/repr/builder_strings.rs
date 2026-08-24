@@ -7,6 +7,7 @@ use crate::codegen::error::constants::*;
 use crate::codegen::string::format::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn lower_replace(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let scratch8 = self.temporary_vreg();
@@ -27,7 +28,7 @@ impl CodeBuilder<'_> {
         let scratch25 = self.temporary_vreg();
         let scratch26 = self.temporary_vreg();
         let value = self.lower_value(&args[0])?;
-        if let Some(element_type) = list_element_type(&value.type_) {
+        if let Some(element_type) = list_element_type(&value.type_.name()) {
             let value_slot = self.allocate_stack_object("replace_list_value", 8);
             self.emit(abi::store_u64(
                 &value.location,
@@ -35,7 +36,7 @@ impl CodeBuilder<'_> {
                 value_slot,
             ));
             let old = self.lower_value(&args[1])?;
-            if old.type_ != element_type {
+            if old.type_.name() != element_type.as_str() {
                 return Err(format!(
                     "native list replace old must be {}, got {}",
                     element_type, old.type_
@@ -48,7 +49,7 @@ impl CodeBuilder<'_> {
                 old_slot,
             ));
             let new = self.lower_value(&args[2])?;
-            if new.type_ != element_type {
+            if new.type_.name() != element_type.as_str() {
                 return Err(format!(
                     "native list replace new must be {}, got {}",
                     element_type, new.type_
@@ -64,11 +65,11 @@ impl CodeBuilder<'_> {
                 value_slot,
                 old_slot,
                 new_slot,
-                &value.type_,
+                &value.type_.name(),
                 &element_type,
             );
         }
-        if value.type_ != "String" {
+        if value.type_ != ParameterType::String {
             return Err(format!(
                 "native string replace value must be String, got {}",
                 value.type_
@@ -82,7 +83,7 @@ impl CodeBuilder<'_> {
         ));
 
         let old = self.lower_value(&args[1])?;
-        if old.type_ != "String" {
+        if old.type_ != ParameterType::String {
             return Err(format!(
                 "native string replace old must be String, got {}",
                 old.type_
@@ -96,7 +97,7 @@ impl CodeBuilder<'_> {
         ));
 
         let new = self.lower_value(&args[2])?;
-        if new.type_ != "String" {
+        if new.type_ != ParameterType::String {
             return Err(format!(
                 "native string replace new must be String, got {}",
                 new.type_
@@ -309,7 +310,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: "String".to_string(),
+            type_: ParameterType::String,
             location: Operand::from(result.render()),
             text: "replace(String, String, String)".to_string(),
         })
@@ -757,7 +758,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: list_type.to_string(),
+            type_: ParameterType::parse(&list_type),
             location: Operand::from(result.render()),
             text: format!("replace({list_type}, {element_type}, {element_type})"),
         })
@@ -786,7 +787,7 @@ impl CodeBuilder<'_> {
         let precision_slot = self.allocate_stack_object("to_string_precision", 8);
         if let Some(precision) = args.get(1) {
             let precision = self.lower_value(precision)?;
-            if precision.type_ != "Byte" {
+            if precision.type_ != ParameterType::Byte {
                 return Err(format!(
                     "native toString precision must be Byte, got {}",
                     precision.type_
@@ -814,10 +815,10 @@ impl CodeBuilder<'_> {
             value_slot,
         ));
 
-        match value.type_.as_str() {
+        match value.type_.name().as_ref() {
             "String" => Ok(ValueResult {
                 origin: None,
-                type_: "String".to_string(),
+                type_: ParameterType::String,
                 location: Operand::from(value_register.render()),
                 text: format!("toString({})", value.text),
             }),
@@ -866,7 +867,7 @@ impl CodeBuilder<'_> {
                 let copied = self.copy_flat_block("String", &text_ptr)?;
                 Ok(ValueResult {
                     origin: None,
-                    type_: "String".to_string(),
+                    type_: ParameterType::String,
                     location: Operand::from(copied.render()),
                     text: format!("toString({})", value.text),
                 })
@@ -893,7 +894,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         Ok(ValueResult {
             origin: None,
-            type_: "String".to_string(),
+            type_: ParameterType::String,
             location: Operand::from(result.render()),
             text: "toString(Boolean)".to_string(),
         })
@@ -1035,7 +1036,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         Ok(ValueResult {
             origin: None,
-            type_: "String".to_string(),
+            type_: ParameterType::String,
             location: Operand::from(result.render()),
             text: "toString(Integer)".to_string(),
         })
@@ -1275,7 +1276,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: "String".to_string(),
+            type_: ParameterType::String,
             location: Operand::from(result.to_string()),
             text: "toString(List OF Byte)".to_string(),
         })
@@ -1765,7 +1766,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: "String".to_string(),
+            type_: ParameterType::String,
             location: Operand::from(result.render()),
             text: "toString(Fixed)".to_string(),
         })
@@ -1955,7 +1956,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: "String".to_string(),
+            type_: ParameterType::String,
             location: Operand::from(result.render()),
             text: "toString(Money)".to_string(),
         })
@@ -1993,7 +1994,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, abi::mfb_return(1)));
         Ok(ValueResult {
             origin: None,
-            type_: "String".to_string(),
+            type_: ParameterType::String,
             location: Operand::from(result.render()),
             text: "toString(Float)".to_string(),
         })
@@ -2065,7 +2066,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: "Boolean".to_string(),
+            type_: ParameterType::Boolean,
             location: Operand::from(result.render()),
             text: format!("({} {op} {})", left.text, right.text),
         })
@@ -2161,7 +2162,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: "Boolean".to_string(),
+            type_: ParameterType::Boolean,
             location: Operand::from(result.render()),
             text: format!("({} {op} {})", left.text, right.text),
         })

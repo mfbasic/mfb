@@ -19,6 +19,7 @@ use super::package::{
 };
 use super::*;
 use crate::ir::resource_escape::ResOwner;
+use crate::types::ParameterType;
 
 // --- builders --------------------------------------------------------------
 
@@ -167,7 +168,7 @@ fn every_op() -> Vec<IrOp> {
         IrOp::Bind {
             mutable: true,
             name: "a".to_string(),
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             value: Some(c("Integer", "1")),
             explicit_type: true,
             loc: loc(),
@@ -175,7 +176,7 @@ fn every_op() -> Vec<IrOp> {
         IrOp::Bind {
             mutable: false,
             name: "z".to_string(),
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             value: None,
             explicit_type: false,
             loc: loc(),
@@ -243,7 +244,7 @@ fn every_op() -> Vec<IrOp> {
         },
         IrOp::For {
             name: "i".to_string(),
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             start: c("Integer", "0"),
             end: c("Integer", "10"),
             step: c("Integer", "1"),
@@ -263,7 +264,7 @@ fn every_op() -> Vec<IrOp> {
         },
         IrOp::ForEach {
             name: "item".to_string(),
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             iterable: IrValue::Local("list".to_string()),
             body: vec![IrOp::Eval {
                 value: IrValue::Local("item".to_string()),
@@ -1009,7 +1010,7 @@ fn verify_package_recurses_into_for_and_do_until_bodies() {
     };
     let for_loop = IrOp::For {
         name: "i".to_string(),
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         start: c("Integer", "0"),
         end: c("Integer", "1"),
         step: c("Integer", "1"),
@@ -1621,7 +1622,7 @@ fn op_loc_returns_the_stored_location_for_every_variant() {
     with_loc(IrOp::Bind {
         mutable: false,
         name: "a".to_string(),
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         value: None,
         explicit_type: false,
         loc: l,
@@ -1684,7 +1685,7 @@ fn op_loc_returns_the_stored_location_for_every_variant() {
     });
     with_loc(IrOp::For {
         name: "i".to_string(),
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         start: c("Integer", "0"),
         end: c("Integer", "1"),
         step: c("Integer", "1"),
@@ -1698,7 +1699,7 @@ fn op_loc_returns_the_stored_location_for_every_variant() {
     });
     with_loc(IrOp::ForEach {
         name: "x".to_string(),
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         iterable: c("List OF Integer", "[]"),
         body: vec![],
         loc: l,

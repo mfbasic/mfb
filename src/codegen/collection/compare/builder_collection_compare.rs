@@ -184,7 +184,7 @@ impl CodeBuilder<'_> {
                 }
                 let inline_string_field = fields
                     .iter()
-                    .map(|(_, ft)| self.record_field_is_inlined(other, ft))
+                    .map(|(_, ft)| self.record_field_is_inlined(other, &ft.name()))
                     .collect::<Vec<_>>();
                 for (index, (_, field_type)) in fields.iter().enumerate() {
                     let next_field = self.label("compare_record_next_field");
@@ -206,7 +206,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::store_u64(lcur, abi::stack_pointer(), field_left_slot));
                     self.emit(abi::store_u64(rcur, abi::stack_pointer(), field_right_slot));
                     self.emit_comparable_values_match_branch_from_slots(
-                        field_type,
+                        &field_type.name(),
                         field_left_slot,
                         field_right_slot,
                         &next_field,

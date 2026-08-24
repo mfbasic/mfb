@@ -1,0 +1,1 @@
+artifact-gate [all]: 1249 tests, 1396 build(s), 1718 golden(s) checked, 0 diff(s) — captured 2026-08-24

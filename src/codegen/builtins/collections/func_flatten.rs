@@ -14,6 +14,7 @@ use crate::codegen::engine::types::list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 /// plan-86 A3: native `collections::flatten` (`#collections_flatten$T`, 1 arg)
 /// for a simple result element T (String or fixed-width) — the inner lists are
 /// inline self-contained blocks, bulk-appended into the result with no per-inner
@@ -41,7 +42,7 @@ impl CodeBuilder<'_> {
     fn lower_flatten_native(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let source = self.lower_value(&args[0])?;
         let outer_type = source.type_.clone();
-        let inner_type = list_element_type(&outer_type)
+        let inner_type = list_element_type(&outer_type.name())
             .ok_or_else(|| format!("native flatten does not accept {outer_type}"))?;
         let elem = list_element_type(&inner_type)
             .ok_or_else(|| format!("native flatten inner type {inner_type} is not a list"))?;
@@ -105,7 +106,7 @@ impl CodeBuilder<'_> {
         ));
         Ok(ValueResult {
             origin: None,
-            type_: inner_type.clone(),
+            type_: ParameterType::parse(&inner_type),
             location: Operand::from(result_reg.render()),
             text: format!("flatten({outer_type})"),
         })

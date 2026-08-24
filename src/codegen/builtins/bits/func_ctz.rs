@@ -173,7 +173,7 @@ pub(crate) fn lower_bits_ctz(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let value = &args[0];
-    if value.type_ != "Integer" {
+    if value.type_ != ParameterType::Integer {
         return Err(format!("bits.ctz does not accept {}", value.type_));
     }
     let dst = builder.allocate_register()?;
@@ -184,7 +184,7 @@ pub(crate) fn lower_bits_ctz(
     builder.emit(abi::count_leading_zeros(dst, reversed));
     Ok(ValueResult {
         origin: None,
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         location: Operand::from(dst.render()),
         text: format!("bits.ctz({})", value.text),
     })

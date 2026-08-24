@@ -26,6 +26,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::{callable_return_type, list_element_type};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn lower_map_projection(
         &mut self,
@@ -341,7 +342,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: format!("List OF {element_type}"),
+            type_: ParameterType::parse(&format!("List OF {element_type}")),
             location: Operand::from(result.render()),
             text: if project_key {
                 format!("keys({})", collection.type_)
@@ -359,7 +360,7 @@ impl CodeBuilder<'_> {
         let scratch9 = self.temporary_vreg();
         let scratch17 = self.temporary_vreg();
         let collection = args[0].clone();
-        let Some(element_type) = list_element_type(&collection.type_) else {
+        let Some(element_type) = list_element_type(&collection.type_.name()) else {
             return Err(format!(
                 "native collection reduce does not accept {}",
                 collection.type_
@@ -379,13 +380,13 @@ impl CodeBuilder<'_> {
             accumulator_slot,
         ));
         let action = args[2].clone();
-        let output_type = callable_return_type(&action.type_).ok_or_else(|| {
+        let output_type = callable_return_type(&action.type_.name()).ok_or_else(|| {
             format!(
                 "native collection reduce reducer must be a function, got {}",
                 action.type_
             )
         })?;
-        if output_type != initial.type_ {
+        if output_type != initial.type_.name().as_ref() {
             return Err(format!(
                 "native collection reduce reducer must return {}, got {output_type}",
                 initial.type_
@@ -438,7 +439,7 @@ impl CodeBuilder<'_> {
         // This machinery is emitted only when a String block is actually at risk
         // of leaking (String accumulator and/or String element); scalar folds keep
         // their prior byte-identical codegen.
-        let manages_owned = initial.type_ == "String" || element_type == "String";
+        let manages_owned = initial.type_ == ParameterType::String || element_type == "String";
         let (item_slot, acc_owned_slot, new_slot, new_owned_slot) = if manages_owned {
             let item_slot = self.allocate_stack_object("reduce_item", 8);
             let acc_owned_slot = self.allocate_stack_object("reduce_acc_owned", 8);
@@ -558,7 +559,7 @@ impl CodeBuilder<'_> {
             // and the reducer produced a distinct result (old_acc != new). This
             // frees a String block from a stack slot — the same operation
             // `free_collection_loop_item` performs, applied to the accumulator.
-            if initial.type_ == "String" {
+            if initial.type_ == ParameterType::String {
                 let r_o = self.temporary_vreg();
                 let r_a = self.temporary_vreg();
                 let r_n = self.temporary_vreg();

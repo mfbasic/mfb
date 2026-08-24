@@ -25,7 +25,7 @@ pub(crate) fn lower(
     builder.emit(abi::load_u64(&register, &value.location, 0));
     Ok(ValueResult {
         origin: None,
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         location: Operand::from(register.render()),
         text: format!("strings.byteLen({})", value.text),
     })

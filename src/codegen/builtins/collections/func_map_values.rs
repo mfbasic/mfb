@@ -63,7 +63,7 @@ impl CodeBuilder<'_> {
         // result = tight copy of the map (keys + bucket structure preserved).
         let srcreg = self.temporary_vreg();
         self.emit(abi::load_u64(&srcreg, abi::stack_pointer(), map_slot));
-        let result_copy = self.copy_collection_tight(&map_type, &srcreg)?;
+        let result_copy = self.copy_collection_tight(&map_type.name(), &srcreg)?;
         let result_slot = self.allocate_stack_object("mapvalues_result", 8);
         self.emit(abi::store_u64(
             &result_copy,
@@ -124,7 +124,7 @@ impl CodeBuilder<'_> {
         self.emit_direct_callable_branch(&act);
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&ok_l));
-        self.emit_callback_failure_exit(Some((result_slot, map_type.clone())))?;
+        self.emit_callback_failure_exit(Some((result_slot, map_type.name().into_owned())))?;
         self.emit(abi::label(&ok_l));
         // Recompute valAddr (the call clobbered caller-saved regs) and store f's result.
         self.emit(abi::load_u64(&r, abi::stack_pointer(), i_slot));

@@ -4,6 +4,7 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 
 /// `value` is the pre-lowered text argument (the `abi_inline` dispatch lowers it).
 pub(crate) fn lower_strings_trim(
@@ -103,7 +104,7 @@ pub(crate) fn lower_strings_trim(
     let result = builder.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
     Ok(ValueResult {
         origin: None,
-        type_: "String".to_string(),
+        type_: ParameterType::String,
         location: Operand::from(result.render()),
         text: "strings.trim".to_string(),
     })

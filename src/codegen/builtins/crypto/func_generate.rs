@@ -1495,7 +1495,7 @@ pub(crate) fn lower_generate(
 
     Ok(ValueResult {
         origin: None,
-        type_: "KeyPair".to_string(),
+        type_: ParameterType::parse("KeyPair"),
         location: Operand::from("void"),
         text: "crypto.generate".to_string(),
     })

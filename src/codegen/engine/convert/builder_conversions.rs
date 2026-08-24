@@ -4,6 +4,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 /// Upper bound on the decimal exponent magnitude accumulated while parsing a
 /// numeric string. The representable range of an IEEE-754 double spans roughly
 /// 10^-324 to 10^308, so any exponent magnitude at or beyond this clamp drives
@@ -21,12 +22,12 @@ impl CodeBuilder<'_> {
         // `toInt(value)` with a `Byte` or `Scalar` is a width-preserving move: a
         // Byte's value and a Scalar's zero-extended codepoint are already their
         // Integer value. The 2-arg radix form is `String`-only, so both are 1-arg.
-        if matches!(value.type_.as_str(), "Byte" | "Scalar") {
+        if matches!(value.type_.name().as_ref(), "Byte" | "Scalar") {
             let register = self.allocate_register()?;
             self.emit(abi::move_register(&register, &value.location));
             return Ok(ValueResult {
                 origin: None,
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 location: Operand::from(register.render()),
                 text: format!("toInt({})", value.text),
             });
@@ -51,7 +52,7 @@ impl CodeBuilder<'_> {
         self.reset_temporary_registers();
         let source = self.allocate_register()?;
         self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
-        match value.type_.as_str() {
+        match value.type_.name().as_ref() {
             "Fixed" => self.emit_fixed_to_int_value(&source),
             "Float" => self.emit_float_to_int_value(&source),
             "Money" => self.emit_money_to_int_value(&source),
@@ -86,7 +87,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         Ok(ValueResult {
             origin: None,
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             location: Operand::from(result.render()),
             text: "toInt(Fixed)".to_string(),
         })
@@ -108,7 +109,7 @@ impl CodeBuilder<'_> {
         ));
         Ok(ValueResult {
             origin: None,
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             location: Operand::from(result.render()),
             text: "toInt(Money)".to_string(),
         })
@@ -163,7 +164,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             location: Operand::from(result.render()),
             text: "toInt(Float)".to_string(),
         })
@@ -377,7 +378,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             location: Operand::from(result.render()),
             text: "toInt(String)".to_string(),
         })
@@ -524,7 +525,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             location: Operand::from(result.render()),
             text: "toInt(String, base)".to_string(),
         })
@@ -532,7 +533,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn lower_to_byte(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
-        if !matches!(value.type_.as_str(), "Integer" | "Money" | "Scalar") {
+        if !matches!(value.type_.name().as_ref(), "Integer" | "Money" | "Scalar") {
             return Err(format!(
                 "native toByte does not accept argument type '{}'",
                 value.type_
@@ -540,7 +541,7 @@ impl CodeBuilder<'_> {
         }
         // `toByte(Money)` narrows the whole-unit part (`raw / 100000`), then
         // range-checks it exactly like an Integer (plan-29-G §4.3).
-        let checked = if value.type_ == "Money" {
+        let checked = if value.type_ == ParameterType::Money {
             let scale = self.allocate_register()?;
             let whole = self.allocate_register()?;
             self.emit(abi::move_immediate(&scale, "Integer", "100000"));
@@ -567,7 +568,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&ok));
         Ok(ValueResult {
             origin: None,
-            type_: "Byte".to_string(),
+            type_: ParameterType::Byte,
             location: Operand::from(result.render()),
             text: format!("toByte({})", value.text),
         })
@@ -580,13 +581,13 @@ impl CodeBuilder<'_> {
     /// failing for an empty or multi-scalar string.
     pub(crate) fn lower_to_scalar(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
-        match value.type_.as_str() {
+        match value.type_.name().as_ref() {
             "Byte" => {
                 let register = self.allocate_register()?;
                 self.emit(abi::move_register(&register, &value.location));
                 Ok(ValueResult {
                     origin: None,
-                    type_: "Scalar".to_string(),
+                    type_: ParameterType::parse("Scalar"),
                     location: Operand::from(register.render()),
                     text: format!("toScalar({})", value.text),
                 })
@@ -616,7 +617,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_register(&register, &cp));
                 Ok(ValueResult {
                     origin: None,
-                    type_: "Scalar".to_string(),
+                    type_: ParameterType::parse("Scalar"),
                     location: Operand::from(register.render()),
                     text: format!("toScalar({})", value.text),
                 })
@@ -625,7 +626,7 @@ impl CodeBuilder<'_> {
                 let result = self.emit_string_to_scalar_value(&value.location)?;
                 Ok(ValueResult {
                     origin: None,
-                    type_: "Scalar".to_string(),
+                    type_: ParameterType::parse("Scalar"),
                     location: Operand::from(result.render()),
                     text: format!("toScalar({})", value.text),
                 })
@@ -846,7 +847,7 @@ impl CodeBuilder<'_> {
         let result = self.emit_materialize_string_from_bytes(&buf_addr, len)?;
         Ok(ValueResult {
             origin: None,
-            type_: "String".to_string(),
+            type_: ParameterType::String,
             location: Operand::from(result.render()),
             text: "toString(Scalar)".to_string(),
         })
@@ -864,7 +865,7 @@ impl CodeBuilder<'_> {
         let source = self.allocate_register()?;
         self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
         let result = self.allocate_register()?;
-        match value.type_.as_str() {
+        match value.type_.name().as_ref() {
             "Integer" => {
                 self.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[0], &source));
                 self.emit(abi::float_move_x_from_d(&result, abi::FP_SCRATCH[0]));
@@ -872,7 +873,7 @@ impl CodeBuilder<'_> {
             "Fixed" => {
                 let temp = ValueResult {
                     origin: None,
-                    type_: "Fixed".to_string(),
+                    type_: ParameterType::Fixed,
                     location: Operand::from(source.render()),
                     text: value.text.clone(),
                 };
@@ -883,7 +884,7 @@ impl CodeBuilder<'_> {
             "Money" => {
                 let temp = ValueResult {
                     origin: None,
-                    type_: "Money".to_string(),
+                    type_: ParameterType::Money,
                     location: Operand::from(source.render()),
                     text: value.text.clone(),
                 };
@@ -912,7 +913,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             origin: None,
-            type_: "Float".to_string(),
+            type_: ParameterType::Float,
             location: Operand::from(result.render()),
             text: format!("toFloat({})", value.text),
         })
@@ -933,7 +934,7 @@ impl CodeBuilder<'_> {
         let source = self.allocate_register()?;
         self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
         let result = self.allocate_register()?;
-        match value.type_.as_str() {
+        match value.type_.name().as_ref() {
             "Integer" => {
                 self.emit_integer_to_fixed_value(&source, &result)?;
             }
@@ -973,7 +974,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             origin: None,
-            type_: "Fixed".to_string(),
+            type_: ParameterType::Fixed,
             location: Operand::from(result.render()),
             text: format!("toFixed({})", value.text),
         })
@@ -998,7 +999,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
         let result = self.allocate_register()?;
         let scratch = self.temporary_vreg();
-        match value.type_.as_str() {
+        match value.type_.name().as_ref() {
             // Exact: `value * 100000`, overflow-checked for Integer (a Byte is
             // always in range: 255 * 100000 fits i64).
             "Integer" => {
@@ -1073,7 +1074,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             origin: None,
-            type_: "Money".to_string(),
+            type_: ParameterType::Money,
             location: Operand::from(result.render()),
             text: format!("toMoney({})", value.text),
         })
@@ -1081,7 +1082,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn lower_is_numeric(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
-        if value.type_ != "String" {
+        if value.type_ != ParameterType::String {
             return Err(format!(
                 "native isNumeric does not accept argument type '{}'",
                 value.type_
@@ -1108,7 +1109,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         Ok(ValueResult {
             origin: None,
-            type_: "Boolean".to_string(),
+            type_: ParameterType::Boolean,
             location: Operand::from(result.render()),
             text: format!("isNumeric({})", value.text),
         })
@@ -1121,7 +1122,7 @@ impl CodeBuilder<'_> {
         odd: bool,
     ) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
-        if value.type_ != "Integer" {
+        if value.type_ != ParameterType::Integer {
             return Err(format!(
                 "native {name} does not accept argument type '{}'",
                 value.type_
@@ -1144,7 +1145,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: "Boolean".to_string(),
+            type_: ParameterType::Boolean,
             location: Operand::from(result.render()),
             text: format!("{name}({})", value.text),
         })
@@ -1163,7 +1164,7 @@ impl CodeBuilder<'_> {
         let true_label = self.label(name);
         let done_label = self.label(&format!("{name}_done"));
 
-        match value.type_.as_str() {
+        match value.type_.name().as_ref() {
             "Integer" | "Fixed" => self.emit(abi::compare_immediate(&value.location, "0")),
             "Float" => {
                 self.emit(abi::float_move_d_from_x(
@@ -1198,7 +1199,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: "Boolean".to_string(),
+            type_: ParameterType::Boolean,
             location: Operand::from(result.render()),
             text: format!("{name}({})", value.text),
         })
@@ -1233,7 +1234,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: "Boolean".to_string(),
+            type_: ParameterType::Boolean,
             location: Operand::from(result.render()),
             text: format!("{name}({})", len.text),
         })

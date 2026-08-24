@@ -155,7 +155,7 @@ pub(crate) fn lower(
     let result = builder.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
     Ok(ValueResult {
         origin: None,
-        type_: "String".to_string(),
+        type_: ParameterType::String,
         location: Operand::from(result.render()),
         text: "strings.trimChars".to_string(),
     })

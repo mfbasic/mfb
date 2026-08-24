@@ -219,7 +219,7 @@ struct ThunkContext {
 pub(crate) fn emit_link_support(
     link_functions: &[IrLinkFunction],
     link_cstructs: &[crate::ir::IrCStruct],
-    record_fields: &HashMap<String, Vec<(String, String)>>,
+    record_fields: &HashMap<String, Vec<(String, crate::types::ParameterType)>>,
     options: LinkCodegenOptions,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -532,7 +532,7 @@ fn lower_link_initializer(
 fn lower_link_thunk(
     function: &IrLinkFunction,
     link_cstructs: &[crate::ir::IrCStruct],
-    record_fields: &HashMap<String, Vec<(String, String)>>,
+    record_fields: &HashMap<String, Vec<(String, crate::types::ParameterType)>>,
     ctx: ThunkContext,
     record_native_resources: &HashSet<String>,
     is_close_op: bool,
@@ -2352,7 +2352,7 @@ fn marshal_struct_out(
     decl: &crate::ir::IrCStruct,
     layout: &crate::ir::CLayout,
     buf_off: usize,
-    record_fields: &HashMap<String, Vec<(String, String)>>,
+    record_fields: &HashMap<String, Vec<(String, crate::types::ParameterType)>>,
     symbol: &str,
     cstr_area: usize,
     cursor_off: usize,
@@ -2668,8 +2668,8 @@ mod tests {
         record_fields.insert(
             "PairRec".to_string(),
             vec![
-                ("n".to_string(), "Integer".to_string()),
-                ("x".to_string(), "Float".to_string()),
+                ("n".to_string(), crate::types::ParameterType::Integer),
+                ("x".to_string(), crate::types::ParameterType::Float),
             ],
         );
         let function = IrLinkFunction {

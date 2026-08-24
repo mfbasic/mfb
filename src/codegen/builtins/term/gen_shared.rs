@@ -31,6 +31,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::term::core::lower_term_helper as console_lower_term_helper;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 
 /// The `(instructions, relocations, stack_size)` a `term` OS-seam body emits before
@@ -47,7 +48,7 @@ pub(crate) type TermBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usiz
 pub(crate) fn void_result(call: &str) -> ValueResult {
     ValueResult {
         origin: None,
-        type_: "Nothing".to_string(),
+        type_: ParameterType::Nothing,
         location: Operand::from("void"),
         text: call.to_string(),
     }

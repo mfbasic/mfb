@@ -7,6 +7,7 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// `collections::get`/`getOr` extract an element as an alias into the
     /// container's data region for inline composite / nested-collection payloads
@@ -27,8 +28,10 @@ impl CodeBuilder<'_> {
         if self.borrow_get_result() {
             return Ok(result);
         }
-        if self.is_freeable_flat_value(&result.type_) && result.type_ != "String" {
-            let copied = self.copy_flat_block(&result.type_, &result.location)?;
+        if self.is_freeable_flat_value(&result.type_.name())
+            && result.type_ != ParameterType::String
+        {
+            let copied = self.copy_flat_block(&result.type_.name(), &result.location)?;
             return Ok(ValueResult {
                 origin: None,
                 type_: result.type_,

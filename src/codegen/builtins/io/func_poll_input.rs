@@ -182,7 +182,7 @@ pub(crate) fn lower_poll_input(
     builder.stack_size = FRAME_SIZE;
     Ok(ValueResult {
         origin: None,
-        type_: "Boolean".to_string(),
+        type_: ParameterType::Boolean,
         location: Operand::from("void"),
         text: "io.pollInput".to_string(),
     })

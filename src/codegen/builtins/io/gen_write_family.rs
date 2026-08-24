@@ -22,6 +22,7 @@ use crate::codegen::os::syscall::*;
 use crate::codegen::registry::AbiCtx;
 use crate::codegen::term::grid as term_grid;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 
 /// Shared `abi_function` body for `io::{print,write,printError,writeError}`,
 /// selected by `stderr` (target stream) and `newline` (append a trailing LF) and
@@ -58,7 +59,7 @@ pub(crate) fn lower_write_family(
             .ok_or_else(|| super::app_unsupported(ctx.platform))??;
         return Ok(ValueResult {
             origin: None,
-            type_: "Nothing".to_string(),
+            type_: ParameterType::Nothing,
             location: Operand::from("void"),
             text: text.to_string(),
         });
@@ -289,7 +290,7 @@ pub(crate) fn lower_write_family(
     builder.stack_size = 16;
     Ok(ValueResult {
         origin: None,
-        type_: "Nothing".to_string(),
+        type_: ParameterType::Nothing,
         location: Operand::from("void"),
         text: text.to_string(),
     })

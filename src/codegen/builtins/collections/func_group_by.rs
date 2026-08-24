@@ -7,6 +7,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 /// Native fast path for `#collections_groupBy$T$K$V` (Integer key, fixed-width or
 /// String T/V, re-eval-safe value). Every other instantiation declines
 /// (`Ok(None)`) and runs the `.mfb` body. Free fn (an `impl` method would not
@@ -410,7 +411,7 @@ impl CodeBuilder<'_> {
         // free the now-copied bucket
         let keep = ValueResult {
             origin: None,
-            type_: map_type.clone(),
+            type_: ParameterType::parse(&map_type),
             location: {
                 let z = self.allocate_register()?;
                 self.emit(abi::load_u64(&z, abi::stack_pointer(), result_slot));
@@ -427,7 +428,7 @@ impl CodeBuilder<'_> {
         // free the six scratch buffers (thread result through)
         let mut threaded = ValueResult {
             origin: None,
-            type_: map_type.clone(),
+            type_: ParameterType::parse(&map_type),
             location: {
                 let z = self.allocate_register()?;
                 self.emit(abi::load_u64(&z, abi::stack_pointer(), result_slot));
@@ -447,7 +448,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             origin: None,
-            type_: map_type,
+            type_: ParameterType::parse(&map_type),
             location: threaded.location,
             text: "groupBy".to_string(),
         })

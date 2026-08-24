@@ -20,6 +20,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// Round a truncated signed division toward the mode's half rule and write the
     /// signed result into `dst`.
@@ -104,8 +105,8 @@ impl CodeBuilder<'_> {
         right: &ValueResult,
         dst: impl Into<Operand>,
     ) -> Result<String, String> {
-        let l_money = left.type_ == "Money";
-        let r_money = right.type_ == "Money";
+        let l_money = left.type_ == ParameterType::Money;
+        let r_money = right.type_ == ParameterType::Money;
         let dst = dst.into();
         match op {
             // `M ± M` and `M MOD M` are exact integer ops on the raw i64.
@@ -140,7 +141,7 @@ impl CodeBuilder<'_> {
         dst: impl Into<Operand>,
     ) -> Result<String, String> {
         let dst = dst.into();
-        match scalar.type_.as_str() {
+        match scalar.type_.name().as_ref() {
             // Exact integer scaling: `raw * k`, overflow-checked.
             "Integer" | "Byte" => {
                 self.emit_checked_integer_multiply(dst.clone(), &money.location, &scalar.location)?;
@@ -170,7 +171,7 @@ impl CodeBuilder<'_> {
         dst: impl Into<Operand>,
     ) -> Result<String, String> {
         let dst = dst.into();
-        match scalar.type_.as_str() {
+        match scalar.type_.name().as_ref() {
             // `raw / k`, mode-rounded (plan-29-E §4.2). `k == 0` → ErrInvalidArgument.
             "Integer" | "Byte" => {
                 self.emit_nonzero_or_invalid(&scalar.location)?;

@@ -8,6 +8,7 @@ use crate::codegen::engine::types::list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 /// Native fast path for `#collections_chunks$T` with a constant `size >= 1`:
 /// fixed-width via the contiguous-block builder, String via per-chunk slice
 /// construction. Everything else declines (`Ok(None)`). Free fn.
@@ -21,7 +22,7 @@ pub(crate) fn chunks_fast_path(
     };
     if matches!(t, "Integer" | "Float" | "Fixed" | "Money" | "String") && args.len() == 2 {
         if let Some(NirValue::Const { type_, value }) = args.get(1) {
-            if type_ == "Integer" {
+            if matches!(type_, ParameterType::Integer) {
                 if let Ok(sz) = value.parse::<i64>() {
                     if sz >= 1 {
                         if t == "String" {
@@ -50,13 +51,13 @@ impl CodeBuilder<'_> {
         size: i64,
     ) -> Result<ValueResult, String> {
         let source = self.lower_value(&args[0])?;
-        let _elem = list_element_type(&source.type_)
+        let _elem = list_element_type(&source.type_.name())
             .ok_or_else(|| format!("native chunks does not accept {}", source.type_))?;
         let inner_type = source.type_.clone();
         let outer_type = format!("List OF {inner_type}");
         let outer_layout = CollectionTypeLayout::from_type(&outer_type)
             .ok_or_else(|| format!("native chunks cannot resolve {outer_type}"))?;
-        let inner_layout = CollectionTypeLayout::from_type(&inner_type)
+        let inner_layout = CollectionTypeLayout::from_type(&inner_type.name())
             .ok_or_else(|| format!("native chunks cannot resolve {inner_type}"))?;
         // Uniform per-chunk block stride (the last chunk over-allocates to this and
         // leaves a harmless tail gap — free uses dataCapacity, reads use offsets).
@@ -241,7 +242,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: outer_type,
+            type_: ParameterType::parse(&outer_type),
             location: Operand::from(result.render()),
             text: format!("chunks({})", source.type_),
         })
@@ -310,7 +311,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&scratch, abi::stack_pointer(), count_slot));
         // inner = source[start .. start+count]; append into outer; free inner.
         let inner_slot = self.emit_string_list_slice_block(source_slot, start_slot, count_slot)?;
-        self.lower_list_append_in_place(outer_slot, inner_slot, &outer_type, &inner_type)?;
+        self.lower_list_append_in_place(outer_slot, inner_slot, &outer_type, &inner_type.name())?;
         self.emit_free_owned_kind0_list_block(inner_slot)?;
         // start += size
         self.emit(abi::load_u64(&scratch, abi::stack_pointer(), start_slot));
@@ -322,7 +323,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), outer_slot));
         Ok(ValueResult {
             origin: None,
-            type_: outer_type,
+            type_: ParameterType::parse(&outer_type),
             location: Operand::from(result.render()),
             text: format!("chunks({}, {size})", source.type_),
         })

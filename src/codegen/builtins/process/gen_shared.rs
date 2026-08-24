@@ -32,6 +32,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 
 /// The `(instructions, relocations, stack_size)` a `process` OS-seam body emits
@@ -46,7 +47,7 @@ pub(crate) type ProcBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usiz
 pub(crate) fn void_result(call: &str) -> ValueResult {
     ValueResult {
         origin: None,
-        type_: "Nothing".to_string(),
+        type_: ParameterType::Nothing,
         location: Operand::from("void"),
         text: call.to_string(),
     }

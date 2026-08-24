@@ -23,7 +23,7 @@ pub(crate) fn lower(
                 .as_bytes()
                 .iter()
                 .map(|byte| NirValue::Const {
-                    type_: "Byte".to_string(),
+                    type_: ParameterType::Byte,
                     value: byte.to_string(),
                 })
                 .collect::<Vec<_>>();
@@ -193,7 +193,7 @@ pub(crate) fn lower(
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
     Ok(ValueResult {
         origin: None,
-        type_: "List OF Byte".to_string(),
+        type_: ParameterType::parse("List OF Byte"),
         location: Operand::from(result.render()),
         text: "strings.toBytes".to_string(),
     })

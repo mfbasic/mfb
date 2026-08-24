@@ -8,6 +8,7 @@ use crate::codegen::engine::types::list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 /// Native fast path for `#collections_window$T` with constant `size >= 1` /
 /// `stride >= 1`: fixed-width (stride 1) via the contiguous-block builder, String
 /// (any stride) via per-window slice construction. Everything else declines
@@ -22,7 +23,9 @@ pub(crate) fn window_fast_path(
     };
     let const_i64 = |v: &NirValue| -> Option<i64> {
         match v {
-            NirValue::Const { type_, value } if type_ == "Integer" => value.parse::<i64>().ok(),
+            NirValue::Const { type_, value } if matches!(type_, ParameterType::Integer) => {
+                value.parse::<i64>().ok()
+            }
             _ => None,
         }
     };
@@ -63,13 +66,13 @@ impl CodeBuilder<'_> {
         stride: i64,
     ) -> Result<ValueResult, String> {
         let source = self.lower_value(&args[0])?;
-        let elem = list_element_type(&source.type_)
+        let elem = list_element_type(&source.type_.name())
             .ok_or_else(|| format!("native window does not accept {}", source.type_))?;
         let inner_type = source.type_.clone();
         let outer_type = format!("List OF {inner_type}");
         let outer_layout = CollectionTypeLayout::from_type(&outer_type)
             .ok_or_else(|| format!("native window cannot resolve {outer_type}"))?;
-        let inner_layout = CollectionTypeLayout::from_type(&inner_type)
+        let inner_layout = CollectionTypeLayout::from_type(&inner_type.name())
             .ok_or_else(|| format!("native window cannot resolve {inner_type}"))?;
         let _ = elem;
         let inner_block_size = COLLECTION_HEADER_SIZE + (size as usize) * 8;
@@ -253,7 +256,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: outer_type,
+            type_: ParameterType::parse(&outer_type),
             location: Operand::from(result.render()),
             text: format!("window({})", source.type_),
         })
@@ -315,7 +318,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_gt(&done_l));
         // inner = source[start .. start+size]; append into outer; free inner.
         let inner_slot = self.emit_string_list_slice_block(source_slot, start_slot, count_slot)?;
-        self.lower_list_append_in_place(outer_slot, inner_slot, &outer_type, &inner_type)?;
+        self.lower_list_append_in_place(outer_slot, inner_slot, &outer_type, &inner_type.name())?;
         self.emit_free_owned_kind0_list_block(inner_slot)?;
         // start += stride
         self.emit(abi::load_u64(&scratch, abi::stack_pointer(), start_slot));
@@ -327,7 +330,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), outer_slot));
         Ok(ValueResult {
             origin: None,
-            type_: outer_type,
+            type_: ParameterType::parse(&outer_type),
             location: Operand::from(result.render()),
             text: format!("window({}, {size}, {stride})", source.type_),
         })

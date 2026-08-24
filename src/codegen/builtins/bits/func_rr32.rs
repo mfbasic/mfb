@@ -91,10 +91,10 @@ pub(crate) fn lower_bits_rr32(
     args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    if args[0].type_ != "Integer" {
+    if args[0].type_ != ParameterType::Integer {
         return Err(format!("bits.rr32 does not accept {}", args[0].type_));
     }
-    if args[1].type_ != "Integer" {
+    if args[1].type_ != ParameterType::Integer {
         return Err(format!("bits.rr32 does not accept {}", args[1].type_));
     }
     let value_reg = args[0].location.clone();
@@ -105,7 +105,7 @@ pub(crate) fn lower_bits_rr32(
     builder.emit(abi::rotate_right_word_registers(dst, value_reg, count_reg));
     Ok(ValueResult {
         origin: None,
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         location: Operand::from(dst.render()),
         text: format!("bits.rr32({value_text}, {count_text})"),
     })

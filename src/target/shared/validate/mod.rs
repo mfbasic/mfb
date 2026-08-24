@@ -6,6 +6,7 @@ use crate::target::{BackendCapabilities, BuildTarget};
 
 use super::nir::{NirFunction, NirMatchPattern, NirModule, NirOp, NirParam, NirValue};
 use super::runtime::{self, RuntimeHelper};
+use crate::types::ParameterType;
 
 struct TypeValueNames {
     namespaces: HashSet<String>,
@@ -112,25 +113,19 @@ pub fn validate_nir(module: &NirModule) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether a NIR type string transitively owns a resource (directly, or as a
-/// collection element/value). `STATE`-suffixed resource strings are recognized
-/// via `is_resource_type`.
-fn type_owns_resource(type_: &str) -> bool {
-    if crate::codegen::builtins::is_resource_type(type_) {
-        return true;
+/// Whether a NIR type transitively owns a resource (directly, or as a
+/// collection element/value). `STATE`-suffixed resource spellings are
+/// recognized via `is_resource_type` on the rendered nominal name.
+fn type_owns_resource(type_: &ParameterType) -> bool {
+    match type_ {
+        ParameterType::ListOf(element) => type_owns_resource(element),
+        ParameterType::MapOf(key, value) => type_owns_resource(key) || type_owns_resource(value),
+        ParameterType::ResultOf(success) => type_owns_resource(success),
+        // NB: no `Res(inner)` arm — the string form never stripped the `RES `
+        // marker (`is_resource_type("RES File")` is false), so a `Res`-wrapped
+        // element falls to the name check below exactly as the string walk did.
+        other => crate::codegen::builtins::is_resource_type(&other.name()),
     }
-    if let Some(element) = type_.strip_prefix("List OF ") {
-        return type_owns_resource(element);
-    }
-    if let Some(rest) = type_.strip_prefix("Map OF ") {
-        if let Some((key, value)) = rest.split_once(" TO ") {
-            return type_owns_resource(key) || type_owns_resource(value);
-        }
-    }
-    if let Some(success) = type_.strip_prefix("Result OF ") {
-        return type_owns_resource(success);
-    }
-    false
 }
 
 /// Backstop verification of the resource model's structural rules (the type
@@ -198,6 +193,7 @@ mod tests {
         NirEntryPoint, NirFunction, NirMatchCase, NirMatchPattern, NirModule, NirOp, NirSourceLoc,
         NirType, NirValue, NirVariant,
     };
+    use crate::types::ParameterType;
 
     fn module(runtime_helpers: Vec<RuntimeHelper>) -> NirModule {
         NirModule {
@@ -207,7 +203,7 @@ mod tests {
             project: "hello".to_string(),
             entry: Some(NirEntryPoint {
                 name: "main".to_string(),
-                returns: "Nothing".to_string(),
+                returns: ParameterType::Nothing,
                 accepts_args: false,
             }),
             types: Vec::new(),
@@ -220,13 +216,13 @@ mod tests {
                 kind: "sub".to_string(),
                 isolated: false,
                 params: Vec::new(),
-                returns: "Nothing".to_string(),
+                returns: ParameterType::Nothing,
                 body: vec![NirOp::Eval {
                     value: NirValue::RuntimeCall {
                         helper: RuntimeHelper::Io,
                         target: "io.print".to_string(),
                         args: vec![NirValue::Const {
-                            type_: "String".to_string(),
+                            type_: ParameterType::String,
                             value: "Hello World".to_string(),
                         }],
                         loc: NirSourceLoc::default(),
@@ -281,7 +277,7 @@ mod tests {
                 helper: RuntimeHelper::General,
                 target: "len".to_string(),
                 args: vec![NirValue::Const {
-                    type_: "String".to_string(),
+                    type_: ParameterType::String,
                     value: "x".to_string(),
                 }],
                 loc: NirSourceLoc::default(),
@@ -312,7 +308,7 @@ mod tests {
         let mut nir = module(vec![RuntimeHelper::Io]);
         nir.functions[0].body = vec![NirOp::Match {
             value: NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: "1".to_string(),
             },
             cases: vec![NirMatchCase {
@@ -321,7 +317,7 @@ mod tests {
                     helper: RuntimeHelper::Io,
                     target: "io.print".to_string(),
                     args: vec![NirValue::Const {
-                        type_: "String".to_string(),
+                        type_: ParameterType::String,
                         value: "guarded".to_string(),
                     }],
                     loc: NirSourceLoc::default(),
@@ -351,7 +347,7 @@ mod tests {
             project: "hello".to_string(),
             entry: Some(NirEntryPoint {
                 name: "main".to_string(),
-                returns: "Integer".to_string(),
+                returns: ParameterType::Integer,
                 accepts_args: false,
             }),
             types: vec![NirType {
@@ -383,7 +379,7 @@ mod tests {
                 kind: "func".to_string(),
                 isolated: false,
                 params: Vec::new(),
-                returns: "Integer".to_string(),
+                returns: ParameterType::Integer,
                 body,
                 file: "src/main.mfb".to_string(),
                 resource_owners: std::collections::HashMap::new(),
@@ -400,16 +396,16 @@ mod tests {
         NirOp::Bind {
             mutable: false,
             name: "s".to_string(),
-            type_: "Stream".to_string(),
+            type_: ParameterType::named("Stream"),
             value: None,
         }
     }
 
     fn integer_list() -> NirValue {
         NirValue::ListLiteral {
-            type_: "List OF Integer".to_string(),
+            type_: ParameterType::list_of(ParameterType::Integer),
             values: vec![NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: "1".to_string(),
             }],
         }
@@ -419,7 +415,7 @@ mod tests {
     fn collects_resource_union_bind_inside_for_each() {
         let module = module_with_union_bind(vec![NirOp::ForEach {
             name: "n".to_string(),
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             iterable: integer_list(),
             body: vec![union_bind()],
         }]);
