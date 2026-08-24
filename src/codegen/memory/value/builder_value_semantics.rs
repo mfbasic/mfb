@@ -206,7 +206,7 @@ impl CodeBuilder<'_> {
                 // union value (`emit_resource_record_ptr` derefs `+8`), so a
                 // `RECOVER`ed union's `.state` never dereferences null — the same
                 // guarantee the concrete branch gives.
-                if let Some(state) = crate::builtins::resource::state_type_name(type_) {
+                if let Some(state) = crate::codegen::resource::state_type_name(type_) {
                     let state = state.to_string();
                     let block_slot = self.allocate_stack_object("default_union_block", 8);
                     self.emit(abi::store_u64(&block, abi::stack_pointer(), block_slot));
@@ -224,7 +224,7 @@ impl CodeBuilder<'_> {
                 || self
                     .type_model
                     .resource_names
-                    .contains(crate::builtins::resource::base_resource_name(type_)) =>
+                    .contains(crate::codegen::resource::base_resource_name(type_)) =>
             {
                 // A resource wraps an OS handle we cannot re-open, so it has no
                 // reconstructible default. The site that needs one is the
@@ -239,7 +239,7 @@ impl CodeBuilder<'_> {
                 // `.state` would dereference null. The pointer is spilled across
                 // the state allocation, which clobbers every caller-saved
                 // register.
-                if let Some(state) = crate::builtins::resource::state_type_name(type_) {
+                if let Some(state) = crate::codegen::resource::state_type_name(type_) {
                     let state = state.to_string();
                     let slot = self.allocate_stack_object("default_resource_record", 8);
                     self.emit(abi::store_u64(&record, abi::stack_pointer(), slot));
@@ -295,7 +295,7 @@ impl CodeBuilder<'_> {
         // record, an alias and the owner address the same payload.
         if member == "state" {
             if let Some(state_type) =
-                crate::builtins::resource::state_type_name(&target_value.type_)
+                crate::codegen::resource::state_type_name(&target_value.type_)
             {
                 let state_type = state_type.to_string();
                 // A resource union value is a `{tag, record-ptr}` block; the STATE

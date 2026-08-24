@@ -598,7 +598,7 @@ impl TypeEnv {
                 }
             }
             for (_, ptype) in &function.params {
-                if let Some(state) = crate::builtins::resource::state_type_name(ptype) {
+                if let Some(state) = crate::codegen::resource::state_type_name(ptype) {
                     check(resource_base_type(ptype), state, self);
                 }
             }
@@ -676,7 +676,7 @@ impl TypeEnv {
         self.resource_closers
             .get(base)
             .map(String::as_str)
-            .or_else(|| builtins::resource::builtin_resource_close_function(base))
+            .or_else(|| crate::codegen::resource::builtin_resource_close_function(base))
     }
 
     /// The resource binding consumed by an op, if any: a call to the binding's

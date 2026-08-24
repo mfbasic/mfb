@@ -312,7 +312,7 @@ pub(crate) fn emit_link_support(
     let record_native_resources: HashSet<String> = link_functions
         .iter()
         .filter(|f| f.return_resource)
-        .map(|f| crate::builtins::resource::base_resource_name(&f.return_type).to_string())
+        .map(|f| crate::codegen::resource::base_resource_name(&f.return_type).to_string())
         .collect();
 
     // plan-59-B: the guard's two error strings, emitted HERE rather than relying
@@ -328,7 +328,7 @@ pub(crate) fn emit_link_support(
     // a thunk that can emit the guard also carries the strings it names.
     if link_functions.iter().any(|f| {
         f.params.iter().any(|(_, type_)| {
-            record_native_resources.contains(crate::builtins::resource::base_resource_name(type_))
+            record_native_resources.contains(crate::codegen::resource::base_resource_name(type_))
         })
     }) {
         for (_, message, symbol) in ["ErrResourceClosed", "ErrResourceMoved"].map(|name| {
@@ -782,7 +782,7 @@ fn lower_link_thunk(
     // emission covers every `RES`-taking LINK function.
     let mut resource_guard_params: Vec<usize> = Vec::new();
     for (pidx, (_, type_)) in function.params.iter().enumerate() {
-        if record_native_resources.contains(crate::builtins::resource::base_resource_name(type_)) {
+        if record_native_resources.contains(crate::codegen::resource::base_resource_name(type_)) {
             resource_guard_params.push(pidx);
         }
     }
@@ -1100,7 +1100,7 @@ fn lower_link_thunk(
             } else if slot.ctype == "CPtr"
                 && function.params.get(pidx).is_some_and(|(_, t)| {
                     record_native_resources
-                        .contains(crate::builtins::resource::base_resource_name(t))
+                        .contains(crate::codegen::resource::base_resource_name(t))
                 })
             {
                 // plan-59-A: a param whose resource TYPE is a native resource is a

@@ -16,7 +16,7 @@ impl CodeBuilder<'_> {
         // A transferred stateful union arrives spelled `Stream STATE Cursor`; the
         // union set is keyed on the bare name (plan-75 gap 3). The `{tag, ptr}`
         // layout is unchanged by the STATE suffix, so size it on the base name.
-        let type_ = crate::builtins::resource::base_resource_name(type_);
+        let type_ = crate::codegen::resource::base_resource_name(type_);
         if self.type_model.union_names.contains(type_) {
             // A resource variant carries no record fields (validation.rs registers
             // none for `"resource"` variants) but its payload is a single resource
@@ -2587,7 +2587,7 @@ pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &str) -> bo
         // variant record).
         || model
             .union_names
-            .contains(crate::builtins::resource::base_resource_name(field_type))
+            .contains(crate::codegen::resource::base_resource_name(field_type))
         || field_type.starts_with("Result OF ")
         || field_type == "Error"
 }
@@ -2693,7 +2693,7 @@ pub(crate) fn union_is_data(model: &TypeModel, type_: &str) -> bool {
     // A transferred stateful union spells `Stream STATE Cursor`; the union set
     // is keyed on the bare name `Stream` (plan-75 gap 3). Strip the suffix so a
     // resource union with STATE still classifies as all-resource.
-    let type_ = crate::builtins::resource::base_resource_name(type_);
+    let type_ = crate::codegen::resource::base_resource_name(type_);
     if !model.union_names.contains(type_) {
         return false;
     }

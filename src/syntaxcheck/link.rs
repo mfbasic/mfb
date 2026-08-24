@@ -33,11 +33,11 @@ impl<'a> SyntaxChecker<'a> {
                         .unwrap_or(false);
                     self.resource_registry.register(
                         resource.name.clone(),
-                        builtins::ResourceInfo {
+                        crate::codegen::resource::ResourceInfo {
                             close_function,
                             sendable: resource.thread_sendable,
                             close_may_fail: may_fail,
-                            kind: builtins::ResourceKind::Native,
+                            kind: crate::codegen::resource::ResourceKind::Native,
                         },
                     );
                 }

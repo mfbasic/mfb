@@ -1,12 +1,12 @@
-pub(crate) mod resource;
 pub(crate) mod testing;
 
 // `general` (the unqualified global builtins) migrated to the clean-room registry
 // (`crate::codegen::builtins::general`); this alias keeps the bare `general::` reads
 // in this module pointed at the new home.
 use crate::codegen::builtins::general;
-
-pub(crate) use resource::{ResourceInfo, ResourceKind, ResourceRegistry};
+// The resource-type registry relocated to `crate::codegen::resource` (plan-103);
+// keep the bare `resource::` reads in this facade pointed at the new home.
+use crate::codegen::resource;
 
 /// bug-340 A3: exact argument-type match, `arg_types == expected` element-wise.
 /// The single home for what were fifteen byte-identical `fn exact` copies, one

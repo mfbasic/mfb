@@ -747,7 +747,7 @@ fn lower_statement(
                 .cloned();
             let state_type = resource_type
                 .as_deref()
-                .and_then(crate::builtins::resource::state_type_name)
+                .and_then(crate::codegen::resource::state_type_name)
                 .map(str::to_string);
             let lowered =
                 lower_expression_with_expected(value, state_type.as_deref(), locals, context);
@@ -1705,7 +1705,7 @@ fn match_case_binding(
             // resolve and lower through the concrete-record path. The `UnionExtract`
             // itself stays keyed on the bare variant type (it loads the variant
             // record pointer at `+8`).
-            let binding_type = match crate::builtins::resource::state_type_name(matched_type) {
+            let binding_type = match crate::codegen::resource::state_type_name(matched_type) {
                 Some(state) => format!("{type_name} STATE {state}"),
                 None => type_name.clone(),
             };
@@ -1994,7 +1994,7 @@ fn expression_type(
             // `s.state` on a `RES` value yields its `STATE` record type, carried
             // in the resource type string (`File STATE FileState`).
             if member == "state" {
-                if let Some(state) = crate::builtins::resource::state_type_name(&target_type) {
+                if let Some(state) = crate::codegen::resource::state_type_name(&target_type) {
                     return Some(state.to_string());
                 }
             }

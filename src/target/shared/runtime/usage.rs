@@ -180,7 +180,7 @@ fn push_op_helpers(
                     // suffix so the variant close helpers are declared — else the
                     // validator marks them used (from the transfer copy) while they
                     // stay undeclared (plan-75 gap 1).
-                    let base = crate::builtins::resource::base_resource_name(type_);
+                    let base = crate::codegen::resource::base_resource_name(type_);
                     if let Some(closes) = resource_union_closes.get(base) {
                         for close in closes {
                             if let Some(helper) = helper_for_call(close) {

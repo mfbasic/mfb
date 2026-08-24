@@ -692,7 +692,7 @@ impl CodeBuilder<'_> {
                                 .push(ActiveCleanup::Resource(ResourceCleanup {
                                     name: name.clone(),
                                     symbol,
-                                    state_type: crate::builtins::resource::state_type_name(type_)
+                                    state_type: crate::codegen::resource::state_type_name(type_)
                                         .map(str::to_string),
                                     has_io_buffers: Self::resource_uses_io_buffers(type_),
                                 }));
@@ -704,7 +704,7 @@ impl CodeBuilder<'_> {
                                 ResourceUnionCleanup {
                                     name: name.clone(),
                                     variants,
-                                    state_type: crate::builtins::resource::state_type_name(type_)
+                                    state_type: crate::codegen::resource::state_type_name(type_)
                                         .map(str::to_string),
                                 },
                             ));
@@ -748,7 +748,7 @@ impl CodeBuilder<'_> {
                         // The owning binding allocates the state record on first
                         // bind; a moved/returned resource that already carries a
                         // state keeps it (the slot is non-null).
-                        if let Some(state_type) = crate::builtins::resource::state_type_name(type_)
+                        if let Some(state_type) = crate::codegen::resource::state_type_name(type_)
                         {
                             let state_type = state_type.to_string();
                             self.emit_resource_state_init(stack_offset, &state_type, type_)?;
@@ -916,7 +916,7 @@ impl CodeBuilder<'_> {
                                 let cleanup = ResourceCleanup {
                                     name: name.clone(),
                                     symbol,
-                                    state_type: crate::builtins::resource::state_type_name(
+                                    state_type: crate::codegen::resource::state_type_name(
                                         &result.type_,
                                     )
                                     .map(str::to_string),

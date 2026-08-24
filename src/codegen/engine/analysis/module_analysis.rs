@@ -26,7 +26,7 @@ fn op_requires_empty_string_constant(op: &NirOp, type_model: &TypeModel) -> bool
         // demands the sentinel even though `value` is `Some` — checking only
         // `value: None` left the relocation dangling (bug-256, bug-05 class).
         NirOp::Bind { type_, value, .. } => {
-            crate::builtins::resource::state_type_name(type_).is_some_and(|state| {
+            crate::codegen::resource::state_type_name(type_).is_some_and(|state| {
                 type_requires_empty_string_constant(state, type_model, &mut HashSet::new())
             }) || (value.is_none()
                 && type_requires_empty_string_constant(type_, type_model, &mut HashSet::new()))

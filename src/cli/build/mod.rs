@@ -402,7 +402,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             .rsplit_once(" AS ")
             .map(|(_, returns)| returns)
             .unwrap_or(signature.as_str());
-        imported_resource_types.contains(crate::builtins::resource::base_resource_name(returns))
+        imported_resource_types.contains(crate::codegen::resource::base_resource_name(returns))
     };
     let source_external_types: HashMap<String, String> = all_external_types
         .into_iter()

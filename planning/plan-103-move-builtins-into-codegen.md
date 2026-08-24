@@ -35,8 +35,8 @@ plan and no bug fix.
 
 | Must be true | Command | Status |
 |---|---|---|
-| Working tree builds clean on `main` | `cargo build 2>&1 \| tail -1` | MET (assumed; re-run before starting) |
-| No in-flight rename of `src/builtins` | `git status --porcelain src/builtins` → empty | MET |
+| Working tree builds clean on `main` | `cargo build 2>&1 \| tail -1` | MET (2026-08-23: `Finished dev profile`) |
+| No in-flight rename of `src/builtins` | `git status --porcelain src/builtins` → empty | MET (empty) |
 
 Everything below is written against the current `main`.
 
@@ -186,26 +186,30 @@ file/wire format, layout, or ABI changes. All codegen output is byte-identical.
 Move the resource registry to `src/codegen/resource.rs`; it has no facade
 dependency, so it lands cleanly first.
 
-- [ ] `git mv src/builtins/resource.rs src/codegen/resource.rs`.
-- [ ] Add `pub(crate) mod resource;` to `src/codegen/mod.rs` (near the existing
-      `pub(crate) mod builtins;`).
-- [ ] In `src/builtins/mod.rs`, replace `pub(crate) mod resource;` +
-      `pub(crate) use resource::{...}` with `pub(crate) use crate::codegen::resource;`
-      and repoint its internal `resource::` uses — keeps `crate::builtins::resource`
-      resolving for the not-yet-moved facade during this phase.
-- [ ] Repoint the 105 `builtins::resource::` references to
-      `crate::codegen::resource::` across the dependent files (incl.
-      `src/cli/man.rs:683`, `repository/` refs). For a file with
-      `use crate::builtins;` and bare `builtins::resource::X`, either add
-      `use crate::codegen::resource;` and drop the `builtins::` qualifier, or
-      fully-qualify — match the file's existing style.
-- [ ] Update the 2 doc citations to `src/builtins/resource.rs`
-      (`src/docs/spec/architecture/21_type-name-encoding.md:137`,
-      `src/docs/spec/architecture/09_modules.md:39`) → `src/codegen/resource.rs`.
-- [ ] Tests: no new tests; the existing resource unit tests move with the file.
+- [x] ~~`git mv src/builtins/resource.rs src/codegen/resource.rs`~~ — CORRECTED:
+      `src/codegen/resource.rs` path is taken by an existing `src/codegen/resource/`
+      **directory** module (wires `cleanup`). Merged the resource-registry body into
+      `src/codegen/resource/mod.rs` instead (preserves `crate::codegen::resource::X`
+      for the repoint), `git rm src/builtins/resource.rs`. See Corrections.
+- [x] ~~Add `pub(crate) mod resource;` to `src/codegen/mod.rs`~~ — moot: already
+      present at `src/codegen/mod.rs:20` (the existing directory module).
+- [x] In `src/builtins/mod.rs`, replaced `pub(crate) mod resource;` +
+      `pub(crate) use resource::{...}` with `use crate::codegen::resource;`
+      (the `ResourceInfo/Kind/Registry` re-export consumers were repointed directly
+      to `crate::codegen::resource::`, so no facade re-export is needed).
+- [x] Repointed all `builtins::resource::` module-path references (82: 75 qualified
+      `crate::builtins::resource::` + 7 bare) plus the 6 `builtins::{ResourceInfo,
+      ResourceKind,ResourceRegistry}` re-export refs → `crate::codegen::resource::`.
+      `grep -rn "builtins::resource::" src/ repository/` → 0. Dropped the now-unused
+      `use crate::builtins;` from `validation.rs` (its only facade use was resource).
+- [x] Updated the 2 doc citations (`…/21_type-name-encoding.md:137`,
+      `…/09_modules.md:39`) → `[[src/codegen/resource/mod.rs…]]`.
+- [x] Tests: the 5 resource unit tests moved with the body; all pass under
+      `codegen::resource::tests::*`.
 
-Acceptance: `cargo build` and `cargo test --no-fail-fast` green; `artifact-gate.sh all`
-reports **byte-identical** `.ncode`/`.ncodesum` for every target (no diff).
+Acceptance: `cargo build` green; the 5 `codegen::resource::tests::*` pass. Full
+`cargo test --no-fail-fast` + release `artifact-gate.sh all` byte-identity verified
+cumulatively at Phase 3 (same worktree, cumulative code motion).
 Commit: —
 
 ### Phase 2 — relocate `testing.rs`
@@ -309,7 +313,21 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Phase 1 destination path collision (`src/codegen/resource.rs` already taken).**
+  The plan assumed `crate::codegen::resource` was free and prescribed
+  `git mv src/builtins/resource.rs src/codegen/resource.rs`. Reality:
+  `ls src/codegen/resource/` shows an existing **directory** module
+  (`src/codegen/resource/mod.rs` wiring `pub(crate) mod cleanup;`), and
+  `src/codegen/mod.rs:20` already declares `pub(crate) mod resource;`. Resolution:
+  merged the resource-registry body verbatim into `src/codegen/resource/mod.rs`
+  (below the existing `mod cleanup;`), so `crate::codegen::resource::X` resolves
+  exactly as the plan's repoint intended and the two `mod`-declaration boxes became
+  moot. The `resource.rs` `//!` header folded into the module's own doc block.
+  Also: the `crate::builtins::{ResourceInfo,ResourceKind,ResourceRegistry}`
+  re-export (6 refs in `syntaxcheck/{mod,link}.rs`) was repointed straight to
+  `crate::codegen::resource::` rather than carried as a facade re-export, and
+  `validation.rs`'s `use crate::builtins;` (Phase-3 repoint target) became unused
+  once its lone resource ref moved, so it was deleted in Phase 1.
 
 ## Summary
 

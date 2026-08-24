@@ -204,7 +204,7 @@ impl CodeBuilder<'_> {
         // block that this single size cannot describe, so it keeps the pre-existing
         // bounded leak rather than reclaim the record and strand the STATE.
         let bare_resource_reclaimable =
-            defer_resource_flag && crate::builtins::resource::state_type_name(&msg_type).is_none();
+            defer_resource_flag && crate::codegen::resource::state_type_name(&msg_type).is_none();
         if size_computable {
             self.emit_inlined_block_size_from_ptr_slot(&msg_type, copied_message_slot, size_slot)?;
         } else if bare_resource_reclaimable {

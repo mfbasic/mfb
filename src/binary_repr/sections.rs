@@ -91,9 +91,9 @@ impl TypeTable {
             // section. Erasing the STATE here would compile the exporter fine and
             // silently degrade every importer to a bare `File` — which would leave
             // `bindings/libsnd`, a package boundary, exactly as blocked as before.
-            name if crate::builtins::resource::state_type_name(name).is_some() => {
-                let base = crate::builtins::resource::base_resource_name(name);
-                let state = crate::builtins::resource::state_type_name(name).unwrap_or(name);
+            name if crate::codegen::resource::state_type_name(name).is_some() => {
+                let base = crate::codegen::resource::base_resource_name(name);
+                let state = crate::codegen::resource::state_type_name(name).unwrap_or(name);
                 let base = self.type_id(strings, base);
                 let state = self.type_id(strings, state);
                 self.state_type(strings, base, state)

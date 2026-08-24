@@ -1348,8 +1348,8 @@ impl Resolver<'_> {
         // own type strings also contain ` STATE `), so this fires on the bare
         // resource element — a stateful binding/return, or a thread plane's RES
         // element (plan-54).
-        if let Some(state) = crate::builtins::resource::state_type_name(type_name) {
-            let base = crate::builtins::resource::base_resource_name(type_name);
+        if let Some(state) = crate::codegen::resource::state_type_name(type_name) {
+            let base = crate::codegen::resource::base_resource_name(type_name);
             self.resolve_type_name(file, base, line, imports);
             self.resolve_type_name(file, state, line, imports);
             return;

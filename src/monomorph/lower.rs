@@ -245,7 +245,7 @@ impl<'a> Monomorphizer<'a> {
         // this, `types_compatible` compares 3 tokens against 1 and NO overload
         // whose first parameter is a stateful resource can ever match — the call
         // silently resolved to `Type::Unknown` instead of reporting an error.
-        crate::builtins::resource::base_resource_name(&normalized).to_string()
+        crate::codegen::resource::base_resource_name(&normalized).to_string()
     }
 
     pub(super) fn run(&mut self) {

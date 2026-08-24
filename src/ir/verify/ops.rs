@@ -232,7 +232,7 @@ impl TypeEnv {
                     // can only be *written*, so an inferred binding has nothing
                     // new for them to check.
                     if *explicit_type && !name.starts_with('$') {
-                        if let Some(state_type) = crate::builtins::resource::state_type_name(type_)
+                        if let Some(state_type) = crate::codegen::resource::state_type_name(type_)
                         {
                             if !self.is_defaultable(state_type, &mut HashSet::new()) {
                                 self.emit(
@@ -359,7 +359,7 @@ impl TypeEnv {
                     // carried in the local's type string (`File STATE T`); a
                     // resource declared without STATE has nothing to assign.
                     if let Some(t) = locals.get(resource) {
-                        let declared_state = crate::builtins::resource::state_type_name(t);
+                        let declared_state = crate::codegen::resource::state_type_name(t);
                         if declared_state.is_none()
                             && self.is_resource_or_resource_union(resource_base_type(t))
                         {
@@ -470,7 +470,7 @@ impl TypeEnv {
                         // cannot show the opaque value carries.
                         if self.is_opaque_state_value(value) {
                             let ret = self.current_return.borrow().clone();
-                            if let Some(declared) = crate::builtins::resource::state_type_name(&ret)
+                            if let Some(declared) = crate::codegen::resource::state_type_name(&ret)
                             {
                                 self.emit(
                                     "TYPE_STATE_OPAQUE_NARROWING",

@@ -102,7 +102,7 @@ pub(super) fn collect_bind_type_names(
                 // union type name — so the base must be recorded or the stateful
                 // bind's tag-dispatched close symbol is never defined.
                 self.types
-                    .insert(crate::builtins::resource::base_resource_name(type_).to_string());
+                    .insert(crate::codegen::resource::base_resource_name(type_).to_string());
             }
             walk_op(self, op);
         }

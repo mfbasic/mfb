@@ -183,7 +183,7 @@ fn is_c_abi_type(type_name: &str) -> bool {
 }
 
 /// The bare resource type name with any `STATE T` suffix removed, mirroring
-/// `builtins::resource::base_resource_name`.
+/// `crate::codegen::resource::base_resource_name`.
 fn resource_base_type(type_name: &str) -> &str {
     match type_name.split_once(" STATE ") {
         Some((base, _)) => base,

@@ -16,7 +16,7 @@ impl CodeBuilder<'_> {
     /// the words are readable-as-pointers only for a `File`, and the drop-path
     /// reclaim must ask before it frees them (plan-52-B Phase 2).
     pub(crate) fn resource_uses_io_buffers(type_: &str) -> bool {
-        crate::builtins::resource::base_resource_name(type_) == "fs.File"
+        crate::codegen::resource::base_resource_name(type_) == "fs.File"
     }
 
     pub(crate) fn resource_cleanup_symbol(&self, type_: &str) -> Option<String> {
@@ -30,7 +30,7 @@ impl CodeBuilder<'_> {
             let close = self
                 .type_model
                 .resource_closers
-                .get(crate::builtins::resource::base_resource_name(type_))?;
+                .get(crate::codegen::resource::base_resource_name(type_))?;
             return crate::codegen::engine::builder::resolve_closer_symbol(
                 close,
                 self.function_symbols,
@@ -56,7 +56,7 @@ impl CodeBuilder<'_> {
     /// must register the same tag-dispatched close — otherwise a stateful union
     /// binding would register no cleanup at all and leak its handle.
     pub(crate) fn resource_union_cleanup(&self, type_: &str) -> Option<Vec<(usize, String)>> {
-        let type_ = crate::builtins::resource::base_resource_name(type_);
+        let type_ = crate::codegen::resource::base_resource_name(type_);
         if !self.type_model.union_names.contains(type_) {
             return None;
         }
@@ -559,7 +559,7 @@ impl CodeBuilder<'_> {
         if let Some(variants) = self.resource_union_cleanup(&element) {
             return Ok(OwnedListDrop::Union {
                 variants,
-                state_type: crate::builtins::resource::state_type_name(&element)
+                state_type: crate::codegen::resource::state_type_name(&element)
                     .map(str::to_string),
             });
         }

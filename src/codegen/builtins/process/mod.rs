@@ -200,7 +200,7 @@ pub(crate) fn register(r: &mut Registry) {
         // reaps, so it does not fail.
         sendable: false,
         close_may_fail: false,
-        kind: crate::builtins::resource::ResourceKind::Builtin,
+        kind: crate::codegen::resource::ResourceKind::Builtin,
     });
 
     func_spawn::register(&mut pkg);

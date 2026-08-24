@@ -236,7 +236,7 @@ fn collect_diagnostics_with(
                 .iter()
                 .filter(|p| {
                     env.is_resource_or_resource_union(resource_base_type(&p.type_))
-                        && crate::builtins::resource::state_type_name(&p.type_).is_none()
+                        && crate::codegen::resource::state_type_name(&p.type_).is_none()
                 })
                 .map(|p| p.name.clone())
                 .collect(),
@@ -1138,7 +1138,7 @@ fn read_only_record_type(type_name: &str) -> bool {
 
 /// Whether `name` is a built-in resource type (has a registered close op).
 fn is_resource_name(name: &str) -> bool {
-    builtins::resource::builtin_resource_close_function(name).is_some()
+    crate::codegen::resource::builtin_resource_close_function(name).is_some()
 }
 
 /// The base resource type name, stripping the `RES ` ownership marker and a
@@ -1147,7 +1147,7 @@ fn is_resource_name(name: &str) -> bool {
 /// is left intact (plan-54, via `base_resource_name`'s top-level guard).
 fn resource_base_type(type_: &str) -> &str {
     let t = type_.strip_prefix("RES ").unwrap_or(type_);
-    crate::builtins::resource::base_resource_name(t)
+    crate::codegen::resource::base_resource_name(t)
 }
 
 /// Collect the names of every `Local` read anywhere in an op's value positions
