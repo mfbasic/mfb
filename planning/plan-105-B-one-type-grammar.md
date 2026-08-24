@@ -174,7 +174,7 @@ None. All renders byte-identical (`name()` reproduces the exact spellings).
 Acceptance: MET — the four fixtures build, run and pass on the unchanged
 compiler; baseline re-recorded (`artifact-gate all` 1249→1255 tests,
 1718→1730 goldens, **0 diffs**).
-Commit: 8d5cc2cbe
+Commit: a1975315e
 
 ### Phase 2 — `UserOf` variant + native monomorph, fallback deleted
 
@@ -216,7 +216,7 @@ Acceptance: MET (2026-08-24).
   no NEW diff; the pre-existing 1249/1718 corpus is byte-identical and the deltas
   are exactly the six added fixtures.
 - `grep -rn 'user_template_parts\|split_top_level' src/monomorph/` → 0.
-Commit: 8d5cc2cbe
+Commit: a1975315e
 
 ### Phase 3 — resolver + syntaxcheck cascades onto canonical parse
 
@@ -253,7 +253,7 @@ Measured end state, `grep -rnE 'strip_prefix\("(List OF |Set OF |Map OF |RES |Re
 Plus: `cargo test --no-fail-fast` 62/62 `ok`; `artifact-gate all` 0 diffs;
 `test-accept` 2 mismatches over 1199 tests — the same pre-existing pair, no NEW
 mismatch.
-Commit: 8d5cc2cbe
+Commit: a1975315e
 
 ## Validation Plan
 
