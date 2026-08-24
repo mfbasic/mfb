@@ -169,9 +169,11 @@ only path that moves, and it moves *on purpose* (optimizations off).
 
 ### Non-goals (explicit constraints)
 
-- **No *new* optimization is implemented.** The only passes that run are the three
-  already-shipping Level-1 ones, now dial-gated. Both reserved seams (Opt1 NIR, Opt2
-  MIR) are identity. The rest of `optimizations.md` is future work, one pass at a time.
+- **No *new* optimization is implemented.** The only passes that run are the
+  already-shipping ones: two Level-1 machine peepholes, now dial-gated, plus
+  `fuse_scalar_fma`, which stayed ungated as mandatory lowering (Corrections). Both
+  reserved seams (Opt1 NIR, Opt2 MIR) are identity. The rest of `optimizations.md`
+  is future work, one pass at a time.
 - **No SSA / CFG / analysis infrastructure is built.** Plan2 (CFG + SSA/def-use),
   Out-of-SSA, and Plan2's **demand-driven prerequisites** — SSA promotion (mem2reg),
   alias analysis, memory-SSA/memory-dependence, range/trap analysis, loop
@@ -195,7 +197,13 @@ only path that moves, and it moves *on purpose* (optimizations off).
   switch, matching the existing `MFB_TARGET` precedent; a per-fixture `build.args`
   seam is explicitly out of scope.
 - **`selfmove_probe` is untouched.** It is a read-only diagnostic, not a dial pass;
-  it keeps its env-gate and stays in `src/codegen/compiler/opt/`.
+  it keeps its env-gate and stays in `src/codegen/compiler/opt/` — where it is now
+  joined by `fma_fusion`, the other non-dial resident.
+- **`-O0` does not change program behavior.** Only passes that are
+  behavior-preserving *by construction* are eligible for the dial. This was
+  discovered the hard way (see Corrections) and is the rule any future row must
+  clear: a pass that can change a value or a trap belongs in mandatory lowering or
+  at Level 6, never on `-O0`..`-O5`.
 
 ## 2. Phase 1 — the `-O`/`--optimize` flag + `OptLevel` global (default `-O1`)
 
