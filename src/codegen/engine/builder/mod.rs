@@ -53,8 +53,8 @@ use crate::codegen::engine::analysis::*;
 use crate::codegen::memory::data::*;
 // `audio`'s per-backend device emission moved to `crate::codegen::builtins::audio` (gen_* modules)
 // (clean-room registry migration). The `AudioBackend` selector (data objects + macOS
-// AudioQueue callbacks) is reached there; runtime-helper bodies flow through the generic
-// `crate::codegen::os::dispatch_runtime_helper` (registry OS-seam), like tls/process.
+// AudioQueue callbacks) is reached there; runtime-helper bodies flow through the
+// `abi_function` path (`lower_abi_function_helper`), like tls/process.
 use crate::codegen::builtins::audio::gen_shared::AudioBackend;
 use crate::codegen::collection::layout::{recursive_transfer_types, thread_copy_symbol};
 // The cross-package presentation-mode gate (app owns `Mode`) stays in the shared
@@ -1885,14 +1885,6 @@ pub(crate) fn lower_runtime_helper(
             "native code plan does not emit runtime helper '{symbol}'"
         ));
     };
-    // The per-compilation OS-seam context bundle, threaded to the last `Body::native`
-    // OS-seam emitter (`crypto`) through the generic dispatch, and to the
-    // `abi_function` path for the arena offsets the migrated term/app/io routing
-    // consumes (both `Option<usize>`, exactly as `ArenaLayout` holds them).
-    let os_ctx = crate::codegen::registry::OsLowerCtx {
-        term_state_offset: arena_layout.term_state_offset,
-        presentation_mode_offset: arena_layout.presentation_mode_offset,
-    };
     // Every runtime helper lowers to the same CodeFunction shape — an empty
     // `params` list and the spec's return type — differing only in the
     // (frame, instructions, relocations, stack_slots) tuple each arm computes.
@@ -1912,8 +1904,8 @@ pub(crate) fn lower_runtime_helper(
                 type_model,
                 platform_imports,
                 platform,
-                os_ctx.term_state_offset,
-                os_ctx.presentation_mode_offset,
+                arena_layout.term_state_offset,
+                arena_layout.presentation_mode_offset,
                 arena_layout.global_slots,
                 uses_rng,
             )?
@@ -1931,53 +1923,14 @@ pub(crate) fn lower_runtime_helper(
                 // clean-room migration — each member's own per-member body reads the
                 // arena `presentation_mode_offset` off the `AbiCtx` — so they route
                 // through the `is_abi_function_call` branch above; no `app.` arm here.)
-                // Every `crypto.*` runtime helper (the `randomBytes` CSPRNG and the
-                // NIST-EC public-key ops) carries a `Body::native` OS-seam lowering in
-                // `codegen::builtins::crypto::native`; the generic registry-driven
-                // dispatch picks the per-family emission by `platform.family()`.
-                call if call.starts_with("crypto.") => {
-                    match crate::codegen::os::dispatch_runtime_helper(
-                        call,
-                        symbol,
-                        &os_ctx,
-                        platform_imports,
-                        platform,
-                    ) {
-                        Some(result) => result?,
-                        None => {
-                            return Err(format!(
-                                "native code plan does not emit runtime call '{call}'"
-                            ));
-                        }
-                    }
-                }
                 // plan-67-B: internal perf-tracking helpers (injected, never NIR-level).
                 "perf.init" | "perf.start" | "perf.end" | "perf.done" => {
                     perf::lower_perf_helper(spec.call, symbol, platform_imports, platform)?
                 }
-                // Every `os.*` member carries a `Body::native` OS-seam lowering: the
-                // per-platform emission lives in `codegen::builtins::os::native`, and the
-                // generic registry-driven dispatch picks posix/win by `platform.family()`.
-                // `os.resourcePath` receives the real `build_mode`/`module_name`; every
-                // other member ignores them. (`fs.*` members are `Body::abi_function` since
-                // the plan-72 clean-room migration, so they route through the
-                // `is_abi_function_call` branch above — no `fs.` arm here.)
-                call if call.starts_with("os.") => {
-                    match crate::codegen::os::dispatch_runtime_helper(
-                        call,
-                        symbol,
-                        &os_ctx,
-                        platform_imports,
-                        platform,
-                    ) {
-                        Some(result) => result?,
-                        None => {
-                            return Err(format!(
-                                "native code plan does not emit runtime call '{call}'"
-                            ));
-                        }
-                    }
-                }
+                // (`crypto.*` and `os.*` members are `Body::abi_function` since the
+                // clean-room migration — each member owns its per-member body in its
+                // `func_*.rs` (`lower_<name>`), so they route through the
+                // `is_abi_function_call` branch above; no `crypto.`/`os.` arm here.)
                 // (`io.*` members are `Body::abi_function` since plan-101, so they are
                 // handled by the `is_abi_function_call` branch above — no `io.` arm here.)
                 // (`thread.*` members are `Body::abi_function`/`abi_function_aliased` since

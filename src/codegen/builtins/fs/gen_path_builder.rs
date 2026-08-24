@@ -716,9 +716,8 @@ impl CodeBuilder<'_> {
 }
 
 /// `Body::abi_inline` wrappers for
-/// the five `path*` members — the self-lowering successor to the former `common`
-/// `NativeLower` slot (byte-identical: the raw `NirValue` args are lowered by the
-/// same dispatcher). Each delegates to the shared
+/// the five `path*` members — self-lowering (byte-identical: the raw `NirValue` args
+/// are lowered by the same dispatcher). Each delegates to the shared
 /// [`CodeBuilder::lower_fs_path_call`] dispatcher (kept because the same lowering
 /// also serves the `RuntimeCall` node and the standalone `pathJoin` helper), which
 /// always lowers these single-arg path calls. The `AbiCtx` is unused (a `path*`

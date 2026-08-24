@@ -136,7 +136,7 @@ mod tests {
         assert!(registry().is_member("os.getEnv"));
         assert!(registry().is_member("os.resourcePath"));
         assert!(!registry().is_member("os.nope"));
-        // Native members carry no rewrite target (they lower through Body::Native).
+        // Native members carry no rewrite target (they lower through Body::abi_function).
         assert_eq!(registry::rewrite_target("os.getEnv", &[]), None);
         // Fixed per-name return types.
         assert_eq!(registry::call_return_type("os.getEnv"), Some("String"));

@@ -1,10 +1,10 @@
 //! `process::spawn` — registry entry.
 //!
-//! Per-member file. `Body::Native`: the member's per-platform OS-seam emitters
-//! (`*_posix`/`*_win`) delegate to the arch-neutral emission in
-//! `../native/{unix,windows}`, and the runtime-call dispatch
-//! (`super::dispatch_os_helper`) picks by `platform.family()`. This file carries the
-//! registry entry, those emitters, and the docs.
+//! Per-member file. `Body::abi_function`: the member's OS-seam body branches on OS
+//! family (libc vs kernel32) and delegates to the arch-neutral emission in
+//! `../native/{unix,windows}`; the shared `lower_abi_function_helper` wraps it once
+//! into the `_mfb_rt_*` helper. This file carries the registry entry, that body, and
+//! the docs.
 
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;

@@ -1,7 +1,7 @@
 //! Helper-tier record marshaller — the free-function sibling of
 //! [`super::byte_list::emit_build_byte_list`].
 //!
-//! An `OsLower` runtime-helper emitter (`crypto`, `net`, …) runs below the
+//! A `Body::abi_function` runtime-helper emitter (`crypto`, `net`, …) runs below the
 //! `CodeBuilder`, so it cannot call the call-site record builder
 //! (`CodeBuilder::emit_build_inlined_record`). This module gives it a
 //! byte-level constructor that produces the **spec-canonical** record image
@@ -14,7 +14,7 @@
 //! Field classification goes through the shared `&TypeModel` predicates
 //! (`record_field_is_inlined` / `type_is_flat` / `is_pointer_string_record`), so a
 //! natively-built record and a source-built one have identical layout. The
-//! `TypeModel` reaches the emitter through [`crate::codegen::registry::OsLowerCtx`].
+//! `TypeModel` reaches the emitter through the shared `TypeModel` lookup.
 //!
 //! The emitter works entirely through stack slots (no value is held in a register
 //! across a sub-step), matching the `%v9`..`%v15` discipline of the other helper-

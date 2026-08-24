@@ -246,7 +246,7 @@ mod tests {
         assert!(registry().is_member("process.spawn"));
         assert!(registry().is_member("process.didSignal"));
         assert!(!registry().is_member("process.nope"));
-        // Native members carry no rewrite target (they lower through Body::Native).
+        // Native members carry no rewrite target (they lower through Body::abi_function).
         assert_eq!(registry::rewrite_target("process.spawn", &[]), None);
         // Fixed per-name return types.
         assert_eq!(registry::call_return_type("process.pid"), Some("Integer"));

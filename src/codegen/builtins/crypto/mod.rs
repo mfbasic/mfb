@@ -20,7 +20,7 @@
 //! cores. The one remaining OS-seam helper is the CSPRNG `randomBytes`
 //! (`getentropy` / `BCryptGenRandom`), itself a clean-room [`Body::abi_function`]
 //! lowering (`func_random_bytes`) routed through the shared `RuntimeHelper::Abi`
-//! family — so `crypto` no longer has any [`Body::native`] members.
+//! family — so every `crypto` member is a `Body::abi_function`/`Body::Rewrite`.
 //!
 //! Source injection is the registry's ([`crate::codegen::registry::augment_project`]);
 //! the `Sealed`/`KeyPair` record types are registered via `add_record`, carrying
@@ -704,8 +704,8 @@ mod tests {
     fn native_and_internal_flags() {
         use crate::codegen::registry::is_abi_function_call;
         // The OS-seam CSPRNG `randomBytes` is a clean-room `AbiFunction` (like
-        // `generate`/`sign`/`verify`/`hash`/`seal`), so `crypto` has no `Body::native`
-        // members — it routes through the shared `RuntimeHelper::Abi` family.
+        // `generate`/`sign`/`verify`/`hash`/`seal`), so every `crypto` member is an
+        // `AbiFunction`/`Rewrite` — it routes through the shared `RuntimeHelper::Abi` family.
         assert!(is_abi_function_call("crypto.randomBytes"));
         for f in [
             "crypto.generate",

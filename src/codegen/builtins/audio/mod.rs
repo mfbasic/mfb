@@ -469,7 +469,7 @@ mod tests {
         // Untimed and timed read/poll arities.
         assert_eq!(registry().arity("audio.read"), Some((2, 3)));
         assert_eq!(registry().arity("audio.poll"), Some((1, 2)));
-        // Native members carry no rewrite target (they lower through Body::Native).
+        // Native members carry no rewrite target (they lower through Body::abi_function).
         assert_eq!(
             registry::rewrite_target("audio.read", &strings(&["audio.AudioInput", "Integer"])),
             None

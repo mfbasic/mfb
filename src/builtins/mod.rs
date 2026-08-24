@@ -132,7 +132,7 @@ pub(crate) fn native_builtin_target(name: &str) -> Option<&'static str> {
         }
     }
     // Every other migrated collections native member (`get`, `set`, `transform`, …)
-    // owns a `Body::Native` call-site lowering; the registry hands back its bare name.
+    // owns a `Body::abi_inline` call-site lowering; the registry hands back its bare name.
     crate::codegen::registry::native_bare_target(name)
 }
 

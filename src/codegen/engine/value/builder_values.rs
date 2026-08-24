@@ -781,12 +781,9 @@ impl CodeBuilder<'_> {
                 // shared bare lowering name and returns `None` for bare names, so a
                 // user `FUNC get` is never hijacked by the native lowering
                 // (plan-01-functions.md §5).
-                // plan-95: prefer a migrated function's own lowering
-                // (`Implementation::Native`) over the legacy ladder below.
+                // plan-95: prefer a migrated function's own `abi_inline` lowering
+                // over the legacy ladder below.
                 if let Some(result) = self.try_abi_inline_lower(target, args) {
-                    return result;
-                }
-                if let Some(result) = self.try_native_lower(target, args) {
                     return result;
                 }
                 let native = crate::builtins::native_builtin_target(target);
@@ -855,8 +852,9 @@ impl CodeBuilder<'_> {
                 // member's `func_*.rs` shim calls it, and `builder_vector_inline` reaches
                 // the scalar `math.sqrt`/`math.clamp` it emits as `NirValue::Call` through
                 // the same self-lowering dual-path.
-                // `money.*` migrated to the clean-room registry (`Body::Native`
-                // `common`), reached above through `try_native_lower`.
+                // `money.*` migrated to the clean-room registry (`Body::abi_inline`),
+                // reached on the `Call` path through `try_abi_inline_lower`; the
+                // explicit intrinsics below cover this `RuntimeCall` arm.
                 if target == "isEven" && args.len() == 1 {
                     return self.lower_integer_parity_predicate("isEven", &args[0], false);
                 }
@@ -1115,12 +1113,9 @@ impl CodeBuilder<'_> {
                 ..
             } => {
                 // `strings::`/`astrings::` native members migrated to the clean-room
-                // registry (`Body::Native` `common`), reached through
-                // `try_native_lower` (plan-99 PART B/C) — the same dual-path seam as
-                // `collections::`.
-                if let Some(result) = self.try_native_lower(target, args) {
-                    return result;
-                }
+                // registry are `Body::abi_inline`, so they arrive on the `Call` path
+                // (reached through `try_abi_inline_lower` there), not this `RuntimeCall`
+                // arm — which handles the explicit intrinsics below (plan-99 PART B/C).
                 if target == "isEven" && args.len() == 1 {
                     return self.lower_integer_parity_predicate("isEven", &args[0], false);
                 }
@@ -1652,19 +1647,6 @@ impl CodeBuilder<'_> {
     /// `Nothing` (`void`) and takes the no-value fall-through below. Only the
     /// members `inline_builtin_raw_supported` allows reach here.
     ///
-    /// plan-95 dual-path dispatch: if the call's `BuiltinFunction` carries its own
-    /// target-generic lowering (`Implementation::Native`), run it; otherwise return
-    /// `None` so the caller falls through to the legacy `src/target` ladder. Keyed
-    /// on the qualified call name (`collections.get`).
-    fn try_native_lower(
-        &mut self,
-        target: &str,
-        args: &[NirValue],
-    ) -> Option<Result<ValueResult, String>> {
-        let lower = crate::codegen::registry::native_lower(target)?;
-        Some(lower(self, args))
-    }
-
     /// The experimental `AbiInline` dual-path: if `target` names an `abi_inline`
     /// member, lower each `NirValue` arg to a `ValueResult` here (the dispatch owns
     /// arg acquisition — "pre-lowered `ValueResult`"), bundle an [`AbiCtx`] from the
@@ -1761,15 +1743,10 @@ impl CodeBuilder<'_> {
         // out-of-range `ErrInvalidArgument` through `emit_error_register_return`,
         // whose `raw_result_capture` branch (set above) redirects to the capture
         // point; the total `bits.` ops never reach here (they are infallible). Those
-        // shift ops are `Body::abi_inline` intrinsics, so they are reached through
-        // `try_abi_inline_lower`; other migrated members use the `common`
-        // `try_native_lower`. Both run inside this raw-capture wrapper, so a
+        // shift ops are `Body::abi_inline` intrinsics, reached through
+        // `try_abi_inline_lower`, which runs inside this raw-capture wrapper so a
         // fallible body's domain error is captured rather than returned.
-        let lowered = if let Some(result) = self.try_native_lower(target, args) {
-            // plan-95: migrated function lowering, inside the raw-capture wrapper
-            // so `raw_result_capture` still routes its domain error to the capture.
-            result
-        } else if let Some(result) = self.try_abi_inline_lower(target, args) {
+        let lowered = if let Some(result) = self.try_abi_inline_lower(target, args) {
             // An `abi_inline` member (the migrated collections/strings natives, e.g.
             // fallible `get`/`set`/`insert`, and the fallible `bits.sl`/`sr`/`sra`
             // variable shifts) trapped by an inline `TRAP`: its domain error routes
@@ -1840,11 +1817,8 @@ impl CodeBuilder<'_> {
         target: &str,
         args: &[NirValue],
     ) -> Result<ValueResult, String> {
-        // plan-95/96: prefer a migrated member's own lowering (Implementation::Native)
-        // over the infallible-inline ladder below (the third dispatch site).
-        if let Some(result) = self.try_native_lower(target, args) {
-            return result;
-        }
+        // plan-95/96: prefer a migrated member's own `abi_inline` lowering over the
+        // infallible-inline ladder below (the third dispatch site).
         if let Some(result) = self.try_abi_inline_lower(target, args) {
             return result;
         }

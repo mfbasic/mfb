@@ -140,9 +140,8 @@ mod tests {
 
     #[test]
     fn every_member_is_an_abi_inline_intrinsic() {
-        // Each member owns a `Body::Native` `abi_inline` call-site lowering, so the
-        // generic AbiInline dual-path (`try_abi_inline_lower`) reaches it — migrated
-        // off the former `common`/`NativeLower` slot.
+        // Each member owns a `Body::abi_inline` call-site lowering, so the
+        // generic AbiInline dual-path (`try_abi_inline_lower`) reaches it.
         for name in [
             "band", "bor", "bxor", "bnot", "sl", "sr", "sra", "rl32", "rr32", "rl64", "rr64",
             "clz", "ctz", "popCount", "bswap16", "bswap32", "bswap64",

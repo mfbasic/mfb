@@ -96,7 +96,7 @@ END FUNC
 
 /// `collections::find` — List element/sublist search. Reached through the
 /// `native_builtin_target` bare-name dispatch (`lower_find`), so its `Body` is
-/// [`Body::Intrinsic`] (no `native_lower`, no rewrite); the descriptor exists only
+/// [`Body::Intrinsic`] (no `abi_inline` lowering, no rewrite); the descriptor exists only
 /// for return-type resolution, arity, errors, and parameter names.
 pub(crate) fn register(pkg: &mut RegistryPackage) {
     pkg.add_function(RegistryFunction {

@@ -114,7 +114,7 @@ Every `bits::` op lowers to one (or a few) native machine instructions **inline*
 libm/source routine. `band` is a single `AND`, `clz` a single count-leading-zeros,
 `bswap64` a single byte-reverse, and so on; only `popCount` (the SWAR fold) and
 the derived left-rotate/`ctz`/`bswap16` forms expand to a short fixed instruction
-sequence, and none of these branch on data. [[src/codegen/registry/mod.rs:native_lower]]
+sequence, and none of these branch on data. [[src/codegen/registry/mod.rs:abi_inline_lower]]
 
 The consequences are determinism and portability. Because the operations are
 plain integer-ALU work over a two's-complement bit pattern — with no floating

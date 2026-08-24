@@ -2558,8 +2558,8 @@ pub(crate) fn byte_list_block_kind() -> usize {
 // flat composite), or an 8-byte pointer to a separate allocation. The
 // `CodeBuilder` methods above delegate here so the call-site record builder
 // (`emit_build_inlined_record`) and the **helper-tier** record marshaller
-// (`crate::codegen::memory::marshal::emit_build_inlined_record`, driven from an
-// `OsLower` emitter through `OsLowerCtx::type_model`) classify fields identically
+// (`crate::codegen::memory::marshal::emit_build_inlined_record`, driven from a
+// `Body::abi_function` runtime-helper emitter) classify fields identically
 // and can never drift.
 // ---------------------------------------------------------------------------
 
