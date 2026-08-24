@@ -283,7 +283,7 @@ Acceptance: `src/builtins/` is gone (`ls src/builtins` → No such file); top-le
 `test-accept.sh` shows 2 mismatches that reproduce identically on the baseline
 (commit 50c953142) — pre-existing stdin-EOF environment sensitivity in
 `tests/acceptance/src/io.mfb`, not ours (proven via a detached baseline build).
-Commit: —
+Commit: d718950a6
 
 ## Validation Plan
 

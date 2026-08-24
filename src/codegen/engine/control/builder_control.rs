@@ -264,7 +264,8 @@ impl CodeBuilder<'_> {
         else {
             return Ok(false);
         };
-        if crate::codegen::builtins::native_builtin_target(call_target) != Some("append") || args.len() != 2
+        if crate::codegen::builtins::native_builtin_target(call_target) != Some("append")
+            || args.len() != 2
         {
             return Ok(false);
         }
@@ -748,8 +749,7 @@ impl CodeBuilder<'_> {
                         // The owning binding allocates the state record on first
                         // bind; a moved/returned resource that already carries a
                         // state keeps it (the slot is non-null).
-                        if let Some(state_type) = crate::codegen::resource::state_type_name(type_)
-                        {
+                        if let Some(state_type) = crate::codegen::resource::state_type_name(type_) {
                             let state_type = state_type.to_string();
                             self.emit_resource_state_init(stack_offset, &state_type, type_)?;
                         }

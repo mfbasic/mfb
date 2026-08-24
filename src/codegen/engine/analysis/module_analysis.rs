@@ -182,7 +182,9 @@ pub(crate) fn module_may_record_cleanup_failure(module: &NirModule) -> bool {
 
 fn ops_may_record_cleanup_failure(ops: &[NirOp]) -> bool {
     ops.iter().any(|op| match op {
-        NirOp::Bind { type_, .. } => crate::codegen::builtins::resource_close_function(type_).is_some(),
+        NirOp::Bind { type_, .. } => {
+            crate::codegen::builtins::resource_close_function(type_).is_some()
+        }
         NirOp::If {
             then_body,
             else_body,

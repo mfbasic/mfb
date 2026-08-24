@@ -86,7 +86,9 @@ mod tests {
     }
 
     use crate::ast::build::*;
-    use crate::codegen::builtins_testing::{EXPECT_EQUAL, EXPECT_NEQUAL, EXPECT_NTRAP, EXPECT_TRAP};
+    use crate::codegen::builtins_testing::{
+        EXPECT_EQUAL, EXPECT_NEQUAL, EXPECT_NTRAP, EXPECT_TRAP,
+    };
 
     /// Positional call arguments from a list of expressions.
     fn pos(values: Vec<Expression>) -> Vec<CallArg> {

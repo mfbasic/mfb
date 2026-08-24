@@ -337,7 +337,10 @@ mod tests {
             crate::codegen::builtins::resource_close_function(super::PROCESS_TYPE_ID),
             Some(super::DROP)
         );
-        assert_eq!(crate::codegen::builtins::resource_close_function("Nothing"), None);
+        assert_eq!(
+            crate::codegen::builtins::resource_close_function("Nothing"),
+            None
+        );
     }
 
     #[test]

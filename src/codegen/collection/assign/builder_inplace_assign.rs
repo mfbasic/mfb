@@ -31,7 +31,9 @@ impl CodeBuilder<'_> {
         let NirValue::Call { target, args, .. } = value else {
             return Ok(false);
         };
-        if crate::codegen::builtins::native_builtin_target(target) != Some("append") || args.len() != 2 {
+        if crate::codegen::builtins::native_builtin_target(target) != Some("append")
+            || args.len() != 2
+        {
             return Ok(false);
         }
         let NirValue::Local(arg0) = &args[0] else {
@@ -155,7 +157,8 @@ impl CodeBuilder<'_> {
         else {
             return Ok(false);
         };
-        if crate::codegen::builtins::native_builtin_target(call_target) != Some("append") || args.len() != 2
+        if crate::codegen::builtins::native_builtin_target(call_target) != Some("append")
+            || args.len() != 2
         {
             return Ok(false);
         }
@@ -250,7 +253,8 @@ impl CodeBuilder<'_> {
         let NirValue::Call { target, args, .. } = value else {
             return Ok(false);
         };
-        if crate::codegen::builtins::native_builtin_target(target) != Some("add") || args.len() != 2 {
+        if crate::codegen::builtins::native_builtin_target(target) != Some("add") || args.len() != 2
+        {
             return Ok(false);
         }
         let NirValue::Local(arg0) = &args[0] else {
@@ -321,7 +325,9 @@ impl CodeBuilder<'_> {
         let NirValue::Call { target, args, .. } = value else {
             return Ok(false);
         };
-        if crate::codegen::builtins::native_builtin_target(target) != Some("removeKey") || args.len() != 2 {
+        if crate::codegen::builtins::native_builtin_target(target) != Some("removeKey")
+            || args.len() != 2
+        {
             return Ok(false);
         }
         let NirValue::Local(arg0) = &args[0] else {
@@ -373,7 +379,9 @@ impl CodeBuilder<'_> {
         let NirValue::Call { target, args, .. } = value else {
             return Ok(false);
         };
-        if crate::codegen::builtins::native_builtin_target(target) != Some("append") || args.len() != 2 {
+        if crate::codegen::builtins::native_builtin_target(target) != Some("append")
+            || args.len() != 2
+        {
             return Ok(false);
         }
         let NirValue::Local(arg0) = &args[0] else {
@@ -461,7 +469,8 @@ impl CodeBuilder<'_> {
         let NirValue::Call { target, args, .. } = value else {
             return Ok(false);
         };
-        if crate::codegen::builtins::native_builtin_target(target) != Some("set") || args.len() != 3 {
+        if crate::codegen::builtins::native_builtin_target(target) != Some("set") || args.len() != 3
+        {
             return Ok(false);
         }
         let NirValue::Local(arg0) = &args[0] else {
@@ -605,7 +614,9 @@ impl CodeBuilder<'_> {
         let NirValue::Call { target, args, .. } = value else {
             return Ok(false);
         };
-        if crate::codegen::builtins::native_builtin_target(target) != Some("prepend") || args.len() != 2 {
+        if crate::codegen::builtins::native_builtin_target(target) != Some("prepend")
+            || args.len() != 2
+        {
             return Ok(false);
         }
         let NirValue::Local(arg0) = &args[0] else {

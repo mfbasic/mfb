@@ -225,7 +225,8 @@ impl CodeBuilder<'_> {
             let Some(local) = self.locals.get(name) else {
                 continue;
             };
-            let Some(close) = crate::codegen::builtins::resource_close_function(&local.type_) else {
+            let Some(close) = crate::codegen::builtins::resource_close_function(&local.type_)
+            else {
                 continue;
             };
             let consumed = if target == close {
@@ -242,7 +243,8 @@ impl CodeBuilder<'_> {
                 // successful transfer. Deactivation runs only on the success
                 // path (after the result-tag branch), so the sender keeps
                 // ownership and cleanup when the transfer fails with `Err`.
-                index == 1 && crate::codegen::builtins::is_thread_sendable_resource_type(&local.type_)
+                index == 1
+                    && crate::codegen::builtins::is_thread_sendable_resource_type(&local.type_)
             } else if crate::codegen::builtins::is_builtin_call(target) {
                 false
             } else {
@@ -559,8 +561,7 @@ impl CodeBuilder<'_> {
         if let Some(variants) = self.resource_union_cleanup(&element) {
             return Ok(OwnedListDrop::Union {
                 variants,
-                state_type: crate::codegen::resource::state_type_name(&element)
-                    .map(str::to_string),
+                state_type: crate::codegen::resource::state_type_name(&element).map(str::to_string),
             });
         }
         let symbol = self.resource_cleanup_symbol(&element).ok_or_else(|| {

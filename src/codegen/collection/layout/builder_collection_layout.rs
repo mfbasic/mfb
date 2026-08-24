@@ -56,7 +56,8 @@ impl CodeBuilder<'_> {
         if is_collection_type(type_) {
             return !self.type_is_flat(type_);
         }
-        crate::codegen::builtins::is_resource_type(type_) && !self.type_model.union_names.contains(type_)
+        crate::codegen::builtins::is_resource_type(type_)
+            && !self.type_model.union_names.contains(type_)
     }
 
     /// Alignment, in bytes, that a packed collection payload of `type_` requires

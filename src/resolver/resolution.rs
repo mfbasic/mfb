@@ -1393,7 +1393,8 @@ impl Resolver<'_> {
         // Split at the depth-0 `) AS ` so a parameter that is itself a
         // `FUNC(...) AS …` (or any parenthesized/nested type) does not split at
         // an inner `) AS ` and produce garbage names (bug-106).
-        let Some((params, return_type)) = crate::codegen::builtins::split_func_params_and_return(rest)
+        let Some((params, return_type)) =
+            crate::codegen::builtins::split_func_params_and_return(rest)
         else {
             self.report(
                 "SYMBOL_UNKNOWN_TYPE",

@@ -232,8 +232,7 @@ impl TypeEnv {
                     // can only be *written*, so an inferred binding has nothing
                     // new for them to check.
                     if *explicit_type && !name.starts_with('$') {
-                        if let Some(state_type) = crate::codegen::resource::state_type_name(type_)
-                        {
+                        if let Some(state_type) = crate::codegen::resource::state_type_name(type_) {
                             if !self.is_defaultable(state_type, &mut HashSet::new()) {
                                 self.emit(
                                     "TYPE_STATE_INVALID",

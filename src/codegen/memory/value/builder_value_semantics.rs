@@ -294,8 +294,7 @@ impl CodeBuilder<'_> {
         // from the resource record. Because a resource value is a pointer to its
         // record, an alias and the owner address the same payload.
         if member == "state" {
-            if let Some(state_type) =
-                crate::codegen::resource::state_type_name(&target_value.type_)
+            if let Some(state_type) = crate::codegen::resource::state_type_name(&target_value.type_)
             {
                 let state_type = state_type.to_string();
                 // A resource union value is a `{tag, record-ptr}` block; the STATE
