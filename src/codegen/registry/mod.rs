@@ -1756,6 +1756,39 @@ pub(crate) fn call_return_type(qualified: &str) -> Option<Cow<'static, str>> {
     Some(return_type.name())
 }
 
+/// The static return type of a runtime-call **`os_alias`** (`audio.openOutputDevice`,
+/// `audio.openInputDevice`, …): the aliased [`Implementation`]'s own `return_type`,
+/// package-qualified exactly like [`call_return_type`]'s. An alias is not a registry
+/// member (`resolve_func` sees only surface names), but the code layer meets alias
+/// names directly when a surface call was rewritten at IR level
+/// (`audio::runtime_overload_name`). Without this, the alias fell through to the
+/// derived runtime spec, whose ABI spelling **bares** a resource name
+/// (`abi_return_name`: `audio.AudioOutput` → `AudioOutput`) — and a bare resource
+/// spelling is invisible to the resource classification, so an inline-`TRAP`'d
+/// `openOutput(device, …)` tried to flat-copy the handle and died with
+/// "native inlined field size not available for type 'AudioOutput'".
+pub(crate) fn alias_call_return_type(qualified: &str) -> Option<Cow<'static, str>> {
+    let (pkg_name, alias) = qualified.split_once('.')?;
+    let package = registry()
+        .packages()
+        .iter()
+        .find(|p| p.import_name() == pkg_name)?;
+    for function in package.functions() {
+        for implementation in function.implementations() {
+            let Body::AbiFunction { os_aliases, .. } = &implementation.body else {
+                continue;
+            };
+            if os_aliases.contains(&alias) {
+                if contains_var(&implementation.return_type) {
+                    return None;
+                }
+                return Some(implementation.return_type.name());
+            }
+        }
+    }
+    None
+}
+
 /// Whether a concrete leaf type is compatible with a *scalar or nominal* parameter
 /// type (the [`unify`] leaf case). Exact types match, and two *different known scalars*
 /// are the only definite incompatibility — a nominal vs anything else is accepted

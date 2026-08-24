@@ -2043,6 +2043,17 @@ impl CodeBuilder<'_> {
                 })
             })
             .or_else(|| builtins::call_return_type_name(target).map(std::borrow::Cow::into_owned))
+            // A runtime-call `os_alias` reached directly (the IR-level overload
+            // rewrites: `audio.openOutputDevice`/`openInputDevice`/…) is not a
+            // registry member, so `call_return_type_name` declines it. Resolve the
+            // aliased implementation's own return type — package-qualified, so a
+            // resource return (`audio.AudioOutput`) keeps its resource
+            // classification (the derived spec fallback below bares it, which
+            // broke the inline-TRAP'd device-overload opens).
+            .or_else(|| {
+                crate::codegen::registry::alias_call_return_type(target)
+                    .map(std::borrow::Cow::into_owned)
+            })
             // A migrated package's code-form/scope-drop close op (`audio.closeInput`,
             // `audio.closeOutput`, `tls.closeListener`) is an `os_alias`, not a
             // registry member, so `call_return_type_name` declines it; its return type
