@@ -66,7 +66,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         internal_only: false,
         implementations: vec![super::Implementation {
             params: vec![],
-            return_type: super::ParameterType::Named("Instant"),
+            return_type: super::ParameterType::named("Instant"),
             errors: vec![],
             body: super::Body::mfb(BODY, "__datetime_now"),
         }],

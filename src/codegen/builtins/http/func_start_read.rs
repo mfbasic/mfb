@@ -14,11 +14,11 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![
-                super::req("url", &[], ParameterType::Named("Url")),
+                super::req("url", &[], ParameterType::named("Url")),
                 super::fill("headers", super::header_map(), "{}"),
                 super::fill("method", ParameterType::String, "GET"),
             ],
-            return_type: ParameterType::Named(super::STREAM_STATE),
+            return_type: ParameterType::named(super::STREAM_STATE),
             errors: vec![],
             body: Body::Rewrite("__http_startRead"),
         }],

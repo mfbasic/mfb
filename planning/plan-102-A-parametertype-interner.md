@@ -270,17 +270,23 @@ Commit: —
 One line: flip the two leaves to `Symbol` and repoint the 422 construction sites +
 `parse`/`name`.
 
-- [ ] Change `ParameterType::Named`/`Var` to hold `Symbol` (`src/types.rs`).
-- [ ] `parse` fallback interns instead of `Box::leak` (`src/types.rs:216`).
-- [ ] `name()` resolves the `Symbol` for `Named`/`Var` (`src/types.rs`).
-- [ ] Repoint the 422 `ParameterType::Named(...)`/`Var(...)` construction sites to
+- [x] Change `ParameterType::Named`/`Var` to hold `Symbol` (`src/types.rs`).
+- [x] `parse` fallback interns instead of `Box::leak` (now `ParameterType::named(other)`).
+- [x] `name()` resolves the `Symbol` for `Named`/`Var` (`elem.resolve()`/`name.resolve()`).
+- [x] Repoint the ~422 `ParameterType::Named(...)`/`Var(...)` construction sites to
       pass a `Symbol` (most are registry descriptors passing a `&'static str`
       literal → wrap in `Symbol::intern` or a `const`-friendly helper). Measure the
-      residual after an initial sweep: `rg -n 'Named\("|Var\("' src/`.
-- [ ] Confirm `rg -c 'Box::leak' src/types.rs` → 0.
+      residual after an initial sweep: `rg -n 'Named\("|Var\("' src/`. (Added
+      `ParameterType::named`/`var` interning constructors; sed-repointed 416
+      `ParameterType::Named(`/`Var(` call sites + 25 bare test-module calls to the
+      helpers; `bindings` map in registry `unify`/`substitute` re-keyed
+      `&'static str` → `Symbol`. Residual bare `Named("`/`Var("` constructions: 0.)
+- [x] Confirm `rg -c 'Box::leak' src/types.rs` → 0. (VERIFIED: 0.)
 
 Acceptance: `cargo test` green; `artifact-gate all` shows **no NEW diff** vs the
-Phase-1 baseline; `rg 'Box::leak' src/types.rs` is empty.
+Phase-1 baseline; `rg 'Box::leak' src/types.rs` is empty. VERIFIED — full suite's
+sole failure is the recorded `artifact_gate_all` baseline; `diff` of gate output
+vs `plan-102-baseline-diffs.txt` is IDENTICAL; leak count 0.
 Commit: —
 
 ### Phase 4 — add `MapEntryOf` / `ResultOf` variants

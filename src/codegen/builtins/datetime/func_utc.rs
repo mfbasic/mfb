@@ -75,7 +75,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         internal_only: false,
         implementations: vec![super::Implementation {
             params: vec![],
-            return_type: super::ParameterType::Named("Zone"),
+            return_type: super::ParameterType::named("Zone"),
             errors: vec![],
             body: super::Body::mfb(BODY, "__datetime_utc"),
         }],

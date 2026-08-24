@@ -134,7 +134,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ty: ParameterType::String,
                 default: DefaultValue::None,
             }],
-            return_type: ParameterType::Named("Json"),
+            return_type: ParameterType::named("Json"),
             errors: vec!["ErrInvalidFormat"],
             body: Body::mfb(FUNC_BODY, "__json_parse"),
         }],

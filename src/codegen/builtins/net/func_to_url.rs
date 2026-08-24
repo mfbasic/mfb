@@ -15,7 +15,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![super::req("href", &["value", "url"], ParameterType::String)],
-            return_type: ParameterType::Named(super::URL_TYPE),
+            return_type: ParameterType::named(super::URL_TYPE),
             errors: vec![],
             body: Body::Rewrite("__net_toUrl"),
         }],

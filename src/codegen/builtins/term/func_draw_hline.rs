@@ -50,7 +50,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     name: "line",
                     desc: "",
                     aliases: &[],
-                    ty: ParameterType::Named("LineStyle"),
+                    ty: ParameterType::named("LineStyle"),
                     default: DefaultValue::None,
                 },
                 Parameter {

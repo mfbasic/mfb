@@ -1679,7 +1679,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     name: "type",
                     desc: "The certificate/key type of the private key.",
                     aliases: &[],
-                    ty: ParameterType::Named("Certificate"),
+                    ty: ParameterType::named("Certificate"),
                     default: crate::codegen::registry::DefaultValue::None,
                 },
                 Parameter {

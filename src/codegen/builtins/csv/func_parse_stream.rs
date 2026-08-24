@@ -88,7 +88,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                 },
             ],
-            return_type: ParameterType::Named("CsvReader"),
+            return_type: ParameterType::named("CsvReader"),
             errors: vec!["ErrInvalidFormat"],
             body: Body::mfb(FUNC_BODY, "__csv_parseStream"),
         }],

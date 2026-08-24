@@ -77,7 +77,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     "input",
                     "An open capture stream, from `audio::openInput`. Borrowed, not consumed. Reading after close raises `ErrAudioDevice`.",
                     &[],
-                    ParameterType::Named(AUDIO_INPUT_TYPE_ID),
+                    ParameterType::named(AUDIO_INPUT_TYPE_ID),
                 ),
                 param(
                     "frames",

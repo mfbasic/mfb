@@ -294,7 +294,7 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "items",
-                ty: ParameterType::list_of(ParameterType::Named("__regex_ClassItem")),
+                ty: ParameterType::list_of(ParameterType::named("__regex_ClassItem")),
                 description: "",
             },
             RecordProp {
@@ -329,7 +329,7 @@ pub(crate) fn register(r: &mut Registry) {
         description: "",
         props: vec![RecordProp {
             name: "parts",
-            ty: ParameterType::list_of(ParameterType::Named("__regex_Node")),
+            ty: ParameterType::list_of(ParameterType::named("__regex_Node")),
             description: "",
         }],
     });
@@ -340,7 +340,7 @@ pub(crate) fn register(r: &mut Registry) {
         description: "",
         props: vec![RecordProp {
             name: "opts",
-            ty: ParameterType::list_of(ParameterType::Named("__regex_Node")),
+            ty: ParameterType::list_of(ParameterType::named("__regex_Node")),
             description: "",
         }],
     });
@@ -352,7 +352,7 @@ pub(crate) fn register(r: &mut Registry) {
         props: vec![
             RecordProp {
                 name: "child",
-                ty: ParameterType::Named("__regex_Node"),
+                ty: ParameterType::named("__regex_Node"),
                 description: "",
             },
             RecordProp {
@@ -380,7 +380,7 @@ pub(crate) fn register(r: &mut Registry) {
         props: vec![
             RecordProp {
                 name: "child",
-                ty: ParameterType::Named("__regex_Node"),
+                ty: ParameterType::named("__regex_Node"),
                 description: "",
             },
             RecordProp {
@@ -448,7 +448,7 @@ pub(crate) fn register(r: &mut Registry) {
         props: vec![
             RecordProp {
                 name: "parts",
-                ty: ParameterType::list_of(ParameterType::Named("__regex_Node")),
+                ty: ParameterType::list_of(ParameterType::named("__regex_Node")),
                 description: "",
             },
             RecordProp {
@@ -458,7 +458,7 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "nxt",
-                ty: ParameterType::Named("__regex_Cont"),
+                ty: ParameterType::named("__regex_Cont"),
                 description: "",
             },
         ],
@@ -476,7 +476,7 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "nxt",
-                ty: ParameterType::Named("__regex_Cont"),
+                ty: ParameterType::named("__regex_Cont"),
                 description: "",
             },
         ],
@@ -489,7 +489,7 @@ pub(crate) fn register(r: &mut Registry) {
         props: vec![
             RecordProp {
                 name: "rep",
-                ty: ParameterType::Named("__regex_Repeat"),
+                ty: ParameterType::named("__regex_Repeat"),
                 description: "",
             },
             RecordProp {
@@ -504,7 +504,7 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "nxt",
-                ty: ParameterType::Named("__regex_Cont"),
+                ty: ParameterType::named("__regex_Cont"),
                 description: "",
             },
         ],
@@ -586,7 +586,7 @@ pub(crate) fn register(r: &mut Registry) {
         props: vec![
             RecordProp {
                 name: "root",
-                ty: ParameterType::Named("__regex_Node"),
+                ty: ParameterType::named("__regex_Node"),
                 description: "",
             },
             RecordProp {
@@ -609,7 +609,7 @@ pub(crate) fn register(r: &mut Registry) {
         props: vec![
             RecordProp {
                 name: "node",
-                ty: ParameterType::Named("__regex_Node"),
+                ty: ParameterType::named("__regex_Node"),
                 description: "",
             },
             RecordProp {
@@ -642,12 +642,12 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "flags",
-                ty: ParameterType::Named("__regex_Flags"),
+                ty: ParameterType::named("__regex_Flags"),
                 description: "",
             },
             RecordProp {
                 name: "node",
-                ty: ParameterType::Named("__regex_Node"),
+                ty: ParameterType::named("__regex_Node"),
                 description: "",
             },
             RecordProp {
@@ -749,7 +749,7 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "item",
-                ty: ParameterType::Named("__regex_ClassItem"),
+                ty: ParameterType::named("__regex_ClassItem"),
                 description: "",
             },
             RecordProp {
@@ -767,7 +767,7 @@ pub(crate) fn register(r: &mut Registry) {
         props: vec![
             RecordProp {
                 name: "flags",
-                ty: ParameterType::Named("__regex_Flags"),
+                ty: ParameterType::named("__regex_Flags"),
                 description: "",
             },
             RecordProp {

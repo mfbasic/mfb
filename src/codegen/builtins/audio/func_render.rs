@@ -49,7 +49,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 "note",
                 "The note to synthesize: `frequencyHz`, `noteFrames`, an `AudioEnvelope`, and `gainOverall`. Construct it with `AudioNote[...]`.",
                 &[],
-                ParameterType::Named(AUDIO_NOTE_TYPE),
+                ParameterType::named(AUDIO_NOTE_TYPE),
             )],
             return_type: ParameterType::list_of(ParameterType::Byte),
             errors: vec!["ErrInvalidFormat", "ErrOverflow"],

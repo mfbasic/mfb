@@ -96,7 +96,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     name: "value",
                     desc: "The attributed text to write. Interpreted as UTF-8 and emitted unchanged; may be empty.",
                     aliases: &[],
-                    ty: ParameterType::Named("AttributedString"),
+                    ty: ParameterType::named("AttributedString"),
                     default: DefaultValue::None,
                 }],
                 return_type: ParameterType::Nothing,

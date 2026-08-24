@@ -137,7 +137,7 @@ pub(crate) fn register(r: &mut Registry) {
         description: "",
         props: vec![RecordProp {
             name: "items",
-            ty: ParameterType::list_of(ParameterType::Named("Json")),
+            ty: ParameterType::list_of(ParameterType::named("Json")),
             description: "A JSON array's elements.",
         }],
     });
@@ -148,7 +148,7 @@ pub(crate) fn register(r: &mut Registry) {
         description: "",
         props: vec![RecordProp {
             name: "fields",
-            ty: ParameterType::map_of(ParameterType::String, ParameterType::Named("Json")),
+            ty: ParameterType::map_of(ParameterType::String, ParameterType::named("Json")),
             description: "The object's members, keyed by field name.",
         }],
     });
@@ -160,7 +160,7 @@ pub(crate) fn register(r: &mut Registry) {
         props: vec![
             RecordProp {
                 name: "value",
-                ty: ParameterType::Named("Json"),
+                ty: ParameterType::named("Json"),
                 description: "",
             },
             RecordProp {

@@ -117,7 +117,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 int_param("second", fill.clone()),
                 int_param("nanos", fill),
             ],
-            return_type: ParameterType::Named("Time"),
+            return_type: ParameterType::named("Time"),
             errors: vec![],
             body: Body::mfb(BODY, "__datetime_time"),
         }],

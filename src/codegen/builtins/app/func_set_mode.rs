@@ -103,7 +103,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 desc: "The presentation mode to switch to: `Mode.Console` or `Mode.None`. Any \
                        other type is rejected at compile time.",
                 aliases: &[],
-                ty: ParameterType::Named("Mode"),
+                ty: ParameterType::named("Mode"),
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,

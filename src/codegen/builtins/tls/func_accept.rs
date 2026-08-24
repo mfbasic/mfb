@@ -82,7 +82,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     name: "listener",
                     desc: "A listening `TlsListener` from `tls::listen`. Borrowed, not consumed: it remains open for further `accept` calls.",
                     aliases: &[],
-                    ty: ParameterType::Named(super::TLS_LISTENER_TYPE_ID),
+                    ty: ParameterType::named(super::TLS_LISTENER_TYPE_ID),
                     default: DefaultValue::None,
                 },
                 Parameter {
@@ -96,7 +96,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                 },
             ],
-            return_type: ParameterType::Named(super::TLS_SOCKET_TYPE_ID),
+            return_type: ParameterType::named(super::TLS_SOCKET_TYPE_ID),
             errors: vec![],
             body: Body::abi_function(lower_accept),
         }],

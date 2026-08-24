@@ -109,7 +109,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     name: "p",
                     desc: "The child process handle. Borrowed and inspected for readiness only; no data is read. Also accepts the alternate named-argument spelling `process`.",
                     aliases: &["process"],
-                    ty: ParameterType::Named(super::PROCESS_TYPE_ID),
+                    ty: ParameterType::named(super::PROCESS_TYPE_ID),
                     default: DefaultValue::None,
                 },
                 Parameter {
@@ -123,7 +123,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     name: "from",
                     desc: "Optional. Which output stream to inspect: `Stream.StdOut` (the default) or `Stream.StdErr`.",
                     aliases: &[],
-                    ty: ParameterType::Named(super::STREAM_TYPE),
+                    ty: ParameterType::named(super::STREAM_TYPE),
                     default: DefaultValue::Optional,
                 },
             ],

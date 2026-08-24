@@ -101,7 +101,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     name: "file",
                     desc: "An open `File` resource whose buffering mode is being changed.",
                     aliases: &[],
-                    ty: ParameterType::Named(super::FILE_TYPE_ID),
+                    ty: ParameterType::named(super::FILE_TYPE_ID),
                     default: DefaultValue::None,
                 },
                 Parameter {

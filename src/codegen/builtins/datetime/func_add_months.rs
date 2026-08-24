@@ -91,7 +91,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     name: "dt",
                     desc: "",
                     aliases: &[],
-                    ty: super::ParameterType::Named("DateTime"),
+                    ty: super::ParameterType::named("DateTime"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {
@@ -102,7 +102,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     default: super::DefaultValue::None,
                 },
             ],
-            return_type: super::ParameterType::Named("DateTime"),
+            return_type: super::ParameterType::named("DateTime"),
             errors: vec![],
             body: super::Body::mfb(BODY, "__datetime_addMonths"),
         }],

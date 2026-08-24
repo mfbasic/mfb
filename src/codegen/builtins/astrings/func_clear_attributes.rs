@@ -17,7 +17,7 @@ fn value_param() -> Parameter {
         name: "value",
         desc: "",
         aliases: &[],
-        ty: ParameterType::Named("AttributedString"),
+        ty: ParameterType::named("AttributedString"),
         default: DefaultValue::None,
     }
 }
@@ -43,7 +43,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![
             Implementation {
                 params: vec![value_param()],
-                return_type: ParameterType::Named("AttributedString"),
+                return_type: ParameterType::named("AttributedString"),
                 errors: vec![],
                 body: Body::Rewrite("__astrings_clearAttributes"),
             },
@@ -53,7 +53,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     integer_param("start"),
                     integer_param("endIndex"),
                 ],
-                return_type: ParameterType::Named("AttributedString"),
+                return_type: ParameterType::named("AttributedString"),
                 errors: vec![],
                 body: Body::Rewrite("__astrings_clearAttributesRange"),
             },

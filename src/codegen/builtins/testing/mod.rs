@@ -101,12 +101,12 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_function(assertion(
         "expectEqual",
         "Assert `actual` equals `expected` (generic).",
-        operands(ParameterType::Var("T")),
+        operands(ParameterType::var("T")),
     ));
     pkg.add_function(assertion(
         "expectNEqual",
         "Assert `actual` does not equal `expected` (generic).",
-        operands(ParameterType::Var("T")),
+        operands(ParameterType::var("T")),
     ));
 
     // Typed equality.
@@ -166,7 +166,7 @@ pub(crate) fn register(r: &mut Registry) {
                 name: "expression",
                 desc: "The expression asserted to trap.",
                 aliases: &[],
-                ty: ParameterType::Var("T"),
+                ty: ParameterType::var("T"),
                 default: DefaultValue::None,
             },
             Parameter {
@@ -185,7 +185,7 @@ pub(crate) fn register(r: &mut Registry) {
             name: "expression",
             desc: "The expression asserted not to trap.",
             aliases: &[],
-            ty: ParameterType::Var("T"),
+            ty: ParameterType::var("T"),
             default: DefaultValue::None,
         }],
     ));

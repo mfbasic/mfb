@@ -62,7 +62,7 @@ fn overload(stream_ty: &'static str) -> Implementation {
             "stream",
             STREAM_DESC,
             &[],
-            ParameterType::Named(stream_ty),
+            ParameterType::named(stream_ty),
         )],
         return_type: ParameterType::Integer,
         errors: vec!["ErrAudioUnavailable"],

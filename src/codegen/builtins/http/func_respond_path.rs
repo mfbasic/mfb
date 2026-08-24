@@ -17,11 +17,11 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::req(
                     "req",
                     &["request"],
-                    ParameterType::Named(super::REQUEST_TYPE),
+                    ParameterType::named(super::REQUEST_TYPE),
                 ),
                 super::req("root", &[], ParameterType::String),
             ],
-            return_type: ParameterType::Named(super::RESPONSE_TYPE),
+            return_type: ParameterType::named(super::RESPONSE_TYPE),
             errors: vec![],
             body: Body::Rewrite("__http_respondPath"),
         }],

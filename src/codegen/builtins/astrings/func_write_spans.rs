@@ -12,7 +12,7 @@ use crate::codegen::registry::{
 };
 use crate::types::ParameterType;
 fn span_list() -> ParameterType {
-    ParameterType::list_of(ParameterType::Named("AttrSpan"))
+    ParameterType::list_of(ParameterType::named("AttrSpan"))
 }
 
 /// Self-lowering inline body for `astrings.writeSpans` (`Body::abi_inline`),
@@ -41,7 +41,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     name: "value",
                     desc: "",
                     aliases: &[],
-                    ty: ParameterType::Named("AttributedString"),
+                    ty: ParameterType::named("AttributedString"),
                     default: DefaultValue::None,
                 },
                 Parameter {
@@ -52,7 +52,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     default: DefaultValue::None,
                 },
             ],
-            return_type: ParameterType::Named("AttributedString"),
+            return_type: ParameterType::named("AttributedString"),
             errors: vec![],
             body: Body::abi_inline(lower),
         }],

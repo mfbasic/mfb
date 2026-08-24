@@ -108,14 +108,14 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     name: "value",
                     desc: "",
                     aliases: &["collection"],
-                    ty: ParameterType::list_of(ParameterType::Var("T")),
+                    ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
                     name: "initial",
                     desc: "",
                     aliases: &["seed"],
-                    ty: ParameterType::Var("U"),
+                    ty: ParameterType::var("U"),
                     default: DefaultValue::None,
                 },
                 Parameter {
@@ -123,8 +123,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     desc: "",
                     aliases: &["combine"],
                     ty: ParameterType::func(
-                        vec![ParameterType::Var("U"), ParameterType::Var("T")],
-                        ParameterType::Var("U"),
+                        vec![ParameterType::var("U"), ParameterType::var("T")],
+                        ParameterType::var("U"),
                     ),
                     default: DefaultValue::None,
                 },

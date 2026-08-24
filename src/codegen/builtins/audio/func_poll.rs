@@ -68,7 +68,7 @@ const TIMEOUT_DESC: &str = "Maximum wait in milliseconds (timed overload only). 
 fn overload(stream_ty: &'static str) -> Implementation {
     Implementation {
         params: vec![
-            param("stream", STREAM_DESC, &[], ParameterType::Named(stream_ty)),
+            param("stream", STREAM_DESC, &[], ParameterType::named(stream_ty)),
             timeout_ms(TIMEOUT_DESC),
         ],
         return_type: ParameterType::Boolean,

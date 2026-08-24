@@ -12,6 +12,7 @@
 //! [`ParameterType::parse`] to split a `FUNC(...) AS R` type string); a module cycle
 //! with `builtins` is fine — modules are not separate compilation units.
 
+use crate::intern::Symbol;
 use std::borrow::Cow;
 use std::fmt;
 
@@ -44,16 +45,18 @@ pub(crate) enum ParameterType {
     Res(Box<ParameterType>),
     /// A concrete nominal type — a record, union, or user type named by the program.
     /// Matched by name (unlike [`Var`], which is bound). A descriptor names one with a
-    /// static literal (`Named("CsvReader")`); a concrete nominal argument is built at
-    /// the boundary by [`parse`](Self::parse).
-    Named(&'static str),
-    /// A bindable type variable in a generic signature (`T`, `K`, `V`) — always
-    /// `&'static`, because variables are only ever *declared* in a static descriptor.
+    /// static literal (`named("CsvReader")`); a concrete nominal argument is built at
+    /// the boundary by [`parse`](Self::parse). The name is an interned [`Symbol`]
+    /// (`Copy`, integer-compared) rather than a leaked `&'static str`.
+    Named(Symbol),
+    /// A bindable type variable in a generic signature (`T`, `K`, `V`). The name is an
+    /// interned [`Symbol`] — variables are declared in a descriptor via [`var`](Self::var)
+    /// and, post-elaboration, minted by the front end.
     /// It is *unified* against the concrete argument type at a call site (binding the
     /// variable) and then *substituted* into the return type: this is how the registry
     /// expresses `collections::get(List OF T, Integer) AS T` with no per-package
     /// resolver. Renders as its bare name in documentation.
-    Var(&'static str),
+    Var(Symbol),
     /// A function-value type — `FUNC(<params>) AS <return>`. The parameter and return
     /// types may themselves contain [`Var`](Self::Var)s, so a higher-order member like
     /// `collections::transform(List OF T, FUNC(T) AS U) AS List OF U` unifies the
@@ -110,6 +113,16 @@ impl ParameterType {
     pub(crate) fn res(inner: ParameterType) -> Self {
         ParameterType::Res(Box::new(inner))
     }
+    /// A concrete nominal type named `name`, interning the name to a [`Symbol`]. This
+    /// is the sole constructor for [`Named`](Self::Named): descriptors and the
+    /// `parse` fallback both route through it, so the leaked `&'static str` is gone.
+    pub(crate) fn named(name: &str) -> Self {
+        ParameterType::Named(Symbol::intern(name))
+    }
+    /// A bindable type variable named `name`, interning the name to a [`Symbol`].
+    pub(crate) fn var(name: &str) -> Self {
+        ParameterType::Var(Symbol::intern(name))
+    }
     pub(crate) fn func(params: Vec<ParameterType>, ret: ParameterType) -> Self {
         ParameterType::Func(params, Box::new(ret), false)
     }
@@ -140,8 +153,8 @@ impl ParameterType {
     /// `ParameterType`. This is the *only* place a string becomes a `ParameterType`;
     /// inside the registry everything is already a `ParameterType`. Scalars and
     /// `List`/`Map`/`Set` are recognized structurally; anything else (a record, union,
-    /// or function type) becomes a [`Named`] whose runtime name is interned to
-    /// `&'static` — a deliberate leak, but only at this boundary. A leading `RES `
+    /// or function type) becomes a [`Named`] whose runtime name is interned to a
+    /// `Copy` [`Symbol`] (deduplicated, not leaked per occurrence). A leading `RES `
     /// ownership marker is stripped (a collection element stores the bare type).
     pub(crate) fn parse(name: &str) -> ParameterType {
         // A `RES ` ownership marker wraps a [`Res`](Self::Res) around the inner type
@@ -213,7 +226,7 @@ impl ParameterType {
             "Money" => ParameterType::Money,
             "Nothing" => ParameterType::Nothing,
             "String" => ParameterType::String,
-            other => ParameterType::Named(Box::leak(other.to_string().into_boxed_str())),
+            other => ParameterType::named(other),
         }
     }
 
@@ -235,8 +248,8 @@ impl ParameterType {
             }
             ParameterType::SetOf(elem) => Cow::Owned(format!("Set OF {}", elem.name())),
             ParameterType::Res(inner) => Cow::Owned(format!("RES {}", inner.name())),
-            ParameterType::Named(elem) => Cow::Borrowed(elem),
-            ParameterType::Var(name) => Cow::Borrowed(name),
+            ParameterType::Named(elem) => Cow::Borrowed(elem.resolve()),
+            ParameterType::Var(name) => Cow::Borrowed(name.resolve()),
             ParameterType::Func(params, ret, isolated) => Cow::Owned(format!(
                 "{}FUNC({}) AS {}",
                 if *isolated { "ISOLATED " } else { "" },
@@ -591,17 +604,17 @@ mod tests {
             ParameterType::thread_handle(
                 false,
                 ParameterType::Nothing,
-                ParameterType::Named("fs.File"),
+                ParameterType::named("fs.File"),
                 ParameterType::String,
             )
         );
         assert_eq!(
             ParameterType::parse("Thread"),
-            ParameterType::Named("Thread")
+            ParameterType::named("Thread")
         );
         assert_eq!(
             ParameterType::parse("ThreadWorker"),
-            ParameterType::Named("ThreadWorker")
+            ParameterType::named("ThreadWorker")
         );
     }
 
@@ -644,7 +657,7 @@ mod tests {
                     ParameterType::thread_handle(
                         true,
                         ParameterType::Integer,
-                        ParameterType::Named("fs.File"),
+                        ParameterType::named("fs.File"),
                         ParameterType::String,
                     )
                 );
@@ -659,23 +672,23 @@ mod tests {
         // (historically the marker was stripped, losing it on a `name()` round-trip).
         assert_eq!(
             ParameterType::parse("RES fs.File"),
-            ParameterType::res(ParameterType::Named("fs.File"))
+            ParameterType::res(ParameterType::named("fs.File"))
         );
         assert_eq!(
             ParameterType::parse("List OF RES fs.File"),
-            ParameterType::list_of(ParameterType::res(ParameterType::Named("fs.File")))
+            ParameterType::list_of(ParameterType::res(ParameterType::named("fs.File")))
         );
         assert_eq!(
             ParameterType::parse("Map OF String TO RES fs.File"),
             ParameterType::map_of(
                 ParameterType::String,
-                ParameterType::res(ParameterType::Named("fs.File")),
+                ParameterType::res(ParameterType::named("fs.File")),
             )
         );
         // The `STATE` clause stays inside the (opaque) nominal, the `RES` wraps it.
         assert_eq!(
             ParameterType::parse("List OF RES File STATE Cursor"),
-            ParameterType::list_of(ParameterType::res(ParameterType::Named(
+            ParameterType::list_of(ParameterType::res(ParameterType::named(
                 "File STATE Cursor"
             )))
         );

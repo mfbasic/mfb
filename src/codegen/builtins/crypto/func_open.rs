@@ -139,7 +139,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         name: "cipher",
         desc: "The AEAD cipher to use.",
         aliases: &[],
-        ty: ParameterType::Named("SymmetricCipher"),
+        ty: ParameterType::named("SymmetricCipher"),
         default: DefaultValue::None,
     };
     let key_param = || Parameter {
@@ -211,7 +211,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                         name: "sealed",
                         desc: "The `crypto::Sealed` record returned by `crypto::seal`.",
                         aliases: &[],
-                        ty: ParameterType::Named("Sealed"),
+                        ty: ParameterType::named("Sealed"),
                         default: DefaultValue::None,
                     },
                     aad_param(),

@@ -95,7 +95,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         name: "cipher",
         desc: "The asymmetric cipher suite to use.",
         aliases: &[],
-        ty: ParameterType::Named("AsymmetricCipher"),
+        ty: ParameterType::named("AsymmetricCipher"),
         default: DefaultValue::None,
     };
     let recip_param = || Parameter {

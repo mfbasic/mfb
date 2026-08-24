@@ -43,7 +43,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![],
-            return_type: ParameterType::Named("TermColor"),
+            return_type: ParameterType::named("TermColor"),
             errors: vec![],
             body: Body::abi_function(lower_get_foreground),
         }],

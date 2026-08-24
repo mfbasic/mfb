@@ -38,7 +38,7 @@ pub(crate) fn lower_connect_tcp(
 }
 
 pub(crate) fn register(pkg: &mut RegistryPackage) {
-    let ret = || ParameterType::Named(super::SOCKET_TYPE_ID);
+    let ret = || ParameterType::named(super::SOCKET_TYPE_ID);
     pkg.add_function(RegistryFunction {
         name: "connectTcp",
         intro: "",
@@ -70,7 +70,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 params: vec![super::req(
                     "address",
                     &[],
-                    ParameterType::Named(super::ADDRESS_TYPE),
+                    ParameterType::named(super::ADDRESS_TYPE),
                 )],
                 return_type: ret(),
                 errors: vec![],
@@ -78,7 +78,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
             },
             Implementation {
                 params: vec![
-                    super::req("address", &[], ParameterType::Named(super::ADDRESS_TYPE)),
+                    super::req("address", &[], ParameterType::named(super::ADDRESS_TYPE)),
                     super::req("timeoutMs", &[], ParameterType::Integer),
                 ],
                 return_type: ret(),

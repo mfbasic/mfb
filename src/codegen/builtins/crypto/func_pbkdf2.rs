@@ -80,7 +80,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     name: "type",
                     desc: "The hash algorithm underlying the PBKDF2.",
                     aliases: &[],
-                    ty: ParameterType::Named("Hash"),
+                    ty: ParameterType::named("Hash"),
                     default: DefaultValue::None,
                 },
                 Parameter {

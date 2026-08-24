@@ -25,7 +25,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ty: ParameterType::String,
                 default: DefaultValue::None,
             }],
-            return_type: ParameterType::list_of(ParameterType::Named("Scalar")),
+            return_type: ParameterType::list_of(ParameterType::named("Scalar")),
             errors: vec![],
             body: Body::Rewrite("__strings_toScalars"),
         }],

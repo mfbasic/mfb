@@ -14,12 +14,12 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![
-                super::req("url", &[], ParameterType::Named("Url")),
+                super::req("url", &[], ParameterType::named("Url")),
                 super::req("body", &[], ParameterType::String),
                 super::fill("headers", super::header_map(), "{}"),
                 super::fill("method", ParameterType::String, "POST"),
             ],
-            return_type: ParameterType::Named(super::RESPONSE_TYPE),
+            return_type: ParameterType::named(super::RESPONSE_TYPE),
             errors: vec![],
             body: Body::Rewrite("__http_write"),
         }],

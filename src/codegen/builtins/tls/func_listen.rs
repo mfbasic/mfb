@@ -115,7 +115,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     },
                 },
             ],
-            return_type: ParameterType::Named(super::TLS_LISTENER_TYPE_ID),
+            return_type: ParameterType::named(super::TLS_LISTENER_TYPE_ID),
             errors: vec![],
             body: Body::abi_function(lower_listen),
         }],

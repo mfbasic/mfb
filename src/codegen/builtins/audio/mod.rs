@@ -298,7 +298,7 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "envelope",
-                ty: ParameterType::Named(AUDIO_ENVELOPE_TYPE),
+                ty: ParameterType::named(AUDIO_ENVELOPE_TYPE),
                 description: "The `AudioEnvelope` shaping the note's amplitude over time.",
             },
             RecordProp {

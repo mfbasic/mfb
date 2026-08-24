@@ -76,7 +76,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 name: "file",
                 desc: "An open `File` resource whose output buffer should be drained.",
                 aliases: &[],
-                ty: ParameterType::Named(super::FILE_TYPE_ID),
+                ty: ParameterType::named(super::FILE_TYPE_ID),
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,

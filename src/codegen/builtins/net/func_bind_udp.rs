@@ -36,7 +36,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::req("host", &[], ParameterType::String),
                 super::req("port", &[], ParameterType::Integer),
             ],
-            return_type: ParameterType::Named(super::UDP_SOCKET_TYPE_ID),
+            return_type: ParameterType::named(super::UDP_SOCKET_TYPE_ID),
             errors: vec![],
             body: super::native_body(lower_bind_udp, &[]),
         }],

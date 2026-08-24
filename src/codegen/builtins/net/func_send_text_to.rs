@@ -34,7 +34,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         implementations: vec![Implementation {
             params: vec![
                 super::req("sock", &[], super::udp()),
-                super::req("address", &[], ParameterType::Named(super::ADDRESS_TYPE)),
+                super::req("address", &[], ParameterType::named(super::ADDRESS_TYPE)),
                 super::req("value", &[], ParameterType::String),
             ],
             return_type: ParameterType::Nothing,

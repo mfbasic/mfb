@@ -40,7 +40,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::req("port", &[], ParameterType::Integer),
                 super::opt("backlog", ParameterType::Integer),
             ],
-            return_type: ParameterType::Named(super::LISTENER_TYPE_ID),
+            return_type: ParameterType::named(super::LISTENER_TYPE_ID),
             errors: vec![],
             body: super::native_body(lower_listen_tcp, &[]),
         }],

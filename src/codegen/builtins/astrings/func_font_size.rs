@@ -24,7 +24,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ty: ParameterType::Integer,
                 default: DefaultValue::None,
             }],
-            return_type: ParameterType::Named("Attribute"),
+            return_type: ParameterType::named("Attribute"),
             errors: vec![],
             body: Body::Rewrite("__astrings_fontSize"),
         }],

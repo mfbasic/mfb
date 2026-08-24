@@ -100,7 +100,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     default: super::DefaultValue::None,
                 },
             ],
-            return_type: super::ParameterType::Named("Date"),
+            return_type: super::ParameterType::named("Date"),
             errors: vec![],
             body: super::Body::mfb(BODY, "__datetime_date"),
         }],

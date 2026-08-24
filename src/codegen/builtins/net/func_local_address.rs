@@ -14,7 +14,7 @@ fn overload(ty: ParameterType) -> Implementation {
             ty,
             default: crate::codegen::registry::DefaultValue::None,
         }],
-        return_type: ParameterType::Named(super::ADDRESS_TYPE),
+        return_type: ParameterType::named(super::ADDRESS_TYPE),
         errors: vec![],
         body: super::native_body(lower_local_address, &[]),
     }

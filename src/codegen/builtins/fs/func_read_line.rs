@@ -109,7 +109,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                        to read. Must not have been closed and must have been opened in a mode that \
                        permits reading.",
                 aliases: &[],
-                ty: ParameterType::Named(super::FILE_TYPE_ID),
+                ty: ParameterType::named(super::FILE_TYPE_ID),
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,

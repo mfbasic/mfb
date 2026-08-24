@@ -133,7 +133,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                         name: "sock",
                         desc: "An open TLS socket, as returned by `tls::connect` or `tls::accept`. It is borrowed and inspected for readiness only; no data is read and the handle is not consumed.",
                         aliases: &[],
-                        ty: ParameterType::Named(super::TLS_SOCKET_TYPE_ID),
+                        ty: ParameterType::named(super::TLS_SOCKET_TYPE_ID),
                         default: DefaultValue::None,
                     },
                     timeout(
@@ -157,7 +157,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                         // concrete `List OF RES tls.TlsSocket` argument unifies as
                         // `ListOf(Named("tls.TlsSocket"))`. (The `RES` requirement itself
                         // is enforced separately by the resource/type checker.)
-                        ty: ParameterType::ListOf(Box::new(ParameterType::Named(
+                        ty: ParameterType::ListOf(Box::new(ParameterType::named(
                             super::TLS_SOCKET_TYPE_ID,
                         ))),
                         default: DefaultValue::None,
@@ -166,7 +166,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                         "Optional. Omit to block until a socket is readable; `0` is an immediate non-blocking scan; a positive value waits up to that many milliseconds. Must not be negative.",
                     ),
                 ],
-                return_type: ParameterType::Named(super::TLS_SOCKET_TYPE_ID),
+                return_type: ParameterType::named(super::TLS_SOCKET_TYPE_ID),
                 errors: vec![],
                 body: Body::abi_function_aliased(lower_poll, &["pollList"]),
             },

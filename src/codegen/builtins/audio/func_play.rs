@@ -44,7 +44,7 @@ fn output_param() -> Parameter {
         "output",
         "An open playback stream opened at 48 kHz mono (`audio::openOutput(48000, 1, ...)`). Borrowed — `play` writes to it and leaves it open.",
         &[],
-        ParameterType::Named(AUDIO_OUTPUT_TYPE_ID),
+        ParameterType::named(AUDIO_OUTPUT_TYPE_ID),
     )
 }
 

@@ -130,7 +130,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     default: DefaultValue::None,
                 },
             ],
-            return_type: ParameterType::Named(super::FILE_TYPE_ID),
+            return_type: ParameterType::named(super::FILE_TYPE_ID),
             errors: vec![],
             body: Body::abi_function(lower_fs_open),
         }],

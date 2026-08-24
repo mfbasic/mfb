@@ -78,7 +78,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     "output",
                     "An open playback stream, from `audio::openOutput`. Borrowed, not consumed. Writing after close raises `ErrAudioDevice`.",
                     &[],
-                    ParameterType::Named(AUDIO_OUTPUT_TYPE_ID),
+                    ParameterType::named(AUDIO_OUTPUT_TYPE_ID),
                 ),
                 param(
                     "bytes",

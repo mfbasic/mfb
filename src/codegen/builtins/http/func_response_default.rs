@@ -15,7 +15,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![],
-            return_type: ParameterType::Named(super::RESPONSE_TYPE),
+            return_type: ParameterType::named(super::RESPONSE_TYPE),
             errors: vec![],
             body: Body::Rewrite("__http_responseDefault"),
         }],

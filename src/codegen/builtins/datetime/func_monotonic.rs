@@ -71,7 +71,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         internal_only: false,
         implementations: vec![super::Implementation {
             params: vec![],
-            return_type: super::ParameterType::Named("Duration"),
+            return_type: super::ParameterType::named("Duration"),
             errors: vec![],
             body: super::Body::mfb(BODY, "__datetime_monotonic"),
         }],

@@ -18,7 +18,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::fill("host", ParameterType::String, "0.0.0.0"),
                 super::fill("backlog", ParameterType::Integer, "128"),
             ],
-            return_type: ParameterType::Named(super::LISTENER_TYPE),
+            return_type: ParameterType::named(super::LISTENER_TYPE),
             errors: vec![],
             body: Body::Rewrite("__http_server"),
         }],

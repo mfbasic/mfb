@@ -24,7 +24,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     name: "value",
                     desc: "",
                     aliases: &[],
-                    ty: ParameterType::Named("AttributedString"),
+                    ty: ParameterType::named("AttributedString"),
                     default: DefaultValue::None,
                 },
                 Parameter {
@@ -35,7 +35,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     default: DefaultValue::None,
                 },
             ],
-            return_type: ParameterType::list_of(ParameterType::Named("Attribute")),
+            return_type: ParameterType::list_of(ParameterType::named("Attribute")),
             errors: vec![],
             body: Body::Rewrite("__astrings_getAttributes"),
         }],

@@ -112,7 +112,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     name: "value",
                     desc: "The value to read from. Accepts the Json union or any of JsonNull, JsonBool, JsonNum, JsonStr, JsonArr, JsonObj; traversal only succeeds through JsonObj members.",
                     aliases: &[],
-                    ty: ParameterType::Named("Json"),
+                    ty: ParameterType::named("Json"),
                     default: DefaultValue::None,
                 },
                 Parameter {
@@ -123,7 +123,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     default: DefaultValue::None,
                 },
             ],
-            return_type: ParameterType::Named("Json"),
+            return_type: ParameterType::named("Json"),
             errors: vec!["ErrNotFound"],
             body: Body::mfb(FUNC_BODY, "__json_get"),
         }],

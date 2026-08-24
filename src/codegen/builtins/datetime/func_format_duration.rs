@@ -99,7 +99,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 name: "d",
                 desc: "",
                 aliases: &[],
-                ty: super::ParameterType::Named("Duration"),
+                ty: super::ParameterType::named("Duration"),
                 default: super::DefaultValue::None,
             }],
             return_type: super::ParameterType::String,

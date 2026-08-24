@@ -94,7 +94,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     name: "file",
                     desc: r#"An open `File` resource to write to, positioned at the point where the text should be written. Must not have been closed and must have been opened in a mode that permits writing (`"write"`, `"readWrite"`, or `"append"`)."#,
                     aliases: &[],
-                    ty: ParameterType::Named(super::FILE_TYPE_ID),
+                    ty: ParameterType::named(super::FILE_TYPE_ID),
                     default: DefaultValue::None,
                 },
                 Parameter {

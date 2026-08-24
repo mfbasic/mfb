@@ -17,7 +17,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::req("code", &[], ParameterType::Integer),
                 super::req("body", &[], ParameterType::String),
             ],
-            return_type: ParameterType::Named(super::RESPONSE_TYPE),
+            return_type: ParameterType::named(super::RESPONSE_TYPE),
             errors: vec![],
             body: Body::Rewrite("__http_status"),
         }],

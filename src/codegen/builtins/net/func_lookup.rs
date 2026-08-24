@@ -36,7 +36,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::req("host", &[], ParameterType::String),
                 super::opt("port", ParameterType::Integer),
             ],
-            return_type: ParameterType::list_of(ParameterType::Named(super::ADDRESS_TYPE)),
+            return_type: ParameterType::list_of(ParameterType::named(super::ADDRESS_TYPE)),
             errors: vec![],
             body: super::native_body(lower_lookup, &[]),
         }],

@@ -143,7 +143,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 ty: super::ParameterType::String,
                 default: super::DefaultValue::None,
             }],
-            return_type: super::ParameterType::Named("DateTime"),
+            return_type: super::ParameterType::named("DateTime"),
             errors: vec![],
             body: super::Body::mfb(BODY, "__datetime_parseIso"),
         }],

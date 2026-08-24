@@ -121,7 +121,7 @@ pub(crate) fn register(r: &mut Registry) {
             },
             RecordProp {
                 name: "reader",
-                ty: ParameterType::Named("CsvReader"),
+                ty: ParameterType::named("CsvReader"),
                 description: "The reader advanced past this record.",
             },
             RecordProp {

@@ -100,7 +100,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                        `fs::openFile`, `fs::openFileNoFollow`, `fs::openWithin`, or \
                        `fs::createTempFile`. Must not already be closed or moved.",
                 aliases: &[],
-                ty: ParameterType::Named(super::FILE_TYPE_ID),
+                ty: ParameterType::named(super::FILE_TYPE_ID),
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,

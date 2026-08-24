@@ -74,7 +74,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     name: "sock",
                     desc: "A connected TLS socket to send on, as returned by `tls::connect`. It must still be open; writing to a closed socket is an error.",
                     aliases: &[],
-                    ty: ParameterType::Named(super::TLS_SOCKET_TYPE_ID),
+                    ty: ParameterType::named(super::TLS_SOCKET_TYPE_ID),
                     default: DefaultValue::None,
                 },
                 Parameter {

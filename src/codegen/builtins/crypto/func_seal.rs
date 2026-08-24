@@ -156,7 +156,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
         name: "cipher",
         desc: "The AEAD cipher to use.",
         aliases: &[],
-        ty: ParameterType::Named("SymmetricCipher"),
+        ty: ParameterType::named("SymmetricCipher"),
         default: DefaultValue::None,
     };
     let key_param = || Parameter {
@@ -207,7 +207,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                     aad_param(),
                 ],
-                return_type: ParameterType::Named("Sealed"),
+                return_type: ParameterType::named("Sealed"),
                 errors: vec!["ErrInvalidArgument"],
                 body: Body::abi_function(lower_seal),
             },
@@ -225,7 +225,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     },
                     aad_param(),
                 ],
-                return_type: ParameterType::Named("Sealed"),
+                return_type: ParameterType::named("Sealed"),
                 errors: vec!["ErrInvalidArgument"],
                 // The `String` overload UTF-8-encodes then re-enters the bytes
                 // `AbiFunction` via the `__crypto_sealText` MFB shim — it cannot be a

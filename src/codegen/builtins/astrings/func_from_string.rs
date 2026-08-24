@@ -41,7 +41,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ty: ParameterType::String,
                 default: DefaultValue::None,
             }],
-            return_type: ParameterType::Named("AttributedString"),
+            return_type: ParameterType::named("AttributedString"),
             errors: vec![],
             body: Body::abi_inline(lower),
         }],

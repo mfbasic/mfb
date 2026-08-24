@@ -33,7 +33,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: color_params(),
-            return_type: ParameterType::Named("Attribute"),
+            return_type: ParameterType::named("Attribute"),
             errors: vec![],
             body: Body::Rewrite("__astrings_background"),
         }],

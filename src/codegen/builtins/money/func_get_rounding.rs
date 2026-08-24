@@ -67,7 +67,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![],
-            return_type: ParameterType::Named("Rounding"),
+            return_type: ParameterType::named("Rounding"),
             errors: vec![],
             body: Body::abi_inline(lower_money_get_rounding),
         }],

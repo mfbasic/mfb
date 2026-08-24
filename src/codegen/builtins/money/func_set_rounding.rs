@@ -65,7 +65,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                        `Rounding.Commercial` or `Rounding.Banker`. Any other type is rejected \
                        at compile time.",
                 aliases: &[],
-                ty: ParameterType::Named("Rounding"),
+                ty: ParameterType::named("Rounding"),
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,

@@ -50,7 +50,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     name: "fill",
                     desc: "",
                     aliases: &[],
-                    ty: ParameterType::Named("FillStyle"),
+                    ty: ParameterType::named("FillStyle"),
                     default: DefaultValue::None,
                 },
                 Parameter {

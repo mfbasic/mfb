@@ -82,7 +82,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![],
-            return_type: ParameterType::Named("Mode"),
+            return_type: ParameterType::named("Mode"),
             errors: vec![],
             body: Body::abi_function(lower_get_mode),
         }],

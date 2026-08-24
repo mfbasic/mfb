@@ -22,7 +22,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 // it through.
                 super::req("handler", &[], ParameterType::parse(super::HANDLER_TYPE)),
             ],
-            return_type: ParameterType::Named(super::ROUTE_TYPE),
+            return_type: ParameterType::named(super::ROUTE_TYPE),
             errors: vec![],
             body: Body::Rewrite("__http_route"),
         }],

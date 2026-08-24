@@ -118,6 +118,7 @@ pub(crate) type MfbFastPath =
 // A [`Parameter`]'s type is [`crate::types::ParameterType`] — the compiler-wide type
 // vocabulary (see that module for why it lives outside `codegen`). Imported for the
 // registry's own use; not re-exported, so callers name it as `crate::types::ParameterType`.
+use crate::intern::Symbol;
 use crate::types::ParameterType;
 
 /// Whether a [`Parameter`] is required, or optional with a default — mirrors
@@ -1856,7 +1857,7 @@ fn is_resource_type_name(name: &str) -> bool {
 fn unify(
     pattern: &ParameterType,
     concrete: &ParameterType,
-    bindings: &mut BTreeMap<&'static str, ParameterType>,
+    bindings: &mut BTreeMap<Symbol, ParameterType>,
     strict: bool,
 ) -> bool {
     // `RES ` is transparent to unification (historically stripped by `parse` before
@@ -1870,7 +1871,7 @@ fn unify(
     }
     if matches!(concrete, ParameterType::Unknown) {
         if let ParameterType::Var(name) = pattern {
-            bindings.entry(name).or_insert(ParameterType::Unknown);
+            bindings.entry(*name).or_insert(ParameterType::Unknown);
         }
         return true;
     }
@@ -1894,7 +1895,7 @@ fn unify(
                 // `Msg = Unknown` from the handle then refines it to `Integer` from the
                 // message arg, instead of failing `resource_base_eq(Unknown, Integer)`.
                 Some(ParameterType::Unknown) => {
-                    bindings.insert(name, concrete.clone());
+                    bindings.insert(*name, concrete.clone());
                     true
                 }
                 // A re-occurring variable must match its binding — but resource element
@@ -1904,7 +1905,7 @@ fn unify(
                 // every non-resource type.
                 Some(bound) => resource_base_eq(bound, concrete),
                 None => {
-                    bindings.insert(name, concrete.clone());
+                    bindings.insert(*name, concrete.clone());
                     true
                 }
             }
@@ -1986,7 +1987,7 @@ fn unify(
 fn thread_slot_unifies(
     pattern: &ParameterType,
     concrete: &ParameterType,
-    bindings: &mut BTreeMap<&'static str, ParameterType>,
+    bindings: &mut BTreeMap<Symbol, ParameterType>,
     strict: bool,
 ) -> bool {
     if matches!(pattern, ParameterType::Unknown) {
@@ -2013,7 +2014,7 @@ fn resource_base_eq(a: &ParameterType, b: &ParameterType) -> bool {
 /// `List OF T` return whose `T` no argument pinned down, e.g. `get` on an `Unknown`).
 fn substitute(
     pattern: &ParameterType,
-    bindings: &BTreeMap<&'static str, ParameterType>,
+    bindings: &BTreeMap<Symbol, ParameterType>,
 ) -> Option<ParameterType> {
     Some(match pattern {
         ParameterType::Var(name) => bindings.get(name)?.clone(),
@@ -2907,13 +2908,13 @@ mod tests {
 
     #[test]
     fn select_binds_type_variables_and_substitutes_the_return() {
-        use ParameterType::{Integer, Var};
+        use ParameterType::Integer;
         // get(List OF T, Integer) AS T  |  get(Map OF K TO V, K) AS V
         let get = func(
             "get",
             vec![
-                generic_impl(vec![list_of(Var("T")), Integer], Var("T")),
-                generic_impl(vec![map_of(Var("K"), Var("V")), Var("K")], Var("V")),
+                generic_impl(vec![list_of(ParameterType::var("T")), Integer], ParameterType::var("T")),
+                generic_impl(vec![map_of(ParameterType::var("K"), ParameterType::var("V")), ParameterType::var("K")], ParameterType::var("V")),
             ],
         );
 
@@ -2965,14 +2966,14 @@ mod tests {
 
     #[test]
     fn thread_probe_waitfor_receive_send_poll() {
-        use ParameterType::{Integer, Nothing, String, Unknown, Var};
+        use ParameterType::{Integer, Nothing, String, Unknown};
         let data_handle = |m, o| th(false, m, Unknown, o);
         // waitFor(Thread OF Msg TO Out) AS Out
         let wait_for = func(
             "waitFor",
             vec![generic_impl(
-                vec![data_handle(Var("Msg"), Var("Out"))],
-                Var("Out"),
+                vec![data_handle(ParameterType::var("Msg"), ParameterType::var("Out"))],
+                ParameterType::var("Out"),
             )],
         );
         let parent = th(false, Integer, Nothing, String);
@@ -2999,8 +3000,8 @@ mod tests {
         let receive = func(
             "receive",
             vec![generic_impl(
-                vec![data_handle(Var("Msg"), Var("Out"))],
-                Var("Msg"),
+                vec![data_handle(ParameterType::var("Msg"), ParameterType::var("Out"))],
+                ParameterType::var("Msg"),
             )],
         );
         assert_eq!(
@@ -3026,7 +3027,7 @@ mod tests {
         let send = func(
             "send",
             vec![generic_impl(
-                vec![data_handle(Var("Msg"), Var("Out")), Var("Msg")],
+                vec![data_handle(ParameterType::var("Msg"), ParameterType::var("Out")), ParameterType::var("Msg")],
                 Nothing,
             )],
         );
@@ -3058,13 +3059,13 @@ mod tests {
 
     #[test]
     fn thread_probe_transfer_accept_resource_plane() {
-        use ParameterType::{Integer, Nothing, String, Var};
-        let file = ParameterType::Named("fs.File");
+        use ParameterType::{Integer, Nothing, String};
+        let file = ParameterType::named("fs.File");
         // transfer(Thread OF Msg RES Res TO Out, Res) AS Nothing — resource-ONLY overload.
         let transfer = func(
             "transfer",
             vec![generic_impl(
-                vec![th(false, Var("Msg"), Var("Res"), Var("Out")), Var("Res")],
+                vec![th(false, ParameterType::var("Msg"), ParameterType::var("Res"), ParameterType::var("Out")), ParameterType::var("Res")],
                 Nothing,
             )],
         );
@@ -3092,8 +3093,8 @@ mod tests {
         let accept = func(
             "accept",
             vec![generic_impl(
-                vec![th(false, Var("Msg"), Var("Res"), Var("Out"))],
-                Var("Res"),
+                vec![th(false, ParameterType::var("Msg"), ParameterType::var("Res"), ParameterType::var("Out"))],
+                ParameterType::var("Res"),
             )],
         );
         assert_eq!(
@@ -3119,8 +3120,8 @@ mod tests {
 
     #[test]
     fn thread_probe_start_extraction_and_resource_echo() {
-        use ParameterType::{Integer, Nothing, String, Var};
-        let file = ParameterType::Named("fs.File");
+        use ParameterType::{Integer, Nothing, String};
+        let file = ParameterType::named("fs.File");
         // start = TWO overloads (resource first, data second), the settled model.
         //   RESOURCE: ISOLATED FUNC(ThreadWorker OF Msg RES Res TO Out, In) AS Out
         //             -> Thread OF Msg RES Res TO Out
@@ -3138,21 +3139,21 @@ mod tests {
                 param(
                     "f",
                     ParameterType::func_isolated(
-                        vec![th(true, Var("Msg"), worker_res, Var("Out")), Var("In")],
-                        Var("Out"),
+                        vec![th(true, ParameterType::var("Msg"), worker_res, ParameterType::var("Out")), ParameterType::var("In")],
+                        ParameterType::var("Out"),
                     ),
                 ),
-                param("data", Var("In")),
+                param("data", ParameterType::var("In")),
                 opt_int("inboundLimit"),
                 opt_int("outboundLimit"),
             ],
-            return_type: th(false, Var("Msg"), ret_res, Var("Out")),
+            return_type: th(false, ParameterType::var("Msg"), ret_res, ParameterType::var("Out")),
             errors: vec![],
             body: Body::Intrinsic,
         };
         let start = func(
             "start",
-            vec![overload(Var("Res"), Var("Res")), overload(Nothing, Nothing)],
+            vec![overload(ParameterType::var("Res"), ParameterType::var("Res")), overload(Nothing, Nothing)],
         );
 
         // Data-only worker: strict validation MUST accept (via the data overload), and
@@ -3233,13 +3234,12 @@ mod tests {
 
     #[test]
     fn select_rejects_inconsistent_variable_binding() {
-        use ParameterType::Var;
         // set(List OF T, T) AS List OF T — the element must match the list's element.
         let set = func(
             "set",
             vec![generic_impl(
-                vec![list_of(Var("T")), Var("T")],
-                list_of(Var("T")),
+                vec![list_of(ParameterType::var("T")), ParameterType::var("T")],
+                list_of(ParameterType::var("T")),
             )],
         );
         assert!(set
@@ -3253,10 +3253,10 @@ mod tests {
 
     #[test]
     fn select_unknown_argument_is_a_wildcard() {
-        use ParameterType::{Integer, Var};
+        use ParameterType::Integer;
         let get = func(
             "get",
-            vec![generic_impl(vec![list_of(Var("T")), Integer], Var("T"))],
+            vec![generic_impl(vec![list_of(ParameterType::var("T")), Integer], ParameterType::var("T"))],
         );
         // An Unknown collection leaves `T` unbound, so there is no concrete return.
         assert!(get.dispatch(&call(&["Unknown", "Integer"])).is_none());
@@ -3291,12 +3291,12 @@ mod tests {
 
     #[test]
     fn contains_var_detects_generic_types() {
-        use ParameterType::{Integer, Named, String, Var};
-        assert!(contains_var(&Var("T")));
-        assert!(contains_var(&list_of(Var("T"))));
-        assert!(contains_var(&map_of(String, Var("V"))));
+        use ParameterType::{Integer, String};
+        assert!(contains_var(&ParameterType::var("T")));
+        assert!(contains_var(&list_of(ParameterType::var("T"))));
+        assert!(contains_var(&map_of(String, ParameterType::var("V"))));
         assert!(!contains_var(&list_of(Integer)));
-        assert!(!contains_var(&Named("Instant")));
+        assert!(!contains_var(&ParameterType::named("Instant")));
     }
 
     #[test]

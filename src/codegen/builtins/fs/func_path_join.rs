@@ -80,7 +80,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                        Empty components are skipped; any component beginning with `/` is treated \
                        as absolute and resets the accumulated result. May be an empty list.",
                 aliases: &[],
-                ty: ParameterType::Named("List OF String"),
+                ty: ParameterType::named("List OF String"),
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::String,

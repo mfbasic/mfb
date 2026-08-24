@@ -95,7 +95,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 ty: super::ParameterType::Integer,
                 default: super::DefaultValue::None,
             }],
-            return_type: super::ParameterType::Named("Instant"),
+            return_type: super::ParameterType::named("Instant"),
             errors: vec![],
             body: super::Body::mfb(BODY, "__datetime_fromMillis"),
         }],

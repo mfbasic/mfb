@@ -15,7 +15,7 @@ fn ranged_attr_params() -> Vec<Parameter> {
             name: "value",
             desc: "",
             aliases: &[],
-            ty: ParameterType::Named("AttributedString"),
+            ty: ParameterType::named("AttributedString"),
             default: DefaultValue::None,
         },
         Parameter {
@@ -36,7 +36,7 @@ fn ranged_attr_params() -> Vec<Parameter> {
             name: "attr",
             desc: "",
             aliases: &[],
-            ty: ParameterType::Named("Attribute"),
+            ty: ParameterType::named("Attribute"),
             default: DefaultValue::None,
         },
     ]
@@ -52,7 +52,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: ranged_attr_params(),
-            return_type: ParameterType::Named("AttributedString"),
+            return_type: ParameterType::named("AttributedString"),
             errors: vec![],
             body: Body::Rewrite("__astrings_removeAttribute"),
         }],

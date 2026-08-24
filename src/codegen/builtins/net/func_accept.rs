@@ -36,7 +36,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::req("listener", &[], super::listener()),
                 super::opt("timeoutMs", ParameterType::Integer),
             ],
-            return_type: ParameterType::Named(super::SOCKET_TYPE_ID),
+            return_type: ParameterType::named(super::SOCKET_TYPE_ID),
             errors: vec![],
             body: super::native_body(lower_accept, &[]),
         }],

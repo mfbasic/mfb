@@ -147,7 +147,7 @@ fn implementations(
         Shape::UnaryScalar => {
             for &ty in VEC_TYPES {
                 out.push(imp(
-                    vec![param("v", &[], ParameterType::Named(ty))],
+                    vec![param("v", &[], ParameterType::named(ty))],
                     element_of(ty),
                     errs(),
                     rewrite(member, ty),
@@ -157,8 +157,8 @@ fn implementations(
         Shape::UnaryVector => {
             for &ty in VEC_TYPES {
                 out.push(imp(
-                    vec![param("v", &[], ParameterType::Named(ty))],
-                    ParameterType::Named(ty),
+                    vec![param("v", &[], ParameterType::named(ty))],
+                    ParameterType::named(ty),
                     errs(),
                     rewrite(member, ty),
                 ));
@@ -168,8 +168,8 @@ fn implementations(
             for &ty in VEC_TYPES {
                 out.push(imp(
                     vec![
-                        param("a", &["v"], ParameterType::Named(ty)),
-                        param("b", &["n"], ParameterType::Named(ty)),
+                        param("a", &["v"], ParameterType::named(ty)),
+                        param("b", &["n"], ParameterType::named(ty)),
                     ],
                     element_of(ty),
                     errs(),
@@ -181,10 +181,10 @@ fn implementations(
             for &ty in VEC_TYPES {
                 out.push(imp(
                     vec![
-                        param("a", &["v"], ParameterType::Named(ty)),
-                        param("b", &["n"], ParameterType::Named(ty)),
+                        param("a", &["v"], ParameterType::named(ty)),
+                        param("b", &["n"], ParameterType::named(ty)),
                     ],
-                    ParameterType::Named(ty),
+                    ParameterType::named(ty),
                     errs(),
                     rewrite(member, ty),
                 ));
@@ -194,11 +194,11 @@ fn implementations(
             for &ty in VEC_TYPES {
                 out.push(imp(
                     vec![
-                        param("a", &[], ParameterType::Named(ty)),
-                        param("b", &[], ParameterType::Named(ty)),
+                        param("a", &[], ParameterType::named(ty)),
+                        param("b", &[], ParameterType::named(ty)),
                         param("t", &[], ParameterType::Float),
                     ],
-                    ParameterType::Named(ty),
+                    ParameterType::named(ty),
                     errs(),
                     rewrite(member, ty),
                 ));
@@ -208,10 +208,10 @@ fn implementations(
             for &ty in VEC_TYPES {
                 out.push(imp(
                     vec![
-                        param("v", &[], ParameterType::Named(ty)),
+                        param("v", &[], ParameterType::named(ty)),
                         param("max", &[], element_of(ty)),
                     ],
-                    ParameterType::Named(ty),
+                    ParameterType::named(ty),
                     errs(),
                     rewrite(member, ty),
                 ));
@@ -220,8 +220,8 @@ fn implementations(
         Shape::Perpendicular => {
             for &ty in VEC2_TYPES {
                 out.push(imp(
-                    vec![param("v", &[], ParameterType::Named(ty))],
-                    ParameterType::Named(ty),
+                    vec![param("v", &[], ParameterType::named(ty))],
+                    ParameterType::named(ty),
                     errs(),
                     rewrite(member, ty),
                 ));
@@ -231,10 +231,10 @@ fn implementations(
             for &ty in VEC2_TYPES {
                 out.push(imp(
                     vec![
-                        param("v", &[], ParameterType::Named(ty)),
+                        param("v", &[], ParameterType::named(ty)),
                         param("angle", &[], ParameterType::Float),
                     ],
-                    ParameterType::Named(ty),
+                    ParameterType::named(ty),
                     errs(),
                     rewrite(member, ty),
                 ));
@@ -245,8 +245,8 @@ fn implementations(
             // merged `call_param_names` table is `[[a, v], [b], [c]]`.
             for &ty in VEC2_TYPES {
                 out.push(imp(
-                    vec![param("a", &["v"], ParameterType::Named(ty))],
-                    ParameterType::Named(ty),
+                    vec![param("a", &["v"], ParameterType::named(ty))],
+                    ParameterType::named(ty),
                     errs(),
                     rewrite(member, ty),
                 ));
@@ -254,10 +254,10 @@ fn implementations(
             for &ty in VEC3_TYPES {
                 out.push(imp(
                     vec![
-                        param("a", &["v"], ParameterType::Named(ty)),
-                        param("b", &[], ParameterType::Named(ty)),
+                        param("a", &["v"], ParameterType::named(ty)),
+                        param("b", &[], ParameterType::named(ty)),
                     ],
-                    ParameterType::Named(ty),
+                    ParameterType::named(ty),
                     errs(),
                     rewrite(member, ty),
                 ));
@@ -265,11 +265,11 @@ fn implementations(
             for &ty in VEC4_TYPES {
                 out.push(imp(
                     vec![
-                        param("a", &["v"], ParameterType::Named(ty)),
-                        param("b", &[], ParameterType::Named(ty)),
-                        param("c", &[], ParameterType::Named(ty)),
+                        param("a", &["v"], ParameterType::named(ty)),
+                        param("b", &[], ParameterType::named(ty)),
+                        param("c", &[], ParameterType::named(ty)),
                     ],
-                    ParameterType::Named(ty),
+                    ParameterType::named(ty),
                     errs(),
                     rewrite(member, ty),
                 ));

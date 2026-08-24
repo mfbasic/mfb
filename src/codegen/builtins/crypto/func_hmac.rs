@@ -97,7 +97,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                         name: "type",
                         desc: "The hash algorithm underlying the HMAC.",
                         aliases: &[],
-                        ty: ParameterType::Named("Hash"),
+                        ty: ParameterType::named("Hash"),
                         default: DefaultValue::None,
                     },
                     Parameter {
@@ -125,7 +125,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                         name: "type",
                         desc: "The hash algorithm underlying the HMAC.",
                         aliases: &[],
-                        ty: ParameterType::Named("Hash"),
+                        ty: ParameterType::named("Hash"),
                         default: DefaultValue::None,
                     },
                     Parameter {

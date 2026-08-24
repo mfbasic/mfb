@@ -91,7 +91,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 name: "p",
                 desc: "The child process handle whose standard input to close. Borrowed, not consumed. Also accepts the alternate named-argument spelling `process`.",
                 aliases: &["process"],
-                ty: ParameterType::Named(super::PROCESS_TYPE_ID),
+                ty: ParameterType::named(super::PROCESS_TYPE_ID),
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Nothing,

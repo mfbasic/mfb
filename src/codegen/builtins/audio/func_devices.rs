@@ -64,7 +64,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![],
-            return_type: ParameterType::list_of(ParameterType::Named(AUDIO_DEVICE_TYPE)),
+            return_type: ParameterType::list_of(ParameterType::named(AUDIO_DEVICE_TYPE)),
             errors: vec!["ErrAudioUnavailable", "ErrAudioDevice", "ErrOutOfMemory"],
             body: super::native_body(lower_devices, &[]),
         }],

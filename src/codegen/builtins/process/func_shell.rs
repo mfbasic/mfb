@@ -107,7 +107,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ty: ParameterType::String,
                 default: DefaultValue::None,
             }],
-            return_type: ParameterType::Named(super::PROCESS_TYPE_ID),
+            return_type: ParameterType::named(super::PROCESS_TYPE_ID),
             errors: vec![],
             body: Body::abi_function(lower_shell),
         }],

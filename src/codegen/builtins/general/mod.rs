@@ -538,7 +538,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_function(member(
         ERROR,
         "Construct an `Error` value from a numeric code and a message.",
-        ParameterType::Named("Error"),
+        ParameterType::named("Error"),
         vec![],
         vec![
             req("code", ParameterType::Integer),
@@ -557,7 +557,7 @@ pub(crate) fn register(r: &mut Registry) {
         "The name of a value's runtime type.",
         ParameterType::String,
         vec![],
-        vec![req("value", ParameterType::Var("T"))],
+        vec![req("value", ParameterType::var("T"))],
     ));
     pkg.add_function(member(
         TO_STRING,
@@ -565,7 +565,7 @@ pub(crate) fn register(r: &mut Registry) {
         ParameterType::String,
         vec![],
         vec![
-            req("value", ParameterType::Named("Scalar")),
+            req("value", ParameterType::named("Scalar")),
             opt("precision", &["decimals"], ParameterType::Byte),
         ],
     ));
@@ -610,7 +610,7 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_function(member(
         TO_SCALAR,
         "Convert a value to a Scalar (Unicode codepoint).",
-        ParameterType::Named("Scalar"),
+        ParameterType::named("Scalar"),
         vec!["ErrInvalidArgument"],
         vec![req("value", ParameterType::Integer)],
     ));

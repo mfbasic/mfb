@@ -121,7 +121,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     name: "dt",
                     desc: "",
                     aliases: &[],
-                    ty: super::ParameterType::Named("DateTime"),
+                    ty: super::ParameterType::named("DateTime"),
                     default: super::DefaultValue::None,
                 },
                 super::Parameter {

@@ -40,7 +40,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 super::req("sock", &[], super::udp()),
                 super::req("maxBytes", &[], ParameterType::Integer),
             ],
-            return_type: ParameterType::Named(super::DATAGRAM_TEXT_TYPE),
+            return_type: ParameterType::named(super::DATAGRAM_TEXT_TYPE),
             errors: vec![],
             body: super::native_body(lower_receive_text_from, &[]),
         }],

@@ -55,7 +55,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     super::req("socks", &[], ParameterType::list_of(super::socket())),
                     super::opt("timeoutMs", ParameterType::Integer),
                 ],
-                return_type: ParameterType::Named(super::SOCKET_TYPE_ID),
+                return_type: ParameterType::named(super::SOCKET_TYPE_ID),
                 errors: vec![],
                 body: super::native_body(lower_poll, &["pollList"]),
             },

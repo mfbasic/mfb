@@ -43,7 +43,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![],
-            return_type: ParameterType::Named("TermSize"),
+            return_type: ParameterType::named("TermSize"),
             errors: vec![],
             body: Body::abi_function(lower_terminal_size),
         }],

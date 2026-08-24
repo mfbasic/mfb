@@ -33,7 +33,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         internal_only: false,
         implementations: vec![Implementation {
             params: vec![super::req("sock", &[], super::socket())],
-            return_type: ParameterType::Named(super::ADDRESS_TYPE),
+            return_type: ParameterType::named(super::ADDRESS_TYPE),
             errors: vec![],
             body: super::native_body(lower_remote_address, &[]),
         }],

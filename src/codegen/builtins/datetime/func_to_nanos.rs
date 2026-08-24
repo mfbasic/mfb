@@ -70,7 +70,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                 name: "at",
                 desc: "",
                 aliases: &[],
-                ty: super::ParameterType::Named("Instant"),
+                ty: super::ParameterType::named("Instant"),
                 default: super::DefaultValue::None,
             }],
             return_type: super::ParameterType::Integer,

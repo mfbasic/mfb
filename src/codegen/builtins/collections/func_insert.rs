@@ -91,7 +91,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     name: "value",
                     desc: "",
                     aliases: &["list"],
-                    ty: ParameterType::list_of(ParameterType::Var("T")),
+                    ty: ParameterType::list_of(ParameterType::var("T")),
                     default: DefaultValue::None,
                 },
                 Parameter {
@@ -105,7 +105,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                     name: "item",
                     desc: "",
                     aliases: &[],
-                    ty: ParameterType::Var("T"),
+                    ty: ParameterType::var("T"),
                     default: DefaultValue::None,
                 },
             ],

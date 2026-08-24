@@ -13,8 +13,8 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
         expected_arguments: Some("Stream STATE PendingState"),
         internal_only: false,
         implementations: vec![Implementation {
-            params: vec![super::req("stream", &[], ParameterType::Named("Stream"))],
-            return_type: ParameterType::Named(super::RESPONSE_TYPE),
+            params: vec![super::req("stream", &[], ParameterType::named("Stream"))],
+            return_type: ParameterType::named(super::RESPONSE_TYPE),
             errors: vec![],
             body: Body::Rewrite("__http_finish"),
         }],

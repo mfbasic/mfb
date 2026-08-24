@@ -67,13 +67,13 @@ pub(crate) fn opt(name: &'static str, ty: ParameterType) -> Parameter {
 
 /// The qualified socket / listener / UDP resource types as `ParameterType`s.
 pub(crate) fn socket() -> ParameterType {
-    ParameterType::Named(SOCKET_TYPE_ID)
+    ParameterType::named(SOCKET_TYPE_ID)
 }
 pub(crate) fn listener() -> ParameterType {
-    ParameterType::Named(LISTENER_TYPE_ID)
+    ParameterType::named(LISTENER_TYPE_ID)
 }
 pub(crate) fn udp() -> ParameterType {
-    ParameterType::Named(UDP_SOCKET_TYPE_ID)
+    ParameterType::named(UDP_SOCKET_TYPE_ID)
 }
 
 mod func_accept;
@@ -195,7 +195,7 @@ pub(crate) fn register(r: &mut Registry) {
         props: vec![
             RecordProp {
                 name: "from",
-                ty: ParameterType::Named(ADDRESS_TYPE),
+                ty: ParameterType::named(ADDRESS_TYPE),
                 description: "The datagram's source address.",
             },
             RecordProp {
@@ -212,7 +212,7 @@ pub(crate) fn register(r: &mut Registry) {
         props: vec![
             RecordProp {
                 name: "from",
-                ty: ParameterType::Named(ADDRESS_TYPE),
+                ty: ParameterType::named(ADDRESS_TYPE),
                 description: "The datagram's source address.",
             },
             RecordProp {

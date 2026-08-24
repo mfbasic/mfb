@@ -22,7 +22,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 name: "scalar",
                 desc: "",
                 aliases: &[],
-                ty: ParameterType::Named("Scalar"),
+                ty: ParameterType::named("Scalar"),
                 default: DefaultValue::None,
             }],
             return_type: ParameterType::Boolean,

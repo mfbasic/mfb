@@ -77,7 +77,7 @@ pub(crate) fn register(pkg: &mut super::RegistryPackage) {
                     name: "cipher",
                     desc: "The asymmetric cipher suite to use; must match `crypto::encrypt`.",
                     aliases: &[],
-                    ty: ParameterType::Named("AsymmetricCipher"),
+                    ty: ParameterType::named("AsymmetricCipher"),
                     default: DefaultValue::None,
                 },
                 Parameter {

@@ -144,9 +144,9 @@ pub(crate) fn register(r: &mut Registry) {
     pkg.add_source_types(&[THREAD_TYPE, THREAD_WORKER_TYPE]);
 
     let u = || ParameterType::Unknown;
-    let msg = || ParameterType::Var("Msg");
-    let out = || ParameterType::Var("Out");
-    let res = || ParameterType::Var("Res");
+    let msg = || ParameterType::var("Msg");
+    let out = || ParameterType::var("Out");
+    let res = || ParameterType::var("Res");
     let nothing = || ParameterType::Nothing;
     // A handle that echoes NO slot — a wildcard in every position (accepts any
     // msg/res/out including `Nothing`).
@@ -168,12 +168,12 @@ pub(crate) fn register(r: &mut Registry) {
                     ParameterType::func_isolated(
                         vec![
                             th(true, worker_msg.clone(), worker_res.clone(), out()),
-                            ParameterType::Var("In"),
+                            ParameterType::var("In"),
                         ],
                         out(),
                     ),
                 ),
-                req("data", &[], ParameterType::Var("In")),
+                req("data", &[], ParameterType::var("In")),
                 opt("inboundLimit", &[], ParameterType::Integer),
                 opt("outboundLimit", &[], ParameterType::Integer),
             ],
@@ -423,11 +423,11 @@ fn transfer_params(worker: bool) -> Vec<Parameter> {
             th(
                 worker,
                 ParameterType::Unknown,
-                ParameterType::Var("Res"),
+                ParameterType::var("Res"),
                 ParameterType::Unknown,
             ),
         ),
-        req("res", &["resource"], ParameterType::Var("Res")),
+        req("res", &["resource"], ParameterType::var("Res")),
         opt("timeoutMs", &[], ParameterType::Integer),
     ]
 }
@@ -440,7 +440,7 @@ fn accept_params(worker: bool) -> Vec<Parameter> {
             th(
                 worker,
                 ParameterType::Unknown,
-                ParameterType::Var("Res"),
+                ParameterType::var("Res"),
                 ParameterType::Unknown,
             ),
         ),
