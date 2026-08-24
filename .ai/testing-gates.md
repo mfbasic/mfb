@@ -62,6 +62,32 @@ The `-ncode` output is a **textual JSON instruction dump** that contains label n
 
 ## Acceptance golden harness mechanics (`scripts/test-accept.sh` / `sync-goldens.sh`)
 
+**`MFB_OPT` — the opt-level global switch (plan-100).** `MFB_OPT=<n>` appends
+`-O<n>` to every `mfb build` the loop runs, mirroring `MFB_TARGET`. Unset (the
+default) appends nothing, so the harness runs the exact command it always has and
+the binary applies its own default of `-O1`. It is deliberately NOT echoed into
+the `$ mfb build …` label the way `target_label` is: `build.log` is itself an
+exact-compared golden, so echoing `-O1` would drift every fixture's build.log
+under `MFB_OPT=1` and break the very "explicit `-O1` == default" gate that run
+exists to prove. `MFB_OPT=0` is a **correctness** run, not a byte-identity run —
+`.ncode` artifacts are expected to drift (the dial passes are off) and must NOT be
+re-baselined; what must hold is that every fixture builds and behavior matches,
+with **no exceptions** — both dial rows are behavior-preserving. If a `-O0` run
+ever shows a *behavior* mismatch, that is a real bug, not an expected difference.
+(FMA contraction looks like a counter-example and is not: it changes float results
+— `a*b-c` staying finite vs. trapping `ErrFloatOverflow` — which is exactly why
+`fuse_scalar_fma` is **not** on the dial. It is mandatory lowering in
+`src/codegen/compiler/opt/`, pinned by `rt-behavior/arithmetic/float-fma-fusion`
+plus `rt-error/arithmetic/arithmetic-float-fma-observed-rt`.)
+
+**The fixture count is a signal.** The summary line is `acceptance tests passed
+(N test(s) ran)`. If `N` moves between two runs of the same tree, the harness is
+losing fixtures, whatever the pass/fail says — that is how a stdin bug that had
+been silently skipping 72 fixtures was found. Every subprocess in the loop body
+must get `/dev/null` stdin (via `run_with_watchdog`, or an explicit `</dev/null`),
+because the driving loop reads its fixture list from a `find` pipe on fd 0 and a
+fixture that reads stdin will eat it.
+
 Generating acceptance goldens for a NEW `tests/**` fixture:
 
 - **`scripts/sync-goldens.sh` honors its name filters:** `sync-goldens.sh <exe> <name-glob>...` forwards the globs to test-accept.sh, so a single-fixture sync is ~4s (was the full ~15-min cycle). Args are arg-shape agnostic — basename, full `tests/`-relative path, or glob all work; no glob still syncs everything. It refreshes only files that already exist in `golden/` and never creates new ones, and never touches `.run`. For a brand-new fixture create the placeholder golden files first (`ast`, `ir`, `build.log`, optional `.run`), then run the filtered sync.

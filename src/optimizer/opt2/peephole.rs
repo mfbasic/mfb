@@ -196,7 +196,16 @@ fn classify(instruction: &CodeInstruction, is_x86: bool) -> Effect {
 /// Run store-to-load forwarding over one function's instruction stream, in
 /// place. Must run before `finalize_frame` (offsets are still pre-prologue and
 /// the callee-save area / `sp` adjustments are not yet present).
+///
+/// A **Level-1** dial row -- `optimizations.md` "Peephole optimization", the
+/// block-local machine embryo of the L3 alias-analysis "Store-to-load
+/// forwarding" row -- so it runs at `-O1` (the default) and up, and is skipped
+/// at `-O0`. It stays post-regalloc (it needs physical registers) rather than
+/// moving into the reserved between-select seam (plan-100 §3).
 pub(crate) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x86: bool) {
+    if !crate::optimizer::level_enabled(1) {
+        return;
+    }
     // slot offset -> register that last stored it (and still holds the value).
     let mut slots: Vec<(String, String)> = Vec::new();
     let invalidate_reg = |slots: &mut Vec<(String, String)>, reg: &str| {
@@ -293,10 +302,17 @@ pub(crate) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x
 /// allocation), before `finalize_frame`. `model` is the active backend's register
 /// model; the underlying liveness derives its call-clobber mask from that model's
 /// caller-saved table (threaded in, not sniffed from operand strings).
+///
+/// A **Level-1** dial row -- `optimizations.md` "Machine copy propagation /
+/// redundant-move elimination" -- so it runs at `-O1` (the default) and up, and
+/// is skipped at `-O0` (plan-100 §3).
 pub(crate) fn remove_fp_shuttles(
     instructions: &mut Vec<CodeInstruction>,
     model: &dyn RegisterModel,
 ) {
+    if !crate::optimizer::level_enabled(1) {
+        return;
+    }
     let live_out = regalloc::integer_live_out(instructions, model);
     // Index of the first (def) instruction of each matched pair -> the rewritten
     // second instruction. The def instruction is dropped; the second is replaced.

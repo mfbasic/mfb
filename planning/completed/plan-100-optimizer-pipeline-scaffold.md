@@ -18,11 +18,13 @@ Effort: medium (half-day)
 > **Redesign (this revision).** Rather than adding two *no-op* seams and leaving the
 > existing passes ungated, the scaffold now **absorbs the existing passes into the
 > gated pipeline** at their catalogued level, and the dial's **default is `-O1`**:
-> - `fuse_scalar_fma`, `forward_stores_to_loads`, `remove_fp_shuttles` are all
->   **Level 1** rows in `planning/optimizations.md` (FMA instruction-combining;
->   machine store-to-load forwarding; machine copy-propagation / redundant-move
->   elimination). They move into `src/optimizer/opt2/` and are gated by
->   `level_enabled(1)`.
+> - `forward_stores_to_loads` and `remove_fp_shuttles` are **Level 1** rows in
+>   `planning/optimizations.md` (machine store-to-load forwarding; machine
+>   copy-propagation / redundant-move elimination). They move into
+>   `src/optimizer/opt2/` and are gated by `level_enabled(1)`.
+>   **`fuse_scalar_fma` was expected to join them and did not** — contraction
+>   changes float results, so it is mandatory lowering, not a dial row. It stays
+>   ungated in `src/codegen/compiler/opt/`. See Corrections.
 > - **`-O1` is the default (on).** At `-O1` the Level-1 passes run exactly as today,
 >   so default/`-O1` codegen is **byte-identical to today's goldens**.
 > - **`-O0` turns everything off.** It skips the Level-1 passes and therefore emits
@@ -48,7 +50,7 @@ Target pipeline (this plan wires the **bold** parts; new rows land later):
 ```
 AST → HIR → IR → NIR → gated[Opt1(NIR)] → Plan1(storage/StorageType/symbols) → MIR
     → gated[ Plan2(CFG + SSA/def-use) → Opt2(MIR) → Out-of-SSA(MIR) ]
-    → gated[ FMA-combine ] → regalloc → gated[ machine peepholes ] → machine code
+    → FMA-combine (mandatory) → regalloc → gated[ machine peepholes ] → machine code
 ```
 
 - **Opt1(NIR)** — a `NirModule → NirModule` transform seam (`src/optimizer/opt1/`).
@@ -59,24 +61,28 @@ AST → HIR → IR → NIR → gated[Opt1(NIR)] → Plan1(storage/StorageType/sy
   range/trap, loop canonicalization, `no-trap` inference) are the *interior* of this
   bracket and are **not built in this plan** — they arrive with the first real Opt2
   pass that needs them (see Non-goals / Open Decisions).
-- **Landed Level-1 passes (gated this plan).** `fuse_scalar_fma` (pre-regalloc,
-  on the neutral stream) and the two post-regalloc machine peepholes
-  (`forward_stores_to_loads`, `remove_fp_shuttles`) are absorbed into
+- **Landed Level-1 passes (gated this plan).** The two post-regalloc machine
+  peepholes (`forward_stores_to_loads`, `remove_fp_shuttles`) are absorbed into
   `src/optimizer/opt2/`, each self-guarded by `level_enabled(1)`. They run at
-  their existing pipeline positions — the peepholes need physical registers, so
-  they stay post-regalloc, not inside the reserved between-select seam.
+  their existing pipeline positions — they need physical registers, so they stay
+  post-regalloc, not inside the reserved between-select seam. Both are strictly
+  behavior-preserving, so `-O0` changes only emitted code, never results.
+  `fuse_scalar_fma` stays **ungated** in `src/codegen/compiler/opt/` (mandatory
+  lowering — see Corrections).
 - **Gating is per-row, not per-seam.** Each pass runs iff `row.level <= active_opt_level()`,
   so one `-ON` lights up rows across every seam (level ≠ stage). The dial is
   `-O0..-O5` (escalating shape distortion at *preserved* behavior); **Level 6** (`-O6`)
   is an orthogonal, explicit opt-in for semantic-relaxing passes (fast-math, the
   trap-order-affecting † rows) and is *never* implied by the dial, not even at
-  `-O5`/"max". This scaffold has exactly three rows, all Level 1 — so `-O1`..`-O5`
-  behave identically (today's codegen) and `-O0` alone is different.
+  `-O5`/"max". This scaffold has exactly **two** rows, both Level 1 — so `-O1`..`-O5`
+  behave identically (today's codegen) and `-O0` alone is different, and differs
+  only in emitted code, never in results.
 
 References:
 
 - `planning/optimizations.md` — the pass catalog + scale. The three landed rows:
-  "Instruction selection / combining" (L1, FMA), "Peephole optimization" / the
+  "Instruction selection / combining" (L1, FMA — but see Corrections: this one is
+  mandatory lowering, not a dial row), "Peephole optimization" / the
   block-local "Store-to-load forwarding" embryo (L1, machine peephole),
   "Machine copy propagation / redundant-move elimination" (L1, `remove_fp_shuttles`).
 - `--regalloc` flag plumbing, mirrored exactly for `-O` (all `regalloc::` paths are
@@ -104,6 +110,7 @@ References:
   `src/codegen/compiler/opt/`:
   - `fma_fusion.rs:70` `fuse_scalar_fma` — 1 call site,
     `src/codegen/engine/function/function_lowering.rs:1002` (pre-regalloc).
+    **Evaluated and NOT gated** — mandatory lowering, stays put (see Corrections).
   - `peephole.rs:199` `forward_stores_to_loads` — 3 call sites,
     `function_lowering.rs:1066,1227,1524` (post-regalloc).
   - `peephole.rs:296` `remove_fp_shuttles` — 3 call sites,
@@ -119,12 +126,12 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| `--regalloc` is threaded via `BuildOptions` field + a `set_*`/`active_*` `OnceLock` global | `rg -n 'regalloc::set_strategy\|active_kind\|struct BuildOptions' src/cli src/codegen/engine/regalloc/mod.rs` | MET (see References) |
-| The Opt1 seam site returns the sole `NirModule` for every target | `rg -n 'lower_project' src/target` | MET (single producer in `shared/lower.rs`) |
-| The three passes to gate are all Level 1 in the catalog | read `planning/optimizations.md` rows 103/138/156/200 | MET (FMA-combine, machine peephole, machine copy-prop = L1) |
-| Gating each pass at its function entry covers every call site | `rg -n 'fuse_scalar_fma\|forward_stores_to_loads\|remove_fp_shuttles' src/codegen/engine` | MET (1 + 3 + 3 sites, one guard each) |
-| `-O1` (default) reproduces today's exact codegen | Phase 3 default + `MFB_OPT=1` golden runs are clean diffs | UNMEASURED — Phase 3 gate |
-| `-O0` builds and behaves identically (codegen may differ) | Phase 3 `MFB_OPT=0` run: builds pass + `.run` behavior matches | UNMEASURED — Phase 3 gate |
+| `--regalloc` is threaded via `BuildOptions` field + a `set_*`/`active_*` `OnceLock` global | `rg -n 'regalloc::set_strategy\|active_kind\|struct BuildOptions' src/cli src/codegen/engine/regalloc/mod.rs` | MET 2026-08-24 — 7 hits: `regalloc/mod.rs:107` `active_kind`, `cli/build/mod.rs:91` `struct BuildOptions` + `:179` `set_strategy`, `options.rs:49,122` defaults, `pkg.rs:127,420` |
+| The Opt1 seam site returns the sole `NirModule` for every target | `rg -n 'lower_project' src/target` | MET 2026-08-24 — one definition (`shared/lower.rs:8`), 10 call sites across **five** targets (riscv64 too — see Corrections) |
+| The three passes to gate are all Level 1 in the catalog | read `planning/optimizations.md` rows 103/138/156/200 | **PARTLY FALSE — 2 of 3.** The two machine peepholes are genuine L1 dial rows ("Peephole optimization", "Machine copy propagation / redundant-move elimination"). `fuse_scalar_fma`'s row ("Instruction selection / combining") reads L1 but its own text says base selection is *not* level-gated — and contraction changes float results, so it is mandatory lowering, not a dial row. Left ungated; see Corrections. ("Store-to-load forwarding" as a standalone row is L3 = the future alias-based broadening; the landed block-local version rides the L1 peephole row.) |
+| Gating each pass at its function entry covers every call site | `rg -n 'fuse_scalar_fma\|forward_stores_to_loads\|remove_fp_shuttles' src/codegen/engine` | MET 2026-08-24 — exactly 1 + 3 + 3 production call sites in `function_lowering.rs` (1002 / 1066,1227,1524 / 1070,1228,1525). Two guards landed (the peepholes); the `fuse_scalar_fma` site is deliberately unguarded |
+| `-O1` (default) reproduces today's exact codegen | Phase 3 default + `MFB_OPT=1` golden runs are clean diffs | MET 2026-08-24 — both runs `acceptance tests passed (1265 test(s) ran)`, zero mismatches |
+| `-O0` builds and behaves identically (codegen may differ) | Phase 3 `MFB_OPT=0` run: builds pass + `.run` behavior matches | MET 2026-08-24 — 1265/1265 build; 8 mismatches = 7 expected `.ncode` drifts + 1 enumerated FP-contraction behavior exception (see Phase 3) |
 
 The whole value of this plan is that the **default (`-O1`) changes nothing** — the
 Level-1 passes still run, so default codegen is byte-identical to today. `-O0` is the
@@ -144,9 +151,12 @@ only path that moves, and it moves *on purpose* (optimizations off).
   reached by escalating the dial). The scaffold's parser accepts only `0` and `1`
   for now (Non-goals), but the type spans the full range so later passes slot in
   without a type change.
-- The three existing Level-1 passes live in `src/optimizer/opt2/` and each begins
-  with `if !crate::optimizer::level_enabled(1) { return; }`. At `-O0` they no-op; at
-  `-O1`+ they run exactly as today.
+- The two existing Level-1 **dial** passes (the post-regalloc machine peepholes)
+  live in `src/optimizer/opt2/` and each begins with
+  `if !crate::optimizer::level_enabled(1) { return; }`. At `-O0` they no-op; at
+  `-O1`+ they run exactly as today. `fuse_scalar_fma` was evaluated for the dial
+  and left **ungated** in `src/codegen/compiler/opt/`: contraction changes float
+  results, so it is mandatory lowering (see Corrections).
 - `optimize_nir(module, level)` exists as the **Opt1** seam (no rows yet), called in
   `lower_project` — identity today.
 - The reserved **Opt2 MIR seam** (between selection and regalloc) exists as a no-op
@@ -159,9 +169,11 @@ only path that moves, and it moves *on purpose* (optimizations off).
 
 ### Non-goals (explicit constraints)
 
-- **No *new* optimization is implemented.** The only passes that run are the three
-  already-shipping Level-1 ones, now dial-gated. Both reserved seams (Opt1 NIR, Opt2
-  MIR) are identity. The rest of `optimizations.md` is future work, one pass at a time.
+- **No *new* optimization is implemented.** The only passes that run are the
+  already-shipping ones: two Level-1 machine peepholes, now dial-gated, plus
+  `fuse_scalar_fma`, which stayed ungated as mandatory lowering (Corrections). Both
+  reserved seams (Opt1 NIR, Opt2 MIR) are identity. The rest of `optimizations.md`
+  is future work, one pass at a time.
 - **No SSA / CFG / analysis infrastructure is built.** Plan2 (CFG + SSA/def-use),
   Out-of-SSA, and Plan2's **demand-driven prerequisites** — SSA promotion (mem2reg),
   alias analysis, memory-SSA/memory-dependence, range/trap analysis, loop
@@ -185,13 +197,19 @@ only path that moves, and it moves *on purpose* (optimizations off).
   switch, matching the existing `MFB_TARGET` precedent; a per-fixture `build.args`
   seam is explicitly out of scope.
 - **`selfmove_probe` is untouched.** It is a read-only diagnostic, not a dial pass;
-  it keeps its env-gate and stays in `src/codegen/compiler/opt/`.
+  it keeps its env-gate and stays in `src/codegen/compiler/opt/` — where it is now
+  joined by `fma_fusion`, the other non-dial resident.
+- **`-O0` does not change program behavior.** Only passes that are
+  behavior-preserving *by construction* are eligible for the dial. This was
+  discovered the hard way (see Corrections) and is the rule any future row must
+  clear: a pass that can change a value or a trap belongs in mandatory lowering or
+  at Level 6, never on `-O0`..`-O5`.
 
 ## 2. Phase 1 — the `-O`/`--optimize` flag + `OptLevel` global (default `-O1`)
 
 Mirror `RegallocKind` end to end, except the default is `OptLevel(1)`, not 0.
 
-- [ ] New top-level module `src/optimizer/` — add `mod optimizer;` to
+- [x] New top-level module `src/optimizer/` — add `mod optimizer;` to
       `src/main.rs` (alphabetical, between `mod numeric;` and `mod os;`).
       `src/optimizer/mod.rs`: wires `pub(crate) mod opt1; pub(crate) mod opt2;` and
       holds the `OptLevel` global — `OptLevel(u8)` spanning `0..=6` with
@@ -202,40 +220,41 @@ Mirror `RegallocKind` end to end, except the default is `OptLevel(1)`, not 0.
       for the per-row seam filter. Copy the
       `src/codegen/engine/regalloc/mod.rs:60-109` shape; the one deliberate
       divergence from `RegallocKind` is the non-zero default.
-- [ ] `src/cli/build/options.rs`: add an `opt: &mut OptLevel` out-param to
+- [x] `src/cli/build/options.rs`: add an `opt: &mut OptLevel` out-param to
       `parse_common_option` (or a sibling), handling `-O`/`--optimize`/`-optimize`
       in both space and `=` forms (lines 25-34 pattern). Default from
       `crate::optimizer::active_opt_level()` in `parse_build_options` (`:49` pattern)
       and `parse_test_options` (`:122` pattern); store into the struct at
       `:109`/`:148`.
-- [ ] `src/cli/build/mod.rs:91`: add `pub(crate) opt: crate::optimizer::OptLevel` to
+- [x] `src/cli/build/mod.rs:91`: add `pub(crate) opt: crate::optimizer::OptLevel` to
       `BuildOptions`. `src/cli/pkg.rs:127,420`: default
       `opt: crate::optimizer::active_opt_level()`.
-- [ ] `src/cli/build/mod.rs:179`: add `crate::optimizer::set_opt_level(options.opt);`
+- [x] `src/cli/build/mod.rs:179`: add `crate::optimizer::set_opt_level(options.opt);`
       next to the `regalloc::set_strategy` call in `build_project`.
-- [ ] Parser parity unit tests mirroring `src/cli/build/mod.rs:994-1002,1074-1076,1174-1177`:
+- [x] Parser parity unit tests mirroring `src/cli/build/mod.rs:994-1002,1074-1076,1174-1177`:
       `-O0` == `--optimize=0` == `-O 0`; `-O1` == `--optimize=1` == `-O 1`; **absent
       flag defaults to `OptLevel(1)`**; bogus level (e.g. `-O2`, `-Ox`) errors.
-- Commit: `plan-100: add -O/--optimize opt-level flag (default -O1) mirroring --regalloc`
+- Commit: `fc42026db` — `plan-100: add -O/--optimize opt-level flag (default -O1) mirroring --regalloc`
 
 ## 3. Phase 2 — absorb the Level-1 passes + reserve the two seams
 
-- [ ] **Relocate + gate the Level-1 passes.** Move `fma_fusion.rs` and `peephole.rs`
+- [x] **Relocate + gate the Level-1 passes.** Move `fma_fusion.rs` and `peephole.rs`
       from `src/codegen/compiler/opt/` into `src/optimizer/opt2/` (wire
       `src/optimizer/opt2/mod.rs`). Add to the top of each pass:
       `if !crate::optimizer::level_enabled(1) { return; }` — one guard per function
-      (`fuse_scalar_fma`, `forward_stores_to_loads`, `remove_fp_shuttles`), covering
+      (`forward_stores_to_loads`, `remove_fp_shuttles` — **not** `fuse_scalar_fma`,
+      which came back off the dial as mandatory lowering; see Corrections), covering
       all 7 call sites. Repoint the imports in
       `src/codegen/engine/function/function_lowering.rs` (currently
       `use crate::codegen::compiler::opt::{fma_fusion, peephole};`) to
       `crate::optimizer::opt2::{...}`; the 7 call sites are otherwise unchanged.
       Leave `selfmove_probe` in `src/codegen/compiler/opt/` (diagnostic, not gated).
-- [ ] **Opt1 seam.** Add `pub(crate) fn optimize_nir(module: NirModule, level: OptLevel) -> NirModule`
+- [x] **Opt1 seam.** Add `pub(crate) fn optimize_nir(module: NirModule, level: OptLevel) -> NirModule`
       in `src/optimizer/opt1/mod.rs`. Identity today (no rows), with a doc comment
       listing the Opt1 catalog rows (`optimizations.md`) as future contents. Call it
       in `src/target/shared/lower.rs:21`, wrapping the `nir::lower_module(...)?` result
       (`crate::optimizer::opt1::optimize_nir(module, crate::optimizer::active_opt_level())`).
-- [ ] **Reserved Opt2 MIR seam.** Add `pub(crate) fn optimize_mir(instructions: &mut Vec<CodeInstruction>, level: OptLevel)`
+- [x] **Reserved Opt2 MIR seam.** Add `pub(crate) fn optimize_mir(instructions: &mut Vec<CodeInstruction>, level: OptLevel)`
       in `src/optimizer/opt2/mod.rs` — in-place, matching the neighboring peephole
       signatures. Identity today (no rows). Call it in
       `src/codegen/engine/regalloc/builder_registers.rs` between selection (`:151`)
@@ -245,37 +264,62 @@ Mirror `RegallocKind` end to end, except the default is `OptLevel(1)`, not 0.
       `no-trap`-inference analyses) → Opt2 passes → Out-of-SSA; note the machine
       peepholes stay post-regalloc (they need physical registers) rather than moving
       into this seam.
-- [ ] Unit tests: (a) with `set_opt_level(OptLevel(0))`, each of the three passes is
+- [x] Unit tests: (a) with `set_opt_level(OptLevel(0))`, each gated pass is
       a no-op on a stream that at `-O1` it would rewrite (guard fires); (b) the two
       reserved seams (`optimize_nir` by value, `optimize_mir` in place) leave input
       structurally unchanged at every level (no accidental fire). These pin both the
       gate and the identity of the empty seams.
-- Commit: `plan-100: absorb FMA+peephole Level-1 passes onto the -O dial; reserve Opt1/Opt2 seams`
+- Commit: `41ee2d909` — `plan-100: absorb FMA+peephole Level-1 passes onto the -O dial; reserve Opt1/Opt2 seams`
 
 ## 4. Phase 3 — harness opt-level switch + neutrality/correctness proof
 
-- [ ] `scripts/test-accept.sh`: add an `MFB_OPT` global switch mirroring
+- [x] `scripts/test-accept.sh`: add an `MFB_OPT` global switch mirroring
       `MFB_TARGET` (`:109-112`): when set, build an `opt_arg="-O$MFB_OPT"` there and
       append it to each `run_with_watchdog "$MFB_EXE" build` invocation (`:385`
       primary, `:401` app, `:417` pkg-`.run`). Default (unset) = no flag = the harness
       binary's own default = `-O1` = today's exact command, so the existing golden run
       is untouched.
-- [ ] **The gate — split by intent:**
+- [x] **The gate — split by intent:**
       1. **default (no `MFB_OPT`)** — clean diff against current goldens. Proves the
          dial defaulting to `-O1` moved nothing.
       2. **`MFB_OPT=1`** — clean diff. Proves explicit `-O1` == default.
       3. **`MFB_OPT=0`** — a *correctness* run, **not** a byte-identity run. Codegen
          artifacts (`.ncodesum`/`.ir`) are **expected to drift** (dial passes off);
          do not re-baseline them. Require instead: every fixture **builds** and every
-         `.run`/behavior golden **matches** (optimizations are behavior-preserving, so
-         runtime output is level-invariant). A build failure or a behavior mismatch at
-         `-O0` is a real bug (an unguarded dependency on one of the passes); a pure
-         codegen-artifact drift at `-O0` is expected and ignored.
+         `.run`/behavior golden **matches**, with **no exceptions** — both dial
+         passes are behavior-preserving, so runtime output is level-invariant. A
+         build failure or *any* behavior mismatch at `-O0` is a real bug (an
+         unguarded dependency on one of the passes); a pure codegen-artifact drift
+         at `-O0` is expected and ignored.
+         *(This criterion was briefly weakened to allow an enumerated FP-contraction
+         exception set, then restored when the real defect was found: FMA contraction
+         did not belong on the dial at all. See Corrections — "FMA contraction is
+         semantics, not an optimization".)*
       Runs 1–2: any diff is a gate bug, not a re-baseline — fix it, do not touch
       goldens (`AGENTS.md`).
-- [ ] Full `cargo test --no-fail-fast` green (parser parity + gate/identity tests).
-- [ ] `rustup run 1.96.0 cargo fmt --all && (cd repository && rustup run 1.96.0 cargo fmt)`.
-- Commit: `plan-100: MFB_OPT harness switch; prove -O1 byte-identical, -O0 correct`
+
+      **Measured result (2026-08-24, 1265 fixtures each):**
+      1. default — `acceptance tests passed (1265 test(s) ran)`, zero mismatches.
+      2. `MFB_OPT=1` — `acceptance tests passed (1265 test(s) ran)`, zero mismatches.
+      3. `MFB_OPT=0` — 1265/1265 build; **7 mismatches, every one a `.ncode`
+         codegen artifact, ZERO behavior mismatches** (run twice to confirm).
+         The drifts are `func_map_getor_hash_probe`, `list-ops-codegen-rt`,
+         `control-flow-if`, `macos-app-mode-io`, `macos-app-mode-plumbing`,
+         `parser-hello-world`, `control-flow-match`. Spot-checked that they are the
+         dial and not garbage: `control-flow-if` is uniformly
+         `-{"op":"mov","dst":"x9","src":"x10"}` → `+{"op":"ldr_u64",…}` — the reload
+         `forward_stores_to_loads` folds at `-O1` and leaves alone at `-O0`.
+      Plus `artifact-gate.sh <exe> all` (the only checker that reads `.ncodesum`,
+      across all five targets): **1249 tests, 1396 builds, 1718 goldens, 0 diff(s)**
+      — default-level codegen is byte-identical everywhere, not just where
+      test-accept looks.
+- [x] Full `cargo test --no-fail-fast` green (parser parity + gate/identity tests). 62 test binaries, 0 failures (2026-08-24).
+- [x] `rustup run 1.96.0 cargo fmt --all` + `cargo fmt --all --manifest-path repository/Cargo.toml`; no churn left.
+- Commit: `56891c051` — `plan-100: MFB_OPT harness switch; prove -O1 byte-identical, -O0 correct`
+- Follow-up commits on the same phase:
+  `7ebe220e5` — document the MFB_OPT switch + loop-stdin invariant in `.ai/testing-gates.md`;
+  `74458a522` — take FMA contraction OFF the dial (see Corrections), which is what
+  made gate #3's original no-exceptions form true.
 
 ## 5. Follow-on (out of scope — one pass at a time, later plans)
 
@@ -302,11 +346,119 @@ infrastructure* rows (base instruction selection, register allocation) ever want
 dial-gated *refinement* row — they do not move wholesale onto the dial; only their
 optional refinements (coalescing, remat, cost-based combining) become rows.
 
+## Corrections
+
+- **Five targets consume `lower_project`, not four.** The References line lists
+  "all four targets"; `rg -n 'lower_project' src/target` (2026-08-24) returns 10
+  call sites across **five** backends — `macos_aarch64` (6), `linux_aarch64`,
+  `linux_x86_64`, `win_x86_64`, **and `linux_riscv64/mod.rs:263`**. The Opt1 seam
+  covers riscv64 too. No scope change: one wrap in `shared/lower.rs` still covers
+  every target.
+- **"Store-to-load forwarding" is an L3 row; the landed pass rides the L1 peephole
+  row.** The Prerequisites row pointed at `optimizations.md` "rows 103/138/156/200"
+  for three Level-1 entries. The standalone "Store-to-load forwarding" row is
+  **Level 3** — it is the *future alias-analysis-based* broadening, and its own text
+  says the shipping `forward_stores_to_loads` is "gated as a **Level-1** machine
+  peephole under the 'Peephole optimization' row". So the three landed passes map to
+  L1 rows "Peephole optimization", "Instruction selection / combining", and "Machine
+  copy propagation / redundant-move elimination". Gating at level 1 is unchanged.
+- **`level_enabled` and the `mod opt1;`/`mod opt2;` lines moved from the Phase-1
+  commit to the Phase-2 commit.** Phase 1 lists them, but they have no consumer
+  until Phase 2 lands the passes and seams; committing them a phase early means a
+  commit that either does not compile (missing submodule files) or warns
+  `dead_code`. Both land with their first consumer instead. No behavior difference —
+  the two commits together are exactly what Phase 1 + Phase 2 specify.
+- **FMA contraction is semantics, not an optimization — `fuse_scalar_fma` was
+  taken OFF the dial.** The plan lists three Level-1 rows. Only two of them are
+  real dial rows. Measured 2026-08-24 on
+  `tests/rt-behavior/arithmetic/float-fma-fusion` copied to `/tmp/o100`:
+
+  ```
+  $ target/release/mfb build     /tmp/o100 && …/build/….out
+  10.0000 / 2.0000 / 4.0000 / 2.5000 / fused-finite-ok          exit 0
+  $ target/release/mfb build -O0 /tmp/o100 && …/build/….out
+  10.0000 / 2.0000 / 4.0000 / 2.5000
+  Error: 7-705-0015 Floating-point arithmetic overflowed to infinity.   exit 255
+  $ grep -c 'fmadd\|fmsub\|fnmsub' <--ncode>     # -O1: 5    -O0: 0
+  ```
+
+  Contraction rounds **once** instead of twice, so it changes *which float values
+  exist*, not how fast they are produced. With `a = 1.5e308` the separate
+  `a * 2.0` rounds to `+inf` and `LET r = a * 2.0 - a` traps `ErrFloatOverflow` at
+  the binding's observation boundary; the fused `fmsub` never materializes the
+  product and yields a finite `1.5e308`. **Two fixtures pin exactly that pair as a
+  contract** — `rt-behavior/arithmetic/float-fma-fusion` asserts the single-use
+  product fuses and stays finite, and `rt-error/arithmetic/arithmetic-float-fma-observed-rt`
+  asserts an *observed* product still traps.
+
+  So gating it put a **language rule** behind a performance flag: `-O0` silently
+  emitted different float results. That is precisely what `optimizations.md`
+  reserves Level 6 for, and its stated principle cuts both ways — if requesting
+  maximum *performance* must not opt you into different *results*, then requesting
+  `-O0`, a **safety** request, must not either.
+
+  **Resolution:** `fma_fusion.rs` moves back to `src/codegen/compiler/opt/` and the
+  `level_enabled(1)` guard is deleted. It is mandatory lowering, in the same class
+  as the adrp/add and cmp/branch fusions — which is what the catalog row already
+  said ("Base selection is mandatory lowering (not level-gated); only the optional
+  cost-based *combining* is the dial pass"); the plan simply mis-sorted this pass
+  into the gated half. A unit test (`fuses_at_every_opt_level_including_zero`) now
+  pins contraction firing at every level 0..=6, replacing the gate test.
+
+  **This makes the plan's original Phase-3 criterion true as written.** I had
+  strengthened gate #3 to admit an enumerated FP-contraction exception set; with
+  the real defect fixed, the exception set is empty and the criterion is restored
+  to "every fixture builds and every behavior golden matches, no exceptions" —
+  which the dial's *remaining* two rows satisfy by construction (`forward_stores_to_loads`
+  never removes or reorders an instruction; `remove_fp_shuttles` folds only a GPR
+  proven dead by integer liveness). Weakening the criterion would have shipped the
+  bug; the criterion was right and the level assignment was wrong.
+
+  Also documented, since this is now a user-visible language guarantee rather than
+  an implementation detail: the contraction rule is stated in the spec's `Float`
+  section (`src/docs/spec/language/04_types.md`), the catalog row and its
+  default-level note are corrected, and the CLI reference's `-O` row now says
+  `-O0` never changes observable results.
+
+- **Added task, not in the plan: fixed a real harness bug that made the Phase-3
+  gate both flaky and wrong.** The first default-level gate run reported 2
+  failures and `1193 test(s) ran`; a control build of `main` (`git worktree add
+  --detach`, `cargo build --release`) reported the *same* 2 failures but
+  `1208 test(s) ran` — the same suite, a different fixture count, so the suite
+  was silently under-running. Root cause, in `scripts/test-accept.sh`: the
+  driving loop is `while IFS= read -r project_json; do … done < <(find … )`, and
+  the behavioral-test branch ran `test_out=$("$MFB_EXE" test …)` **bare** — the
+  one subprocess in the file not going through `run_with_watchdog`, which exists
+  precisely to give children `/dev/null` stdin (bug-320). So `mfb test` inherited
+  the `find` pipe as stdin, and any fixture whose `TESTING` blocks read stdin ate
+  the fixture list. That single defect produced *both* long-standing failures:
+  * `expected a trap with code 77020003, but none occurred` — the io EOF cases
+    saw pipe bytes instead of the EOF they assert; and
+  * `could not read project name for fb/.claude/worktrees/P-100/tests/…` — the
+    next fixture's path arrived truncated at a random prefix, with a
+    nondeterministic number of fixtures swallowed.
+
+  Fixed by routing that call through `run_with_watchdog`, and by adding
+  `</dev/null` to the two other loop-body `mfb test` invocations (the `.testrun`
+  capture and the `--coverage` run) that had the same inherited-stdin exposure.
+  **Result: 1265 fixtures run and the suite is green** — the fix recovered 72
+  fixtures that were never being executed and removed 2 permanent failures.
+  Recorded here because the plan's gate is only as trustworthy as the harness
+  running it; these two failures were previously written off as environmental.
+
+- **Added task, not in the plan: document the flag.** `-O` is user-facing surface,
+  and `AGENTS.md` requires the embedded spec to track every compiler change. Phase 1
+  therefore also adds `-O`/`--optimize` to `BUILD_HELP`/`TEST_HELP`
+  (`src/cli/help.rs`) and to the CLI reference (`src/docs/spec/tooling/07_cli-reference.md`:
+  flag table, `mfb test` usage row, single-dash alias list, and the malformed-value
+  diagnostics paragraph). A flag with no help line and no spec row is a flag users
+  cannot find.
+
 ## Open Decisions
 
 - **Default level (resolved 2026-08-23).** Default is **`-O1`** (Level-1 rows on),
   `-O0` is the all-off baseline. Rationale: today's shipping codegen already runs the
-  three Level-1 passes, so `-O1`-as-default keeps the default byte-identical while
+  Level-1 passes, so `-O1`-as-default keeps the default byte-identical while
   giving `-O0` a real "no optimizations" meaning. The alternative (`-O0` default,
   matching gcc/clang) would make the *default* differ from today's goldens — a much
   larger, needless re-baseline — and is rejected.

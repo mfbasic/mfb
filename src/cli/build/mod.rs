@@ -111,6 +111,11 @@ pub(crate) struct BuildOptions {
     /// Register-allocation strategy selected by `-regalloc <name>` (plan-03
     /// §4.2). Defaults to the backend default.
     pub(crate) regalloc: crate::codegen::engine::regalloc::RegallocKind,
+    /// Optimization scale level selected by `-O<N>` / `--optimize <N>`
+    /// (plan-100). Defaults to `-O1`, at which the shipping Level-1 passes run
+    /// -- so the flagless build is today's exact codegen. `-O0` turns the dial
+    /// passes off and legitimately emits different (unoptimized) code.
+    pub(crate) opt: crate::optimizer::OptLevel,
     /// `--unsigned`: opt into building against unsigned dependencies whose
     /// source is not local (audit-1 PKG-01). Unsigned *local* (`file:`/`local:`)
     /// dependencies are always permitted; this flag additionally allows unsigned
@@ -177,6 +182,9 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // Record the register-allocation strategy for the native backend to read
     // during lowering (plan-03 §4.2).
     crate::codegen::engine::regalloc::set_strategy(options.regalloc);
+    // Record the optimization level for the gated passes to read at their
+    // seams (plan-100 §2). Default `-O1` runs the Level-1 rows, as today.
+    crate::optimizer::set_opt_level(options.opt);
     let reporter = Reporter::new(options.verbosity);
     let target = options.target.clone();
     let project_path = options.location.join("project.json");
@@ -1174,6 +1182,77 @@ mod tests {
         assert!(parse_build_options(s(&["--regalloc"])).is_err());
         assert!(parse_build_options(s(&["--regalloc", "not-a-strategy"])).is_err());
         assert!(parse_build_options(s(&["--regalloc=not-a-strategy"])).is_err());
+    }
+
+    /// plan-100 §2: every spelling of the `-O` dial parses to the same
+    /// [`crate::optimizer::OptLevel`], and the flagless build is `-O1` -- the
+    /// level at which the shipping Level-1 passes run, i.e. today's codegen.
+    #[test]
+    fn parse_build_options_opt_level_every_spelling() {
+        use crate::optimizer::OptLevel;
+
+        for (args, want) in [
+            (s(&["-O0"]), OptLevel(0)),
+            (s(&["-O", "0"]), OptLevel(0)),
+            (s(&["-O=0"]), OptLevel(0)),
+            (s(&["--optimize=0"]), OptLevel(0)),
+            (s(&["--optimize", "0"]), OptLevel(0)),
+            (s(&["-optimize=0"]), OptLevel(0)),
+            (s(&["-optimize", "0"]), OptLevel(0)),
+            (s(&["-O1"]), OptLevel(1)),
+            (s(&["-O", "1"]), OptLevel(1)),
+            (s(&["-O=1"]), OptLevel(1)),
+            (s(&["--optimize=1"]), OptLevel(1)),
+            (s(&["--optimize", "1"]), OptLevel(1)),
+            (s(&["-optimize=1"]), OptLevel(1)),
+            (s(&["-optimize", "1"]), OptLevel(1)),
+        ] {
+            let spelling = format!("{args:?}");
+            let parsed = parse_build_options(args).expect(&spelling);
+            assert_eq!(parsed.opt, want, "{spelling}");
+        }
+
+        // The whole point of the dial: absent the flag the default is `-O1`,
+        // not `-O0`, so default codegen is unchanged from before plan-100.
+        assert_eq!(
+            parse_build_options(vec![]).expect("flagless").opt,
+            OptLevel(1)
+        );
+        assert_eq!(
+            parse_test_options(vec![]).expect("flagless test").opt,
+            OptLevel(1)
+        );
+
+        // `mfb test` takes the dial too, in every spelling `mfb build` does.
+        for (args, want) in [
+            (s(&["-O0"]), OptLevel(0)),
+            (s(&["-O", "0"]), OptLevel(0)),
+            (s(&["--optimize=0"]), OptLevel(0)),
+            (s(&["-optimize", "1"]), OptLevel(1)),
+        ] {
+            let spelling = format!("{args:?}");
+            let parsed = parse_test_options(args).expect(&spelling);
+            assert_eq!(parsed.opt, want, "{spelling}");
+        }
+    }
+
+    /// Levels the scaffold does not implement yet, and malformed values, error
+    /// the same way `--regalloc bogus` does rather than silently defaulting.
+    #[test]
+    fn parse_build_options_opt_level_rejects_unlanded_and_malformed() {
+        // `-O` with nothing after it.
+        assert!(parse_build_options(s(&["-O"])).is_err());
+        assert!(parse_test_options(s(&["--optimize"])).is_err());
+
+        for bogus in ["-O2", "-O6", "-Ox", "-O=2", "--optimize=2", "-optimize=z"] {
+            let message = build_err(&[bogus]);
+            assert!(message.contains("available: 0, 1"), "{bogus} -> {message}");
+            assert!(parse_test_options(s(&[bogus])).is_err(), "{bogus}");
+        }
+
+        // The space form reports the same list.
+        let message = build_err(&["-O", "3"]);
+        assert!(message.contains("available: 0, 1"), "{message}");
     }
 
     fn build_err(args: &[&str]) -> String {

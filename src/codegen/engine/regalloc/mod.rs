@@ -418,7 +418,7 @@ fn rewrite(
 }
 
 /// Thin wrappers exposing integer liveness to the FP-shuttle peephole
-/// (`crate::codegen::compiler::opt`), which proves a GPR carrying only a float's bit pattern is
+/// (`crate::optimizer::opt2::peephole`), which proves a GPR carrying only a float's bit pattern is
 /// dead before dropping the shuttle. (The analysis items are `pub(crate)` within
 /// `regalloc`, so they are surfaced to the parent module through these wrappers
 /// rather than re-exported.)
