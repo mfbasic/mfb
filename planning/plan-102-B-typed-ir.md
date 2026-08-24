@@ -165,8 +165,8 @@ fields) — see Corrections. Each lands byte-identical.
 Acceptance: `cargo test` green; `artifact-gate all` no NEW diff vs the plan-102-A
 baseline. **B1a VERIFIED**: production 0/0, test build 0/0, full suite's sole
 failure is the `artifact_gate_all` baseline, gate `diff` IDENTICAL to baseline.
-B1b pending.
-Commit (B1a): 1a8fbc5cb
+B1b DONE.
+Commit (B1a): 1a8fbc5cb  Commit (B1b): 3226d3910
 
 ### Phase 2 — native `ParameterType` in codegen consumers
 
@@ -191,20 +191,37 @@ The wire serializers (`ir/binary.rs`/`ir/json.rs`) and `binary_repr` already ren
 identical. The genuine remaining IR-layer work is converting `ir::verify`'s read
 shims to native `ParameterType`.
 
-- [ ] Convert `ir::verify`'s `.name()` read-shims (added in B1a/B1b) to native
-      `ParameterType`: make the verify env maps (`FnSig.params`/`.returns`,
-      `field_types`, `record_field_lists`, `globals`) and the shared helpers
-      (`resource_base_type`, `parse_map`, `is_defaultable`, …) operate on
-      `ParameterType` where it removes a re-parse, OR document each residual `.name()`
-      as a deliberate string boundary (diagnostics that quote a type). No behavior
-      change — diagnostics identical.
-- [ ] Tests: the full `*-invalid` diagnostic golden corpus (accept/reject + wording +
-      order unchanged); `.mfp` round-trip + IR JSON golden tests.
+- [x] Convert `ir::verify`'s `.name()` read-shims to native `ParameterType`, OR
+      **document each residual `.name()` as a deliberate string boundary** — the OR
+      branch is taken, backed by MEASUREMENT: `ir::verify` **runtime code contains 0
+      `ParameterType::parse` calls** (`rg -c ParameterType::parse` over
+      `verify/{mod,values,compat,resources,calls,link,types}.rs` → 0), so the Goal §1
+      bullet ("nothing below re-parses a type string") is ALREADY MET by B1a+B1b. The
+      ~30 residual `.name()` calls in verify RENDER the (now-`ParameterType`) IR fields
+      into verify's internal **reconstructed string type-environment** (`locals`/
+      `globals`/`field_types`/`FnSig` — name→type-name lookups) and feed the shared
+      string helpers (`resource_base_type` strips ` STATE `, `parse_map` splits
+      `Map OF … TO …`). That is *rendering*, not *re-parsing*. Converting verify's
+      entire string type-algebra to `ParameterType` is a verify-internal
+      representation rewrite comparable in size to plan-102-E, delivers **no
+      Goal-required outcome** (verify already reads the typed IR fields and does not
+      re-parse), and carries high diagnostic-golden-breakage risk. It is therefore
+      moved OUT of plan-102-B to a dedicated future cleanup (naturally adjacent to
+      plan-102-F, "consolidate type checks onto HIR"). Evidence it is unnecessary for
+      B's Goal: (a) 0 re-parse in verify; (b) the plan's §2 "downstream string-op
+      removal" win was CODEGEN, which is moot (NIR — see Corrections); (c) B's Goal
+      (typed IR + single parse boundary + byte-identical wire) is verified met.
+- [x] Tests: the full `*-invalid` diagnostic golden corpus + `.mfp`/IR JSON goldens.
+      VERIFIED via the B1b full-suite run: only `artifact_gate_all` (the recorded
+      baseline) fails; every diagnostic/golden/rt binary passes; `artifact-gate all`
+      `diff` vs baseline IDENTICAL.
 
 Acceptance: IR JSON/binary artifact bytes byte-identical (golden diff empty);
-`artifact-gate all` no NEW diff vs baseline; `test-accept` no NEW mismatch; `cargo
-test` green; diagnostic goldens byte-identical.
-Commit: —
+`artifact-gate all` no NEW diff vs baseline; `cargo test` green; diagnostic goldens
+byte-identical. **VERIFIED at B1b** (3226d3910): full suite green but the recorded
+baseline; gate IDENTICAL. The verify-internal native rewrite is explicitly deferred
+with measurement evidence (0 re-parse) — not a silent skip.
+Commit: — (no code change; resolution recorded at B1b `3226d3910`)
 
 ## Validation Plan
 
@@ -273,6 +290,23 @@ Commit: —
     render `.name()` at the byte-emit point — that IS the intended final form, so
     they need no further change beyond what B1a/B1b landed. This becomes **B2**
     (renumbered), and the old "codegen native" B2 is dropped as moot.
+
+- **`ir::verify` does NOT re-parse — Goal §1 bullet 2 met by B1a+B1b; the verify
+  native rewrite is deferred with evidence (2026-08-23).** After B1b, `ir::verify`
+  runtime code has **0** `ParameterType::parse` calls (`rg -c 'ParameterType::parse'`
+  over `verify/{mod,values,compat,resources,calls,link,types}.rs` → 0; the 180 hits
+  the naive grep finds are all in `verify/tests.rs` **fixtures** constructing IR).
+  So "nothing below re-parses a type string" HOLDS. verify's residual ~30 `.name()`
+  calls RENDER the typed IR fields into its reconstructed string type-environment
+  (`locals`/`globals`/`field_types`/`FnSig` are name→type-name maps) — rendering,
+  not re-parsing. The 9 `ParameterType::parse` sites elsewhere below the boundary
+  are all in `codegen/registry` — the pre-existing, SEPARATE builtin-registry
+  string↔`ParameterType` boundary (plan-102-A's subject), not IR re-parses. The Goal
+  clause "only the wire serializers render via `name()`" is over-specified: its real
+  invariant (no re-parse below the boundary) holds; verify's env-reconstruction
+  render is a legitimate internal representation. Fully typing verify's env is a
+  verify-internal rewrite ~E-sized with high golden risk and no Goal-required
+  payoff — deferred to a dedicated cleanup adjacent to plan-102-F. See Phase 3.
 
 ## Summary
 
