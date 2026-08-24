@@ -5,10 +5,56 @@ Effort: large (3h–1d — ~100 result-read sites across 3 backends + goldens + 
 Severity: HIGH (TLS — a security library — returns garbage / crashes on linux-x86_64; audio capture/playback broken on linux-x86_64 and win-x86_64; all uncatchable at the language level)
 Class: Correctness / Security (valid programs silently misbehave or crash on supported platforms)
 
-Status: Open
-Regression Test: to be added (codegen-inspection per backend, mirroring
-`tests/codegen_crypto_ec_c_return_x86_64.rs`; plus a box run where a runtime
-environment exists — see Validation Plan)
+Status: FIXED (1768bdb60)
+Regression Test: `tests/codegen_tls_c_return_x86_64.rs`,
+`tests/codegen_audio_alsa_c_return_x86_64.rs` (linux-x86_64, `rdi`) and
+`tests/codegen_audio_wasapi_c_return_x86_64.rs` (windows-x86_64, `rcx`) —
+codegen-inspection, RED before / GREEN after, mirroring
+`tests/codegen_crypto_ec_c_return_x86_64.rs`. Oracle helpers in
+`tests/common/mod.rs`. Box runtime proof still needs an environment not in this
+session (see Validation Plan / Open Decisions).
+
+## STATUS: FIXED (1768bdb60)
+
+Every external-library call result in `tls/gen_openssl.rs`,
+`audio/gen_alsa_{shared,io,devices}.rs`, and `audio/gen_windows.rs` is now read
+from `abi::c_return(0)` instead of `abi::return_register()`. Two shapes:
+
+- **Direct read** (a pointer `store`, or a small-int `compare` to 0/1): the
+  operand is repointed to `c_return(0)` — the bug-450 change (24 sites in
+  `gen_openssl.rs`; the two `snd_device_name_get_hint` `char*` reads in
+  `gen_alsa_devices.rs`).
+- **Funnel** (a sign-extended int result): `sxtw(return_register(),
+  return_register())` → `sxtw(return_register(), c_return(0))`, reading `rax` and
+  re-homing the result into the aligned bank so the existing downstream reads
+  stay correct with no further edits. Used for the ALSA `emit_call_fnptr` choke
+  point (one edit covers every int-returning libasound call), the 8 inline ALSA
+  I/O `blr` sites, the 3 libssl `sxtw` sites (SSL_read/write/poll), and both
+  WASAPI `ole_call`/`com_call` sites.
+
+Deviations / additions beyond the doc as written:
+
+- **`ole_call` was also broken** (the doc cited only `com_call`). On Win64 the
+  shared emitter skips the `%retC`→aligned staging for BOTH the direct IAT `bl`
+  (`ole_call`) and the COM vtable `blr` (`com_call`), so both did
+  `sxtw rcx,rcx`. Both fixed.
+- **`byte-identity/http` regenerated** (linux-x86_64 only): the http fixture
+  imports `tls` via `http::serverSSL`, so the fixed `_mfb_rt_tls_*` bodies are
+  embedded in the http binary and shift there too. Confirmed the only functions
+  that changed vs. the pre-fix binary are the seven `_mfb_rt_tls_*` bodies;
+  linux-aarch64 is byte-identical (so its golden is untouched).
+- **Approach vs. the doc's "one-token-per-site":** the funnel is a strict
+  superset that keeps the same byte-identity guarantee (`sxtw x0,x0` on
+  AArch64/RISC-V) while touching far fewer lines at the ALSA choke point.
+
+Verified: for both fixtures, `linux-aarch64`/`linux-riscv64`/`macos-aarch64`
+ncodesums are byte-identical to the committed goldens; only `linux-x86_64` and
+`windows-x86_64` shift (the intended register repoint). `cargo test`
+(318 + 21 repo + 3 new codegen tests) is green; `artifact-gate.sh <mfb> all` has
+8 **pre-existing** diffs (bits/fs/io/term windows-x86_64 + the four macos-app
+fixtures) that reproduce on the pre-work baseline `af2031bf5` (classified via
+that binary; none import tls/audio) and are tracked separately — no bug-452
+fixture drifts.
 
 The `tls`, `audio` (ALSA), and `audio` (WASAPI) built-in backends generate their
 platform-library call sequences by hand: they load a resolved function pointer
@@ -202,33 +248,41 @@ byte-identical.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add a codegen-inspection test per backend (tls, audio-alsa on linux-x86_64;
+- [x] Add a codegen-inspection test per backend (tls, audio-alsa on linux-x86_64;
       audio-wasapi on win-x86_64) asserting no external `blr` result is read from
       the aligned bank; confirm RED against current codegen.
-- [ ] Confirm the Blast Radius verdicts above still hold at HEAD.
+- [x] Confirm the Blast Radius verdicts above still hold at HEAD. (Also found
+      `ole_call` and the `gen_alsa_devices.rs` pointer path; `gen_alsa_stream.rs`
+      has no `blr`.)
 
 Acceptance: the new tests fail for the documented reason; audit complete.
-Commit: —
+Commit: 1768bdb60
 
 ### Phase 2 — the fix
 
-- [ ] `tls/gen_openssl.rs`: result reads → `c_return(0)`.
-- [ ] `audio/gen_alsa_io.rs` + `gen_alsa_shared.rs`: result reads → `c_return(0)`.
-- [ ] `audio/gen_windows.rs` `com_call`: read HRESULT from `c_return(0)`.
+- [x] `tls/gen_openssl.rs`: result reads → `c_return(0)` (24 sites; 3 funnels).
+- [x] `audio/gen_alsa_{shared,io,devices}.rs`: result reads → `c_return(0)`
+      (funnel choke point + 8 inline `sxtw` + 2 `char*` reads).
+- [x] `audio/gen_windows.rs` `com_call` **and `ole_call`**: HRESULT from
+      `c_return(0)`.
 
 Acceptance: Phase-1 tests pass; aarch64/macos ncode unchanged; Non-goals intact.
-Commit: —
+Commit: 1768bdb60
 
 ### Phase 3 — regenerate goldens + full validation
 
-- [ ] Regenerate the shifted linux-x86_64 / win-x86_64 goldens
-      (`byte-identity/{tls,audio}`, any tls/audio rt fixtures); confirm the delta
-      is only the register change and aarch64/macos sums are unchanged.
-- [ ] Full `cargo test` + `artifact-gate.sh all`.
-- [ ] Box runtime proof where possible (see Validation Plan).
+- [x] Regenerate the shifted linux-x86_64 / win-x86_64 goldens
+      (`byte-identity/{tls,audio}` + `byte-identity/http` linux-x86_64, since http
+      embeds tls); confirmed the delta is only the register change and
+      aarch64/riscv/macos sums are byte-identical. (No tls/audio rt fixture carries
+      an `.ncode`/`.ncodesum` golden.)
+- [x] Full `cargo test` (green) + `artifact-gate.sh all` (only the 8 pre-existing
+      baseline diffs remain — see STATUS).
+- [ ] Box runtime proof where possible — deferred: no networked x86-64 box / audio
+      HW / Windows run available this session (Open Decision: ncode-verified now).
 
 Acceptance: full suite green; deltas exactly the intended change.
-Commit: —
+Commit: 1768bdb60
 
 ## Validation Plan
 
