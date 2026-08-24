@@ -16,11 +16,13 @@ developer documentation, not compiler-internals spec** — then update from
 the independent review.
 
 Verification of an existing page is cheaper per page than authoring (B/C):
-read the page, check each claim (probe program or descriptor table), apply
-the MUST-NOT scope list, move on; the cross-model reviewer then re-verifies
-independently.
+read the page, check each claim (probe program or descriptor table), compile
+and run its example (never done before — A measured zero prior example
+verification), apply the MUST-NOT scope list, move on; the cross-model
+reviewer then re-verifies independently.
 
-See plan-108-A §3 for the workflow, standard, and harness contract.
+See plan-108-A §3 for the workflow and the standard. Per A: verification is
+`mfb man` rendering + ad-hoc example/probe runs — no compiler test gates.
 
 References:
 
@@ -50,19 +52,18 @@ References:
 - All 160 pages + 5 overviews + types pages verified claim-by-claim and
   scope-checked; every inaccuracy fixed; every internals leak rewritten in
   developer terms or removed.
-- All five packages' examples on the harness: datetime, encoding,
-  collections, math run-enforced; fs run-enforced against temp paths only
-  (examples must never touch real user paths — classification recorded in
-  the harness table).
+- Every example compiled and run during the pass (fs examples against temp
+  paths only — rewrite any example that touches a real user path);
+  compile-only members, if any, noted in the ledger.
 - Cross-model review (opus) per package; ledgers (confirmed → fixed /
   rejected → disproving command) recorded here.
-- Harness enforced list now includes all five; census still 100%.
+- Census still 100% for all five.
 
 ### Non-goals (explicit constraints)
 
-- Per plan-108-A (byte-identical gate; no renderer/schema changes; no
-  byte-significant body or `package.mfb` edits; `src/docs/man/**`
-  untouched).
+- Per plan-108-A (no compiler testing; prose string fields only with
+  per-commit `git diff` check; no renderer/schema changes; no
+  `package.mfb` edits; `src/docs/man/**` untouched).
 - **No wording churn on accurate, in-scope prose** — this is an audit, not
   a rewrite; a page that passes both passes is left byte-for-byte alone.
 - Found code bugs: fix or file via write-bug, recorded here.
@@ -73,23 +74,23 @@ A's census: these five packages carry desc+example on 160 of their 161
 pages (datetime 44/45, fs 41/42, encoding 28/28, collections 24/24, math
 21/21 — the missing singletons were authored as C's stragglers). The prose
 was written during the builtins migration era; it has never been
-independently audited, and no example has ever been compiled or run by a
-test (A's measurement: 0 example-executing tests pre-108).
+independently audited, and no example has ever been compiled or run
+(A's measurement).
 
 ### Measured populations
 
 | What | Count | Command |
 |---|---|---|
 | pages to verify | 160 (+5 overviews, 5 types pages) | `scripts/man-census.sh` at kickoff |
-| examples newly under harness enforcement | 160 | harness table diff |
-| claims per page | unbounded prose — the reviewer, not a grep, is the coverage instrument | — |
+| examples never before compiled | 160 | A's measurement (zero prior example verification) |
+| claims per page | unbounded prose — the reader and the reviewer, not a grep, are the coverage instrument | — |
 
 ## 3. Design Overview
 
 Per-package: verification pass (steps 1+2 of the workflow, page by page,
 fixing as found) → cross-model review → apply. Order: collections first
 (the overview makes strong behavioral contracts — "do not mutate", ordering
-rules — worth auditing early and its 24 pages calibrate audit pace), then
+rules — worth auditing early, and its 24 pages calibrate audit pace), then
 math, encoding, fs, datetime (largest last, with pace known).
 
 **Risk concentration:** rubber-stamping — an audit pass that reads prose as
@@ -109,53 +110,48 @@ evidence, not proofreading.
 
 ## Compatibility / Format Impact
 
-None to codegen/wire. Summary re-pins only with 4-question-gate evidence.
+None to codegen/wire. Summary-pin update only if a pinned summary is itself
+corrected.
 
 ## Phases
 
 ### Phase 1 — collections, math
 
 - [ ] Verify collections 24 + math 21 pages + overviews + types pages;
-      run-enforce both on the harness.
+      every example compiled and run.
 - [ ] Cross-model review per package + apply; ledgers here.
-- [ ] Tests: `cargo test --no-fail-fast`; `artifact-gate all`
-      byte-identical.
+- [ ] Verify: rendering reads clean; census still 100%.
 
-Acceptance: both packages verified, reviewed, harness-enforced; ledgers
-recorded.
+Acceptance: both packages verified and reviewed; ledgers recorded.
 Commit: —
 
 ### Phase 2 — encoding, fs
 
 - [ ] Verify encoding 28 + fs 42 pages + overviews + types pages; fs
-      examples rewritten onto temp paths where needed; harness
-      classification recorded.
+      examples rewritten onto temp paths where needed, all compiled and
+      run.
 - [ ] Cross-model review + apply; ledgers.
-- [ ] Tests: as Phase 1.
+- [ ] Verify: rendering + census as Phase 1.
 
-Acceptance: both packages verified, reviewed, enforced.
+Acceptance: both packages verified and reviewed.
 Commit: —
 
 ### Phase 3 — datetime
 
 - [ ] Verify 45 pages + overview + types page; timezone/DST/precision
-      claims probe-verified.
+      claims probe-verified; examples compiled and run.
 - [ ] Cross-model review + apply; ledger.
-- [ ] Tests: as Phase 1.
+- [ ] Verify: rendering + census as Phase 1.
 
-Acceptance: datetime verified, reviewed, enforced.
+Acceptance: datetime verified and reviewed.
 Commit: —
 
 ## Validation Plan
 
-- Tests: `cargo test --no-fail-fast` per package; harness enforced for all
-  five.
-- Coverage check: census 100%; harness table covers all 160 examples.
-- Runtime proof: run-enforced examples execute via release `mfb`; probe
-  programs for behavioral claims.
+- Verification: `mfb man <pkg> --all`/`types` per package; census still
+  100%; examples and probes compiled/run ad hoc with the release binary.
 - Doc sync: none beyond content.
-- Acceptance: full suite; `artifact-gate all`; `test-accept.sh` no NEW
-  mismatch; fmt both crates.
+- Hygiene: fmt at session end.
 
 ## Open Decisions
 
@@ -169,5 +165,5 @@ Commit: —
 
 The heavy verification batch: the five biggest migrated-prose packages go
 under the same evidence discipline the authored packages were born under —
-probe-verified claims, scope-checked prose, independently reviewed, with
-every example now a tested artifact.
+probe-verified claims, scope-checked prose, every example finally compiled
+and run, independently reviewed.

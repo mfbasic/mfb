@@ -1329,7 +1329,7 @@ pub(crate) fn builtin_function_symbol_for_type(name: &str, type_: &str) -> Optio
     ))
 }
 
-pub(crate) fn builtin_function_refs(module: &NirModule) -> Vec<(String, String, String)> {
+pub(crate) fn builtin_function_refs(module: &NirModule) -> Vec<(String, ParameterType, String)> {
     let mut refs = Vec::new();
     let mut seen = HashSet::new();
     for function in &module.functions {
@@ -1370,12 +1370,12 @@ pub(crate) fn collect_function_ref_names(module: &NirModule) -> HashSet<String> 
 
 fn collect_builtin_function_refs_in_ops(
     ops: &[NirOp],
-    refs: &mut Vec<(String, String, String)>,
+    refs: &mut Vec<(String, ParameterType, String)>,
     seen: &mut HashSet<String>,
 ) {
     use nir::visit::{walk_value, NirVisitor};
     struct Collector<'a> {
-        refs: &'a mut Vec<(String, String, String)>,
+        refs: &'a mut Vec<(String, ParameterType, String)>,
         seen: &'a mut HashSet<String>,
     }
     impl NirVisitor for Collector<'_> {
@@ -1384,8 +1384,7 @@ fn collect_builtin_function_refs_in_ops(
                 if let Some(symbol) = builtin_function_symbol_for_type(name, &type_.name()) {
                     let key = format!("{name}\0{type_}");
                     if self.seen.insert(key) {
-                        self.refs
-                            .push((name.clone(), type_.name().into_owned(), symbol));
+                        self.refs.push((name.clone(), type_.clone(), symbol));
                     }
                 }
             }

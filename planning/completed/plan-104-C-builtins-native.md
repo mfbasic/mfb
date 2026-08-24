@@ -234,6 +234,32 @@ Commit: 73b2ca8db
   take `.name()` shims where compile-driven and D finishes their native
   conversion per its own acceptance.
 
+- **Post-archive Correction (2026-08-24, found by a code-level completion
+  audit): one backward render→parse seam survived C unclassified — now
+  fixed; plan-104 is complete.** The builtin-FunctionRef wrapper chain
+  round-tripped a typed value through a string across functions:
+  `NirValue::FunctionRef.type_` (typed since A) was rendered
+  (`type_.name()` in `data_objects.rs::builtin_function_refs`), threaded as
+  `&str` into `lower_builtin_function_wrapper`, string-split by
+  `function_type_parts`, and parsed back
+  (`ParameterType::parse(&param.type_)`, `function_lowering.rs:1201`) —
+  whose own comment said "a registry-descriptor boundary until plan-104-C",
+  a retirement C never executed and no letter (including D's
+  nominal-domain determination, which covers only the record-name layout
+  web) classified. Invisible to the same-line round-trip grep because the
+  render and the parse live in different files. Fix: `builtin_function_refs`
+  returns `(String, ParameterType, String)`; the wrapper takes
+  `&ParameterType` and destructures `ParameterType::Func(params, returns,
+  false)` (isolated FUNC still rejected, matching the old
+  `strip_prefix("FUNC(")` behavior); the parse and stale comment deleted;
+  the now-orphaned string parsers `function_type_parts` +
+  `split_top_level_params` deleted from `type_utils.rs`. Error/dump strings
+  render identically (`parse∘name = id` on the very value that produced the
+  old string), verified byte-identical via `artifact-gate all`.
+  Post-fix census: cross-line render→parse chains out of typed NIR values →
+  0 known (`rg -n 'ParameterType::parse' src/codegen/engine/function/` →
+  test-only sites remain).
+
 ## Summary
 
 The widest sweep of the feature, kept safe by per-package scoped gates and the

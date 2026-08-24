@@ -1,4 +1,4 @@
-# plan-108-A: man-content census, the developer-doc standard, the example harness, and the workflow pilot
+# plan-108-A: man-content census, the developer-doc standard, and the workflow pilot
 
 Last updated: 2026-08-24
 Effort: large (3h–1d)
@@ -11,19 +11,24 @@ descriptors in `src/codegen/builtins/**` (`src/cli/man.rs:1-15` — the old
 fields on those descriptors are the product's developer documentation, and
 they are in a measured half-state: **466 function pages render, 272 carry a
 Description + Example, 194 carry neither** — nine whole packages are bare
-auto-derived skeletons. Nothing anywhere compiles or runs the examples the
-field's own doc comment calls "runnable" (`src/codegen/registry/mod.rs:405`).
+auto-derived skeletons.
 
 Plan-108's end state (delivered across A–F): every builtin man page is
 **accurate to the actual code, written for the MFBASIC developer (never
-compiler-internals spec), carries a runnable harness-verified example, and has
-survived an independent cross-model review**.
+compiler-internals spec), carries a runnable example that was actually
+compiled and run during authoring, and has survived an independent
+cross-model review**.
 
-This letter builds the machinery every later letter runs on: the exact
-census, the content standard, the example harness, and the four-step
-per-package workflow (accuracy pass → scope pass → cross-model subagent
-review → apply findings), piloted end-to-end on one filled package (`bits`)
-and one empty package (`thread`).
+This is a documentation plan. Its verification instrument is `mfb man <pkg>
+[<func>|--all|types]` — rendering the pages. **No compiler test gates
+apply**: prose fields are `&'static str` the compiler never reads, so
+`artifact-gate`, the cargo suite, and `test-accept` can neither catch a doc
+error nor fail on one — do not run them for this plan.
+
+This letter builds what every later letter runs on: the exact census, the
+content standard, and the four-step per-package workflow (accuracy pass →
+scope pass → cross-model subagent review → apply), piloted end-to-end on one
+filled package (`bits`) and one empty package (`thread`).
 
 References:
 
@@ -40,8 +45,6 @@ References:
 - `.ai/man_template.md` / `scripts/update_man.sh` — tooling for the RETIRED
   tree; F retires/replaces it. AGENTS.md's man-page guidance points at the
   retired tree too (F updates it).
-- `tests/cli_man_summary_plain.rs` — the one existing man test (plain
-  rendering of listing summaries).
 - Memory `resources-in-collections-yes-records-no` — a KNOWN accuracy defect:
   the `mfb man process` blurb claiming a resource "cannot be stored as a
   collection element" contradicts spec §15.6. E fixes it; A's standard uses
@@ -51,7 +54,7 @@ References:
 
 | Must be true | Command | Status |
 |---|---|---|
-| release `mfb` at current HEAD | `cargo build --release` then `ls -l target/release/mfb` mtime ≥ HEAD commit date | re-verify at kickoff |
+| release `mfb` at current HEAD (needed to render pages and run examples) | `cargo build --release`; `ls -l target/release/mfb` mtime ≥ HEAD commit date | re-verify at kickoff |
 | no concurrent letter of plan-104-C/D touching the same builtins package | check active worktrees/sessions | coordinate at kickoff |
 
 Interaction with plans 104–107: plan-108 edits ONLY prose string fields
@@ -71,17 +74,11 @@ in both plans at the same moment. 108 has no ordering dependency on 104–107.
 - **The content standard exists** as `.ai/man-content.md`: what a man page
   must contain and what it must never contain (see Design). Every later
   letter's accuracy/scope passes and every cross-model reviewer cite it.
-- **The example harness exists and is wired**: `tests/man_examples.rs`
-  iterates the registry; for every function in an *enforced* package it
-  asserts a non-empty example that **compiles**, and (for packages on the
-  run-list) **runs to exit 0** via the release binary (`mfb_exe()`
-  convention — tests run `target/release/mfb`, see memory
-  `mfb-exe-tests-use-release-binary`). Enforcement is an explicit per-package
-  list that grows as letters land; at A's end it contains `bits` + `thread`.
 - **The pilot is complete**: `bits` (17 filled pages) has been through the
   full accuracy + scope + cross-model review + fix cycle; `thread` (13 empty
   pages) has been authored from scratch (old_man as source material) through
-  the same cycle. Both packages' overview and types pages included.
+  the same cycle. Both packages' overview and types pages included; every
+  example compiled and run during the pass.
 - **The cross-model review workflow is written down** (in this file, §3) and
   calibrated by the pilot: reviewer model, prompt, structured-findings
   format, and the triage rule.
@@ -92,14 +89,19 @@ in both plans at the same moment. 108 has no ordering dependency on 104–107.
 
 ### Non-goals (explicit constraints)
 
-- **Codegen untouched**: prose fields are `&'static str` never read by
-  lowering; `artifact-gate.sh all` must stay byte-identical every letter.
-  Several builtins files carry byte-significant MFBASIC bodies
-  ("Body byte-significant … do not reformat", e.g.
-  `src/codegen/builtins/collections/func_sort_by.rs:2`) — prose edits never
-  touch bodies, and the gate is the guard.
-- No renderer changes except what the harness strictly needs (none
-  expected); no registry schema changes (no new fields).
+- **No compiler testing.** No `artifact-gate`, no `cargo test` runs, no
+  `test-accept` — verification is rendering pages and (during authoring)
+  compiling/running examples and probe programs with the release binary.
+  The one tree-hygiene exception: `tests/cli_man_summary_plain.rs` pins some
+  rendered summary text — if a letter corrects a summary that test pins,
+  update the pinned text in the same commit so the tree stays green for
+  whoever runs the suite next.
+- **Prose fields only.** Several builtins files carry byte-significant
+  MFBASIC bodies ("Body byte-significant … do not reformat", e.g.
+  `src/codegen/builtins/collections/func_sort_by.rs:2`) — never touch a
+  body, a descriptor type, an error table, or any non-prose code; check the
+  commit's `git diff` shows string-literal prose changes only.
+- No renderer changes; no registry schema changes (no new fields).
 - `src/docs/man/**` prose guides (tour, errors, link, lambda, …) are OUT of
   plan-108's scope — this plan is the builtins registry prose only.
 - No wording churn for its own sake on accurate, in-scope pages.
@@ -124,7 +126,7 @@ descriptions.
 | function-level `intro` fill | UNMEASURED precisely (crude source greps conflict: 122 `intro: ""` literals in func files; rendered `strings::mid` shows no intro line) — the census script's first output nails it | Phase 1 |
 | packages rendering 0 function pages | 2 (`errorcode`, `perf`) | same census — anomaly, resolved in Phase 1 |
 | retired source-material pages | 543 | `find planning/old_man/builtins -name '*.md' \| wc -l` |
-| tests executing examples | 0 | `rg -rn 'example' tests/ src/cli/man.rs` — only `cli_man_summary_plain.rs` touches man at all |
+| anything that compiles/runs the examples today | 0 | `rg -rn 'example' tests/ src/cli/man.rs` — only `cli_man_summary_plain.rs` touches man at all |
 | builtins func files | 419 (some are impl-only, e.g. `collections/func_sort_by.rs` holds a native fast path, its descriptor prose lives elsewhere) | `ls src/codegen/builtins/*/func_*.rs \| wc -l` |
 
 ### Verified properties
@@ -144,11 +146,12 @@ descriptions.
 
 ## 3. Design Overview
 
-Four artifacts, then the pilot proves them.
+Three artifacts, then the pilot proves them.
 
 **(1) `scripts/man-census.sh`** — renders every package (`--all` + `types`),
 emits a per-package, per-function fill table (intro/desc/example/param-desc).
-Deterministic output committed alongside each letter's close.
+Deterministic output committed alongside each letter's close. It runs
+nothing but `mfb man`.
 
 **(2) `.ai/man-content.md` — the standard.** Contents (drafted here, finalized
 in Phase 2):
@@ -161,8 +164,11 @@ in Phase 2):
   raisable error and the condition that raises it (consistent with the
   auto-derived Errors table); sharp edge cases (clamps vs raises, Unicode
   scalar vs grapheme, mutation vs new-value, ordering/stability); one
-  runnable example; cross-references to sibling functions where a developer
-  would reach for the wrong one (`left`/`right` clamp, `mid` raises).
+  example the author actually compiled and ran (or compiled only, where the
+  environment genuinely can't run it — a tty, a live endpoint, an audio
+  device — noted per function in the letter's ledger); cross-references to
+  sibling functions where a developer would reach for the wrong one
+  (`left`/`right` clamp, `mid` raises).
 - MUST NOT contain: registry/descriptor/lowering/monomorph/ABI vocabulary;
   helper or mangled symbols (`#pkg_…`, `__pkg_…`, `$T` suffixes);
   `Body::`/`abi_inline`/NIR/IR/`.ncode`/codegen mechanics; Rust
@@ -175,21 +181,13 @@ in Phase 2):
 - The canonical failure example: the `process` overview's
   resources-in-collections claim (wrong vs spec §15.6).
 
-**(3) `tests/man_examples.rs` — the harness.** Iterates `registry()`; for
-each enforced package: assert non-empty `example` per function; write it to
-a temp project; compile with the release binary; run-list packages also
-execute (exit 0). Env-dependent packages (net, http, term, audio, io-stdin,
-process-spawn, tls, fs where sandboxed) are compile-only — the per-package
-run/compile classification is an explicit table in the test, extended by
-each letter. Temp dirs under `/tmp` (never a real dir — memory
-`test-accept-second-arg-is-rm-rf-scratch` class of trap).
-
-**(4) The four-step per-package workflow** (used by A's pilot and every
+**(3) The four-step per-package workflow** (used by A's pilot and every
 later letter):
 
 1. **Accuracy pass** — for each page: check every prose claim against the
    implementation and by running probe programs; fix or excise. Port from
-   old_man where the page is empty, re-verifying each ported claim.
+   old_man where the page is empty, re-verifying each ported claim. Compile
+   and run the example as part of writing it.
 2. **Scope pass** — apply `.ai/man-content.md`'s MUST-NOT list; rewrite
    internals-speak into developer terms or delete it.
 3. **Cross-model review** — spawn an independent subagent **on a different
@@ -204,14 +202,14 @@ later letter):
    (function / claim / verdict / evidence).
 4. **Apply** — triage each finding on the main thread: confirmed → fix;
    rejected → record WITH the disproving command in the letter's ledger.
-   Re-run the census + harness + `cargo test --no-fail-fast` for the
-   touched package.
+   Re-render the touched pages and re-run `scripts/man-census.sh` for the
+   package.
 
 **Risk concentration:** (a) porting old_man prose without re-verification —
 held by the accuracy rule + the cross-model reviewer being prompted to
 verify, not proofread; (b) prose edits straying into byte-significant
-descriptor/body code — held by `artifact-gate.sh all` byte-identity every
-letter.
+descriptor/body code — held by the prose-fields-only constraint and a
+`git diff` check per commit (string-literal changes only).
 
 ### Rejected alternatives
 
@@ -219,6 +217,10 @@ letter.
   Rejected: the registry renderer is the shipped design (`man.rs` module
   doc); two sources would immediately diverge and the tables are already
   derived from the descriptors.
+- **A permanent example-running test harness (`tests/man_examples.rs`).**
+  Rejected by the user: this is a docs plan and needs no test
+  infrastructure; examples are verified by compiling/running them at
+  authoring time, recorded in each letter's ledger.
 - **One giant end-of-plan review instead of per-package review in each
   letter.** Rejected: findings arrive after the author-context is gone;
   per-package review keeps the fix loop short and lets the reviewer verdicts
@@ -228,11 +230,10 @@ letter.
 
 ## Compatibility / Format Impact
 
-None to codegen/wire (prose strings only). `mfb man` rendered output changes
-are the deliverable. `cli_man_summary_plain.rs` may need its pinned summary
-text updated ONLY if a pinned package summary is itself corrected (record
-per the 4-question gate — proving the old text wrong is the required
-evidence).
+None to codegen/wire (prose strings only — the compiler never reads them).
+`mfb man` rendered output changes are the deliverable.
+`tests/cli_man_summary_plain.rs` pinned text updated in the same commit ONLY
+if a pinned summary is itself corrected.
 
 ## Phases
 
@@ -243,53 +244,49 @@ evidence).
 - [ ] Resolve the `errorcode`/`perf` zero-page anomaly; record the answer
       and assign ownership (a later letter's package list, or out of scope
       with the reason).
-- [ ] Tests: script is deterministic (two runs, identical output).
+- [ ] Verify: script is deterministic (two runs, identical output).
 
 Acceptance: census table in this file; anomaly resolved in writing.
 Commit: —
 
-### Phase 2 — the standard + the harness
+### Phase 2 — the standard
 
-- [ ] Author `.ai/man-content.md` per §3 (2).
-- [ ] Author `tests/man_examples.rs` per §3 (3), enforced list = `[]`
-      initially; prove the plumbing on one hand-written example.
-- [ ] Tests: `cargo test --no-fail-fast` green (harness inert but wired).
+- [ ] Author `.ai/man-content.md` per §3 (2), including the intro policy
+      (Open Decision below) so the census can enforce it.
 
-Acceptance: standard committed; harness runs in the suite.
+Acceptance: standard committed; census script checks every field the
+standard requires.
 Commit: —
 
 ### Phase 3 — pilot: `bits` (verify-filled) + `thread` (author-empty)
 
 - [ ] `bits`: accuracy pass + scope pass over its 17 pages + overview +
-      types page; examples onto the harness run-list (bits is pure —
-      run-enforced).
+      types page; every example compiled and run.
 - [ ] `thread`: author all 13 pages (+ overview check, types page) from
-      code + old_man source material, every claim behavior-verified;
-      examples run-enforced (thread examples spawn and join).
+      code + old_man source material, every claim behavior-verified, every
+      example compiled and run (thread examples spawn and join).
 - [ ] Cross-model review (opus, one agent per package) + apply findings;
       record the findings ledger (confirmed/rejected + evidence) here.
-- [ ] Add `bits`, `thread` to the harness enforced list.
-- [ ] Tests: full `cargo test --no-fail-fast`;
-      `scripts/artifact-gate.sh <exe> all` byte-identical; census re-run
-      shows both packages at 100% fill.
+- [ ] Verify: re-render both packages (`mfb man bits --all`, `mfb man
+      thread --all`, `types`); census re-run shows both at 100% fill.
 
-Acceptance: both pilot packages 100% filled/verified/reviewed; harness
-enforces them; gate byte-identical; workflow §3 amended with anything the
-pilot taught (reviewer prompt fixes, triage rules).
+Acceptance: both pilot packages 100% filled/verified/reviewed; workflow §3
+amended with anything the pilot taught (reviewer prompt fixes, triage
+rules).
 Commit: —
 
 ## Validation Plan
 
-- Tests: `cargo test --no-fail-fast` (memory: plain `cargo test` fail-fast
-  skips `rt_*`); `tests/man_examples.rs` for the enforced list.
+- Verification instrument: `mfb man <pkg> [<func>|--all|types]` rendering +
+  `scripts/man-census.sh`; examples and probe programs compiled/run ad hoc
+  with the release binary during authoring. No compiler test gates (see
+  Non-goals).
 - Coverage check: census script output = the denominator; pilot packages at
   100% fill.
-- Runtime proof: examples execute via the release binary; behavior probes
-  run during the accuracy pass.
 - Doc sync: `.ai/man-content.md` is NEW doc; AGENTS.md/template retirement
   deferred to F (recorded there).
-- Acceptance: full suite; `artifact-gate all`; `test-accept.sh` no NEW
-  mismatch; `rustup run 1.96.0 cargo fmt --all` + repository crate fmt.
+- Hygiene: `rustup run 1.96.0 cargo fmt --all` at session end (the prose
+  lives in `.rs` files — standing AGENTS.md requirement, not a test).
 
 ## Open Decisions
 
@@ -299,8 +296,8 @@ Commit: —
   choice after the pilot.
 - **Function-level `intro` policy**: the one-line intro under the title is
   empty nearly everywhere; recommend REQUIRED (one sentence, distinct from
-  desc's first line) — decide in Phase 2 when writing the standard, and the
-  harness then enforces non-empty intro too.
+  desc's first line) — decide in Phase 2 when writing the standard; the
+  census then reports it.
 
 ## Corrections
 
@@ -309,6 +306,6 @@ Commit: —
 ## Summary
 
 The machinery letter: an honest rendered census, a written standard for
-"developer docs, not compiler spec", a harness that makes every example a
-tested artifact, and a four-step workflow proven on one filled and one empty
-package — so B–F are production-line letters, not design work.
+"developer docs, not compiler spec", and a four-step workflow proven on one
+filled and one empty package — so B–F are production-line letters, not
+design work, and the only tool any of them runs is `mfb` itself.

@@ -1096,7 +1096,7 @@ pub(crate) fn lower_function(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lower_builtin_function_wrapper(
     name: &str,
-    type_: &str,
+    type_: &ParameterType,
     symbol: &str,
     function_symbols: &HashMap<String, String>,
     functions: &HashMap<String, &NirFunction>,
@@ -1108,10 +1108,15 @@ pub(crate) fn lower_builtin_function_wrapper(
     string_symbols: &HashMap<String, String>,
     type_model: TypeModel,
 ) -> Result<CodeFunction, String> {
-    let (params, returns) = function_type_parts(type_).ok_or_else(|| {
-        format!("native built-in function wrapper has malformed function type '{type_}'")
-    })?;
-    if params.len() != 1 || returns != "Boolean" {
+    let (params, returns) = match type_ {
+        ParameterType::Func(params, returns, false) => (params, returns),
+        _ => {
+            return Err(format!(
+                "native built-in function wrapper has malformed function type '{type_}'"
+            ))
+        }
+    };
+    if params.len() != 1 || !matches!(returns.as_ref(), ParameterType::Boolean) {
         return Err(format!(
             "native built-in function wrapper expects a unary Boolean function, got '{type_}'"
         ));
@@ -1119,7 +1124,7 @@ pub(crate) fn lower_builtin_function_wrapper(
 
     let param = CodeParam {
         name: "value".to_string(),
-        type_: params[0].clone(),
+        type_: params[0].name().into_owned(),
         location: abi::argument_register(0)?,
     };
     let mut builder = CodeBuilder {
@@ -1196,9 +1201,7 @@ pub(crate) fn lower_builtin_function_wrapper(
     builder.locals.insert(
         "value".to_string(),
         LocalValue {
-            // The wrapper's param type arrives as a `FUNC(...)` string split
-            // (a registry-descriptor boundary until plan-104-C); parse once here.
-            type_: ParameterType::parse(&param.type_),
+            type_: params[0].clone(),
             stack_offset,
             constant: None,
             by_ref: false,
@@ -1245,7 +1248,7 @@ pub(crate) fn lower_builtin_function_wrapper(
         name: format!("builtin.{name}.{type_}"),
         symbol: symbol.to_string(),
         params: vec![param],
-        returns,
+        returns: returns.name().into_owned(),
         frame,
         instructions,
         relocations: builder.relocations,
