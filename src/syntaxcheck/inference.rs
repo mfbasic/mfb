@@ -258,7 +258,7 @@ impl<'a> SyntaxChecker<'a> {
             Expression::Call {
                 callee, arguments, ..
             } => {
-                if builtins::testing::is_testing_call(callee) {
+                if crate::codegen::builtins_testing::is_testing_call(callee) {
                     return self.check_expect_call(file, callee, arguments, locals, line);
                 }
                 let canonical_callee = self.canonical_import_name(file, callee);
@@ -1068,12 +1068,12 @@ impl<'a> SyntaxChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        use crate::builtins::testing::{
+        use crate::codegen::builtins_testing::{
             expect_operand_type, is_equality_assert, is_inequality_assert, EXPECT_NTRAP,
             EXPECT_TRAP,
         };
 
-        if let Some((min, max)) = crate::builtins::testing::expect_arity(callee) {
+        if let Some((min, max)) = crate::codegen::builtins_testing::expect_arity(callee) {
             if arguments.len() < min || arguments.len() > max {
                 self.report(
                     "TESTING_EXPECT_ARITY",

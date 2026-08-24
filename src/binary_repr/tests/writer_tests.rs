@@ -78,7 +78,7 @@ fn native_resources_add_type_and_resource_entry() {
 
 #[test]
 fn split_top_level_types_respects_nesting() {
-    use crate::builtins::split_top_level_types;
+    use crate::codegen::builtins::split_top_level_types;
     assert!(split_top_level_types("").is_empty());
     assert!(split_top_level_types("  ").is_empty());
     assert_eq!(

@@ -9,7 +9,7 @@
 //! / `arity` / `rewrite_target`) all require a `.` (`split_once('.')`), a bare
 //! `expectEqual` is inert to those, so the real package name costs nothing at call
 //! sites. The membership predicate that dispatches these calls,
-//! [`crate::builtins::testing::is_testing_call`], queries this package by bare name
+//! [`crate::codegen::builtins_testing::is_testing_call`], queries this package by bare name
 //! via [`RegistryPackage::function`].
 //!
 //! An empty-name (`""`) package is deliberately NOT used: two `""` packages (this

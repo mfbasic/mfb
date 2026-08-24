@@ -233,7 +233,7 @@ pub(crate) fn register(r: &mut Registry) {
         close_function: "net.close",
         sendable: true,
         close_may_fail: true,
-        kind: crate::builtins::resource::ResourceKind::Builtin,
+        kind: crate::codegen::resource::ResourceKind::Builtin,
     });
     pkg.add_resource(RegistryResource {
         name: LISTENER_TYPE,
@@ -243,7 +243,7 @@ pub(crate) fn register(r: &mut Registry) {
         close_function: "net.close",
         sendable: false,
         close_may_fail: true,
-        kind: crate::builtins::resource::ResourceKind::Builtin,
+        kind: crate::codegen::resource::ResourceKind::Builtin,
     });
     pkg.add_resource(RegistryResource {
         name: UDP_SOCKET_TYPE,
@@ -252,7 +252,7 @@ pub(crate) fn register(r: &mut Registry) {
         close_function: "net.close",
         sendable: true,
         close_may_fail: true,
-        kind: crate::builtins::resource::ResourceKind::Builtin,
+        kind: crate::codegen::resource::ResourceKind::Builtin,
     });
 
     // `toString(net::Url)` renders a `Url` back to an absolute href — the registry

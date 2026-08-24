@@ -840,7 +840,7 @@ pub(super) fn parse_function_type(type_name: &str) -> Option<FunctionTypeSignatu
     let (params, returns) = split_function_type_rest(rest)?;
     Some(FunctionTypeSignature {
         isolated,
-        params: crate::builtins::split_top_level_types(params),
+        params: crate::codegen::builtins::split_top_level_types(params),
         returns: returns.to_string(),
     })
 }
@@ -997,7 +997,7 @@ pub(super) fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
 /// "sendable to thread" bit (bit 2) when the registry marks the type sendable.
 pub(super) fn standard_resource_flags(type_name: &str) -> u32 {
     let mut flags = RESOURCE_FLAG_NATIVE | RESOURCE_FLAG_STANDARD | RESOURCE_FLAG_CLOSE_MAY_FAIL;
-    if builtins::resource::is_builtin_sendable_resource_type(type_name) {
+    if crate::codegen::resource::is_builtin_sendable_resource_type(type_name) {
         flags |= RESOURCE_FLAG_SENDABLE;
     }
     flags

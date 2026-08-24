@@ -320,6 +320,23 @@ pub(crate) struct CodeBuilder<'a> {
     /// binding is an active `FOR EACH` iterable (plan-02 §4.1, D1). A `String`
     /// local can never be a `FOR EACH` iterable, so string self-append is exempt.
     pub(crate) for_each_iterable_locals: Vec<String>,
+    /// Active `FOR EACH` iterables of the shape `resource.state.field` (bug-430):
+    /// the loop snapshots an ALIAS into the STATE collection's inlined buffer, so
+    /// an in-place `s.state.field = append(...)` that reallocates+frees that
+    /// buffer mid-iteration is a use-after-free. While `(resource, field)` is on
+    /// this stack, the in-place STATE grow is excluded and the append falls back
+    /// to the (non-freeing) whole-record rebuild, matching the guard
+    /// `for_each_iterable_locals` provides for a plain `MUT` list local.
+    pub(crate) for_each_iterable_state_fields: Vec<(String, String)>,
+    /// Active `FOR EACH` iterables of the shape `local.field` where `local` is a
+    /// `MUT` record (bug-430): the loop snapshots an ALIAS into the record's
+    /// inlined collection buffer, so an in-place
+    /// `local = WITH local { field := append(local.field, …) }` in the body must
+    /// NOT reallocate+free that buffer mid-iteration. While `(local, field)` is on
+    /// this stack the in-place record grow is excluded and the update falls back
+    /// to the whole-record rebuild. The MUT-record analogue of
+    /// `for_each_iterable_state_fields`.
+    pub(crate) for_each_iterable_record_fields: Vec<(String, String)>,
     /// `String` local name → stack slot tracking the spare payload capacity (bytes
     /// available past the current length) of the local's grown in-place self-append
     /// buffer (plan-02 §4.1 / D9). Zero means "tight" (no spare). The slot is a

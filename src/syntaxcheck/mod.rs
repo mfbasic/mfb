@@ -7,7 +7,7 @@ use crate::binary_repr::{
     self, BinaryReprExportKind, BinaryReprTypeExport, BinaryReprTypeField, BinaryReprTypeVariant,
     BinaryReprTypeVisibility,
 };
-use crate::builtins;
+use crate::codegen::builtins;
 use crate::numeric;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -287,7 +287,7 @@ struct SyntaxChecker<'a> {
     /// Resource types known to this compilation: the built-ins plus any
     /// contributed by imported packages' `RESOURCE_TABLE`. Replaces hardcoded
     /// resource recognition.
-    resource_registry: builtins::ResourceRegistry,
+    resource_registry: crate::codegen::resource::ResourceRegistry,
     /// Callee names that act as a *re-export alias* of a registered close op,
     /// mapped to the bare resource type they close. Calling such an alias is
     /// invalidation event #1 just like the registered close op itself
@@ -350,7 +350,7 @@ impl<'a> SyntaxChecker<'a> {
             allow_value_less_call: false,
             inline_trap_types: Vec::new(),
             loop_stack: Vec::new(),
-            resource_registry: builtins::ResourceRegistry::with_builtins(),
+            resource_registry: crate::codegen::resource::ResourceRegistry::with_builtins(),
             close_op_aliases: HashMap::new(),
             nonescaping_callback: false,
         };
@@ -506,7 +506,7 @@ impl<'a> SyntaxChecker<'a> {
             // never let an imported entry override the built-in's semantics. A
             // referenced builtin may be recorded by its bare base name (`File`)
             // though the builtin's identity is package-qualified (`fs.File`, plan-97).
-            if builtins::resource::is_builtin_backed_resource(&resource.type_name) {
+            if crate::codegen::resource::is_builtin_backed_resource(&resource.type_name) {
                 continue;
             }
             let Some(close_function) = resource.close_function else {
@@ -523,11 +523,11 @@ impl<'a> SyntaxChecker<'a> {
             } else {
                 close_function
             };
-            let info = builtins::ResourceInfo {
+            let info = crate::codegen::resource::ResourceInfo {
                 close_function,
                 sendable: resource.sendable,
                 close_may_fail: resource.close_may_fail,
-                kind: builtins::ResourceKind::Imported,
+                kind: crate::codegen::resource::ResourceKind::Imported,
             };
             // Importer source names the type as `binding.Type`; register under
             // that key (and the bare name, for unqualified internal references).

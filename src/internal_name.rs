@@ -1,7 +1,7 @@
 //! Compiler-internal symbol naming.
 //!
 //! The built-in packages `json`, `regex`, and `collections` are injected as
-//! MFBASIC source (see `src/builtins/*.mfb`). Their private helpers follow a
+//! MFBASIC source (see `src/codegen/builtins/*/package.mfb`). Their private helpers follow a
 //! `__pkg_name` convention to avoid clashing with user code. That convention is
 //! only *probabilistic* — nothing stops a user who imports the package from
 //! declaring a colliding `__pkg_name` of their own.

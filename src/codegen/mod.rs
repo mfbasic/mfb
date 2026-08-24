@@ -8,6 +8,10 @@
 
 pub(crate) mod app;
 pub(crate) mod builtins;
+// Front-end test-desugar metadata (assertion builtins), relocated from
+// `src/builtins/testing.rs` (plan-103). Kept separate from the `testing` *package*
+// lowering at `codegen::builtins::testing`.
+pub(crate) mod builtins_testing;
 pub(crate) mod cleanup;
 pub(crate) mod collection;
 pub(crate) mod compiler;

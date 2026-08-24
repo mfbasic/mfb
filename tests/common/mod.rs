@@ -279,6 +279,145 @@ pub fn run_with_stdin(executable: &Path, stdin: &[u8]) -> String {
     String::from_utf8(output.stdout).expect("utf8 stdout")
 }
 
+/// bug-452 codegen oracle. A raw indirect `blr` is an unstaged external C call:
+/// its result lives in the platform C-return bank (`rax`/`c_return(0)`), NOT the
+/// aligned MFB-return bank (`aligned_reg` — `rdi` on SysV, `rcx` on Win64) that a
+/// direct `bl` stages into. Reading the result from `aligned_reg` after a raw
+/// `blr` picks up the stale first argument — the bug-452 defect (identical to the
+/// bug-450 crypto instance). This walks every function whose symbol contains
+/// `sym_needle`, and for each `blr` scans the window until the aligned register is
+/// next *written* (arg-setup for the next call, or a `sxtw reg,c_return` funnel),
+/// asserting no instruction in that window *reads* `aligned_reg` (as a `src`/`lhs`
+/// operand). A correct fix reads results from `c_return(0)`, so on aarch64 (where
+/// both banks are `x0`) the count is trivially zero and on x86-64 it is zero only
+/// once every result read is repointed. `min_blr_sites` guards the fixture from
+/// silently ceasing to exercise the external-call path (an inert guard).
+pub fn assert_no_aligned_bank_result_reads(
+    ncode: &serde_json::Value,
+    aligned_reg: &str,
+    sym_needle: &str,
+    min_blr_sites: usize,
+) {
+    let functions = ncode["functions"]
+        .as_array()
+        .expect("ncode has a functions array");
+    let mut blr_sites = 0usize;
+    let mut inspected_fns = 0usize;
+    for func in functions {
+        let sym = func["symbol"].as_str().unwrap_or("");
+        if !sym.contains(sym_needle) {
+            continue;
+        }
+        let insts = func["instructions"]
+            .as_array()
+            .expect("function has an instructions array");
+        inspected_fns += 1;
+        let mut i = 0usize;
+        while i < insts.len() {
+            if insts[i]["op"].as_str() != Some("blr") {
+                i += 1;
+                continue;
+            }
+            blr_sites += 1;
+            let mut j = i + 1;
+            while j < insts.len() {
+                let op = insts[j]["op"].as_str().unwrap_or("");
+                if op == "bl" || op == "blr" {
+                    break;
+                }
+                for field in ["src", "lhs"] {
+                    let reads = insts[j].get(field).and_then(|v| v.as_str()) == Some(aligned_reg);
+                    assert!(
+                        !reads,
+                        "{sym}: an external `blr` call result is read from `{aligned_reg}` \
+                         (the aligned MFB-return bank) instead of the C-return bank — \
+                         bug-452 regression. Consumer: {}",
+                        insts[j]
+                    );
+                }
+                // The result is live in `aligned_reg` only until it is overwritten:
+                // a fresh arg-load, or a `sxtw aligned_reg, c_return` funnel that
+                // re-homes the correct result there. After that write, later reads
+                // are of a new value, not the stale call result.
+                if insts[j].get("dst").and_then(|v| v.as_str()) == Some(aligned_reg) {
+                    break;
+                }
+                j += 1;
+            }
+            i = if j > i { j } else { i + 1 };
+        }
+    }
+    assert!(
+        inspected_fns > 0,
+        "no function symbol contained `{sym_needle}` — the oracle inspected nothing"
+    );
+    assert!(
+        blr_sites >= min_blr_sites,
+        "expected at least {min_blr_sites} external `blr` call sites under `{sym_needle}`, \
+         found {blr_sites} — the fixture no longer exercises the external-call path, \
+         so the guard is inert"
+    );
+}
+
+/// bug-452, Win64 audio (WASAPI) variant. Unlike SysV, Win64 external calls are
+/// NOT staged into the aligned bank (`win_x86_64::code::emit_external_call` passes
+/// the Windows target so the shared emitter skips the `%retC`→aligned `mov`), so
+/// BOTH the direct IAT calls (`ole_call`, a `bl`) and the COM vtable calls
+/// (`com_call`, a `blr`) leave their HRESULT/DWORD result in `rax` (`c_return(0)`),
+/// not the aligned bank (`rcx`). Each such call sign-extends its result in place —
+/// `sxtw rcx, rcx` — which sign-extends the STALE first argument / `this` pointer,
+/// not the real status; the fix reads the result from `c_return(0)`
+/// (`sxtw rcx, rax`). This asserts no `sxtw` sign-extends the aligned bank into
+/// itself (the exact bug shape); `min_sxtw_sites` guards against the fixture no
+/// longer exercising the sign-extended external-call path.
+pub fn assert_no_inplace_sxtw_of_aligned_bank(
+    ncode: &serde_json::Value,
+    aligned_reg: &str,
+    sym_needle: &str,
+    min_sxtw_sites: usize,
+) {
+    let functions = ncode["functions"]
+        .as_array()
+        .expect("ncode has a functions array");
+    let mut sxtw_sites = 0usize;
+    let mut inspected_fns = 0usize;
+    for func in functions {
+        let sym = func["symbol"].as_str().unwrap_or("");
+        if !sym.contains(sym_needle) {
+            continue;
+        }
+        inspected_fns += 1;
+        let insts = func["instructions"]
+            .as_array()
+            .expect("function has an instructions array");
+        for inst in insts {
+            if inst["op"].as_str() != Some("sxtw") {
+                continue;
+            }
+            sxtw_sites += 1;
+            let src = inst.get("src").and_then(|v| v.as_str());
+            let dst = inst.get("dst").and_then(|v| v.as_str());
+            assert!(
+                !(src == Some(aligned_reg) && dst == Some(aligned_reg)),
+                "{sym}: an external call result is sign-extended in place in the \
+                 aligned bank (`sxtw {aligned_reg}, {aligned_reg}`) — the stale \
+                 argument, not the C-return bank result — bug-452 regression. \
+                 Instruction: {inst}"
+            );
+        }
+    }
+    assert!(
+        inspected_fns > 0,
+        "no function symbol contained `{sym_needle}` — the oracle inspected nothing"
+    );
+    assert!(
+        sxtw_sites >= min_sxtw_sites,
+        "expected at least {min_sxtw_sites} `sxtw` sites under `{sym_needle}`, \
+         found {sxtw_sites} — the fixture no longer exercises the sign-extended \
+         external-call path, so the guard is inert"
+    );
+}
+
 pub fn hex(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);

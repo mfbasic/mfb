@@ -245,7 +245,7 @@ pub(crate) fn collect_borrow_get_locals(
                     match value {
                         Some(NirValue::Call { target, args, .. })
                             if matches!(
-                                crate::builtins::native_builtin_target(target),
+                                crate::codegen::builtins::native_builtin_target(target),
                                 Some("get") | Some("getOr")
                             ) =>
                         {
@@ -894,6 +894,8 @@ pub(crate) fn lower_function(
         owned_value_slots: Vec::new(),
         pending_temp_frees: Vec::new(),
         for_each_iterable_locals: Vec::new(),
+        for_each_iterable_state_fields: Vec::new(),
+        for_each_iterable_record_fields: Vec::new(),
         string_capacity_slots: HashMap::new(),
         math_pool_base_vreg: None,
         vector_natives: HashMap::new(),
@@ -1170,6 +1172,8 @@ pub(crate) fn lower_builtin_function_wrapper(
         owned_value_slots: Vec::new(),
         pending_temp_frees: Vec::new(),
         for_each_iterable_locals: Vec::new(),
+        for_each_iterable_state_fields: Vec::new(),
+        for_each_iterable_record_fields: Vec::new(),
         string_capacity_slots: HashMap::new(),
         math_pool_base_vreg: None,
         vector_natives: HashMap::new(),
@@ -1342,6 +1346,8 @@ pub(crate) fn lower_abi_function_helper(
         owned_value_slots: Vec::new(),
         pending_temp_frees: Vec::new(),
         for_each_iterable_locals: Vec::new(),
+        for_each_iterable_state_fields: Vec::new(),
+        for_each_iterable_record_fields: Vec::new(),
         string_capacity_slots: HashMap::new(),
         math_pool_base_vreg: None,
         vector_natives: HashMap::new(),
@@ -1488,6 +1494,8 @@ pub(crate) fn lower_thread_copy_function(
         owned_value_slots: Vec::new(),
         pending_temp_frees: Vec::new(),
         for_each_iterable_locals: Vec::new(),
+        for_each_iterable_state_fields: Vec::new(),
+        for_each_iterable_record_fields: Vec::new(),
         string_capacity_slots: HashMap::new(),
         math_pool_base_vreg: None,
         vector_natives: HashMap::new(),

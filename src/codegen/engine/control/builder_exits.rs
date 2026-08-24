@@ -368,7 +368,7 @@ impl CodeBuilder<'_> {
                     self.deactivate_thread_cleanup(name);
                 }
                 if result.as_ref().is_some_and(|result| {
-                    crate::builtins::resource_close_function(&result.type_).is_some()
+                    crate::codegen::builtins::resource_close_function(&result.type_).is_some()
                 }) {
                     self.deactivate_resource_cleanup(name);
                 }

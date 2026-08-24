@@ -69,7 +69,7 @@ later mutations.
 
 The one exception the compiler allows is a lambda passed **directly** into a
 compiler-proven non-escaping callback position — today only the `action`
-argument of `collections::forEach`. [[src/builtins/mod.rs:is_nonescaping_callback_arg]]
+argument of `collections::forEach`. [[src/codegen/builtins/mod.rs:is_nonescaping_callback_arg]]
 Such a lambda may borrow an outer `MUT` binding and mutate it: the binding is
 loaned to the callback for the duration of the synchronous call — a borrow of the
 live binding, not a copy — and is the outer binding's again once the call

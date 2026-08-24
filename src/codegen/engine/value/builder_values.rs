@@ -1,5 +1,5 @@
 // --- codegen tier imports (migration) ---
-use crate::builtins;
+use crate::codegen::builtins;
 use crate::codegen::builtins::vector::vector_field_count;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::function::*;
@@ -786,7 +786,7 @@ impl CodeBuilder<'_> {
                 if let Some(result) = self.try_abi_inline_lower(target, args) {
                     return result;
                 }
-                let native = crate::builtins::native_builtin_target(target);
+                let native = crate::codegen::builtins::native_builtin_target(target);
                 if native == Some("find") && (args.len() == 2 || args.len() == 3) {
                     return self.lower_find(args);
                 }
@@ -990,7 +990,7 @@ impl CodeBuilder<'_> {
                 // run the member's normal inline lowering under a raw capture so its
                 // domain error redirects to the capture point instead of propagating,
                 // then materialize the `Result OF <success>`.
-                if crate::builtins::inline_builtin_raw_supported(target) {
+                if crate::codegen::builtins::inline_builtin_raw_supported(target) {
                     return self.lower_inline_builtin_raw(target, args);
                 }
                 // An inline `TRAP` on a provably-infallible inline built-in
@@ -999,7 +999,7 @@ impl CodeBuilder<'_> {
                 // emits no error exit, so lower it normally and wrap the success as
                 // an always-`Ok` `Result` for the inline-TRAP machinery. The handler
                 // is dead code (front-end warns `TYPE_INLINE_TRAP_DEAD_HANDLER`).
-                if crate::builtins::inline_builtin_is_infallible(target) {
+                if crate::codegen::builtins::inline_builtin_is_infallible(target) {
                     return self.lower_inline_infallible_raw(target, args);
                 }
                 // An inline `TRAP` on a helper-backed built-in (`thread::waitFor`,
@@ -1017,7 +1017,7 @@ impl CodeBuilder<'_> {
                 // so this never fires today; it fails loudly if a *future* inline
                 // builtin is added to `native_builtin_target` without a raw or
                 // infallible lowering, instead of miscompiling.
-                if crate::builtins::inline_trap_unsupported(target) {
+                if crate::codegen::builtins::inline_trap_unsupported(target) {
                     return Err(format!(
                         "internal: inline TRAP reached inline-lowered builtin '{target}' \
                          without a raw or infallible lowering; add one to \
@@ -1234,7 +1234,7 @@ impl CodeBuilder<'_> {
                     .type_model
                     .variants_for_union(&union_name)
                     .map(|variant| {
-                        if crate::builtins::is_resource_type(variant) {
+                        if crate::codegen::builtins::is_resource_type(variant) {
                             1
                         } else {
                             self.type_model
@@ -1307,7 +1307,7 @@ impl CodeBuilder<'_> {
                 // A resource-union variant is a bare resource whose payload is
                 // the resource pointer itself (one word at offset 8), not record
                 // fields.
-                let is_resource_variant = crate::builtins::is_resource_type(member_type);
+                let is_resource_variant = crate::codegen::builtins::is_resource_type(member_type);
                 let fields = if is_resource_variant {
                     Vec::new()
                 } else {
@@ -1349,7 +1349,7 @@ impl CodeBuilder<'_> {
                     .type_model
                     .variants_for_union(union_type)
                     .map(|variant| {
-                        if crate::builtins::is_resource_type(variant) {
+                        if crate::codegen::builtins::is_resource_type(variant) {
                             1
                         } else {
                             self.type_model
@@ -1409,7 +1409,7 @@ impl CodeBuilder<'_> {
             NirValue::UnionExtract { type_, value } => {
                 // A resource-union variant's payload is the resource pointer
                 // itself (offset 8): extracting it yields that pointer directly.
-                if crate::builtins::is_resource_type(type_) {
+                if crate::codegen::builtins::is_resource_type(type_) {
                     let source = self.lower_value(value)?;
                     let register = self.allocate_register()?;
                     self.emit(abi::load_u64(&register, &source.location, 8));
@@ -1755,7 +1755,7 @@ impl CodeBuilder<'_> {
             // through the `raw_result_capture` branch set above.
             result
         } else {
-            match crate::builtins::native_builtin_target(target) {
+            match crate::codegen::builtins::native_builtin_target(target) {
                 Some("find") => self.lower_find(args),
                 Some("mid") => self.lower_mid(args),
                 other => Err(format!(
@@ -1853,7 +1853,7 @@ impl CodeBuilder<'_> {
         if let Some(result) = self.try_abi_inline_lower(target, args) {
             return result;
         }
-        match crate::builtins::native_builtin_target(target) {
+        match crate::codegen::builtins::native_builtin_target(target) {
             Some("replace") if args.len() == 3 => self.lower_replace(args),
             other => Err(format!(
                 "native infallible inline builtin '{target}' ({other:?}) is not supported"

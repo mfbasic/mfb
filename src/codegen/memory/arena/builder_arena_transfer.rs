@@ -371,7 +371,7 @@ impl CodeBuilder<'_> {
             other if is_collection_type(other) => {
                 self.copy_collection_to_current_arena(other, source)
             }
-            other if crate::builtins::is_thread_sendable_resource_type(other) => {
+            other if crate::codegen::builtins::is_thread_sendable_resource_type(other) => {
                 self.copy_resource_to_current_arena(other, source)
             }
             // A non-sendable resource (audio streams, TLS sockets/listeners) is a
@@ -383,7 +383,7 @@ impl CodeBuilder<'_> {
             // assume the fixed `File` layout, which audio's larger `AudioHandle`
             // does not share). The source temporary is consumed, so the handle is
             // owned and closed exactly once.
-            other if crate::builtins::is_resource_type(other) => {
+            other if crate::codegen::builtins::is_resource_type(other) => {
                 let result = self.allocate_register()?;
                 self.emit(abi::move_register(&result, source));
                 Ok(result)
@@ -397,7 +397,7 @@ impl CodeBuilder<'_> {
                 if self
                     .type_model
                     .union_names
-                    .contains(crate::builtins::resource::base_resource_name(other)) =>
+                    .contains(crate::codegen::resource::base_resource_name(other)) =>
             {
                 self.copy_union_to_current_arena(other, source)
             }
@@ -531,7 +531,7 @@ impl CodeBuilder<'_> {
             FILE_OFFSET_CLOSED,
         ));
         // STATE @24 (plan-54 §5, relocated by plan-80).
-        match crate::builtins::resource::state_type_name(type_) {
+        match crate::codegen::resource::state_type_name(type_) {
             // Stateful: deep-copy the STATE record into the current (receiver)
             // arena so the moved handle owns an independent payload — never an
             // alias into the sender's arena (bug-257).
@@ -1168,8 +1168,8 @@ impl CodeBuilder<'_> {
         // A transferred stateful union is spelled `Stream STATE Cursor`; the union
         // set and variant map key on the bare name (plan-75 gap 3). Its `STATE T`
         // clause names the uniform STATE record every resource variant carries.
-        let union_base = crate::builtins::resource::base_resource_name(type_);
-        let union_state = crate::builtins::resource::state_type_name(type_);
+        let union_base = crate::codegen::resource::base_resource_name(type_);
+        let union_state = crate::codegen::resource::state_type_name(type_);
         let mut variants = self
             .type_model
             .variants_for_union(union_base)
@@ -1247,7 +1247,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch(&done_label));
                 continue;
             }
-            if crate::builtins::is_resource_type(variant) {
+            if crate::codegen::builtins::is_resource_type(variant) {
                 // Resource union `{tag@0, ptr@8}`: the whole-union memcpy copied the
                 // variant record pointer at +8 verbatim, so it still aliases the
                 // sender's arena (a bug-257-class UAF — true for a *stateless*

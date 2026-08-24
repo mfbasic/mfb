@@ -292,9 +292,17 @@ pub(crate) fn emit_call_fnptr(
         abi::branch_link_register(&v8),
     ]);
     if !returns_pointer {
+        // The libasound call returns its `int` in the C-return bank (`rax`), not the
+        // aligned MFB-return bank (`rdi`) this backend reads: a raw `blr` (unlike the
+        // direct-`bl` dlopen/dlsym path) is not staged into the aligned bank on
+        // x86-64 SysV. Sign-extend from `c_return(0)` into `return_register()` so
+        // every downstream signed error-code check reads the real result, not the
+        // stale first argument (byte-identical on AArch64, where both banks are
+        // `x0`). The pointer-returning case reads `c_return(0)` at its call site.
+        // See bug-452.
         instructions.push(abi::sign_extend_word(
             abi::return_register(),
-            abi::return_register(),
+            abi::c_return(0),
         ));
     }
 }

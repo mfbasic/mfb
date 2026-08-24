@@ -159,7 +159,10 @@ pub(crate) fn lower_devices(
             );
         },
     )?;
-    instructions.push(abi::move_register(&v9, abi::return_register()));
+    // `snd_device_name_get_hint` returns a `char*` in the C-return bank (`rax`);
+    // this raw-`blr` result is not staged into the aligned bank (`rdi`) on x86-64
+    // SysV, so read it from `c_return(0)` (byte-identical on AArch64). See bug-452.
+    instructions.push(abi::move_register(&v9, abi::c_return(0)));
     emit_string_from_cstr(
         symbol,
         "id",
@@ -221,7 +224,10 @@ pub(crate) fn lower_devices(
             );
         },
     )?;
-    instructions.push(abi::move_register(&v9, abi::return_register()));
+    // `snd_device_name_get_hint` returns a `char*` in the C-return bank (`rax`);
+    // this raw-`blr` result is not staged into the aligned bank (`rdi`) on x86-64
+    // SysV, so read it from `c_return(0)` (byte-identical on AArch64). See bug-452.
+    instructions.push(abi::move_register(&v9, abi::c_return(0)));
     emit_string_from_cstr(
         symbol,
         "name",

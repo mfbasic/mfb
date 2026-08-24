@@ -31,7 +31,9 @@ impl CodeBuilder<'_> {
         let NirValue::Call { target, args, .. } = value else {
             return Ok(false);
         };
-        if crate::builtins::native_builtin_target(target) != Some("append") || args.len() != 2 {
+        if crate::codegen::builtins::native_builtin_target(target) != Some("append")
+            || args.len() != 2
+        {
             return Ok(false);
         }
         let NirValue::Local(arg0) = &args[0] else {
@@ -85,6 +87,132 @@ impl CodeBuilder<'_> {
         Ok(true)
     }
 
+    /// bug-430 (case B): recognize the idiomatic MUT-record update
+    /// `rec = WITH rec { coll := collections::append(rec.coll, x) }` on a
+    /// uniquely-owned MUT record local whose `coll` is the last inlined field, and
+    /// grow it IN PLACE inside the record's existing block instead of rebuilding
+    /// the whole record and re-inlining the accumulated buffer (the O(n^2) path).
+    /// The local's slot holds the record pointer, so the grow helper repoints it
+    /// directly on a realloc — no resource/STATE indirection. `x` may be a single
+    /// element (`T`) or a whole list (`List OF T`, concatenation). Any other shape
+    /// falls through to the whole-record rebuild. Returns `true` when handled.
+    ///
+    /// Records are immutable values whose only update form is `WITH` (§4.2); this
+    /// does NOT add an `a.field = v` statement — it optimizes the value-preserving
+    /// `a = WITH a { … }` reassignment of a uniquely-owned mutable binding, exactly
+    /// as `try_inplace_append_assign` optimizes `a = append(a, x)` for a list.
+    pub(crate) fn try_inplace_record_field_append(
+        &mut self,
+        name: &str,
+        value: &NirValue,
+        stack_offset: usize,
+        by_ref: bool,
+    ) -> Result<bool, String> {
+        if by_ref {
+            return Ok(false);
+        }
+        let NirValue::WithUpdate {
+            type_,
+            target,
+            updates,
+        } = value
+        else {
+            return Ok(false);
+        };
+        // The update must rebuild THIS same local (self-update), not install some
+        // other record as the new value.
+        if !matches!(target.as_ref(), NirValue::Local(n) if n == name) {
+            return Ok(false);
+        }
+        if updates.len() != 1 {
+            return Ok(false);
+        }
+        let update = &updates[0];
+        // A live `FOR EACH` over this record's field aliases the buffer the grow
+        // would free — take the non-freeing rebuild instead.
+        if self
+            .for_each_iterable_record_fields
+            .iter()
+            .any(|(base, field)| base == name && field == &update.field)
+        {
+            return Ok(false);
+        }
+        let Some((field_index, field_type)) =
+            self.record_collection_last_inlined(type_, &update.field)
+        else {
+            return Ok(false);
+        };
+        let Some(element_type) = crate::codegen::engine::types::list_element_type(&field_type)
+        else {
+            return Ok(false);
+        };
+        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&field_type).is_none() {
+            return Ok(false);
+        }
+        let NirValue::Call {
+            target: call_target,
+            args,
+            ..
+        } = &update.value
+        else {
+            return Ok(false);
+        };
+        if crate::codegen::builtins::native_builtin_target(call_target) != Some("append")
+            || args.len() != 2
+        {
+            return Ok(false);
+        }
+        // The appended-to source must be exactly this same field (self-append).
+        if !self.value_is_record_field(&args[0], name, &update.field) {
+            return Ok(false);
+        }
+        // Single element (item type == element type) vs bulk concatenation.
+        let bulk = match self.static_type_name(&args[1]) {
+            Some(t) if t == element_type => false,
+            Some(t) if t == field_type => true,
+            _ => return Ok(false),
+        };
+        // Exclude the self-alias `append(field, field)`.
+        if self.value_is_record_field(&args[1], name, &update.field) {
+            return Ok(false);
+        }
+
+        // Evaluate the appended value and spill it for the grow helper.
+        let rhs = self.lower_value(&args[1])?;
+        self.observe_float(&args[1], &rhs)?;
+        let rhs = self.materialize_value(rhs)?;
+        let rhs_slot = self.allocate_stack_object("inplace_recfield_rhs", 8);
+        self.emit(abi::store_u64(
+            &rhs.location,
+            abi::stack_pointer(),
+            rhs_slot,
+        ));
+
+        // The local slot holds the record pointer; the grow helper repoints it on
+        // a realloc, so the reassignment `rec = …` needs no further store.
+        if bulk {
+            self.lower_inline_list_bulk_append_in_place(
+                stack_offset,
+                field_index,
+                &field_type,
+                &element_type,
+                rhs_slot,
+            )?;
+        } else {
+            self.lower_inline_list_append_in_place(
+                stack_offset,
+                field_index,
+                &field_type,
+                &element_type,
+                rhs_slot,
+            )?;
+        }
+        if let Some(local) = self.locals.get_mut(name) {
+            local.constant = None;
+        }
+        Ok(true)
+    }
+
     /// Recognize `name = collections::append(name, sublist)` — a *bulk*
     /// list-into-list append — on a uniquely-owned `MUT` list local, and lower it
     /// as an in-place batch grow (plan-25-B B1): the sublist's elements are
@@ -125,7 +253,8 @@ impl CodeBuilder<'_> {
         let NirValue::Call { target, args, .. } = value else {
             return Ok(false);
         };
-        if crate::builtins::native_builtin_target(target) != Some("add") || args.len() != 2 {
+        if crate::codegen::builtins::native_builtin_target(target) != Some("add") || args.len() != 2
+        {
             return Ok(false);
         }
         let NirValue::Local(arg0) = &args[0] else {
@@ -196,7 +325,9 @@ impl CodeBuilder<'_> {
         let NirValue::Call { target, args, .. } = value else {
             return Ok(false);
         };
-        if crate::builtins::native_builtin_target(target) != Some("removeKey") || args.len() != 2 {
+        if crate::codegen::builtins::native_builtin_target(target) != Some("removeKey")
+            || args.len() != 2
+        {
             return Ok(false);
         }
         let NirValue::Local(arg0) = &args[0] else {
@@ -248,7 +379,9 @@ impl CodeBuilder<'_> {
         let NirValue::Call { target, args, .. } = value else {
             return Ok(false);
         };
-        if crate::builtins::native_builtin_target(target) != Some("append") || args.len() != 2 {
+        if crate::codegen::builtins::native_builtin_target(target) != Some("append")
+            || args.len() != 2
+        {
             return Ok(false);
         }
         let NirValue::Local(arg0) = &args[0] else {
@@ -336,7 +469,8 @@ impl CodeBuilder<'_> {
         let NirValue::Call { target, args, .. } = value else {
             return Ok(false);
         };
-        if crate::builtins::native_builtin_target(target) != Some("set") || args.len() != 3 {
+        if crate::codegen::builtins::native_builtin_target(target) != Some("set") || args.len() != 3
+        {
             return Ok(false);
         }
         let NirValue::Local(arg0) = &args[0] else {
@@ -480,7 +614,9 @@ impl CodeBuilder<'_> {
         let NirValue::Call { target, args, .. } = value else {
             return Ok(false);
         };
-        if crate::builtins::native_builtin_target(target) != Some("prepend") || args.len() != 2 {
+        if crate::codegen::builtins::native_builtin_target(target) != Some("prepend")
+            || args.len() != 2
+        {
             return Ok(false);
         }
         let NirValue::Local(arg0) = &args[0] else {

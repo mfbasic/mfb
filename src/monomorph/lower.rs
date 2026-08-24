@@ -245,7 +245,7 @@ impl<'a> Monomorphizer<'a> {
         // this, `types_compatible` compares 3 tokens against 1 and NO overload
         // whose first parameter is a stateful resource can ever match — the call
         // silently resolved to `Type::Unknown` instead of reporting an error.
-        crate::builtins::resource::base_resource_name(&normalized).to_string()
+        crate::codegen::resource::base_resource_name(&normalized).to_string()
     }
 
     pub(super) fn run(&mut self) {
@@ -781,7 +781,7 @@ impl<'a> Monomorphizer<'a> {
         // `name` is already gated to a general-overridable builtin above, so the
         // registry aggregate resolves it exactly as `general::resolve_call` did
         // (plan-72-BB).
-        if crate::builtins::resolve_call_return_type(name, arg_types, false).is_some() {
+        if crate::codegen::builtins::resolve_call_return_type(name, arg_types, false).is_some() {
             return None;
         }
         let chosen = self
@@ -1818,7 +1818,7 @@ impl<'a> Monomorphizer<'a> {
                     .unwrap_or_else(|| "Unknown".to_string())
             })
             .collect::<Vec<_>>();
-        crate::builtins::resolve_call_return_type(callee, &arg_types, false)
+        crate::codegen::builtins::resolve_call_return_type(callee, &arg_types, false)
     }
 
     fn expression_type(
@@ -2536,6 +2536,42 @@ END FUNC
         assert!(
             type_names.iter().any(|n| n.starts_with("Box$")),
             "{type_names:?}"
+        );
+    }
+
+    #[test]
+    fn constructor_infers_param_despite_unknown_field_declared_first() {
+        // bug-442: a generic record whose `List OF T` field (bound to an empty
+        // `[]` => `List OF Unknown`) is declared BEFORE the `FUNC(T)` field that
+        // carries the concrete type must still resolve `T` from the later field,
+        // instantiating `Box$Integer` rather than `Box$Unknown`.
+        let src = "\
+IMPORT io
+TYPE Box OF T
+  items AS List OF T
+  fn    AS FUNC(T) AS Boolean
+END TYPE
+FUNC makeBox OF T(fn AS FUNC(T) AS Boolean) AS Box OF T
+  RETURN Box[items := [], fn := fn]
+END FUNC
+FUNC even(n AS Integer) AS Boolean
+  RETURN n MOD 2 = 0
+END FUNC
+FUNC main() AS Integer
+  MUT a AS Box OF Integer = makeBox(even)
+  io::print(toString(len(a.items)))
+  RETURN 0
+END FUNC
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        let type_names: Vec<&str> = types(&project).iter().map(|t| t.name.as_str()).collect();
+        assert!(
+            type_names.iter().any(|n| n.starts_with("Box$Integer")),
+            "expected Box$Integer, got {type_names:?}"
+        );
+        assert!(
+            !type_names.iter().any(|n| n.starts_with("Box$Unknown")),
+            "Box$Unknown must not be instantiated: {type_names:?}"
         );
     }
 

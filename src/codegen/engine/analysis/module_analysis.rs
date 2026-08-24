@@ -26,7 +26,7 @@ fn op_requires_empty_string_constant(op: &NirOp, type_model: &TypeModel) -> bool
         // demands the sentinel even though `value` is `Some` — checking only
         // `value: None` left the relocation dangling (bug-256, bug-05 class).
         NirOp::Bind { type_, value, .. } => {
-            crate::builtins::resource::state_type_name(type_).is_some_and(|state| {
+            crate::codegen::resource::state_type_name(type_).is_some_and(|state| {
                 type_requires_empty_string_constant(state, type_model, &mut HashSet::new())
             }) || (value.is_none()
                 && type_requires_empty_string_constant(type_, type_model, &mut HashSet::new()))
@@ -129,9 +129,9 @@ fn module_drops_resource_union_close(module: &NirModule, target: &str) -> bool {
                 && type_
                     .variants
                     .iter()
-                    .all(|variant| crate::builtins::is_resource_type(&variant.name))
+                    .all(|variant| crate::codegen::builtins::is_resource_type(&variant.name))
                 && type_.variants.iter().any(|variant| {
-                    crate::builtins::resource_close_function(&variant.name) == Some(target)
+                    crate::codegen::builtins::resource_close_function(&variant.name) == Some(target)
                 })
         })
         .map(|type_| type_.name.as_str())
@@ -182,7 +182,9 @@ pub(crate) fn module_may_record_cleanup_failure(module: &NirModule) -> bool {
 
 fn ops_may_record_cleanup_failure(ops: &[NirOp]) -> bool {
     ops.iter().any(|op| match op {
-        NirOp::Bind { type_, .. } => crate::builtins::resource_close_function(type_).is_some(),
+        NirOp::Bind { type_, .. } => {
+            crate::codegen::builtins::resource_close_function(type_).is_some()
+        }
         NirOp::If {
             then_body,
             else_body,

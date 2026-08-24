@@ -594,7 +594,11 @@ fn emit_linux_ec(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), L_NAMEPTR),
         abi::load_u64(v9, abi::stack_pointer(), L_FN),
         abi::branch_link_register(v9),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), L_PKEY),
+        // An external C call returns in the C-return bank (`rax`), not the aligned
+        // MFB-return bank (`rdi`) these bodies otherwise read; on x86-64 SysV the two
+        // differ, so the result must be read from `c_return(0)` (byte-identical on
+        // AArch64/RISC-V, where both banks are `x0`). See bug-450.
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), L_PKEY),
         abi::branch(&have_pkey),
     ]);
 
@@ -615,8 +619,9 @@ fn emit_linux_ec(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), L_NID),
         abi::load_u64(v9, abi::stack_pointer(), L_FN),
         abi::branch_link_register(v9),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), L_ECKEY),
-        abi::compare_immediate(abi::return_register(), "0"),
+        // C result in `c_return(0)` (bug-450): `rax` on x86-64, `x0` on AArch64.
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), L_ECKEY),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_eq(&gen_fail),
     ]);
     gen_cert::ossl_dlsym_into(
@@ -634,7 +639,8 @@ fn emit_linux_ec(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), L_ECKEY),
         abi::load_u64(v9, abi::stack_pointer(), L_FN),
         abi::branch_link_register(v9),
-        abi::compare_immediate(abi::return_register(), "1"),
+        // C result in `c_return(0)` (bug-450).
+        abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_ne(&gen_fail),
     ]);
     gen_cert::ossl_dlsym_into(
@@ -651,8 +657,9 @@ fn emit_linux_ec(
     ins.extend([
         abi::load_u64(v9, abi::stack_pointer(), L_FN),
         abi::branch_link_register(v9),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), L_PKEY),
-        abi::compare_immediate(abi::return_register(), "0"),
+        // C result in `c_return(0)` (bug-450).
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), L_PKEY),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_eq(&gen_fail),
     ]);
     gen_cert::ossl_dlsym_into(
@@ -672,7 +679,8 @@ fn emit_linux_ec(
         abi::load_u64(abi::c_arg(2), abi::stack_pointer(), L_ECKEY),
         abi::load_u64(v9, abi::stack_pointer(), L_FN),
         abi::branch_link_register(v9),
-        abi::compare_immediate(abi::return_register(), "1"),
+        // C result in `c_return(0)` (bug-450).
+        abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_ne(&gen_fail),
         // Ownership transferred to pkey; clear ECKEY so cleanup does not double-free.
         abi::store_u64(abi::ZERO, abi::stack_pointer(), L_ECKEY),
@@ -702,8 +710,9 @@ fn emit_linux_ec(
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
         abi::load_u64(v9, abi::stack_pointer(), L_FN),
         abi::branch_link_register(v9),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), L_SEC1LEN),
-        abi::compare_immediate(abi::return_register(), "0"),
+        // C result (the SEC1 length) in `c_return(0)` (bug-450).
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), L_SEC1LEN),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_le(&gen_fail),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), L_SEC1LEN),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
@@ -716,7 +725,8 @@ fn emit_linux_ec(
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), L_SEC1PP),
         abi::load_u64(v9, abi::stack_pointer(), L_FN),
         abi::branch_link_register(v9),
-        abi::compare_immediate(abi::return_register(), "0"),
+        // C result in `c_return(0)` (bug-450).
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_le(&gen_fail),
     ]);
 
@@ -737,8 +747,9 @@ fn emit_linux_ec(
         abi::move_immediate(abi::c_arg(1), "Integer", "0"),
         abi::load_u64(v9, abi::stack_pointer(), L_FN),
         abi::branch_link_register(v9),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), L_SPKILEN),
-        abi::compare_immediate(abi::return_register(), "0"),
+        // C result (the SPKI length) in `c_return(0)` (bug-450).
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), L_SPKILEN),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_le(&gen_fail),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), L_SPKILEN),
         abi::move_immediate(abi::c_arg(1), "Integer", "1"),
@@ -751,7 +762,8 @@ fn emit_linux_ec(
         abi::add_immediate(abi::c_arg(1), abi::stack_pointer(), L_SPKIPP),
         abi::load_u64(v9, abi::stack_pointer(), L_FN),
         abi::branch_link_register(v9),
-        abi::compare_immediate(abi::return_register(), "0"),
+        // C result in `c_return(0)` (bug-450).
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_le(&gen_fail),
     ]);
 

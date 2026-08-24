@@ -166,7 +166,7 @@ pub(crate) fn register(r: &mut Registry) {
         close_function: CLOSE,
         sendable: true,
         close_may_fail: true,
-        kind: crate::builtins::resource::ResourceKind::Builtin,
+        kind: crate::codegen::resource::ResourceKind::Builtin,
     });
 
     func_file_exists::register(&mut pkg);

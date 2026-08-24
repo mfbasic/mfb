@@ -74,7 +74,7 @@ its bare internal id: `net::Url` becomes `Url`, `http::Response` becomes
 rewrite is `qualified_builtin_type`, which only fires when the qualifier is a
 built-in import **and** the member is a built-in type id; otherwise the dotted
 name passes through unchanged. [[src/ast/expr.rs:parse_type_base_name]]
-[[src/builtins/mod.rs:qualified_builtin_type]]
+[[src/codegen/builtins/mod.rs:qualified_builtin_type]]
 
 The same normalization is mirrored in the resolver so a qualified built-in type
 in a fully-qualified context resolves to its bare id rather than erroring.
@@ -134,7 +134,7 @@ then splitting the ` STATE T` suffix with `base_resource_name` / `state_type_nam
 (composite-safe: they leave a ` STATE ` nested inside an enclosing `List`/`Map`/
 `Thread` intact). Element insertion (`append`/`insert`/`set`) compares the
 element and the item by their bare resource type, so an item passed with or
-without its STATE clause both resolve. [[src/builtins/resource.rs:base_resource_name]]
+without its STATE clause both resolve. [[src/codegen/resource/mod.rs:base_resource_name]]
 [[src/codegen/builtins/general/mod.rs:element_accepts_item]]
 
 The thread resource plane is structurally distinct: it is an **infix** ` RES `

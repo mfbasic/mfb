@@ -24,7 +24,7 @@ const COV_FAIL: &str = "__mfb_cov_fail";
 const COV_DUMP: &str = "__mfb_cov_dump";
 const COV_ZEROS: &str = "__mfb_cov_zeros";
 const COV_EMPTY_STRINGS: &str = "__mfb_cov_empty_strings";
-use crate::builtins::testing::{is_testing_call, TEST_ABORT_CODE};
+use crate::codegen::builtins_testing::{is_testing_call, TEST_ABORT_CODE};
 use crate::testing::coverage::CovSlot;
 use std::path::Path;
 
@@ -86,7 +86,9 @@ mod tests {
     }
 
     use crate::ast::build::*;
-    use crate::builtins::testing::{EXPECT_EQUAL, EXPECT_NEQUAL, EXPECT_NTRAP, EXPECT_TRAP};
+    use crate::codegen::builtins_testing::{
+        EXPECT_EQUAL, EXPECT_NEQUAL, EXPECT_NTRAP, EXPECT_TRAP,
+    };
 
     /// Positional call arguments from a list of expressions.
     fn pos(values: Vec<Expression>) -> Vec<CallArg> {

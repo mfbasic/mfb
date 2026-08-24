@@ -107,7 +107,7 @@ pub(crate) struct RuntimeHelperSpec {
 ///
 /// There are deliberately no `params`/`clobbers` fields (bug-329): the former
 /// transcribed argument names/types/registers that nothing read — the front-end
-/// tables in `src/builtins/` own argument shapes, and the copies here had
+/// tables in `src/codegen/builtins/` own argument shapes, and the copies here had
 /// already drifted from them — and the latter repeated one constant at every
 /// spec while the register allocator models call clobbering independently
 /// (every internal `bl _mfb_*` destroys all of `x0`–`x17`; see

@@ -24,7 +24,7 @@ impl<'a> SyntaxChecker<'a> {
         // every ordinary comparison against it failed — `fs::close(h)` on an
         // imported stateful handle reported "argument type(s) (fs::File STATE Cursor),
         // expected File" (plan-52-D §4).
-        let name = crate::builtins::resource::base_resource_name(name);
+        let name = crate::codegen::resource::base_resource_name(name);
         let name = crate::types::strip_type_group(name);
         // A package-qualified built-in **resource** (`fs.File`, `process.Process`)
         // KEEPS its qualified identity — resources are package-scoped so a user
@@ -60,7 +60,7 @@ impl<'a> SyntaxChecker<'a> {
             // bare (every resource consumer sees `File`, not `fs::File STATE Cursor`),
             // while the plane still names the state it transfers.
             let resource_state = resource
-                .and_then(crate::builtins::resource::state_type_name)
+                .and_then(crate::codegen::resource::state_type_name)
                 .map(|state| Box::new(self.parse_type(state)));
             let resource = resource.map(|resource| Box::new(self.parse_type(resource)));
             if kind == crate::types::THREAD_WORKER_TYPE {
@@ -398,7 +398,7 @@ impl<'a> SyntaxChecker<'a> {
         let param_type = sig.params.get(index).map(|param| &param.type_);
         if index == 0 {
             if let Some(Type::User(name)) = param_type {
-                let base = builtins::resource::base_resource_name(name);
+                let base = crate::codegen::resource::base_resource_name(name);
                 let is_close_op = self.resource_registry.close_function(base) == Some(callee)
                     || self.resource_registry.close_function(name.as_str()) == Some(callee)
                     // A re-export alias of the close op consumes too (§5a).

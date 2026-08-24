@@ -680,8 +680,8 @@ mod tests {
 
     #[test]
     fn types_page_lists_enums_and_resources() {
-        use crate::builtins::resource::ResourceKind;
         use crate::codegen::registry::{EnumVariant, RegistryEnum, RegistryResource};
+        use crate::codegen::resource::ResourceKind;
 
         let mut package = RegistryPackage::new("demo", "i", "d");
         package.add_enum(RegistryEnum {

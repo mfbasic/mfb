@@ -200,7 +200,7 @@ pub(crate) fn register(r: &mut Registry) {
         // reaps, so it does not fail.
         sendable: false,
         close_may_fail: false,
-        kind: crate::builtins::resource::ResourceKind::Builtin,
+        kind: crate::codegen::resource::ResourceKind::Builtin,
     });
 
     func_spawn::register(&mut pkg);
@@ -334,10 +334,13 @@ mod tests {
     #[test]
     fn process_close_op_is_drop() {
         assert_eq!(
-            crate::builtins::resource_close_function(super::PROCESS_TYPE_ID),
+            crate::codegen::builtins::resource_close_function(super::PROCESS_TYPE_ID),
             Some(super::DROP)
         );
-        assert_eq!(crate::builtins::resource_close_function("Nothing"), None);
+        assert_eq!(
+            crate::codegen::builtins::resource_close_function("Nothing"),
+            None
+        );
     }
 
     #[test]

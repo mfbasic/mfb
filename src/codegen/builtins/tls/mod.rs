@@ -138,7 +138,7 @@ pub(crate) fn register(r: &mut Registry) {
         // (plan-03-net.md §4.4).
         sendable: false,
         close_may_fail: true,
-        kind: crate::builtins::resource::ResourceKind::Builtin,
+        kind: crate::codegen::resource::ResourceKind::Builtin,
     });
     pkg.add_resource(RegistryResource {
         name: TLS_LISTENER_TYPE,
@@ -150,7 +150,7 @@ pub(crate) fn register(r: &mut Registry) {
         // thread-sendable in v1 (plan-06-tls-server.md §1).
         sendable: false,
         close_may_fail: true,
-        kind: crate::builtins::resource::ResourceKind::Builtin,
+        kind: crate::codegen::resource::ResourceKind::Builtin,
     });
 
     func_connect::register(&mut pkg);

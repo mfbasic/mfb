@@ -108,7 +108,7 @@ impl TypeEnv {
             else {
                 return;
             };
-            crate::builtins::resolve_call_return_type(target, &arg_types, false)
+            crate::codegen::builtins::resolve_call_return_type(target, &arg_types, false)
                 .and_then(|t| usable_type(Some(&t)))
         };
         let Some(declared) = declared else {

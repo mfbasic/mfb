@@ -629,8 +629,12 @@ fn emit_linux_sign(
     ]);
     gen_cert::call_fn(FN, &v9, ins);
     ins.extend([
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), PKEY),
-        abi::compare_immediate(abi::return_register(), "0"),
+        // An external C call returns in the C-return bank (`rax`), not the aligned
+        // MFB-return bank (`rdi`) these bodies otherwise read; on x86-64 SysV the two
+        // differ, so the result must be read from `c_return(0)` (byte-identical on
+        // AArch64/RISC-V, where both banks are `x0`). See bug-450.
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), PKEY),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_eq(&invalid_fail),
     ]);
 
@@ -646,8 +650,9 @@ fn emit_linux_sign(
         rel,
     )?;
     gen_cert::call_fn(FN, &v9, ins);
+    // C result in `c_return(0)` (bug-450).
     ins.push(abi::store_u64(
-        abi::return_register(),
+        abi::c_return(0),
         abi::stack_pointer(),
         MDCTX,
     ));
@@ -663,11 +668,8 @@ fn emit_linux_sign(
         rel,
     )?;
     gen_cert::call_fn(FN, &v9, ins);
-    ins.push(abi::store_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        MD,
-    ));
+    // C result in `c_return(0)` (bug-450).
+    ins.push(abi::store_u64(abi::c_return(0), abi::stack_pointer(), MD));
 
     // EVP_MD_CTX_new returns NULL on malloc failure; route to the generic exit.
     ins.extend([
@@ -697,7 +699,7 @@ fn emit_linux_sign(
     ]);
     gen_cert::call_fn(FN, &v9, ins);
     ins.extend([
-        abi::compare_immediate(abi::return_register(), "1"),
+        abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_ne(&sign_fail),
     ]);
 
@@ -722,7 +724,7 @@ fn emit_linux_sign(
     ]);
     gen_cert::call_fn(FN, &v9, ins);
     ins.extend([
-        abi::compare_immediate(abi::return_register(), "1"),
+        abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_ne(&sign_fail),
     ]);
     ins.extend([
@@ -745,7 +747,7 @@ fn emit_linux_sign(
     ]);
     gen_cert::call_fn(FN, &v9, ins);
     ins.extend([
-        abi::compare_immediate(abi::return_register(), "1"),
+        abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_ne(&sign_fail),
     ]);
 

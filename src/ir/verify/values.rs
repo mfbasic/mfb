@@ -605,7 +605,7 @@ impl TypeEnv {
         // statement, from whichever rule knows the most.
         if member == "state"
             && !self.checking_state_assign.get()
-            && crate::builtins::resource::state_type_name(&type_name).is_none()
+            && crate::codegen::resource::state_type_name(&type_name).is_none()
             && self.is_resource_or_resource_union(resource_base_type(&type_name))
         {
             let base = resource_base_type(&type_name);

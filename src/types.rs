@@ -296,7 +296,9 @@ impl ParameterType {
             // Split `<params>) AS <return>` at paren depth 0: the closing paren and the
             // separating commas are the ones at depth 0 (a parameter may itself be a
             // `FUNC(...)`). Mirrors `codegen::builtins::general::function_parts`.
-            if let Some((params, ret)) = crate::builtins::split_func_params_and_return(rest) {
+            if let Some((params, ret)) =
+                crate::codegen::builtins::split_func_params_and_return(rest)
+            {
                 let params = params.into_iter().map(ParameterType::parse).collect();
                 let ret = ParameterType::parse(ret);
                 return if isolated {

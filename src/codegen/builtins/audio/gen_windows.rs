@@ -234,9 +234,15 @@ fn ole_call(
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
     emit_external_int_call(platform, symbol, from, n_args, imports, ins, rel)?;
+    // A Win64 external call returns in the C-return bank (`rax`), not the aligned
+    // MFB-return bank (`rcx`) this backend otherwise reads: the shared emitter skips
+    // the `%retC`→aligned staging for the Windows target. Sign-extend the HRESULT/
+    // DWORD from `c_return(0)` into `return_register()`, so the downstream FAILED(hr)
+    // check reads the real status, not the stale first argument (byte-identical on
+    // AArch64, where both banks are `x0`). See bug-452.
     ins.push(abi::sign_extend_word(
         abi::return_register(),
-        abi::return_register(),
+        abi::c_return(0),
     ));
     Ok(())
 }
@@ -259,7 +265,10 @@ fn com_call(slot: usize, n_args: usize, ins: &mut Vec<CodeInstruction>, vregs: &
         abi::load_u64(&v8, &v8, 0),        // vtable
         abi::load_u64(&v8, &v8, slot * 8), // method
         abi::branch_link_register(&v8),
-        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        // The COM method's HRESULT returns in the C-return bank (`rax`), not the
+        // aligned bank (`rcx`) holding the stale `this` pointer — read it from
+        // `c_return(0)` (byte-identical on AArch64). See bug-452.
+        abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
     ]);
 }
 

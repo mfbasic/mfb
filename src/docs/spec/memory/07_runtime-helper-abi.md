@@ -61,7 +61,7 @@ The spec deliberately states nothing that is owned elsewhere (bug-329):
 - **The symbol is derived**, never stored: `symbol_for_call(helper, call)`
   produces it, and the catalog tests assert the derivation round-trips for
   every spec. [[src/target/shared/runtime/mod.rs:symbol_for_call]]
-- **Argument shapes are owned by the front-end tables** in `src/builtins/`
+- **Argument shapes are owned by the front-end tables** in `src/codegen/builtins/`
   (they are what accepts or rejects user code). Arguments are marshalled
   strictly by position into the MFB argument-convention tokens
   `%argMFB0..%argMFB7` (a typed `Operand::Abi`), realized per target onto the

@@ -1,7 +1,6 @@
 // --- codegen tier imports (migration) ---
 use crate::arch::ops::CodeOp;
 use crate::binary_repr;
-use crate::builtins;
 use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::function::*;
@@ -307,7 +306,7 @@ impl TypeModel {
         for function in &module.link_functions {
             if function.return_resource {
                 resource_names.insert(
-                    builtins::resource::base_resource_name(&function.return_type).to_string(),
+                    crate::codegen::resource::base_resource_name(&function.return_type).to_string(),
                 );
             }
         }

@@ -104,10 +104,31 @@ pub(super) fn unify_type(
     // `params.iter().any(|p| p == pattern)` over the whole pattern name.
     if let Some(sym) = leaf_param_symbol(pattern) {
         if params.contains(&sym) {
-            if let Some(existing) = substitutions.get(&sym) {
-                return existing == actual;
+            match substitutions.get(&sym) {
+                // First occurrence: record it, even an `Unknown` (a no-information
+                // actual such as an empty `[]` literal, which types as `List OF
+                // Unknown`). Keeping it as a *provisional* binding preserves the
+                // degenerate `T := Unknown` instantiation that width-agnostic native
+                // ops (e.g. `collections::flatten`) rely on when no argument ever
+                // supplies a concrete element type.
+                None => {
+                    substitutions.insert(sym, actual.clone());
+                }
+                // A provisional `Unknown` binding is refined by any later concrete
+                // actual, so inference no longer depends on field/argument order
+                // (bug-442): a field carrying the concrete type (e.g. `FUNC(T) AS
+                // Boolean`) wins over an earlier empty-collection field (`List OF T`
+                // := `[]`), regardless of which is declared first.
+                Some(ParameterType::Unknown) if !matches!(actual, ParameterType::Unknown) => {
+                    substitutions.insert(sym, actual.clone());
+                }
+                // A concrete binding already won this slot; an `Unknown` actual is a
+                // wildcard that agrees with it (mirrors the `actual is Unknown`
+                // terminal rule below), so it neither overwrites nor conflicts.
+                Some(_) if matches!(actual, ParameterType::Unknown) => {}
+                // Two concrete actuals for the same param must agree.
+                Some(existing) => return existing == actual,
             }
-            substitutions.insert(sym, actual.clone());
             return true;
         }
     }
@@ -231,7 +252,7 @@ pub(super) fn func_type_parts(type_name: &str) -> Option<(Vec<&str>, &str)> {
     let rest = type_name
         .strip_prefix("FUNC(")
         .or_else(|| type_name.strip_prefix("ISOLATED FUNC("))?;
-    crate::builtins::split_func_params_and_return(rest)
+    crate::codegen::builtins::split_func_params_and_return(rest)
 }
 
 pub(super) fn user_template_parts(type_name: &str) -> Option<(String, Vec<String>)> {
@@ -416,7 +437,7 @@ fn type_owns_a_to_separator(body: &str, at: usize) -> bool {
 /// The type arguments of `Name OF A, B` — split only on the commas at paren depth
 /// 0, so a `FUNC(Integer, String) AS Boolean` argument stays one argument.
 pub(super) fn split_top_level_commas(value: &str) -> Vec<String> {
-    crate::builtins::split_top_level_commas(value)
+    crate::codegen::builtins::split_top_level_commas(value)
         .into_iter()
         .map(str::to_string)
         .collect()
@@ -686,6 +707,47 @@ mod tests {
         assert!(unify_str("T", "Integer", &params, &mut s));
         // Conflicting binding fails.
         assert!(!unify_str("T", "String", &params, &mut s));
+    }
+
+    #[test]
+    fn unknown_actual_never_poisons_a_param_binding() {
+        // bug-442: an `Unknown` actual (e.g. an empty `[]` literal types as
+        // `List OF Unknown`) must not occupy a param slot and block a later
+        // concrete binding, in EITHER field order.
+        let params = vec!["T".to_string()];
+        // Unknown first, concrete second.
+        let mut s = HashMap::new();
+        assert!(unify_str("List OF T", "List OF Unknown", &params, &mut s));
+        assert!(unify_str(
+            "FUNC(T) AS Boolean",
+            "FUNC(Integer) AS Boolean",
+            &params,
+            &mut s
+        ));
+        assert_eq!(s.get("T"), Some(&"Integer".to_string()));
+        // Concrete first, Unknown second — the concrete binding survives.
+        let mut s2 = HashMap::new();
+        assert!(unify_str(
+            "FUNC(T) AS Boolean",
+            "FUNC(Integer) AS Boolean",
+            &params,
+            &mut s2
+        ));
+        assert!(unify_str("List OF T", "List OF Unknown", &params, &mut s2));
+        assert_eq!(s2.get("T"), Some(&"Integer".to_string()));
+        // A genuine conflict between two concretes still fails.
+        let mut s3 = HashMap::new();
+        assert!(unify_str("T", "Integer", &params, &mut s3));
+        assert!(!unify_str("T", "String", &params, &mut s3));
+        // All-Unknown records a *provisional* `Unknown` binding (never dropped),
+        // preserving the degenerate `T := Unknown` instantiation that width-agnostic
+        // native ops such as `collections::flatten` rely on. A later concrete actual
+        // still refines it (asserted above); with none, it stays Unknown.
+        let mut s4 = HashMap::new();
+        assert!(unify_str("List OF T", "List OF Unknown", &params, &mut s4));
+        assert_eq!(s4.get("T"), Some(&"Unknown".to_string()));
+        assert!(unify_str("T", "Integer", &params, &mut s4));
+        assert_eq!(s4.get("T"), Some(&"Integer".to_string()));
     }
 
     #[test]

@@ -350,7 +350,7 @@ impl<'a> FileParser<'a> {
                     // (`http::Response[...]`) normalizes to its bare id, matching
                     // the type-position rule (plan-03-http.md §A.1/§B.2).
                     Expression::Identifier(value) => {
-                        crate::builtins::qualified_builtin_type(&value).unwrap_or(value)
+                        crate::codegen::builtins::qualified_builtin_type(&value).unwrap_or(value)
                     }
                     _ => {
                         let token = self.previous().clone();
@@ -901,10 +901,10 @@ impl<'a> FileParser<'a> {
         // resources are package-scoped so a user `TYPE Process` no longer collides
         // (plan-97).
         self.finish_qualified_name(name).map(|qualified| {
-            if crate::builtins::is_qualified_builtin_resource(&qualified) {
+            if crate::codegen::builtins::is_qualified_builtin_resource(&qualified) {
                 qualified
             } else {
-                crate::builtins::qualified_builtin_type(&qualified).unwrap_or(qualified)
+                crate::codegen::builtins::qualified_builtin_type(&qualified).unwrap_or(qualified)
             }
         })
     }

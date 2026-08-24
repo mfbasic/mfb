@@ -179,8 +179,8 @@ impl TypeEnv {
         let Some(plane_resource) = crate::types::thread_resource(&handle_type) else {
             return;
         };
-        let plane_state = crate::builtins::resource::state_type_name(plane_resource);
-        let resource_state = crate::builtins::resource::state_type_name(&resource_type);
+        let plane_state = crate::codegen::resource::state_type_name(plane_resource);
+        let resource_state = crate::codegen::resource::state_type_name(&resource_type);
         if plane_state == resource_state {
             return; // both bare, or the same state — the agreeing case.
         }
@@ -193,7 +193,7 @@ impl TypeEnv {
             ),
             (None, Some(actual)) => format!(
                 "carries STATE `{actual}` but the thread plane is bare; a bare plane asserts the resource has no state — declare the plane `RES {} STATE {actual}`",
-                crate::builtins::resource::base_resource_name(plane_resource)
+                crate::codegen::resource::base_resource_name(plane_resource)
             ),
             // Equal (both None) is handled above; unreachable.
             (None, None) => return,
@@ -242,10 +242,10 @@ impl TypeEnv {
         param_type: &str,
         actual: &str,
     ) {
-        let Some(param_state) = crate::builtins::resource::state_type_name(param_type) else {
+        let Some(param_state) = crate::codegen::resource::state_type_name(param_type) else {
             return; // bare parameter: the opt-out — any state or none.
         };
-        let arg_state = crate::builtins::resource::state_type_name(actual);
+        let arg_state = crate::codegen::resource::state_type_name(actual);
         if arg_state == Some(param_state) {
             return;
         }
@@ -281,7 +281,7 @@ impl TypeEnv {
     /// legal stateful `RETURN` also hid it, and each needed its own fix.
     pub(super) fn check_return_state_declaration(&self, function: &IrFunction) {
         let returns = function.returns.name();
-        let Some(state_type) = crate::builtins::resource::state_type_name(&returns) else {
+        let Some(state_type) = crate::codegen::resource::state_type_name(&returns) else {
             return;
         };
         if !self.is_defaultable(state_type, &mut HashSet::new()) {
@@ -357,7 +357,7 @@ impl TypeEnv {
         // `None` and it would otherwise be treated as provably stateless and
         // silently adopt the declared type.
         if self.is_opaque_state_value(value) {
-            if let Some(declared) = crate::builtins::resource::state_type_name(type_) {
+            if let Some(declared) = crate::codegen::resource::state_type_name(type_) {
                 self.emit(
                     "TYPE_STATE_OPAQUE_NARROWING",
                     format!(
@@ -370,10 +370,10 @@ impl TypeEnv {
         let Some(actual) = self.infer_type(value, locals) else {
             return;
         };
-        let Some(value_state) = crate::builtins::resource::state_type_name(&actual) else {
+        let Some(value_state) = crate::codegen::resource::state_type_name(&actual) else {
             return; // stateless initializer: attach (or stay bare) — both legal.
         };
-        match crate::builtins::resource::state_type_name(type_) {
+        match crate::codegen::resource::state_type_name(type_) {
             // Adopting the state it already carries — the agreeing case.
             Some(declared) if declared == value_state => {}
             Some(declared) => self.emit(

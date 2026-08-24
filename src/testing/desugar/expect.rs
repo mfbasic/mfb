@@ -25,7 +25,7 @@ pub(crate) fn expand_expect(
     uid: usize,
     line: usize,
 ) -> Vec<Statement> {
-    use crate::builtins::testing::{
+    use crate::codegen::builtins_testing::{
         is_equality_assert, is_inequality_assert, EXPECT_NTRAP, EXPECT_TRAP,
     };
     let argument = |index: usize| arguments.get(index).map(call_arg_value).cloned();

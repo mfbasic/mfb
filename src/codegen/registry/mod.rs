@@ -725,13 +725,13 @@ pub(crate) struct RegistryResource {
     /// `resource_close_function` returns (`fs.close`, `process.__drop`).
     pub(crate) close_function: &'static str,
     /// Whether the handle may cross a thread boundary (the RES "sendable to thread"
-    /// bit — mirrors [`crate::builtins::resource::ResourceInfo::sendable`]).
+    /// bit — mirrors [`crate::codegen::resource::ResourceInfo::sendable`]).
     pub(crate) sendable: bool,
     /// Whether the close op can fail (mirrors
-    /// [`crate::builtins::resource::ResourceInfo::close_may_fail`]).
+    /// [`crate::codegen::resource::ResourceInfo::close_may_fail`]).
     pub(crate) close_may_fail: bool,
     /// Provenance of the registration (`Builtin` for a native package resource).
-    pub(crate) kind: crate::builtins::resource::ResourceKind,
+    pub(crate) kind: crate::codegen::resource::ResourceKind,
 }
 
 /// A compile-time package **constant** that folds to a literal at every use site —
@@ -1837,7 +1837,7 @@ fn is_resource_type_name(name: &str) -> bool {
     // A single bare-name scan of the registry: a qualified builtin id (`fs.File`) and
     // its bare base (`File`) both reduce to the same tail, so one scan answers both
     // the package-qualified and bare-base cases the two former branches split out.
-    let base = crate::builtins::resource::base_resource_name(name);
+    let base = crate::codegen::resource::base_resource_name(name);
     let bare = base.rsplit('.').next().unwrap_or(base);
     registry()
         .packages()
@@ -2017,8 +2017,8 @@ fn resource_base_eq(a: &ParameterType, b: &ParameterType) -> bool {
         return true;
     }
     let (an, bn) = (a.name(), b.name());
-    crate::builtins::resource::base_resource_name(&an)
-        == crate::builtins::resource::base_resource_name(&bn)
+    crate::codegen::resource::base_resource_name(&an)
+        == crate::codegen::resource::base_resource_name(&bn)
 }
 
 /// Substitute `bindings` into a (possibly generic) type `pattern`, producing a
@@ -2271,7 +2271,7 @@ pub(crate) fn mfb_fast_path(target: &str) -> Option<MfbFastPath> {
 /// a bare inline op) and for the source-backed intrinsics (`encoding`), which are not
 /// bare-name native members. The three `Body::Intrinsic` List overloads
 /// (`find`/`mid`/`replace`) are handled by their caller
-/// (`crate::builtins::native_builtin_target`), which shares them with `strings::`.
+/// (`crate::codegen::builtins::native_builtin_target`), which shares them with `strings::`.
 pub(crate) fn native_bare_target(qualified: &str) -> Option<&'static str> {
     let function = registry().resolve_func(qualified)?.function;
     for implementation in &function.implementations {
@@ -2749,7 +2749,7 @@ mod tests {
             close_function,
             sendable: true,
             close_may_fail: true,
-            kind: crate::builtins::resource::ResourceKind::Builtin,
+            kind: crate::codegen::resource::ResourceKind::Builtin,
         }
     }
 

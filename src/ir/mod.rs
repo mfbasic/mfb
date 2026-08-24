@@ -20,7 +20,7 @@ use crate::ast::{
     AstProject, EnumMember, ExitTarget, Expression, FunctionKind, Item, LoopKind, Param,
     TypeDeclKind, UnionVariant, Visibility,
 };
-use crate::builtins;
+use crate::codegen::builtins;
 use crate::json::json_string;
 use crate::numeric;
 use std::collections::{HashMap, HashSet};

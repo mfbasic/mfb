@@ -1219,7 +1219,7 @@ impl Resolver<'_> {
         if callee.contains('.') {
             self.resolve_package_qualified_name(file, callee, line, imports);
         } else if crate::codegen::builtins::general::is_general_call(callee) {
-        } else if builtins::testing::is_testing_call(callee) {
+        } else if crate::codegen::builtins_testing::is_testing_call(callee) {
             // Assertion builtins are compiler-lowered; their arguments are
             // resolved by the caller. Placement (TCASE-only) is enforced earlier
             // by `crate::testing::validate_expect_placement`.
@@ -1348,8 +1348,8 @@ impl Resolver<'_> {
         // own type strings also contain ` STATE `), so this fires on the bare
         // resource element — a stateful binding/return, or a thread plane's RES
         // element (plan-54).
-        if let Some(state) = crate::builtins::resource::state_type_name(type_name) {
-            let base = crate::builtins::resource::base_resource_name(type_name);
+        if let Some(state) = crate::codegen::resource::state_type_name(type_name) {
+            let base = crate::codegen::resource::base_resource_name(type_name);
             self.resolve_type_name(file, base, line, imports);
             self.resolve_type_name(file, state, line, imports);
             return;
@@ -1360,7 +1360,7 @@ impl Resolver<'_> {
                 // Split at top-level commas only: a template argument may itself
                 // be a nested `FUNC(...) AS R` or `Map OF K TO V` whose internal
                 // commas must not split the argument list (bug-106).
-                for arg in crate::builtins::split_top_level_commas(args) {
+                for arg in crate::codegen::builtins::split_top_level_commas(args) {
                     self.resolve_type_name(file, arg, line, imports);
                 }
                 return;
@@ -1393,7 +1393,8 @@ impl Resolver<'_> {
         // Split at the depth-0 `) AS ` so a parameter that is itself a
         // `FUNC(...) AS …` (or any parenthesized/nested type) does not split at
         // an inner `) AS ` and produce garbage names (bug-106).
-        let Some((params, return_type)) = crate::builtins::split_func_params_and_return(rest)
+        let Some((params, return_type)) =
+            crate::codegen::builtins::split_func_params_and_return(rest)
         else {
             self.report(
                 "SYMBOL_UNKNOWN_TYPE",

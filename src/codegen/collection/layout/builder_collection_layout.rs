@@ -16,7 +16,7 @@ impl CodeBuilder<'_> {
         // A transferred stateful union arrives spelled `Stream STATE Cursor`; the
         // union set is keyed on the bare name (plan-75 gap 3). The `{tag, ptr}`
         // layout is unchanged by the STATE suffix, so size it on the base name.
-        let type_ = crate::builtins::resource::base_resource_name(type_);
+        let type_ = crate::codegen::resource::base_resource_name(type_);
         if self.type_model.union_names.contains(type_) {
             // A resource variant carries no record fields (validation.rs registers
             // none for `"resource"` variants) but its payload is a single resource
@@ -28,7 +28,7 @@ impl CodeBuilder<'_> {
                 .type_model
                 .variants_for_union(type_)
                 .map(|variant| {
-                    if crate::builtins::is_resource_type(variant) {
+                    if crate::codegen::builtins::is_resource_type(variant) {
                         1
                     } else {
                         self.type_model
@@ -56,7 +56,8 @@ impl CodeBuilder<'_> {
         if is_collection_type(type_) {
             return !self.type_is_flat(type_);
         }
-        crate::builtins::is_resource_type(type_) && !self.type_model.union_names.contains(type_)
+        crate::codegen::builtins::is_resource_type(type_)
+            && !self.type_model.union_names.contains(type_)
     }
 
     /// Alignment, in bytes, that a packed collection payload of `type_` requires
@@ -2587,7 +2588,7 @@ pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &str) -> bo
         // variant record).
         || model
             .union_names
-            .contains(crate::builtins::resource::base_resource_name(field_type))
+            .contains(crate::codegen::resource::base_resource_name(field_type))
         || field_type.starts_with("Result OF ")
         || field_type == "Error"
 }
@@ -2651,7 +2652,7 @@ fn type_is_flat_inner(
             .collect::<Vec<_>>()
             .iter()
             .all(|variant| type_is_flat_inner(model, variant, visited))
-    } else if crate::builtins::is_resource_type(type_) {
+    } else if crate::codegen::builtins::is_resource_type(type_) {
         // A resource is a move-only handle to its single instance, never a
         // copyable flat block.
         false
@@ -2693,14 +2694,14 @@ pub(crate) fn union_is_data(model: &TypeModel, type_: &str) -> bool {
     // A transferred stateful union spells `Stream STATE Cursor`; the union set
     // is keyed on the bare name `Stream` (plan-75 gap 3). Strip the suffix so a
     // resource union with STATE still classifies as all-resource.
-    let type_ = crate::builtins::resource::base_resource_name(type_);
+    let type_ = crate::codegen::resource::base_resource_name(type_);
     if !model.union_names.contains(type_) {
         return false;
     }
     let mut saw_variant = false;
     for variant in model.variants_for_union(type_) {
         saw_variant = true;
-        if crate::builtins::is_resource_type(variant) {
+        if crate::codegen::builtins::is_resource_type(variant) {
             return false;
         }
     }

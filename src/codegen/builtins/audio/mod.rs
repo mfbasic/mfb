@@ -323,7 +323,7 @@ pub(crate) fn register(r: &mut Registry) {
         // callback ring); not thread-sendable in v1 (plan-33-A §4).
         sendable: false,
         close_may_fail: true,
-        kind: crate::builtins::resource::ResourceKind::Builtin,
+        kind: crate::codegen::resource::ResourceKind::Builtin,
     });
     pkg.add_resource(RegistryResource {
         name: AUDIO_OUTPUT_TYPE,
@@ -335,7 +335,7 @@ pub(crate) fn register(r: &mut Registry) {
         // thread-sendable in v1 (plan-33-A §4).
         sendable: false,
         close_may_fail: true,
-        kind: crate::builtins::resource::ResourceKind::Builtin,
+        kind: crate::codegen::resource::ResourceKind::Builtin,
     });
 
     func_devices::register(&mut pkg);
@@ -498,11 +498,11 @@ mod tests {
     #[test]
     fn close_ops_are_the_per_direction_bodies() {
         assert_eq!(
-            crate::builtins::resource_close_function(super::AUDIO_INPUT_TYPE_ID),
+            crate::codegen::builtins::resource_close_function(super::AUDIO_INPUT_TYPE_ID),
             Some(super::CLOSE_INPUT)
         );
         assert_eq!(
-            crate::builtins::resource_close_function(super::AUDIO_OUTPUT_TYPE_ID),
+            crate::codegen::builtins::resource_close_function(super::AUDIO_OUTPUT_TYPE_ID),
             Some(super::CLOSE_OUTPUT)
         );
     }

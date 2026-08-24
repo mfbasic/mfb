@@ -67,7 +67,7 @@ pub(super) fn collect_bind_types(ops: &[NirOp], types: &mut HashSet<String>) {
                 // recognized as used, or a valid stateful union bind trips the
                 // "declares unused runtime helper" guard.
                 self.types
-                    .insert(crate::builtins::resource::base_resource_name(type_).to_string());
+                    .insert(crate::codegen::resource::base_resource_name(type_).to_string());
             }
             walk_op(self, op);
         }

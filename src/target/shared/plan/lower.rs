@@ -148,7 +148,7 @@ pub(super) fn storage_for_type(
     // `is_user_type_name` rejects a name with spaces, so `SfFile STATE FileInfo`
     // fell through to the error. That is `bindings/libsnd`'s exact shape
     // (plan-52-D Phase 3).
-    let type_ = crate::builtins::resource::base_resource_name(type_);
+    let type_ = crate::codegen::resource::base_resource_name(type_);
     if let Some(storage) = type_storage.get(type_) {
         return Ok(storage.clone());
     }
@@ -170,7 +170,7 @@ pub(super) fn storage_for_type(
         (StorageClass::Scalar, 4, 4)
     } else if is_reference_type(type_) {
         (StorageClass::Reference, 8, 8)
-    } else if crate::builtins::is_resource_type(type_) {
+    } else if crate::codegen::builtins::is_resource_type(type_) {
         // A resource (optionally `File STATE T`) is a pointer to its record.
         (StorageClass::Reference, 8, 8)
     } else if is_user_type_name(type_) {

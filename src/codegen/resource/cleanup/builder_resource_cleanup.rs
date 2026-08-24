@@ -16,11 +16,11 @@ impl CodeBuilder<'_> {
     /// the words are readable-as-pointers only for a `File`, and the drop-path
     /// reclaim must ask before it frees them (plan-52-B Phase 2).
     pub(crate) fn resource_uses_io_buffers(type_: &str) -> bool {
-        crate::builtins::resource::base_resource_name(type_) == "fs.File"
+        crate::codegen::resource::base_resource_name(type_) == "fs.File"
     }
 
     pub(crate) fn resource_cleanup_symbol(&self, type_: &str) -> Option<String> {
-        let Some(close) = crate::builtins::resource_close_function(type_) else {
+        let Some(close) = crate::codegen::builtins::resource_close_function(type_) else {
             // bug-374: not one of the language's own resources, so fall back to
             // the user-declared `RESOURCE T CLOSE BY op` table. The close op is
             // an ordinary `LINK` call target, so it resolves through
@@ -30,7 +30,7 @@ impl CodeBuilder<'_> {
             let close = self
                 .type_model
                 .resource_closers
-                .get(crate::builtins::resource::base_resource_name(type_))?;
+                .get(crate::codegen::resource::base_resource_name(type_))?;
             return crate::codegen::engine::builder::resolve_closer_symbol(
                 close,
                 self.function_symbols,
@@ -56,7 +56,7 @@ impl CodeBuilder<'_> {
     /// must register the same tag-dispatched close — otherwise a stateful union
     /// binding would register no cleanup at all and leak its handle.
     pub(crate) fn resource_union_cleanup(&self, type_: &str) -> Option<Vec<(usize, String)>> {
-        let type_ = crate::builtins::resource::base_resource_name(type_);
+        let type_ = crate::codegen::resource::base_resource_name(type_);
         if !self.type_model.union_names.contains(type_) {
             return None;
         }
@@ -66,7 +66,7 @@ impl CodeBuilder<'_> {
         }
         let mut out = Vec::new();
         for variant in variants {
-            if !crate::builtins::is_resource_type(&variant) {
+            if !crate::codegen::builtins::is_resource_type(&variant) {
                 return None;
             }
             let tag = *self.type_model.union_variant_tags.get(&variant)?;
@@ -225,7 +225,8 @@ impl CodeBuilder<'_> {
             let Some(local) = self.locals.get(name) else {
                 continue;
             };
-            let Some(close) = crate::builtins::resource_close_function(&local.type_) else {
+            let Some(close) = crate::codegen::builtins::resource_close_function(&local.type_)
+            else {
                 continue;
             };
             let consumed = if target == close {
@@ -242,8 +243,9 @@ impl CodeBuilder<'_> {
                 // successful transfer. Deactivation runs only on the success
                 // path (after the result-tag branch), so the sender keeps
                 // ownership and cleanup when the transfer fails with `Err`.
-                index == 1 && crate::builtins::is_thread_sendable_resource_type(&local.type_)
-            } else if crate::builtins::is_builtin_call(target) {
+                index == 1
+                    && crate::codegen::builtins::is_thread_sendable_resource_type(&local.type_)
+            } else if crate::codegen::builtins::is_builtin_call(target) {
                 false
             } else {
                 // Ordinary user calls do not move the resource's ownership: the caller retains
@@ -559,8 +561,7 @@ impl CodeBuilder<'_> {
         if let Some(variants) = self.resource_union_cleanup(&element) {
             return Ok(OwnedListDrop::Union {
                 variants,
-                state_type: crate::builtins::resource::state_type_name(&element)
-                    .map(str::to_string),
+                state_type: crate::codegen::resource::state_type_name(&element).map(str::to_string),
             });
         }
         let symbol = self.resource_cleanup_symbol(&element).ok_or_else(|| {
