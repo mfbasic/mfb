@@ -252,7 +252,10 @@ Measured end state, `grep -rnE 'strip_prefix\("(List OF |Set OF |Map OF |RES |Re
 
 Plus: `cargo test --no-fail-fast` 62/62 `ok`; `artifact-gate all` 0 diffs;
 `test-accept` 2 mismatches over 1199 tests — the same pre-existing pair, no NEW
-mismatch.
+mismatch. **Re-run after merging main** (which brought plan-100's fix to
+`scripts/test-accept.sh`): `acceptance tests passed (1271 test(s) ran)` — 0
+mismatches; the "pre-existing pair" was that harness bug, not noise
+(plan-105-A Corrections 7).
 Commit: a1975315e
 
 ## Validation Plan
@@ -426,6 +429,21 @@ Commit: a1975315e
    `Box OF T, v` becomes a two-argument type and the parameter list never closes.
    `FUNC f OF T(v AS T, b AS Box OF T)` is fine. Same root cause as the first item
    in Correction 8. Noted in the fixture sources.
+
+10. **Post-merge re-verification (2026-08-24).** `main` advanced by 13 commits
+    while this letter was in flight (plan-100's optimizer pipeline, plus a
+    plan-104 seam fix that deleted `function_type_parts`/`split_top_level_params`
+    from `codegen/engine/types/type_utils.rs`). Merged both in and re-ran
+    everything on the merged tree:
+
+    - `rustup run 1.96.0 cargo test --no-fail-fast` → 62 suites `ok`, 0 `FAILED`.
+    - `artifact-gate all` → 1255 tests, 1402 builds, 1730 goldens, **0 diffs**.
+    - `scripts/test-accept.sh` → **`acceptance tests passed (1271 test(s) ran)`**.
+    - `cargo fmt --all` + `cargo fmt --all --manifest-path repository/Cargo.toml`
+      → no churn.
+
+    The census in Phase 3 was re-measured after the merge and is unchanged: the
+    peer's deletions were in `codegen/`, not in this letter's three modules.
 
 ## Summary
 

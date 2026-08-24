@@ -244,7 +244,9 @@ Acceptance: MET (2026-08-24).
 - `scripts/test-accept.sh target/release/mfb /tmp/accept-p105` → 2 mismatches
   over 1193 tests: exactly the documented pre-existing pair (the 5 stdin-EOF
   `io` sub-tests, and the `project_name` truncated-path harness bug). No NEW
-  mismatch.
+  mismatch. **Both later disappeared**: after merging main (which brought
+  plan-100's fix to `scripts/test-accept.sh`), the same tree runs
+  `acceptance tests passed (1271 test(s) ran)` — 0 mismatches. See Corrections 7.
 - `grep -rn 'rsplit_once(" AS ")' src/` → 0 live hits.
 - **no-backward check**: `grep -rn '"FUNC(' src/cli/build/` → 0 hits. No
   signature-string construction remains on the driver path; the round-trip is
@@ -357,6 +359,27 @@ Commit: 15f495ebc
    package with an unreadable resource table would have stopped contributing its
    *function signatures* too. The accessors each return `Result` so recovery stays
    exactly as it was.
+
+7. **The "2 known pre-existing `test-accept` mismatches" were a harness bug, and
+   they are gone.** This plan's Prerequisites called them "environmental noise"
+   and told the implementer to judge "no NEW mismatch" against that pair. That
+   framing was wrong twice over: reproducing on main dates a bug as pre-existing,
+   it never makes it environmental — and treating it as noise is what kept it
+   alive.
+
+   The real cause (found by the concurrent plan-100 work, confirmed
+   independently from this worktree): `scripts/test-accept.sh`'s behavioral-test
+   branch ran `mfb test` bare instead of through `run_with_watchdog`, so it
+   inherited the driving `while read … < <(find …)` loop's pipe as stdin. Any
+   fixture whose `TESTING` blocks read stdin consumed the fixture list — which
+   both produced the 5 stdin-EOF `io` sub-test failures AND silently skipped
+   fixtures (the truncated `fb/.claude/…` path in the `project_name` error is
+   the corrupted read).
+
+   After merging main, this tree runs **`acceptance tests passed (1271 test(s)
+   ran)`** — 0 mismatches, up from 1199 tests run. So plan-105 introduced no
+   acceptance mismatch, and the pair the Prerequisites told us to tolerate no
+   longer exists.
 
 ## Summary
 
