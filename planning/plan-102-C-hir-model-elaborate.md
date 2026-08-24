@@ -1,0 +1,191 @@
+# plan-102-C: HIR data model + elaborate(concrete AST → HIR)
+
+Last updated: 2026-08-23
+Effort: x-large (1d–3d) — re-measure and split into parts at kickoff
+Depends on: plan-102-B (the IR must already be `ParameterType`-typed; HIR lowers
+into that typed IR).
+
+Introduce the HIR: a typed, name-resolved, tree-shaped layer between the AST and
+the IR. Build the `elaborate` pass (AST → HIR) and stand it up first on the
+**concrete, post-monomorph AST** — the easy case, where no `Var` and no generics
+exist, so elaboration only has to resolve names and attach `ParameterType`s. Then
+switch `ir::lower` to consume HIR (HIR → IR) instead of the AST. After this
+sub-plan the pipeline is `… → monomorph (string AST) → concrete AST → elaborate →
+concrete HIR → ir::lower → IR`. Lifting `elaborate` above monomorph, and moving
+monomorph itself onto HIR, are plan-102-D/E.
+
+See plan-102-A §3 for the full layering, the byte-identity gate, and the roadmap.
+This is the design-uncertainty concentration of the whole feature: standing HIR up
+on concrete code first is the cheapest experiment that falsifies the HIR node
+design before the harder generic case (D).
+
+References:
+
+- `src/ast/types.rs` — the AST node shapes HIR mirrors; note `state_type`/
+  `return_state_type` and `resource`/`return_resource` are already **separate**
+  fields (not baked into the type string), so HIR type fields carry the bare type.
+- `src/ir/lower.rs` — becomes HIR → IR (currently AST → IR).
+- `src/types.rs` — `ParameterType` (post-A: interned, complete).
+- `.ai/testing-gates.md`, `.ai/codegen-invariants.md`.
+
+## Prerequisites
+
+See plan-102-A §Prerequisites. Additionally:
+
+| Must be true | Command | Status |
+|---|---|---|
+| plan-102-B complete | IR type fields are `ParameterType` (`rg 'type_: String' src/ir/value.rs` → 0) | NOT MET until B lands |
+
+## 1. Goal
+
+- A HIR module (`src/hir/`) defining typed, name-resolved, tree-shaped nodes that
+  mirror the AST's structure but whose type fields are `ParameterType` (generic-
+  capable: `Var` is representable, though none occur on concrete input yet).
+- An `elaborate` pass that lowers the post-monomorph concrete AST to HIR: resolves
+  names and attaches the `ParameterType` for every typed node (via
+  `ParameterType::parse`, since the input is concrete).
+- `ir::lower` consumes HIR (HIR → IR); the AST → IR path is retired.
+
+### Non-goals (explicit constraints)
+
+- No change to compiled output — byte-identical `.ncode`/`.ncodesum`.
+- Do not move `elaborate` above monomorph and do not touch monomorph internals
+  (that is D/E). `elaborate` runs on the *concrete* AST in this sub-plan.
+- Do not yet relocate overload resolution or type checking into `elaborate` — those
+  still live in monomorph/resolver/syntaxcheck for now (D/F). `elaborate` here only
+  does name resolution + type attachment on already-resolved concrete code.
+
+## 2. Current State
+
+`ir::lower_augmented_project` consumes the post-monomorph concrete AST directly
+(`src/ir/lower.rs:140-141`). There is no intermediate typed layer; type attachment
+and any residual name work happen inline during lowering. The AST is string-typed
+and stays so (plan-102-A §3 rejected alternatives). The AST already separates the
+`RES`/`STATE` axes from the type string (verified: `src/ast/types.rs` —
+`state_type: Option<String>` `:477`, `return_state_type` `:536`, `resource: bool`
+`:475`, `return_resource: bool` `:534`), so HIR's typed fields carry the bare type
+with `RES`/`STATE` as sibling fields, exactly as the AST does.
+
+### Measured populations
+
+| What | Count | Command |
+|---|---|---|
+| `ir::lower_augmented_project` call sites (all become HIR-fed) | 5 | `rg -n 'lower_augmented_project' src/cli/build/mod.rs \| wc -l` |
+| AST node structs/enums (the shapes HIR must mirror) | 51 | `rg -c 'pub (struct\|enum) ' src/ast/types.rs` (plus `expr.rs`) |
+| `ir/lower.rs` size (rewrites its front half to read HIR) | 3825 | `wc -l src/ir/lower.rs` |
+
+Re-measure at kickoff: the exact count of AST type-bearing fields HIR must carry
+(the `type_name`/`return_type`/`element_type`/… sites across `ast/types.rs`,
+`ast/expr.rs`, `ast/stmt.rs`) — this sets the C split.
+
+### Verified properties
+
+- **The AST separates `RES`/`STATE` from the type string.** Read
+  `src/ast/types.rs:471-572`. So HIR type fields are the bare `ParameterType`, with
+  `resource`/`state_type` as separate fields — no need for `ParameterType` to model
+  `STATE`. VERIFIED.
+- **`elaborate` on concrete input never produces `Var`.** By construction the input
+  is post-monomorph (generics erased). So this sub-plan exercises the HIR/`elaborate`
+  machinery without the hard `Var`-classification problem — which is deferred to D.
+  VERIFIED by the pipeline order (`monomorph` precedes `ir::lower`,
+  `src/cli/build/mod.rs:332` before `:416`).
+
+## 3. Design Overview
+
+- **HIR nodes** (`src/hir/`): one typed node per AST node kind, same tree shape,
+  type fields `ParameterType`. Mirror the AST's `RES`/`STATE` sibling-field layout.
+  Keep source spans/lines for diagnostics.
+- **`elaborate(&AstProject) -> HirProject`**: a structural walk that resolves names
+  and attaches `ParameterType`s. On concrete input, type attachment is
+  `ParameterType::parse` of the AST's type string; name resolution mirrors whatever
+  `ir::lower` does inline today (extract it into `elaborate`).
+- **`ir::lower` becomes HIR → IR**: its front half (which read AST + strings) now
+  reads HIR + `ParameterType`; its back half (IR construction) is unchanged since
+  the IR is already typed (plan-102-B).
+
+**Split at kickoff.** Likely parts: C1 = HIR node module + `elaborate` skeleton
+producing HIR for a subset (decls only), validated by a HIR→AST render round-trip;
+C2 = full `elaborate` (statements + expressions); C3 = switch `ir::lower` to
+HIR→IR and delete the AST→IR path.
+
+### Rejected alternatives
+
+- **Skip HIR; type the AST.** Rejected in plan-102-A §3 (parser can't classify
+  `Var`; AST must hold invalid spellings).
+- **Make `elaborate` also resolve overloads/type-check now.** Rejected here to keep
+  C's uncertainty bounded to "is the HIR node shape right on concrete code"; the
+  overload/type-check relocation is D/F.
+
+## Compatibility / Format Impact
+
+None externally observable. HIR is internal; IR/wire format unchanged.
+
+## Phases
+
+> Re-measure and split into C1/C2/C3 at kickoff.
+
+### Phase 1 — HIR node module + `elaborate` skeleton (decls), round-trip validated
+
+- [ ] Add `src/hir/` node types mirroring `ast/types.rs` decls, type fields
+      `ParameterType`, `RES`/`STATE` as sibling fields.
+- [ ] `elaborate` handles top-level decls (types, functions, bindings) on concrete
+      AST.
+- [ ] Tests: a HIR→string render (debug) round-trips a corpus of concrete decls to
+      the same type spellings the AST held (`ParameterType::name()` equality).
+
+Acceptance: round-trip test passes; `cargo test` green (nothing wired into the
+build path yet).
+Commit: —
+
+### Phase 2 — full `elaborate` (statements + expressions)
+
+- [ ] Extend `elaborate` to statements and expressions (the `type_name`/
+      `element_type`/`key_type`/… sites; measure them first).
+- [ ] Tests: `elaborate` produces a complete HIR for every fixture without panics;
+      HIR type spellings match the AST's.
+
+Acceptance: `elaborate` covers the whole fixture corpus; `cargo test` green.
+Commit: —
+
+### Phase 3 — switch `ir::lower` to HIR → IR
+
+- [ ] Rewrite `ir::lower`'s front half to read HIR; wire `elaborate` into the build
+      after monomorph (`src/cli/build/mod.rs`, all 5 `lower_augmented_project` call
+      sites); delete the AST → IR path.
+- [ ] Tests: full suite.
+
+Acceptance: `artifact-gate all` no NEW diff vs the plan-102-A baseline; `cargo
+test` green; `test-accept` no NEW mismatch.
+Commit: —
+
+## Validation Plan
+
+- Tests: HIR round-trip (C1/C2), full IR/codegen/`rt-behavior` suite (C3).
+- Coverage check: `elaborate` and the HIR→IR path are exercised by every fixture
+  (all flow through the build path after C3).
+- Runtime proof: `artifact-gate all` byte-identical (modulo baseline).
+- Doc sync: add HIR to `.ai/codegen-invariants.md` / spec `architecture/` (the IR
+  chapter gains a preceding HIR chapter). Confirm with the spec-sync obligation in
+  `.ai/specifications.md`.
+- Acceptance: `cargo test`; `artifact-gate all`; `test-accept`; fmt both crates.
+
+## Open Decisions
+
+- **HIR as owned rebuild vs. AST parameterized over the type repr.** Recommend a
+  separate owned `src/hir/` module (an owned rebuild), not `Ast<T>` generics —
+  parameterizing the whole AST over the type representation is heavy in Rust and
+  couples the two layers. (§3)
+- **Does `elaborate` subsume the inline name work in `ir::lower`, or call the
+  existing resolver?** Recommend extracting the inline work into `elaborate` so
+  `ir::lower` becomes a pure HIR→IR structural lowering. (§3)
+
+## Corrections
+
+<Filled in during execution.>
+
+## Summary
+
+The design-uncertainty heart of the feature: it fixes the HIR node shape and the
+`elaborate` contract. Standing it up on concrete (no-`Var`) code first means the
+HIR design is proven byte-identically before the hard generic case (D) is
+attempted. If the HIR node shape is wrong, this is where it is cheapest to find out.
