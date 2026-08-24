@@ -924,9 +924,18 @@ mod tests {
             registry::rewrite_target("regex.findAll", &[]),
             Some("__regex_findAll")
         );
-        assert_eq!(registry::call_return_type("regex.match"), Some("Boolean"));
-        assert_eq!(registry::call_return_type("regex.find"), Some("Integer"));
-        assert_eq!(registry::call_return_type("regex.replace"), Some("String"));
+        assert_eq!(
+            registry::call_return_type("regex.match").as_deref(),
+            Some("Boolean")
+        );
+        assert_eq!(
+            registry::call_return_type("regex.find").as_deref(),
+            Some("Integer")
+        );
+        assert_eq!(
+            registry::call_return_type("regex.replace").as_deref(),
+            Some("String")
+        );
         // match takes exactly 2 args; find/findAll's trailing `start` is optional.
         assert_eq!(registry().arity("regex.match"), Some((2, 2)));
         assert_eq!(registry().arity("regex.find"), Some((2, 3)));

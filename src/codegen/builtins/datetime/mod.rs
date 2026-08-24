@@ -592,19 +592,17 @@ mod tests {
         assert_eq!(registry::call_param_names(DATE).unwrap().len(), 3);
         assert_eq!(
             registry::call_param_name_overloads(INSTANT),
-            Some(
-                &[
-                    &["seconds"][..],
-                    &["seconds", "nanos"][..],
-                    &["mins", "seconds", "nanos"][..],
-                    &["hours", "mins", "seconds", "nanos"][..],
-                    &["days", "hours", "mins", "seconds", "nanos"][..],
-                ][..]
-            )
+            Some(vec![
+                vec!["seconds"],
+                vec!["seconds", "nanos"],
+                vec!["mins", "seconds", "nanos"],
+                vec!["hours", "mins", "seconds", "nanos"],
+                vec!["days", "hours", "mins", "seconds", "nanos"],
+            ])
         );
         assert_eq!(
             registry::call_param_name_overloads(FIXED_OFFSET),
-            Some(&[&["offsetSeconds"][..], &["hours", "mins"][..]][..])
+            Some(vec![vec!["offsetSeconds"], vec!["hours", "mins"]])
         );
     }
 

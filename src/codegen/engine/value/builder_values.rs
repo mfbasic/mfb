@@ -1034,7 +1034,9 @@ impl CodeBuilder<'_> {
                     .get(target)
                     .map(|function| function.returns.clone())
                     .or_else(|| self.package_return_types.get(target).cloned())
-                    .or_else(|| builtins::call_return_type_name(target).map(str::to_string))
+                    .or_else(|| {
+                        builtins::call_return_type_name(target).map(std::borrow::Cow::into_owned)
+                    })
                     .ok_or_else(|| {
                         format!("native raw result call '{target}' has no return type")
                     })?;
@@ -2043,7 +2045,7 @@ impl CodeBuilder<'_> {
                     }
                 })
             })
-            .or_else(|| builtins::call_return_type_name(target).map(str::to_string))
+            .or_else(|| builtins::call_return_type_name(target).map(std::borrow::Cow::into_owned))
             // A migrated package's code-form/scope-drop close op (`audio.closeInput`,
             // `audio.closeOutput`, `tls.closeListener`) is an `os_alias`, not a
             // registry member, so `call_return_type_name` declines it; its return type

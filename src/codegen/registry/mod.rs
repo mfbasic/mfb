@@ -1740,9 +1740,7 @@ pub(crate) fn general_override_target(builtin: &str, arg_type: &str) -> Option<&
 /// [`ParameterType::Var`] (`collections::get AS T`) has no static nominal — its return
 /// is only known once the arguments are known — so this yields `None` for it, and the
 /// argument-aware [`resolve_call`] is used instead.
-/// This leaks, once migration is complete it goes away
-/// #[deprecated(note = "migrate registry().*")]
-pub(crate) fn call_return_type(qualified: &str) -> Option<&'static str> {
+pub(crate) fn call_return_type(qualified: &str) -> Option<Cow<'static, str>> {
     let return_type = &registry()
         .resolve_func(qualified)?
         .function
@@ -1754,10 +1752,7 @@ pub(crate) fn call_return_type(qualified: &str) -> Option<&'static str> {
         return None;
     }
 
-    Some(match return_type.name() {
-        Cow::Borrowed(s) => s,
-        Cow::Owned(s) => Box::leak(s.into_boxed_str()),
-    })
+    Some(return_type.name())
 }
 
 /// Whether a concrete leaf type is compatible with a *scalar or nominal* parameter
@@ -2115,27 +2110,11 @@ pub(crate) fn resolve_call(qualified: &str, arg_types: &[String], strict: bool) 
     })
 }
 
-/// The qualified close op that releases a migrated package's resource handle named
-/// `type_name` (`Process` → `process.__drop`), or `None` when no migrated package
-/// declares a resource of that name. The generic replacement for the per-package
-/// `resource_close_function` seams (`process::resource_close_function`).
-/// #[deprecated(note = "migrate registry().*")]
-pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
-    registry().packages().iter().find_map(|package| {
-        package
-            .resources()
-            .iter()
-            .find(|resource| resource.name == type_name)
-            .map(|resource| resource.close_function)
-    })
-}
-
 /// The internal symbol the migrated call `qualified` rewrites to at IR lowering, or
 /// `None`. Overload-aware: an arity-routed member (datetime's `instant`/`parse`, whose
 /// overloads rewrite to `__datetime_instant{N}`) carries a distinct rewrite target per
 /// overload, so the call's argument types select which one. A single-overload member
 /// resolves the same regardless of the arguments.
-/// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn rewrite_target(qualified: &str, arg_types: &[String]) -> Option<&'static str> {
     let function = registry().resolve_func(qualified)?.function;
     let call = CallShape {
@@ -2320,10 +2299,6 @@ fn function_has_unary_callback(function: &RegistryFunction) -> bool {
     })
 }
 
-/// The primary expected argument type (first parameter) of the migrated call
-/// `qualified`, or `None`.
-/// This leaks, once migration is complete it goes away
-/// #[deprecated(note = "migrate registry().*")]
 /// The **machine** argument-coercion table for a migrated call: each parameter's
 /// concrete type name in signature order (`json.getOr` → `["Json", "List OF String",
 /// "Json"]`). `None` for an overload set (>1 implementation — no single positional
@@ -2457,7 +2432,6 @@ fn overloads_disagree_on_layout(function: &RegistryFunction) -> bool {
 /// whose overloads disagree on position 0 ([`overloads_disagree_on_layout`]) yield
 /// `None` — a merged table would misbind (bug-349/bug-94) — and are normalized
 /// through [`call_param_name_overloads`].
-/// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn call_param_names(qualified: &str) -> Option<Vec<Vec<&'static str>>> {
     let function = &registry().resolve_func(qualified)?.function;
     if overloads_disagree_on_layout(function) {
@@ -2489,44 +2463,35 @@ pub(crate) fn call_param_names(qualified: &str) -> Option<Vec<Vec<&'static str>>
 /// overload's parameter names, in order (no aliases: these members declare none).
 /// Normalization selects the overload first, then binds names within it, so a
 /// front-dropping constructor's named arguments bind to the right slot. Replaces
-/// the per-package `call_param_name_overloads`.
-///
-/// This leaks the assembled table (like the other deprecated boundary helpers here)
-/// — bounded: only the three constructor families qualify, and only at a call site
-/// that mixes named arguments. It goes away once the keyword matcher reads the
-/// registry directly.
-/// #[deprecated(note = "migrate registry().*")]
-pub(crate) fn call_param_name_overloads(
-    qualified: &str,
-) -> Option<&'static [&'static [&'static str]]> {
+/// the per-package `call_param_name_overloads`. Only the three constructor families
+/// qualify, and only at a call site that mixes named arguments.
+pub(crate) fn call_param_name_overloads(qualified: &str) -> Option<Vec<Vec<&'static str>>> {
     let function = &registry().resolve_func(qualified)?.function;
     if !overloads_disagree_on_layout(function) {
         return None;
     }
-    let overloads: Vec<&'static [&'static str]> = function
-        .implementations
-        .iter()
-        .map(|implementation| {
-            let names: Vec<&'static str> = implementation
-                .params
-                .iter()
-                .map(|param| param.name)
-                .collect();
-            &*Box::leak(names.into_boxed_slice())
-        })
-        .collect();
-    Some(Box::leak(overloads.into_boxed_slice()))
+    Some(
+        function
+            .implementations
+            .iter()
+            .map(|implementation| {
+                implementation
+                    .params
+                    .iter()
+                    .map(|param| param.name)
+                    .collect()
+            })
+            .collect(),
+    )
 }
 
 /// The `(type, expr)` constants to append after `provided` real arguments so a
 /// migrated call's injected body receives its full arity — the `Fill` params past
 /// `provided`. Empty when no migrated package owns `qualified`.
-/// This leaks, once migration is complete it goes away
-/// #[deprecated(note = "migrate registry().*")]
 pub(crate) fn default_argument_padding(
     qualified: &str,
     provided: usize,
-) -> Vec<(&'static str, &'static str)> {
+) -> Vec<(String, &'static str)> {
     let Some(resolved) = registry().resolve_func(qualified) else {
         return Vec::new();
     };
@@ -2539,10 +2504,7 @@ pub(crate) fn default_argument_padding(
         .skip(provided)
         .filter_map(|param| match &param.default {
             DefaultValue::Fill { type_name, expr } => {
-                let name = match type_name.name() {
-                    Cow::Borrowed(s) => s,
-                    Cow::Owned(s) => Box::leak(s.into_boxed_str()),
-                };
+                let name = type_name.name().into_owned();
                 Some((name, *expr))
             }
             _ => None,

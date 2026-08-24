@@ -558,7 +558,7 @@ impl<'a> SyntaxChecker<'a> {
         // here, would fail the arity match for any parameterful member (e.g.
         // `term::setForeground`) and mis-report `Unknown`.
         match builtins::call_return_type_name(callee) {
-            Some(return_type) => self.parse_type(return_type),
+            Some(return_type) => self.parse_type(&return_type),
             None => Type::Unknown,
         }
     }
@@ -953,7 +953,7 @@ impl<'a> SyntaxChecker<'a> {
             return self.normalize_overloaded_builtin_call_arguments(
                 file,
                 display_callee,
-                overloads,
+                &overloads,
                 arguments,
                 line,
             );
@@ -1067,7 +1067,7 @@ impl<'a> SyntaxChecker<'a> {
         &mut self,
         file: &AstFile,
         display_callee: &str,
-        overloads: &[&[&str]],
+        overloads: &[Vec<&str>],
         arguments: &[CallArg],
         line: usize,
     ) -> Vec<Expression> {

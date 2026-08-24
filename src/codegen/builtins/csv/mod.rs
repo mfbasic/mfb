@@ -173,7 +173,7 @@ mod tests {
         assert!(registry().is_member("csv.parse"));
         assert!(!registry().is_member("csv.nope"));
         assert_eq!(
-            registry::call_return_type("csv.parse"),
+            registry::call_return_type("csv.parse").as_deref(),
             Some("List OF List OF String")
         );
         assert_eq!(

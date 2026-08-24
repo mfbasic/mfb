@@ -281,7 +281,7 @@ mod tests {
         assert!(!registry().is_member("encoding.nope"));
         // Fixed-return non-overloaded members have a static nominal return.
         assert_eq!(
-            registry::call_return_type("encoding.hexEncode"),
+            registry::call_return_type("encoding.hexEncode").as_deref(),
             Some("String")
         );
     }

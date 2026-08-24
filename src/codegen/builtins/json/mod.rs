@@ -293,8 +293,14 @@ mod tests {
             registry::rewrite_target("json.getOr", &[]),
             Some("__json_getOr")
         );
-        assert_eq!(registry::call_return_type("json.parse"), Some("Json"));
-        assert_eq!(registry::call_return_type("json.stringify"), Some("String"));
+        assert_eq!(
+            registry::call_return_type("json.parse").as_deref(),
+            Some("Json")
+        );
+        assert_eq!(
+            registry::call_return_type("json.stringify").as_deref(),
+            Some("String")
+        );
         assert_eq!(registry().arity("json.parse"), Some((1, 1)));
         assert_eq!(registry().arity("json.get"), Some((2, 2)));
         assert_eq!(registry().arity("json.getOr"), Some((3, 3)));

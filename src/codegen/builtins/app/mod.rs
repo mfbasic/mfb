@@ -125,16 +125,22 @@ mod tests {
         for name in [GET_MODE, SET_MODE] {
             assert_eq!(registry().owning_package(name), Some("app"), "{name}");
         }
-        assert_eq!(registry::call_return_type(GET_MODE), Some("Mode"));
-        assert_eq!(registry::call_return_type(SET_MODE), Some("Nothing"));
+        assert_eq!(
+            registry::call_return_type(GET_MODE).as_deref(),
+            Some("Mode")
+        );
+        assert_eq!(
+            registry::call_return_type(SET_MODE).as_deref(),
+            Some("Nothing")
+        );
     }
 
     #[test]
     fn members_are_os_seam_runtime_helpers() {
-        // Both members lower to a runtime helper (posix/win OS-seam slots), NOT an
-        // inline `common` lowering, so they carry a derived runtime spec and the
-        // inline-`TRAP` fallibility census (`native_member_declares_error`, which
-        // reports only for `common`-slot inline natives) declines them.
+        // Both members lower to a runtime helper (`Body::abi_function`), NOT an
+        // inline lowering, so they carry a derived runtime spec and the inline-`TRAP`
+        // fallibility census (`native_member_declares_error`, which reports only for
+        // `abi_inline` inline natives) declines them.
         assert_eq!(registry::native_member_declares_error(GET_MODE), None);
         assert_eq!(registry::native_member_declares_error(SET_MODE), None);
         // Neither member declares an error — the mode machinery is total.

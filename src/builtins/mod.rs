@@ -332,12 +332,12 @@ pub(crate) fn resolve_call_return_type(
 /// (`audio` device opens / timed I/O, `tls.closeListener`) are not descriptor
 /// functions, so IR lowering's queries for their rewritten targets fall back to
 /// those two packages' explicit internal-name maps.
-pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
+pub(crate) fn call_return_type_name(name: &str) -> Option<std::borrow::Cow<'static, str>> {
     // `general` (bare-named) is disjoint from every qualified member. Only the six
     // numeric narrowing conversions carry a static nominal return; every other general
     // call is `Custom` and yields `None`, reproducing the legacy fast-oracle exactly.
     if general::is_general_call(name) {
-        return general::nominal_return_type(name);
+        return general::nominal_return_type(name).map(std::borrow::Cow::Borrowed);
     }
     // `vector` members have an ARGUMENT-dependent return type (`length(Float3) AS
     // Float`, `length(Integer3) AS Integer`) with no static nominal — the pre-migration
@@ -442,18 +442,6 @@ pub(crate) fn argument_types(callee: &str) -> Option<Vec<String>> {
         return None;
     }
     Some(params)
-}
-
-/// The `(type, value)` constants to append after the `provided` real arguments so
-/// a fixed-ABI runtime helper always receives every parameter. Every default-padding
-/// package (`tls`/`regex`/`crypto`/`http`/`datetime`) has now migrated onto the
-/// clean-room registry, whose `Fill` trailing params drive `registry::default_argument_padding`
-/// — consulted first by the caller — so no legacy package owns any padding here.
-pub(crate) fn default_argument_padding(
-    _callee: &str,
-    _provided: usize,
-) -> &'static [(&'static str, &'static str)] {
-    &[]
 }
 
 /// Whether a type name is a generic placeholder (`T`/`K`/`V` bare or inside a
@@ -617,7 +605,7 @@ pub(crate) fn split_func_params_and_return(rest: &str) -> Option<(Vec<&str>, &st
 /// sits, listed one overload at a time. A builtin with such a table is normalized
 /// by selecting the overload first, then binding names within it; every other
 /// builtin uses the merged per-position table of [`call_param_names`].
-pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static [&'static str]]> {
+pub(crate) fn call_param_name_overloads(name: &str) -> Option<Vec<Vec<&'static str>>> {
     // datetime's front-dropping constructors (instant/duration/fixedOffset) are served by
     // the generic registry, which derives the per-overload table from each
     // implementation's parameters. Every package that carried an overload-disagreeing
@@ -633,19 +621,22 @@ pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static
 /// filled. Both the type checker and IR lowering resolve named arguments through
 /// this, so they cannot disagree about which parameter a name binds to.
 pub(crate) fn select_param_name_overload<'a>(
-    overloads: &'a [&'a [&'a str]],
+    overloads: &'a [Vec<&'a str>],
     positional_count: usize,
     names: &[&str],
 ) -> Option<&'a [&'a str]> {
-    overloads.iter().copied().find(|params| {
-        params.len() == positional_count + names.len()
-            && names.iter().all(|name| {
-                params
-                    .iter()
-                    .position(|param| param == name)
-                    .is_some_and(|index| index >= positional_count)
-            })
-    })
+    overloads
+        .iter()
+        .find(|params| {
+            params.len() == positional_count + names.len()
+                && names.iter().all(|name| {
+                    params
+                        .iter()
+                        .position(|param| param == name)
+                        .is_some_and(|index| index >= positional_count)
+                })
+        })
+        .map(|params| params.as_slice())
 }
 
 pub(crate) fn call_param_names(name: &str) -> Option<Vec<Vec<&'static str>>> {
@@ -746,7 +737,7 @@ mod tests {
                 call_param_names(&name).is_none(),
                 "`{name}` declares both a merged and a per-overload param table"
             );
-            for params in overloads {
+            for params in &overloads {
                 for (index, param) in params.iter().enumerate() {
                     assert!(
                         !params[..index].contains(param),
@@ -1081,10 +1072,13 @@ mod tests {
     #[test]
     fn call_return_type_name_aggregates() {
         // general
-        assert_eq!(call_return_type_name("toInt"), Some("Integer"));
+        assert_eq!(call_return_type_name("toInt").as_deref(), Some("Integer"));
         // strings::find contributes a return type through the aggregate.
-        assert_eq!(call_return_type_name("strings.find"), Some("Integer"));
-        assert_eq!(call_return_type_name("nope"), None);
+        assert_eq!(
+            call_return_type_name("strings.find").as_deref(),
+            Some("Integer")
+        );
+        assert_eq!(call_return_type_name("nope").as_deref(), None);
     }
 
     #[test]

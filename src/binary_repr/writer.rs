@@ -418,7 +418,9 @@ pub(super) fn value_uses_resource_type(value: &IrValue) -> bool {
         | IrValue::SetLiteral { type_, .. }
         | IrValue::MapLiteral { type_, .. } => is_resource_type_name(type_),
         IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
-            builtins::call_return_type_name(target).is_some_and(is_resource_type_name)
+            builtins::call_return_type_name(target)
+                .as_deref()
+                .is_some_and(is_resource_type_name)
                 || args.iter().any(value_uses_resource_type)
         }
         IrValue::UnionWrap { value, .. }
@@ -564,7 +566,7 @@ pub(super) fn collect_resource_names_in_value(
         | IrValue::MapLiteral { type_, .. } => record(type_, names),
         IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
             if let Some(returns) = builtins::call_return_type_name(target) {
-                record(returns, names);
+                record(&returns, names);
             }
             for arg in args {
                 collect_resource_names_in_value(arg, names, record);

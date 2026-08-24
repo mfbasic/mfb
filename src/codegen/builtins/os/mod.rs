@@ -139,21 +139,36 @@ mod tests {
         // Native members carry no rewrite target (they lower through Body::abi_function).
         assert_eq!(registry::rewrite_target("os.getEnv", &[]), None);
         // Fixed per-name return types.
-        assert_eq!(registry::call_return_type("os.getEnv"), Some("String"));
-        assert_eq!(registry::call_return_type("os.hasEnv"), Some("Boolean"));
-        assert_eq!(registry::call_return_type("os.setEnv"), Some("Nothing"));
-        assert_eq!(registry::call_return_type("os.pid"), Some("Integer"));
-        assert_eq!(registry::call_return_type("os.cpuCount"), Some("Integer"));
         assert_eq!(
-            registry::call_return_type("os.environ"),
+            registry::call_return_type("os.getEnv").as_deref(),
+            Some("String")
+        );
+        assert_eq!(
+            registry::call_return_type("os.hasEnv").as_deref(),
+            Some("Boolean")
+        );
+        assert_eq!(
+            registry::call_return_type("os.setEnv").as_deref(),
+            Some("Nothing")
+        );
+        assert_eq!(
+            registry::call_return_type("os.pid").as_deref(),
+            Some("Integer")
+        );
+        assert_eq!(
+            registry::call_return_type("os.cpuCount").as_deref(),
+            Some("Integer")
+        );
+        assert_eq!(
+            registry::call_return_type("os.environ").as_deref(),
             Some("Map OF String TO String")
         );
         assert_eq!(
-            registry::call_return_type("os.args"),
+            registry::call_return_type("os.args").as_deref(),
             Some("List OF String")
         );
         assert_eq!(
-            registry::call_return_type("os.resourcePath"),
+            registry::call_return_type("os.resourcePath").as_deref(),
             Some("String")
         );
     }
@@ -184,7 +199,7 @@ mod tests {
 
     #[test]
     fn os_owns_no_resource() {
-        assert_eq!(registry::resource_close_function("os"), None);
+        assert_eq!(crate::builtins::resource_close_function("os"), None);
         assert!(registry()
             .resolve_package("os")
             .expect("os")

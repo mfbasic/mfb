@@ -185,7 +185,7 @@ pub(crate) fn register(r: &mut Registry) {
 
     // The opaque `Process` resource handle. Semantic-only (no injectable source):
     // it makes `registry().qualified_builtin_type("process.Process")` and
-    // `registry::resource_close_function("Process")` answer generically, replacing
+    // `builtins::resource_close_function("Process")` answer generically, replacing
     // the deleted per-package `is_builtin_type`/`resource_close_function` seams. The
     // `close_function` is the internal `__drop` scope-drop op (SIGKILL + waitpid); a
     // `Process` is released automatically by lexical scope, not a public `close`.
@@ -249,22 +249,28 @@ mod tests {
         // Native members carry no rewrite target (they lower through Body::abi_function).
         assert_eq!(registry::rewrite_target("process.spawn", &[]), None);
         // Fixed per-name return types.
-        assert_eq!(registry::call_return_type("process.pid"), Some("Integer"));
         assert_eq!(
-            registry::call_return_type("process.isRunning"),
+            registry::call_return_type("process.pid").as_deref(),
+            Some("Integer")
+        );
+        assert_eq!(
+            registry::call_return_type("process.isRunning").as_deref(),
             Some("Boolean")
         );
-        assert_eq!(registry::call_return_type("process.close"), Some("Nothing"));
         assert_eq!(
-            registry::call_return_type("process.spawn"),
+            registry::call_return_type("process.close").as_deref(),
+            Some("Nothing")
+        );
+        assert_eq!(
+            registry::call_return_type("process.spawn").as_deref(),
             Some("process.Process")
         );
         assert_eq!(
-            registry::call_return_type("process.receive"),
+            registry::call_return_type("process.receive").as_deref(),
             Some("String")
         );
         assert_eq!(
-            registry::call_return_type("process.didSignal"),
+            registry::call_return_type("process.didSignal").as_deref(),
             Some("Signal")
         );
         // Arity ranges: spawn's two structurally distinct overloads (1 and 4 args),
@@ -328,10 +334,10 @@ mod tests {
     #[test]
     fn process_close_op_is_drop() {
         assert_eq!(
-            registry::resource_close_function(super::PROCESS_TYPE),
+            crate::builtins::resource_close_function(super::PROCESS_TYPE_ID),
             Some(super::DROP)
         );
-        assert_eq!(registry::resource_close_function("Nothing"), None);
+        assert_eq!(crate::builtins::resource_close_function("Nothing"), None);
     }
 
     #[test]

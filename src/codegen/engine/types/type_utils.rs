@@ -57,7 +57,7 @@ pub(crate) fn static_nir_value_type(
                 }
                 _ => None,
             }
-            .or_else(|| builtins::call_return_type_name(target).map(str::to_string))
+            .or_else(|| builtins::call_return_type_name(target).map(std::borrow::Cow::into_owned))
         }
         NirValue::ResultIsOk { .. } => Some("Boolean".to_string()),
         NirValue::ResultValue { value } => static_nir_value_type(value, locals, fields)

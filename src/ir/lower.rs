@@ -2124,7 +2124,7 @@ fn expression_type(
                 return builtins::resolve_call_return_type(&canonical_callee, &arg_types, false);
             }
             builtins::call_return_type_name(&canonical_callee)
-                .map(str::to_string)
+                .map(std::borrow::Cow::into_owned)
                 .or_else(|| context.function_returns.get(callee).cloned())
                 .or_else(|| context.function_returns.get(&canonical_callee).cloned())
                 .or_else(|| {
@@ -2295,7 +2295,7 @@ fn normalize_builtin_call_arguments<'a>(
     // A builtin whose overloads place a name at different positions selects the
     // overload first; the type checker has already proven one exists.
     if let Some(overloads) = builtins::call_param_name_overloads(callee) {
-        return normalize_overloaded_builtin_call_arguments(overloads, arguments);
+        return normalize_overloaded_builtin_call_arguments(&overloads, arguments);
     }
     let Some(param_names) = builtins::call_param_names(callee) else {
         return arguments.iter().map(call_arg_value).collect();
@@ -2336,7 +2336,7 @@ fn normalize_builtin_call_arguments<'a>(
 /// name binds to. An unresolvable call was already rejected by the type checker;
 /// keep its source order so lowering has something well-formed to walk.
 fn normalize_overloaded_builtin_call_arguments<'a>(
-    overloads: &[&[&str]],
+    overloads: &[Vec<&str>],
     arguments: &'a [CallArg],
 ) -> Vec<&'a Expression> {
     let positionals: Vec<&Expression> = arguments
@@ -2798,28 +2798,23 @@ fn lower_expression_with_expected(
                     value: " ".to_string(),
                 });
             }
-            // Migrated (clean-room registry) packages first, else the old tables.
-            let clean_room_pad =
+            // The `Fill` trailing params of a migrated (clean-room registry) call.
+            let padding =
                 crate::codegen::registry::default_argument_padding(&canonical_callee, args.len());
-            let padding: Vec<(&str, &str)> = if clean_room_pad.is_empty() {
-                builtins::default_argument_padding(&canonical_callee, args.len()).to_vec()
-            } else {
-                clean_room_pad
-            };
             for (type_, value) in &padding {
                 if type_.starts_with("List OF ") {
                     args.push(IrValue::ListLiteral {
-                        type_: (*type_).to_string(),
+                        type_: type_.clone(),
                         values: Vec::new(),
                     });
                 } else if parse_map_type(type_).is_some() {
                     args.push(IrValue::MapLiteral {
-                        type_: (*type_).to_string(),
+                        type_: type_.clone(),
                         entries: Vec::new(),
                     });
                 } else {
                     args.push(IrValue::Const {
-                        type_: (*type_).to_string(),
+                        type_: type_.clone(),
                         value: (*value).to_string(),
                     });
                 }

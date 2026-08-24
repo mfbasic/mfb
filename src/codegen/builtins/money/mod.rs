@@ -127,9 +127,15 @@ mod tests {
                 "{name} should have a Body::abi_inline lowering"
             );
         }
-        assert_eq!(registry::call_return_type(SET_ROUNDING), Some("Nothing"));
-        assert_eq!(registry::call_return_type(GET_ROUNDING), Some("Rounding"));
-        assert_eq!(registry::call_return_type(ROUND), Some("Money"));
+        assert_eq!(
+            registry::call_return_type(SET_ROUNDING).as_deref(),
+            Some("Nothing")
+        );
+        assert_eq!(
+            registry::call_return_type(GET_ROUNDING).as_deref(),
+            Some("Rounding")
+        );
+        assert_eq!(registry::call_return_type(ROUND).as_deref(), Some("Money"));
     }
 
     #[test]
