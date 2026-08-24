@@ -128,7 +128,10 @@ pub(crate) fn lower_write(
         abi::subtract_registers(abi::c_arg(2), &v10, &v9),
         abi::load_u64(&v8, abi::stack_pointer(), FN2_OFF),
         abi::branch_link_register(&v8),
-        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        // bug-452: the libasound result is in the C-return bank (`rax`), not the
+        // aligned bank (`rdi`); a raw `blr` is unstaged on x86-64 SysV. Sign-extend
+        // from `c_return(0)` into `return_register()` (byte-identical on AArch64).
+        abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFF),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge(&ok_frames),
@@ -155,7 +158,10 @@ pub(crate) fn lower_write(
         abi::move_immediate(abi::c_arg(2), "Integer", "1"),
         abi::load_u64(&v8, abi::stack_pointer(), FNPTR_OFF),
         abi::branch_link_register(&v8),
-        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        // bug-452: the libasound result is in the C-return bank (`rax`), not the
+        // aligned bank (`rdi`); a raw `blr` is unstaged on x86-64 SysV. Sign-extend
+        // from `c_return(0)` into `return_register()` (byte-identical on AArch64).
+        abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&dev_fail),
         abi::branch(&loop_top),
@@ -428,7 +434,10 @@ pub(crate) fn lower_read(
             abi::move_register(abi::c_arg(1), &v13),
             abi::load_u64(&v8, abi::stack_pointer(), WAIT_FN_OFF),
             abi::branch_link_register(&v8),
-            abi::sign_extend_word(abi::return_register(), abi::return_register()),
+            // bug-452: the libasound result is in the C-return bank (`rax`), not the
+            // aligned bank (`rdi`); a raw `blr` is unstaged on x86-64 SysV. Sign-extend
+            // from `c_return(0)` into `return_register()` (byte-identical on AArch64).
+            abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
             abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFF),
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_eq(&loop_done), // timeout -> partial
@@ -438,7 +447,10 @@ pub(crate) fn lower_read(
             abi::load_u64(abi::return_register(), &v11, S_OSOBJECT),
             abi::load_u64(&v8, abi::stack_pointer(), AVAIL_FN_OFF),
             abi::branch_link_register(&v8),
-            abi::sign_extend_word(abi::return_register(), abi::return_register()),
+            // bug-452: the libasound result is in the C-return bank (`rax`), not the
+            // aligned bank (`rdi`); a raw `blr` is unstaged on x86-64 SysV. Sign-extend
+            // from `c_return(0)` into `return_register()` (byte-identical on AArch64).
+            abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
             abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFF),
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_lt(&recover), // avail error -> recover
@@ -474,7 +486,10 @@ pub(crate) fn lower_read(
     instructions.extend([
         abi::load_u64(&v8, abi::stack_pointer(), FN2_OFF),
         abi::branch_link_register(&v8),
-        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        // bug-452: the libasound result is in the C-return bank (`rax`), not the
+        // aligned bank (`rdi`); a raw `blr` is unstaged on x86-64 SysV. Sign-extend
+        // from `c_return(0)` into `return_register()` (byte-identical on AArch64).
+        abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), N_OFF),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge(&ok_frames),
@@ -499,7 +514,10 @@ pub(crate) fn lower_read(
         abi::move_immediate(abi::c_arg(2), "Integer", "1"),
         abi::load_u64(&v8, abi::stack_pointer(), FNPTR_OFF),
         abi::branch_link_register(&v8),
-        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        // bug-452: the libasound result is in the C-return bank (`rax`), not the
+        // aligned bank (`rdi`); a raw `blr` is unstaged on x86-64 SysV. Sign-extend
+        // from `c_return(0)` into `return_register()` (byte-identical on AArch64).
+        abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&dev_fail),
         abi::branch(&loop_top),
@@ -519,7 +537,10 @@ pub(crate) fn lower_read(
             abi::load_u64(abi::return_register(), &v11, S_OSOBJECT),
             abi::load_u64(&v8, abi::stack_pointer(), AVAIL_FN_OFF),
             abi::branch_link_register(&v8),
-            abi::sign_extend_word(abi::return_register(), abi::return_register()),
+            // bug-452: the libasound result is in the C-return bank (`rax`), not the
+            // aligned bank (`rdi`); a raw `blr` is unstaged on x86-64 SysV. Sign-extend
+            // from `c_return(0)` into `return_register()` (byte-identical on AArch64).
+            abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_le(&loop_done),
             // want = min(avail, frames - got); a zero want -> partial.
@@ -545,7 +566,10 @@ pub(crate) fn lower_read(
             abi::load_u64(abi::c_arg(2), abi::stack_pointer(), WANT_OFF),
             abi::load_u64(&v8, abi::stack_pointer(), FN2_OFF),
             abi::branch_link_register(&v8),
-            abi::sign_extend_word(abi::return_register(), abi::return_register()),
+            // bug-452: the libasound result is in the C-return bank (`rax`), not the
+            // aligned bank (`rdi`); a raw `blr` is unstaged on x86-64 SysV. Sign-extend
+            // from `c_return(0)` into `return_register()` (byte-identical on AArch64).
+            abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_lt(&loop_done), // readi error at expiry -> return partial
             // got += n

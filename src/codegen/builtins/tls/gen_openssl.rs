@@ -443,7 +443,7 @@ pub(crate) fn lower_tls_connect_openssl(
     instructions.extend([
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), CTX_OFFSET),
     ]);
     // ctx = SSL_CTX_new(method)
     emit_dlsym(
@@ -463,9 +463,9 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
-        abi::compare_immediate(abi::return_register(), "0"),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_eq(&tls_fail),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), CTX_OFFSET),
     ]);
     // SSL_CTX_set_default_verify_paths(ctx) -- best effort, ignore result.
     emit_dlsym(
@@ -504,9 +504,9 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
-        abi::compare_immediate(abi::return_register(), "0"),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_eq(&tls_fail),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), SSL_OFFSET),
     ]);
     // SSL_set_fd(ssl, fd)
     emit_dlsym(
@@ -527,7 +527,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), FD_OFFSET),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
-        abi::compare_immediate(abi::return_register(), "1"),
+        abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_ne(&tls_fail),
     ]);
     // SSL_set_verify(ssl, SSL_VERIFY_PEER, NULL)
@@ -575,7 +575,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), SNICSTR_OFFSET),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
-        abi::compare_immediate(abi::return_register(), "1"),
+        abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_ne(&tls_fail),
     ]);
     // SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, TLSEXT_NAMETYPE_host_name, sniCstr) -- SNI
@@ -609,7 +609,7 @@ pub(crate) fn lower_tls_connect_openssl(
         // Require the TLS 1.2 floor to have been set (returns 1 on success),
         // matching the checked SSL_set1_host / SSL_connect / verify-result calls
         // — an unchecked failure would silently permit a downgrade (bug-55).
-        abi::compare_immediate(abi::return_register(), "1"),
+        abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_ne(&tls_fail),
     ]);
     // r = SSL_connect(ssl); require 1.
@@ -631,7 +631,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
-        abi::compare_immediate(abi::return_register(), "1"),
+        abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_eq(&hs_connected),
     ]);
     // plan-73-D: SSL_connect failed. If the handshake recv hit the SO_RCVTIMEO we
@@ -671,7 +671,7 @@ pub(crate) fn lower_tls_connect_openssl(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
-        abi::compare_immediate(abi::return_register(), "0"),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_ne(&tls_fail),
     ]);
     // Handshake done: clear SO_*TIMEO (zero timeval) so read/write are unbounded.
@@ -1260,7 +1260,7 @@ pub(crate) fn lower_tls_listen_openssl(
     instructions.extend([
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), CTX_OFFSET),
     ]);
     // ctx = SSL_CTX_new(method)
     emit_dlsym(
@@ -1280,9 +1280,9 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
-        abi::compare_immediate(abi::return_register(), "0"),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_eq(&tls_fail_fd),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), CTX_OFFSET),
     ]);
     // SSL_CTX_ctrl(ctx, SSL_CTRL_SET_MIN_PROTO_VERSION, TLS1_2_VERSION, NULL)
     emit_dlsym(
@@ -1309,7 +1309,7 @@ pub(crate) fn lower_tls_listen_openssl(
         // matching the checked identity-loading calls below; ctx_fail frees the
         // context and closes the fd — an unchecked failure would silently permit
         // a downgrade (bug-55).
-        abi::compare_immediate(abi::return_register(), "1"),
+        abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_ne(&ctx_fail),
     ]);
     // SSL_CTX_use_certificate_chain_file(ctx, certCstr) == 1
@@ -1331,7 +1331,7 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), CERTCSTR_OFFSET),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
-        abi::compare_immediate(abi::return_register(), "1"),
+        abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_ne(&ctx_fail),
     ]);
     // SSL_CTX_use_PrivateKey_file(ctx, keyCstr, SSL_FILETYPE_PEM = 1) == 1
@@ -1354,7 +1354,7 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::move_immediate(abi::c_arg(2), "Integer", "1"),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
-        abi::compare_immediate(abi::return_register(), "1"),
+        abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_ne(&ctx_fail),
     ]);
     // SSL_CTX_check_private_key(ctx) == 1
@@ -1375,7 +1375,7 @@ pub(crate) fn lower_tls_listen_openssl(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
-        abi::compare_immediate(abi::return_register(), "1"),
+        abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_ne(&ctx_fail),
     ]);
     // Build the TlsListener record: canonical header { tag, fd, closed=0, STATE=0 }
@@ -1691,9 +1691,9 @@ pub(crate) fn lower_tls_accept_openssl(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
-        abi::compare_immediate(abi::return_register(), "0"),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_eq(&tls_fail_conn),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
+        abi::store_u64(abi::c_return(0), abi::stack_pointer(), SSL_OFFSET),
     ]);
     // SSL_set_fd(ssl, connfd)
     emit_dlsym(
@@ -1714,7 +1714,7 @@ pub(crate) fn lower_tls_accept_openssl(
         abi::load_u64(abi::c_arg(1), abi::stack_pointer(), CONNFD_OFFSET),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
-        abi::compare_immediate(abi::return_register(), "1"),
+        abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_ne(&ssl_fail),
     ]);
     // Bound the blocking server handshake by timeoutMs (SO_RCVTIMEO/SO_SNDTIMEO on
@@ -1776,7 +1776,7 @@ pub(crate) fn lower_tls_accept_openssl(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
-        abi::compare_immediate(abi::return_register(), "1"),
+        abi::compare_immediate(abi::c_return(0), "1"),
         abi::branch_eq(&asc_ok),
     ]);
     // plan-73-D: SSL_accept failed — an SO_RCVTIMEO expiry (errno EWOULDBLOCK/EAGAIN)
@@ -2074,7 +2074,7 @@ pub(crate) fn lower_tls_read_openssl(
         abi::branch_link_register(&v9),
         // SSL_read returns a C int; sign-extend before the signed 0/<0 tests so a
         // -1 error isn't read as a large positive byte count (bug-102).
-        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&peer_closed),
         abi::branch_lt(&read_fail),
@@ -2328,7 +2328,7 @@ pub(crate) fn lower_tls_poll_openssl(
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
         // SSL_pending returns a C int count; sign-extend before the signed compare.
-        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_gt(&ready),
         // No buffered bytes: poll the raw fd (reloaded from its stack slot, since the
@@ -2518,7 +2518,7 @@ pub(crate) fn lower_tls_write_openssl(
         abi::load_u64(&v9, abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register(&v9),
         // SSL_write returns a C int; sign-extend before the signed <=0 test (bug-102).
-        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::sign_extend_word(abi::return_register(), abi::c_return(0)),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_le(&write_fail),
         abi::load_u64(&v11, abi::stack_pointer(), SRC_OFFSET),
