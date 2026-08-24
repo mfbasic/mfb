@@ -108,11 +108,27 @@ hack" whose format is a silent coupling (`Compiler Pipeline.md:58`).
 
 - **The `.mfp` decode already yields structured export data** (names, param
   lists, return types as stored strings) — the driver *flattens* it to
-  `FUNC(…) AS …` strings and then re-derives structure. Read
-  `external_package_function_types`'s body before designing the struct: the
-  typed form is what the decode already has in hand, parsed once. UNVERIFIED in
-  detail (exact decode fields) — Phase 1's first task is reading the three
-  helpers + the decode they consume and recording the field inventory here.
+  `FUNC(…) AS …` strings and then re-derives structure. VERIFIED 2026-08-24 by
+  reading the three helpers and the decode they consume. Field inventory
+  (`src/binary_repr/mod.rs`):
+
+  | Decode struct | Fields | Read by |
+  |---|---|---|
+  | `BinaryReprExport` | `name: String`, `kind: BinaryReprExportKind`, `isolated: bool`, `params: Vec<BinaryReprExportParam>`, `return_type: String` | `external_package_function_types*` |
+  | `BinaryReprExportParam` | `name: String`, `type_: String`, `has_default: bool` | same |
+  | `BinaryReprTypeExport` | `name`, `kind`, `fields`, `variants`, `members`, `foreign_owner` | `imported_type_defs*` |
+  | `BinaryReprResourceExport` | `type_name: String`, `close_function: Option<String>`, `sendable`, `close_may_fail`, `native` | `imported_resource_closers` |
+  | container header (`read_mfp_header`) | `name`, `version`, … | all three (for the `pkg.` qualifier) |
+
+  Two facts the design turns on:
+  1. `isolated` and `has_default` are the ONLY export fields the signature
+     string could not carry structurally; `isolated` is what the `ISOLATED `
+     prefix encoded, and `has_default` was already dropped on the floor by the
+     old plumbing (`CallParam { default: None }` — `ir/lower.rs`).
+  2. The three helpers each called `read_package_binary_repr` separately, so
+     every dependency `.mfp` was read off disk and fully decoded **three times**
+     per build (four counting `read_mfp_header`). Phase 2 collapses that to one
+     decode per file via `binary_repr::BinaryReprPackageDecode`.
 
 ## 3. Design Overview
 
@@ -164,36 +180,76 @@ None. `.mfp` bytes unchanged; `.ir`/`.nir` dumps unchanged; no CLI surface.
 
 ### Phase 1 — decode-boundary inventory + typed struct
 
-- [ ] Read the three lockstep helpers and the `.mfp` decode they consume;
+- [x] Read the three lockstep helpers and the `.mfp` decode they consume;
       record the exact field inventory in §2 (replacing the UNVERIFIED note).
-- [ ] Add `ExternalSignature` (+ `ExternalParam`) where the decode lives;
+- [x] Add `ExternalSignature` (+ `ExternalParam`) where the decode lives;
       build it parse-once from the stored strings; unit-test round-trip against
       a fixture package's known exports.
+      — `ir::ExternalSignature { params: Vec<ExternalFunctionParam>, returns:
+      ParameterType, isolated: bool }` in `src/ir/types.rs`, built by
+      `manifest::package::package_export_signature`. `ExternalParam` was NOT
+      added: `ir::ExternalFunctionParam` already is that struct, so the sketch's
+      second type would have been a duplicate (see Corrections).
+      Round-trip unit: `package_export_signature_round_trips_every_export_shape`
+      (15 export shapes incl. STATE returns, `RES`, nested containers,
+      higher-order params, `ISOLATED`, thread handles, user generics) asserts
+      `signature_type().name()` equals the hand-formatted spelling exactly.
 
-Acceptance: unit tests pass; `cargo test --no-fail-fast` green (struct not yet
-consumed — no golden movement).
-Commit: —
+Acceptance: MET — `cargo test --no-fail-fast` green (61/61 non-gate suites `ok`;
+the `golden.rs` gate suite was blocked by a peer session's artifact-gate lock and
+was run standalone, see Phase 2).
+Commit: 4a2ea52d3
 
 ### Phase 2 — thread it; delete the round-trip and the splitters
 
-- [ ] Replace the 9 `HashMap<String, String>` threading sites with the typed
+- [x] Replace the 9 `HashMap<String, String>` threading sites with the typed
       map (`cli/build/mod.rs`, all 5 `lower_augmented_project` call sites,
       `lower_project_with_external_functions`).
-- [ ] Replace the `:411` filter with structural reads; delete
-      `rsplit_once(" AS ")`.
-- [ ] Delete `function_return_from_type` / `function_param_types_from_type`
-      from `ir/lower.rs`.
-- [ ] Re-derive `imported_type_defs` / `imported_resource_closers` from the
+      — The two parallel maps (`external_function_types` +
+      `external_function_params`) collapse to ONE `HashMap<String,
+      ExternalSignature>`, so the 9 sites become 5 (one per call site) plus the
+      2 function signatures. `src/testutil.rs:70` was a 10th site the plan's
+      count missed (see Corrections).
+- [x] Replace the `:411` filter with structural reads; delete
+      `rsplit_once(" AS ")`. — `returns_imported_resource` now reads
+      `signature.returns` directly; `grep -rn 'rsplit_once(" AS ")' src/` → 0
+      live hits (2 doc-comment mentions of the deleted hack remain, by design).
+- [x] Delete `function_return_from_type` / `function_param_types_from_type`
+      from `ir/lower.rs`. — Deleted **as hand-parsers**: their `strip_prefix`
+      cascades are gone, replaced by one `declared_func_parts` helper that
+      matches `ParameterType::parse`'s `Func` arm. The plan's premise that
+      "their input no longer exists" was FALSE — 3 of their 4 call sites read
+      *local/global binding* type strings, not external signatures (see
+      Corrections). This also fixed a latent bug in both.
+- [x] Re-derive `imported_type_defs` / `imported_resource_closers` from the
       same decode pass; delete their independent string derivations.
-- [ ] Tests: existing package-import integration suites; fixtures constructing
-      the old string maps updated to the struct.
+      — New `binary_repr::BinaryReprPackageDecode`: one
+      `read_package_binary_repr` per `.mfp`, with `name()`/`exports()`/
+      `type_exports()`/`resources()` read off it. Each accessor still returns a
+      `Result`, preserving today's per-section lossiness exactly.
+      `read_mfp_header` is no longer called by any of the three (the manifest
+      name comes off the same decode, and the container↔manifest identity check
+      guarantees it is the same string).
+- [x] Tests: existing package-import integration suites; fixtures constructing
+      the old string maps updated to the struct (`src/ir/tests.rs` ×5,
+      `src/manifest/package.rs` ×5, `src/testutil.rs` ×1).
 
-Acceptance: `cargo test --no-fail-fast` green; `artifact-gate all` no NEW diff
-vs `planning/plan-105-baseline-diffs.txt`; `rg -n 'rsplit_once\(" AS "\)' src/`
-→ 0 hits; **no-backward check**: `rg -n '"FUNC\(' src/cli/build/` shows no
-signature-string *construction* remaining on the driver path (the review's
-round-trip is gone in both directions).
-Commit: —
+Acceptance: MET (2026-08-24).
+- `rustup run 1.96.0 cargo test --no-fail-fast` → 61 suites `ok`, 0 `FAILED`
+  (the `golden.rs` suite aborted on a peer session's artifact-gate lock —
+  "Another artifact-gate (pid 82196) is running" — and was run standalone below).
+- `scripts/artifact-gate.sh target/release/mfb all` → **1249 tests, 1396
+  build(s), 1718 golden(s) checked, 0 diff(s)** — byte-identical to
+  `planning/plan-105-baseline-diffs.txt`. No NEW diff.
+- `scripts/test-accept.sh target/release/mfb /tmp/accept-p105` → 2 mismatches
+  over 1193 tests: exactly the documented pre-existing pair (the 5 stdin-EOF
+  `io` sub-tests, and the `project_name` truncated-path harness bug). No NEW
+  mismatch.
+- `grep -rn 'rsplit_once(" AS ")' src/` → 0 live hits.
+- **no-backward check**: `grep -rn '"FUNC(' src/cli/build/` → 0 hits. No
+  signature-string construction remains on the driver path; the round-trip is
+  gone in both directions.
+Commit: 4a2ea52d3
 
 ## Validation Plan
 
@@ -210,12 +266,97 @@ Commit: —
 
 ## Open Decisions
 
-- **Where `ExternalSignature` lives:** `binary_repr` (with the decode) vs `ir`
-  (with the consumer). Recommend `binary_repr` — it is decode-boundary data.
+- **Where `ExternalSignature` lives:** ~~`binary_repr` (with the decode) vs `ir`
+  (with the consumer). Recommend `binary_repr` — it is decode-boundary data.~~
+  RESOLVED (2026-08-24): **`ir` (`src/ir/types.rs`)**, against the plan's
+  recommendation. Two reasons the recommendation did not survive contact:
+  1. `binary_repr`'s structs are the *wire* domain — every type field there is a
+     `String`, because that is what the `.mfp` stores. `ExternalSignature`
+     carries `ParameterType`, so putting it there would make the wire-decode
+     module depend on `crate::types` for a struct it never constructs.
+  2. `ir::ExternalFunctionParam` — the per-parameter half of exactly this data —
+     already lived in `ir::types` and is already `ParameterType`-typed. Splitting
+     the pair across two modules would re-create in miniature the "several places
+     must agree" problem this plan exists to remove.
+
+  The parse-once still happens at the decode boundary
+  (`manifest::package::package_export_signature`); only the struct's *home*
+  moved. `binary_repr` did gain a type — `BinaryReprPackageDecode`, which is
+  wire-domain and belongs there.
 
 ## Corrections
 
-<Filled in during execution.>
+1. **"Delete `function_return_from_type` / `function_param_types_from_type`
+   (their input no longer exists)" — FALSE.** Only 1 of their 4 call sites read
+   an external signature string (`ir/lower.rs:181`). The other 3
+   (`lower.rs:2144`, `:2153`, `:2288`) read a **local's or a global binding's
+   declared type** — `locals: &HashMap<String, String>` and
+   `LowerContext::binding_types: HashMap<String, String>`, both HIR-derived and
+   still string-typed until plan-106. Deleting the functions outright would have
+   broken first-class-function-value typing.
+
+   Measured: `grep -rn 'function_return_from_type\|function_param_types_from_type' src/`
+   → 4 call sites + 2 definitions; `grep -n 'locals: &HashMap' src/ir/lower.rs`
+   → `HashMap<String, String>`.
+
+   **Repair:** deleted the hand-rolled *grammar* (which is what the review
+   objected to) rather than the functions. Both now delegate to a single
+   `declared_func_parts` that matches `ParameterType::parse`'s `Func` arm, so
+   `ir/lower.rs` holds no copy of the type grammar. The plan's task text is
+   corrected in place.
+
+2. **The old splitters were buggy, and the typed replacement fixes them.**
+   `function_return_from_type` cut at the **first** `") AS "` and
+   `function_param_types_from_type` split parameters on a bare `", "`. For a
+   higher-order declared type — `FUNC(FUNC(Integer) AS String) AS File` — that
+   yields return type `String) AS File` and the single truncated parameter
+   `FUNC(Integer`. `ParameterType::parse` splits at paren depth 0 and returns
+   `File` / `[FUNC(Integer) AS String]`. Not a behavior change the gate can see
+   (0 diffs over 1718 goldens), because no corpus fixture declares a binding of
+   higher-order function type — but it is a real latent fix, so a regression case
+   is pinned in `package_export_signature_round_trips_every_export_shape`.
+
+3. **`ExternalSignature`'s field list is smaller than the sketch.** §3 proposed
+   `has_default`, `return_resource` and `return_state`. All three were dropped:
+   - `has_default` is *already* discarded by the consumer
+     (`ir/lower.rs` builds `CallParam { default: None }` unconditionally), so
+     carrying it would have been a field nothing reads.
+   - `return_resource` cannot be decode-boundary data — it is a predicate over
+     `imported_resource_closers`' output, which the driver does not have when the
+     signature is decoded. It stays a driver-side closure
+     (`returns_imported_resource`), now reading `sig.returns` structurally.
+   - `return_state` is read by nobody; the STATE clause rides inside the nominal
+     leaf (`Named("SoundFile STATE FileInfo")`) and `base_resource_name` strips it
+     at the one place that cares.
+
+   Adding any of the three would have violated the project's no-dead-code rule.
+
+4. **`ExternalParam` was not added** — `ir::ExternalFunctionParam` is already
+   exactly that struct (`{ name: String, type_: ParameterType }`) and is already
+   `ParameterType`-typed, so the sketch's new type would have been a duplicate.
+
+5. **The "9 threading sites" count was right but the *shape* was wrong, and it
+   missed one file.** `grep -c 'external_function_types\|external_function_params'
+   src/cli/build/mod.rs src/ir/lower.rs` → 9 as the plan states. But the two maps
+   were always passed as a *pair*, so the typed form collapses them into one
+   parameter: the 5 `lower_augmented_project` / `lower_project_with_external_
+   functions` call sites each lost an argument rather than gaining a typed one.
+   The plan's grep also scoped only those two files and so missed
+   `src/testutil.rs:70`, a 10th site that had to change for the crate to compile.
+
+6. **The three helpers were decoding each `.mfp` three times over.** Not stated
+   in the plan, found while collapsing them: `external_package_function_types`,
+   `imported_type_defs` and `imported_resource_closers` each called
+   `binary_repr::read_package_binary_repr` independently (plus `read_mfp_header`,
+   a fourth read of the same file). The Phase-2 task "re-derive … from the same
+   decode pass" is therefore satisfied literally: `BinaryReprPackageDecode` reads
+   and decodes each dependency once and all three views come off it.
+
+   Deliberately **not** collapsed: the per-section `Result`s. A first cut returned
+   one all-or-nothing struct, which would have changed lossy-path behavior — a
+   package with an unreadable resource table would have stopped contributing its
+   *function signatures* too. The accessors each return `Result` so recovery stays
+   exactly as it was.
 
 ## Summary
 

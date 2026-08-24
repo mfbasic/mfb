@@ -295,12 +295,16 @@ pub(crate) fn imported_resource_closers(
     let Ok(packages) = installed_package_files(project_dir, manifest) else {
         return Vec::new();
     };
+    resource_closers_from_files(&packages)
+}
+
+fn resource_closers_from_files(packages: &[PathBuf]) -> Vec<(String, String)> {
     let mut closers = Vec::new();
-    for package in &packages {
-        let Ok(header) = read_mfp_header(package) else {
+    for package in packages {
+        let Ok(decode) = binary_repr::BinaryReprPackageDecode::read(package) else {
             continue;
         };
-        let Ok(resources) = binary_repr::read_package_resources(package) else {
+        let (Ok(package_name), Ok(resources)) = (decode.name(), decode.resources()) else {
             continue;
         };
         for resource in resources {
@@ -321,14 +325,14 @@ pub(crate) fn imported_resource_closers(
             // alias (plan-link-update.md §5a); the importer calls it
             // `<binding>.<alias>`. Built-in close names are already dotted.
             let close_function = if resource.native && !close_function.contains('.') {
-                format!("{}.{close_function}", header.name)
+                format!("{package_name}.{close_function}")
             } else {
                 close_function
             };
             // Source names the type bare or as `<binding>.<Type>`; register both,
             // as `syntaxcheck`'s registry does.
             closers.push((
-                format!("{}.{}", header.name, resource.type_name),
+                format!("{package_name}.{}", resource.type_name),
                 close_function.clone(),
             ));
             closers.push((resource.type_name, close_function));
@@ -340,12 +344,9 @@ pub(crate) fn imported_resource_closers(
 pub(crate) fn external_package_function_types(
     project_dir: &Path,
     manifest: &HashMap<String, JsonValue>,
-) -> (
-    HashMap<String, String>,
-    HashMap<String, Vec<ir::ExternalFunctionParam>>,
-) {
+) -> HashMap<String, ir::ExternalSignature> {
     let Ok(packages) = installed_package_files(project_dir, manifest) else {
-        return (HashMap::new(), HashMap::new());
+        return HashMap::new();
     };
     external_package_function_types_from_files_lossy(&packages)
 }
@@ -405,35 +406,20 @@ pub(crate) fn verify_foreign_type_abi_consistency(packages: &[PathBuf]) -> Resul
 
 pub(crate) fn external_package_function_types_from_files(
     packages: &[PathBuf],
-) -> Result<
-    (
-        HashMap<String, String>,
-        HashMap<String, Vec<ir::ExternalFunctionParam>>,
-    ),
-    String,
-> {
+) -> Result<HashMap<String, ir::ExternalSignature>, String> {
     verify_foreign_type_abi_consistency(packages)?;
-    let mut functions = HashMap::new();
-    let mut params = HashMap::new();
+    let mut signatures = HashMap::new();
     for package in packages {
-        let header = read_mfp_header(package)?;
-        for export in binary_repr::read_package_exports(package)? {
-            let name = format!("{}.{}", header.name, export.name);
-            functions.insert(name.clone(), package_export_function_type(&export));
-            params.insert(
-                name,
-                export
-                    .params
-                    .iter()
-                    .map(|param| ir::ExternalFunctionParam {
-                        name: param.name.clone(),
-                        type_: crate::types::ParameterType::parse(&param.type_),
-                    })
-                    .collect(),
+        let decode = binary_repr::BinaryReprPackageDecode::read(package)?;
+        let package_name = decode.name()?;
+        for export in decode.exports()? {
+            signatures.insert(
+                format!("{package_name}.{}", export.name),
+                package_export_signature(&export),
             );
         }
     }
-    Ok((functions, params))
+    Ok(signatures)
 }
 
 /// The record/union/enum layouts every imported (non-builtin) package exports,
@@ -455,7 +441,9 @@ pub(crate) fn imported_type_defs(
 pub(crate) fn imported_type_defs_from_files(packages: &[PathBuf]) -> Vec<ir::ImportedTypeDef> {
     let mut defs = Vec::new();
     for package in packages {
-        let Ok(exports) = binary_repr::read_package_type_exports(package) else {
+        let Ok(exports) = binary_repr::BinaryReprPackageDecode::read(package)
+            .and_then(|decode| decode.type_exports())
+        else {
             continue;
         };
         for export in exports {
@@ -505,47 +493,45 @@ fn imported_type_def(export: binary_repr::BinaryReprTypeExport) -> Option<ir::Im
 
 fn external_package_function_types_from_files_lossy(
     packages: &[PathBuf],
-) -> (
-    HashMap<String, String>,
-    HashMap<String, Vec<ir::ExternalFunctionParam>>,
-) {
-    let mut functions = HashMap::new();
-    let mut params = HashMap::new();
+) -> HashMap<String, ir::ExternalSignature> {
+    let mut signatures = HashMap::new();
     for package in packages {
-        let Ok(header) = read_mfp_header(package) else {
+        let Ok(decode) = binary_repr::BinaryReprPackageDecode::read(package) else {
             continue;
         };
-        let Ok(exports) = binary_repr::read_package_exports(package) else {
+        let (Ok(package_name), Ok(exports)) = (decode.name(), decode.exports()) else {
             continue;
         };
         for export in exports {
-            let name = format!("{}.{}", header.name, export.name);
-            functions.insert(name.clone(), package_export_function_type(&export));
-            params.insert(
-                name,
-                export
-                    .params
-                    .iter()
-                    .map(|param| ir::ExternalFunctionParam {
-                        name: param.name.clone(),
-                        type_: crate::types::ParameterType::parse(&param.type_),
-                    })
-                    .collect(),
+            signatures.insert(
+                format!("{package_name}.{}", export.name),
+                package_export_signature(&export),
             );
         }
     }
-    (functions, params)
+    signatures
 }
 
-fn package_export_function_type(export: &binary_repr::BinaryReprExport) -> String {
-    let params = export
-        .params
-        .iter()
-        .map(|param| param.type_.clone())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let prefix = if export.isolated { "ISOLATED " } else { "" };
-    format!("{prefix}FUNC({params}) AS {}", export.return_type)
+/// Decode one `.mfp` export into a typed [`ir::ExternalSignature`], parsing each
+/// stored type string exactly ONCE (plan-105-A).
+///
+/// This is the single parse-in boundary for imported signatures: the `.mfp` wire
+/// format still stores types as strings, and everything downstream — the driver's
+/// resource-import filter, `ir::lower`'s `function_returns`/`function_params` — now
+/// reads the structure instead of re-splitting a formatted `FUNC(…) AS R` blob.
+fn package_export_signature(export: &binary_repr::BinaryReprExport) -> ir::ExternalSignature {
+    ir::ExternalSignature {
+        params: export
+            .params
+            .iter()
+            .map(|param| ir::ExternalFunctionParam {
+                name: param.name.clone(),
+                type_: crate::types::ParameterType::parse(&param.type_),
+            })
+            .collect(),
+        returns: crate::types::ParameterType::parse(&export.return_type),
+        isolated: export.isolated,
+    }
 }
 
 pub(crate) fn package_metadata(
@@ -1141,13 +1127,11 @@ mod tests {
         let value = json(r#"{"name":"p","version":"1"}"#);
         let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
         let dir = tempfile::tempdir().unwrap();
-        let (functions, params) = external_package_function_types(dir.path(), manifest);
-        assert!(functions.is_empty());
-        assert!(params.is_empty());
+        assert!(external_package_function_types(dir.path(), manifest).is_empty());
     }
 
     #[test]
-    fn package_export_function_type_formats_signature() {
+    fn package_export_signature_decodes_and_renders_signature() {
         let export = binary_repr::BinaryReprExport {
             name: "f".to_string(),
             kind: binary_repr::BinaryReprExportKind::Func,
@@ -1166,8 +1150,24 @@ mod tests {
             ],
             return_type: "Boolean".to_string(),
         };
+        let signature = package_export_signature(&export);
+        // Params and return are decoded structurally (parse-once), and render
+        // back to the exact spelling the pre-plan-105 hand formatter produced.
         assert_eq!(
-            package_export_function_type(&export),
+            signature
+                .params
+                .iter()
+                .map(|param| (param.name.as_str(), param.type_.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("a", crate::types::ParameterType::Integer),
+                ("b", crate::types::ParameterType::String),
+            ]
+        );
+        assert_eq!(signature.returns, crate::types::ParameterType::Boolean);
+        assert!(!signature.isolated);
+        assert_eq!(
+            signature.signature_type().name(),
             "FUNC(Integer, String) AS Boolean"
         );
         let isolated = binary_repr::BinaryReprExport {
@@ -1175,10 +1175,87 @@ mod tests {
             params: Vec::new(),
             ..export
         };
+        let isolated = package_export_signature(&isolated);
+        assert!(isolated.isolated);
         assert_eq!(
-            package_export_function_type(&isolated),
+            isolated.signature_type().name(),
             "ISOLATED FUNC() AS Boolean"
         );
+    }
+
+    /// plan-105-A: the `.mfp` decode is the ONE parse-in boundary for imported
+    /// signatures, and its typed form must render back byte-identically to the
+    /// `FUNC(…) AS R` spelling the driver used to build (and then re-parse).
+    /// A shape that does not round-trip here would silently change every
+    /// `function_types` entry an importer sees.
+    #[test]
+    fn package_export_signature_round_trips_every_export_shape() {
+        let param = |type_: &str| binary_repr::BinaryReprExportParam {
+            name: "p".to_string(),
+            type_: type_.to_string(),
+            has_default: false,
+        };
+        // (param types, return type, isolated) -> the hand-formatted spelling.
+        let cases: Vec<(Vec<&str>, &str, bool)> = vec![
+            (vec![], "Nothing", false),
+            (vec!["Integer"], "String", false),
+            (vec!["Integer", "String", "Boolean"], "Fixed", false),
+            (vec!["String"], "SoundFile", false),
+            // A stateful resource return: the STATE clause rides inside the
+            // nominal leaf, which is exactly why `rsplit_once(" AS ")` existed.
+            (vec!["String"], "SoundFile STATE FileInfo", false),
+            (vec!["List OF RES fs.File"], "Nothing", false),
+            (
+                vec!["Map OF String TO List OF Integer"],
+                "Set OF Byte",
+                false,
+            ),
+            (
+                vec!["MapEntry OF String TO Integer"],
+                "Result OF Integer",
+                false,
+            ),
+            (vec!["RES fs.File"], "RES net.Socket", false),
+            // A higher-order parameter — the shape whose embedded `) AS ` broke
+            // the old first-match `split_once(") AS ")` splitter.
+            (vec!["FUNC(Integer) AS String"], "Boolean", false),
+            (
+                vec!["FUNC(Integer, String) AS List OF Byte", "Integer"],
+                "Nothing",
+                false,
+            ),
+            (vec![], "FUNC(Integer) AS String", false),
+            (
+                vec!["ISOLATED FUNC(ThreadWorker OF Integer TO String) AS Nothing"],
+                "Thread OF Integer TO String",
+                true,
+            ),
+            (
+                vec!["Thread OF Integer RES fs.File TO String"],
+                "Nothing",
+                false,
+            ),
+            (vec!["Pair OF Integer, String"], "Nothing", false),
+        ];
+        for (param_types, return_type, isolated) in cases {
+            let export = binary_repr::BinaryReprExport {
+                name: "f".to_string(),
+                kind: binary_repr::BinaryReprExportKind::Func,
+                isolated,
+                params: param_types.iter().map(|t| param(t)).collect(),
+                return_type: return_type.to_string(),
+            };
+            let expected = format!(
+                "{}FUNC({}) AS {return_type}",
+                if isolated { "ISOLATED " } else { "" },
+                param_types.join(", "),
+            );
+            assert_eq!(
+                package_export_signature(&export).signature_type().name(),
+                expected,
+                "signature round-trip lost information for {expected}"
+            );
+        }
     }
 
     // --- project.json rewriting -------------------------------------------
@@ -1514,27 +1591,32 @@ mod tests {
     #[test]
     fn external_package_function_types_from_files_reads_exports() {
         // The strict variant reads the real fixture's exported function types.
-        let (functions, params) =
+        let signatures =
             external_package_function_types_from_files(&[fixture_mfp()]).expect("reads exports");
         assert!(
-            !functions.is_empty(),
+            !signatures.is_empty(),
             "fixture should export at least one function"
         );
-        // Every exported function name is package-qualified and has a params entry.
-        for name in functions.keys() {
+        // Every exported function name is package-qualified.
+        for name in signatures.keys() {
             assert!(name.starts_with("package_simple."), "{name}");
-            assert!(params.contains_key(name), "missing params for {name}");
         }
-        // Signatures are FUNC(...) AS ... shaped.
-        assert!(functions.values().all(|sig| sig.contains("FUNC(")));
+        // Each decodes to a typed FUNC signature that renders back as one
+        // (plan-105-A: the decode is the only parse, and it is lossless).
+        for signature in signatures.values() {
+            assert!(matches!(
+                signature.signature_type(),
+                crate::types::ParameterType::Func(..)
+            ));
+            assert!(signature.signature_type().name().contains("FUNC("));
+        }
     }
 
     #[test]
     fn external_package_function_types_lossy_matches_strict_for_valid_files() {
         let strict = external_package_function_types_from_files(&[fixture_mfp()]).unwrap();
         let lossy = external_package_function_types_from_files_lossy(&[fixture_mfp()]);
-        assert_eq!(strict.0.len(), lossy.0.len());
-        assert_eq!(strict.1.len(), lossy.1.len());
+        assert_eq!(strict.len(), lossy.len());
     }
 
     #[test]
@@ -1543,9 +1625,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let bad = dir.path().join("bad.mfp");
         fs::write(&bad, b"not an mfp").unwrap();
-        let (functions, params) = external_package_function_types_from_files_lossy(&[bad]);
-        assert!(functions.is_empty());
-        assert!(params.is_empty());
+        assert!(external_package_function_types_from_files_lossy(&[bad]).is_empty());
     }
 
     #[test]
@@ -1826,8 +1906,9 @@ mod tests {
         let (_dir, path) = write_temp(&bytes);
         // The fixed header is untouched, so it still parses.
         assert!(read_mfp_header(&path).is_ok());
-        let (functions, params) = external_package_function_types_from_files_lossy(&[path]);
-        assert!(functions.is_empty(), "corrupt body must yield no functions");
-        assert!(params.is_empty());
+        assert!(
+            external_package_function_types_from_files_lossy(&[path]).is_empty(),
+            "corrupt body must yield no signatures"
+        );
     }
 }

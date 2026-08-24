@@ -508,6 +508,59 @@ pub fn read_package_exports(path: &Path) -> Result<Vec<BinaryReprExport>, String
     package_exports(&package).map_err(|err| format!("failed to read '{}': {err}", path.display()))
 }
 
+/// One installed `.mfp`, decoded ONCE, with each section an importing build needs
+/// read off that single decode (plan-105-A).
+///
+/// The driver derives three views of a dependency — its function signatures, its
+/// exported type layouts, and its resource close ops. Each used to come from its
+/// own top-level reader, so every dependency was read off disk and decoded three
+/// times over, and the three had to stay in lockstep for the build to see a
+/// coherent picture of a package (`planning/Compiler Pipeline.md:58`).
+///
+/// Each accessor still returns a `Result` so a caller keeps today's *per-section*
+/// error recovery: a package whose resource table is unreadable can still
+/// contribute its function signatures, exactly as when the three readers were
+/// independent. What is shared is the decode, not the failure.
+pub struct BinaryReprPackageDecode<'a> {
+    package: PackageBinaryRepr,
+    path: &'a Path,
+}
+
+impl<'a> BinaryReprPackageDecode<'a> {
+    pub fn read(path: &'a Path) -> Result<Self, String> {
+        Ok(Self {
+            package: read_package_binary_repr(path)?,
+            path,
+        })
+    }
+
+    fn fail(&self, err: String) -> String {
+        format!("failed to read '{}': {err}", self.path.display())
+    }
+
+    /// The package's manifest name. Equals the container header's name by
+    /// construction: [`read_package_binary_repr`] rejects a file whose header
+    /// identity disagrees with the binary-representation manifest
+    /// (`validate_container_manifest_identity`).
+    pub fn name(&self) -> Result<String, String> {
+        package_info(&self.package)
+            .map(|info| info.manifest_name)
+            .map_err(|err| self.fail(err))
+    }
+
+    pub fn exports(&self) -> Result<Vec<BinaryReprExport>, String> {
+        package_exports(&self.package).map_err(|err| self.fail(err))
+    }
+
+    pub fn type_exports(&self) -> Result<Vec<BinaryReprTypeExport>, String> {
+        resolve_package_type_exports(&self.package, self.path, 0)
+    }
+
+    pub fn resources(&self) -> Result<Vec<BinaryReprResourceExport>, String> {
+        package_resource_exports(&self.package).map_err(|err| self.fail(err))
+    }
+}
+
 pub fn read_package_info(path: &Path) -> Result<BinaryReprPackageInfo, String> {
     let package = read_package_binary_repr(path)?;
     package_info(&package).map_err(|err| format!("failed to read '{}': {err}", path.display()))
@@ -598,9 +651,21 @@ fn read_package_type_exports_resolved(
     path: &Path,
     depth: usize,
 ) -> Result<Vec<BinaryReprTypeExport>, String> {
-    const MAX_REEXPORT_DEPTH: usize = 64;
     let package = read_package_binary_repr(path)?;
-    let mut exports = package_type_exports(&package)
+    resolve_package_type_exports(&package, path, depth)
+}
+
+/// [`read_package_type_exports_resolved`] on an ALREADY-decoded package, so a
+/// caller that needs several sections of one `.mfp` decodes the file once
+/// (plan-105-A) instead of once per section. `path` is still required: resolving
+/// a re-exported foreign type reads the *owning* package from the same directory.
+fn resolve_package_type_exports(
+    package: &PackageBinaryRepr,
+    path: &Path,
+    depth: usize,
+) -> Result<Vec<BinaryReprTypeExport>, String> {
+    const MAX_REEXPORT_DEPTH: usize = 64;
+    let mut exports = package_type_exports(package)
         .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
     if !exports.iter().any(|export| export.foreign_owner.is_some()) {
         return Ok(exports);
