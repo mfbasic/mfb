@@ -69,7 +69,7 @@ pub(crate) fn lower_flush(
     }
     Ok(ValueResult {
         origin: None,
-        type_: "Nothing".to_string(),
+        type_: ParameterType::Nothing,
         location: Operand::from("void"),
         text: "io.flush".to_string(),
     })

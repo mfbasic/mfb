@@ -19,7 +19,7 @@ pub(crate) fn lower(
             let values = crate::unicode::backend::graphemes(&value)
                 .into_iter()
                 .map(|value| NirValue::Const {
-                    type_: "String".to_string(),
+                    type_: ParameterType::String,
                     value,
                 })
                 .collect::<Vec<_>>();

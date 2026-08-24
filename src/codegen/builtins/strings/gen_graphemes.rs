@@ -5,6 +5,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 
 pub(crate) fn lower_strings_graphemes(
     builder: &mut CodeBuilder,
@@ -262,7 +263,7 @@ pub(crate) fn lower_strings_graphemes(
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
     Ok(ValueResult {
         origin: None,
-        type_: "List OF String".to_string(),
+        type_: ParameterType::parse("List OF String"),
         location: Operand::from(result.render()),
         text: "strings.graphemes".to_string(),
     })

@@ -18,6 +18,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// The shared Map/Set membership test: probe the FNV-1a bucket index for a
     /// probe-eligible key type, else linear-scan the entry keys, yielding a
@@ -54,7 +55,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done));
             return Ok(ValueResult {
                 origin: None,
-                type_: "Boolean".to_string(),
+                type_: ParameterType::Boolean,
                 location: Operand::from(result.render()),
                 text: format!("{label_prefix}({collection_type}) [hash]"),
             });
@@ -99,7 +100,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: "Boolean".to_string(),
+            type_: ParameterType::Boolean,
             location: Operand::from(result.render()),
             text: format!("{label_prefix}({collection_type}, {key_type})"),
         })

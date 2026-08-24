@@ -5,6 +5,7 @@ use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn inline_collection_payload_size(&self, type_: &str) -> Option<usize> {
         if let Some(fields) = self.type_model.record_fields.get(type_) {
@@ -639,7 +640,7 @@ impl CodeBuilder<'_> {
             .map(|fields| {
                 fields
                     .iter()
-                    .any(|(_, ft)| self.record_field_is_inlined(record_type, ft))
+                    .any(|(_, ft)| self.record_field_is_inlined(record_type, &ft.name()))
             })
             .unwrap_or(false)
     }
@@ -795,7 +796,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), out_slot));
         for (index, (_, field_type)) in fields.iter().enumerate() {
-            if !self.record_field_is_inlined(record_type, field_type) {
+            if !self.record_field_is_inlined(record_type, &field_type.name()) {
                 continue;
             }
             // The field's own offset word at `8*index` is authoritative — and `0`
@@ -826,7 +827,7 @@ impl CodeBuilder<'_> {
             ));
             let inner_size_slot = self.allocate_stack_object("record_size_inner_size", 8);
             self.emit_inlined_block_size_from_ptr_slot(
-                field_type,
+                &field_type.name(),
                 inner_base_slot,
                 inner_size_slot,
             )?;
@@ -889,13 +890,13 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), size_slot));
         for (index, (_, field_type)) in fields.iter().enumerate() {
-            if !self.record_field_is_inlined(record_type, field_type) {
+            if !self.record_field_is_inlined(record_type, &field_type.name()) {
                 continue;
             }
             self.emit_align_offset_slot(size_slot, 8);
             let block_size_slot = self.allocate_stack_object("record_build_block_size", 8);
             self.emit_inlined_block_size_from_ptr_slot(
-                field_type,
+                &field_type.name(),
                 field_slots[index],
                 block_size_slot,
             )?;
@@ -934,7 +935,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), cursor_slot));
         for (index, (_, field_type)) in fields.iter().enumerate() {
-            if self.record_field_is_inlined(record_type, field_type) {
+            if self.record_field_is_inlined(record_type, &field_type.name()) {
                 self.emit_align_offset_slot(cursor_slot, 8);
                 // Slot stores the block-relative offset of the inlined sub-block.
                 self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), result_slot));
@@ -943,7 +944,7 @@ impl CodeBuilder<'_> {
                 // Compute the sub-block's byte size from the source pointer.
                 let block_size_slot = self.allocate_stack_object("record_fill_block_size", 8);
                 self.emit_inlined_block_size_from_ptr_slot(
-                    field_type,
+                    &field_type.name(),
                     field_slots[index],
                     block_size_slot,
                 )?;
@@ -1078,7 +1079,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn lower_len(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(value)?;
-        if value.type_ == "String" {
+        if value.type_ == ParameterType::String {
             let count_slot = self.allocate_stack_object("len_string_count", 8);
             let remaining = self.allocate_register()?;
             let cursor = self.allocate_register()?;
@@ -1114,11 +1115,11 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(&register, abi::stack_pointer(), count_slot));
             Ok(ValueResult {
                 origin: None,
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 location: Operand::from(register.render()),
                 text: format!("len({})", value.text),
             })
-        } else if is_collection_type(&value.type_) {
+        } else if is_collection_type(&value.type_.name()) {
             let register = self.allocate_register()?;
             self.emit(abi::load_u64(
                 &register,
@@ -1127,7 +1128,7 @@ impl CodeBuilder<'_> {
             ));
             Ok(ValueResult {
                 origin: None,
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 location: Operand::from(register.render()),
                 text: format!("len({})", value.text),
             })
@@ -1164,7 +1165,7 @@ impl CodeBuilder<'_> {
                 key: None,
                 value: PayloadSlot {
                     slot,
-                    type_: value.type_,
+                    type_: value.type_.name().into_owned(),
                 },
             });
         }
@@ -1227,7 +1228,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&register, abi::stack_pointer(), set_slot));
         Ok(ValueResult {
             origin: None,
-            type_: type_.to_string(),
+            type_: ParameterType::parse(&type_),
             location: Operand::from(register.render()),
             text: format!("set literal {type_}"),
         })
@@ -1266,11 +1267,11 @@ impl CodeBuilder<'_> {
             slots.push(CollectionValueSlot {
                 key: Some(PayloadSlot {
                     slot: key_slot,
-                    type_: key.type_,
+                    type_: key.type_.name().into_owned(),
                 }),
                 value: PayloadSlot {
                     slot: value_slot,
-                    type_: value.type_,
+                    type_: value.type_.name().into_owned(),
                 },
             });
         }
@@ -1407,7 +1408,7 @@ impl CodeBuilder<'_> {
         ));
         Ok(ValueResult {
             origin: None,
-            type_: type_.to_string(),
+            type_: ParameterType::parse(&type_),
             location: Operand::from(register.render()),
             text: format!("{label} {type_}"),
         })
@@ -2644,7 +2645,7 @@ fn type_is_flat_inner(
                 .cloned()
                 .unwrap_or_default()
                 .iter()
-                .all(|(_, ft)| type_is_flat_inner(model, ft, visited))
+                .all(|(_, ft)| type_is_flat_inner(model, &ft.name(), visited))
     } else if union_is_data(model, type_) {
         model
             .variants_for_union(type_)
@@ -2716,10 +2717,16 @@ pub(crate) fn union_is_data(model: &TypeModel, type_: &str) -> bool {
 /// codegen cannot reproduce without unbounded compile-time recursion.
 pub(crate) fn type_components(model: &TypeModel, type_: &str) -> Vec<String> {
     if let Some(fields) = model.record_fields.get(type_) {
-        return fields.iter().map(|(_, ft)| ft.clone()).collect();
+        return fields
+            .iter()
+            .map(|(_, ft)| ft.name().into_owned())
+            .collect();
     }
     if let Some(fields) = model.union_variant_fields.get(type_) {
-        return fields.iter().map(|(_, ft)| ft.clone()).collect();
+        return fields
+            .iter()
+            .map(|(_, ft)| ft.name().into_owned())
+            .collect();
     }
     if model.union_names.contains(type_) {
         return model.variants_for_union(type_).cloned().collect();

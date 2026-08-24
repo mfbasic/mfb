@@ -1,5 +1,6 @@
 use super::*;
 
+use crate::types::ParameterType;
 use std::collections::HashMap;
 
 use super::nir::constfold::{
@@ -73,7 +74,7 @@ impl FunctionPlanBuilder<'_> {
                         .as_ref()
                         .map(describe_value)
                         .unwrap_or_else(|| "default".to_string());
-                    let type_suffix = if type_.is_empty() {
+                    let type_suffix = if type_.name().is_empty() {
                         String::new()
                     } else {
                         format!(" AS {type_}")
@@ -364,7 +365,12 @@ impl FunctionPlanBuilder<'_> {
         Ok(())
     }
 
-    fn add_stack_slot(&mut self, name: &str, type_: &str, mutable: bool) -> Result<(), String> {
+    fn add_stack_slot(
+        &mut self,
+        name: &str,
+        type_: &ParameterType,
+        mutable: bool,
+    ) -> Result<(), String> {
         let storage = storage_for_type(type_, self.type_storage)?;
         let offset = -((self.local_slots.len() as i32 + 1) * storage.size.max(8) as i32);
         self.local_slots.push(StackSlot {
@@ -617,7 +623,7 @@ pub(super) fn collect_string_literals(value: &NirValue, literals: &mut Vec<Strin
     impl NirVisitor for Collector<'_> {
         fn visit_value(&mut self, value: &NirValue) {
             if let NirValue::Const { type_, value } = value {
-                if type_ == "String" && !self.literals.contains(value) {
+                if matches!(type_, ParameterType::String) && !self.literals.contains(value) {
                     self.literals.push(value.clone());
                 }
             }

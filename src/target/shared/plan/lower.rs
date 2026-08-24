@@ -134,12 +134,16 @@ pub(super) fn type_storage(module: &NirModule) -> Result<HashMap<String, Storage
 }
 
 pub(super) fn storage_for_type(
-    type_: &str,
+    type_: &crate::types::ParameterType,
     type_storage: &HashMap<String, StorageType>,
 ) -> Result<StorageType, String> {
+    use crate::types::ParameterType;
     // A `RES`-marked collection element (`RES File`) stores exactly like the
     // bare resource it points at: a pointer to the record (§15.6).
-    let type_ = type_.strip_prefix("RES ").unwrap_or(type_);
+    let type_ = match type_ {
+        ParameterType::Res(inner) => inner.as_ref(),
+        other => other,
+    };
     // A resource carrying `STATE T` likewise stores exactly like its base: one
     // pointer to the record, the state being a pointer *inside* it. Strip the
     // clause before the lookup so a NATIVE `LINK` resource resolves — the
@@ -147,62 +151,60 @@ pub(super) fn storage_for_type(
     // but a native resource lives in `type_storage` under its bare name and
     // `is_user_type_name` rejects a name with spaces, so `SfFile STATE FileInfo`
     // fell through to the error. That is `bindings/libsnd`'s exact shape
-    // (plan-52-D Phase 3).
-    let type_ = crate::codegen::resource::base_resource_name(type_);
-    if let Some(storage) = type_storage.get(type_) {
+    // (plan-52-D Phase 3). The `STATE` composite is a nominal spelling, so the
+    // strip works on the rendered name (a nominal-name sink).
+    let name = type_.name();
+    let base = crate::codegen::resource::base_resource_name(&name);
+    if let Some(storage) = type_storage.get(base) {
         return Ok(storage.clone());
     }
-    let (class, size, align) = if type_ == "Nothing" {
-        (StorageClass::Void, 0, 1)
-    } else if type_ == "Boolean" {
-        (StorageClass::Boolean, 1, 1)
-    } else if type_ == "Byte" {
-        (StorageClass::Byte, 1, 1)
-    } else if type_ == "Integer" {
-        (StorageClass::Integer, 8, 8)
-    } else if type_ == "Float" {
-        (StorageClass::Float, 8, 8)
-    } else if type_ == "Fixed" {
-        (StorageClass::Fixed, 8, 8)
-    } else if type_ == "Money" {
-        (StorageClass::Money, 8, 8)
-    } else if type_ == "Scalar" {
-        (StorageClass::Scalar, 4, 4)
-    } else if is_reference_type(type_) {
-        (StorageClass::Reference, 8, 8)
-    } else if crate::codegen::builtins::is_resource_type(type_) {
+    let (class, size, align) = match type_ {
+        ParameterType::Nothing => (StorageClass::Void, 0, 1),
+        ParameterType::Boolean => (StorageClass::Boolean, 1, 1),
+        ParameterType::Byte => (StorageClass::Byte, 1, 1),
+        ParameterType::Integer => (StorageClass::Integer, 8, 8),
+        ParameterType::Float => (StorageClass::Float, 8, 8),
+        ParameterType::Fixed => (StorageClass::Fixed, 8, 8),
+        ParameterType::Money => (StorageClass::Money, 8, 8),
+        ParameterType::Named(n) if n.resolve() == "Scalar" => (StorageClass::Scalar, 4, 4),
+        _ if is_reference_type(type_) => (StorageClass::Reference, 8, 8),
         // A resource (optionally `File STATE T`) is a pointer to its record.
-        (StorageClass::Reference, 8, 8)
-    } else if is_user_type_name(type_) {
-        (StorageClass::Reference, 8, 8)
-    } else {
-        return Err(format!(
-            "native plan has no storage class for type '{type_}'"
-        ));
+        _ if crate::codegen::builtins::is_resource_type(base) => (StorageClass::Reference, 8, 8),
+        _ if is_user_type_name(base) => (StorageClass::Reference, 8, 8),
+        _ => {
+            return Err(format!(
+                "native plan has no storage class for type '{base}'"
+            ));
+        }
     };
     Ok(StorageType {
-        name: type_.to_string(),
+        name: base.to_string(),
         class,
         size,
         align,
     })
 }
 
-pub(super) fn is_reference_type(type_: &str) -> bool {
-    type_ == "String"
-        || type_ == "TermColor"
-        || type_ == "TermSize"
-        || type_ == "Error"
-        || type_.starts_with("List OF ")
-        || type_.starts_with("Set OF ")
-        || type_.starts_with("Map OF ")
-        || type_.starts_with("MapEntry OF ")
-        || type_.starts_with("Result OF ")
-        || type_.starts_with("Thread OF ")
-        || type_.starts_with("ThreadWorker OF ")
-        || type_.starts_with("FUNC(")
-        || type_.starts_with("ISOLATED FUNC(")
-        || matches!(type_, "fs.File" | "FileHandle" | "DirHandle")
+pub(super) fn is_reference_type(type_: &crate::types::ParameterType) -> bool {
+    use crate::types::ParameterType;
+    matches!(
+        type_,
+        ParameterType::String
+            | ParameterType::ListOf(_)
+            | ParameterType::SetOf(_)
+            | ParameterType::MapOf(..)
+            | ParameterType::MapEntryOf(..)
+            | ParameterType::ResultOf(_)
+            | ParameterType::ThreadHandle { .. }
+            | ParameterType::Func(..)
+    ) || matches!(
+        type_,
+        ParameterType::Named(n)
+            if matches!(
+                n.resolve(),
+                "TermColor" | "TermSize" | "Error" | "fs.File" | "FileHandle" | "DirHandle"
+            )
+    )
 }
 
 pub(super) fn is_user_type_name(type_: &str) -> bool {

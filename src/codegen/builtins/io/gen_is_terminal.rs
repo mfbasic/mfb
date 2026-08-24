@@ -16,6 +16,7 @@ use crate::codegen::engine::operand::Operand;
 use crate::codegen::error::constants::*;
 use crate::codegen::registry::AbiCtx;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 
 /// Shared `abi_function` body for `io::is{Input,Output,Error}Terminal`, selected by
 /// the probed descriptor `fd` and labeled `text`.
@@ -64,7 +65,7 @@ pub(crate) fn lower_is_terminal(
     }
     Ok(ValueResult {
         origin: None,
-        type_: "Boolean".to_string(),
+        type_: ParameterType::Boolean,
         location: Operand::from("void"),
         text: text.to_string(),
     })

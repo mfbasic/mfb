@@ -350,7 +350,8 @@ pub(super) fn ir_uses_resource_type(ir: &IrProject) -> bool {
 pub(super) fn ops_use_resource_type(ops: &[IrOp]) -> bool {
     ops.iter().any(|op| match op {
         IrOp::Bind { type_, value, .. } => {
-            is_resource_type_name(type_) || value.as_ref().is_some_and(value_uses_resource_type)
+            is_resource_type_name(&type_.name())
+                || value.as_ref().is_some_and(value_uses_resource_type)
         }
         IrOp::Assign { value, .. }
         | IrOp::AssignGlobal { value, .. }
@@ -398,7 +399,7 @@ pub(super) fn ops_use_resource_type(ops: &[IrOp]) -> bool {
             body,
             ..
         } => {
-            is_resource_type_name(type_)
+            is_resource_type_name(&type_.name())
                 || value_uses_resource_type(iterable)
                 || ops_use_resource_type(body)
         }
@@ -477,7 +478,7 @@ pub(super) fn collect_resource_names_in_ops(
     for op in ops {
         match op {
             IrOp::Bind { type_, value, .. } => {
-                record(type_, names);
+                record(&type_.name(), names);
                 if let Some(value) = value {
                     collect_resource_names_in_value(value, names, record);
                 }
@@ -540,7 +541,7 @@ pub(super) fn collect_resource_names_in_ops(
                 body,
                 ..
             } => {
-                record(type_, names);
+                record(&type_.name(), names);
                 collect_resource_names_in_value(iterable, names, record);
                 collect_resource_names_in_ops(body, names, record);
             }

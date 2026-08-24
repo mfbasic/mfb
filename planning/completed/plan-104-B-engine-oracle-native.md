@@ -33,7 +33,7 @@ See plan-104-A §Prerequisites (shared). Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-104-A complete | `rg -c 'type_: String' src/target/shared/nir/mod.rs` → 0; A's phases all `[x]` with Commit hashes | NOT MET until A lands |
+| plan-104-A complete | `rg -c 'type_: String' src/target/shared/nir/mod.rs` → 0; A's phases all `[x]` with Commit hashes | MET 2026-08-24 (rg → no matches; A commits 219351599 / 61c97ea35) |
 
 ## 1. Goal
 
@@ -135,34 +135,102 @@ None externally observable.
 
 ### Phase 1 — map triage census
 
-- [ ] Enumerate every `HashMap<String, String>` in `src/codegen/engine/`
+- [x] Enumerate every `HashMap<String, String>` in `src/codegen/engine/`
       (`rg -n 'HashMap<String, String>' src/codegen/engine/`), read each
       declaration + writers, and record in this file which are **type-valued**
       (convert) vs **symbol/name-valued** (stay). This bounds Phase 2's scope.
 
+**Census (2026-08-24; declaration + writers read for each):**
+
+Type-valued — CONVERT in Phase 2:
+
+| Map | Where | Value is |
+|---|---|---|
+| `package_return_types` | `builder/mod.rs:118` (built `:741`) | link-function/import return-type spelling |
+| module-analysis `locals`/`types` walks | `analysis/module_analysis.rs:302,403,713,927,999` | local name → type spelling |
+| oracle `locals` | `types/type_utils.rs:20` (`static_nir_value_type`) | local name → type spelling |
+| helper `types` maps | `types/type_utils.rs:135,194,225` | local name → type spelling |
+| `FieldTypes` | `types/type_utils.rs:16` (`HashMap<(String,String),String>`) | field type spelling |
+| `TypeModel.record_fields` / `union_variant_fields` | `builder/mod.rs:617,622` (`Vec<(String,String)>` values) | per-field type spellings |
+
+Symbol/name-valued — STAY `String`:
+
+| Map | Where | Value is |
+|---|---|---|
+| `platform_imports` | `builder/mod.rs:84,119` (+ threaded everywhere) | platform import symbol |
+| `function_symbols` | `builder/mod.rs:116` | text symbol |
+| `string_symbols` | `builder/mod.rs:129` | data-object symbol |
+| `float_residents` | `builder/mod.rs:158` (writers: `builder_values.rs:412`, `builder_numeric.rs:213,216`) | FP vreg render (`d`-register name) |
+| `promoted_float_locals` | `builder/mod.rs:164` (writer `builder_control.rs:1812`) | `%fN` register render |
+| `len_of_local` | `builder/mod.rs:401` (writer `builder_control.rs:425`) | container **local name** (`n → L`) |
+| `union_variants` | `builder/mod.rs:619` | union **nominal name** (bare identifier, no structure; keys into name-keyed model maps) |
+| `resource_closers` | `builder/mod.rs:659` (reader `:986`) | close **function name** |
+| `get_container`/`copy_src` | `function_lowering.rs:229,230` | local names |
+| `err_binding` | `function_lowering.rs:401` | local name |
+| `tests/test_support.rs` platform_imports params | test twins | follow production |
+
 Acceptance: the tagged map list is recorded in this section.
-Commit: —
+Commit: 7c0ecf8fa
 
 ### Phase 2 — stores + oracle + engine read sites native
 
-- [ ] `LocalValue.type_` → `ParameterType` (`builder/mod.rs`); repoint the 11
-      construction sites and the engine's `.type_` reads.
-- [ ] `FieldTypes` values → `ParameterType`; `module_field_types` builder and
-      the module-analysis walks thread `HashMap<String, ParameterType>`.
-- [ ] `static_nir_value_type` → `Option<ParameterType>` (typed
-      `numeric_binary_result_type` twin; structural container rebuilds; registry
-      fallback renders `.name()` per arg); repoint the 12 callers.
-- [ ] Convert the type-valued maps from Phase 1's census; leave symbol maps.
-- [ ] Native matches for the engine's 8 scalar-compare files and its structural
-      `strip_prefix` tests.
-- [ ] Tests: engine unit tests updated (fixtures build `ParameterType` via
-      `parse`; assertions preserved via `.name()` where they check spellings).
+- [x] `LocalValue.type_` → `ParameterType` (`builder/mod.rs`); repoint the 11
+      construction sites and the engine's `.type_` reads. **Also
+      `GlobalValue.type_`** (LocalValue's global twin, missed by the
+      HashMap-shaped census — same store family, converted with it), and the
+      FUNC-callable local/global call arms went structural
+      (`ParameterType::Func(_, _, false)` match preserving the plain-`FUNC(`
+      isolation exclusion) with the return type destructured, not string-split.
+- [x] `FieldTypes` values → `ParameterType`; `module_field_types` builder and
+      the module-analysis walks thread `HashMap<String, ParameterType>` (the
+      data_objects pre-pass walks sharing those maps flipped their `types`
+      params with it).
+- [x] `static_nir_value_type` → `Option<ParameterType>` (typed
+      `typed_numeric_binary_result_type` twin — renders operand names, runs the
+      one `numeric` algorithm, maps the closed scalar result set back with a
+      static match, no parse; `ResultOf`/`MapEntryOf`/`ThreadHandle` arms
+      structural; registry fallback renders `.name()` per arg + parses the
+      resolved return — the plan-104-C boundary, commented as such); the 12
+      callers consume the typed result.
+- [x] Convert the type-valued maps from Phase 1's census; leave symbol maps.
+      (`package_return_types` parses the LINK block's C-boundary strings at
+      build and renders at its two readers — the reader chains merge `&str`
+      params from builtins, C's seam. `TypeModel.record_fields`/
+      `union_variant_fields` values typed; `link_thunk`'s three signatures
+      followed — it reads only field names.)
+- [x] Native matches for the engine's scalar compares and structural tests
+      **where the operand is a typed store**; the survivors are annotated
+      below.
+- [x] Tests: engine unit tests compile untouched (`cargo check --all-targets`
+      0 errors/warnings); the one link_thunk fixture builds typed field lists.
+
+**Survivor annotation (measured post-conversion):** engine scalar-compare
+census `rg -n '== "(Integer|…|Scalar)"' src/codegen/engine/` → **24**, and
+structural-test census → **15**; every one operates on a `String`/`&str`
+carrier, none on a typed store:
+
+- `ValueResult.type_` reads (13 compares + 3 structural): the lowering
+  interchange struct stays `String` in B — it is the builtins boundary, typed
+  no earlier than C/D.
+- `type_utils`' shared string-vocabulary helpers (11 structural sites:
+  `is_collection_type`/`list_element_type`/`map_type_parts`/…): serve every
+  still-shimmed tree; C converts their codegen call sites (plan-104-C §3
+  Rejected alternatives keeps the helpers).
+- `emit_call`/`emit_call_result` `result_type` chains (3 compares): merge an
+  `Option<&str>` parameter passed by builtins callers — C's seam.
+- `ProgramEntrySpec.language_entry_returns: &str` (2 compares): consumed by the
+  per-arch backends — D's scope.
+- `builder_numeric` string-algorithm internals (3 compares incl.
+  `numeric_binary_result_type(...) == "Float"` on `static_type_name` strings),
+  `is_freeable_flat_value`/`type_requires_empty_string_constant` `&str`-param
+  helpers (2), `IrLinkFunction.return_type` wire string (1),
+  `validation.rs` `&str`-param walk (1 structural).
 
 Acceptance: `cargo test --no-fail-fast` green; `artifact-gate all` no NEW diff
 vs `planning/plan-104-baseline-diffs.txt`; engine scalar-compare census
 (`rg -n '== "(Integer|…)"' src/codegen/engine/`) drops to 0 or each survivor is
 annotated as a deliberate string boundary (record the number).
-Commit: —
+Commit: 24ca75de7
 
 ## Validation Plan
 
@@ -175,13 +243,28 @@ Commit: —
 
 ## Open Decisions
 
-- **`numeric_binary_result_type`: replace vs add a typed twin.** Recommend a
-  typed twin and delete the string form when its last caller converts (C/D) —
-  keeps each sub-plan's diff minimal. (§3)
+- **`numeric_binary_result_type`: replace vs add a typed twin.** RESOLVED as
+  recommended: `typed_numeric_binary_result_type` added; the string form
+  survives for its remaining string callers (deleted when the last converts,
+  C/D). (§3)
 
 ## Corrections
 
-<Filled in during execution.>
+- **`GlobalValue.type_` (builder/mod.rs:428) was missing from every census** —
+  the Phase-1 triage keyed on `HashMap<String, String>` shapes and the plan's
+  store list named only `LocalValue`/`FieldTypes`, but `GlobalValue` is
+  `LocalValue`'s exact global twin (a `type_: String` store built from the
+  typed `NirGlobal`). Converted in Phase 2 with the same treatment.
+- **The data_objects pre-pass walks are signature-coupled to the engine's
+  typed maps**: `static_type_name_with_types`/`static_string_value_with_constants`/
+  `unicode_string_call_is_static` (src/codegen/memory/data/data_objects.rs)
+  share the `types`/`FieldTypes` maps with `type_utils`, so their `types`
+  params flipped to `HashMap<String, ParameterType>` in B even though the
+  memory tree is D's letter — threading, not scope creep; their `Option<String>`
+  returns still render (D converts the bodies).
+- **`link_thunk`'s `record_fields` params followed the `TypeModel` flip** (3
+  signatures + 1 test fixture) — it reads only field *names*, so no render was
+  added.
 
 ## Summary
 

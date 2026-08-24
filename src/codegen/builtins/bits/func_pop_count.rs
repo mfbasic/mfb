@@ -88,7 +88,7 @@ pub(crate) fn lower_bits_pop_count(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let value = &args[0];
-    if value.type_ != "Integer" {
+    if value.type_ != ParameterType::Integer {
         return Err(format!("bits.popCount does not accept {}", value.type_));
     }
     let text = format!("bits.popCount({})", value.text);
@@ -105,7 +105,7 @@ pub(crate) fn lower_bits_pop_count(
         builder.emit(abi::vector_extract_to_x(dst, abi::VEC_SCRATCH[0], 0));
         return Ok(ValueResult {
             origin: None,
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             location: Operand::from(dst.render()),
             text,
         });
@@ -143,7 +143,7 @@ pub(crate) fn lower_bits_pop_count(
 
     Ok(ValueResult {
         origin: None,
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         location: Operand::from(acc.render()),
         text,
     })

@@ -86,10 +86,10 @@ pub(crate) fn lower_bits_band(
     args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    if args[0].type_ != "Integer" {
+    if args[0].type_ != ParameterType::Integer {
         return Err(format!("bits.band does not accept {}", args[0].type_));
     }
-    if args[1].type_ != "Integer" {
+    if args[1].type_ != ParameterType::Integer {
         return Err(format!("bits.band does not accept {}", args[1].type_));
     }
     let left_reg = args[0].location.clone();
@@ -100,7 +100,7 @@ pub(crate) fn lower_bits_band(
     builder.emit(abi::and_registers(dst, left_reg, right_reg));
     Ok(ValueResult {
         origin: None,
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         location: Operand::from(dst.render()),
         text: format!("bits.band({left_text}, {right_text})"),
     })

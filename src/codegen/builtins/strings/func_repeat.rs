@@ -24,7 +24,7 @@ pub(crate) fn lower(
     builder.require_string("strings.repeat value", &value)?;
     let value_slot = builder.spill_to_slot("strings_repeat_value", &value.location);
     let times = times.clone();
-    if times.type_ != "Integer" {
+    if times.type_ != ParameterType::Integer {
         return Err(format!(
             "strings.repeat times must be Integer, got {}",
             times.type_
@@ -131,7 +131,7 @@ pub(crate) fn lower(
     builder.emit(abi::label(&after));
     Ok(ValueResult {
         origin: None,
-        type_: "String".to_string(),
+        type_: ParameterType::String,
         location: Operand::from(result.render()),
         text: "strings.repeat".to_string(),
     })

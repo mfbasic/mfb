@@ -91,10 +91,10 @@ pub(crate) fn lower_bits_bxor(
     args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    if args[0].type_ != "Integer" {
+    if args[0].type_ != ParameterType::Integer {
         return Err(format!("bits.bxor does not accept {}", args[0].type_));
     }
-    if args[1].type_ != "Integer" {
+    if args[1].type_ != ParameterType::Integer {
         return Err(format!("bits.bxor does not accept {}", args[1].type_));
     }
     let left_reg = args[0].location.clone();
@@ -105,7 +105,7 @@ pub(crate) fn lower_bits_bxor(
     builder.emit(abi::exclusive_or_registers(dst, left_reg, right_reg));
     Ok(ValueResult {
         origin: None,
-        type_: "Integer".to_string(),
+        type_: ParameterType::Integer,
         location: Operand::from(dst.render()),
         text: format!("bits.bxor({left_text}, {right_text})"),
     })

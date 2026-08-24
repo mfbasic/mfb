@@ -18,6 +18,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// Entry-table linear-scan preamble shared by the map lookups
     /// (`lower_map_get`/`lower_map_get_or`/`lower_has_key`): load the entry count,
@@ -381,7 +382,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done));
             return Ok(ValueResult {
                 origin: None,
-                type_: value_type.to_string(),
+                type_: ParameterType::parse(&value_type),
                 location: Operand::from(result.render()),
                 text: format!("get({collection_type}, {key_type}) [hash]"),
             });
@@ -454,7 +455,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: value_type.to_string(),
+            type_: ParameterType::parse(&value_type),
             location: Operand::from(result.render()),
             text: format!("get({collection_type}, {key_type})"),
         })
@@ -518,7 +519,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done));
             return Ok(ValueResult {
                 origin: None,
-                type_: value_type.to_string(),
+                type_: ParameterType::parse(&value_type),
                 location: Operand::from(result.render()),
                 text: format!("getOr({collection_type}, {key_type}, {value_type}) [hash]"),
             });
@@ -606,7 +607,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: value_type.to_string(),
+            type_: ParameterType::parse(&value_type),
             location: Operand::from(result.render()),
             text: format!("getOr({collection_type}, {key_type}, {value_type})"),
         })

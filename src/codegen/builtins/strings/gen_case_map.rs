@@ -5,6 +5,7 @@ use crate::codegen::builtins::strings::UnicodeCaseMap;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 
 fn emit_ascii_case_transform(
     builder: &mut CodeBuilder,
@@ -297,7 +298,7 @@ pub(crate) fn lower_strings_case_map(
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
     Ok(ValueResult {
         origin: None,
-        type_: "String".to_string(),
+        type_: ParameterType::String,
         location: Operand::from(result.render()),
         text: map.name().to_string(),
     })

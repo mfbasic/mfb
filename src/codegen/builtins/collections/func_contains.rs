@@ -182,23 +182,23 @@ pub(crate) fn lower_contains(
     // over the element (= entry key), shared with `hasKey` (plan-63-B). Decided
     // on the *lowered* type so a nested-call first argument (`contains(union(a,
     // b), x)`, whose static type is unknown pre-lowering) still routes here.
-    if let Some(element_type) = set_element_type(&collection.type_) {
+    if let Some(element_type) = set_element_type(&collection.type_.name()) {
         return builder.emit_key_membership(
             collection_slot,
             item_slot,
             &element_type,
             "contains",
-            &collection.type_,
+            &collection.type_.name(),
         );
     }
 
-    let Some(element_type) = list_element_type(&collection.type_) else {
+    let Some(element_type) = list_element_type(&collection.type_.name()) else {
         return Err(format!(
             "native collection contains does not accept {}",
             collection.type_
         ));
     };
-    if item.type_ != element_type {
+    if item.type_.name() != element_type.as_str() {
         return Err(format!(
             "native collection contains item must be {}, got {}",
             element_type, item.type_
@@ -302,7 +302,7 @@ pub(crate) fn lower_contains(
 
     Ok(ValueResult {
         origin: None,
-        type_: "Boolean".to_string(),
+        type_: ParameterType::Boolean,
         location: Operand::from(result.render()),
         text: format!("contains({}, {})", collection.type_, element_type),
     })

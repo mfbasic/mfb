@@ -3,6 +3,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     pub(crate) fn static_strings_package_string(
         &self,
@@ -253,14 +254,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: "Boolean".to_string(),
+            type_: ParameterType::Boolean,
             location: Operand::from(result.render()),
             text: label.to_string(),
         })
     }
 
     pub(crate) fn require_string(&self, label: &str, value: &ValueResult) -> Result<(), String> {
-        if value.type_ == "String" {
+        if value.type_ == ParameterType::String {
             Ok(())
         } else {
             Err(format!("{label} must be String, got {}", value.type_))

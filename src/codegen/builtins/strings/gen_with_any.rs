@@ -28,7 +28,7 @@ pub(crate) fn lower_strings_with_any(
     builder.require_string("strings.withAny value", &value)?;
     let value_slot = builder.spill_to_slot("strings_with_any_value", &value.location);
     let parts = parts.clone();
-    if list_element_type(&parts.type_).as_deref() != Some("String") {
+    if list_element_type(&parts.type_.name()).as_deref() != Some("String") {
         return Err(format!(
             "strings.startsWithAny/endsWithAny parts must be List OF String, got {}",
             parts.type_

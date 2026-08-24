@@ -7,6 +7,7 @@ use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 
 impl CodeBuilder<'_> {
     /// Emit the shared trailing-`/` trim loop (bug-331 §J): walk `length` down
@@ -64,7 +65,7 @@ impl CodeBuilder<'_> {
     /// identically.
     fn lower_fs_path_join(&mut self, parts: &ValueResult) -> Result<ValueResult, String> {
         let parts = parts.clone();
-        if list_element_type(&parts.type_).as_deref() != Some("String") {
+        if list_element_type(&parts.type_.name()).as_deref() != Some("String") {
             return Err(format!(
                 "fs.pathJoin parts must be List OF String, got {}",
                 parts.type_
@@ -94,7 +95,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&result, RESULT_VALUE_REGISTER));
         Ok(ValueResult {
             origin: None,
-            type_: "String".to_string(),
+            type_: ParameterType::String,
             location: Operand::from(result.render()),
             text: "fs.pathJoin".to_string(),
         })
@@ -159,7 +160,7 @@ impl CodeBuilder<'_> {
         let result = self.emit_materialize_string_from_bytes(&start, &span)?;
         Ok(ValueResult {
             origin: None,
-            type_: "String".to_string(),
+            type_: ParameterType::String,
             location: Operand::from(result.render()),
             text: "fs.pathBaseName".to_string(),
         })
@@ -243,7 +244,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&out, abi::stack_pointer(), final_slot));
         Ok(ValueResult {
             origin: None,
-            type_: "String".to_string(),
+            type_: ParameterType::String,
             location: Operand::from(out.render()),
             text: "fs.pathDirName".to_string(),
         })
@@ -307,7 +308,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         Ok(ValueResult {
             origin: None,
-            type_: "String".to_string(),
+            type_: ParameterType::String,
             location: Operand::from(result.render()),
             text: "fs.pathExtension".to_string(),
         })
@@ -708,7 +709,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: "String".to_string(),
+            type_: ParameterType::String,
             location: Operand::from(result.render()),
             text: "fs.pathNormalize".to_string(),
         })

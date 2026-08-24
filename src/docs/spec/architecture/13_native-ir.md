@@ -81,7 +81,8 @@ an optional guard value, and a body. Patterns serialize with `"kind"` of
 the matching `IrValue`. Two variants carry no IR counterpart and are *introduced*
 during NIR lowering: `RuntimeCall` (a builtin routed to a runtime helper, see
 below) and `Global` gains a `type_` field that lowering fills with an empty
-string (the IR `Global` is just a name). [[src/target/shared/nir/lower.rs:lower_value]]
+type — rendered as an empty string in the dump (the IR `Global` is just a
+name). [[src/target/shared/nir/lower.rs:lower_value]]
 [[src/target/shared/nir/mod.rs:NirValue]]
 
 | Value | JSON `"kind"` | Shape |

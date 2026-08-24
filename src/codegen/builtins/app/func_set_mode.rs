@@ -54,7 +54,7 @@ pub(crate) fn lower_set_mode(
     builder.instructions.push(abi::return_());
     Ok(ValueResult {
         origin: None,
-        type_: "Nothing".to_string(),
+        type_: ParameterType::Nothing,
         location: Operand::from("void"),
         text: "app.setMode".to_string(),
     })

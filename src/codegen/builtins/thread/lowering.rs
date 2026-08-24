@@ -20,6 +20,7 @@ use crate::codegen::runtime::thread::{
     THREAD_OFFSET_OUTBOUND_QUEUE, THREAD_OFFSET_RESOURCE_INBOUND_QUEUE,
     THREAD_OFFSET_RESOURCE_OUTBOUND_QUEUE,
 };
+use crate::types::ParameterType;
 
 /// Extend `builder` with an emitter's un-finalized parts + record the frame size, and
 /// return the `void` result the `abi_function` wrapper recognizes (no epilogue). `text`
@@ -31,7 +32,7 @@ fn finish(builder: &mut CodeBuilder, parts: ThreadBodyParts, call: &str) -> Valu
     builder.stack_size = stack_size;
     ValueResult {
         origin: None,
-        type_: "Nothing".to_string(),
+        type_: ParameterType::Nothing,
         location: Operand::from("void"),
         text: call.to_string(),
     }

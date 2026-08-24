@@ -1,0 +1,7 @@
+building compilers (untimed)…
+== plan-78 lowering benchmark ==
+  trivial      debug 0.65       release 0.35
+  one-regex    debug 30.72      release 6.74
+  acceptance   debug 276.06     release 49.85
+== inlined regex function size (pre-allocation) ==
+  regex fn: function instructions=869181 int_vregs=143493 fp_vregs=0

@@ -58,7 +58,7 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
     ) -> Result<ValueResult, String> {
         let collection = self.lower_value(&args[0])?;
-        let item_type = list_element_type(&collection.type_)
+        let item_type = list_element_type(&collection.type_.name())
             .ok_or_else(|| format!("native sortBy does not accept {}", collection.type_))?;
         // plan-86 A1: for a String item list the 8-byte merge cannot move the
         // variable-width payloads, so `gather` mode sorts an Integer index
@@ -75,7 +75,7 @@ impl CodeBuilder<'_> {
             coll_slot,
         ));
         let action = self.lower_value(&args[1])?;
-        let key_type = callable_return_type(&action.type_).ok_or_else(|| {
+        let key_type = callable_return_type(&action.type_.name()).ok_or_else(|| {
             format!(
                 "native sortBy keyFn must be a function, got {}",
                 action.type_
@@ -222,14 +222,14 @@ impl CodeBuilder<'_> {
             // scratch buffers (itemsB/keysB) for the ping-pong merge.
             let srcreg = self.temporary_vreg();
             self.emit(abi::load_u64(&srcreg, abi::stack_pointer(), coll_slot));
-            let items_copy = self.copy_collection_tight(&list_type, &srcreg)?;
+            let items_copy = self.copy_collection_tight(&list_type.name(), &srcreg)?;
             let items_slot = self.allocate_stack_object("sortby_items", 8);
             self.emit(abi::store_u64(
                 &items_copy,
                 abi::stack_pointer(),
                 items_slot,
             ));
-            let itemsb = self.lower_reserved_list(&list_type, coll_slot)?;
+            let itemsb = self.lower_reserved_list(&list_type.name(), coll_slot)?;
             let itemsb_slot = self.allocate_stack_object("sortby_itemsb", 8);
             self.emit(abi::store_u64(
                 &itemsb.location,
@@ -436,7 +436,7 @@ impl CodeBuilder<'_> {
             // in sorted order, then free the four Integer index buffers. The result
             // is pre-sized to the source (same n entries, same total bytes — a
             // permutation), so no append regrows.
-            let result = self.lower_reserved_list(&list_type, coll_slot)?;
+            let result = self.lower_reserved_list(&list_type.name(), coll_slot)?;
             let result_slot = self.allocate_stack_object("sortby_result", 8);
             self.emit(abi::store_u64(
                 &result.location,
@@ -474,7 +474,7 @@ impl CodeBuilder<'_> {
             self.emit_element_value_offset(&gvoff, &gvlen, &gcoll, &gidx, &gscr1, &gscr2, "String");
             let gitem = self.emit_load_collection_payload("String", &gcoll, &gvoff, &gvlen)?;
             self.emit(abi::store_u64(&gitem, abi::stack_pointer(), gitem_slot));
-            self.lower_list_append_in_place(result_slot, gitem_slot, &list_type, "String")?;
+            self.lower_list_append_in_place(result_slot, gitem_slot, &list_type.name(), "String")?;
             self.free_collection_loop_item(gitem_slot, "String")?;
             self.emit(abi::load_u64(&r0, abi::stack_pointer(), gk_slot));
             self.emit(abi::add_immediate(&r0, &r0, 1));
@@ -522,7 +522,8 @@ impl CodeBuilder<'_> {
             location: Operand::from(result_reg.render()),
             text: String::new(),
         };
-        let threaded = self.free_intermediate_collection(itemsb_slot, &list_type, threaded)?;
+        let threaded =
+            self.free_intermediate_collection(itemsb_slot, &list_type.name(), threaded)?;
         let threaded = self.free_intermediate_collection(keys_slot, &keys_type, threaded)?;
         let threaded = self.free_intermediate_collection(keysb_slot, &keys_type, threaded)?;
         Ok(ValueResult {

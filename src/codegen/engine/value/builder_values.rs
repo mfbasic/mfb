@@ -10,6 +10,7 @@ use crate::codegen::memory::data::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
 use crate::target::shared::runtime;
+use crate::types::ParameterType;
 
 impl<'a> CodeBuilder<'a> {
     /// Build an [`AbiCtx`] from the builder's own platform/imports/build-mode for an
@@ -88,7 +89,7 @@ impl CodeBuilder<'_> {
         if Self::is_vector_native(result) {
             return;
         }
-        if !self.is_freeable_flat_value(&result.type_)
+        if !self.is_freeable_flat_value(&result.type_.name())
             || self.value_needs_owning_copy(value)
             || Self::value_is_runtime_managed(value)
         {
@@ -104,13 +105,13 @@ impl CodeBuilder<'_> {
         // corrupts the arena. String temps therefore leak until scope exit as
         // they did pre-plan-25; the benchmark's poison is large *list* temps,
         // which are freed.
-        if result.type_ == "String" {
+        if result.type_ == ParameterType::String {
             return;
         }
         let slot = self.allocate_stack_object("pending_temp", 8);
         self.emit(abi::store_u64(&result.location, abi::stack_pointer(), slot));
         self.pending_temp_frees.push(PendingTemp {
-            type_: result.type_.clone(),
+            type_: result.type_.name().into_owned(),
             slot,
             location: result.location.clone(),
         });
@@ -179,8 +180,9 @@ impl CodeBuilder<'_> {
             self.claim_pending_temp(&block);
             return Ok(block);
         }
-        if self.value_needs_owning_copy(value) && self.is_freeable_flat_value(&result.type_) {
-            let copied = self.copy_flat_block(&result.type_, &result.location)?;
+        if self.value_needs_owning_copy(value) && self.is_freeable_flat_value(&result.type_.name())
+        {
+            let copied = self.copy_flat_block(&result.type_.name(), &result.location)?;
             return Ok(ValueResult {
                 origin: None,
                 type_: result.type_,
@@ -333,7 +335,7 @@ impl CodeBuilder<'_> {
             NirValue::Local(name) => self
                 .locals
                 .get(name)
-                .map(|local| local.type_.clone())
+                .map(|local| local.type_.name().into_owned())
                 .unwrap_or_default(),
             _ => String::new(),
         }
@@ -354,7 +356,7 @@ impl CodeBuilder<'_> {
             let register = self.load_string_constant(&string_value)?;
             return Ok(ValueResult {
                 origin: None,
-                type_: "String".to_string(),
+                type_: ParameterType::String,
                 location: Operand::from(register.render()),
                 text: format!("String({string_value})"),
             });
@@ -366,8 +368,8 @@ impl CodeBuilder<'_> {
                 // arm only reaches non-String scalar constants. bug-175 C: the dead
                 // `type_ == "String"` branch was removed.
                 let register = self.allocate_register()?;
-                let immediate = native_immediate_value(type_, value)?;
-                self.emit(abi::move_immediate(&register, type_, &immediate));
+                let immediate = native_immediate_value(&type_.name(), value)?;
+                self.emit(abi::move_immediate(&register, &type_.name(), &immediate));
                 Ok(ValueResult {
                     origin: None,
                     type_: type_.clone(),
@@ -379,7 +381,7 @@ impl CodeBuilder<'_> {
                 if self.type_model.union_variants.contains_key(name) {
                     return Ok(ValueResult {
                         origin: None,
-                        type_: "VariantTag".to_string(),
+                        type_: ParameterType::parse("VariantTag"),
                         location: Operand::from(name.clone()),
                         text: name.clone(),
                     });
@@ -401,7 +403,7 @@ impl CodeBuilder<'_> {
                     if self.dnative_floats() {
                         return Ok(ValueResult {
                             origin: None,
-                            type_: "Float".to_string(),
+                            type_: ParameterType::Float,
                             location: Operand::from(d),
                             text: name.clone(),
                         });
@@ -411,7 +413,7 @@ impl CodeBuilder<'_> {
                     self.float_residents.insert(register.render(), d);
                     return Ok(ValueResult {
                         origin: None,
-                        type_: "Float".to_string(),
+                        type_: ParameterType::Float,
                         location: Operand::from(register.render()),
                         text: name.clone(),
                     });
@@ -421,6 +423,7 @@ impl CodeBuilder<'_> {
                     .get(name)
                     .ok_or_else(|| format!("native code local '{name}' does not resolve"))?;
                 let type_ = local.type_.clone();
+                let type_name = type_.name().into_owned();
                 let stack_offset = local.stack_offset;
                 let by_ref = local.by_ref;
                 // A non-aliased `Float` local loads straight into an FP register
@@ -428,12 +431,12 @@ impl CodeBuilder<'_> {
                 // arithmetic with no `ldr x` + `fmov` shuttle (plan-01
                 // float-dnative). A `by_ref` local needs a pointer deref first, so
                 // it stays on the GPR path.
-                if self.dnative_floats() && type_ == "Float" && !by_ref {
+                if self.dnative_floats() && matches!(type_, ParameterType::Float) && !by_ref {
                     let d = self.allocate_fp_register()?;
                     self.emit(abi::load_double(&d, abi::stack_pointer(), stack_offset));
                     return Ok(ValueResult {
                         origin: None,
-                        type_,
+                        type_: ParameterType::parse(&type_name),
                         location: Operand::from(d.render()),
                         text: name.clone(),
                     });
@@ -449,7 +452,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     origin: None,
-                    type_,
+                    type_: ParameterType::parse(&type_name),
                     location: Operand::from(register.render()),
                     text: name.clone(),
                 })
@@ -482,7 +485,7 @@ impl CodeBuilder<'_> {
             }
             NirValue::Global { name, type_ } => {
                 let global = self.global_value(name)?;
-                let value_type = if type_.is_empty() {
+                let value_type = if type_.name().is_empty() {
                     global.type_.clone()
                 } else {
                     type_.clone()
@@ -491,12 +494,12 @@ impl CodeBuilder<'_> {
                 // A `Float` global loads straight into an FP register under the
                 // `d`-native model (plan-01 float-dnative), mirroring the local
                 // load path.
-                if self.dnative_floats() && value_type == "Float" {
+                if self.dnative_floats() && matches!(value_type, ParameterType::Float) {
                     let d = self.allocate_fp_register()?;
                     self.emit(abi::load_double(&d, &address, 0));
                     return Ok(ValueResult {
                         origin: None,
-                        type_: value_type,
+                        type_: value_type.clone(),
                         location: Operand::from(d.render()),
                         text: name.clone(),
                     });
@@ -505,7 +508,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, &address, 0));
                 Ok(ValueResult {
                     origin: None,
-                    type_: value_type,
+                    type_: value_type.clone(),
                     location: Operand::from(register.render()),
                     text: name.clone(),
                 })
@@ -518,7 +521,7 @@ impl CodeBuilder<'_> {
                 // descriptor on every evaluation, so a lambda in a loop no longer
                 // grows the arena (bug-78). All indirect-call/env-access consumers
                 // read `{code, env}` off this pointer exactly as before.
-                let symbol = builtin_function_symbol_for_type(name, type_)
+                let symbol = builtin_function_symbol_for_type(name, &type_.name())
                     .or_else(|| self.function_symbols.get(name).cloned())
                     .unwrap_or_else(|| name.clone());
                 let desc_symbol = closure_descriptor_symbol(&symbol);
@@ -710,16 +713,14 @@ impl CodeBuilder<'_> {
                 // zip migrated to Implementation::Mfb.fast_path (func_zip.rs),
                 // consulted by try_mfb_fast_path below.
                 if let Some(local) = self.locals.get(target).cloned() {
-                    if local.type_.starts_with("FUNC(") {
-                        let return_type = callable_return_type(&local.type_).ok_or_else(|| {
-                            format!(
-                                "native call through `{target}` has invalid callable type `{}`",
-                                local.type_
-                            )
-                        })?;
+                    if matches!(local.type_, ParameterType::Func(_, _, false)) {
+                        let return_type_typed = typed_callable_return_type(&local.type_)
+                            .expect("guarded by the Func match above")
+                            .clone();
+                        let return_type = return_type_typed.name().into_owned();
                         let callable = ValueResult {
                             origin: None,
-                            type_: local.type_,
+                            type_: local.type_.clone(),
                             location: {
                                 let register = self.allocate_register()?;
                                 self.emit(abi::load_u64(
@@ -743,19 +744,17 @@ impl CodeBuilder<'_> {
                 // indirectly too (bug-198): load the function pointer from the
                 // global's arena slot, mirroring the local FUNC-value path above.
                 if let Some(global) = self.globals.get(target).cloned() {
-                    if global.type_.starts_with("FUNC(") {
-                        let return_type = callable_return_type(&global.type_).ok_or_else(|| {
-                            format!(
-                                "native call through global `{target}` has invalid callable type `{}`",
-                                global.type_
-                            )
-                        })?;
+                    if matches!(global.type_, ParameterType::Func(_, _, false)) {
+                        let return_type = typed_callable_return_type(&global.type_)
+                            .expect("guarded by the Func match above")
+                            .name()
+                            .into_owned();
                         let address = self.load_global_address(target)?;
                         let register = self.allocate_register()?;
                         self.emit(abi::load_u64(&register, &address, 0));
                         let callable = ValueResult {
                             origin: None,
-                            type_: global.type_,
+                            type_: global.type_.clone(),
                             location: Operand::from(register.render()),
                             text: target.clone(),
                         };
@@ -820,7 +819,7 @@ impl CodeBuilder<'_> {
                     let register = self.load_string_constant(&type_name)?;
                     return Ok(ValueResult {
                         origin: None,
-                        type_: "String".to_string(),
+                        type_: ParameterType::String,
                         location: Operand::from(register.render()),
                         text: format!("typeName({type_name})"),
                     });
@@ -878,16 +877,14 @@ impl CodeBuilder<'_> {
             }
             NirValue::CallResult { target, args, .. } => {
                 if let Some(local) = self.locals.get(target).cloned() {
-                    if local.type_.starts_with("FUNC(") {
-                        let return_type = callable_return_type(&local.type_).ok_or_else(|| {
-                            format!(
-                                "native raw call through `{target}` has invalid callable type `{}`",
-                                local.type_
-                            )
-                        })?;
+                    if matches!(local.type_, ParameterType::Func(_, _, false)) {
+                        let return_type_typed = typed_callable_return_type(&local.type_)
+                            .expect("guarded by the Func match above")
+                            .clone();
+                        let return_type = return_type_typed.name().into_owned();
                         let callable = ValueResult {
                             origin: None,
-                            type_: local.type_,
+                            type_: local.type_.clone(),
                             location: {
                                 let register = self.allocate_register()?;
                                 self.emit(abi::load_u64(
@@ -968,7 +965,7 @@ impl CodeBuilder<'_> {
                         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                         return Ok(ValueResult {
                             origin: None,
-                            type_: format!("Result OF {return_type}"),
+                            type_: ParameterType::result_of(return_type_typed.clone()),
                             location: Operand::from(register.render()),
                             text: format!("callResult {target}"),
                         });
@@ -1029,17 +1026,20 @@ impl CodeBuilder<'_> {
                     .get(target)
                     .cloned()
                     .unwrap_or_else(|| target.to_string());
-                let success_type = self
+                let success_type_typed = self
                     .functions
                     .get(target)
                     .map(|function| function.returns.clone())
                     .or_else(|| self.package_return_types.get(target).cloned())
                     .or_else(|| {
-                        builtins::call_return_type_name(target).map(std::borrow::Cow::into_owned)
+                        // A static descriptor name — a registry-literal boundary.
+                        builtins::call_return_type_name(target)
+                            .map(|type_| ParameterType::parse(&type_))
                     })
                     .ok_or_else(|| {
                         format!("native raw result call '{target}' has no return type")
                     })?;
+                let success_type = success_type_typed.name().into_owned();
                 let tag_slot = self.allocate_stack_object("raw_result_tag", 8);
                 let value_slot = self.allocate_stack_object("raw_result_value", 8);
                 let message_slot = self.allocate_stack_object("raw_result_message", 8);
@@ -1103,7 +1103,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
                     origin: None,
-                    type_: format!("Result OF {success_type}"),
+                    type_: ParameterType::result_of(success_type_typed.clone()),
                     location: Operand::from(register.render()),
                     text: format!("callResult {target}"),
                 })
@@ -1139,7 +1139,7 @@ impl CodeBuilder<'_> {
                     let register = self.load_string_constant(&type_name)?;
                     return Ok(ValueResult {
                         origin: None,
-                        type_: "String".to_string(),
+                        type_: ParameterType::String,
                         location: Operand::from(register.render()),
                         text: format!("typeName({type_name})"),
                     });
@@ -1153,7 +1153,7 @@ impl CodeBuilder<'_> {
                 // (`vector_value_as_block`). Each lane is finiteness-observed exactly
                 // as the record-field boundary would (plan-17), so behavior is
                 // bit-identical to the heap-record constructor.
-                if let Some(count) = vector_field_count(type_) {
+                if let Some(count) = vector_field_count(&type_.name()) {
                     if args.len() == count {
                         let mut lanes = Vec::with_capacity(count);
                         for arg in args {
@@ -1161,7 +1161,7 @@ impl CodeBuilder<'_> {
                             self.observe_float(arg, &value)?;
                             lanes.push(value);
                         }
-                        return Ok(self.make_vector_native(type_, lanes));
+                        return Ok(self.make_vector_native(&type_.name(), lanes));
                     }
                 }
                 // A fresh nested owned block passed as a field (e.g. the `ErrorLoc`
@@ -1189,11 +1189,15 @@ impl CodeBuilder<'_> {
                     arg_values.push(value);
                     arg_slots.push(slot);
                 }
-                if self.type_model.record_fields.contains_key(type_) {
+                if self
+                    .type_model
+                    .record_fields
+                    .contains_key(type_.name().as_ref())
+                {
                     // A record inlines its `String` fields into a trailing data
                     // region (the slot holds a block-relative offset); scalar and
                     // pointer fields stay inline at `8*index` (plan-02 §4.2).
-                    let register = self.emit_build_inlined_record(type_, &arg_slots)?;
+                    let register = self.emit_build_inlined_record(&type_.name(), &arg_slots)?;
                     // The record now owns byte-inlined copies of every field, so the
                     // consumed nested arg blocks are dead — free them (the record
                     // register is live across these frees and preserved by the vreg
@@ -1215,7 +1219,7 @@ impl CodeBuilder<'_> {
                 let tag = self
                     .type_model
                     .union_variant_tags
-                    .get(type_)
+                    .get(type_.name().as_ref())
                     .copied()
                     .ok_or_else(|| {
                         format!("native code union variant '{type_}' does not resolve")
@@ -1223,9 +1227,9 @@ impl CodeBuilder<'_> {
                 let union_name = self
                     .type_model
                     .union_variants
-                    .get(type_)
+                    .get(type_.name().as_ref())
                     .cloned()
-                    .unwrap_or_else(|| type_.clone());
+                    .unwrap_or_else(|| type_.name().into_owned());
                 // bug-175 C: size the union block the same way the `UnionWrap` path
                 // does — a resource variant occupies one word (its handle pointer)
                 // rather than being skipped, so a union mixing resource and data
@@ -1287,7 +1291,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
                     origin: None,
-                    type_: union_name,
+                    type_: ParameterType::parse(&union_name),
                     location: Operand::from(register.render()),
                     text: format!("construct {type_}({})", join_texts(&arg_values)),
                 })
@@ -1307,13 +1311,14 @@ impl CodeBuilder<'_> {
                 // A resource-union variant is a bare resource whose payload is
                 // the resource pointer itself (one word at offset 8), not record
                 // fields.
-                let is_resource_variant = crate::codegen::builtins::is_resource_type(member_type);
+                let is_resource_variant =
+                    crate::codegen::builtins::is_resource_type(&member_type.name());
                 let fields = if is_resource_variant {
                     Vec::new()
                 } else {
                     self.type_model
                         .record_fields
-                        .get(member_type)
+                        .get(member_type.name().as_ref())
                         .cloned()
                         .ok_or_else(|| {
                             format!("native code union wrap member '{member_type}' is not a record")
@@ -1322,7 +1327,7 @@ impl CodeBuilder<'_> {
                 let tag = self
                     .type_model
                     .union_variant_tags
-                    .get(member_type)
+                    .get(member_type.name().as_ref())
                     .copied()
                     .ok_or_else(|| {
                         format!("native code union variant '{member_type}' does not resolve")
@@ -1334,7 +1339,7 @@ impl CodeBuilder<'_> {
                 if !is_resource_variant {
                     let _ = &fields;
                     let register =
-                        self.emit_wrap_record_in_union(member_type, tag, wrapped_slot)?;
+                        self.emit_wrap_record_in_union(&member_type.name(), tag, wrapped_slot)?;
                     return Ok(ValueResult {
                         origin: None,
                         type_: union_type.clone(),
@@ -1347,7 +1352,7 @@ impl CodeBuilder<'_> {
                 // field count.
                 let max_payload = self
                     .type_model
-                    .variants_for_union(union_type)
+                    .variants_for_union(&union_type.name())
                     .map(|variant| {
                         if crate::codegen::builtins::is_resource_type(variant) {
                             1
@@ -1409,7 +1414,7 @@ impl CodeBuilder<'_> {
             NirValue::UnionExtract { type_, value } => {
                 // A resource-union variant's payload is the resource pointer
                 // itself (offset 8): extracting it yields that pointer directly.
-                if crate::codegen::builtins::is_resource_type(type_) {
+                if crate::codegen::builtins::is_resource_type(&type_.name()) {
                     let source = self.lower_value(value)?;
                     let register = self.allocate_register()?;
                     self.emit(abi::load_u64(&register, &source.location, 8));
@@ -1448,7 +1453,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&end_label));
                 Ok(ValueResult {
                     origin: None,
-                    type_: "Boolean".to_string(),
+                    type_: ParameterType::Boolean,
                     location: Operand::from(register.render()),
                     text: "resultIsOk".to_string(),
                 })
@@ -1457,6 +1462,7 @@ impl CodeBuilder<'_> {
                 let result = self.lower_value(value)?;
                 let type_ = result
                     .type_
+                    .name()
                     .strip_prefix("Result OF ")
                     .ok_or_else(|| {
                         format!(
@@ -1476,7 +1482,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     origin: None,
-                    type_,
+                    type_: ParameterType::parse(&type_),
                     location: Operand::from(register.render()),
                     text: "resultValue".to_string(),
                 })
@@ -1488,7 +1494,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::add_immediate(&register, &result.location, 16));
                 Ok(ValueResult {
                     origin: None,
-                    type_: "Error".to_string(),
+                    type_: ParameterType::parse("Error"),
                     location: Operand::from(register.render()),
                     text: "resultError".to_string(),
                 })
@@ -1497,7 +1503,7 @@ impl CodeBuilder<'_> {
                 type_,
                 target,
                 updates,
-            } => self.lower_with_update(type_, target, updates),
+            } => self.lower_with_update(&type_.name(), target, updates),
             NirValue::MemberAccess { target, member } => match target.as_ref() {
                 _ if member == "result" => {
                     if let Some(output_type) = self.static_type_name(target).and_then(|type_| {
@@ -1534,7 +1540,7 @@ impl CodeBuilder<'_> {
                         ));
                         return Ok(ValueResult {
                             origin: None,
-                            type_: type_name.clone(),
+                            type_: ParameterType::parse(&type_name),
                             location: Operand::from(register.render()),
                             text: format!("{type_name}.{member}"),
                         });
@@ -1559,7 +1565,7 @@ impl CodeBuilder<'_> {
             }
             NirValue::Unary { op, operand, .. } => {
                 let operand = self.lower_value(operand)?;
-                if op == "NOT" && operand.type_ == "Boolean" {
+                if op == "NOT" && operand.type_ == ParameterType::Boolean {
                     let register = self.allocate_register()?;
                     let true_label = self.label("bool_not_true");
                     let done_label = self.label("bool_not_done");
@@ -1572,14 +1578,14 @@ impl CodeBuilder<'_> {
                     self.emit(abi::label(&done_label));
                     return Ok(ValueResult {
                         origin: None,
-                        type_: "Boolean".to_string(),
+                        type_: ParameterType::Boolean,
                         location: Operand::from(register.render()),
                         text: format!("(NOT {})", operand.text),
                     });
                 }
                 if op == "-"
                     && matches!(
-                        operand.type_.as_str(),
+                        operand.type_.name().as_ref(),
                         "Byte" | "Integer" | "Fixed" | "Float" | "Money"
                     )
                 {
@@ -1591,9 +1597,13 @@ impl CodeBuilder<'_> {
                     self.current_symbol
                 ))
             }
-            NirValue::ListLiteral { type_, values } => self.lower_list_literal(type_, values),
-            NirValue::SetLiteral { type_, values } => self.lower_set_literal(type_, values),
-            NirValue::MapLiteral { type_, entries } => self.lower_map_literal(type_, entries),
+            NirValue::ListLiteral { type_, values } => {
+                self.lower_list_literal(&type_.name(), values)
+            }
+            NirValue::SetLiteral { type_, values } => self.lower_set_literal(&type_.name(), values),
+            NirValue::MapLiteral { type_, entries } => {
+                self.lower_map_literal(&type_.name(), entries)
+            }
         }
     }
 
@@ -1780,7 +1790,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::label(&capture));
         let success_type = success.type_.clone();
-        self.materialize_current_result(&success_type, format!("callResult {target}"), false)
+        self.materialize_current_result(&success_type.name(), format!("callResult {target}"), false)
     }
 
     /// Inline `TRAP` on a provably-infallible inline built-in (plan-26-A). Unlike
@@ -1804,7 +1814,7 @@ impl CodeBuilder<'_> {
             "Integer",
             RESULT_OK_TAG,
         ));
-        self.materialize_current_result(&success_type, format!("callResult {target}"), false)
+        self.materialize_current_result(&success_type.name(), format!("callResult {target}"), false)
     }
 
     /// Dispatch a provably-infallible inline built-in to its normal lowering. The
@@ -1837,7 +1847,7 @@ impl CodeBuilder<'_> {
             let register = self.load_string_constant(&type_name)?;
             return Ok(ValueResult {
                 origin: None,
-                type_: "String".to_string(),
+                type_: ParameterType::String,
                 location: Operand::from(register.render()),
                 text: format!("typeName({type_name})"),
             });
@@ -1919,7 +1929,7 @@ impl CodeBuilder<'_> {
         }
         if target == "io.input" && helper_args.is_empty() {
             helper_args.push(NirValue::Const {
-                type_: "String".to_string(),
+                type_: ParameterType::String,
                 value: String::new(),
             });
         } else if target == "io.pollInput" && helper_args.is_empty() {
@@ -1931,13 +1941,13 @@ impl CodeBuilder<'_> {
             // and a negative meant "block", the exact POSIX inversion the convention
             // removes.
             helper_args.push(NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
             });
         } else if target == "thread.start" {
             while helper_args.len() < 4 {
                 helper_args.push(NirValue::Const {
-                    type_: "Integer".to_string(),
+                    type_: ParameterType::Integer,
                     value: "64".to_string(),
                 });
             }
@@ -1952,7 +1962,7 @@ impl CodeBuilder<'_> {
             // (immediate `ErrTimeout` when full) and `transferResource` was NOT padded
             // at all — its timeout arg was uninitialised (plan-73-A Corrections C2).
             helper_args.push(NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
             });
         } else if matches!(target, "thread.receive" | "thread.acceptResource")
@@ -1964,7 +1974,7 @@ impl CodeBuilder<'_> {
             // on it and rejects every other negative timeout. (`accept` had no padding
             // before, so its no-arg blocking form is enabled here.)
             helper_args.push(NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
             });
         } else if matches!(target, "thread.openStdIn" | "thread.closeStdIn")
@@ -1973,12 +1983,12 @@ impl CodeBuilder<'_> {
             // No-arg self form: pass a null handle sentinel; the helper subscribes
             // the calling thread when the handle is 0 (plan-15 §4.5).
             helper_args.push(NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: "0".to_string(),
             });
         } else if target == "net.lookup" && helper_args.len() == 1 {
             helper_args.push(NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: "0".to_string(),
             });
         } else if target == "net.connectTcp" {
@@ -1992,13 +2002,13 @@ impl CodeBuilder<'_> {
             let target_args = if is_address { 2 } else { 3 };
             while helper_args.len() < target_args {
                 helper_args.push(NirValue::Const {
-                    type_: "Integer".to_string(),
+                    type_: ParameterType::Integer,
                     value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
                 });
             }
         } else if target == "net.listenTcp" && helper_args.len() == 2 {
             helper_args.push(NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: "128".to_string(),
             });
         } else if target == "net.poll" && helper_args.len() == 1 {
@@ -2006,7 +2016,7 @@ impl CodeBuilder<'_> {
             // readable (the convention's readiness-query omit rule). Pad with the
             // unbounded sentinel; the poll helper routes it to a -1 (infinite) poll.
             helper_args.push(NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
             });
         } else if target == "net.accept" && helper_args.len() == 1 {
@@ -2016,7 +2026,7 @@ impl CodeBuilder<'_> {
             // treats `0` as one immediate attempt (`ErrTimeout` if none pending),
             // and rejects other negatives.
             helper_args.push(NirValue::Const {
-                type_: "Integer".to_string(),
+                type_: ParameterType::Integer,
                 value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
             });
         }

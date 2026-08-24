@@ -15,6 +15,7 @@ use crate::codegen::engine::types::{callable_return_type, list_element_type};
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 /// Native fast path for `#collections_findLastIndex$String` (3-arg form): a
 /// reverse predicate scan. Other element types decline (`Ok(None)`) and run the
 /// `.mfb` body. Free fn (an `impl` method would not coerce to `MfbFastPath`).
@@ -55,7 +56,7 @@ impl CodeBuilder<'_> {
         let scratch9 = self.temporary_vreg();
         let scratch17 = self.temporary_vreg();
         let collection = self.lower_value(&args[0])?;
-        let Some(element_type) = list_element_type(&collection.type_) else {
+        let Some(element_type) = list_element_type(&collection.type_.name()) else {
             return Err(format!(
                 "native collection findLastIndex does not accept {}",
                 collection.type_
@@ -68,7 +69,7 @@ impl CodeBuilder<'_> {
             collection_slot,
         ));
         let action = self.lower_value(&args[1])?;
-        let output_type = callable_return_type(&action.type_).ok_or_else(|| {
+        let output_type = callable_return_type(&action.type_.name()).ok_or_else(|| {
             format!(
                 "native collection findLastIndex predicate must be a function, got {}",
                 action.type_
@@ -195,7 +196,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::subtract_immediate(&result, &result, 1));
         Ok(ValueResult {
             origin: None,
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             location: Operand::from(result.render()),
             text: format!("findLastIndex({}, {})", collection.type_, action.text),
         })

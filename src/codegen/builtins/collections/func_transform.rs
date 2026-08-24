@@ -139,7 +139,7 @@ pub(crate) fn lower_transform(
     let scratch9 = builder.temporary_vreg();
     let scratch17 = builder.temporary_vreg();
     let collection = args[0].clone();
-    let Some(element_type) = list_element_type(&collection.type_) else {
+    let Some(element_type) = list_element_type(&collection.type_.name()) else {
         return Err(format!(
             "native collection transform does not accept {}",
             collection.type_
@@ -152,7 +152,7 @@ pub(crate) fn lower_transform(
         collection_slot,
     ));
     let action = args[1].clone();
-    let output_type = callable_return_type(&action.type_).ok_or_else(|| {
+    let output_type = callable_return_type(&action.type_.name()).ok_or_else(|| {
         format!(
             "native collection transform action must be a function, got {}",
             action.type_
@@ -232,7 +232,7 @@ pub(crate) fn lower_transform(
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), output_slot));
     Ok(ValueResult {
         origin: None,
-        type_: output_list_type,
+        type_: ParameterType::parse(&output_list_type),
         location: Operand::from(result.render()),
         text: format!("transform({}, {})", collection.type_, action.text),
     })

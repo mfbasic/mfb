@@ -52,7 +52,7 @@ fn link_routing_imports(ir: &IrProject) -> Vec<NirImport> {
             kind: "func".to_string(),
             isolated: false,
             params: Vec::new(),
-            returns: String::new(),
+            returns: ParameterType::named(""),
         });
     }
     // A re-export alias routes to the same thunk as its LINK target
@@ -68,7 +68,7 @@ fn link_routing_imports(ir: &IrProject) -> Vec<NirImport> {
                 kind: "func".to_string(),
                 isolated: false,
                 params: Vec::new(),
-                returns: String::new(),
+                returns: ParameterType::named(""),
             });
         }
     }
@@ -118,7 +118,7 @@ pub(crate) fn lower_ops(ops: &[IrOp]) -> Vec<NirOp> {
 fn lower_entry(entry: &EntryPoint) -> NirEntryPoint {
     NirEntryPoint {
         name: entry.name.clone(),
-        returns: entry.returns.name().into_owned(),
+        returns: entry.returns.clone(),
         accepts_args: entry.accepts_args,
     }
 }
@@ -129,7 +129,7 @@ fn lower_global(project: &str, binding: &IrBinding) -> NirGlobal {
         symbol: global_symbol(project, &binding.name),
         visibility: binding.visibility.clone(),
         mutable: binding.mutable,
-        type_: binding.type_.name().into_owned(),
+        type_: binding.type_.clone(),
         value: binding.value.as_ref().map(lower_value),
     }
 }
@@ -150,13 +150,13 @@ fn lower_global_initializer(ir: &IrProject) -> NirFunction {
         kind: "sub".to_string(),
         isolated: false,
         params: Vec::new(),
-        returns: "Nothing".to_string(),
+        returns: ParameterType::Nothing,
         body: ir
             .bindings
             .iter()
             .map(|binding| NirOp::StoreGlobal {
                 name: binding.name.clone(),
-                type_: binding.type_.name().into_owned(),
+                type_: binding.type_.clone(),
                 value: binding.value.as_ref().map(lower_value),
             })
             .collect(),
@@ -195,7 +195,7 @@ fn lower_field(field: &IrField) -> NirField {
     NirField {
         visibility: field.visibility.clone(),
         name: field.name.clone(),
-        type_: field.type_.name().into_owned(),
+        type_: field.type_.clone(),
     }
 }
 
@@ -219,7 +219,7 @@ fn lower_function(function: &IrFunction) -> NirFunction {
         kind: function.kind.clone(),
         isolated: function.isolated,
         params: function.params.iter().map(lower_param).collect(),
-        returns: function.returns.name().into_owned(),
+        returns: function.returns.clone(),
         body: lower_ops(&function.body),
         file: function.file.clone(),
         resource_owners: function.resource_owners.clone(),
@@ -229,7 +229,7 @@ fn lower_function(function: &IrFunction) -> NirFunction {
 fn lower_param(param: &IrParam) -> NirParam {
     NirParam {
         name: param.name.clone(),
-        type_: param.type_.name().into_owned(),
+        type_: param.type_.clone(),
         default: param.default.as_ref().map(lower_value),
     }
 }
@@ -260,7 +260,7 @@ fn lower_op(op: &IrOp) -> NirOp {
         },
         IrOp::AssignGlobal { name, value, .. } => NirOp::StoreGlobal {
             name: name.clone(),
-            type_: String::new(),
+            type_: ParameterType::named(""),
             value: Some(lower_value(value)),
         },
         IrOp::Return { value, .. } => NirOp::Return {
@@ -370,7 +370,7 @@ fn apply_default_args(target: &str, args: &mut Vec<NirValue>, loc: NirSourceLoc)
     match (target, args.len()) {
         ("fs.openFile" | "fs.openFileNoFollow", 1) => {
             args.push(NirValue::Const {
-                type_: "String".to_string(),
+                type_: ParameterType::String,
                 value: "read".to_string(),
             });
         }
@@ -378,7 +378,7 @@ fn apply_default_args(target: &str, args: &mut Vec<NirValue>, loc: NirSourceLoc)
         // "read", exactly like the openFile family's 1-arg form.
         ("fs.openWithin", 2) => {
             args.push(NirValue::Const {
-                type_: "String".to_string(),
+                type_: ParameterType::String,
                 value: "read".to_string(),
             });
         }
@@ -397,21 +397,21 @@ fn apply_default_args(target: &str, args: &mut Vec<NirValue>, loc: NirSourceLoc)
 fn lower_value(value: &IrValue) -> NirValue {
     match value {
         IrValue::Const { type_, value } => NirValue::Const {
-            type_: type_.name().into_owned(),
+            type_: type_.clone(),
             value: value.clone(),
         },
         IrValue::Local(name) => NirValue::Local(name.clone()),
         IrValue::LocalRef { name, type_ } => NirValue::LocalRef {
             name: name.clone(),
-            type_: type_.name().into_owned(),
+            type_: type_.clone(),
         },
         IrValue::Global(name) => NirValue::Global {
             name: name.clone(),
-            type_: String::new(),
+            type_: ParameterType::named(""),
         },
         IrValue::FunctionRef { name, type_ } => NirValue::FunctionRef {
             name: name.clone(),
-            type_: type_.name().into_owned(),
+            type_: type_.clone(),
         },
         IrValue::Closure {
             name,
@@ -419,7 +419,7 @@ fn lower_value(value: &IrValue) -> NirValue {
             captures,
         } => NirValue::Closure {
             name: name.clone(),
-            type_: type_.name().into_owned(),
+            type_: type_.clone(),
             captures: captures.iter().map(lower_value).collect(),
         },
         IrValue::Capture {
@@ -428,7 +428,7 @@ fn lower_value(value: &IrValue) -> NirValue {
             by_ref,
         } => NirValue::Capture {
             index: *index as usize,
-            type_: type_.name().into_owned(),
+            type_: type_.clone(),
             by_ref: *by_ref,
         },
         IrValue::Call {
@@ -471,7 +471,7 @@ fn lower_value(value: &IrValue) -> NirValue {
             }
         }
         IrValue::Constructor { type_, args } => NirValue::Constructor {
-            type_: type_.name().into_owned(),
+            type_: type_.clone(),
             args: args.iter().map(lower_value).collect(),
         },
         IrValue::UnionWrap {
@@ -479,12 +479,12 @@ fn lower_value(value: &IrValue) -> NirValue {
             member_type,
             value,
         } => NirValue::UnionWrap {
-            union_type: union_type.name().into_owned(),
-            member_type: member_type.name().into_owned(),
+            union_type: union_type.clone(),
+            member_type: member_type.clone(),
             value: Box::new(lower_value(value)),
         },
         IrValue::UnionExtract { type_, value } => NirValue::UnionExtract {
-            type_: type_.name().into_owned(),
+            type_: type_.clone(),
             value: Box::new(lower_value(value)),
         },
         IrValue::ResultIsOk { value } => NirValue::ResultIsOk {
@@ -501,20 +501,20 @@ fn lower_value(value: &IrValue) -> NirValue {
             target,
             updates,
         } => NirValue::WithUpdate {
-            type_: type_.name().into_owned(),
+            type_: type_.clone(),
             target: Box::new(lower_value(target)),
             updates: updates.iter().map(lower_record_update).collect(),
         },
         IrValue::ListLiteral { type_, values } => NirValue::ListLiteral {
-            type_: type_.name().into_owned(),
+            type_: type_.clone(),
             values: values.iter().map(lower_value).collect(),
         },
         IrValue::SetLiteral { type_, values } => NirValue::SetLiteral {
-            type_: type_.name().into_owned(),
+            type_: type_.clone(),
             values: values.iter().map(lower_value).collect(),
         },
         IrValue::MapLiteral { type_, entries } => NirValue::MapLiteral {
-            type_: type_.name().into_owned(),
+            type_: type_.clone(),
             entries: entries
                 .iter()
                 .map(|(key, value)| (lower_value(key), lower_value(value)))

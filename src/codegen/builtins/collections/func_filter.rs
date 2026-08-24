@@ -127,7 +127,7 @@ pub(crate) fn lower_filter(
     let scratch9 = builder.temporary_vreg();
     let scratch17 = builder.temporary_vreg();
     let collection = args[0].clone();
-    let Some(element_type) = list_element_type(&collection.type_) else {
+    let Some(element_type) = list_element_type(&collection.type_.name()) else {
         return Err(format!(
             "native collection filter does not accept {}",
             collection.type_
@@ -140,7 +140,7 @@ pub(crate) fn lower_filter(
         collection_slot,
     ));
     let action = args[1].clone();
-    let output_type = callable_return_type(&action.type_).ok_or_else(|| {
+    let output_type = callable_return_type(&action.type_.name()).ok_or_else(|| {
         format!(
             "native collection filter predicate must be a function, got {}",
             action.type_
@@ -161,7 +161,7 @@ pub(crate) fn lower_filter(
     // Pre-size the output to the source: filter's result is a subset, so the
     // per-element append regrows neither the entry table nor the data region
     // (plan-25-B B2).
-    let output = builder.lower_reserved_list(&collection.type_, collection_slot)?;
+    let output = builder.lower_reserved_list(&collection.type_.name(), collection_slot)?;
     let output_slot = builder.allocate_stack_object("filter_output", 8);
     let cursor_slot = builder.allocate_stack_object("filter_cursor", 8);
     let remaining_slot = builder.allocate_stack_object("filter_remaining", 8);
@@ -200,14 +200,20 @@ pub(crate) fn lower_filter(
     builder.emit(abi::branch_eq(&ok_label));
     // A failing predicate: free the partial output list before routing the raw
     // error to the inline-TRAP capture point (plan-26-B).
-    builder.emit_callback_failure_exit(Some((output_slot, collection.type_.clone())))?;
+    builder
+        .emit_callback_failure_exit(Some((output_slot, collection.type_.name().into_owned())))?;
     builder.emit(abi::label(&ok_label));
     builder.emit(abi::compare_immediate(RESULT_VALUE_REGISTER, "0"));
     builder.emit(abi::branch_ne(&keep_label));
     builder.emit(abi::branch(&skip_label));
     builder.emit(abi::label(&keep_label));
     // Private accumulator → append in place with headroom (plan-01 §4.2).
-    builder.lower_list_append_in_place(output_slot, item_slot, &collection.type_, &element_type)?;
+    builder.lower_list_append_in_place(
+        output_slot,
+        item_slot,
+        &collection.type_.name(),
+        &element_type,
+    )?;
     builder.emit(abi::label(&skip_label));
     // bug-307: freed after the append on purpose. `emit_copy_payload_to_collection`
     // COPIES the String's bytes into the output's packed data region rather than

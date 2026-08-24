@@ -4,6 +4,7 @@ use crate::codegen::engine::control::{nir_value_reads_local, string_self_append_
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 impl CodeBuilder<'_> {
     /// Recognize `name = collections::append(name, item)` for a single element
     /// appended to a uniquely-owned `MUT` list local, and lower it as an in-place
@@ -54,11 +55,14 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let list_type = local.type_.clone();
-        let Some(element_type) = crate::codegen::engine::types::list_element_type(&list_type)
+        let Some(element_type) =
+            crate::codegen::engine::types::list_element_type(&list_type.name())
         else {
             return Ok(false);
         };
-        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&list_type).is_none() {
+        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&list_type.name())
+            .is_none()
+        {
             return Ok(false);
         }
         // Commit only for a statically-known single element of the list's element
@@ -80,7 +84,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             item_slot,
         ));
-        self.lower_list_append_in_place(stack_offset, item_slot, &list_type, &element_type)?;
+        self.lower_list_append_in_place(stack_offset, item_slot, &list_type.name(), &element_type)?;
         if let Some(local) = self.locals.get_mut(name) {
             local.constant = None;
         }
@@ -138,7 +142,7 @@ impl CodeBuilder<'_> {
             return Ok(false);
         }
         let Some((field_index, field_type)) =
-            self.record_collection_last_inlined(type_, &update.field)
+            self.record_collection_last_inlined(&type_.name(), &update.field)
         else {
             return Ok(false);
         };
@@ -270,10 +274,13 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let set_type = local.type_.clone();
-        let Some(element_type) = crate::codegen::engine::types::set_element_type(&set_type) else {
+        let Some(element_type) = crate::codegen::engine::types::set_element_type(&set_type.name())
+        else {
             return Ok(false);
         };
-        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&set_type).is_none() {
+        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&set_type.name())
+            .is_none()
+        {
             return Ok(false);
         }
         match self.static_type_name(&args[1]) {
@@ -295,7 +302,7 @@ impl CodeBuilder<'_> {
             stack_offset,
             item_slot,
             true_slot,
-            &set_type,
+            &set_type.name(),
             &element_type,
             "Boolean",
         )?;
@@ -344,11 +351,13 @@ impl CodeBuilder<'_> {
         };
         let map_type = local.type_.clone();
         let Some((key_type, _value_type)) =
-            crate::codegen::engine::types::map_type_parts(&map_type)
+            crate::codegen::engine::types::map_type_parts(&map_type.name())
         else {
             return Ok(false);
         };
-        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&map_type).is_none() {
+        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&map_type.name())
+            .is_none()
+        {
             return Ok(false);
         }
         match self.static_type_name(&args[1]) {
@@ -359,7 +368,7 @@ impl CodeBuilder<'_> {
         let key = self.materialize_value(key)?;
         let key_slot = self.allocate_stack_object("inplace_remove_key", 8);
         self.store_value_at(&key, abi::stack_pointer(), key_slot);
-        self.lower_map_remove_key_in_place(stack_offset, key_slot, &map_type, &key_type)?;
+        self.lower_map_remove_key_in_place(stack_offset, key_slot, &map_type.name(), &key_type)?;
         if let Some(local) = self.locals.get_mut(name) {
             local.constant = None;
         }
@@ -407,18 +416,21 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let list_type = local.type_.clone();
-        let Some(element_type) = crate::codegen::engine::types::list_element_type(&list_type)
+        let Some(element_type) =
+            crate::codegen::engine::types::list_element_type(&list_type.name())
         else {
             return Ok(false);
         };
-        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&list_type).is_none() {
+        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&list_type.name())
+            .is_none()
+        {
             return Ok(false);
         }
         // Commit only for a statically-known RHS of the *list* type (not the
         // element type — that is the single-element fast path). A RHS whose static
         // type is unknown (a general call result) falls through to the value path.
         match self.static_type_name(&args[1]) {
-            Some(item_type) if item_type == list_type => {}
+            Some(item_type) if item_type == list_type.name().as_ref() => {}
             _ => return Ok(false),
         }
         let rhs = self.lower_value(&args[1])?;
@@ -434,7 +446,12 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             rhs_slot,
         ));
-        self.lower_list_bulk_append_in_place(stack_offset, rhs_slot, &list_type, &element_type)?;
+        self.lower_list_bulk_append_in_place(
+            stack_offset,
+            rhs_slot,
+            &list_type.name(),
+            &element_type,
+        )?;
         if let Some(local) = self.locals.get_mut(name) {
             local.constant = None;
         }
@@ -486,20 +503,20 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let collection_type = local.type_.clone();
-        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&collection_type)
+        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&collection_type.name())
             .is_none()
         {
             return Ok(false);
         }
         if let Some(element_type) =
-            crate::codegen::engine::types::list_element_type(&collection_type)
+            crate::codegen::engine::types::list_element_type(&collection_type.name())
         {
             // The list `set` item is always a single element of type `T`
             // (syntaxcheck-enforced), so — unlike append's bulk-vs-single gate — no
             // static element-type check is needed; the post-lowering `item.type_`
             // check catches any mismatch.
             let index = self.lower_value(&args[1])?;
-            if index.type_ != "Integer" {
+            if index.type_ != ParameterType::Integer {
                 return Err(format!(
                     "native collection set list index must be Integer, got {}",
                     index.type_
@@ -515,7 +532,7 @@ impl CodeBuilder<'_> {
             // Observation boundary: an in-place replacement `Float` element must
             // be finite (plan-17).
             self.observe_float(&args[2], &item)?;
-            if item.type_ != element_type {
+            if item.type_.name() != element_type.as_str() {
                 return Err(format!(
                     "native collection set list item must be {element_type}, got {}",
                     item.type_
@@ -532,7 +549,7 @@ impl CodeBuilder<'_> {
                 stack_offset,
                 index_slot,
                 item_slot,
-                &collection_type,
+                &collection_type.name(),
                 &element_type,
             )?;
             if let Some(local) = self.locals.get_mut(name) {
@@ -541,13 +558,13 @@ impl CodeBuilder<'_> {
             return Ok(true);
         }
         if let Some((key_type, value_type)) =
-            crate::codegen::engine::types::map_type_parts(&collection_type)
+            crate::codegen::engine::types::map_type_parts(&collection_type.name())
         {
             let key = self.lower_value(&args[1])?;
             // Observation boundary: an in-place `Float` map key must be finite
             // (plan-17).
             self.observe_float(&args[1], &key)?;
-            if key.type_ != key_type {
+            if key.type_.name() != key_type.as_str() {
                 return Err(format!(
                     "native collection set map key must be {key_type}, got {}",
                     key.type_
@@ -564,7 +581,7 @@ impl CodeBuilder<'_> {
             // Observation boundary: an in-place `Float` map value must be finite
             // (plan-17).
             self.observe_float(&args[2], &val)?;
-            if val.type_ != value_type {
+            if val.type_.name() != value_type.as_str() {
                 return Err(format!(
                     "native collection set map value must be {value_type}, got {}",
                     val.type_
@@ -581,7 +598,7 @@ impl CodeBuilder<'_> {
                 stack_offset,
                 key_slot,
                 value_slot,
-                &collection_type,
+                &collection_type.name(),
                 &key_type,
                 &value_type,
             )?;
@@ -632,11 +649,14 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let list_type = local.type_.clone();
-        let Some(element_type) = crate::codegen::engine::types::list_element_type(&list_type)
+        let Some(element_type) =
+            crate::codegen::engine::types::list_element_type(&list_type.name())
         else {
             return Ok(false);
         };
-        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&list_type).is_none() {
+        if crate::codegen::engine::builder::CollectionTypeLayout::from_type(&list_type.name())
+            .is_none()
+        {
             return Ok(false);
         }
         // `prepend` always takes a single element of the list element type
@@ -646,7 +666,7 @@ impl CodeBuilder<'_> {
         // Observation boundary: an in-place prepended `Float` must be finite
         // (plan-17).
         self.observe_float(&args[1], &item)?;
-        if item.type_ != element_type {
+        if item.type_.name() != element_type.as_str() {
             return Err(format!(
                 "native collection prepend item must be {element_type}, got {}",
                 item.type_
@@ -659,7 +679,12 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             item_slot,
         ));
-        self.lower_list_prepend_in_place(stack_offset, item_slot, &list_type, &element_type)?;
+        self.lower_list_prepend_in_place(
+            stack_offset,
+            item_slot,
+            &list_type.name(),
+            &element_type,
+        )?;
         if let Some(local) = self.locals.get_mut(name) {
             local.constant = None;
         }
@@ -727,7 +752,7 @@ impl CodeBuilder<'_> {
         operand: &NirValue,
     ) -> Result<(), String> {
         let right = self.lower_value(operand)?;
-        if right.type_ != "String" {
+        if right.type_ != ParameterType::String {
             return Err(format!(
                 "native string self-append operand must be String, got {}",
                 right.type_

@@ -20,6 +20,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 // NEON f64 polynomial kernels for the Float transcendentals — plan-01-simd
 // Phase 5. Hand-written, identical on every target, no external math library.
 // Coefficients come from `simd_kernel_coeffs.rs` (Remez minimax, validated <=1
@@ -400,7 +401,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: "List OF Float".to_string(),
+            type_: ParameterType::parse("List OF Float"),
             location: Operand::from(result_base.render()),
             text,
         })
@@ -503,7 +504,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_extract_to_x(&dst, abi::VEC_SCRATCH[0], 0));
         Ok(ValueResult {
             origin: None,
-            type_: "Float".to_string(),
+            type_: ParameterType::Float,
             location: Operand::from(dst.render()),
             text,
         })
@@ -2106,7 +2107,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             origin: None,
-            type_: "List OF Float".to_string(),
+            type_: ParameterType::parse("List OF Float"),
             location: Operand::from(result_base.render()),
             text,
         })
@@ -2138,7 +2139,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_extract_to_x(&dst, abi::VEC_SCRATCH[0], 0));
         Ok(ValueResult {
             origin: None,
-            type_: "Float".to_string(),
+            type_: ParameterType::Float,
             location: Operand::from(dst.render()),
             text,
         })

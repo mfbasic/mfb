@@ -13,6 +13,7 @@
 //! here rather than being duplicated across the two module trees (bug-328).
 
 use super::NirValue;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 
 pub(crate) fn native_constant_value(
@@ -25,19 +26,19 @@ pub(crate) fn native_constant_value(
         NirValue::Global { .. } => None,
         NirValue::Call { target, args, .. } if target == "toString" && args.len() == 1 => {
             native_primitive_text(&args[0], constants).map(|value| NirValue::Const {
-                type_: "String".to_string(),
+                type_: ParameterType::String,
                 value,
             })
         }
         NirValue::RuntimeCall { target, args, .. } if target == "toString" && args.len() == 1 => {
             native_primitive_text(&args[0], constants).map(|value| NirValue::Const {
-                type_: "String".to_string(),
+                type_: ParameterType::String,
                 value,
             })
         }
         NirValue::Binary { op, .. } if op == "&" => native_static_string_value(value, constants)
             .map(|value| NirValue::Const {
-                type_: "String".to_string(),
+                type_: ParameterType::String,
                 value,
             }),
         _ => None,
@@ -49,7 +50,7 @@ pub(crate) fn native_static_string_value(
     constants: &HashMap<String, NirValue>,
 ) -> Option<String> {
     match value {
-        NirValue::Const { type_, value } if type_ == "String" => Some(value.clone()),
+        NirValue::Const { type_, value } if *type_ == ParameterType::String => Some(value.clone()),
         NirValue::Local(name) => constants
             .get(name)
             .and_then(|constant| native_static_string_value(constant, constants)),
@@ -110,12 +111,16 @@ pub(crate) fn native_primitive_text(
     constants: &HashMap<String, NirValue>,
 ) -> Option<String> {
     match value {
-        NirValue::Const { type_, value } => match type_.as_str() {
+        NirValue::Const { type_, value } => match type_ {
             // Float/Fixed constants fold to the runtime formatter's
             // default-precision rendering (2 places; bug-358, plan-28-B).
-            "Float" | "Fixed" => crate::numeric::default_to_string_text(type_, value),
-            "Integer" | "Byte" | "String" => Some(value.clone()),
-            "Boolean" => match value.as_str() {
+            ParameterType::Float | ParameterType::Fixed => {
+                crate::numeric::default_to_string_text(&type_.name(), value)
+            }
+            ParameterType::Integer | ParameterType::Byte | ParameterType::String => {
+                Some(value.clone())
+            }
+            ParameterType::Boolean => match value.as_str() {
                 "true" => Some("TRUE".to_string()),
                 "false" => Some("FALSE".to_string()),
                 _ => None,

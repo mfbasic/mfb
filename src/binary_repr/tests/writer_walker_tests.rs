@@ -6,6 +6,7 @@ use super::fixtures::*;
 use super::*;
 use crate::ast::LoopKind;
 use crate::ir::{IrMatchCase, IrMatchPattern, IrParam, IrRecordUpdate, IrSourceLoc};
+use crate::types::ParameterType;
 
 fn file_local() -> IrValue {
     IrValue::LocalRef {
@@ -126,7 +127,7 @@ fn every_op_body() -> Vec<IrOp> {
         IrOp::Bind {
             mutable: true,
             name: "a".to_string(),
-            type_: "fs.File".to_string(),
+            type_: ParameterType::parse("fs.File"),
             value: Some(call.clone()),
             loc: IrSourceLoc::default(),
             explicit_type: true,
@@ -206,7 +207,7 @@ fn every_op_body() -> Vec<IrOp> {
         },
         IrOp::For {
             name: "i".to_string(),
-            type_: "fs.File".to_string(),
+            type_: ParameterType::parse("fs.File"),
             start: file_local(),
             end: file_local(),
             step: file_local(),
@@ -226,7 +227,7 @@ fn every_op_body() -> Vec<IrOp> {
         },
         IrOp::ForEach {
             name: "e".to_string(),
-            type_: "fs.File".to_string(),
+            type_: ParameterType::parse("fs.File"),
             iterable: file_local(),
             body: vec![IrOp::Eval {
                 value: file_local(),
@@ -384,7 +385,7 @@ fn every_plain_op_body() -> Vec<IrOp> {
         IrOp::Bind {
             mutable: true,
             name: "a".to_string(),
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             value: Some(plain_local()),
             loc: IrSourceLoc::default(),
             explicit_type: true,
@@ -464,7 +465,7 @@ fn every_plain_op_body() -> Vec<IrOp> {
         },
         IrOp::For {
             name: "i".to_string(),
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             start: plain_local(),
             end: plain_local(),
             step: plain_local(),
@@ -484,7 +485,7 @@ fn every_plain_op_body() -> Vec<IrOp> {
         },
         IrOp::ForEach {
             name: "e".to_string(),
-            type_: "Integer".to_string(),
+            type_: ParameterType::Integer,
             iterable: plain_local(),
             body: vec![IrOp::Eval {
                 value: plain_local(),

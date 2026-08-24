@@ -22,6 +22,7 @@ use crate::codegen::error::emission::*;
 use crate::codegen::memory::arena::*;
 use crate::codegen::string::util::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 
 // TLS handles share the canonical resource-record header (plan-80): tag@0,
@@ -373,7 +374,7 @@ pub(crate) type TlsBodyParts = (Vec<CodeInstruction>, Vec<CodeRelocation>, usize
 pub(crate) fn void_result(call: &str) -> ValueResult {
     ValueResult {
         origin: None,
-        type_: "Nothing".to_string(),
+        type_: ParameterType::Nothing,
         location: Operand::from("void"),
         text: call.to_string(),
     }

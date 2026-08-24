@@ -2109,27 +2109,57 @@ fn contains_var(ty: &ParameterType) -> bool {
 /// checker still speaks strings. The conversion happens here ([`ParameterType::parse`]
 /// in, [`ParameterType::name`] out); nothing inside the registry is a string.
 pub(crate) fn resolve_call(qualified: &str, arg_types: &[String], strict: bool) -> Option<String> {
-    let function = registry().resolve_func(qualified)?.function;
     let call = CallShape {
         args: arg_types
             .iter()
             .map(|arg| ParameterType::parse(arg))
             .collect(),
     };
-    // `strict` (argument validation) rejects a scalar-for-nominal argument; the lenient
-    // mode (return-type inference feeding IR lowering / codegen) coarsely accepts it.
-    let selection = if strict {
-        function.resolve(&call)
-    } else {
-        function.dispatch(&call)
-    };
-    selection.map(|selection| match selection.return_type {
-        // Echo the caller's original argument-type string verbatim, preserving a
-        // `RES ` ownership marker that a parse/reconstruct round-trip would drop
-        // (`collections::append(List OF RES File STATE Cursor, x)`).
+    resolved_return_type(qualified, &call, strict).map(|return_type| match return_type {
+        // Echo the caller's original argument-type string verbatim, preserving any
+        // non-canonical spelling byte-exactly (e.g. a `RES ` ownership marker on
+        // `collections::append(List OF RES File STATE Cursor, x)`).
         ParameterType::Arg(n) => arg_types[n].clone(),
         other => other.name().into_owned(),
     })
+}
+
+/// The typed resolution entry (plan-104-C): the same selection as
+/// [`resolve_call`] with **no parse** — codegen already holds `ParameterType`
+/// arguments. An [`ParameterType::Arg`]-marked return echoes the caller's typed
+/// argument (whose `name()` round-trips the original spelling, `RES` markers
+/// included). The string [`resolve_call`] is a thin wrapper over the same
+/// [`resolved_return_type`] core, so there is exactly one algorithm.
+pub(crate) fn resolve_call_typed(
+    qualified: &str,
+    arg_types: &[ParameterType],
+    strict: bool,
+) -> Option<ParameterType> {
+    let call = CallShape {
+        args: arg_types.to_vec(),
+    };
+    resolved_return_type(qualified, &call, strict).map(|return_type| match return_type {
+        ParameterType::Arg(n) => arg_types[n].clone(),
+        other => other,
+    })
+}
+
+/// The one overload-selection core behind [`resolve_call`] and
+/// [`resolve_call_typed`]: select an overload for `call` and hand back its raw
+/// substituted return type — including an unresolved [`ParameterType::Arg`]
+/// marker, which each entry point resolves against its own argument
+/// representation (the string form echoes the caller's original string
+/// verbatim; the typed form echoes the typed argument).
+fn resolved_return_type(qualified: &str, call: &CallShape, strict: bool) -> Option<ParameterType> {
+    let function = registry().resolve_func(qualified)?.function;
+    // `strict` (argument validation) rejects a scalar-for-nominal argument; the lenient
+    // mode (return-type inference feeding IR lowering / codegen) coarsely accepts it.
+    let selection = if strict {
+        function.resolve(call)
+    } else {
+        function.dispatch(call)
+    };
+    selection.map(|selection| selection.return_type)
 }
 
 /// The internal symbol the migrated call `qualified` rewrites to at IR lowering, or
@@ -3828,5 +3858,77 @@ mod tests {
         };
         assert!(csv.is_imported_by(&parse("IMPORT csv\nSUB main\nEND SUB\n")));
         assert!(!csv.is_imported_by(&parse("SUB main\nEND SUB\n")));
+    }
+
+    /// plan-104-C: the typed entry and the string wrapper must agree on every
+    /// call shape — same overload selection, same return (typed's `name()` ==
+    /// string's answer) — across containers, `RES` markers, unions, `Unknown`,
+    /// and a strict-`Nothing` rejection. The corpus resolves against the real
+    /// frozen registry so it exercises the production descriptors.
+    #[test]
+    fn typed_and_string_resolution_agree() {
+        let corpus: &[(&str, &[&str], bool)] = &[
+            // scalar + container generics
+            ("collections.get", &["List OF Integer", "Integer"], false),
+            ("collections.get", &["List OF Integer", "Integer"], true),
+            ("collections.append", &["List OF String", "String"], false),
+            ("collections.keys", &["Map OF String TO Integer"], false),
+            // RES-marked collection element: Arg-echo preserves the marker
+            (
+                "collections.append",
+                &["List OF RES fs.File", "fs.File"],
+                false,
+            ),
+            // set + map-entry shapes
+            ("collections.toList", &["Set OF Integer"], false),
+            // Unknown wildcard argument (lenient dispatch accepts)
+            ("collections.get", &["List OF Integer", "Unknown"], false),
+            // higher-order FUNC parameter
+            (
+                "collections.transform",
+                &["List OF Integer", "FUNC(Integer) AS String"],
+                false,
+            ),
+            // strict-Nothing rejection: both must reject identically
+            ("collections.get", &["Nothing", "Integer"], true),
+            // union-typed argument through a value-union parameter (json)
+            ("json.encode", &["Integer"], false),
+            // a call no package owns
+            ("nope.missing", &["Integer"], false),
+        ];
+        for (callee, args, strict) in corpus {
+            let arg_strings: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+            let arg_typed: Vec<ParameterType> =
+                args.iter().map(|a| ParameterType::parse(a)).collect();
+            let via_string = resolve_call(callee, &arg_strings, *strict);
+            let via_typed = resolve_call_typed(callee, &arg_typed, *strict)
+                .map(|type_| type_.name().into_owned());
+            assert_eq!(
+                via_string, via_typed,
+                "typed/string disagree for {callee}({args:?}, strict={strict})"
+            );
+        }
+        // The strict-Nothing case really is a rejection, not a vacuous agreement.
+        assert_eq!(
+            resolve_call_typed(
+                "collections.get",
+                &[ParameterType::Nothing, ParameterType::Integer],
+                true
+            ),
+            None
+        );
+        // And the RES echo really preserves the marker through the typed path.
+        let echoed = resolve_call_typed(
+            "collections.append",
+            &[
+                ParameterType::parse("List OF RES fs.File"),
+                ParameterType::parse("fs.File"),
+            ],
+            false,
+        );
+        assert_eq!(
+            echoed.map(|type_| type_.name().into_owned()),
+            Some("List OF RES fs.File".to_string())
+        );
     }
 }

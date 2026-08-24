@@ -4,6 +4,7 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 
 pub(crate) fn lower_strings_pad(
     builder: &mut CodeBuilder,
@@ -23,7 +24,7 @@ pub(crate) fn lower_strings_pad(
     builder.require_string("strings.pad value", &value)?;
     let value_slot = builder.spill_to_slot("strings_pad_value", &value.location);
     let width = args[1].clone();
-    if width.type_ != "Integer" {
+    if width.type_ != ParameterType::Integer {
         return Err(format!(
             "strings.pad width must be Integer, got {}",
             width.type_
@@ -275,7 +276,7 @@ pub(crate) fn lower_strings_pad(
     };
     Ok(ValueResult {
         origin: None,
-        type_: "String".to_string(),
+        type_: ParameterType::String,
         location: Operand::from(result.render()),
         text: label.to_string(),
     })

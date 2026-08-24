@@ -1,11 +1,12 @@
 use super::*;
+use crate::types::ParameterType;
 
 #[derive(Clone)]
 pub(crate) enum IrOp {
     Bind {
         mutable: bool,
         name: String,
-        type_: String,
+        type_: ParameterType,
         value: Option<IrValue>,
         // Whether `type_` came from an explicit `AS T` annotation (vs inferred
         // from the initializer or synthesized by lowering). Only explicitly
@@ -75,7 +76,7 @@ pub(crate) enum IrOp {
     },
     For {
         name: String,
-        type_: String,
+        type_: ParameterType,
         start: IrValue,
         end: IrValue,
         step: IrValue,
@@ -90,7 +91,7 @@ pub(crate) enum IrOp {
     },
     ForEach {
         name: String,
-        type_: String,
+        type_: ParameterType,
         iterable: IrValue,
         body: Vec<IrOp>,
         loc: IrSourceLoc,

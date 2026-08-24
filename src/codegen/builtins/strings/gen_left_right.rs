@@ -4,6 +4,7 @@
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 
 pub(crate) fn lower_strings_left_right(
     builder: &mut CodeBuilder,
@@ -24,7 +25,7 @@ pub(crate) fn lower_strings_left_right(
     builder.require_string("strings.left/right value", &value)?;
     let value_slot = builder.spill_to_slot("strings_lr_value", &value.location);
     let count = count.clone();
-    if count.type_ != "Integer" {
+    if count.type_ != ParameterType::Integer {
         return Err(format!(
             "strings.left/right count must be Integer, got {}",
             count.type_
@@ -130,7 +131,7 @@ pub(crate) fn lower_strings_left_right(
     };
     Ok(ValueResult {
         origin: None,
-        type_: "String".to_string(),
+        type_: ParameterType::String,
         location: Operand::from(result.render()),
         text: label.to_string(),
     })

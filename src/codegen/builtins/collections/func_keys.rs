@@ -107,7 +107,7 @@ pub(crate) fn lower_keys(
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
     let collection = &args[0];
-    let Some((key_type, _)) = map_type_parts(&collection.type_) else {
+    let Some((key_type, _)) = map_type_parts(&collection.type_.name()) else {
         return Err(format!(
             "native collection keys does not accept {}",
             collection.type_

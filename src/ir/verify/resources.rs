@@ -220,7 +220,7 @@ impl TypeEnv {
                             }
                         }
                     }
-                    locals.insert(name.clone(), type_.clone());
+                    locals.insert(name.clone(), type_.name().into_owned());
                 }
                 IrOp::If {
                     then_body,
@@ -240,7 +240,7 @@ impl TypeEnv {
                 } => {
                     // The element binding is a non-owning pointer copied from the collection's slot.
                     let mut fe_locals = locals.clone();
-                    fe_locals.insert(name.clone(), type_.clone());
+                    fe_locals.insert(name.clone(), type_.name().into_owned());
                     let mut fe_non_owning = non_owning.clone();
                     fe_non_owning.insert(name.clone());
                     let mut branch_moved = moved.clone();
@@ -420,7 +420,7 @@ impl TypeEnv {
                 // returning is irrelevant to fall-through.
                 IrOp::Trap { .. } => {}
                 IrOp::Bind { name, type_, .. } => {
-                    locals.insert(name.clone(), type_.clone());
+                    locals.insert(name.clone(), type_.name().into_owned());
                 }
                 _ => {}
             }

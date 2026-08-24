@@ -101,8 +101,9 @@ pub(super) fn collect_bind_type_names(
                 // form, and the union close-symbol loop matches against the bare
                 // union type name — so the base must be recorded or the stateful
                 // bind's tag-dispatched close symbol is never defined.
-                self.types
-                    .insert(crate::codegen::resource::base_resource_name(type_).to_string());
+                self.types.insert(
+                    crate::codegen::resource::base_resource_name(&type_.name()).to_string(),
+                );
             }
             walk_op(self, op);
         }
@@ -287,15 +288,19 @@ pub(super) fn module_has_thread_owner(module: &NirModule) -> bool {
         function
             .params
             .iter()
-            .any(|param| is_thread_type(&param.type_))
+            .any(|param| is_thread_type(&param.type_.name()))
             || ops_have_thread_owner(&function.body)
     })
 }
 
 pub(super) fn ops_have_thread_owner(ops: &[NirOp]) -> bool {
     ops.iter().any(|op| match op {
-        NirOp::Bind { type_, .. } | NirOp::StoreGlobal { type_, .. } => is_thread_type(type_),
-        NirOp::ForEach { type_, body, .. } => is_thread_type(type_) || ops_have_thread_owner(body),
+        NirOp::Bind { type_, .. } | NirOp::StoreGlobal { type_, .. } => {
+            is_thread_type(&type_.name())
+        }
+        NirOp::ForEach { type_, body, .. } => {
+            is_thread_type(&type_.name()) || ops_have_thread_owner(body)
+        }
         NirOp::If {
             then_body,
             else_body,
@@ -329,7 +334,9 @@ pub(super) fn collect_platform_imports_from_ops(
                 // mirroring `collect_runtime_symbols`, which adds the close symbol.
                 // Without this an implicitly-dropped resource whose close needs a
                 // unique import (e.g. audio's `_munmap`) links with it missing.
-                if let Some(close) = crate::codegen::builtins::resource_close_function(type_) {
+                if let Some(close) =
+                    crate::codegen::builtins::resource_close_function(&type_.name())
+                {
                     for import in platform_imports_for_runtime_call(platform, close) {
                         push_platform_import(imports, import);
                     }
@@ -530,7 +537,9 @@ pub(super) fn collect_runtime_symbols_from_ops_with_constants(
             NirOp::Bind {
                 name, type_, value, ..
             } => {
-                if let Some(close) = crate::codegen::builtins::resource_close_function(type_) {
+                if let Some(close) =
+                    crate::codegen::builtins::resource_close_function(&type_.name())
+                {
                     if let Some(helper) = runtime::helper_for_call(close) {
                         push_unique(symbols, runtime::symbol_for_call(helper, close));
                     }

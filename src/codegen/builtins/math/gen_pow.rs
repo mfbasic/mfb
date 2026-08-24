@@ -15,6 +15,7 @@ use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 // Hand-written scalar `pow(x, y)` — a port of fdlibm `__ieee754_pow` (public
 // domain, Sun Microsystems). Unlike the other Float kernels this is *not* SIMD:
 // `pow` is dominated by data-dependent bit manipulation (mantissa-segment
@@ -499,7 +500,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: "List OF Float".to_string(),
+            type_: ParameterType::parse("List OF Float"),
             location: Operand::from(result.render()),
             text,
         })

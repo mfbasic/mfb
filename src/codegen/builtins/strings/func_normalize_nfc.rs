@@ -19,7 +19,7 @@ pub(crate) fn lower(
         let register = builder.load_string_constant(&value)?;
         return Ok(ValueResult {
             origin: None,
-            type_: "String".to_string(),
+            type_: ParameterType::String,
             location: Operand::from(register.render()),
             text: "strings.normalizeNfc".to_string(),
         });
@@ -504,7 +504,7 @@ pub(crate) fn lower(
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
     Ok(ValueResult {
         origin: None,
-        type_: "String".to_string(),
+        type_: ParameterType::String,
         location: Operand::from(result.render()),
         text: "strings.normalizeNfc".to_string(),
     })

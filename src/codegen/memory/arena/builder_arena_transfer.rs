@@ -5,6 +5,7 @@ use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 impl CodeBuilder<'_> {
     /// Build a flat `Result` value `{tag @0, size @8, payload @16}` (plan-02
@@ -187,7 +188,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: format!("Result OF {success_type}"),
+            type_: ParameterType::parse(&format!("Result OF {success_type}")),
             location: Operand::from(register.render()),
             text,
         })
@@ -717,7 +718,7 @@ impl CodeBuilder<'_> {
             .map(|fields| {
                 fields
                     .iter()
-                    .any(|(_, ft)| self.record_field_is_pointer_in(record_type, ft))
+                    .any(|(_, ft)| self.record_field_is_pointer_in(record_type, &ft.name()))
             })
             .unwrap_or(false)
     }
@@ -1140,12 +1141,12 @@ impl CodeBuilder<'_> {
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
         for (index, (_, field_type)) in fields.iter().enumerate() {
-            if !self.record_field_is_pointer_in(type_, field_type) {
+            if !self.record_field_is_pointer_in(type_, &field_type.name()) {
                 continue;
             }
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
             self.emit(abi::load_u64(&scratch10, &scratch9, index * 8));
-            let copied = self.copy_value_to_current_arena(field_type, &scratch10)?;
+            let copied = self.copy_value_to_current_arena(&field_type.name(), &scratch10)?;
             // Stash before reloading the destination pointer: `copied` may be x9.
             self.emit(abi::store_u64(&copied, abi::stack_pointer(), copied_slot));
             self.emit(abi::load_u64(
@@ -1285,7 +1286,7 @@ impl CodeBuilder<'_> {
             for (index, (_, field_type)) in fields.iter().enumerate() {
                 self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
                 self.emit(abi::load_u64(&scratch10, &scratch9, 8 * (index + 1)));
-                let copied = self.copy_value_to_current_arena(field_type, &scratch10)?;
+                let copied = self.copy_value_to_current_arena(&field_type.name(), &scratch10)?;
                 // Stash before reloading the destination pointer: `copied` may be x9.
                 self.emit(abi::store_u64(
                     &copied,

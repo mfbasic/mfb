@@ -8,6 +8,7 @@ use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 use std::collections::HashSet;
 /// Materialize the address of an internal symbol (data or code) into `dst` via
@@ -542,19 +543,19 @@ fn collect_type_name_values(module: &NirModule, values: &mut Vec<String>) {
     for type_ in &module.types {
         push_string_value(values, type_.name.clone());
         for field in &type_.fields {
-            push_string_value(values, field.type_.clone());
+            push_string_value(values, field.type_.name().into_owned());
         }
         for variant in &type_.variants {
             push_string_value(values, variant.name.clone());
             for field in &variant.fields {
-                push_string_value(values, field.type_.clone());
+                push_string_value(values, field.type_.name().into_owned());
             }
         }
     }
     for function in &module.functions {
-        push_string_value(values, function.returns.clone());
+        push_string_value(values, function.returns.name().into_owned());
         for param in &function.params {
-            push_string_value(values, param.type_.clone());
+            push_string_value(values, param.type_.name().into_owned());
         }
         collect_type_name_values_from_ops(&function.body, values);
     }
@@ -568,12 +569,14 @@ fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
     impl NirVisitor for Collector<'_> {
         fn visit_op(&mut self, op: &NirOp) {
             match op {
-                NirOp::Bind { type_, .. } => push_string_value(self.values, type_.clone()),
-                NirOp::StoreGlobal { type_, .. } if !type_.is_empty() => {
-                    push_string_value(self.values, type_.clone())
+                NirOp::Bind { type_, .. } => {
+                    push_string_value(self.values, type_.name().into_owned())
+                }
+                NirOp::StoreGlobal { type_, .. } if !type_.name().is_empty() => {
+                    push_string_value(self.values, type_.name().into_owned())
                 }
                 NirOp::For { type_, .. } | NirOp::ForEach { type_, .. } => {
-                    push_string_value(self.values, type_.clone())
+                    push_string_value(self.values, type_.name().into_owned())
                 }
                 _ => {}
             }
@@ -589,15 +592,15 @@ fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
                 | NirValue::MapLiteral { type_, .. }
                 | NirValue::UnionExtract { type_, .. }
                 | NirValue::WithUpdate { type_, .. } => {
-                    push_string_value(self.values, type_.clone())
+                    push_string_value(self.values, type_.name().into_owned())
                 }
                 NirValue::UnionWrap {
                     union_type,
                     member_type,
                     ..
                 } => {
-                    push_string_value(self.values, union_type.clone());
-                    push_string_value(self.values, member_type.clone());
+                    push_string_value(self.values, union_type.name().into_owned());
+                    push_string_value(self.values, member_type.name().into_owned());
                 }
                 _ => {}
             }
@@ -611,7 +614,7 @@ pub(crate) fn unicode_string_call_is_static(
     target: &str,
     args: &[NirValue],
     constants: &HashMap<String, NirValue>,
-    types: &HashMap<String, String>,
+    types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> bool {
     matches!(
@@ -809,7 +812,7 @@ fn collect_string_values_from_function(
     fields: &FieldTypes,
 ) {
     let mut constants = HashMap::new();
-    let mut types: HashMap<String, String> = function
+    let mut types: HashMap<String, ParameterType> = function
         .params
         .iter()
         .map(|param| (param.name.clone(), param.type_.clone()))
@@ -827,7 +830,7 @@ fn collect_string_values_from_ops_with_constants(
     ops: &[NirOp],
     values: &mut Vec<String>,
     constants: &mut HashMap<String, NirValue>,
-    types: &mut HashMap<String, String>,
+    types: &mut HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) {
     for op in ops {
@@ -1035,7 +1038,7 @@ fn collect_string_values_from_value(
     value: &NirValue,
     values: &mut Vec<String>,
     constants: &HashMap<String, NirValue>,
-    types: &HashMap<String, String>,
+    types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) {
     if let Some(value) = static_string_value_with_constants(value, constants, types, fields) {
@@ -1066,7 +1069,7 @@ fn collect_string_values_from_value(
         push_string_value(values, err_msg("ErrInvalidFormat"));
     }
     match value {
-        NirValue::Const { type_, value } if type_ == "String" => {
+        NirValue::Const { type_, value } if matches!(type_, ParameterType::String) => {
             push_string_value(values, value.clone());
         }
         NirValue::Call { args, .. }
@@ -1137,11 +1140,13 @@ fn push_string_value(values: &mut Vec<String>, value: String) {
 pub(crate) fn static_string_value_with_constants(
     value: &NirValue,
     constants: &HashMap<String, NirValue>,
-    types: &HashMap<String, String>,
+    types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> Option<String> {
     match value {
-        NirValue::Const { type_, value } if type_ == "String" => Some(value.clone()),
+        NirValue::Const { type_, value } if matches!(type_, ParameterType::String) => {
+            Some(value.clone())
+        }
         NirValue::Local(name) => constants.get(name).and_then(|constant| {
             static_string_value_with_constants(constant, constants, types, fields)
         }),
@@ -1176,14 +1181,16 @@ pub(crate) fn static_string_value_with_constants(
 
 pub(crate) fn static_type_name_with_types(
     value: &NirValue,
-    types: &HashMap<String, String>,
+    types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> Option<String> {
     match value {
-        NirValue::Const { type_, .. } => Some(type_.clone()),
-        NirValue::Local(name) => types.get(name).cloned(),
-        NirValue::LocalRef { type_, .. } => Some(type_.clone()),
-        NirValue::Global { type_, .. } if !type_.is_empty() => Some(type_.clone()),
+        NirValue::Const { type_, .. } => Some(type_.name().into_owned()),
+        NirValue::Local(name) => types.get(name).map(|type_| type_.name().into_owned()),
+        NirValue::LocalRef { type_, .. } => Some(type_.name().into_owned()),
+        NirValue::Global { type_, .. } if !type_.name().is_empty() => {
+            Some(type_.name().into_owned())
+        }
         NirValue::Global { .. } => None,
         NirValue::FunctionRef { type_, .. }
         | NirValue::Closure { type_, .. }
@@ -1192,9 +1199,9 @@ pub(crate) fn static_type_name_with_types(
         | NirValue::WithUpdate { type_, .. }
         | NirValue::ListLiteral { type_, .. }
         | NirValue::SetLiteral { type_, .. }
-        | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
-        NirValue::UnionWrap { union_type, .. } => Some(union_type.clone()),
-        NirValue::UnionExtract { type_, .. } => Some(type_.clone()),
+        | NirValue::MapLiteral { type_, .. } => Some(type_.name().into_owned()),
+        NirValue::UnionWrap { union_type, .. } => Some(union_type.name().into_owned()),
+        NirValue::UnionExtract { type_, .. } => Some(type_.name().into_owned()),
         NirValue::Call { target, .. }
         | NirValue::CallResult { target, .. }
         | NirValue::RuntimeCall { target, .. } => match target.as_str() {
@@ -1269,7 +1276,7 @@ pub(crate) fn static_type_name_with_types(
             // `typeName(rec.field)` failed to lower at all, and the
             // ERR_INVALID_FORMAT gate missed a promoting Float operand (bug-366).
             if let Some(field_type) = fields.get(&(target_type.clone(), member.clone())) {
-                return Some(field_type.clone());
+                return Some(field_type.name().into_owned());
             }
             let (key_type, value_type) = parse_map_entry_type(&target_type)?;
             match member.as_str() {
@@ -1293,7 +1300,7 @@ pub(crate) fn static_type_name_with_types(
 /// keep their exact current answers.
 pub(crate) fn static_type_name_for_fold_with_types(
     value: &NirValue,
-    types: &HashMap<String, String>,
+    types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> Option<String> {
     if let Some(type_name) = static_type_name_with_types(value, types, fields) {
@@ -1374,10 +1381,11 @@ fn collect_builtin_function_refs_in_ops(
     impl NirVisitor for Collector<'_> {
         fn visit_value(&mut self, value: &NirValue) {
             if let NirValue::FunctionRef { name, type_ } = value {
-                if let Some(symbol) = builtin_function_symbol_for_type(name, type_) {
+                if let Some(symbol) = builtin_function_symbol_for_type(name, &type_.name()) {
                     let key = format!("{name}\0{type_}");
                     if self.seen.insert(key) {
-                        self.refs.push((name.clone(), type_.clone(), symbol));
+                        self.refs
+                            .push((name.clone(), type_.name().into_owned(), symbol));
                     }
                 }
             }
@@ -1395,7 +1403,7 @@ mod tests {
 
     fn const_of(type_: &str) -> NirValue {
         NirValue::Const {
-            type_: type_.to_string(),
+            type_: ParameterType::parse(type_),
             value: String::new(),
         }
     }
