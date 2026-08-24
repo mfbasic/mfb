@@ -170,7 +170,7 @@ avoid a stub-body HIR.
 Acceptance: round-trip test passes; `cargo test` green (nothing wired into the
 build path yet). VERIFIED — 5/5 `hir::` tests pass; build + test-compile 0 errors/0
 warnings; module unwired.
-Commit: —
+Commit: 15aed5119 (C1+C2)
 
 ### Phase 2 — full `elaborate` (statements + expressions)
 

@@ -143,7 +143,7 @@ yet on the generic path in the build). VERIFIED — 6/6 `hir::` tests pass, 3625
 unit tests pass; **byte-identical** (monomorph clears `template_params` on every
 instantiated decl → `with_vars` is a no-op on the concrete post-monomorph input the
 build still feeds `elaborate`; gate `diff` vs baseline IDENTICAL).
-Commit: —
+Commit: 26180a39c
 
 ### Phase 2 — relocate overload resolution into `elaborate`
 

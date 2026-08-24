@@ -146,7 +146,7 @@ None. Diagnostics unchanged (goldens guard this).
 Acceptance: a tagged inventory exists in this plan; F's effort is re-estimated from
 it. VERIFIED — inventory above; effort re-estimate: **small** (the consolidation
 phase is moot, see below).
-Commit: —
+Commit: 9dac5a8fc
 
 ### Phase 2 — consolidate
 
