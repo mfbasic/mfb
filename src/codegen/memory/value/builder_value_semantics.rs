@@ -108,7 +108,23 @@ impl CodeBuilder<'_> {
         Ok(record)
     }
 
+    /// Materialize the default value of `type_`. The site that needs one is the
+    /// never-observed `bind $trap_valN : T = <default>` temp the inline-`TRAP`
+    /// desugar emits for a fallible call (plus `STATE` payload init and the
+    /// MATCH-default paths in `builder_control`).
     pub(crate) fn lower_default_value(&mut self, type_: &str) -> Result<ValueResult, String> {
+        self.lower_default_value_inner(type_, &mut Vec::new())
+    }
+
+    /// `defaulting_unions` carries the data unions currently being defaulted up
+    /// the recursion (union -> variant record -> field -> union ...), so a
+    /// self-reachable union picks a variant that does not loop back into it —
+    /// and codegen cannot recurse forever on a pathological type.
+    fn lower_default_value_inner(
+        &mut self,
+        type_: &str,
+        defaulting_unions: &mut Vec<String>,
+    ) -> Result<ValueResult, String> {
         match type_ {
             "Nothing" => {
                 let register = self.allocate_register()?;
@@ -253,6 +269,65 @@ impl CodeBuilder<'_> {
                     text: format!("closed {type_}"),
                 })
             }
+            _ if self.union_is_data(type_) => {
+                // A data union's default is the first canonically-ordered
+                // variant whose payload is itself defaultable, wrapped in the
+                // canonical flat data-union layout `{tag@0, size@8,
+                // variant-record-block@16}` (plan-02 §4.3) — identical to a
+                // real `UnionWrap` value, so tag dispatch, member access,
+                // sizing, and drop treat it as well-formed. The site that
+                // needs one is the trap temp of a fallible union-returning
+                // call bound through `TRAP` (bug-444); on the taken error
+                // path the `RECOVER` value (or handler divergence) supersedes
+                // it, so no program observes the synthesized default. This
+                // arm is ordered after the resource checks: a resource union
+                // keeps its closed-record default (`union_is_data` is false
+                // for it either way).
+                if defaulting_unions.iter().any(|u| u == type_) {
+                    return Err(format!(
+                        "native code cannot materialize default value for recursive union '{type_}'"
+                    ));
+                }
+                let variant = self
+                    .type_model
+                    .variants_for_union(type_)
+                    .find(|variant| {
+                        let mut visited = defaulting_unions.clone();
+                        visited.push(type_.to_string());
+                        self.default_record_materializable(variant, &mut visited)
+                    })
+                    .cloned()
+                    .ok_or_else(|| {
+                        format!(
+                            "native code cannot materialize default value for type '{type_}': \
+                             no variant has a defaultable payload"
+                        )
+                    })?;
+                let tag = *self
+                    .type_model
+                    .union_variant_tags
+                    .get(&variant)
+                    .ok_or_else(|| {
+                        format!("native code union variant '{variant}' does not resolve")
+                    })?;
+                defaulting_unions.push(type_.to_string());
+                let record = self.lower_default_value_inner(&variant, defaulting_unions);
+                defaulting_unions.pop();
+                let record = record?;
+                let record_slot = self.allocate_stack_object("default_union_record", 8);
+                self.emit(abi::store_u64(
+                    &record.location,
+                    abi::stack_pointer(),
+                    record_slot,
+                ));
+                let register = self.emit_wrap_record_in_union(&variant, tag, record_slot)?;
+                Ok(ValueResult {
+                    origin: None,
+                    type_: type_.to_string(),
+                    location: Operand::from(register.render()),
+                    text: format!("default {type_}"),
+                })
+            }
             _ => {
                 let Some(fields) = self.type_model.record_fields.get(type_).cloned() else {
                     return Err(format!(
@@ -261,7 +336,7 @@ impl CodeBuilder<'_> {
                 };
                 let mut field_slots = Vec::with_capacity(fields.len());
                 for (_, field_type) in &fields {
-                    let value = self.lower_default_value(field_type)?;
+                    let value = self.lower_default_value_inner(field_type, defaulting_unions)?;
                     let slot = self.allocate_stack_object("default_record_field", 8);
                     self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
                     field_slots.push(slot);
@@ -277,6 +352,54 @@ impl CodeBuilder<'_> {
                 })
             }
         }
+    }
+
+    /// True when `lower_default_value_inner` can materialize a default for
+    /// `type_` — the static mirror of its arms, so the data-union arm's variant
+    /// choice and the emission it then commits to always agree (a variant is
+    /// only chosen if every type its payload reaches is defaultable). `visited`
+    /// carries the data unions already being defaulted on this path; a variant
+    /// that loops back into one is not defaultable through it.
+    fn default_value_materializable(&self, type_: &str, visited: &mut Vec<String>) -> bool {
+        match type_ {
+            "Nothing" | "Boolean" | "Byte" | "Integer" | "Float" | "Fixed" | "Money" | "Scalar"
+            | "String" => true,
+            _ if is_collection_type(type_) => true,
+            _ if self.is_resource_union_type(type_) => true,
+            _ if builtins::is_resource_type(type_)
+                || self
+                    .type_model
+                    .resource_names
+                    .contains(crate::codegen::resource::base_resource_name(type_)) =>
+            {
+                true
+            }
+            _ if self.union_is_data(type_) => {
+                if visited.iter().any(|u| u == type_) {
+                    return false;
+                }
+                visited.push(type_.to_string());
+                let variants: Vec<String> =
+                    self.type_model.variants_for_union(type_).cloned().collect();
+                let ok = variants
+                    .iter()
+                    .any(|variant| self.default_record_materializable(variant, visited));
+                visited.pop();
+                ok
+            }
+            _ => self.default_record_materializable(type_, visited),
+        }
+    }
+
+    /// Record half of `default_value_materializable`: every field of the record
+    /// (or union-variant record) must itself be defaultable.
+    fn default_record_materializable(&self, type_: &str, visited: &mut Vec<String>) -> bool {
+        let Some(fields) = self.type_model.record_fields.get(type_) else {
+            return false;
+        };
+        fields
+            .iter()
+            .all(|(_, field_type)| self.default_value_materializable(field_type, visited))
     }
 
     pub(crate) fn lower_field_access(
