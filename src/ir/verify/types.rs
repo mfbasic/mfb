@@ -19,9 +19,10 @@ impl TypeEnv {
                 "type" | "record" => {
                     for field in &ty.fields {
                         self.current_line.set(field.loc.line);
-                        self.check_map_key_comparable(&field.type_);
+                        let field_type = field.type_.name();
+                        self.check_map_key_comparable(&field_type);
                         self.current_line.set(ty.loc.line);
-                        if is_resource_name(resource_base_type(&field.type_)) {
+                        if is_resource_name(resource_base_type(&field_type)) {
                             self.current_line.set(field.loc.line);
                             self.emit(
                                 "TYPE_RESOURCE_FIELD_FORBIDDEN",

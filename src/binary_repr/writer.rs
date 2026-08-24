@@ -248,7 +248,7 @@ pub(super) fn lower_project_with_external_functions(
             };
             GlobalEntry {
                 name: strings.intern(&binding.name),
-                type_id: types.type_id(&mut strings, &binding.type_),
+                type_id: types.type_id(&mut strings, &binding.type_.name()),
                 flags,
             }
         })
@@ -261,7 +261,7 @@ pub(super) fn lower_project_with_external_functions(
         // The return type is interned even though the map that once held it was
         // never read (bug-100): the interning still fixes the string/type table
         // order, so the emitted bytes stay byte-identical.
-        let _ = types.type_id(&mut strings, &function.returns);
+        let _ = types.type_id(&mut strings, &function.returns.name());
     }
     for (name, id) in external_function_ids {
         function_ids.insert(name.clone(), *id);
@@ -305,7 +305,7 @@ pub(super) fn lower_project_with_external_functions(
         if entry.accepts_args {
             flags |= 1 << 1;
         }
-        if entry.returns == "Integer" {
+        if entry.returns.name().as_ref() == "Integer" {
             flags |= 1 << 2;
         }
         (function_id, flags)
@@ -341,8 +341,8 @@ pub(super) fn ir_uses_resource_type(ir: &IrProject) -> bool {
         function
             .params
             .iter()
-            .any(|param| is_resource_type_name(&param.type_))
-            || is_resource_type_name(&function.returns)
+            .any(|param| is_resource_type_name(&param.type_.name()))
+            || is_resource_type_name(&function.returns.name())
             || ops_use_resource_type(&function.body)
     })
 }
@@ -462,9 +462,9 @@ pub(super) fn collect_resource_type_names(ir: &IrProject, names: &mut HashSet<St
     };
     for function in &ir.functions {
         for param in &function.params {
-            record(&param.type_, names);
+            record(&param.type_.name(), names);
         }
-        record(&function.returns, names);
+        record(&function.returns.name(), names);
         collect_resource_names_in_ops(&function.body, names, &mut record);
     }
 }
@@ -613,7 +613,7 @@ pub(super) fn lower_function(
 ) -> Result<Function, String> {
     let mut params = Vec::new();
     for param in &function.params {
-        let type_id = types.type_id(strings, &param.type_);
+        let type_id = types.type_id(strings, &param.type_.name());
         params.push(Param {
             name: strings.intern(&param.name),
             type_id,
@@ -640,7 +640,7 @@ pub(super) fn lower_function(
     if function.kind == "sub" {
         flags |= FUNCTION_FLAG_SUB | FUNCTION_FLAG_RETURNS_NOTHING;
     }
-    if function.returns == "Nothing" {
+    if function.returns.name().as_ref() == "Nothing" {
         flags |= FUNCTION_FLAG_RETURNS_NOTHING;
     }
     if function.isolated {
@@ -651,7 +651,7 @@ pub(super) fn lower_function(
         name: strings.intern(&function.name),
         kind: FUNCTION_BINARY_REPR,
         flags,
-        return_type: types.type_id(strings, &function.returns),
+        return_type: types.type_id(strings, &function.returns.name()),
         params,
         registers: Vec::new(),
         cleanups: Vec::new(),
@@ -883,7 +883,7 @@ pub(super) fn source_type_payload(
                 put_u32(&mut payload, variant.fields.len() as u32);
                 for field in &variant.fields {
                     put_u32(&mut payload, strings.intern(&field.name));
-                    put_u32(&mut payload, types.type_id(strings, &field.type_));
+                    put_u32(&mut payload, types.type_id(strings, &field.type_.name()));
                 }
             }
         }
@@ -924,7 +924,7 @@ pub(super) fn put_field_payload(
     field: &crate::ir::IrField,
 ) {
     put_u32(payload, strings.intern(&field.name));
-    put_u32(payload, types.type_id(strings, &field.type_));
+    put_u32(payload, types.type_id(strings, &field.type_.name()));
     put_u32(
         payload,
         match field.visibility.as_deref() {

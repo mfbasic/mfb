@@ -44,7 +44,7 @@ fn fn_body(name: &str, body: Vec<IrOp>) -> IrFunction {
         kind: "func".to_string(),
         isolated: false,
         params: vec![],
-        returns: "Integer".to_string(),
+        returns: crate::types::ParameterType::parse("Integer"),
         body,
         file: "src/main.mfb".to_string(),
         resource_owners: HashMap::new(),
@@ -402,14 +402,14 @@ pub(crate) fn variant_corpus() -> IrProject {
         name: "full".to_string(),
         entry: Some(EntryPoint {
             name: "main".to_string(),
-            returns: "Integer".to_string(),
+            returns: crate::types::ParameterType::parse("Integer"),
             accepts_args: true,
         }),
         bindings: vec![IrBinding {
             name: "g".to_string(),
             visibility: "public".to_string(),
             mutable: true,
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             value: Some(c("Integer", "0")),
             loc: loc(),
             file: "src/main.mfb".to_string(),
@@ -424,13 +424,13 @@ pub(crate) fn variant_corpus() -> IrProject {
                     IrField {
                         visibility: Some("private".to_string()),
                         name: "x".to_string(),
-                        type_: "Integer".to_string(),
+                        type_: crate::types::ParameterType::parse("Integer"),
                         loc: loc(),
                     },
                     IrField {
                         visibility: None,
                         name: "y".to_string(),
-                        type_: "Integer".to_string(),
+                        type_: crate::types::ParameterType::parse("Integer"),
                         loc: loc(),
                     },
                 ],
@@ -451,7 +451,7 @@ pub(crate) fn variant_corpus() -> IrProject {
                     fields: vec![IrField {
                         visibility: None,
                         name: "x".to_string(),
-                        type_: "Integer".to_string(),
+                        type_: crate::types::ParameterType::parse("Integer"),
                         loc: loc(),
                     }],
                     loc: loc(),
@@ -487,18 +487,18 @@ pub(crate) fn variant_corpus() -> IrProject {
             params: vec![
                 IrParam {
                     name: "x".to_string(),
-                    type_: "Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("Integer"),
                     default: None,
                     loc: loc(),
                 },
                 IrParam {
                     name: "y".to_string(),
-                    type_: "Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("Integer"),
                     default: Some(c("Integer", "0")),
                     loc: loc(),
                 },
             ],
-            returns: "Integer".to_string(),
+            returns: crate::types::ParameterType::parse("Integer"),
             body: every_op(),
             file: "src/main.mfb".to_string(),
             resource_owners,
@@ -869,7 +869,7 @@ fn decode_rejects_unknown_value_tag() {
         name: "g".to_string(),
         visibility: "public".to_string(),
         mutable: false,
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
         value: Some(c("Integer", "1")),
         loc: loc(),
         file: String::new(),
@@ -914,7 +914,7 @@ fn decode_rejects_depth_limit() {
                 name: "g".to_string(),
                 visibility: "public".to_string(),
                 mutable: false,
-                type_: "Boolean".to_string(),
+                type_: crate::types::ParameterType::parse("Boolean"),
                 value: Some(v),
                 loc: loc(),
                 file: String::new(),
@@ -1072,7 +1072,7 @@ fn prefix_and_apply_identity_rewrite_all_reference_shapes() {
         name: "gv".to_string(),
         visibility: "export".to_string(),
         mutable: true,
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
         value: Some(IrValue::Global("gv".to_string())),
         loc: loc(),
         file: String::new(),
@@ -1084,7 +1084,7 @@ fn prefix_and_apply_identity_rewrite_all_reference_shapes() {
             // Reference g and gv from within a defaulted param too.
             f.params = vec![IrParam {
                 name: "p".to_string(),
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
                 default: Some(IrValue::Call {
                     target: "g".to_string(),
                     args: vec![IrValue::Global("gv".to_string())],
@@ -1127,7 +1127,7 @@ fn prefix_and_apply_identity_rewrite_all_reference_shapes() {
     // Give the package an entry point so prefix_package_symbols renames it.
     pkg.entry = Some(EntryPoint {
         name: "start".to_string(),
-        returns: "Integer".to_string(),
+        returns: crate::types::ParameterType::parse("Integer"),
         accepts_args: false,
     });
 
@@ -1176,7 +1176,7 @@ fn prefix_and_apply_identity_rewrite_all_reference_shapes() {
         name: "b".to_string(),
         visibility: "public".to_string(),
         mutable: false,
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
         value: Some(IrValue::Global("pkg.gv".to_string())),
         loc: loc(),
         file: String::new(),
@@ -1186,7 +1186,7 @@ fn prefix_and_apply_identity_rewrite_all_reference_shapes() {
     // param-default rewrite branch of apply_package_identity.
     consumer.functions[0].params = vec![IrParam {
         name: "arg".to_string(),
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
         default: Some(IrValue::Call {
             target: "pkg.f".to_string(),
             args: vec![IrValue::Global("pkg.gv".to_string())],
@@ -1232,7 +1232,7 @@ fn merge_package_dedups_by_name_and_carries_link_tables() {
         name: "gshared".to_string(),
         visibility: "public".to_string(),
         mutable: false,
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
         value: None,
         loc: loc(),
         file: String::new(),
@@ -1259,7 +1259,7 @@ fn merge_package_dedups_by_name_and_carries_link_tables() {
         name: "gunique".to_string(),
         visibility: "public".to_string(),
         mutable: false,
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
         value: None,
         loc: loc(),
         file: String::new(),
@@ -1311,7 +1311,7 @@ fn json_covers_every_op_and_value() {
     let mut project = empty_project("j");
     project.entry = Some(EntryPoint {
         name: "main".to_string(),
-        returns: "Integer".to_string(),
+        returns: crate::types::ParameterType::parse("Integer"),
         accepts_args: false,
     });
     project.functions = vec![fn_body("f", every_op())];
@@ -1319,7 +1319,7 @@ fn json_covers_every_op_and_value() {
         name: "g".to_string(),
         visibility: "export".to_string(),
         mutable: false,
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
         value: Some(c("Integer", "1")),
         loc: loc(),
         file: String::new(),

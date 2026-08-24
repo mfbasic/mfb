@@ -23,7 +23,7 @@ pub(super) fn fn_named(name: &str, visibility: &str, kind: &str, returns: &str) 
         kind: kind.to_string(),
         isolated: false,
         params: vec![],
-        returns: returns.to_string(),
+        returns: crate::types::ParameterType::parse(returns),
         body: vec![],
         file: "src/main.mfb".to_string(),
         resource_owners: std::collections::HashMap::new(),
@@ -56,7 +56,7 @@ pub(super) fn rich_project() -> IrProject {
     let mut project = empty_project("richpkg");
     project.entry = Some(crate::ir::EntryPoint {
         name: "main".to_string(),
-        returns: "Integer".to_string(),
+        returns: crate::types::ParameterType::parse("Integer"),
         accepts_args: true,
     });
     project.bindings = vec![
@@ -64,7 +64,7 @@ pub(super) fn rich_project() -> IrProject {
             name: "gPriv".to_string(),
             visibility: "private".to_string(),
             mutable: true,
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             value: Some(const_int("1")),
             loc: loc(),
             file: String::new(),
@@ -74,7 +74,7 @@ pub(super) fn rich_project() -> IrProject {
             name: "gPkg".to_string(),
             visibility: "public".to_string(),
             mutable: false,
-            type_: "String".to_string(),
+            type_: crate::types::ParameterType::parse("String"),
             value: None,
             loc: loc(),
             file: String::new(),
@@ -84,7 +84,7 @@ pub(super) fn rich_project() -> IrProject {
             name: "gExp".to_string(),
             visibility: "export".to_string(),
             mutable: false,
-            type_: "List OF Integer".to_string(),
+            type_: crate::types::ParameterType::parse("List OF Integer"),
             value: None,
             loc: loc(),
             file: String::new(),
@@ -100,13 +100,13 @@ pub(super) fn rich_project() -> IrProject {
                 IrField {
                     visibility: Some("export".to_string()),
                     name: "x".to_string(),
-                    type_: "Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("Integer"),
                     loc: loc(),
                 },
                 IrField {
                     visibility: Some("private".to_string()),
                     name: "y".to_string(),
-                    type_: "Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("Integer"),
                     loc: loc(),
                 },
             ],
@@ -127,7 +127,7 @@ pub(super) fn rich_project() -> IrProject {
                 fields: vec![IrField {
                     visibility: None,
                     name: "p".to_string(),
-                    type_: "Point".to_string(),
+                    type_: crate::types::ParameterType::parse("Point"),
                     loc: loc(),
                 }],
                 loc: loc(),
@@ -159,13 +159,13 @@ pub(super) fn rich_project() -> IrProject {
     exported.params = vec![
         IrParam {
             name: "n".to_string(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             default: None,
             loc: loc(),
         },
         IrParam {
             name: "m".to_string(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             default: Some(const_int("0")),
             loc: loc(),
         },

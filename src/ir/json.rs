@@ -46,7 +46,7 @@ impl EntryPoint {
             pad,
             json_string(&self.name),
             pad,
-            json_string(&self.returns),
+            json_string(&self.returns.name()),
             pad,
             self.accepts_args,
             pad
@@ -160,7 +160,7 @@ impl ToJson for IrBinding {
             self.loc.line,
             json_string(&self.visibility),
             self.mutable,
-            json_string(&self.type_),
+            json_string(&self.type_.name()),
             value
         )
     }
@@ -180,7 +180,7 @@ impl ToJson for IrField {
             visibility,
             self.loc.line,
             json_string(&self.name),
-            json_string(&self.type_)
+            json_string(&self.type_.name())
         )
     }
 }
@@ -244,7 +244,7 @@ impl ToJson for IrFunction {
             join_json(&self.params, indent + 2),
             pad,
             pad,
-            json_string(&self.returns),
+            json_string(&self.returns.name()),
             pad,
             join_json(&self.body, indent + 2),
             pad,
@@ -266,7 +266,7 @@ impl ToJson for IrParam {
             pad,
             json_string(&self.name),
             self.loc.line,
-            json_string(&self.type_),
+            json_string(&self.type_.name()),
             default
         )
     }

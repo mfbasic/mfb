@@ -1,4 +1,5 @@
 use super::*;
+use crate::types::ParameterType;
 
 #[derive(Clone)]
 pub(crate) struct IrType {
@@ -21,7 +22,7 @@ pub(crate) struct IrBinding {
     pub(crate) name: String,
     pub(crate) visibility: String,
     pub(crate) mutable: bool,
-    pub(crate) type_: String,
+    pub(crate) type_: ParameterType,
     pub(crate) value: Option<IrValue>,
     // Source location of the binding declaration.
     pub(crate) loc: IrSourceLoc,
@@ -37,7 +38,7 @@ pub(crate) struct IrBinding {
 pub(crate) struct IrField {
     pub(crate) visibility: Option<String>,
     pub(crate) name: String,
-    pub(crate) type_: String,
+    pub(crate) type_: ParameterType,
     // Source location of the field declaration.
     pub(crate) loc: IrSourceLoc,
 }
@@ -57,7 +58,7 @@ pub(crate) struct IrEnumMember {
 #[derive(Clone)]
 pub(crate) struct IrParam {
     pub(crate) name: String,
-    pub(crate) type_: String,
+    pub(crate) type_: ParameterType,
     pub(crate) default: Option<IrValue>,
     // Source location of the parameter declaration.
     pub(crate) loc: IrSourceLoc,
@@ -78,7 +79,7 @@ pub(crate) struct IrRecordUpdate {
 #[derive(Clone)]
 pub struct ExternalFunctionParam {
     pub name: String,
-    pub type_: String,
+    pub type_: ParameterType,
 }
 
 /// The whole compiled IR for one project: its declared entities, functions, the
@@ -146,7 +147,7 @@ impl IrProject {
 #[derive(Clone)]
 pub(crate) struct EntryPoint {
     pub(crate) name: String,
-    pub(crate) returns: String,
+    pub(crate) returns: ParameterType,
     pub(crate) accepts_args: bool,
 }
 
@@ -159,7 +160,7 @@ pub(crate) struct IrFunction {
     pub(crate) kind: String,
     pub(crate) isolated: bool,
     pub(crate) params: Vec<IrParam>,
-    pub(crate) returns: String,
+    pub(crate) returns: ParameterType,
     pub(crate) body: Vec<IrOp>,
     // Source file (project-relative path) this function was lowered from. Used to
     // build `ErrorLoc.filename` for errors that originate inside this function.

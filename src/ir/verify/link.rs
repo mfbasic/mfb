@@ -88,7 +88,7 @@ impl TypeEnv {
                 let record: Vec<(String, String)> = rec
                     .fields
                     .iter()
-                    .map(|f| (f.name.clone(), f.type_.clone()))
+                    .map(|f| (f.name.clone(), f.type_.name().into_owned()))
                     .collect();
                 let view = crate::ir::StructSlotView {
                     cfields: &cfields,

@@ -427,7 +427,7 @@ pub(crate) fn external_package_function_types_from_files(
                     .iter()
                     .map(|param| ir::ExternalFunctionParam {
                         name: param.name.clone(),
-                        type_: param.type_.clone(),
+                        type_: crate::types::ParameterType::parse(&param.type_),
                     })
                     .collect(),
             );
@@ -528,7 +528,7 @@ fn external_package_function_types_from_files_lossy(
                     .iter()
                     .map(|param| ir::ExternalFunctionParam {
                         name: param.name.clone(),
-                        type_: param.type_.clone(),
+                        type_: crate::types::ParameterType::parse(&param.type_),
                     })
                     .collect(),
             );

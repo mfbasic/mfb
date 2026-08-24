@@ -119,7 +119,7 @@ pub(crate) fn validate_entry_point(
     if let Some((_, _, name, returns, accepts_args)) = matches.pop() {
         return Ok(Some(ir::EntryPoint {
             name,
-            returns,
+            returns: crate::types::ParameterType::parse(&returns),
             accepts_args,
         }));
     }
@@ -176,7 +176,7 @@ mod tests {
         .expect("ok")
         .expect("entry");
         assert_eq!(entry.name, "main");
-        assert_eq!(entry.returns, "Integer");
+        assert_eq!(entry.returns.name(), "Integer");
         assert!(!entry.accepts_args);
     }
 
@@ -190,7 +190,7 @@ mod tests {
         )
         .expect("ok")
         .expect("entry");
-        assert_eq!(entry.returns, "Nothing");
+        assert_eq!(entry.returns.name(), "Nothing");
         assert!(entry.accepts_args);
     }
 

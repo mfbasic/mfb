@@ -14,6 +14,7 @@
 //! reconstructable from this payload alone.
 
 use super::*;
+use crate::types::ParameterType;
 
 /// Magic bytes prefixing a Binary Representation payload.
 pub const BINARY_REPR_MAGIC: &[u8; 4] = b"MFBR";
@@ -276,7 +277,7 @@ fn encode_project(out: &mut Vec<u8>, project: &IrProject) {
         Some(entry) => {
             put_u8(out, 1);
             put_str(out, &entry.name);
-            put_str(out, &entry.returns);
+            put_str(out, &entry.returns.name());
             put_bool(out, entry.accepts_args);
         }
         None => put_u8(out, 0),
@@ -495,7 +496,7 @@ fn decode_project(r: &mut IrReader) -> Result<IrProject, String> {
     let entry = if r.u8()? != 0 {
         Some(EntryPoint {
             name: r.string()?,
-            returns: r.string()?,
+            returns: ParameterType::parse(&r.string()?),
             accepts_args: r.bool()?,
         })
     } else {
@@ -796,7 +797,7 @@ fn encode_binding(out: &mut Vec<u8>, b: &IrBinding) {
     put_str(out, &b.name);
     put_str(out, &b.visibility);
     put_bool(out, b.mutable);
-    put_str(out, &b.type_);
+    put_str(out, &b.type_.name());
     put_opt_value(out, &b.value);
     put_loc(out, b.loc);
     put_str(out, &b.file);
@@ -808,7 +809,7 @@ fn decode_binding(r: &mut IrReader) -> Result<IrBinding, String> {
         name: r.string()?,
         visibility: r.string()?,
         mutable: r.bool()?,
-        type_: r.string()?,
+        type_: ParameterType::parse(&r.string()?),
         value: r.opt_value()?,
         loc: get_loc(r)?,
         file: r.string()?,
@@ -821,7 +822,7 @@ fn decode_binding(r: &mut IrReader) -> Result<IrBinding, String> {
 fn encode_field(out: &mut Vec<u8>, f: &IrField) {
     put_opt_str(out, &f.visibility);
     put_str(out, &f.name);
-    put_str(out, &f.type_);
+    put_str(out, &f.type_.name());
     put_loc(out, f.loc);
 }
 
@@ -829,7 +830,7 @@ fn decode_field(r: &mut IrReader) -> Result<IrField, String> {
     Ok(IrField {
         visibility: r.opt_string()?,
         name: r.string()?,
-        type_: r.string()?,
+        type_: ParameterType::parse(&r.string()?),
         loc: get_loc(r)?,
     })
 }
@@ -878,7 +879,7 @@ fn decode_type(r: &mut IrReader) -> Result<IrType, String> {
 
 fn encode_param(out: &mut Vec<u8>, p: &IrParam) {
     put_str(out, &p.name);
-    put_str(out, &p.type_);
+    put_str(out, &p.type_.name());
     put_opt_value(out, &p.default);
     put_loc(out, p.loc);
 }
@@ -886,7 +887,7 @@ fn encode_param(out: &mut Vec<u8>, p: &IrParam) {
 fn decode_param(r: &mut IrReader) -> Result<IrParam, String> {
     Ok(IrParam {
         name: r.string()?,
-        type_: r.string()?,
+        type_: ParameterType::parse(&r.string()?),
         default: r.opt_value()?,
         loc: get_loc(r)?,
     })
@@ -898,7 +899,7 @@ fn encode_function(out: &mut Vec<u8>, f: &IrFunction) {
     put_str(out, &f.kind);
     put_bool(out, f.isolated);
     put_vec(out, &f.params, encode_param);
-    put_str(out, &f.returns);
+    put_str(out, &f.returns.name());
     put_vec(out, &f.body, encode_op);
     put_str(out, &f.file);
     put_loc(out, f.loc);
@@ -933,7 +934,7 @@ fn decode_function(r: &mut IrReader) -> Result<IrFunction, String> {
         kind: r.string()?,
         isolated: r.bool()?,
         params: decode_vec(r, decode_param)?,
-        returns: r.string()?,
+        returns: ParameterType::parse(&r.string()?),
         body: decode_vec(r, decode_op)?,
         file: r.string()?,
         loc: get_loc(r)?,

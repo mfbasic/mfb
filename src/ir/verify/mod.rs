@@ -44,6 +44,7 @@
 
 use super::{IrField, IrFunction, IrOp, IrProject, IrType, IrValue};
 use crate::builtins;
+use crate::types::ParameterType;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -221,7 +222,8 @@ fn collect_diagnostics_with(
     let env = env;
     for function in &project.functions {
         env.current_file.replace(function.file.clone());
-        env.current_return.replace(function.returns.clone());
+        env.current_return
+            .replace(function.returns.name().into_owned());
         env.current_kind.replace(function.kind.clone());
         env.current_owners
             .replace(function.resource_owners.keys().cloned().collect());
@@ -235,8 +237,9 @@ fn collect_diagnostics_with(
                 .params
                 .iter()
                 .filter(|p| {
-                    env.is_resource_or_resource_union(resource_base_type(&p.type_))
-                        && crate::builtins::resource::state_type_name(&p.type_).is_none()
+                    let ty = p.type_.name();
+                    env.is_resource_or_resource_union(resource_base_type(&ty))
+                        && crate::builtins::resource::state_type_name(&ty).is_none()
                 })
                 .map(|p| p.name.clone())
                 .collect(),
@@ -245,14 +248,15 @@ fn collect_diagnostics_with(
         // needs the RES element marking like any collection declaration).
         if !function.name.starts_with('$') {
             env.current_line.set(function.loc.line);
-            env.check_collection_res_axis(resource_base_type(&function.returns));
+            let returns = function.returns.name();
+            env.check_collection_res_axis(resource_base_type(&returns));
             env.check_return_state_declaration(function);
         }
         // A declared FUNC must name its return type (`AS T`); lowering stamps
         // `Unknown` when the annotation is absent. Synthesized `$lambda` bodies
         // legitimately carry a computed (possibly Unknown) return — skip them.
         if function.kind == "func"
-            && function.returns == "Unknown"
+            && function.returns == ParameterType::Unknown
             && !function.name.starts_with('$')
         {
             env.current_line.set(function.loc.line);
@@ -265,15 +269,15 @@ fn collect_diagnostics_with(
         // FUNCs, like SUBs, may fall through). Synthesized `$lambda` bodies
         // always end in a lowered Return.
         if function.kind == "func"
-            && function.returns != "Nothing"
-            && function.returns != "Unknown"
+            && function.returns != ParameterType::Nothing
+            && function.returns != ParameterType::Unknown
             && !function.name.starts_with('$')
             && !env.block_always_returns(
                 &function.body,
                 &function
                     .params
                     .iter()
-                    .map(|p| (p.name.clone(), p.type_.clone()))
+                    .map(|p| (p.name.clone(), p.type_.name().into_owned()))
                     .collect(),
             )
         {
@@ -291,12 +295,13 @@ fn collect_diagnostics_with(
         let mut seen_default = false;
         for param in &function.params {
             env.current_line.set(param.loc.line);
-            locals.insert(param.name.clone(), param.type_.clone());
-            env.check_map_key_comparable(&param.type_);
-            env.check_collection_res_axis(resource_base_type(&param.type_));
+            let param_type = param.type_.name();
+            locals.insert(param.name.clone(), param_type.clone().into_owned());
+            env.check_map_key_comparable(&param_type);
+            env.check_collection_res_axis(resource_base_type(&param_type));
             // Every parameter must declare an `AS` type (lambda parameters
             // included — syntaxcheck checks both forms with this rule).
-            if param.type_ == "Unknown" {
+            if param.type_ == ParameterType::Unknown {
                 env.emit(
                     "TYPE_PARAM_REQUIRES_TYPE",
                     format!("Parameter `{}` must declare an `AS` type.", param.name),
@@ -326,7 +331,8 @@ fn collect_diagnostics_with(
                 env.check_value(default, &locals);
                 // A parameter default must match the declared parameter type —
                 // syntaxcheck's TYPE_DEFAULT_VALUE_MISMATCH (skip-if-unknown).
-                let expected = resource_base_type(&param.type_);
+                let param_type = param.type_.name();
+                let expected = resource_base_type(&param_type);
                 if !expected.is_empty() && expected != "Unknown" && expected != "Nothing" {
                     if let Some(actual) = env.infer_type(default, &locals) {
                         if !env.expression_compatible(expected, &actual, default) {
@@ -357,7 +363,10 @@ fn collect_diagnostics_with(
         let mut non_owning: HashSet<String> = function
             .params
             .iter()
-            .filter(|p| env.is_resource_or_resource_union(resource_base_type(&p.type_)))
+            .filter(|p| {
+                let ty = p.type_.name();
+                env.is_resource_or_resource_union(resource_base_type(&ty))
+            })
             .map(|p| p.name.clone())
             .collect();
         // A RES binding whose ownership floats into a collection
@@ -400,9 +409,10 @@ fn collect_diagnostics_with(
     for binding in &project.bindings {
         env.current_file.replace(binding.file.clone());
         env.current_line.set(binding.loc.line);
+        let binding_type = binding.type_.name();
         if binding.explicit_type {
-            env.check_map_key_comparable(&binding.type_);
-            env.check_collection_res_axis(resource_base_type(&binding.type_));
+            env.check_map_key_comparable(&binding_type);
+            env.check_collection_res_axis(resource_base_type(&binding_type));
         }
         if binding.value.is_none() {
             if !binding.explicit_type {
@@ -421,7 +431,7 @@ fn collect_diagnostics_with(
                         binding.name
                     ),
                 );
-            } else if !env.is_defaultable(&binding.type_, &mut HashSet::new()) {
+            } else if !env.is_defaultable(&binding_type, &mut HashSet::new()) {
                 env.emit(
                     "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
                     format!(
@@ -437,9 +447,9 @@ fn collect_diagnostics_with(
             env.check_value_captures(value, None);
             env.check_value(value, &HashMap::new());
             let range_errored =
-                env.check_literal_range_errored(resource_base_type(&binding.type_), value);
+                env.check_literal_range_errored(resource_base_type(&binding_type), value);
             if !range_errored && binding.explicit_type {
-                env.check_binding_type(&binding.name, &binding.type_, value, &HashMap::new());
+                env.check_binding_type(&binding.name, &binding_type, value, &HashMap::new());
             }
         }
     }
@@ -663,7 +673,7 @@ impl TypeEnv {
                         ty.name.clone(),
                         ty.fields
                             .iter()
-                            .map(|f| (f.name.clone(), f.type_.clone()))
+                            .map(|f| (f.name.clone(), f.type_.name().into_owned()))
                             .collect(),
                     );
                     let private: HashSet<String> = ty
@@ -703,7 +713,7 @@ impl TypeEnv {
                                 variant
                                     .fields
                                     .iter()
-                                    .map(|f| (f.name.clone(), f.type_.clone()))
+                                    .map(|f| (f.name.clone(), f.type_.name().into_owned()))
                                     .collect()
                             });
                     }
@@ -723,9 +733,13 @@ impl TypeEnv {
                         .iter()
                         .filter(|p| p.default.is_some())
                         .count(),
-                    params: function.params.iter().map(|p| p.type_.clone()).collect(),
+                    params: function
+                        .params
+                        .iter()
+                        .map(|p| p.type_.name().into_owned())
+                        .collect(),
                     kind: function.kind.clone(),
-                    returns: function.returns.clone(),
+                    returns: function.returns.name().into_owned(),
                 },
             );
         }
@@ -733,7 +747,7 @@ impl TypeEnv {
         let globals = project
             .bindings
             .iter()
-            .map(|b| (b.name.clone(), b.type_.clone()))
+            .map(|b| (b.name.clone(), b.type_.name().into_owned()))
             .collect();
         let global_muts = project
             .bindings
@@ -1204,7 +1218,7 @@ fn parse_map(type_: &str) -> Option<(&str, &str)> {
 fn field_type_map(fields: &[IrField]) -> HashMap<String, String> {
     fields
         .iter()
-        .map(|f| (f.name.clone(), f.type_.clone()))
+        .map(|f| (f.name.clone(), f.type_.name().into_owned()))
         .collect()
 }
 

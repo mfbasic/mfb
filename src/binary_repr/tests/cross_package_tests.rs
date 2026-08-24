@@ -93,7 +93,7 @@ fn dep_with_type_project() -> IrProject {
         fields: vec![IrField {
             visibility: Some("export".to_string()),
             name: "id".to_string(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             loc: crate::ir::IrSourceLoc::default(),
         }],
         includes: vec![],
@@ -143,7 +143,7 @@ fn foreign_type_reexport_chain_resolves_through_siblings() {
     // app imports dep and re-exports `Widget` through an exported function.
     let mut app = empty_project("app");
     let mut make = fn_named("makeWidget", "export", "function", "Widget");
-    make.returns = "Widget".to_string();
+    make.returns = crate::types::ParameterType::parse("Widget");
     app.functions = vec![make];
     let mut app_meta = dep_meta("app");
     app_meta.dependencies = vec![dependency("dep")];
@@ -171,7 +171,7 @@ fn foreign_type_reexport_chain_resolves_through_siblings() {
     // external_type_metadata's re-export arm (owner carried through unchanged).
     let mut top = empty_project("top");
     let mut use_widget = fn_named("useWidget", "export", "function", "Widget");
-    use_widget.returns = "Widget".to_string();
+    use_widget.returns = crate::types::ParameterType::parse("Widget");
     top.functions = vec![use_widget];
     let mut top_meta = dep_meta("top");
     top_meta.dependencies = vec![dependency("app")];
@@ -218,7 +218,7 @@ fn foreign_type_export_without_owner_sibling_skips_fill() {
         fields: vec![IrField {
             visibility: Some("export".to_string()),
             name: "n".to_string(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             loc: crate::ir::IrSourceLoc::default(),
         }],
         includes: vec![],
@@ -228,7 +228,7 @@ fn foreign_type_export_without_owner_sibling_skips_fill() {
         file: "src/main.mfb".to_string(),
     }];
     let mut make = fn_named("makeWidget", "export", "function", "Widget");
-    make.returns = "Widget".to_string();
+    make.returns = crate::types::ParameterType::parse("Widget");
     app.functions = vec![make];
     let mut app_meta = dep_meta("app");
     app_meta.dependencies = vec![dependency("dep")];
@@ -290,7 +290,7 @@ fn foreign_type_reexport_rejects_traversing_owner() {
 
     let mut app = empty_project("app");
     let mut make = fn_named("makeWidget", "export", "function", "Widget");
-    make.returns = "Widget".to_string();
+    make.returns = crate::types::ParameterType::parse("Widget");
     app.functions = vec![make];
     let mut app_meta = dep_meta("app");
     app_meta.dependencies = vec![dependency("../evil")];
@@ -335,7 +335,7 @@ fn variant_widget_owner_mfp(name: &str) -> Vec<u8> {
         fields: vec![IrField {
             visibility: Some("export".to_string()),
             name: "id".to_string(),
-            type_: "String".to_string(),
+            type_: crate::types::ParameterType::parse("String"),
             loc: IrSourceLoc::default(),
         }],
         includes: vec![],
@@ -367,7 +367,7 @@ fn foreign_type_abi_check_rejects_traversing_owner() {
 
     let mut app = empty_project("app");
     let mut make = fn_named("makeWidget", "export", "function", "Widget");
-    make.returns = "Widget".to_string();
+    make.returns = crate::types::ParameterType::parse("Widget");
     app.functions = vec![make];
     let mut app_meta = dep_meta("app");
     app_meta.dependencies = vec![dependency("../evil")];

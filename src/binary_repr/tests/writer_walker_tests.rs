@@ -249,7 +249,7 @@ fn corpus_function() -> IrFunction {
     let mut f = fn_named("corpus", "export", "function", "fs.File");
     f.params = vec![IrParam {
         name: "h".to_string(),
-        type_: "fs.File".to_string(),
+        type_: crate::types::ParameterType::parse("fs.File"),
         default: None,
         loc: loc(),
     }];
@@ -599,13 +599,13 @@ fn socket_and_listener_resources_are_emitted_when_used() {
     f.params = vec![
         IrParam {
             name: "s".to_string(),
-            type_: "net.Socket".to_string(),
+            type_: crate::types::ParameterType::parse("net.Socket"),
             default: None,
             loc: loc(),
         },
         IrParam {
             name: "l".to_string(),
-            type_: "net.Listener".to_string(),
+            type_: crate::types::ParameterType::parse("net.Listener"),
             default: None,
             loc: loc(),
         },

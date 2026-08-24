@@ -273,7 +273,7 @@ fn abi_serializer_walks_composite_field_types() {
     let field = |name: &str, ty: &str| IrField {
         visibility: Some("export".to_string()),
         name: name.to_string(),
-        type_: ty.to_string(),
+        type_: crate::types::ParameterType::parse(ty),
         loc: loc(),
     };
     project.types = vec![IrType {

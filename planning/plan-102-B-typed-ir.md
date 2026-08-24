@@ -132,16 +132,36 @@ external contract touched.
 
 ### Phase 1 — boundary conversion + field flip (compiles via `.name()` shims)
 
-- [ ] Flip the 8 `ir/types.rs` and 17 `ir/value.rs` type fields to `ParameterType`.
-- [ ] In `ir::lower_augmented_project`, convert source strings via
-      `ParameterType::parse` at each IR-node construction site.
-- [ ] Make consumers compile by inserting `.name()` at read sites (temporary; a
-      mechanical shim so the tree builds before the real sweep).
-- [ ] Tests: existing IR/codegen suite compiles and passes.
+Split into **B1a** (6 `ir/types.rs` struct fields) and **B1b** (19 `ir/value.rs`
+fields) — see Corrections. Each lands byte-identical.
+
+**B1a — flip the 6 `ir/types.rs` struct type fields:**
+- [x] Flip `IrBinding.type_`, `IrField.type_`, `IrParam.type_`,
+      `ExternalFunctionParam.type_`, `EntryPoint.returns`, `IrFunction.returns` to
+      `ParameterType` (`src/ir/types.rs`).
+- [x] Boundary: `ir::lower` (+ `manifest`, `cli/build`) wrap source strings with
+      `ParameterType::parse` at each construction site.
+- [x] Consumers compile via `.name()`/`.name().into_owned()` shims (wire seams
+      `ir/binary.rs`/`ir/json.rs`/`binary_repr/writer.rs` render `.name()` at the
+      emit point — the *final* form, not a temporary shim; `ir/verify` shims reads,
+      with a few native `== ParameterType::Unknown/Nothing` comparisons).
+- [x] Test fixtures updated (subagent): constructions → `ParameterType::parse`,
+      assertions → `.name()`. (production build 0 errors/0 warnings.)
+
+**B1b — flip the 17 `ir/value.rs` `type_` + `UnionWrap.union_type`/`.member_type`:**
+- [ ] Flip the 19 `ir/value.rs` type-name fields to `ParameterType`.
+- [ ] Seam: `IrValue::annotated_type()` (26 callers, 5 production via
+      `usable_type`) returns `Option<Cow<'_, str>>` (from `.name()`); direct
+      destructuring reads (~100) shimmed with `.name()`.
+- [ ] Boundary: `ir::lower` value-lowering wraps with `ParameterType::parse`;
+      wire seams render `.name()`.
+- [ ] Test fixtures updated.
 
 Acceptance: `cargo test` green; `artifact-gate all` no NEW diff vs the plan-102-A
-baseline.
-Commit: —
+baseline. **B1a VERIFIED**: production 0/0, test build 0/0, full suite's sole
+failure is the `artifact_gate_all` baseline, gate `diff` IDENTICAL to baseline.
+B1b pending.
+Commit (B1a): —
 
 ### Phase 2 — native `ParameterType` in codegen consumers
 
@@ -187,7 +207,24 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Field census refined at kickoff (2026-08-23).** The §2 grep `type_: String|
+  returns: String|kind: String|type_name: String` counted **8** fields in
+  `ir/types.rs`, but 2 of those (`IrType.kind` line 5, `IrFunction.kind` line 159)
+  are the record/union/enum and function/sub *kind* discriminants — NOT type
+  spellings — and must stay `String`. The genuine type-spelling fields in
+  `ir/types.rs` are **6**: `IrBinding.type_`, `IrField.type_`, `IrParam.type_`,
+  `ExternalFunctionParam.type_`, `EntryPoint.returns`, `IrFunction.returns`
+  (commands: `rg -n 'type_: String|returns: String' src/ir/types.rs`).
+- **Additional `IrValue` type-name fields beyond the 17 `type_`.** `IrValue` also
+  carries type spellings under other field names the `type_: String` grep missed:
+  `UnionWrap.union_type`/`.member_type` (`src/ir/value.rs:76-77`). These are genuine
+  type spellings and are flipped too, so the IR is fully typed (else a re-parse
+  survives at the union-wrap seam). Total `IrValue` type-name fields flipped: 19.
+- **Split refined to B1a/B1b/B2/B3** (finer than the doc's B1/B2/B3) to keep each
+  atomic-compiling step smaller: B1a = flip the 6 `ir/types.rs` struct fields +
+  boundary + shims; B1b = flip the 19 `ir/value.rs` fields + boundary + shims;
+  B2 = native `ParameterType` in codegen consumers (replace shims); B3 =
+  `ir::verify`/`binary_repr`/wire seams. Same seams and acceptance as the doc.
 
 ## Summary
 

@@ -118,7 +118,7 @@ pub(crate) fn lower_ops(ops: &[IrOp]) -> Vec<NirOp> {
 fn lower_entry(entry: &EntryPoint) -> NirEntryPoint {
     NirEntryPoint {
         name: entry.name.clone(),
-        returns: entry.returns.clone(),
+        returns: entry.returns.name().into_owned(),
         accepts_args: entry.accepts_args,
     }
 }
@@ -129,7 +129,7 @@ fn lower_global(project: &str, binding: &IrBinding) -> NirGlobal {
         symbol: global_symbol(project, &binding.name),
         visibility: binding.visibility.clone(),
         mutable: binding.mutable,
-        type_: binding.type_.clone(),
+        type_: binding.type_.name().into_owned(),
         value: binding.value.as_ref().map(lower_value),
     }
 }
@@ -156,7 +156,7 @@ fn lower_global_initializer(ir: &IrProject) -> NirFunction {
             .iter()
             .map(|binding| NirOp::StoreGlobal {
                 name: binding.name.clone(),
-                type_: binding.type_.clone(),
+                type_: binding.type_.name().into_owned(),
                 value: binding.value.as_ref().map(lower_value),
             })
             .collect(),
@@ -195,7 +195,7 @@ fn lower_field(field: &IrField) -> NirField {
     NirField {
         visibility: field.visibility.clone(),
         name: field.name.clone(),
-        type_: field.type_.clone(),
+        type_: field.type_.name().into_owned(),
     }
 }
 
@@ -219,7 +219,7 @@ fn lower_function(function: &IrFunction) -> NirFunction {
         kind: function.kind.clone(),
         isolated: function.isolated,
         params: function.params.iter().map(lower_param).collect(),
-        returns: function.returns.clone(),
+        returns: function.returns.name().into_owned(),
         body: lower_ops(&function.body),
         file: function.file.clone(),
         resource_owners: function.resource_owners.clone(),
@@ -229,7 +229,7 @@ fn lower_function(function: &IrFunction) -> NirFunction {
 fn lower_param(param: &IrParam) -> NirParam {
     NirParam {
         name: param.name.clone(),
-        type_: param.type_.clone(),
+        type_: param.type_.name().into_owned(),
         default: param.default.as_ref().map(lower_value),
     }
 }

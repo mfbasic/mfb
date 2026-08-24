@@ -1,6 +1,7 @@
 use super::*;
 
 use super::lower_link::{link_aliases, link_cstructs, link_functions, native_resources};
+use crate::types::ParameterType;
 
 struct LowerContext<'a> {
     function_returns: &'a HashMap<String, String>,
@@ -161,7 +162,7 @@ pub fn lower_augmented_project(
                 .iter()
                 .map(|param| CallParam {
                     name: param.name.clone(),
-                    type_: param.type_.clone(),
+                    type_: param.type_.name().into_owned(),
                     default: None,
                 })
                 .collect(),
@@ -287,7 +288,7 @@ fn lower_binding(
         name: binding.name.clone(),
         visibility: visibility_name(binding.visibility).to_string(),
         mutable: binding.mutable,
-        type_: type_.clone(),
+        type_: ParameterType::parse(&type_),
         value: binding
             .value
             .as_ref()
@@ -316,7 +317,7 @@ fn lower_field(field: &TypeField) -> IrField {
     IrField {
         visibility: field.visibility.map(visibility_name).map(str::to_string),
         name: field.name.clone(),
-        type_: field.type_name.clone(),
+        type_: ParameterType::parse(&field.type_name),
         loc: IrSourceLoc {
             line: field.line as u32,
             column: 1,
@@ -408,7 +409,7 @@ fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunc
             .iter()
             .map(|param| lower_param(param, &locals, context))
             .collect(),
-        returns,
+        returns: ParameterType::parse(&returns),
         body,
         file: context.current_file.clone(),
         loc: IrSourceLoc {
@@ -464,7 +465,7 @@ fn lower_param(
     };
     IrParam {
         name: param.name.clone(),
-        type_,
+        type_: ParameterType::parse(&type_),
         default: param
             .default
             .as_ref()
@@ -3043,7 +3044,7 @@ fn lower_expression_with_expected(
                     lambda_locals.insert(param.name.clone(), type_.clone());
                     IrParam {
                         name: param.name.clone(),
-                        type_,
+                        type_: ParameterType::parse(&type_),
                         default: None,
                         loc,
                     }
@@ -3102,7 +3103,7 @@ fn lower_expression_with_expected(
                 kind: "func".to_string(),
                 isolated: false,
                 params: ir_params,
-                returns: returns.clone(),
+                returns: ParameterType::parse(&returns),
                 body: body_ops,
                 file: context.current_file.clone(),
                 loc,
@@ -3482,9 +3483,15 @@ fn lower_constructor_args(
             .iter()
             .filter_map(|field| {
                 arguments.iter().find_map(|argument| match argument {
-                    ConstructorArg::Named { name, value, .. } if name == &field.name => Some(
-                        lower_expression_with_expected(value, Some(&field.type_), locals, context),
-                    ),
+                    ConstructorArg::Named { name, value, .. } if name == &field.name => {
+                        let expected = field.type_.name();
+                        Some(lower_expression_with_expected(
+                            value,
+                            Some(expected.as_ref()),
+                            locals,
+                            context,
+                        ))
+                    }
                     _ => None,
                 })
             })
@@ -3494,10 +3501,10 @@ fn lower_constructor_args(
         .iter()
         .enumerate()
         .map(|(index, argument)| {
-            let expected = fields.get(index).map(|field| field.type_.as_str());
+            let expected = fields.get(index).map(|field| field.type_.name());
             lower_expression_with_expected(
                 constructor_arg_value(argument),
-                expected,
+                expected.as_deref(),
                 locals,
                 context,
             )
@@ -3725,7 +3732,7 @@ impl TypeIndex {
         let imported_field = |field: &ImportedTypeField| IrField {
             visibility: None,
             name: field.name.clone(),
-            type_: field.type_.clone(),
+            type_: ParameterType::parse(&field.type_),
             loc: IrSourceLoc::default(),
         };
         for imported in imported_types {
@@ -3783,7 +3790,7 @@ impl TypeIndex {
             .or_else(|| self.variant_fields.get(type_name))?
             .iter()
             .find(|field| field.name == member)
-            .map(|field| field.type_.clone())
+            .map(|field| field.type_.name().into_owned())
     }
 
     fn variant_belongs_to_union(&self, variant_name: &str, union_name: &str) -> bool {

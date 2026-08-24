@@ -39,7 +39,7 @@ fn lower_project_missing_entry_function_errors() {
     let mut project = empty_project("badentry");
     project.entry = Some(crate::ir::EntryPoint {
         name: "ghost".to_string(),
-        returns: "Nothing".to_string(),
+        returns: crate::types::ParameterType::parse("Nothing"),
         accepts_args: false,
     });
     let metadata = BinaryReprMetadata::new("badentry".to_string(), "1".to_string());
@@ -161,7 +161,7 @@ fn ir_uses_resource_type_detects_file_param() {
     let mut f = fn_named("takesFile", "export", "sub", "Nothing");
     f.params = vec![crate::ir::IrParam {
         name: "h".to_string(),
-        type_: "fs.File".to_string(),
+        type_: crate::types::ParameterType::parse("fs.File"),
         default: None,
         loc: loc(),
     }];
@@ -203,7 +203,7 @@ fn source_type_payload_encodes_union_and_enum() {
             fields: vec![IrField {
                 visibility: None,
                 name: "v".to_string(),
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
                 loc: loc(),
             }],
             loc: loc(),
@@ -260,7 +260,7 @@ fn source_type_payload_records_encode_field_visibilities() {
     let field = |vis: Option<&str>, name: &str| IrField {
         visibility: vis.map(str::to_string),
         name: name.to_string(),
-        type_: "Integer".to_string(),
+        type_: crate::types::ParameterType::parse("Integer"),
         loc: loc(),
     };
     let record = IrType {

@@ -98,7 +98,7 @@ fn record_typed(name: &str, fields: &[(&str, &str)]) -> IrType {
             .map(|(n, t)| IrField {
                 visibility: None,
                 name: (*n).to_string(),
-                type_: (*t).to_string(),
+                type_: crate::types::ParameterType::parse(*t),
                 loc: IrSourceLoc::default(),
             })
             .collect(),
@@ -140,7 +140,7 @@ fn binding(
         name: name.to_string(),
         visibility: "export".to_string(),
         mutable,
-        type_: ty.to_string(),
+        type_: crate::types::ParameterType::parse(ty),
         value,
         loc: IrSourceLoc::default(),
         file: "src/main.mfb".to_string(),
@@ -165,7 +165,7 @@ fn func_returns(name: &str, returns: &str, params: Vec<IrParam>, body: Vec<IrOp>
         kind: "func".to_string(),
         isolated: false,
         params,
-        returns: returns.to_string(),
+        returns: crate::types::ParameterType::parse(returns),
         body,
         file: "src/main.mfb".to_string(),
         resource_owners: HashMap::new(),
@@ -176,7 +176,7 @@ fn func_returns(name: &str, returns: &str, params: Vec<IrParam>, body: Vec<IrOp>
 fn param(name: &str, type_: &str, default: Option<IrValue>) -> IrParam {
     IrParam {
         name: name.to_string(),
-        type_: type_.to_string(),
+        type_: crate::types::ParameterType::parse(type_),
         default,
         loc: IrSourceLoc::default(),
     }
@@ -192,7 +192,7 @@ fn record(name: &str, fields: &[&str]) -> IrType {
             .map(|f| IrField {
                 visibility: None,
                 name: (*f).to_string(),
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
                 loc: IrSourceLoc::default(),
             })
             .collect(),

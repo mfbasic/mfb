@@ -280,7 +280,8 @@ impl TypeEnv {
     /// function's return is not a binding. The same omission that rejected the
     /// legal stateful `RETURN` also hid it, and each needed its own fix.
     pub(super) fn check_return_state_declaration(&self, function: &IrFunction) {
-        let Some(state_type) = crate::builtins::resource::state_type_name(&function.returns) else {
+        let returns = function.returns.name();
+        let Some(state_type) = crate::builtins::resource::state_type_name(&returns) else {
             return;
         };
         if !self.is_defaultable(state_type, &mut HashSet::new()) {

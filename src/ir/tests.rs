@@ -121,7 +121,7 @@ pub(crate) mod helpers {
     #[test]
     fn lower_src_smoke() {
         let ir = lower_src("FUNC main() AS Integer\n  RETURN 1\nEND FUNC\n");
-        assert_eq!(function(&ir, "main").returns, "Integer");
+        assert_eq!(function(&ir, "main").returns.name(), "Integer");
     }
 }
 
@@ -306,7 +306,7 @@ mod binary_repr_tests {
             kind: "func".to_string(),
             isolated: false,
             params: vec![],
-            returns: "Integer".to_string(),
+            returns: crate::types::ParameterType::parse("Integer"),
             body,
             file: "src/main.mfb".to_string(),
             resource_owners: HashMap::new(),
@@ -649,7 +649,7 @@ mod binary_repr_tests {
             name: "g".to_string(),
             visibility: "public".to_string(),
             mutable: true,
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             value: None,
             loc: IrSourceLoc::default(),
             file: String::new(),
@@ -657,7 +657,7 @@ mod binary_repr_tests {
         });
         project.functions[0].params.push(IrParam {
             name: "p".to_string(),
-            type_: "Integer".to_string(),
+            type_: crate::types::ParameterType::parse("Integer"),
             default: None,
             loc: IrSourceLoc::default(),
         });
@@ -743,19 +743,19 @@ mod lower_tests {
              SUB main\nEND SUB\n",
         );
         let n = binding(&ir, "n");
-        assert_eq!(n.type_, "Integer");
+        assert_eq!(n.type_.name(), "Integer");
         assert!(n.explicit_type);
         assert!(!n.mutable);
 
         let s = binding(&ir, "s");
-        assert_eq!(s.type_, "String");
+        assert_eq!(s.type_.name(), "String");
         assert!(!s.explicit_type);
 
         let flag = binding(&ir, "flag");
         assert!(flag.mutable);
-        assert_eq!(flag.type_, "Boolean");
+        assert_eq!(flag.type_.name(), "Boolean");
 
-        assert_eq!(binding(&ir, "f").type_, "Float");
+        assert_eq!(binding(&ir, "f").type_.name(), "Float");
     }
 
     #[test]
@@ -770,13 +770,13 @@ mod lower_tests {
              SUB main\nEND SUB\n",
         );
         let identity = function(&ir, "identity");
-        assert_eq!(identity.returns, "Set OF Integer");
-        assert_eq!(identity.params[0].type_, "Set OF Integer");
+        assert_eq!(identity.returns.name(), "Set OF Integer");
+        assert_eq!(identity.params[0].type_.name(), "Set OF Integer");
         let s = binding(&ir, "s");
-        assert_eq!(s.type_, "Set OF Integer");
+        assert_eq!(s.type_.name(), "Set OF Integer");
         assert!(s.mutable);
         // The call-result binding inherits the returned Set type.
-        assert_eq!(binding(&ir, "t").type_, "Set OF Integer");
+        assert_eq!(binding(&ir, "t").type_.name(), "Set OF Integer");
     }
 
     #[test]
@@ -788,7 +788,7 @@ mod lower_tests {
              SUB main\nEND SUB\n",
         );
         let x = binding(&ir, "x");
-        assert_eq!(x.type_, "Integer");
+        assert_eq!(x.type_.name(), "Integer");
         assert!(!x.explicit_type);
     }
 
@@ -803,12 +803,12 @@ mod lower_tests {
         );
         let add = function(&ir, "add");
         assert_eq!(add.kind, "func");
-        assert_eq!(add.returns, "Integer");
+        assert_eq!(add.returns.name(), "Integer");
         assert_eq!(add.params.len(), 2);
 
         let greet = function(&ir, "greet");
         assert_eq!(greet.kind, "sub");
-        assert_eq!(greet.returns, "Nothing");
+        assert_eq!(greet.returns.name(), "Nothing");
     }
 
     #[test]
@@ -831,7 +831,7 @@ mod lower_tests {
             "FUNC sideEffect(x AS Integer) AS Nothing\n  LET y AS Integer = x\nEND FUNC\n\
              SUB main\nEND SUB\n",
         );
-        assert_eq!(function(&ir, "sideEffect").returns, "Nothing");
+        assert_eq!(function(&ir, "sideEffect").returns.name(), "Nothing");
     }
 
     #[test]
@@ -2101,7 +2101,7 @@ mod lower_tests {
         );
         // The `advance` SUB has a RES param carrying STATE in its type string.
         let advance = function(&ir, "advance");
-        assert!(advance.params[0].type_.contains("STATE FileState"));
+        assert!(advance.params[0].type_.name().contains("STATE FileState"));
         // Its body assigns the resource STATE via StateAssign.
         assert!(advance
             .body
@@ -2418,11 +2418,11 @@ mod lower_tests {
             vec![
                 ExternalFunctionParam {
                     name: "a".to_string(),
-                    type_: "Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("Integer"),
                 },
                 ExternalFunctionParam {
                     name: "b".to_string(),
-                    type_: "Integer".to_string(),
+                    type_: crate::types::ParameterType::parse("Integer"),
                 },
             ],
         );
@@ -2464,7 +2464,7 @@ mod lower_tests {
     #[test]
     fn inferred_binding_from_list_literal_types() {
         let ir = lower_src("IMPORT collections\nLET xs = [1, 2, 3]\nSUB main\nEND SUB\n");
-        assert_eq!(binding(&ir, "xs").type_, "List OF Integer");
+        assert_eq!(binding(&ir, "xs").type_.name(), "List OF Integer");
     }
 
     // ---- more builtin packages: expression_type + call padding ----------
@@ -3744,7 +3744,7 @@ mod lower_tests {
                END TGROUP\n\
              END TESTING\n",
         );
-        assert_eq!(function(&ir, "main").returns, "Integer");
+        assert_eq!(function(&ir, "main").returns.name(), "Integer");
     }
 }
 
@@ -5272,12 +5272,12 @@ END FUNC
             "ext.doThing".to_string(),
             vec![super::ExternalFunctionParam {
                 name: "n".to_string(),
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
             }],
         );
         let entry = Some(super::EntryPoint {
             name: "main".to_string(),
-            returns: "Integer".to_string(),
+            returns: crate::types::ParameterType::parse("Integer"),
             accepts_args: false,
         });
         let ir = super::lower_project_with_external_functions(
@@ -5794,11 +5794,11 @@ END FUNC
         assert!(ir
             .bindings
             .iter()
-            .any(|b| b.name == "greeting" && b.type_ == "String"));
+            .any(|b| b.name == "greeting" && b.type_.name() == "String"));
         assert!(ir
             .bindings
             .iter()
-            .any(|b| b.name == "count" && b.type_ == "Integer"));
+            .any(|b| b.name == "count" && b.type_.name() == "Integer"));
     }
 
     // ---- union includes (nested union expansion) ---------------------------
@@ -6323,7 +6323,7 @@ END FUNC
         let ret = &function(&ir, "main").body;
         assert!(!ret.is_empty());
         let b = binding_of(&ir, "fnRef");
-        assert!(b.type_.starts_with("FUNC("), "fnRef type: {}", b.type_);
+        assert!(b.type_.name().starts_with("FUNC("), "fnRef type: {}", b.type_);
     }
 
     fn binding_of<'a>(ir: &'a super::IrProject, name: &str) -> &'a super::IrBinding {

@@ -82,7 +82,7 @@ fn concrete_union_variants_flattens_included_unions() {
             fields: vec![IrField {
                 visibility: None,
                 name: "v".to_string(),
-                type_: "Integer".to_string(),
+                type_: crate::types::ParameterType::parse("Integer"),
                 loc: loc(),
             }],
             loc: loc(),

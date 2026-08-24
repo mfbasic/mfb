@@ -342,7 +342,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     let entry = match &test_lowering.entry {
         Some(name) => Some(ir::EntryPoint {
             name: name.clone(),
-            returns: "Integer".to_string(),
+            returns: crate::types::ParameterType::Integer,
             accepts_args: false,
         }),
         None => validate_entry_point(&options.location, &manifest, &concrete_ast)?,
