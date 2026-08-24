@@ -604,7 +604,7 @@ pub(crate) fn register(r: &mut Registry) {
         TO_MONEY,
         "Convert a value to Money.",
         ParameterType::Money,
-        vec!["ErrInvalidFormat"],
+        vec!["ErrOverflow", "ErrInvalidFormat"],
         vec![req("value", ParameterType::String)],
     ));
     pkg.add_function(member(
@@ -1116,6 +1116,7 @@ mod tests {
         assert!(r.declares_error("general.toFixed", "ErrOverflow"));
         assert!(r.declares_error("general.toFixed", "ErrInvalidFormat"));
         assert!(r.declares_error("general.toByte", "ErrOverflow"));
+        assert!(r.declares_error("general.toMoney", "ErrOverflow"));
         assert!(r.declares_error("general.toMoney", "ErrInvalidFormat"));
         assert!(r.declares_error("general.toScalar", "ErrInvalidArgument"));
         // A conversion does not declare an error it never raises.
