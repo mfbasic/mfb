@@ -197,7 +197,7 @@ collection-tree conversion consumes them. Directional debt handed to D,
 measured: 66 `ParameterType::parse` sites and 129 `name()` renders in
 `src/codegen/builtins/` (mostly construction-site parses of helper-derived
 strings), to be re-censused at D's closeout.
-Commit: —
+Commit: 73b2ca8db
 
 ## Validation Plan
 
