@@ -20,8 +20,9 @@ pub fn lower_project(
     let helpers = runtime::required_helpers(&merged);
     let module = nir::lower_module(&merged, target_name, build_mode, stdin_log_cap, helpers)?;
     // plan-100 §3: the Opt1 seam. This is the sole `NirModule` producer, so one
-    // wrap here covers all five targets. Identity today -- no catalog row
-    // occupies Opt1 yet.
+    // wrap here covers all five targets. Occupied by the Level-1 local-rewrite
+    // rows — constant folding, algebraic simplification, strength reduction
+    // (`optimizer::opt1`).
     Ok(crate::optimizer::opt1::optimize_nir(
         module,
         crate::optimizer::active_opt_level(),

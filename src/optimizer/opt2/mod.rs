@@ -16,19 +16,22 @@
 //!    rounds once instead of twice and so changes float results, making it
 //!    mandatory lowering rather than a dial row. It stays in
 //!    `crate::codegen::compiler::opt::fma_fusion` (plan-100 Corrections).
-//! 2. **The reserved between-selection-and-regalloc MIR seam**, [`optimize_mir`].
-//!    Identity today; no catalog row occupies it yet.
+//! 2. **The between-selection-and-regalloc MIR seam**, [`optimize_mir`],
+//!    occupied by its first row: the Opt2 half of constant folding
+//!    ([`constant_folding`], Level 1).
 
+pub(crate) mod constant_folding;
 pub(crate) mod peephole;
 
 use crate::codegen::engine::types::CodeInstruction;
 use crate::optimizer::OptLevel;
 
-/// The reserved Opt2 seam: MIR-level optimization between instruction selection
-/// and register allocation, in place on the selected stream.
+/// The Opt2 seam: MIR-level optimization between instruction selection and
+/// register allocation, in place on the selected stream.
 ///
-/// **Identity today** — the scaffold reserves the position without occupying it.
-/// The pipeline this seam eventually brackets is
+/// Occupied by the block-local MIR constant folder ([`constant_folding`], the
+/// Opt2 half of the Level-1 "Constant folding" row). The pipeline this seam
+/// eventually brackets is
 ///
 /// ```text
 /// Plan2(CFG + SSA/def-use) -> Opt2 passes -> Out-of-SSA(MIR) -> regalloc
@@ -43,7 +46,7 @@ use crate::optimizer::OptLevel;
 /// building and destructing SSA with zero consumers is pure risk against the
 /// default-level byte-identity gate (plan-100 §5 / Open Decisions).
 ///
-/// Rows that will land here are the CFG/dataflow ones in
+/// Rows still to land here are the CFG/dataflow ones in
 /// `planning/optimizations.md` — dead-store elimination, unreachable-block
 /// pruning, jump threading, redundant-load elimination, the alias-based
 /// broadening of store-to-load forwarding, behavior-preserving check elision.
@@ -53,7 +56,8 @@ use crate::optimizer::OptLevel;
 /// the active dial, threaded for the future rows that will filter on it; each
 /// row self-guards on its own catalog level rather than on the seam.
 pub(crate) fn optimize_mir(instructions: &mut Vec<CodeInstruction>, level: OptLevel) {
-    let _ = (instructions, level);
+    let _ = level;
+    constant_folding::fold_constants(instructions);
 }
 
 #[cfg(test)]
@@ -164,14 +168,43 @@ mod tests {
         assert_eq!(on[0].get("src").as_deref(), Some("d11"));
     }
 
-    /// plan-100 §3(b): the reserved seam is an identity at *every* level, so no
-    /// row can accidentally fire out of it before one is written.
+    /// The seam is occupied (constant folding), but on a stream with no
+    /// foldable constants it must still be an identity at every level — no row
+    /// may fire outside its own pattern.
     #[test]
-    fn optimize_mir_is_identity_at_every_level() {
+    fn optimize_mir_is_identity_on_a_constant_free_stream() {
         for level in 0..=6u8 {
             let mut stream = plain();
             optimize_mir(&mut stream, OptLevel(level));
             assert_eq!(shape(&stream), shape(&plain()), "level {level}");
         }
+    }
+
+    /// The seam's first row: a known-constant ALU chain folds at `-O1` and is
+    /// left alone at `-O0`. (The row's own unit tests cover the fold rules;
+    /// this pins the seam wiring.)
+    #[test]
+    fn optimize_mir_runs_the_constant_folder() {
+        let foldable = || {
+            vec![
+                ci(
+                    "mov_imm",
+                    &[("dst", "%1"), ("type", "Integer"), ("value", "2")],
+                ),
+                ci(
+                    "mov_imm",
+                    &[("dst", "%2"), ("type", "Integer"), ("value", "3")],
+                ),
+                ci("add", &[("dst", "%3"), ("lhs", "%1"), ("rhs", "%2")]),
+            ]
+        };
+        let mut off = foldable();
+        with_opt_level(OptLevel(0), || optimize_mir(&mut off, OptLevel(0)));
+        assert_eq!(off[2].op, CodeOp::Add, "-O0 must not fold");
+
+        let mut on = foldable();
+        with_opt_level(OptLevel(1), || optimize_mir(&mut on, OptLevel(1)));
+        assert_eq!(on[2].op, CodeOp::MovImm, "-O1 must fold through the seam");
+        assert_eq!(on[2].get("value").as_deref(), Some("5"));
     }
 }

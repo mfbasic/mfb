@@ -144,6 +144,7 @@ Options:
   --unsigned          Allow unsigned dependencies from a non-local source
   -q, --quiet         Print only the artifact line and any diagnostics
   -v, --verbose       Also print a per-phase timing line for each build stage
+                      and a per-pass fire count for each optimizer row
 
 Debug/Inspection (Emits intermediate output):
   --ast               Outputs Abstract Syntax Tree

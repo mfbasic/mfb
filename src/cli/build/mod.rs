@@ -37,7 +37,8 @@ pub(crate) enum Verbosity {
     #[default]
     Normal,
     /// `-v`/`--verbose`: additionally a `phase <name> <N>ms` line per front-end
-    /// stage. Doubles as a lightweight build profiler.
+    /// stage and a `<catalog row>: <count>` optimizer-pass fire-count line per
+    /// landed dial row. Doubles as a lightweight build profiler.
     Verbose,
 }
 
@@ -84,6 +85,20 @@ impl Reporter {
     fn progress(&self, stage: &str) {
         if self.level == Verbosity::Verbose {
             eprintln!("codegen: {stage}");
+        }
+    }
+
+    /// One `<catalog row>: <count>` line per landed dial row — Verbose only, on
+    /// stderr, printed once codegen has run. The counts accumulate in
+    /// `optimizer::stats` as the gated passes fire (the passes have no channel
+    /// back to the CLI); nothing is printed when the dial disabled the rows
+    /// (`-O0`), since none of them ran.
+    fn opt_stats(&self) {
+        if self.level != Verbosity::Verbose || !crate::optimizer::level_enabled(1) {
+            return;
+        }
+        for (row, count) in crate::optimizer::stats::snapshot() {
+            eprintln!("{row}: {count}");
         }
     }
 }
@@ -683,6 +698,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 }
             };
             reporter.phase("codegen+link", codegen_start.elapsed());
+            reporter.opt_stats();
             // `mfb test` compiles the driver, then runs it and adopts its exit
             // status (non-zero iff any case failed).
             if options.mode.is_test() {
@@ -902,6 +918,22 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             }
             BuildOutput::Ast | BuildOutput::Ir => unreachable!("handled above"),
         }
+    }
+
+    // The native debug emitters above run the same gated NIR/machine passes as
+    // a real build, so `-v` reports their fire counts here too. Front-end-only
+    // dumps (`--ast`/`--ir`/`--br`) never enter the native pipeline — no line.
+    if options.outputs.iter().any(|output| {
+        matches!(
+            output,
+            BuildOutput::NativeIr
+                | BuildOutput::NativePlan
+                | BuildOutput::NativeObjectPlan
+                | BuildOutput::NativeCodePlan
+                | BuildOutput::Mir
+        )
+    }) {
+        reporter.opt_stats();
     }
 
     Ok(())

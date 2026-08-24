@@ -15,9 +15,11 @@
 //! ```
 //!
 //! [`opt1`] is the `NirModule -> NirModule` seam; [`opt2`] holds the MIR/machine
-//! passes plus the reserved between-selection-and-regalloc MIR seam. The **two**
-//! Level-1 rows that ship today (`forward_stores_to_loads`, `remove_fp_shuttles`)
-//! live in [`opt2`] and are gated by [`level_enabled`].
+//! passes plus the reserved between-selection-and-regalloc MIR seam. Five
+//! Level-1 rows ship today, each gated by [`level_enabled`]: constant folding
+//! (the Opt1 half), algebraic simplification, and non-loop strength reduction
+//! in [`opt1`], and the two machine peepholes (`forward_stores_to_loads`,
+//! `remove_fp_shuttles`) in [`opt2`].
 //!
 //! **The dial's contract: `-O0`..`-O5` change the emitted code, never the
 //! observable results.** Only a pass that is behavior-preserving *by
@@ -31,6 +33,7 @@ use std::sync::OnceLock;
 
 pub(crate) mod opt1;
 pub(crate) mod opt2;
+pub(crate) mod stats;
 
 /// The optimization scale level requested on the command line by `-O<N>`.
 ///
@@ -114,7 +117,9 @@ pub(crate) fn set_opt_level(level: OptLevel) {
 }
 
 /// The active optimization level, defaulting to [`OptLevel`]'s `1` -- the level
-/// at which the two shipping Level-1 passes run, i.e. today's exact codegen.
+/// at which the shipping Level-1 rows (constant folding, algebraic
+/// simplification, non-loop strength reduction, and the two machine peepholes)
+/// run.
 pub(crate) fn active_opt_level() -> OptLevel {
     #[cfg(test)]
     if let Some(level) = TEST_LEVEL.with(|slot| slot.get()) {
