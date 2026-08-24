@@ -6,6 +6,7 @@ use crate::target::{BackendCapabilities, BuildTarget};
 
 use super::nir::{NirFunction, NirMatchPattern, NirModule, NirOp, NirParam, NirValue};
 use super::runtime::{self, RuntimeHelper};
+use crate::types::ParameterType;
 
 struct TypeValueNames {
     namespaces: HashSet<String>,
@@ -112,25 +113,19 @@ pub fn validate_nir(module: &NirModule) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether a NIR type string transitively owns a resource (directly, or as a
-/// collection element/value). `STATE`-suffixed resource strings are recognized
-/// via `is_resource_type`.
-fn type_owns_resource(type_: &str) -> bool {
-    if crate::codegen::builtins::is_resource_type(type_) {
-        return true;
+/// Whether a NIR type transitively owns a resource (directly, or as a
+/// collection element/value). `STATE`-suffixed resource spellings are
+/// recognized via `is_resource_type` on the rendered nominal name.
+fn type_owns_resource(type_: &ParameterType) -> bool {
+    match type_ {
+        ParameterType::ListOf(element) => type_owns_resource(element),
+        ParameterType::MapOf(key, value) => type_owns_resource(key) || type_owns_resource(value),
+        ParameterType::ResultOf(success) => type_owns_resource(success),
+        // NB: no `Res(inner)` arm — the string form never stripped the `RES `
+        // marker (`is_resource_type("RES File")` is false), so a `Res`-wrapped
+        // element falls to the name check below exactly as the string walk did.
+        other => crate::codegen::builtins::is_resource_type(&other.name()),
     }
-    if let Some(element) = type_.strip_prefix("List OF ") {
-        return type_owns_resource(element);
-    }
-    if let Some(rest) = type_.strip_prefix("Map OF ") {
-        if let Some((key, value)) = rest.split_once(" TO ") {
-            return type_owns_resource(key) || type_owns_resource(value);
-        }
-    }
-    if let Some(success) = type_.strip_prefix("Result OF ") {
-        return type_owns_resource(success);
-    }
-    false
 }
 
 /// Backstop verification of the resource model's structural rules (the type
@@ -142,7 +137,7 @@ fn validate_resource_rules(module: &NirModule) -> Result<(), String> {
         match type_.kind.as_str() {
             "type" => {
                 for field in &type_.fields {
-                    if type_owns_resource(&field.type_.name()) {
+                    if type_owns_resource(&field.type_) {
                         return Err(format!(
                             "NIR record '{}' field '{}' owns a resource; records cannot own resources",
                             type_.name, field.name
@@ -161,7 +156,7 @@ fn validate_resource_rules(module: &NirModule) -> Result<(), String> {
                         || variant
                             .fields
                             .iter()
-                            .any(|field| type_owns_resource(&field.type_.name()));
+                            .any(|field| type_owns_resource(&field.type_));
                     if is_resource {
                         has_resource = true;
                     } else {

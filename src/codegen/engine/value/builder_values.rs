@@ -714,10 +714,10 @@ impl CodeBuilder<'_> {
                 // consulted by try_mfb_fast_path below.
                 if let Some(local) = self.locals.get(target).cloned() {
                     if matches!(local.type_, ParameterType::Func(_, _, false)) {
-                        let ParameterType::Func(_, return_type, _) = local.type_.clone() else {
-                            unreachable!("guarded by the Func match above");
-                        };
-                        let return_type = return_type.name().into_owned();
+                        let return_type = typed_callable_return_type(&local.type_)
+                            .expect("guarded by the Func match above")
+                            .name()
+                            .into_owned();
                         let callable = ValueResult {
                             origin: None,
                             type_: local.type_.clone(),
@@ -745,10 +745,10 @@ impl CodeBuilder<'_> {
                 // global's arena slot, mirroring the local FUNC-value path above.
                 if let Some(global) = self.globals.get(target).cloned() {
                     if matches!(global.type_, ParameterType::Func(_, _, false)) {
-                        let ParameterType::Func(_, return_type, _) = global.type_.clone() else {
-                            unreachable!("guarded by the Func match above");
-                        };
-                        let return_type = return_type.name().into_owned();
+                        let return_type = typed_callable_return_type(&global.type_)
+                            .expect("guarded by the Func match above")
+                            .name()
+                            .into_owned();
                         let address = self.load_global_address(target)?;
                         let register = self.allocate_register()?;
                         self.emit(abi::load_u64(&register, &address, 0));
@@ -878,10 +878,10 @@ impl CodeBuilder<'_> {
             NirValue::CallResult { target, args, .. } => {
                 if let Some(local) = self.locals.get(target).cloned() {
                     if matches!(local.type_, ParameterType::Func(_, _, false)) {
-                        let ParameterType::Func(_, return_type, _) = local.type_.clone() else {
-                            unreachable!("guarded by the Func match above");
-                        };
-                        let return_type = return_type.name().into_owned();
+                        let return_type = typed_callable_return_type(&local.type_)
+                            .expect("guarded by the Func match above")
+                            .name()
+                            .into_owned();
                         let callable = ValueResult {
                             origin: None,
                             type_: local.type_.clone(),

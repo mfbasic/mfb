@@ -92,12 +92,10 @@ pub(crate) fn static_nir_value_type(
             {
                 return Some(field_type.clone());
             }
-            match &target_type {
-                ParameterType::MapEntryOf(key_type, value_type) => match member.as_str() {
-                    "key" => Some((**key_type).clone()),
-                    "value" => Some((**value_type).clone()),
-                    _ => None,
-                },
+            let (key_type, value_type) = typed_map_entry_type_parts(&target_type)?;
+            match member.as_str() {
+                "key" => Some(key_type.clone()),
+                "value" => Some(value_type.clone()),
                 _ => None,
             }
         }
@@ -317,16 +315,6 @@ pub(crate) fn typed_is_collection_type(type_: &ParameterType) -> bool {
     )
 }
 
-/// Typed twin of [`is_set_type`].
-pub(crate) fn typed_is_set_type(type_: &ParameterType) -> bool {
-    matches!(type_, ParameterType::SetOf(_))
-}
-
-/// Typed twin of [`collection_has_buckets`].
-pub(crate) fn typed_collection_has_buckets(type_: &ParameterType) -> bool {
-    matches!(type_, ParameterType::MapOf(..) | ParameterType::SetOf(_))
-}
-
 /// Typed twin of [`set_element_type`].
 pub(crate) fn typed_set_element_type(type_: &ParameterType) -> Option<&ParameterType> {
     match type_ {
@@ -361,11 +349,6 @@ pub(crate) fn typed_strip_res_marker(type_: &ParameterType) -> &ParameterType {
         ParameterType::Res(inner) => inner,
         other => other,
     }
-}
-
-/// Typed twin of [`is_function_type`] (both isolation flavors).
-pub(crate) fn typed_is_function_type(type_: &ParameterType) -> bool {
-    matches!(type_, ParameterType::Func(..))
 }
 
 /// Typed twin of [`callable_return_type`].

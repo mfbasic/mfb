@@ -1871,29 +1871,34 @@ impl CodeBuilder<'_> {
         let payload_off = self.temporary_vreg();
         let payload_len = self.temporary_vreg();
         let iterable_value = self.lower_value(iterable)?;
-        if !is_collection_type(&iterable_value.type_.name()) {
+        if !typed_is_collection_type(&iterable_value.type_) {
             return Err(format!(
                 "native code FOR EACH target '{}' is not a collection",
                 iterable_value.type_
             ));
         }
-        let map_entry_types = if iterable_value.type_.name().starts_with("Map OF ") {
-            Some(map_type_parts(&iterable_value.type_.name()).ok_or_else(|| {
-                format!(
-                    "native code FOR EACH target '{}' is not a valid map type",
-                    iterable_value.type_
-                )
-            })?)
-        } else {
-            None
+        // Structural destructure (plan-104-D); the element/key/value names render
+        // once here for the string-typed payload emitters below.
+        let map_entry_types = match &iterable_value.type_ {
+            ParameterType::MapOf(..) => {
+                let (key, value) =
+                    typed_map_type_parts(&iterable_value.type_).ok_or_else(|| {
+                        format!(
+                            "native code FOR EACH target '{}' is not a valid map type",
+                            iterable_value.type_
+                        )
+                    })?;
+                Some((key.name().into_owned(), value.name().into_owned()))
+            }
+            _ => None,
         };
-        let list_element_type =
-            crate::codegen::engine::types::list_element_type(&iterable_value.type_.name());
+        let list_element_type = typed_list_element_type(&iterable_value.type_)
+            .map(|element| element.name().into_owned());
         // A `Set OF T` iterates its Map-shaped entries yielding the element `T`
         // (the entry key), not a `MapEntry` (plan-63-B). Computed here so the loop
         // body below can read the key payload directly into the loop local.
-        let set_element_type =
-            crate::codegen::engine::types::set_element_type(&iterable_value.type_.name());
+        let set_element_type = typed_set_element_type(&iterable_value.type_)
+            .map(|element| element.name().into_owned());
         let item_value_type = list_element_type.as_deref();
         let collection_slot = self.allocate_stack_object("for_each_collection", 8);
         let cursor_slot = self.allocate_stack_object("for_each_cursor", 8);

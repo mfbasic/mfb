@@ -1,4 +1,5 @@
 use super::*;
+use crate::types::ParameterType;
 
 pub(super) fn validate_entry(
     module: &NirModule,
@@ -84,7 +85,7 @@ pub(super) fn validate_param(
             param.name.clone(),
             LocalBinding {
                 mutable: false,
-                type_: param.type_.name().into_owned(),
+                type_: param.type_.clone(),
             },
         )
         .is_some()
@@ -133,7 +134,7 @@ pub(super) fn validate_ops(
                         name.clone(),
                         LocalBinding {
                             mutable: *mutable,
-                            type_: type_.name().into_owned(),
+                            type_: type_.clone(),
                         },
                     )
                     .is_some()
@@ -341,7 +342,7 @@ pub(super) fn validate_ops(
                         guard_locals.insert(
                             name.clone(),
                             LocalBinding {
-                                type_: type_.name().into_owned(),
+                                type_: type_.clone(),
                                 mutable: false,
                             },
                         );
@@ -393,7 +394,7 @@ pub(super) fn validate_ops(
                     name.clone(),
                     LocalBinding {
                         mutable: false,
-                        type_: type_.name().into_owned(),
+                        type_: type_.clone(),
                     },
                 );
                 validate_ops(
@@ -450,7 +451,7 @@ pub(super) fn validate_ops(
                     name.clone(),
                     LocalBinding {
                         mutable: true,
-                        type_: type_.name().into_owned(),
+                        type_: type_.clone(),
                     },
                 );
                 validate_ops(
@@ -513,7 +514,7 @@ pub(super) fn validate_ops(
                     name.clone(),
                     LocalBinding {
                         mutable: false,
-                        type_: "Error".to_string(),
+                        type_: ParameterType::named("Error"),
                     },
                 );
                 validate_ops(
@@ -654,7 +655,7 @@ pub(super) fn validate_value(
                 || runtime::is_native_direct_call(target)
                 || locals
                     .get(target)
-                    .is_some_and(|local| is_function_type(&local.type_))
+                    .is_some_and(|local| matches!(local.type_, ParameterType::Func(..)))
                 // A top-level (global) binding holding a function value is a valid
                 // indirect-call target too (bug-198); typecheck already rejected a
                 // non-function callee, so accepting the global name here is safe and
@@ -874,10 +875,6 @@ pub(super) fn validate_type_name(type_: &str) -> Result<(), String> {
     }
 }
 
-pub(super) fn is_function_type(type_: &str) -> bool {
-    type_.starts_with("FUNC(") || type_.starts_with("ISOLATED FUNC(")
-}
-
 pub(super) fn push_unique(helpers: &mut Vec<RuntimeHelper>, helper: RuntimeHelper) {
     if !helpers.contains(&helper) {
         helpers.push(helper);
@@ -887,5 +884,5 @@ pub(super) fn push_unique(helpers: &mut Vec<RuntimeHelper>, helper: RuntimeHelpe
 #[derive(Clone)]
 pub(super) struct LocalBinding {
     mutable: bool,
-    type_: String,
+    type_: ParameterType,
 }

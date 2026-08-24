@@ -51,7 +51,7 @@ impl FunctionPlanBuilder<'_> {
                         type_,
                         initializer
                     ));
-                    self.add_stack_slot(name, &type_.name(), *mutable)?;
+                    self.add_stack_slot(name, type_, *mutable)?;
                 }
                 NirOp::StateAssign { value, .. } => {
                     self.lower_value(value)?;
@@ -208,7 +208,7 @@ impl FunctionPlanBuilder<'_> {
                     ));
                     self.operations.push(format!("label {loop_label}"));
                     self.constants.clear();
-                    self.add_stack_slot(name, &type_.name(), true)?;
+                    self.add_stack_slot(name, type_, true)?;
                     self.lower_ops(body)?;
                     self.operations.push(format!("branch -> {loop_label}"));
                     self.operations.push(format!("label {end_label}"));
@@ -244,7 +244,7 @@ impl FunctionPlanBuilder<'_> {
                     // body (the iteration re-enters the head); restore them after
                     // so code following the loop can still fold them (bug-139.1).
                     self.constants.clear();
-                    self.add_stack_slot(name, &type_.name(), false)?;
+                    self.add_stack_slot(name, type_, false)?;
                     self.lower_ops(body)?;
                     self.constants = constants_before_loop;
                     self.operations.push("next".to_string());
@@ -344,28 +344,33 @@ impl FunctionPlanBuilder<'_> {
             }
             NirValue::Unary { operand, .. } => self.lower_value(operand)?,
             NirValue::Const { type_, .. } => {
-                storage_for_type(&type_.name(), self.type_storage)?;
+                storage_for_type(type_, self.type_storage)?;
             }
             NirValue::FunctionRef { type_, .. } => {
-                storage_for_type(&type_.name(), self.type_storage)?;
+                storage_for_type(type_, self.type_storage)?;
             }
             NirValue::Closure {
                 type_, captures, ..
             } => {
-                storage_for_type(&type_.name(), self.type_storage)?;
+                storage_for_type(type_, self.type_storage)?;
                 for value in captures {
                     self.lower_value(value)?;
                 }
             }
             NirValue::Capture { type_, .. } => {
-                storage_for_type(&type_.name(), self.type_storage)?;
+                storage_for_type(type_, self.type_storage)?;
             }
             NirValue::Local(_) | NirValue::LocalRef { .. } | NirValue::Global { .. } => {}
         }
         Ok(())
     }
 
-    fn add_stack_slot(&mut self, name: &str, type_: &str, mutable: bool) -> Result<(), String> {
+    fn add_stack_slot(
+        &mut self,
+        name: &str,
+        type_: &ParameterType,
+        mutable: bool,
+    ) -> Result<(), String> {
         let storage = storage_for_type(type_, self.type_storage)?;
         let offset = -((self.local_slots.len() as i32 + 1) * storage.size.max(8) as i32);
         self.local_slots.push(StackSlot {
