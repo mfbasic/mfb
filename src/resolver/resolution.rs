@@ -1360,7 +1360,7 @@ impl Resolver<'_> {
                 // Split at top-level commas only: a template argument may itself
                 // be a nested `FUNC(...) AS R` or `Map OF K TO V` whose internal
                 // commas must not split the argument list (bug-106).
-                for arg in crate::builtins::split_top_level_commas(args) {
+                for arg in crate::codegen::builtins::split_top_level_commas(args) {
                     self.resolve_type_name(file, arg, line, imports);
                 }
                 return;
@@ -1393,7 +1393,7 @@ impl Resolver<'_> {
         // Split at the depth-0 `) AS ` so a parameter that is itself a
         // `FUNC(...) AS …` (or any parenthesized/nested type) does not split at
         // an inner `) AS ` and produce garbage names (bug-106).
-        let Some((params, return_type)) = crate::builtins::split_func_params_and_return(rest)
+        let Some((params, return_type)) = crate::codegen::builtins::split_func_params_and_return(rest)
         else {
             self.report(
                 "SYMBOL_UNKNOWN_TYPE",

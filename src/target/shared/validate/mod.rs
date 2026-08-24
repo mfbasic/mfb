@@ -79,7 +79,7 @@ pub fn validate_nir(module: &NirModule) -> Result<(), String> {
         let closes: Option<Vec<&'static str>> = type_
             .variants
             .iter()
-            .map(|variant| crate::builtins::resource_close_function(&variant.name))
+            .map(|variant| crate::codegen::builtins::resource_close_function(&variant.name))
             .collect();
         if let Some(closes) = closes {
             for close in closes {
@@ -116,7 +116,7 @@ pub fn validate_nir(module: &NirModule) -> Result<(), String> {
 /// collection element/value). `STATE`-suffixed resource strings are recognized
 /// via `is_resource_type`.
 fn type_owns_resource(type_: &str) -> bool {
-    if crate::builtins::is_resource_type(type_) {
+    if crate::codegen::builtins::is_resource_type(type_) {
         return true;
     }
     if let Some(element) = type_.strip_prefix("List OF ") {
@@ -157,7 +157,7 @@ fn validate_resource_rules(module: &NirModule) -> Result<(), String> {
                 let mut has_resource = false;
                 let mut has_data = false;
                 for variant in &type_.variants {
-                    let is_resource = crate::builtins::is_resource_type(&variant.name)
+                    let is_resource = crate::codegen::builtins::is_resource_type(&variant.name)
                         || variant
                             .fields
                             .iter()

@@ -1,4 +1,4 @@
-use crate::builtins;
+use crate::codegen::builtins;
 use crate::ir::{IrFunction, IrOp, IrProject, IrType, IrValue};
 // plan-46-B: the `.mfp` locator table reuses the manifest's `Libc`/`LibType`
 // vocabulary end to end, so manifest → table → wire → resolver share one set of

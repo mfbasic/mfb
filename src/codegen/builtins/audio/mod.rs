@@ -498,11 +498,11 @@ mod tests {
     #[test]
     fn close_ops_are_the_per_direction_bodies() {
         assert_eq!(
-            crate::builtins::resource_close_function(super::AUDIO_INPUT_TYPE_ID),
+            crate::codegen::builtins::resource_close_function(super::AUDIO_INPUT_TYPE_ID),
             Some(super::CLOSE_INPUT)
         );
         assert_eq!(
-            crate::builtins::resource_close_function(super::AUDIO_OUTPUT_TYPE_ID),
+            crate::codegen::builtins::resource_close_function(super::AUDIO_OUTPUT_TYPE_ID),
             Some(super::CLOSE_OUTPUT)
         );
     }

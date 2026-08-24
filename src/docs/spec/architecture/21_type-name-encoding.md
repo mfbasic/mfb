@@ -74,7 +74,7 @@ its bare internal id: `net::Url` becomes `Url`, `http::Response` becomes
 rewrite is `qualified_builtin_type`, which only fires when the qualifier is a
 built-in import **and** the member is a built-in type id; otherwise the dotted
 name passes through unchanged. [[src/ast/expr.rs:parse_type_base_name]]
-[[src/builtins/mod.rs:qualified_builtin_type]]
+[[src/codegen/builtins/mod.rs:qualified_builtin_type]]
 
 The same normalization is mirrored in the resolver so a qualified built-in type
 in a fully-qualified context resolves to its bare id rather than erroring.

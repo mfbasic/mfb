@@ -28,12 +28,12 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
             || !type_
                 .variants
                 .iter()
-                .all(|variant| crate::builtins::is_resource_type(&variant.name))
+                .all(|variant| crate::codegen::builtins::is_resource_type(&variant.name))
         {
             continue;
         }
         for variant in &type_.variants {
-            if let Some(close) = crate::builtins::resource_close_function(&variant.name) {
+            if let Some(close) = crate::codegen::builtins::resource_close_function(&variant.name) {
                 if let Some(helper) = runtime::helper_for_call(close) {
                     push_unique(&mut symbols, runtime::symbol_for_call(helper, close));
                 }
@@ -153,12 +153,12 @@ pub(super) fn platform_imports(
             || !type_
                 .variants
                 .iter()
-                .all(|variant| crate::builtins::is_resource_type(&variant.name))
+                .all(|variant| crate::codegen::builtins::is_resource_type(&variant.name))
         {
             continue;
         }
         for variant in &type_.variants {
-            if let Some(close) = crate::builtins::resource_close_function(&variant.name) {
+            if let Some(close) = crate::codegen::builtins::resource_close_function(&variant.name) {
                 for import in platform_imports_for_runtime_call(platform, close) {
                     push_platform_import(&mut imports, import);
                 }
@@ -329,7 +329,7 @@ pub(super) fn collect_platform_imports_from_ops(
                 // mirroring `collect_runtime_symbols`, which adds the close symbol.
                 // Without this an implicitly-dropped resource whose close needs a
                 // unique import (e.g. audio's `_munmap`) links with it missing.
-                if let Some(close) = crate::builtins::resource_close_function(type_) {
+                if let Some(close) = crate::codegen::builtins::resource_close_function(type_) {
                     for import in platform_imports_for_runtime_call(platform, close) {
                         push_platform_import(imports, import);
                     }
@@ -530,7 +530,7 @@ pub(super) fn collect_runtime_symbols_from_ops_with_constants(
             NirOp::Bind {
                 name, type_, value, ..
             } => {
-                if let Some(close) = crate::builtins::resource_close_function(type_) {
+                if let Some(close) = crate::codegen::builtins::resource_close_function(type_) {
                     if let Some(helper) = runtime::helper_for_call(close) {
                         push_unique(symbols, runtime::symbol_for_call(helper, close));
                     }

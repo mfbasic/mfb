@@ -7,7 +7,7 @@ use crate::binary_repr::{
     self, BinaryReprExportKind, BinaryReprTypeExport, BinaryReprTypeField, BinaryReprTypeVariant,
     BinaryReprTypeVisibility,
 };
-use crate::builtins;
+use crate::codegen::builtins;
 use crate::numeric;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;

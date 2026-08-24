@@ -234,7 +234,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 /// two-argument function values — so the parameter list is scanned with paren
 /// depth: the closing paren and the separating commas are the ones at depth 0.
 pub(crate) fn function_parts(type_name: &str) -> Option<(Vec<&str>, &str)> {
-    crate::builtins::split_func_params_and_return(type_name.strip_prefix("FUNC(")?)
+    crate::codegen::builtins::split_func_params_and_return(type_name.strip_prefix("FUNC(")?)
 }
 
 // ---------------------------------------------------------------------------
@@ -457,7 +457,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
     Some(resolved)
 }
 
-use crate::builtins::exact;
+use crate::codegen::builtins::exact;
 fn exact_one_of(arg_types: &[String], expected: &[&str]) -> bool {
     arg_types.len() == 1 && expected.iter().any(|expected| arg_types[0] == *expected)
 }

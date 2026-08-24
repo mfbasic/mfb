@@ -2249,7 +2249,7 @@ pub(crate) fn mfb_fast_path(target: &str) -> Option<MfbFastPath> {
 /// a bare inline op) and for the source-backed intrinsics (`encoding`), which are not
 /// bare-name native members. The three `Body::Intrinsic` List overloads
 /// (`find`/`mid`/`replace`) are handled by their caller
-/// (`crate::builtins::native_builtin_target`), which shares them with `strings::`.
+/// (`crate::codegen::builtins::native_builtin_target`), which shares them with `strings::`.
 pub(crate) fn native_bare_target(qualified: &str) -> Option<&'static str> {
     let function = registry().resolve_func(qualified)?.function;
     for implementation in &function.implementations {

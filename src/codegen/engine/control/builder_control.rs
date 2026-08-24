@@ -264,7 +264,7 @@ impl CodeBuilder<'_> {
         else {
             return Ok(false);
         };
-        if crate::builtins::native_builtin_target(call_target) != Some("append") || args.len() != 2
+        if crate::codegen::builtins::native_builtin_target(call_target) != Some("append") || args.len() != 2
         {
             return Ok(false);
         }

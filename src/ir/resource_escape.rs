@@ -506,7 +506,7 @@ fn is_insertion_builtin(callee: &str) -> bool {
     // `native_builtin_target` also matches).
     let member = callee
         .starts_with("collections.")
-        .then(|| crate::builtins::native_builtin_target(callee))
+        .then(|| crate::codegen::builtins::native_builtin_target(callee))
         .flatten();
     matches!(
         member,

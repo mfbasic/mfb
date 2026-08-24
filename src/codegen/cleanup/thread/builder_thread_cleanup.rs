@@ -124,7 +124,7 @@ impl CodeBuilder<'_> {
         // the already success-gated `deactivate_moved_resource_arguments`.
         let defer_resource_flag =
             matches!(target, "thread.transferResource" | "thread.emitResource")
-                && crate::builtins::is_thread_sendable_resource_type(&arg_values[1].type_);
+                && crate::codegen::builtins::is_thread_sendable_resource_type(&arg_values[1].type_);
         let saved_arena_slot = self.allocate_stack_object("runtime_thread_send_saved_arena", 8);
         let copied_message_slot =
             self.allocate_stack_object("runtime_thread_send_copied_message", 8);

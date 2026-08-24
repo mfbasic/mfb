@@ -1,5 +1,5 @@
 // --- codegen tier imports (migration) ---
-use crate::builtins;
+use crate::codegen::builtins;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::*;
@@ -220,7 +220,7 @@ impl CodeBuilder<'_> {
                     text: format!("closed union {type_}"),
                 })
             }
-            _ if crate::builtins::is_resource_type(type_)
+            _ if crate::codegen::builtins::is_resource_type(type_)
                 || self
                     .type_model
                     .resource_names
@@ -951,7 +951,7 @@ impl CodeBuilder<'_> {
                     .strip_prefix("ISOLATED FUNC(")?
                     .split_once(") AS ")
                     .and_then(|(params, _)| {
-                        crate::builtins::split_top_level_types(params)
+                        crate::codegen::builtins::split_top_level_types(params)
                             .into_iter()
                             .next()
                     })

@@ -20,7 +20,7 @@ impl CodeBuilder<'_> {
     }
 
     pub(crate) fn resource_cleanup_symbol(&self, type_: &str) -> Option<String> {
-        let Some(close) = crate::builtins::resource_close_function(type_) else {
+        let Some(close) = crate::codegen::builtins::resource_close_function(type_) else {
             // bug-374: not one of the language's own resources, so fall back to
             // the user-declared `RESOURCE T CLOSE BY op` table. The close op is
             // an ordinary `LINK` call target, so it resolves through
@@ -66,7 +66,7 @@ impl CodeBuilder<'_> {
         }
         let mut out = Vec::new();
         for variant in variants {
-            if !crate::builtins::is_resource_type(&variant) {
+            if !crate::codegen::builtins::is_resource_type(&variant) {
                 return None;
             }
             let tag = *self.type_model.union_variant_tags.get(&variant)?;
@@ -225,7 +225,7 @@ impl CodeBuilder<'_> {
             let Some(local) = self.locals.get(name) else {
                 continue;
             };
-            let Some(close) = crate::builtins::resource_close_function(&local.type_) else {
+            let Some(close) = crate::codegen::builtins::resource_close_function(&local.type_) else {
                 continue;
             };
             let consumed = if target == close {
@@ -242,8 +242,8 @@ impl CodeBuilder<'_> {
                 // successful transfer. Deactivation runs only on the success
                 // path (after the result-tag branch), so the sender keeps
                 // ownership and cleanup when the transfer fails with `Err`.
-                index == 1 && crate::builtins::is_thread_sendable_resource_type(&local.type_)
-            } else if crate::builtins::is_builtin_call(target) {
+                index == 1 && crate::codegen::builtins::is_thread_sendable_resource_type(&local.type_)
+            } else if crate::codegen::builtins::is_builtin_call(target) {
                 false
             } else {
                 // Ordinary user calls do not move the resource's ownership: the caller retains

@@ -21,7 +21,7 @@ use crate::ast::{
     FunctionKind, Item, LoopKind, MatchCase, MatchPattern, Param, Statement, TypeDecl,
     TypeDeclKind, TypeField, UnionVariant, Visibility,
 };
-use crate::builtins;
+use crate::codegen::builtins;
 use crate::json::json_string;
 use crate::numeric;
 use std::collections::{HashMap, HashSet};

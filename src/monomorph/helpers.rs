@@ -169,7 +169,7 @@ pub(super) fn func_type_parts(type_name: &str) -> Option<(Vec<&str>, &str)> {
     let rest = type_name
         .strip_prefix("FUNC(")
         .or_else(|| type_name.strip_prefix("ISOLATED FUNC("))?;
-    crate::builtins::split_func_params_and_return(rest)
+    crate::codegen::builtins::split_func_params_and_return(rest)
 }
 
 pub(super) fn user_template_parts(type_name: &str) -> Option<(String, Vec<String>)> {
@@ -325,7 +325,7 @@ fn type_owns_a_to_separator(body: &str, at: usize) -> bool {
 /// The type arguments of `Name OF A, B` — split only on the commas at paren depth
 /// 0, so a `FUNC(Integer, String) AS Boolean` argument stays one argument.
 pub(super) fn split_top_level_commas(value: &str) -> Vec<String> {
-    crate::builtins::split_top_level_commas(value)
+    crate::codegen::builtins::split_top_level_commas(value)
         .into_iter()
         .map(str::to_string)
         .collect()

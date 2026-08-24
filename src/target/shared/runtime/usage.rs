@@ -8,7 +8,7 @@ pub(crate) fn is_native_direct_call(name: &str) -> bool {
     // and String overloads of find/mid/replace, ...) arrive qualified and are
     // lowered inline; their bare names are freed for user code
     // (plan-01-functions.md §5).
-    if crate::builtins::native_builtin_target(name).is_some() {
+    if crate::codegen::builtins::native_builtin_target(name).is_some() {
         return true;
     }
     // The `abi::` `AbiInline` members lower inline at the call site, so they are
@@ -133,7 +133,7 @@ pub fn required_helpers(ir: &IrProject) -> Vec<RuntimeHelper> {
             let closes: Vec<&'static str> = type_
                 .variants
                 .iter()
-                .map(|variant| crate::builtins::resource_close_function(&variant.name))
+                .map(|variant| crate::codegen::builtins::resource_close_function(&variant.name))
                 .collect::<Option<Vec<_>>>()?;
             if closes.is_empty() {
                 return None;
@@ -169,7 +169,7 @@ fn push_op_helpers(
                 // `validate.rs` unused-runtime-helper check. Mirrors
                 // `Builder::value_aliases_live_resource`; keep the two in step.
                 if !value.as_ref().is_some_and(value_aliases_live_resource) {
-                    if let Some(close) = crate::builtins::resource_close_function(type_) {
+                    if let Some(close) = crate::codegen::builtins::resource_close_function(type_) {
                         if let Some(helper) = helper_for_call(close) {
                             push_unique(helpers, helper);
                         }

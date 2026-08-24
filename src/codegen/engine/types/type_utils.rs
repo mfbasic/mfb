@@ -1,5 +1,5 @@
 // --- codegen tier imports (migration) ---
-use crate::builtins;
+use crate::codegen::builtins;
 use crate::codegen::engine::builder::*;
 use crate::codegen::error::constants::*;
 use crate::codegen::memory::data::*;

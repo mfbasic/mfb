@@ -18,7 +18,7 @@ them.
 Every `bits::` op takes and returns `Integer` and nothing else — never Float,
 `Byte`, `String`, or a collection. A call whose argument is not `Integer` does
 not resolve, so a mistyped operand is a compile-time error rather than a coercion.
-[[src/builtins/mod.rs:resolve_call_return_type]] [[src/codegen/registry/mod.rs:call_return_type]]
+[[src/codegen/builtins/mod.rs:resolve_call_return_type]] [[src/codegen/registry/mod.rs:call_return_type]]
 
 Each operand and result is a **raw two's-complement 64-bit bit pattern**. The
 ops do not interpret sign — with one deliberate exception, the arithmetic right
@@ -62,7 +62,7 @@ Within the valid range:
 
 A `count` of `0` returns `value` unchanged for all three. Because the three
 shifts can fail, they participate in the inline-`TRAP` fallibility census while
-every other `bits::` op is treated as infallible. [[src/builtins/mod.rs:inline_builtin_raw_supported]]
+every other `bits::` op is treated as infallible. [[src/codegen/builtins/mod.rs:inline_builtin_raw_supported]]
 
 ## Rotates (rl32 / rr32 / rl64 / rr64)
 
@@ -132,7 +132,7 @@ rotate, bit-counting, and byte-swap op is **total** — it is defined for every
 64-bit input and has no failing case (rotate counts are width-modular; `clz`/`ctz`
 define zero as `64`). No `bits::` op range-checks its *value* operand; the only
 check anywhere in the package is the shift-count bounds test.
-[[src/codegen/builtins/bits/func_sl.rs:lower_bits_sl]] [[src/builtins/mod.rs:inline_builtin_raw_supported]]
+[[src/codegen/builtins/bits/func_sl.rs:lower_bits_sl]] [[src/codegen/builtins/mod.rs:inline_builtin_raw_supported]]
 
 ## See Also
 

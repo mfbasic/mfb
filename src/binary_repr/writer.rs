@@ -840,7 +840,7 @@ pub(super) fn parse_function_type(type_name: &str) -> Option<FunctionTypeSignatu
     let (params, returns) = split_function_type_rest(rest)?;
     Some(FunctionTypeSignature {
         isolated,
-        params: crate::builtins::split_top_level_types(params),
+        params: crate::codegen::builtins::split_top_level_types(params),
         returns: returns.to_string(),
     })
 }

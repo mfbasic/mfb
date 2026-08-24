@@ -235,61 +235,54 @@ Move the test-desugar metadata to `src/codegen/builtins_testing.rs`.
 Acceptance: `cargo build` green; the 5 `codegen::builtins_testing::tests::*` pass.
 Full `cargo test --no-fail-fast` + release `artifact-gate.sh all` byte-identity
 verified cumulatively at Phase 3.
-Commit: —
+Commit: 98bc5a4ab
 
 ### Phase 3 — merge the facade, delete `src/builtins/` (largest blast radius)
 
 Fold `src/builtins/mod.rs` into `src/codegen/builtins/mod.rs`, delete the old
 directory, and repoint every remaining reference.
 
-- [ ] Append the facade functions, constants, and the `#[cfg(test)] mod tests`
+- [x] Appended the facade functions, constants, and `#[cfg(test)] mod tests`
       block from `src/builtins/mod.rs` into `src/codegen/builtins/mod.rs`
-      **verbatim**. Resolve the now-local references: `general::` is already a
-      child module here (drop the `use crate::codegen::builtins::general;`
-      aliasing comment); `resource` / `builtins_testing` referenced via
-      `crate::codegen::…`.
-- [ ] Update `src/codegen/builtins/general/mod.rs:460`
-      `use crate::builtins::exact;` → `use super::exact;`.
-- [ ] Repoint all remaining `crate::builtins::<fn>` and bare `builtins::<fn>`
-      references (facade functions: `is_builtin_call`, `resolve_call_return_type`,
-      `native_builtin_target`, `arity`, `expected_arguments`, `argument_types`,
-      `is_builtin_import`, `is_builtin_type`, `is_package_constant`,
-      `split_top_level_commas`, `split_func_params_and_return`,
-      `split_top_level_types`, `select_param_name_overload`, `general_override_target`,
-      `qualified_builtin_type`, `resource_close_function`, `is_resource_type`,
-      `is_thread_sendable_resource_type`, `inline_*`, `call_param_names`,
-      `call_param_name_overloads`, `call_return_type_name`, `builtin_package_name`,
-      `is_nonescaping_callback_arg`, `is_internal_only_call`, `is_builtin_member`,
-      `package_constant_type_name`, `package_constant_value`) →
-      `crate::codegen::builtins::<fn>`. Update the `use crate::builtins;` import
-      lines (`src/ir/mod.rs:24`, `src/ir/verify/mod.rs:46`,
-      `src/codegen/memory/value/builder_value_semantics.rs:2`,
-      `src/codegen/memory/data/data_objects.rs:2`,
-      `src/codegen/engine/types/type_utils.rs:2`,
-      `src/codegen/engine/validation/validation.rs:4`,
-      `src/codegen/engine/value/builder_values.rs:2`, `src/binary_repr/mod.rs:1`,
-      `src/resolver/mod.rs:7`, `src/syntaxcheck/mod.rs:10`,
-      `src/binary_repr/tests/writer_tests.rs:81`) to
-      `use crate::codegen::builtins;`.
-- [ ] `git rm -r src/builtins/` (now empty of source) and remove `mod builtins;`
-      from `src/main.rs:5`.
-- [ ] Update the remaining doc/man citations (facade functions and the bare
-      `src/builtins/` directory references) — the ~15 lines in
-      `src/docs/man/lambda/package.md`, `src/docs/spec/memory/07_runtime-helper-abi.md`,
-      `src/docs/spec/language/06_functions.md`, `…/18_builtin-functions.md`,
-      `…/13_modules-and-packages.md`, `src/docs/spec/architecture/19_internal-naming.md`,
-      `…/21_type-name-encoding.md`, `…/04_ir.md`, `…/09_modules.md`,
-      `src/docs/spec/stdlib/06_url.md`, `…/12_bits.md` — repointing
-      `[[src/builtins/mod.rs:...]]` → `[[src/codegen/builtins/mod.rs:...]]` and the
-      bare `src/builtins/` → `src/codegen/` where it names the directory.
-- [ ] Update the moved `spec_section_18_package_list_matches_is_builtin_import`
-      test's `.find("[[src/builtins/mod.rs:is_builtin_import]]")` literal to the new
-      `[[src/codegen/builtins/mod.rs:is_builtin_import]]` (must match the doc edit
-      above).
-- [ ] Tests: the ~15 facade unit tests move into `codegen/builtins/mod.rs`'s test
-      module and must still pass under their new path.
+      **verbatim** (below the `pub(crate) mod X;` package declarations, under a
+      section-header comment). Dropped `use crate::codegen::builtins::general;`
+      (`general` is the child module — `general::` resolves directly); kept
+      `use crate::codegen::resource;`; `builtins_testing` unused by the facade.
+- [x] `src/codegen/builtins/general/mod.rs:460` `use crate::builtins::exact;` →
+      `use crate::codegen::builtins::exact;` (the uniform `crate::builtins::` sed;
+      functionally identical to the plan's suggested `super::exact` — `exact` is
+      `pub(super)`, visible to `codegen::builtins::general` either way).
+- [x] Repointed all remaining fully-qualified `crate::builtins::<fn>` (32 files, sed
+      `crate::builtins::` → `crate::codegen::builtins::`, safe — distinct substring
+      from existing `crate::codegen::builtins::`) and the 9 `use crate::builtins;`
+      module imports → `use crate::codegen::builtins;`. Bare `builtins::<fn>` refs
+      resolve through `use super::*` re-export of those aliases (edition 2021).
+      `grep crate::builtins` (src+repository) → 0.
+- [x] `git rm -r src/builtins/` and removed `mod builtins;` from `src/main.rs:5`.
+- [x] Updated the doc/man citations: `[[src/builtins/mod.rs…]]` →
+      `[[src/codegen/builtins/mod.rs…]]` (9 files) and the 2 bare `[[src/builtins/]]`
+      directory citations → `[[src/codegen/builtins/]]` (`09_modules.md:40`,
+      `19_internal-naming.md:4`), plus the prose `src/builtins/` in
+      `07_runtime-helper-abi.md`, `src/target/shared/runtime/mod.rs`,
+      `src/internal_name.rs`. `grep "\[\[src/builtins" src/` → 0. (The remaining
+      `src/builtins/<pkg>.rs` mentions in code comments are historical "relocated
+      from the deleted …" notes from plan-95, referring to files that exist at
+      neither path — left as accurate history.)
+- [x] Updated the moved `spec_section_18…` test's `.find(…)` literal to
+      `[[src/codegen/builtins/mod.rs:is_builtin_import]]` (matches the §18 doc edit);
+      the test passes.
+- [x] Tests: the 20 facade unit tests run under `codegen::builtins::tests::*` and
+      all pass.
 
-Acceptance: `src/builtins/` is gone (`test ! -d src/builtins`), `grep -rn "crate::builtins\|mod builtins" src/` returns nothing; `cargo test --no-fail-fast` green; `artifact-gate.sh all` byte-identical for every target.
+Acceptance: `src/builtins/` is gone (`ls src/builtins` → No such file); top-level
+`crate::builtins` = 0 and `mod builtins;` appears ONLY at `src/codegen/mod.rs:10`
+(the legitimate `codegen::builtins` declaration — the plan's blanket
+`grep "mod builtins"` was imprecise, corrected here). Full `cargo test
+--no-fail-fast` green (exit 0, 0 failures); release `artifact-gate.sh all`:
+**1248 tests, 1716 goldens, 0 diff(s)** — byte-identity holds for every target.
+`test-accept.sh` shows 2 mismatches that reproduce identically on the baseline
+(commit 50c953142) — pre-existing stdin-EOF environment sensitivity in
+`tests/acceptance/src/io.mfb`, not ours (proven via a detached baseline build).
 Commit: —
 
 ## Validation Plan
@@ -334,6 +327,30 @@ Commit: —
   `crate::codegen::resource::` rather than carried as a facade re-export, and
   `validation.rs`'s `use crate::builtins;` (Phase-3 repoint target) became unused
   once its lone resource ref moved, so it was deleted in Phase 1.
+
+- **Phase 3 acceptance grep was imprecise.** The plan wrote the acceptance as
+  `grep -rn "crate::builtins\|mod builtins" src/` returns nothing. But
+  `src/codegen/mod.rs:10` legitimately declares `pub(crate) mod builtins;` for the
+  merged `codegen::builtins` module — that MUST stay. The correct, checkable
+  invariant is: top-level `crate::builtins` references = 0, and `mod builtins;`
+  appears only at `src/codegen/mod.rs:10`. Verified both.
+
+- **Phase 3 `use crate::builtins;` file list was stale (11 → 9).** The plan listed
+  11 import sites including `validation.rs` (deleted in Phase 1) and
+  `binary_repr/tests/writer_tests.rs`. At Phase 3 only 9 `use crate::builtins;`
+  imports remained (`writer_tests.rs` used `use crate::builtins::split_top_level_types`,
+  a fully-qualified item import handled by the `crate::builtins::` sed, not the
+  module-import sed). All repointed; `grep crate::builtins` → 0.
+
+- **`test-accept.sh` 2 mismatches are pre-existing, not plan-103.** The acceptance
+  runtime harness reports 2 mismatches — the `[1] acceptance` behavioral test's
+  `input reads at end of input` group (`tests/acceptance/src/io.mfb:134–158`),
+  which `expectTrap(…, ErrEndOfFile)` guarded by `IF io::pollInput(0)`. Under this
+  harness's stdin state the reads don't trap. Built the baseline binary at the
+  fork commit (50c953142) in a detached worktree and ran the identical harness:
+  **same exit 1, same "2 mismatch(es)", same 5 io.mfb X markers** — so this is
+  pre-existing stdin-environment sensitivity, independent of the code motion (which
+  is byte-identical anyway: 0 `.ncode` diffs across every target).
 
 ## Summary
 

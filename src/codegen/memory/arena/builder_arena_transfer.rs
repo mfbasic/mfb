@@ -371,7 +371,7 @@ impl CodeBuilder<'_> {
             other if is_collection_type(other) => {
                 self.copy_collection_to_current_arena(other, source)
             }
-            other if crate::builtins::is_thread_sendable_resource_type(other) => {
+            other if crate::codegen::builtins::is_thread_sendable_resource_type(other) => {
                 self.copy_resource_to_current_arena(other, source)
             }
             // A non-sendable resource (audio streams, TLS sockets/listeners) is a
@@ -383,7 +383,7 @@ impl CodeBuilder<'_> {
             // assume the fixed `File` layout, which audio's larger `AudioHandle`
             // does not share). The source temporary is consumed, so the handle is
             // owned and closed exactly once.
-            other if crate::builtins::is_resource_type(other) => {
+            other if crate::codegen::builtins::is_resource_type(other) => {
                 let result = self.allocate_register()?;
                 self.emit(abi::move_register(&result, source));
                 Ok(result)
@@ -1247,7 +1247,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch(&done_label));
                 continue;
             }
-            if crate::builtins::is_resource_type(variant) {
+            if crate::codegen::builtins::is_resource_type(variant) {
                 // Resource union `{tag@0, ptr@8}`: the whole-union memcpy copied the
                 // variant record pointer at +8 verbatim, so it still aliases the
                 // sender's arena (a bug-257-class UAF — true for a *stateless*

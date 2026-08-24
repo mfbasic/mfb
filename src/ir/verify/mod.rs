@@ -43,7 +43,7 @@
 //! package decoder — is verified before any native code is emitted.
 
 use super::{IrField, IrFunction, IrOp, IrProject, IrType, IrValue};
-use crate::builtins;
+use crate::codegen::builtins;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;

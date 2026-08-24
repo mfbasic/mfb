@@ -354,9 +354,9 @@ mod tests {
         );
         // The overloaded member has no single positional signature; the per-position
         // render of a unary member is its one argument type.
-        assert_eq!(crate::builtins::argument_types("encoding.utf8Decode"), None);
+        assert_eq!(crate::codegen::builtins::argument_types("encoding.utf8Decode"), None);
         assert_eq!(
-            crate::builtins::argument_types("encoding.hexEncode"),
+            crate::codegen::builtins::argument_types("encoding.hexEncode"),
             Some(vec!["List OF Byte".to_string()])
         );
         assert_eq!(

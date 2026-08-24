@@ -129,9 +129,9 @@ fn module_drops_resource_union_close(module: &NirModule, target: &str) -> bool {
                 && type_
                     .variants
                     .iter()
-                    .all(|variant| crate::builtins::is_resource_type(&variant.name))
+                    .all(|variant| crate::codegen::builtins::is_resource_type(&variant.name))
                 && type_.variants.iter().any(|variant| {
-                    crate::builtins::resource_close_function(&variant.name) == Some(target)
+                    crate::codegen::builtins::resource_close_function(&variant.name) == Some(target)
                 })
         })
         .map(|type_| type_.name.as_str())
@@ -182,7 +182,7 @@ pub(crate) fn module_may_record_cleanup_failure(module: &NirModule) -> bool {
 
 fn ops_may_record_cleanup_failure(ops: &[NirOp]) -> bool {
     ops.iter().any(|op| match op {
-        NirOp::Bind { type_, .. } => crate::builtins::resource_close_function(type_).is_some(),
+        NirOp::Bind { type_, .. } => crate::codegen::builtins::resource_close_function(type_).is_some(),
         NirOp::If {
             then_body,
             else_body,

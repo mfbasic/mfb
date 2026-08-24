@@ -769,7 +769,7 @@ impl<'a> SyntaxChecker<'a> {
         // `callee` is a collections native member here (guarded by the
         // `owning_package == Some("collections")` check at the call site), so the
         // generic dequalifier hands back its bare native name (`collections.get` -> `get`).
-        let member = crate::builtins::native_builtin_target(callee).unwrap_or(callee);
+        let member = crate::codegen::builtins::native_builtin_target(callee).unwrap_or(callee);
         let arguments =
             self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
         // `filter` used to be the ONLY position that accepted a bare built-in

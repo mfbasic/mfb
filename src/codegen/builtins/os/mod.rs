@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn os_owns_no_resource() {
-        assert_eq!(crate::builtins::resource_close_function("os"), None);
+        assert_eq!(crate::codegen::builtins::resource_close_function("os"), None);
         assert!(registry()
             .resolve_package("os")
             .expect("os")

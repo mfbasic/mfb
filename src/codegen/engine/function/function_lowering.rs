@@ -245,7 +245,7 @@ pub(crate) fn collect_borrow_get_locals(
                     match value {
                         Some(NirValue::Call { target, args, .. })
                             if matches!(
-                                crate::builtins::native_builtin_target(target),
+                                crate::codegen::builtins::native_builtin_target(target),
                                 Some("get") | Some("getOr")
                             ) =>
                         {

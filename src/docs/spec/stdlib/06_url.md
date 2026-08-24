@@ -114,7 +114,7 @@ port, port out of range) and `77050007` (unsupported scheme). [[src/codegen/buil
 
 A universal `toString(value)` whose argument is a `Url` is routed to
 `__net_urlToString` (the `__`-prefix internalizes the name so it never collides
-with the builtin `toString`). [[src/builtins/mod.rs:73]] [[src/codegen/builtins/net/mod.rs:__net_urlToString]]
+with the builtin `toString`). [[src/codegen/builtins/mod.rs:73]] [[src/codegen/builtins/net/mod.rs:__net_urlToString]]
 
 Rendering is the inverse of parsing and reconstructs an absolute href: [[src/codegen/builtins/net/mod.rs:__net_urlToString]]
 

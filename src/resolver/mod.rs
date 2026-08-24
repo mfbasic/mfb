@@ -4,7 +4,7 @@ use crate::ast::{
     TypeDeclKind, TypeField, Visibility, SELF_IMPORT,
 };
 use crate::binary_repr;
-use crate::builtins;
+use crate::codegen::builtins;
 use crate::rules;
 use std::collections::{HashMap, HashSet};
 use std::fs;

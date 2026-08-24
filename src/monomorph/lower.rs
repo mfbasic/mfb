@@ -754,7 +754,7 @@ impl<'a> Monomorphizer<'a> {
         // `name` is already gated to a general-overridable builtin above, so the
         // registry aggregate resolves it exactly as `general::resolve_call` did
         // (plan-72-BB).
-        if crate::builtins::resolve_call_return_type(name, arg_types, false).is_some() {
+        if crate::codegen::builtins::resolve_call_return_type(name, arg_types, false).is_some() {
             return None;
         }
         let chosen = self
@@ -1769,7 +1769,7 @@ impl<'a> Monomorphizer<'a> {
                     .unwrap_or_else(|| "Unknown".to_string())
             })
             .collect::<Vec<_>>();
-        crate::builtins::resolve_call_return_type(callee, &arg_types, false)
+        crate::codegen::builtins::resolve_call_return_type(callee, &arg_types, false)
     }
 
     fn expression_type(

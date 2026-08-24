@@ -303,7 +303,7 @@ mod tests {
     #[test]
     fn native_member_call_and_bare() {
         // `is_native_member_call` -> `owning_package == Some("collections")`;
-        // the bare-name dequalification -> `crate::builtins::native_builtin_target`.
+        // the bare-name dequalification -> `crate::codegen::builtins::native_builtin_target`.
         assert_eq!(
             registry().owning_package("collections.get"),
             Some("collections")
@@ -311,14 +311,14 @@ mod tests {
         assert!(registry().owning_package("collections.sort").is_none());
         assert!(registry().owning_package("get").is_none());
         assert_eq!(
-            crate::builtins::native_builtin_target("collections.get"),
+            crate::codegen::builtins::native_builtin_target("collections.get"),
             Some("get")
         );
         assert_eq!(
-            crate::builtins::native_builtin_target("collections.sort"),
+            crate::codegen::builtins::native_builtin_target("collections.sort"),
             None
         );
-        assert_eq!(crate::builtins::native_builtin_target("get"), None);
+        assert_eq!(crate::codegen::builtins::native_builtin_target("get"), None);
     }
 
     #[test]

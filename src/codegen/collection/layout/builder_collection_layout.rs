@@ -28,7 +28,7 @@ impl CodeBuilder<'_> {
                 .type_model
                 .variants_for_union(type_)
                 .map(|variant| {
-                    if crate::builtins::is_resource_type(variant) {
+                    if crate::codegen::builtins::is_resource_type(variant) {
                         1
                     } else {
                         self.type_model
@@ -56,7 +56,7 @@ impl CodeBuilder<'_> {
         if is_collection_type(type_) {
             return !self.type_is_flat(type_);
         }
-        crate::builtins::is_resource_type(type_) && !self.type_model.union_names.contains(type_)
+        crate::codegen::builtins::is_resource_type(type_) && !self.type_model.union_names.contains(type_)
     }
 
     /// Alignment, in bytes, that a packed collection payload of `type_` requires
@@ -2651,7 +2651,7 @@ fn type_is_flat_inner(
             .collect::<Vec<_>>()
             .iter()
             .all(|variant| type_is_flat_inner(model, variant, visited))
-    } else if crate::builtins::is_resource_type(type_) {
+    } else if crate::codegen::builtins::is_resource_type(type_) {
         // A resource is a move-only handle to its single instance, never a
         // copyable flat block.
         false
@@ -2700,7 +2700,7 @@ pub(crate) fn union_is_data(model: &TypeModel, type_: &str) -> bool {
     let mut saw_variant = false;
     for variant in model.variants_for_union(type_) {
         saw_variant = true;
-        if crate::builtins::is_resource_type(variant) {
+        if crate::codegen::builtins::is_resource_type(variant) {
             return false;
         }
     }
