@@ -46,6 +46,23 @@ pub(crate) struct HirFile {
     pub(crate) internal: bool,
 }
 
+impl HirFile {
+    /// The import binding-name → package-name map for this file, mirroring
+    /// [`crate::ast::AstFile::import_bindings`] (the `imports` node is reused
+    /// verbatim, so the computation is identical).
+    pub(crate) fn import_bindings(&self) -> std::collections::HashMap<String, String> {
+        self.imports
+            .iter()
+            .map(|import| {
+                (
+                    import.binding_name().to_string(),
+                    import.package_name().to_string(),
+                )
+            })
+            .collect()
+    }
+}
+
 /// A top-level item — the elaborated mirror of [`crate::ast::Item`].
 ///
 /// The native-binding and documentation/testing variants carry no source-language
@@ -776,6 +793,381 @@ fn elaborate_expression(expression: &crate::ast::Expression) -> HirExpression {
             line: *line,
         },
         Expression::Identifier(name) => HirExpression::Identifier(name.clone()),
+    }
+}
+
+/// Elaborate a slice of AST statements to HIR — the batch form of the private
+/// [`elaborate_statement`], exposed for `ir::lower`'s inline `expect(...)`
+/// desugar, which builds fresh AST statements (`testing::expand_expect`) that
+/// then re-enter the HIR statement-lowering path.
+pub(crate) fn elaborate_statements(statements: &[crate::ast::Statement]) -> Vec<HirStatement> {
+    statements.iter().map(elaborate_statement).collect()
+}
+
+// --- De-elaboration (HIR → AST) ------------------------------------------------
+//
+// The exact inverse of [`elaborate`], used only at the two seams where
+// `ir::lower` must hand a node to a module that still consumes `crate::ast`:
+// `crate::ir::resource_escape::analyze_function` (a `&crate::ast::Function`) and
+// the inline-`expect(...)` desugar `crate::testing::expand_expect` (a
+// `&[crate::ast::CallArg]`). Rendering every [`ParameterType`] back with
+// `.name()` round-trips byte-exact (`ParameterType::parse(t.name()) == t`), so
+// `elaborate(deelaborate(x))` reproduces `x` and the re-lowered result is
+// byte-identical.
+
+/// Render an optional bare type back to the AST's `Option<String>`: a concrete
+/// type becomes `Some`, [`ParameterType::Unknown`] becomes `None` — the inverse
+/// of [`parse_optional_type`], so re-elaboration yields the same `Unknown`.
+/// (A `Some("Unknown")` original also elaborated to `Unknown`; since both
+/// consumers treat an absent annotation and a literal `"Unknown"` identically,
+/// mapping back to `None` is lowering-equivalent.)
+fn unrender_optional_type(type_: &ParameterType) -> Option<String> {
+    let name = type_.name();
+    if name == "Unknown" {
+        None
+    } else {
+        Some(name.into_owned())
+    }
+}
+
+fn unrender_state(state: &Option<ParameterType>) -> Option<String> {
+    state.as_ref().map(|state| state.name().into_owned())
+}
+
+/// De-elaborate a whole function (used by `resource_escape::analyze_function`).
+pub(crate) fn deelaborate_function(function: &HirFunction) -> crate::ast::Function {
+    crate::ast::Function {
+        kind: function.kind,
+        visibility: function.visibility,
+        isolated: function.isolated,
+        name: function.name.clone(),
+        template_params: function.template_params.clone(),
+        params: function.params.iter().map(deelaborate_param).collect(),
+        return_type: unrender_optional_type(&function.returns),
+        return_resource: function.return_resource,
+        return_state_type: unrender_state(&function.return_state_type),
+        body: function.body.iter().map(deelaborate_statement).collect(),
+        trap: function.trap.as_ref().map(deelaborate_trap),
+        line: function.line,
+    }
+}
+
+/// De-elaborate the call arguments of a call expression (used by the inline
+/// `expect(...)` desugar).
+pub(crate) fn deelaborate_call_args(arguments: &[HirCallArg]) -> Vec<crate::ast::CallArg> {
+    arguments.iter().map(deelaborate_call_arg).collect()
+}
+
+fn deelaborate_trap(trap: &HirTrap) -> crate::ast::Trap {
+    crate::ast::Trap {
+        name: trap.name.clone(),
+        body: trap.body.iter().map(deelaborate_statement).collect(),
+        line: trap.line,
+    }
+}
+
+fn deelaborate_param(param: &HirParam) -> crate::ast::Param {
+    crate::ast::Param {
+        name: param.name.clone(),
+        type_name: unrender_optional_type(&param.type_),
+        resource: param.resource,
+        state_type: unrender_state(&param.state_type),
+        default: param.default.as_ref().map(deelaborate_expression),
+        line: param.line,
+    }
+}
+
+fn deelaborate_statement(statement: &HirStatement) -> crate::ast::Statement {
+    use crate::ast::Statement;
+    match statement {
+        HirStatement::Let {
+            mutable,
+            resource,
+            state_type,
+            name,
+            type_,
+            explicit_type,
+            value,
+            line,
+        } => Statement::Let {
+            mutable: *mutable,
+            resource: *resource,
+            state_type: unrender_state(state_type),
+            name: name.clone(),
+            type_name: if *explicit_type {
+                Some(type_.name().into_owned())
+            } else {
+                None
+            },
+            value: value.as_ref().map(deelaborate_expression),
+            line: *line,
+        },
+        HirStatement::Return { value, line } => Statement::Return {
+            value: value.as_ref().map(deelaborate_expression),
+            line: *line,
+        },
+        HirStatement::Exit { target, code, line } => Statement::Exit {
+            target: *target,
+            code: code.as_ref().map(deelaborate_expression),
+            line: *line,
+        },
+        HirStatement::Continue { kind, line } => Statement::Continue {
+            kind: *kind,
+            line: *line,
+        },
+        HirStatement::Fail { error, line } => Statement::Fail {
+            error: deelaborate_expression(error),
+            line: *line,
+        },
+        HirStatement::Propagate { line } => Statement::Propagate { line: *line },
+        HirStatement::Recover { value, line } => Statement::Recover {
+            value: value.as_ref().map(deelaborate_expression),
+            line: *line,
+        },
+        HirStatement::Assign { name, value, line } => Statement::Assign {
+            name: name.clone(),
+            value: deelaborate_expression(value),
+            line: *line,
+        },
+        HirStatement::StateAssign {
+            resource,
+            value,
+            line,
+        } => Statement::StateAssign {
+            resource: resource.clone(),
+            value: deelaborate_expression(value),
+            line: *line,
+        },
+        HirStatement::Expression { expression, line } => Statement::Expression {
+            expression: deelaborate_expression(expression),
+            line: *line,
+        },
+        HirStatement::If {
+            condition,
+            then_body,
+            else_body,
+            line,
+        } => Statement::If {
+            condition: deelaborate_expression(condition),
+            then_body: then_body.iter().map(deelaborate_statement).collect(),
+            else_body: else_body.iter().map(deelaborate_statement).collect(),
+            line: *line,
+        },
+        HirStatement::Match {
+            expression,
+            cases,
+            line,
+        } => Statement::Match {
+            expression: deelaborate_expression(expression),
+            cases: cases.iter().map(deelaborate_match_case).collect(),
+            line: *line,
+        },
+        HirStatement::For {
+            name,
+            start,
+            end,
+            step,
+            body,
+            line,
+        } => Statement::For {
+            name: name.clone(),
+            start: deelaborate_expression(start),
+            end: deelaborate_expression(end),
+            step: step.as_ref().map(deelaborate_expression),
+            body: body.iter().map(deelaborate_statement).collect(),
+            line: *line,
+        },
+        HirStatement::ForEach {
+            name,
+            iterable,
+            body,
+            line,
+        } => Statement::ForEach {
+            name: name.clone(),
+            iterable: deelaborate_expression(iterable),
+            body: body.iter().map(deelaborate_statement).collect(),
+            line: *line,
+        },
+        HirStatement::While {
+            kind,
+            condition,
+            body,
+            line,
+        } => Statement::While {
+            kind: *kind,
+            condition: deelaborate_expression(condition),
+            body: body.iter().map(deelaborate_statement).collect(),
+            line: *line,
+        },
+        HirStatement::DoUntil {
+            body,
+            condition,
+            line,
+        } => Statement::DoUntil {
+            body: body.iter().map(deelaborate_statement).collect(),
+            condition: deelaborate_expression(condition),
+            line: *line,
+        },
+    }
+}
+
+fn deelaborate_match_case(case: &HirMatchCase) -> crate::ast::MatchCase {
+    crate::ast::MatchCase {
+        pattern: deelaborate_match_pattern(&case.pattern),
+        guard: case.guard.as_ref().map(deelaborate_expression),
+        body: case.body.iter().map(deelaborate_statement).collect(),
+        line: case.line,
+    }
+}
+
+fn deelaborate_match_pattern(pattern: &HirMatchPattern) -> crate::ast::MatchPattern {
+    use crate::ast::MatchPattern;
+    match pattern {
+        HirMatchPattern::Else => MatchPattern::Else,
+        HirMatchPattern::Literal(expr) => MatchPattern::Literal(deelaborate_expression(expr)),
+        HirMatchPattern::Union { type_, binding } => MatchPattern::Union {
+            type_name: type_.name().into_owned(),
+            binding: binding.clone(),
+        },
+        HirMatchPattern::OneOf(exprs) => {
+            MatchPattern::OneOf(exprs.iter().map(deelaborate_expression).collect())
+        }
+    }
+}
+
+fn deelaborate_call_arg(arg: &HirCallArg) -> crate::ast::CallArg {
+    use crate::ast::CallArg;
+    match arg {
+        HirCallArg::Positional(expr) => CallArg::Positional(deelaborate_expression(expr)),
+        HirCallArg::Named { name, value, line } => CallArg::Named {
+            name: name.clone(),
+            value: deelaborate_expression(value),
+            line: *line,
+        },
+    }
+}
+
+fn deelaborate_constructor_arg(arg: &HirConstructorArg) -> crate::ast::ConstructorArg {
+    use crate::ast::ConstructorArg;
+    match arg {
+        HirConstructorArg::Positional(expr) => {
+            ConstructorArg::Positional(deelaborate_expression(expr))
+        }
+        HirConstructorArg::Named { name, value, line } => ConstructorArg::Named {
+            name: name.clone(),
+            value: deelaborate_expression(value),
+            line: *line,
+        },
+    }
+}
+
+fn deelaborate_record_update(update: &HirRecordUpdate) -> crate::ast::RecordUpdate {
+    crate::ast::RecordUpdate {
+        field: update.field.clone(),
+        value: deelaborate_expression(&update.value),
+        line: update.line,
+    }
+}
+
+fn deelaborate_expression(expression: &HirExpression) -> crate::ast::Expression {
+    use crate::ast::Expression;
+    match expression {
+        HirExpression::String(value) => Expression::String(value.clone()),
+        HirExpression::Number(value) => Expression::Number(value.clone()),
+        HirExpression::Scalar(value) => Expression::Scalar(*value),
+        HirExpression::Boolean(value) => Expression::Boolean(*value),
+        HirExpression::Binary {
+            left,
+            operator,
+            right,
+            line,
+            column,
+        } => Expression::Binary {
+            left: Box::new(deelaborate_expression(left)),
+            operator: operator.clone(),
+            right: Box::new(deelaborate_expression(right)),
+            line: *line,
+            column: *column,
+        },
+        HirExpression::Unary {
+            operator,
+            operand,
+            line,
+            column,
+        } => Expression::Unary {
+            operator: operator.clone(),
+            operand: Box::new(deelaborate_expression(operand)),
+            line: *line,
+            column: *column,
+        },
+        HirExpression::Call {
+            callee,
+            arguments,
+            line,
+            column,
+        } => Expression::Call {
+            callee: callee.clone(),
+            arguments: arguments.iter().map(deelaborate_call_arg).collect(),
+            line: *line,
+            column: *column,
+        },
+        HirExpression::Lambda {
+            params,
+            body,
+            assign_target,
+        } => Expression::Lambda {
+            params: params.iter().map(deelaborate_param).collect(),
+            body: Box::new(deelaborate_expression(body)),
+            assign_target: assign_target.clone(),
+        },
+        HirExpression::Constructor { type_, arguments } => Expression::Constructor {
+            type_name: type_.name().into_owned(),
+            arguments: arguments.iter().map(deelaborate_constructor_arg).collect(),
+        },
+        HirExpression::WithUpdate { target, updates } => Expression::WithUpdate {
+            target: Box::new(deelaborate_expression(target)),
+            updates: updates.iter().map(deelaborate_record_update).collect(),
+        },
+        HirExpression::ListLiteral(elements) => {
+            Expression::ListLiteral(elements.iter().map(deelaborate_expression).collect())
+        }
+        HirExpression::SetLiteral {
+            element_type,
+            elements,
+        } => Expression::SetLiteral {
+            element_type: element_type.name().into_owned(),
+            elements: elements.iter().map(deelaborate_expression).collect(),
+        },
+        HirExpression::MapLiteral {
+            key_type,
+            value_type,
+            entries,
+        } => Expression::MapLiteral {
+            key_type: key_type.name().into_owned(),
+            value_type: value_type.name().into_owned(),
+            entries: entries
+                .iter()
+                .map(|(key, value)| {
+                    (deelaborate_expression(key), deelaborate_expression(value))
+                })
+                .collect(),
+        },
+        HirExpression::MemberAccess { target, member } => Expression::MemberAccess {
+            target: Box::new(deelaborate_expression(target)),
+            member: member.clone(),
+        },
+        HirExpression::Trapped {
+            expression,
+            binding,
+            handler,
+            line,
+        } => Expression::Trapped {
+            expression: Box::new(deelaborate_expression(expression)),
+            binding: binding.clone(),
+            handler: handler.iter().map(deelaborate_statement).collect(),
+            line: *line,
+        },
+        HirExpression::Identifier(name) => Expression::Identifier(name.clone()),
     }
 }
 

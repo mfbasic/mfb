@@ -1,6 +1,11 @@
 use super::*;
 
 use super::lower_link::{link_aliases, link_cstructs, link_functions, native_resources};
+use crate::hir::{
+    HirCallArg, HirConstructorArg, HirExpression, HirFunction, HirItem, HirMatchCase,
+    HirMatchPattern, HirParam, HirProject, HirStatement, HirTopLevelBinding,
+    HirTypeDecl, HirTypeField,
+};
 use crate::types::ParameterType;
 
 struct LowerContext<'a> {
@@ -148,12 +153,13 @@ pub fn lower_augmented_project(
     external_function_params: &HashMap<String, Vec<ExternalFunctionParam>>,
     imported_types: &[ImportedTypeDef],
 ) -> IrProject {
+    let hir = crate::hir::elaborate(ast);
     let mut types = Vec::new();
     let mut functions = Vec::new();
-    let mut function_returns = function_returns(ast);
-    let mut function_types = function_types(ast);
-    let mut function_params = function_params(ast);
-    let binding_types = declared_binding_types(ast);
+    let mut function_returns = function_returns(&hir);
+    let mut function_types = function_types(&hir);
+    let mut function_params = function_params(&hir);
+    let binding_types = declared_binding_types(&hir);
     function_types.extend(external_function_types.clone());
     for (name, params) in external_function_params {
         function_params.insert(
@@ -173,7 +179,7 @@ pub fn lower_augmented_project(
             function_returns.insert(name.clone(), return_type);
         }
     }
-    let type_index = TypeIndex::new(ast, imported_types);
+    let type_index = TypeIndex::new(&hir, imported_types);
     let mut context = LowerContext {
         function_returns: &function_returns,
         function_types: &function_types,
@@ -192,37 +198,39 @@ pub fn lower_augmented_project(
         nonescaping_callback: false,
         current_loc: IrSourceLoc::default(),
     };
-    infer_binding_types(ast, &mut context);
-    let bindings = lower_bindings(ast, &mut context);
+    infer_binding_types(&hir, &mut context);
+    let bindings = lower_bindings(&hir, &mut context);
     context.bindings = bindings.clone();
 
-    for file in &ast.files {
+    for file in &hir.files {
         context.current_imports = file.import_bindings();
         context.current_file = file.path.clone();
         for item in &file.items {
             match item {
-                Item::Binding(_) => {}
-                Item::Function(function) => functions.push(lower_function(function, &mut context)),
-                Item::Type(type_decl) => {
+                HirItem::Binding(_) => {}
+                HirItem::Function(function) => {
+                    functions.push(lower_function(function, &mut context))
+                }
+                HirItem::Type(type_decl) => {
                     types.push(lower_type(type_decl, &type_index, &context.current_file))
                 }
                 // Native LINK resource declarations and re-export aliases carry no
                 // executable body. The LINK block's native functions are surfaced
                 // to package metadata separately (plan-link-update.md §10); they
                 // are not lowered to ordinary IR functions here.
-                Item::Resource(_) | Item::FuncAlias(_) | Item::Link(_) => {}
+                HirItem::Resource(_) | HirItem::FuncAlias(_) | HirItem::Link(_) => {}
                 // DOC blocks carry no executable body; documentation is collected
                 // separately into the project's doc table.
-                Item::Doc(_) => {}
+                HirItem::Doc(_) => {}
                 // TESTING blocks are lowered away before IR lowering (plan-18-A §3).
-                Item::Testing(_) => {}
+                HirItem::Testing(_) => {}
             }
         }
     }
     functions.extend(context.lambdas);
 
     IrProject {
-        name: ast.name.clone(),
+        name: hir.name.clone(),
         entry,
         bindings,
         types,
@@ -241,7 +249,7 @@ pub fn lower_augmented_project(
     }
 }
 
-fn lower_type(type_decl: &TypeDecl, type_index: &TypeIndex, file: &str) -> IrType {
+fn lower_type(type_decl: &HirTypeDecl, type_index: &TypeIndex, file: &str) -> IrType {
     let kind = match type_decl.kind {
         TypeDeclKind::Type => "type",
         TypeDeclKind::Union => "union",
@@ -267,23 +275,22 @@ fn lower_type(type_decl: &TypeDecl, type_index: &TypeIndex, file: &str) -> IrTyp
     }
 }
 
-fn lower_binding(
-    binding: &crate::ast::TopLevelBinding,
-    context: &mut LowerContext<'_>,
-) -> IrBinding {
+fn lower_binding(binding: &HirTopLevelBinding, context: &mut LowerContext<'_>) -> IrBinding {
     let loc = IrSourceLoc {
         line: binding.line as u32,
         column: 1,
     };
     context.current_loc = loc;
     let locals = context.binding_types.clone();
-    let type_ = binding.type_name.clone().unwrap_or_else(|| {
+    let type_ = if binding.explicit_type {
+        binding.type_.name().into_owned()
+    } else {
         binding
             .value
             .as_ref()
             .and_then(|value| expression_type(value, &locals, context))
             .unwrap_or_else(|| "Unknown".to_string())
-    });
+    };
     IrBinding {
         name: binding.name.clone(),
         visibility: visibility_name(binding.visibility).to_string(),
@@ -295,17 +302,17 @@ fn lower_binding(
             .map(|value| lower_expression_with_expected(value, Some(&type_), &locals, context)),
         loc,
         file: context.current_file.clone(),
-        explicit_type: binding.type_name.is_some(),
+        explicit_type: binding.explicit_type,
     }
 }
 
-fn lower_bindings(ast: &AstProject, context: &mut LowerContext<'_>) -> Vec<IrBinding> {
+fn lower_bindings(hir: &HirProject, context: &mut LowerContext<'_>) -> Vec<IrBinding> {
     let mut lowered = Vec::new();
-    for file in &ast.files {
+    for file in &hir.files {
         context.current_imports = file.import_bindings();
         context.current_file = file.path.clone();
         for item in &file.items {
-            if let Item::Binding(binding) = item {
+            if let HirItem::Binding(binding) = item {
                 lowered.push(lower_binding(binding, context));
             }
         }
@@ -313,11 +320,11 @@ fn lower_bindings(ast: &AstProject, context: &mut LowerContext<'_>) -> Vec<IrBin
     lowered
 }
 
-fn lower_field(field: &TypeField) -> IrField {
+fn lower_field(field: &HirTypeField) -> IrField {
     IrField {
         visibility: field.visibility.map(visibility_name).map(str::to_string),
         name: field.name.clone(),
-        type_: ParameterType::parse(&field.type_name),
+        type_: field.type_.clone(),
         loc: IrSourceLoc {
             line: field.line as u32,
             column: 1,
@@ -358,15 +365,12 @@ fn lower_enum_member(member: &EnumMember) -> IrEnumMember {
 /// the legal stateful `RETURN` (expected `File`, actual `File STATE Cursor`) and
 /// **hid** the union-STATE / non-defaultable-STATE rules from a return, since a
 /// return's string never contained `" STATE "` for them to match.
-fn function_return_type(function: &Function) -> String {
+fn function_return_type(function: &HirFunction) -> String {
     match function.kind {
         FunctionKind::Func => {
-            let returns = function
-                .return_type
-                .clone()
-                .unwrap_or_else(|| "Unknown".to_string());
+            let returns = function.returns.name().into_owned();
             match (&function.return_state_type, function.return_resource) {
-                (Some(state), true) => format!("{returns} STATE {state}"),
+                (Some(state), true) => format!("{returns} STATE {}", state.name()),
                 _ => returns,
             }
         }
@@ -374,7 +378,7 @@ fn function_return_type(function: &Function) -> String {
     }
 }
 
-fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunction {
+fn lower_function(function: &HirFunction, context: &mut LowerContext<'_>) -> IrFunction {
     let kind = match function.kind {
         FunctionKind::Func => "func",
         FunctionKind::Sub => "sub",
@@ -382,14 +386,11 @@ fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunc
     let returns = function_return_type(function);
     let mut locals = HashMap::new();
     for param in &function.params {
-        let type_ = param
-            .type_name
-            .clone()
-            .unwrap_or_else(|| "Unknown".to_string());
+        let type_ = param.type_.name().into_owned();
         // Carry a `RES` parameter's `STATE T` in the local type string so
         // `s.state` resolves inside the callee, matching `lower_param`.
         let type_ = match &param.state_type {
-            Some(state) => format!("{type_} STATE {state}"),
+            Some(state) => format!("{type_} STATE {}", state.name()),
             None => type_,
         };
         locals.insert(param.name.clone(), type_);
@@ -416,14 +417,19 @@ fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunc
             line: function.line as u32,
             column: 1,
         },
-        resource_owners: crate::ir::resource_escape::analyze_function(function)
-            .owners()
-            .clone(),
+        // `resource_escape::analyze_function` consumes a `crate::ast::Function`;
+        // de-elaborate the HIR function back to its (byte-identical) AST form so
+        // the syntactic escape analysis is unchanged.
+        resource_owners: crate::ir::resource_escape::analyze_function(
+            &crate::hir::deelaborate_function(function),
+        )
+        .owners()
+        .clone(),
     }
 }
 
 fn lower_function_body(
-    function: &Function,
+    function: &HirFunction,
     locals: &HashMap<String, String>,
     context: &mut LowerContext<'_>,
 ) -> Vec<IrOp> {
@@ -449,18 +455,15 @@ fn lower_function_body(
 }
 
 fn lower_param(
-    param: &Param,
+    param: &HirParam,
     locals: &HashMap<String, String>,
     context: &mut LowerContext<'_>,
 ) -> IrParam {
-    let type_ = param
-        .type_name
-        .clone()
-        .unwrap_or_else(|| "Unknown".to_string());
+    let type_ = param.type_.name().into_owned();
     // A `RES` parameter's `STATE T` rides in the type string so the callee can
     // address the pointed-to resource's shared state payload.
     let type_ = match &param.state_type {
-        Some(state) => format!("{type_} STATE {state}"),
+        Some(state) => format!("{type_} STATE {}", state.name()),
         None => type_,
     };
     IrParam {
@@ -479,24 +482,24 @@ fn lower_param(
 
 /// The source line of a statement, as `IrSourceLoc` (column 1 — diagnostics
 /// report statement-level positions).
-fn statement_loc(statement: &Statement) -> IrSourceLoc {
+fn statement_loc(statement: &HirStatement) -> IrSourceLoc {
     let line = match statement {
-        Statement::Let { line, .. }
-        | Statement::Return { line, .. }
-        | Statement::Exit { line, .. }
-        | Statement::Continue { line, .. }
-        | Statement::Fail { line, .. }
-        | Statement::Propagate { line }
-        | Statement::Recover { line, .. }
-        | Statement::Assign { line, .. }
-        | Statement::StateAssign { line, .. }
-        | Statement::Expression { line, .. }
-        | Statement::If { line, .. }
-        | Statement::Match { line, .. }
-        | Statement::For { line, .. }
-        | Statement::ForEach { line, .. }
-        | Statement::While { line, .. }
-        | Statement::DoUntil { line, .. } => *line,
+        HirStatement::Let { line, .. }
+        | HirStatement::Return { line, .. }
+        | HirStatement::Exit { line, .. }
+        | HirStatement::Continue { line, .. }
+        | HirStatement::Fail { line, .. }
+        | HirStatement::Propagate { line }
+        | HirStatement::Recover { line, .. }
+        | HirStatement::Assign { line, .. }
+        | HirStatement::StateAssign { line, .. }
+        | HirStatement::Expression { line, .. }
+        | HirStatement::If { line, .. }
+        | HirStatement::Match { line, .. }
+        | HirStatement::For { line, .. }
+        | HirStatement::ForEach { line, .. }
+        | HirStatement::While { line, .. }
+        | HirStatement::DoUntil { line, .. } => *line,
     };
     IrSourceLoc {
         line: line as u32,
@@ -514,7 +517,7 @@ struct RecoverTarget {
 struct CallParam {
     name: String,
     type_: String,
-    default: Option<Expression>,
+    default: Option<HirExpression>,
 }
 
 #[derive(Clone)]
@@ -524,7 +527,7 @@ struct CapturedLocal {
 }
 
 fn lower_statement(
-    statement: &Statement,
+    statement: &HirStatement,
     locals: &mut HashMap<String, String>,
     context: &mut LowerContext<'_>,
     trap_name: Option<&str>,
@@ -536,15 +539,21 @@ fn lower_statement(
     let loc = statement_loc(statement);
     context.current_loc = loc;
     match statement {
-        Statement::Let {
+        HirStatement::Let {
             mutable,
             name,
-            type_name,
+            type_,
+            explicit_type,
             value,
             state_type,
             ..
         } => {
-            if let Some(Expression::Trapped {
+            // The explicit `AS T` annotation as the AST's `Option<String>`
+            // (`None` when unannotated), reconstructed byte-exact from the HIR
+            // `type_`/`explicit_type` pair.
+            let type_name: Option<String> =
+                explicit_type.then(|| type_.name().into_owned());
+            if let Some(HirExpression::Trapped {
                 expression,
                 binding,
                 handler,
@@ -560,8 +569,10 @@ fn lower_statement(
                 // already carries it, so only an explicit `AS T` needs it
                 // reattached — without this, writing the annotation *caused* the
                 // TYPE_STATE_MISMATCH that omitting it avoided (bug-372).
-                let success_type = match (type_name, state_type) {
-                    (Some(type_name), Some(state)) => format!("{type_name} STATE {state}"),
+                let success_type = match (&type_name, state_type) {
+                    (Some(type_name), Some(state)) => {
+                        format!("{type_name} STATE {}", state.name())
+                    }
                     _ => success_type,
                 };
                 return lower_inline_trap(
@@ -572,7 +583,7 @@ fn lower_statement(
                         mutable: *mutable,
                         name: name.clone(),
                         type_: success_type,
-                        explicit_type: type_name.is_some(),
+                        explicit_type: *explicit_type,
                     },
                     locals,
                     context,
@@ -596,7 +607,7 @@ fn lower_statement(
             // (`File STATE T`) so codegen can default-initialize and address the
             // state payload; the bare resource name is recovered for recognition.
             let lowered_type = match state_type {
-                Some(state) => format!("{lowered_type} STATE {state}"),
+                Some(state) => format!("{lowered_type} STATE {}", state.name()),
                 None => lowered_type,
             };
             locals.insert(name.clone(), lowered_type.clone());
@@ -610,11 +621,11 @@ fn lower_statement(
                 name: name.clone(),
                 type_: lowered_type,
                 value: lowered_value,
-                explicit_type: type_name.is_some(),
+                explicit_type: *explicit_type,
                 loc,
             }]
         }
-        Statement::Return { value, .. } => vec![IrOp::Return {
+        HirStatement::Return { value, .. } => vec![IrOp::Return {
             value: value.as_ref().map(|value| {
                 // Coerce a bare numeric literal to the declared return type,
                 // exactly as `LET`/constructor-arg lowering does — otherwise an
@@ -632,7 +643,7 @@ fn lower_statement(
             }),
             loc,
         }],
-        Statement::Exit { target, code, .. } => match target {
+        HirStatement::Exit { target, code, .. } => match target {
             ExitTarget::For => vec![IrOp::ExitLoop {
                 kind: LoopKind::For,
                 loc,
@@ -657,19 +668,19 @@ fn lower_statement(
                 loc,
             }],
         },
-        Statement::Continue { kind, .. } => vec![IrOp::ContinueLoop { kind: *kind, loc }],
-        Statement::Fail { error, .. } => vec![IrOp::Fail {
+        HirStatement::Continue { kind, .. } => vec![IrOp::ContinueLoop { kind: *kind, loc }],
+        HirStatement::Fail { error, .. } => vec![IrOp::Fail {
             error: lower_expression(error, locals, context),
             loc,
         }],
-        Statement::Propagate { .. } => vec![IrOp::Fail {
+        HirStatement::Propagate { .. } => vec![IrOp::Fail {
             // Typecheck rejects PROPAGATE outside a trap body; total lowering
             // (plan-20-D) stamps a sentinel error local when the guard is
             // absent so it never panics on ill-typed input.
             error: IrValue::Local(trap_name.unwrap_or("$error").to_string()),
             loc,
         }],
-        Statement::Recover { value, .. } => {
+        HirStatement::Recover { value, .. } => {
             // Typecheck rejects RECOVER outside an inline-TRAP handler; total
             // lowering falls back to a discard target rather than panicking.
             let target = context
@@ -702,8 +713,8 @@ fn lower_statement(
                 (_, None) => Vec::new(),
             }
         }
-        Statement::Assign { name, value, .. } => {
-            if let Expression::Trapped {
+        HirStatement::Assign { name, value, .. } => {
+            if let HirExpression::Trapped {
                 expression,
                 binding,
                 handler,
@@ -739,7 +750,7 @@ fn lower_statement(
                 }]
             }
         }
-        Statement::StateAssign {
+        HirStatement::StateAssign {
             resource, value, ..
         } => {
             let resource_type = locals
@@ -758,13 +769,13 @@ fn lower_statement(
                 loc,
             }]
         }
-        Statement::Expression { expression, .. } => {
+        HirStatement::Expression { expression, .. } => {
             // Assertion builtins (plan-18-B) desugar to ordinary statements —
             // comparisons + FAIL, or a trap-guarded evaluation — which are then
             // lowered through the normal path. Doing it here (post-typecheck)
             // sidesteps the source-level RECOVER-typing constraint on a
             // value-producing trapped expression.
-            if let Expression::Call {
+            if let HirExpression::Call {
                 callee,
                 arguments,
                 line: call_line,
@@ -774,12 +785,17 @@ fn lower_statement(
                 if crate::builtins::testing::is_testing_call(callee) {
                     let uid = context.next_temp_id;
                     context.next_temp_id += 1;
-                    let expanded =
-                        crate::testing::expand_expect(callee, arguments, uid, *call_line);
+                    // `expand_expect` is an AST-level testing desugar; bridge the HIR
+                    // call arguments through the round-tripping de-elaborate/elaborate
+                    // seam so its generated statements re-enter the HIR lowering path.
+                    let ast_args = crate::hir::deelaborate_call_args(arguments);
+                    let expanded_ast =
+                        crate::testing::expand_expect(callee, &ast_args, uid, *call_line);
+                    let expanded = crate::hir::elaborate_statements(&expanded_ast);
                     return lower_statement_block(&expanded, locals, context, trap_name);
                 }
             }
-            if let Expression::Trapped {
+            if let HirExpression::Trapped {
                 expression: inner,
                 binding,
                 handler,
@@ -800,7 +816,7 @@ fn lower_statement(
                 loc,
             }]
         }
-        Statement::If {
+        HirStatement::If {
             condition,
             then_body,
             else_body,
@@ -811,7 +827,7 @@ fn lower_statement(
             else_body: lower_statement_block(else_body, locals, context, trap_name),
             loc,
         }],
-        Statement::Match {
+        HirStatement::Match {
             expression, cases, ..
         } => {
             let matched_type = match_expression_type(expression, locals, context)
@@ -866,7 +882,7 @@ fn lower_statement(
             });
             ops
         }
-        Statement::For {
+        HirStatement::For {
             name,
             start,
             end,
@@ -948,7 +964,7 @@ fn lower_statement(
                 },
             ]
         }
-        Statement::ForEach {
+        HirStatement::ForEach {
             name,
             iterable,
             body,
@@ -968,7 +984,7 @@ fn lower_statement(
                 loc,
             }]
         }
-        Statement::While {
+        HirStatement::While {
             kind,
             condition,
             body,
@@ -979,7 +995,7 @@ fn lower_statement(
             body: lower_statement_block(body, locals, context, trap_name),
             loc,
         }],
-        Statement::DoUntil {
+        HirStatement::DoUntil {
             body, condition, ..
         } => {
             let body = lower_statement_block(body, locals, context, trap_name);
@@ -997,7 +1013,7 @@ fn lower_statement(
 }
 
 fn lower_statement_block(
-    body: &[Statement],
+    body: &[HirStatement],
     locals: &HashMap<String, String>,
     context: &mut LowerContext<'_>,
     trap_name: Option<&str>,
@@ -1104,9 +1120,9 @@ fn ops_read_local(ops: &[IrOp], name: &str) -> bool {
 /// as usual. The handler is normalized so that statements following a `RECOVER`
 /// in a branch do not execute after recovery (see [`treeify_handler`]).
 fn lower_inline_trap(
-    inner: &Expression,
+    inner: &HirExpression,
     binding: &str,
-    handler: &[Statement],
+    handler: &[HirStatement],
     target: InlineTrapTarget,
     locals: &mut HashMap<String, String>,
     context: &mut LowerContext<'_>,
@@ -1263,7 +1279,7 @@ fn lower_inline_trap(
 /// that fall-through branch, so each leaf path ends in its own terminator and
 /// the structured lowering needs no jumps. Statements after a terminator are
 /// unreachable and dropped.
-fn treeify_handler(stmts: &[Statement]) -> Vec<Statement> {
+fn treeify_handler(stmts: &[HirStatement]) -> Vec<HirStatement> {
     let Some((head, tail)) = stmts.split_first() else {
         return Vec::new();
     };
@@ -1277,7 +1293,7 @@ fn treeify_handler(stmts: &[Statement]) -> Vec<Statement> {
     }
 
     match head {
-        Statement::If {
+        HirStatement::If {
             condition,
             then_body,
             else_body,
@@ -1292,7 +1308,7 @@ fn treeify_handler(stmts: &[Statement]) -> Vec<Statement> {
             // both branches. Cloning into both is what makes N sequential
             // fall-through branches emit 2^N copies of the tail (bug-401).
             if !block_can_terminate(then_body) && !block_can_terminate(else_body) {
-                let mut result = vec![Statement::If {
+                let mut result = vec![HirStatement::If {
                     condition: condition.clone(),
                     then_body: treeify_handler(then_body),
                     else_body: treeify_handler(else_body),
@@ -1303,7 +1319,7 @@ fn treeify_handler(stmts: &[Statement]) -> Vec<Statement> {
             } else {
                 let then_body = distribute_continuation(then_body, tail);
                 let else_body = distribute_continuation(else_body, tail);
-                vec![Statement::If {
+                vec![HirStatement::If {
                     condition: condition.clone(),
                     then_body,
                     else_body,
@@ -1311,7 +1327,7 @@ fn treeify_handler(stmts: &[Statement]) -> Vec<Statement> {
                 }]
             }
         }
-        Statement::Match {
+        HirStatement::Match {
             expression,
             cases,
             line,
@@ -1322,16 +1338,16 @@ fn treeify_handler(stmts: &[Statement]) -> Vec<Statement> {
             // alike), so keep the continuation as a shared sibling — no per-arm
             // clone and no synthesized `ELSE` (bug-401).
             if !cases.iter().any(|case| block_can_terminate(&case.body)) {
-                let new_cases: Vec<MatchCase> = cases
+                let new_cases: Vec<HirMatchCase> = cases
                     .iter()
-                    .map(|case| MatchCase {
+                    .map(|case| HirMatchCase {
                         pattern: case.pattern.clone(),
                         guard: case.guard.clone(),
                         body: treeify_handler(&case.body),
                         line: case.line,
                     })
                     .collect();
-                let mut result = vec![Statement::Match {
+                let mut result = vec![HirStatement::Match {
                     expression: expression.clone(),
                     cases: new_cases,
                     line: *line,
@@ -1339,9 +1355,9 @@ fn treeify_handler(stmts: &[Statement]) -> Vec<Statement> {
                 result.extend(treeify_handler(tail));
                 return result;
             }
-            let mut new_cases: Vec<MatchCase> = cases
+            let mut new_cases: Vec<HirMatchCase> = cases
                 .iter()
-                .map(|case| MatchCase {
+                .map(|case| HirMatchCase {
                     pattern: case.pattern.clone(),
                     guard: case.guard.clone(),
                     body: distribute_continuation(&case.body, tail),
@@ -1352,16 +1368,16 @@ fn treeify_handler(stmts: &[Statement]) -> Vec<Statement> {
             // that path explicit unless an ELSE arm already covers it.
             let has_else = cases
                 .iter()
-                .any(|case| matches!(case.pattern, MatchPattern::Else) && case.guard.is_none());
+                .any(|case| matches!(case.pattern, HirMatchPattern::Else) && case.guard.is_none());
             if !has_else {
-                new_cases.push(MatchCase {
-                    pattern: MatchPattern::Else,
+                new_cases.push(HirMatchCase {
+                    pattern: HirMatchPattern::Else,
                     guard: None,
                     body: treeify_handler(tail),
                     line: *line,
                 });
             }
-            vec![Statement::Match {
+            vec![HirStatement::Match {
                 expression: expression.clone(),
                 cases: new_cases,
                 line: *line,
@@ -1378,7 +1394,7 @@ fn treeify_handler(stmts: &[Statement]) -> Vec<Statement> {
 }
 
 /// Appends `continuation` to a block's fall-through paths, then normalizes it.
-fn distribute_continuation(body: &[Statement], continuation: &[Statement]) -> Vec<Statement> {
+fn distribute_continuation(body: &[HirStatement], continuation: &[HirStatement]) -> Vec<HirStatement> {
     if block_terminates(body) {
         treeify_handler(body)
     } else {
@@ -1390,28 +1406,28 @@ fn distribute_continuation(body: &[Statement], continuation: &[Statement]) -> Ve
 
 /// Recurses into a statement's nested blocks without distributing any
 /// continuation (used when there is nothing following the statement).
-fn treeify_statement(statement: &Statement) -> Statement {
+fn treeify_statement(statement: &HirStatement) -> HirStatement {
     match statement {
-        Statement::If {
+        HirStatement::If {
             condition,
             then_body,
             else_body,
             line,
-        } => Statement::If {
+        } => HirStatement::If {
             condition: condition.clone(),
             then_body: treeify_handler(then_body),
             else_body: treeify_handler(else_body),
             line: *line,
         },
-        Statement::Match {
+        HirStatement::Match {
             expression,
             cases,
             line,
-        } => Statement::Match {
+        } => HirStatement::Match {
             expression: expression.clone(),
             cases: cases
                 .iter()
-                .map(|case| MatchCase {
+                .map(|case| HirMatchCase {
                     pattern: case.pattern.clone(),
                     guard: case.guard.clone(),
                     body: treeify_handler(&case.body),
@@ -1420,34 +1436,34 @@ fn treeify_statement(statement: &Statement) -> Statement {
                 .collect(),
             line: *line,
         },
-        Statement::While {
+        HirStatement::While {
             kind,
             condition,
             body,
             line,
-        } => Statement::While {
+        } => HirStatement::While {
             kind: *kind,
             condition: condition.clone(),
             body: treeify_handler(body),
             line: *line,
         },
-        Statement::DoUntil {
+        HirStatement::DoUntil {
             body,
             condition,
             line,
-        } => Statement::DoUntil {
+        } => HirStatement::DoUntil {
             body: treeify_handler(body),
             condition: condition.clone(),
             line: *line,
         },
-        Statement::For {
+        HirStatement::For {
             name,
             start,
             end,
             step,
             body,
             line,
-        } => Statement::For {
+        } => HirStatement::For {
             name: name.clone(),
             start: start.clone(),
             end: end.clone(),
@@ -1455,12 +1471,12 @@ fn treeify_statement(statement: &Statement) -> Statement {
             body: treeify_handler(body),
             line: *line,
         },
-        Statement::ForEach {
+        HirStatement::ForEach {
             name,
             iterable,
             body,
             line,
-        } => Statement::ForEach {
+        } => HirStatement::ForEach {
             name: name.clone(),
             iterable: iterable.clone(),
             body: treeify_handler(body),
@@ -1472,7 +1488,7 @@ fn treeify_statement(statement: &Statement) -> Statement {
 
 /// Whether executing `stmts` always ends in a terminator (never reaches the end
 /// of the block).
-fn block_terminates(stmts: &[Statement]) -> bool {
+fn block_terminates(stmts: &[HirStatement]) -> bool {
     stmts.iter().any(statement_terminates)
 }
 
@@ -1482,7 +1498,7 @@ fn block_terminates(stmts: &[Statement]) -> bool {
 /// whether an inline-`TRAP` handler continuation must be distributed into a
 /// branch (because a recovered path must not fall into it) or may be shared as a
 /// single sibling after the branch (bug-401).
-fn block_can_terminate(stmts: &[Statement]) -> bool {
+fn block_can_terminate(stmts: &[HirStatement]) -> bool {
     stmts.iter().any(statement_can_terminate)
 }
 
@@ -1491,24 +1507,24 @@ fn block_can_terminate(stmts: &[Statement]) -> bool {
 /// only forces distribution, which is always semantically safe; a spurious
 /// `false` would be a bug, so every terminator form and every nested block is
 /// covered.
-fn statement_can_terminate(statement: &Statement) -> bool {
+fn statement_can_terminate(statement: &HirStatement) -> bool {
     match statement {
-        Statement::Return { .. }
-        | Statement::Exit { .. }
-        | Statement::Continue { .. }
-        | Statement::Fail { .. }
-        | Statement::Propagate { .. }
-        | Statement::Recover { .. } => true,
-        Statement::If {
+        HirStatement::Return { .. }
+        | HirStatement::Exit { .. }
+        | HirStatement::Continue { .. }
+        | HirStatement::Fail { .. }
+        | HirStatement::Propagate { .. }
+        | HirStatement::Recover { .. } => true,
+        HirStatement::If {
             then_body,
             else_body,
             ..
         } => block_can_terminate(then_body) || block_can_terminate(else_body),
-        Statement::Match { cases, .. } => cases.iter().any(|case| block_can_terminate(&case.body)),
-        Statement::For { body, .. }
-        | Statement::ForEach { body, .. }
-        | Statement::While { body, .. }
-        | Statement::DoUntil { body, .. } => block_can_terminate(body),
+        HirStatement::Match { cases, .. } => cases.iter().any(|case| block_can_terminate(&case.body)),
+        HirStatement::For { body, .. }
+        | HirStatement::ForEach { body, .. }
+        | HirStatement::While { body, .. }
+        | HirStatement::DoUntil { body, .. } => block_can_terminate(body),
         _ => false,
     }
 }
@@ -1516,23 +1532,23 @@ fn statement_can_terminate(statement: &Statement) -> bool {
 /// Whether a statement always diverges or recovers (ends its enclosing handler
 /// path). Mirrors the syntaxcheck flow analysis for the constructs an inline-trap
 /// handler may contain.
-fn statement_terminates(statement: &Statement) -> bool {
+fn statement_terminates(statement: &HirStatement) -> bool {
     match statement {
-        Statement::Return { .. }
-        | Statement::Exit { .. }
-        | Statement::Continue { .. }
-        | Statement::Fail { .. }
-        | Statement::Propagate { .. }
-        | Statement::Recover { .. } => true,
-        Statement::If {
+        HirStatement::Return { .. }
+        | HirStatement::Exit { .. }
+        | HirStatement::Continue { .. }
+        | HirStatement::Fail { .. }
+        | HirStatement::Propagate { .. }
+        | HirStatement::Recover { .. } => true,
+        HirStatement::If {
             then_body,
             else_body,
             ..
         } => !else_body.is_empty() && block_terminates(then_body) && block_terminates(else_body),
-        Statement::Match { cases, .. } => {
+        HirStatement::Match { cases, .. } => {
             let has_else = cases
                 .iter()
-                .any(|case| matches!(case.pattern, MatchPattern::Else) && case.guard.is_none());
+                .any(|case| matches!(case.pattern, HirMatchPattern::Else) && case.guard.is_none());
             has_else && !cases.is_empty() && cases.iter().all(|case| block_terminates(&case.body))
         }
         _ => false,
@@ -1587,7 +1603,7 @@ fn parse_map_entry_type(type_: &str) -> Option<(String, String)> {
 }
 
 fn lower_match_case(
-    case: &MatchCase,
+    case: &HirMatchCase,
     matched_local: &str,
     locals: &HashMap<String, String>,
     context: &mut LowerContext<'_>,
@@ -1605,15 +1621,15 @@ fn lower_match_case(
         .cloned()
         .unwrap_or_else(|| "Unknown".to_string());
     let pattern = match &case.pattern {
-        MatchPattern::Else => IrMatchPattern::Else,
-        MatchPattern::Literal(expression) => {
+        HirMatchPattern::Else => IrMatchPattern::Else,
+        HirMatchPattern::Literal(expression) => {
             IrMatchPattern::Value(lower_expression(expression, locals, context))
         }
         // coverage:off -- reachable only for a `Result OF ...` scrutinee, which is
         // rejected before lowering (TYPE_RESULT_NOT_MATCHABLE); kept for plan-20
         // total lowering when the AST checker is bypassed.
-        MatchPattern::Union { type_name, .. } if matched_type.starts_with("Result OF ") => {
-            let matched = match type_name.as_str() {
+        HirMatchPattern::Union { type_, .. } if matched_type.starts_with("Result OF ") => {
+            let matched = match type_.name().as_ref() {
                 "Ok" => "true",
                 "Error" => "false",
                 _ => "false",
@@ -1624,10 +1640,10 @@ fn lower_match_case(
             })
         }
         // coverage:on
-        MatchPattern::Union { type_name, .. } => {
-            IrMatchPattern::Value(IrValue::Local(type_name.clone()))
+        HirMatchPattern::Union { type_, .. } => {
+            IrMatchPattern::Value(IrValue::Local(type_.name().into_owned()))
         }
-        MatchPattern::OneOf(expressions) => IrMatchPattern::OneOf(
+        HirMatchPattern::OneOf(expressions) => IrMatchPattern::OneOf(
             expressions
                 .iter()
                 .map(|expression| lower_expression(expression, locals, context))
@@ -1670,12 +1686,13 @@ fn lower_match_case(
 }
 
 fn match_case_binding(
-    pattern: &MatchPattern,
+    pattern: &HirMatchPattern,
     matched_local: &str,
     matched_type: &str,
 ) -> Option<(String, String, IrValue)> {
     match pattern {
-        MatchPattern::Union { type_name, binding } => {
+        HirMatchPattern::Union { type_, binding } => {
+            let type_name = type_.name().into_owned();
             // coverage:off -- a `Result OF ...` scrutinee is rejected before
             // lowering (TYPE_RESULT_NOT_MATCHABLE); this Ok/Error case binding is
             // kept only for plan-20 total lowering when the checker is bypassed.
@@ -1724,7 +1741,7 @@ fn match_case_binding(
 }
 
 fn lower_match_expression(
-    expression: &Expression,
+    expression: &HirExpression,
     matched_type: &str,
     locals: &HashMap<String, String>,
     context: &mut LowerContext<'_>,
@@ -1737,7 +1754,7 @@ fn lower_match_expression(
 }
 
 fn match_expression_type(
-    expression: &Expression,
+    expression: &HirExpression,
     locals: &HashMap<String, String>,
     context: &LowerContext<'_>,
 ) -> Option<String> {
@@ -1746,20 +1763,20 @@ fn match_expression_type(
     expression_type(expression, locals, context)
 }
 
-fn function_returns(ast: &AstProject) -> HashMap<String, String> {
+fn function_returns(hir: &HirProject) -> HashMap<String, String> {
     let mut returns = HashMap::new();
     // Native LINK function return types, keyed `alias.func`, so callers like
     // `sqliteLink::open(...)` get a type during IR lowering (plan-link-update.md §5b).
     let mut native_returns: HashMap<String, String> = HashMap::new();
-    for file in &ast.files {
+    for file in &hir.files {
         for item in &file.items {
             match item {
-                Item::Function(function) => {
+                HirItem::Function(function) => {
                     // Carries the STATE too, so `openTagged(p).state` resolves
                     // from the call expression (plan-52-D).
                     returns.insert(function.name.clone(), function_return_type(function));
                 }
-                Item::Link(link) => {
+                HirItem::Link(link) => {
                     for native in &link.functions {
                         let return_type = native
                             .return_type
@@ -1784,9 +1801,9 @@ fn function_returns(ast: &AstProject) -> HashMap<String, String> {
         }
     }
     // Re-export aliases adopt their target's return type (plan-link-update.md §5a).
-    for file in &ast.files {
+    for file in &hir.files {
         for item in &file.items {
-            if let Item::FuncAlias(alias) = item {
+            if let HirItem::FuncAlias(alias) = item {
                 if let Some(return_type) = native_returns.get(&alias.target) {
                     returns.insert(alias.name.clone(), return_type.clone());
                 }
@@ -1797,19 +1814,17 @@ fn function_returns(ast: &AstProject) -> HashMap<String, String> {
     returns
 }
 
-fn function_types(ast: &AstProject) -> HashMap<String, String> {
+fn function_types(hir: &HirProject) -> HashMap<String, String> {
     let mut types = HashMap::new();
-    for file in &ast.files {
+    for file in &hir.files {
         for item in &file.items {
-            if let Item::Function(function) = item {
+            if let HirItem::Function(function) = item {
                 let params = function
                     .params
                     .iter()
                     .map(|param| {
                         param
-                            .type_name
-                            .clone()
-                            .unwrap_or_else(|| "Unknown".to_string())
+                            .type_.name().into_owned()
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -1831,9 +1846,9 @@ fn function_types(ast: &AstProject) -> HashMap<String, String> {
     }
     // Native LINK functions, keyed `alias.func`, so first-class references to them
     // type correctly during IR lowering (plan-link-update.md §5b).
-    for file in &ast.files {
+    for file in &hir.files {
         for item in &file.items {
-            if let Item::Link(link) = item {
+            if let HirItem::Link(link) = item {
                 for native in &link.functions {
                     let params = native
                         .params
@@ -1867,11 +1882,11 @@ fn function_types(ast: &AstProject) -> HashMap<String, String> {
     types
 }
 
-fn function_params(ast: &AstProject) -> HashMap<String, Vec<CallParam>> {
+fn function_params(hir: &HirProject) -> HashMap<String, Vec<CallParam>> {
     let mut params = HashMap::new();
-    for file in &ast.files {
+    for file in &hir.files {
         for item in &file.items {
-            if let Item::Function(function) = item {
+            if let HirItem::Function(function) = item {
                 params.insert(
                     function.name.clone(),
                     function
@@ -1880,9 +1895,7 @@ fn function_params(ast: &AstProject) -> HashMap<String, Vec<CallParam>> {
                         .map(|param| CallParam {
                             name: param.name.clone(),
                             type_: param
-                                .type_name
-                                .clone()
-                                .unwrap_or_else(|| "Unknown".to_string()),
+                                .type_.name().into_owned(),
                             default: param.default.clone(),
                         })
                         .collect(),
@@ -1893,15 +1906,13 @@ fn function_params(ast: &AstProject) -> HashMap<String, Vec<CallParam>> {
     params
 }
 
-fn declared_binding_types(ast: &AstProject) -> HashMap<String, String> {
+fn declared_binding_types(hir: &HirProject) -> HashMap<String, String> {
     let mut bindings = HashMap::new();
-    for file in &ast.files {
+    for file in &hir.files {
         for item in &file.items {
-            if let Item::Binding(binding) = item {
+            if let HirItem::Binding(binding) = item {
                 let type_ = binding
-                    .type_name
-                    .clone()
-                    .unwrap_or_else(|| "Unknown".to_string());
+                    .type_.name().into_owned();
                 bindings.insert(binding.name.clone(), type_);
             }
         }
@@ -1909,12 +1920,12 @@ fn declared_binding_types(ast: &AstProject) -> HashMap<String, String> {
     bindings
 }
 
-fn infer_binding_types(ast: &AstProject, context: &mut LowerContext<'_>) {
-    for file in &ast.files {
+fn infer_binding_types(hir: &HirProject, context: &mut LowerContext<'_>) {
+    for file in &hir.files {
         context.current_imports = file.import_bindings();
         for item in &file.items {
-            if let Item::Binding(binding) = item {
-                if binding.type_name.is_some() {
+            if let HirItem::Binding(binding) = item {
+                if binding.explicit_type {
                     continue;
                 }
                 if let Some(value) = &binding.value {
@@ -1929,13 +1940,13 @@ fn infer_binding_types(ast: &AstProject, context: &mut LowerContext<'_>) {
 }
 
 fn expression_type(
-    expression: &Expression,
+    expression: &HirExpression,
     locals: &HashMap<String, String>,
     context: &LowerContext<'_>,
 ) -> Option<String> {
     match expression {
-        Expression::String(_) => Some("String".to_string()),
-        Expression::Number(value) => Some(
+        HirExpression::String(_) => Some("String".to_string()),
+        HirExpression::Number(value) => Some(
             match numeric::classify_literal(value).1 {
                 numeric::LiteralType::Integer => "Integer",
                 numeric::LiteralType::Float => "Float",
@@ -1944,10 +1955,10 @@ fn expression_type(
             }
             .to_string(),
         ),
-        Expression::Scalar(_) => Some("Scalar".to_string()),
-        Expression::Boolean(_) => Some("Boolean".to_string()),
-        Expression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
-        Expression::Identifier(value) => {
+        HirExpression::Scalar(_) => Some("Scalar".to_string()),
+        HirExpression::Boolean(_) => Some("Boolean".to_string()),
+        HirExpression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
+        HirExpression::Identifier(value) => {
             let canonical_value = canonical_import_name(value, context);
             if builtins::is_package_constant(&canonical_value) {
                 builtins::package_constant_type_name(&canonical_value).map(str::to_string)
@@ -1960,28 +1971,29 @@ fn expression_type(
                     .or_else(|| context.function_types.get(&canonical_value).cloned())
             }
         }
-        Expression::Constructor { type_name, .. } => {
-            let canonical_type_name = canonical_import_name(type_name, context);
+        HirExpression::Constructor { type_, .. } => {
+            let type_name = type_.name();
+            let canonical_type_name = canonical_import_name(&type_name, context);
             context
                 .type_index
                 .constructor_result(&canonical_type_name)
-                .or_else(|| context.type_index.constructor_result(type_name))
+                .or_else(|| context.type_index.constructor_result(&type_name))
         }
-        Expression::WithUpdate { target, .. } => expression_type(target, locals, context),
-        Expression::ListLiteral(values) => {
+        HirExpression::WithUpdate { target, .. } => expression_type(target, locals, context),
+        HirExpression::ListLiteral(values) => {
             let Some(first) = values.first() else {
                 return Some("List OF Unknown".to_string());
             };
             expression_type(first, locals, context).map(|element| format!("List OF {element}"))
         }
-        Expression::SetLiteral { element_type, .. } => Some(format!("Set OF {element_type}")),
-        Expression::MapLiteral {
+        HirExpression::SetLiteral { element_type, .. } => Some(format!("Set OF {element_type}")),
+        HirExpression::MapLiteral {
             key_type,
             value_type,
             ..
         } => Some(format!("Map OF {key_type} TO {value_type}")),
-        Expression::MemberAccess { target, member } => {
-            if let Expression::Identifier(type_name) = target.as_ref() {
+        HirExpression::MemberAccess { target, member } => {
+            if let HirExpression::Identifier(type_name) = target.as_ref() {
                 if context
                     .type_index
                     .enums
@@ -2017,7 +2029,7 @@ fn expression_type(
             }
             context.type_index.record_field_type(&target_type, member)
         }
-        Expression::Call {
+        HirExpression::Call {
             callee, arguments, ..
         } => {
             let canonical_callee = canonical_import_name(callee, context);
@@ -2025,7 +2037,7 @@ fn expression_type(
                 let normalized =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
                 if crate::codegen::registry::callback_member_bare(callee) && normalized.len() == 2 {
-                    if let Expression::Identifier(predicate) = normalized[1] {
+                    if let HirExpression::Identifier(predicate) = normalized[1] {
                         if let Some(collection_type) =
                             expression_type(normalized[0], locals, context)
                         {
@@ -2054,7 +2066,7 @@ fn expression_type(
                 if crate::codegen::registry::callback_member(&canonical_callee)
                     && normalized.len() == 2
                 {
-                    if let Expression::Identifier(predicate) = normalized[1] {
+                    if let HirExpression::Identifier(predicate) = normalized[1] {
                         if let Some(collection_type) =
                             expression_type(normalized[0], locals, context)
                         {
@@ -2143,7 +2155,7 @@ fn expression_type(
                         .and_then(|type_| function_return_from_type(type_))
                 })
         }
-        Expression::Lambda {
+        HirExpression::Lambda {
             params,
             body,
             assign_target,
@@ -2153,9 +2165,7 @@ fn expression_type(
                 .iter()
                 .map(|param| {
                     let type_ = param
-                        .type_name
-                        .clone()
-                        .unwrap_or_else(|| "Unknown".to_string());
+                        .type_.name().into_owned();
                     nested.insert(param.name.clone(), type_.clone());
                     type_
                 })
@@ -2168,7 +2178,7 @@ fn expression_type(
             };
             Some(format!("FUNC({}) AS {returns}", param_types.join(", ")))
         }
-        Expression::Binary {
+        HirExpression::Binary {
             left,
             operator,
             right,
@@ -2192,7 +2202,7 @@ fn expression_type(
             let right = expression_type(right, locals, context)?;
             Some(numeric_binary_result_type(operator, &left, &right).to_string())
         }
-        Expression::Unary {
+        HirExpression::Unary {
             operator, operand, ..
         } => {
             if operator == "NOT" {
@@ -2201,7 +2211,7 @@ fn expression_type(
                 expression_type(operand, locals, context)
             }
         }
-        Expression::Trapped { expression, .. } => expression_type(expression, locals, context),
+        HirExpression::Trapped { expression, .. } => expression_type(expression, locals, context),
     }
 }
 
@@ -2259,7 +2269,7 @@ fn canonical_import_name(name: &str, context: &LowerContext<'_>) -> String {
 fn call_argument_expected_type(
     callee: &str,
     index: usize,
-    arguments: &[CallArg],
+    arguments: &[HirCallArg],
     locals: &HashMap<String, String>,
     context: &LowerContext<'_>,
 ) -> Option<String> {
@@ -2285,11 +2295,11 @@ fn call_argument_expected_type(
 
 fn normalize_builtin_call_arguments<'a>(
     callee: &str,
-    arguments: &'a [CallArg],
-) -> Vec<&'a Expression> {
+    arguments: &'a [HirCallArg],
+) -> Vec<&'a HirExpression> {
     if !arguments
         .iter()
-        .any(|argument| matches!(argument, CallArg::Named { .. }))
+        .any(|argument| matches!(argument, HirCallArg::Named { .. }))
     {
         return arguments.iter().map(call_arg_value).collect();
     }
@@ -2306,7 +2316,7 @@ fn normalize_builtin_call_arguments<'a>(
     let mut extras = Vec::new();
     for argument in arguments {
         match argument {
-            CallArg::Positional(value) => {
+            HirCallArg::Positional(value) => {
                 while next_positional < ordered.len() && ordered[next_positional].is_some() {
                     next_positional += 1;
                 }
@@ -2317,7 +2327,7 @@ fn normalize_builtin_call_arguments<'a>(
                     extras.push(value);
                 }
             }
-            CallArg::Named { name, value, .. } => {
+            HirCallArg::Named { name, value, .. } => {
                 if let Some(index) = param_names
                     .iter()
                     .position(|aliases| aliases.iter().any(|alias| alias == name))
@@ -2338,20 +2348,20 @@ fn normalize_builtin_call_arguments<'a>(
 /// keep its source order so lowering has something well-formed to walk.
 fn normalize_overloaded_builtin_call_arguments<'a>(
     overloads: &[Vec<&str>],
-    arguments: &'a [CallArg],
-) -> Vec<&'a Expression> {
-    let positionals: Vec<&Expression> = arguments
+    arguments: &'a [HirCallArg],
+) -> Vec<&'a HirExpression> {
+    let positionals: Vec<&HirExpression> = arguments
         .iter()
         .filter_map(|argument| match argument {
-            CallArg::Positional(value) => Some(value),
-            CallArg::Named { .. } => None,
+            HirCallArg::Positional(value) => Some(value),
+            HirCallArg::Named { .. } => None,
         })
         .collect();
-    let named: Vec<(&str, &Expression)> = arguments
+    let named: Vec<(&str, &HirExpression)> = arguments
         .iter()
         .filter_map(|argument| match argument {
-            CallArg::Named { name, value, .. } => Some((name.as_str(), value)),
-            CallArg::Positional(_) => None,
+            HirCallArg::Named { name, value, .. } => Some((name.as_str(), value)),
+            HirCallArg::Positional(_) => None,
         })
         .collect();
     let supplied_names: Vec<&str> = named.iter().map(|(name, _)| *name).collect();
@@ -2361,7 +2371,7 @@ fn normalize_overloaded_builtin_call_arguments<'a>(
         return arguments.iter().map(call_arg_value).collect();
     };
 
-    let mut ordered: Vec<Option<&Expression>> = vec![None; params.len()];
+    let mut ordered: Vec<Option<&HirExpression>> = vec![None; params.len()];
     for (index, value) in positionals.into_iter().enumerate() {
         ordered[index] = Some(value);
     }
@@ -2375,9 +2385,9 @@ fn normalize_overloaded_builtin_call_arguments<'a>(
 
 fn normalize_local_call_arguments<'a>(
     callee: &str,
-    arguments: &'a [CallArg],
+    arguments: &'a [HirCallArg],
     context: &LowerContext<'_>,
-) -> Vec<Option<&'a Expression>> {
+) -> Vec<Option<&'a HirExpression>> {
     let Some(params) = context.function_params.get(callee) else {
         return arguments
             .iter()
@@ -2388,7 +2398,7 @@ fn normalize_local_call_arguments<'a>(
     let mut next_positional = 0usize;
     for argument in arguments {
         match argument {
-            CallArg::Positional(value) => {
+            HirCallArg::Positional(value) => {
                 while next_positional < ordered.len() && ordered[next_positional].is_some() {
                     next_positional += 1;
                 }
@@ -2397,7 +2407,7 @@ fn normalize_local_call_arguments<'a>(
                     next_positional += 1;
                 }
             }
-            CallArg::Named { name, value, .. } => {
+            HirCallArg::Named { name, value, .. } => {
                 if let Some(index) = params.iter().position(|param| param.name == *name) {
                     ordered[index] = Some(value);
                 }
@@ -2409,7 +2419,7 @@ fn normalize_local_call_arguments<'a>(
 
 fn lower_local_call_arguments(
     callee: &str,
-    arguments: &[CallArg],
+    arguments: &[HirCallArg],
     locals: &HashMap<String, String>,
     context: &mut LowerContext<'_>,
 ) -> Vec<IrValue> {
@@ -2441,15 +2451,15 @@ fn lower_local_call_arguments(
         .collect()
 }
 
-fn call_arg_value(argument: &CallArg) -> &Expression {
+fn call_arg_value(argument: &HirCallArg) -> &HirExpression {
     match argument {
-        CallArg::Positional(value) => value,
-        CallArg::Named { value, .. } => value,
+        HirCallArg::Positional(value) => value,
+        HirCallArg::Named { value, .. } => value,
     }
 }
 
 fn lower_expression(
-    expression: &Expression,
+    expression: &HirExpression,
     locals: &HashMap<String, String>,
     context: &mut LowerContext<'_>,
 ) -> IrValue {
@@ -2534,17 +2544,17 @@ fn function_type_parts_for_predicate(type_: &str) -> Option<(Vec<&str>, &str)> {
 }
 
 fn lower_expression_with_expected(
-    expression: &Expression,
+    expression: &HirExpression,
     expected: Option<&str>,
     locals: &HashMap<String, String>,
     context: &mut LowerContext<'_>,
 ) -> IrValue {
     match expression {
-        Expression::String(value) => IrValue::Const {
+        HirExpression::String(value) => IrValue::Const {
             type_: crate::types::ParameterType::parse("String"),
             value: value.clone(),
         },
-        Expression::Number(value) => {
+        HirExpression::Number(value) => {
             let (canonical, literal_type) = numeric::classify_literal(value);
             // An explicit `f`/`F` *suffix* makes the literal intrinsically
             // Float/Fixed and wins over the expected type (plan-28-B §4.3). An
@@ -2587,19 +2597,19 @@ fn lower_expression_with_expected(
                 value: canonical,
             }
         }
-        Expression::Scalar(code_point) => IrValue::Const {
+        HirExpression::Scalar(code_point) => IrValue::Const {
             type_: crate::types::ParameterType::parse("Scalar"),
             value: code_point.to_string(),
         },
-        Expression::Boolean(value) => IrValue::Const {
+        HirExpression::Boolean(value) => IrValue::Const {
             type_: crate::types::ParameterType::parse("Boolean"),
             value: value.to_string(),
         },
-        Expression::Identifier(value) if value == "NOTHING" => IrValue::Const {
+        HirExpression::Identifier(value) if value == "NOTHING" => IrValue::Const {
             type_: crate::types::ParameterType::parse("Nothing"),
             value: "NOTHING".to_string(),
         },
-        Expression::Identifier(value) => {
+        HirExpression::Identifier(value) => {
             let canonical_value = canonical_import_name(value, context);
             // A record constant (`vector::upFloat3`) inlines a record constructor at
             // every use site, copying by value (plan-06-vector.md §4.19). The migrated
@@ -2652,7 +2662,7 @@ fn lower_expression_with_expected(
             };
             wrap_union_value(base, expression, expected, locals, context)
         }
-        Expression::Call {
+        HirExpression::Call {
             callee,
             arguments,
             line,
@@ -2702,7 +2712,7 @@ fn lower_expression_with_expected(
                 (crate::codegen::registry::callback_member(&canonical_callee)
                     && normalized_builtin.len() == 2)
                     .then(|| match normalized_builtin[1] {
-                        Expression::Identifier(predicate) => {
+                        HirExpression::Identifier(predicate) => {
                             expression_type(normalized_builtin[0], locals, context)
                                 .and_then(|collection_type| {
                                     filter_predicate_arg_type(predicate, &collection_type)
@@ -2993,7 +3003,7 @@ fn lower_expression_with_expected(
                 loc,
             }
         }
-        Expression::Lambda {
+        HirExpression::Lambda {
             params,
             body,
             assign_target,
@@ -3038,9 +3048,7 @@ fn lower_expression_with_expected(
                 .iter()
                 .map(|param| {
                     let type_ = param
-                        .type_name
-                        .clone()
-                        .unwrap_or_else(|| "Unknown".to_string());
+                        .type_.name().into_owned();
                     lambda_locals.insert(param.name.clone(), type_.clone());
                     IrParam {
                         name: param.name.clone(),
@@ -3113,9 +3121,7 @@ fn lower_expression_with_expected(
                 .iter()
                 .map(|param| {
                     param
-                        .type_name
-                        .clone()
-                        .unwrap_or_else(|| "Unknown".to_string())
+                        .type_.name().into_owned()
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
@@ -3139,7 +3145,7 @@ fn lower_expression_with_expected(
                                 }
                             } else {
                                 lower_expression(
-                                    &Expression::Identifier(capture.name.clone()),
+                                    &HirExpression::Identifier(capture.name.clone()),
                                     locals,
                                     context,
                                 )
@@ -3149,25 +3155,26 @@ fn lower_expression_with_expected(
                 }
             }
         }
-        Expression::Constructor {
-            type_name,
+        HirExpression::Constructor {
+            type_: constructor_type,
             arguments,
         } => {
-            let canonical_type_name = canonical_import_name(type_name, context);
+            let type_name = constructor_type.name();
+            let canonical_type_name = canonical_import_name(&type_name, context);
             let fields = context
                 .type_index
                 .records
                 .get(&canonical_type_name)
-                .or_else(|| context.type_index.records.get(type_name))
+                .or_else(|| context.type_index.records.get(type_name.as_ref()))
                 .or_else(|| context.type_index.variant_fields.get(&canonical_type_name))
-                .or_else(|| context.type_index.variant_fields.get(type_name));
+                .or_else(|| context.type_index.variant_fields.get(type_name.as_ref()));
             let base = IrValue::Constructor {
                 type_: crate::types::ParameterType::parse(&canonical_type_name),
                 args: lower_constructor_args(arguments, fields, locals, context),
             };
             wrap_union_value(base, expression, expected, locals, context)
         }
-        Expression::WithUpdate { target, updates } => {
+        HirExpression::WithUpdate { target, updates } => {
             let type_ =
                 expression_type(target, locals, context).unwrap_or_else(|| "Unknown".to_string());
             let lowered_target = Box::new(lower_expression(target, locals, context));
@@ -3196,7 +3203,7 @@ fn lower_expression_with_expected(
                 updates: lowered_updates,
             }
         }
-        Expression::ListLiteral(values) => {
+        HirExpression::ListLiteral(values) => {
             let expected_element = expected.and_then(|type_| type_.strip_prefix("List OF "));
             let lowered = values
                 .iter()
@@ -3215,13 +3222,14 @@ fn lower_expression_with_expected(
                 values: lowered,
             }
         }
-        Expression::SetLiteral {
+        HirExpression::SetLiteral {
             element_type,
             elements,
         } => {
+            let element_type_name = element_type.name();
             let expected_element = expected
                 .and_then(|type_| type_.strip_prefix("Set OF "))
-                .or(Some(element_type.as_str()));
+                .or(Some(element_type_name.as_ref()));
             let lowered = elements
                 .iter()
                 .map(|value| {
@@ -3233,7 +3241,7 @@ fn lower_expression_with_expected(
                 values: lowered,
             }
         }
-        Expression::MapLiteral {
+        HirExpression::MapLiteral {
             key_type,
             value_type,
             entries,
@@ -3254,7 +3262,7 @@ fn lower_expression_with_expected(
                     .collect(),
             }
         }
-        Expression::MemberAccess { target, member } => {
+        HirExpression::MemberAccess { target, member } => {
             let member_type = expression_type(expression, locals, context)
                 .unwrap_or_else(|| "Unknown".to_string());
             IrValue::MemberAccess {
@@ -3263,13 +3271,13 @@ fn lower_expression_with_expected(
                 type_: crate::types::ParameterType::parse(&member_type),
             }
         }
-        Expression::Trapped { .. } => {
+        HirExpression::Trapped { .. } => {
             // Inline traps are only constructed as the value of a binding,
             // assignment, or bare-expression statement, where `lower_statement`
             // desugars them directly; they never reach value lowering.
             unreachable!("inline TRAP must be lowered as a statement value")
         }
-        Expression::Binary {
+        HirExpression::Binary {
             left,
             operator,
             right,
@@ -3304,7 +3312,7 @@ fn lower_expression_with_expected(
                 loc,
             }
         }
-        Expression::Unary {
+        HirExpression::Unary {
             operator,
             operand,
             line,
@@ -3324,7 +3332,7 @@ fn lower_expression_with_expected(
             // the positive form was always correct, which is why it went unnoticed.
             let exact_literal_negation = operator == "-"
                 && matches!(expected, Some("Money") | Some("Fixed"))
-                && matches!(operand.as_ref(), Expression::Number(_));
+                && matches!(operand.as_ref(), HirExpression::Number(_));
             let result_type = if exact_literal_negation {
                 expected.unwrap_or("Unknown").to_string()
             } else {
@@ -3434,7 +3442,7 @@ fn build_error_value(code: IrValue, message: IrValue, file: &str, loc: IrSourceL
 
 fn wrap_union_value(
     base: IrValue,
-    expression: &Expression,
+    expression: &HirExpression,
     expected: Option<&str>,
     locals: &HashMap<String, String>,
     context: &LowerContext<'_>,
@@ -3464,7 +3472,7 @@ fn wrap_union_value(
 }
 
 fn lower_constructor_args(
-    arguments: &[ConstructorArg],
+    arguments: &[HirConstructorArg],
     fields: Option<&Vec<IrField>>,
     locals: &HashMap<String, String>,
     context: &mut LowerContext<'_>,
@@ -3477,13 +3485,13 @@ fn lower_constructor_args(
     };
     if arguments
         .iter()
-        .all(|argument| matches!(argument, ConstructorArg::Named { .. }))
+        .all(|argument| matches!(argument, HirConstructorArg::Named { .. }))
     {
         return fields
             .iter()
             .filter_map(|field| {
                 arguments.iter().find_map(|argument| match argument {
-                    ConstructorArg::Named { name, value, .. } if name == &field.name => {
+                    HirConstructorArg::Named { name, value, .. } if name == &field.name => {
                         let expected = field.type_.name();
                         Some(lower_expression_with_expected(
                             value,
@@ -3512,15 +3520,15 @@ fn lower_constructor_args(
         .collect()
 }
 
-fn constructor_arg_value(argument: &ConstructorArg) -> &Expression {
+fn constructor_arg_value(argument: &HirConstructorArg) -> &HirExpression {
     match argument {
-        ConstructorArg::Positional(value) => value,
-        ConstructorArg::Named { value, .. } => value,
+        HirConstructorArg::Positional(value) => value,
+        HirConstructorArg::Named { value, .. } => value,
     }
 }
 
 fn captured_locals(
-    expression: &Expression,
+    expression: &HirExpression,
     outer_locals: &HashMap<String, String>,
     local_names: &HashSet<String>,
 ) -> Vec<CapturedLocal> {
@@ -3537,14 +3545,14 @@ fn captured_locals(
 }
 
 fn collect_captured_locals(
-    expression: &Expression,
+    expression: &HirExpression,
     outer_locals: &HashMap<String, String>,
     local_names: &HashSet<String>,
     seen: &mut HashSet<String>,
     captures: &mut Vec<CapturedLocal>,
 ) {
     match expression {
-        Expression::Identifier(name) => {
+        HirExpression::Identifier(name) => {
             if let Some(type_) = outer_locals.get(name) {
                 if !local_names.contains(name) && seen.insert(name.clone()) {
                     captures.push(CapturedLocal {
@@ -3554,7 +3562,7 @@ fn collect_captured_locals(
                 }
             }
         }
-        Expression::Call {
+        HirExpression::Call {
             callee, arguments, ..
         } => {
             if let Some(type_) = outer_locals.get(callee) {
@@ -3575,15 +3583,15 @@ fn collect_captured_locals(
                 );
             }
         }
-        Expression::Lambda { .. } => {}
-        Expression::Binary { left, right, .. } => {
+        HirExpression::Lambda { .. } => {}
+        HirExpression::Binary { left, right, .. } => {
             collect_captured_locals(left, outer_locals, local_names, seen, captures);
             collect_captured_locals(right, outer_locals, local_names, seen, captures);
         }
-        Expression::Unary { operand, .. } => {
+        HirExpression::Unary { operand, .. } => {
             collect_captured_locals(operand, outer_locals, local_names, seen, captures);
         }
-        Expression::Constructor { arguments, .. } => {
+        HirExpression::Constructor { arguments, .. } => {
             for argument in arguments {
                 collect_captured_locals(
                     constructor_arg_value(argument),
@@ -3594,38 +3602,38 @@ fn collect_captured_locals(
                 );
             }
         }
-        Expression::ListLiteral(values) => {
+        HirExpression::ListLiteral(values) => {
             for value in values {
                 collect_captured_locals(value, outer_locals, local_names, seen, captures);
             }
         }
-        Expression::SetLiteral { elements, .. } => {
+        HirExpression::SetLiteral { elements, .. } => {
             for value in elements {
                 collect_captured_locals(value, outer_locals, local_names, seen, captures);
             }
         }
-        Expression::MapLiteral { entries, .. } => {
+        HirExpression::MapLiteral { entries, .. } => {
             for (key, value) in entries {
                 collect_captured_locals(key, outer_locals, local_names, seen, captures);
                 collect_captured_locals(value, outer_locals, local_names, seen, captures);
             }
         }
-        Expression::MemberAccess { target, .. } => {
+        HirExpression::MemberAccess { target, .. } => {
             collect_captured_locals(target, outer_locals, local_names, seen, captures);
         }
-        Expression::WithUpdate { target, updates } => {
+        HirExpression::WithUpdate { target, updates } => {
             collect_captured_locals(target, outer_locals, local_names, seen, captures);
             for update in updates {
                 collect_captured_locals(&update.value, outer_locals, local_names, seen, captures);
             }
         }
-        Expression::Trapped { expression, .. } => {
+        HirExpression::Trapped { expression, .. } => {
             collect_captured_locals(expression, outer_locals, local_names, seen, captures);
         }
-        Expression::String(_)
-        | Expression::Number(_)
-        | Expression::Scalar(_)
-        | Expression::Boolean(_) => {}
+        HirExpression::String(_)
+        | HirExpression::Number(_)
+        | HirExpression::Scalar(_)
+        | HirExpression::Boolean(_) => {}
     }
 }
 
@@ -3633,10 +3641,10 @@ fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'stat
     numeric::binary_result_type(operator, left, right).unwrap_or(numeric::TYPE_INTEGER)
 }
 
-fn literal_expression_type(expression: &Expression) -> Option<String> {
+fn literal_expression_type(expression: &HirExpression) -> Option<String> {
     match expression {
-        Expression::String(_) => Some("String".to_string()),
-        Expression::Number(value) => Some(
+        HirExpression::String(_) => Some("String".to_string()),
+        HirExpression::Number(value) => Some(
             match numeric::classify_literal(value).1 {
                 numeric::LiteralType::Integer => "Integer",
                 numeric::LiteralType::Float => "Float",
@@ -3645,9 +3653,9 @@ fn literal_expression_type(expression: &Expression) -> Option<String> {
             }
             .to_string(),
         ),
-        Expression::Scalar(_) => Some("Scalar".to_string()),
-        Expression::Boolean(_) => Some("Boolean".to_string()),
-        Expression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
+        HirExpression::Scalar(_) => Some("Scalar".to_string()),
+        HirExpression::Boolean(_) => Some("Boolean".to_string()),
+        HirExpression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
         _ => None,
     }
 }
@@ -3661,18 +3669,18 @@ struct TypeIndex {
 }
 
 impl TypeIndex {
-    fn new(ast: &AstProject, imported_types: &[ImportedTypeDef]) -> Self {
+    fn new(hir: &HirProject, imported_types: &[ImportedTypeDef]) -> Self {
         let mut records = HashMap::new();
         let mut enums = HashMap::new();
         let mut variants = HashMap::new();
         let mut variant_unions = HashMap::<String, HashSet<String>>::new();
         let mut variant_fields = HashMap::new();
-        let union_decls = ast
+        let union_decls = hir
             .files
             .iter()
             .flat_map(|file| &file.items)
             .filter_map(|item| {
-                let Item::Type(type_decl) = item else {
+                let HirItem::Type(type_decl) = item else {
                     return None;
                 };
                 if matches!(type_decl.kind, TypeDeclKind::Union) {
@@ -3682,9 +3690,9 @@ impl TypeIndex {
                 }
             })
             .collect::<HashMap<_, _>>();
-        for file in &ast.files {
+        for file in &hir.files {
             for item in &file.items {
-                let Item::Type(type_decl) = item else {
+                let HirItem::Type(type_decl) = item else {
                     continue;
                 };
                 match type_decl.kind {
@@ -3801,8 +3809,8 @@ impl TypeIndex {
 }
 
 fn expanded_union_variants<'a>(
-    type_decl: &'a TypeDecl,
-    union_decls: &HashMap<String, &'a TypeDecl>,
+    type_decl: &'a HirTypeDecl,
+    union_decls: &HashMap<String, &'a HirTypeDecl>,
     visiting: &mut HashSet<String>,
 ) -> Vec<&'a UnionVariant> {
     // Guard against an `INCLUDES` cycle (a self- or mutually-including union):

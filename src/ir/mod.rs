@@ -17,9 +17,8 @@
 //! hub through which the rest of the crate reaches the model.
 
 use crate::ast::{
-    AstProject, CallArg, ConstructorArg, EnumMember, ExitTarget, Expression, Function,
-    FunctionKind, Item, LoopKind, MatchCase, MatchPattern, Param, Statement, TypeDecl,
-    TypeDeclKind, TypeField, UnionVariant, Visibility,
+    AstProject, EnumMember, ExitTarget, Expression, FunctionKind, Item, LoopKind, Param,
+    TypeDeclKind, UnionVariant, Visibility,
 };
 use crate::builtins;
 use crate::json::json_string;

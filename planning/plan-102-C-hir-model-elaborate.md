@@ -183,7 +183,7 @@ Commit: —
       corpus without panics; HIR type spellings match the AST's.
 
 Acceptance: `elaborate` covers the corpus; `cargo test` green. VERIFIED (5/5 pass).
-Commit: —
+Commit: 15aed5119 (C1+C2)
 
 ### Phase 3 — switch `ir::lower` to HIR → IR
 
@@ -202,13 +202,21 @@ native `ParameterType` (that native conversion is deferrable, exactly like the
 non-type structural reads (names, bodies, `line`s) repoint to the identical HIR
 fields.
 
-- [ ] Rewrite `ir::lower`'s front half to read HIR; wire `elaborate` into the build
-      after monomorph (`src/cli/build/mod.rs`, all 5 `lower_augmented_project` call
-      sites); delete the AST → IR path.
-- [ ] Tests: full suite.
+- [x] Rewrite `ir::lower`'s front half to read HIR; wire `elaborate` into the build
+      after monomorph; delete the AST → IR path. (Done via the input-swap:
+      `lower_augmented_project` KEEPS its `&AstProject` signature and elaborates
+      INTERNALLY — `let hir = crate::hir::elaborate(ast)` — so the 5 build call sites
+      and all test callers are UNCHANGED. The per-node walk + map builders + TypeIndex
+      + inference all consume HIR, rendering `.name()` where the internal String
+      machinery needs it; native/link/doc `Item`s keep the original AST. The `expect`
+      testing desugar bridges through `deelaborate_call_args`/`elaborate_statements`.
+      Native LINK function params stay AST (reused structs).)
+- [x] Tests: full suite. (3624 bin unit tests pass; all integration binaries pass.)
 
 Acceptance: `artifact-gate all` no NEW diff vs the plan-102-A baseline; `cargo
-test` green; `test-accept` no NEW mismatch.
+test` green; `test-accept` no NEW mismatch. **VERIFIED** — gate `diff` vs baseline
+IDENTICAL; full suite's sole failure is the recorded `artifact_gate_all` baseline;
+production + test build 0 errors/0 warnings.
 Commit: —
 
 ## Validation Plan
