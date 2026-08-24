@@ -4,11 +4,11 @@ use super::*;
 ///
 /// Field order is preserved verbatim: it is the layout input, so reordering here
 /// would silently change every offset.
-pub(super) fn link_cstructs(ast: &AstProject) -> Vec<crate::ir::IrCStruct> {
+pub(super) fn link_cstructs(hir: &crate::hir::HirProject) -> Vec<crate::ir::IrCStruct> {
     let mut cstructs = Vec::new();
-    for file in &ast.files {
+    for file in &hir.files {
         for item in &file.items {
-            if let Item::Link(link) = item {
+            if let crate::hir::HirItem::Link(link) = item {
                 for decl in &link.cstructs {
                     cstructs.push(crate::ir::IrCStruct {
                         alias: link.alias.clone(),
@@ -33,13 +33,13 @@ pub(super) fn link_cstructs(ast: &AstProject) -> Vec<crate::ir::IrCStruct> {
 /// Collect native `LINK` functions from the AST with their full ABI surface so
 /// the backend can emit marshaling thunks and dlopen/dlsym initializers
 /// (plan-linker.md §12).
-pub(super) fn link_functions(ast: &AstProject) -> Vec<IrLinkFunction> {
+pub(super) fn link_functions(hir: &crate::hir::HirProject) -> Vec<IrLinkFunction> {
     use crate::ir::IrBuffer;
 
     let mut functions = Vec::new();
-    for file in &ast.files {
+    for file in &hir.files {
         for item in &file.items {
-            if let Item::Link(link) = item {
+            if let crate::hir::HirItem::Link(link) = item {
                 for native in &link.functions {
                     functions.push(IrLinkFunction {
                         alias: link.alias.clone(),
@@ -136,11 +136,11 @@ pub(super) fn link_functions(ast: &AstProject) -> Vec<IrLinkFunction> {
 
 /// Collect re-export aliases whose target is a native `LINK` function
 /// (plan-link-update.md §5a).
-pub(super) fn link_aliases(ast: &AstProject) -> Vec<(String, String)> {
+pub(super) fn link_aliases(hir: &crate::hir::HirProject) -> Vec<(String, String)> {
     let mut link_targets: HashSet<String> = HashSet::new();
-    for file in &ast.files {
+    for file in &hir.files {
         for item in &file.items {
-            if let Item::Link(link) = item {
+            if let crate::hir::HirItem::Link(link) = item {
                 for native in &link.functions {
                     link_targets.insert(format!("{}.{}", link.alias, native.name));
                 }
@@ -148,9 +148,9 @@ pub(super) fn link_aliases(ast: &AstProject) -> Vec<(String, String)> {
         }
     }
     let mut aliases = Vec::new();
-    for file in &ast.files {
+    for file in &hir.files {
         for item in &file.items {
-            if let Item::FuncAlias(alias) = item {
+            if let crate::hir::HirItem::FuncAlias(alias) = item {
                 if link_targets.contains(&alias.target) {
                     aliases.push((alias.name.clone(), alias.target.clone()));
                 }
@@ -327,11 +327,11 @@ fn lower_link_expr(expr: &Expression) -> IrLinkExpr {
 /// Collect native `LINK` resource declarations from the AST for package
 /// metadata. `close_may_fail` is derived from whether the close wrapper has a
 /// `SUCCESS_ON` gate (plan-link-update.md §9/§10).
-pub(super) fn native_resources(ast: &AstProject) -> Vec<IrNativeResource> {
+pub(super) fn native_resources(hir: &crate::hir::HirProject) -> Vec<IrNativeResource> {
     let mut close_may_fail: HashMap<String, bool> = HashMap::new();
-    for file in &ast.files {
+    for file in &hir.files {
         for item in &file.items {
-            if let Item::Link(link) = item {
+            if let crate::hir::HirItem::Link(link) = item {
                 for function in &link.functions {
                     close_may_fail.insert(
                         format!("{}.{}", link.alias, function.name),
@@ -346,9 +346,9 @@ pub(super) fn native_resources(ast: &AstProject) -> Vec<IrNativeResource> {
     // alias name; importers call `binding.alias`, so the serialized close name is
     // this bare alias (qualified on import), not the package-internal `link.func`.
     let mut export_alias_for_target: HashMap<String, String> = HashMap::new();
-    for file in &ast.files {
+    for file in &hir.files {
         for item in &file.items {
-            if let Item::FuncAlias(alias) = item {
+            if let crate::hir::HirItem::FuncAlias(alias) = item {
                 if matches!(alias.visibility, crate::ast::Visibility::Export) {
                     export_alias_for_target
                         .entry(alias.target.clone())
@@ -358,9 +358,9 @@ pub(super) fn native_resources(ast: &AstProject) -> Vec<IrNativeResource> {
         }
     }
     let mut resources = Vec::new();
-    for file in &ast.files {
+    for file in &hir.files {
         for item in &file.items {
-            if let Item::Resource(resource) = item {
+            if let crate::hir::HirItem::Resource(resource) = item {
                 let close_function = export_alias_for_target
                     .get(&resource.close_fn)
                     .cloned()

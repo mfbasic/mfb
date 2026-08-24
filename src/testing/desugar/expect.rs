@@ -1,5 +1,14 @@
 use super::*;
-use crate::ast::build::*;
+use crate::hir::build::*;
+use crate::hir::{HirCallArg, HirExpression, HirStatement};
+
+/// The value expression of a HIR call argument (positional or named).
+fn hir_call_arg_value(argument: &HirCallArg) -> &HirExpression {
+    match argument {
+        HirCallArg::Positional(value) => value,
+        HirCallArg::Named { value, .. } => value,
+    }
+}
 
 /// The case body is used verbatim as the generated `SUB` body — the assertion
 /// builtins inside it are lowered later, in `src/ir/lower.rs`. Kept as a named
@@ -21,14 +30,14 @@ pub(crate) fn desugar_case_body(body: Vec<Statement>) -> Vec<Statement> {
 /// driver recognizes the code and formats `<detail>` plus the stamped location.
 pub(crate) fn expand_expect(
     callee: &str,
-    arguments: &[CallArg],
+    arguments: &[HirCallArg],
     uid: usize,
     line: usize,
-) -> Vec<Statement> {
+) -> Vec<HirStatement> {
     use crate::codegen::builtins_testing::{
         is_equality_assert, is_inequality_assert, EXPECT_NTRAP, EXPECT_TRAP,
     };
-    let argument = |index: usize| arguments.get(index).map(call_arg_value).cloned();
+    let argument = |index: usize| arguments.get(index).map(hir_call_arg_value).cloned();
     // Every equality assertion (`expectEqual` and the typed `expectFloat`/… ) lowers
     // the same way — a `=` comparison and a FAIL on mismatch; the operand-type check
     // is a typecheck concern. The inequality family mirrors it with `<>`.
@@ -46,12 +55,12 @@ pub(crate) fn expand_expect(
 }
 
 fn expand_eq(
-    actual: Option<Expression>,
-    expected: Option<Expression>,
+    actual: Option<HirExpression>,
+    expected: Option<HirExpression>,
     uid: usize,
     line: usize,
     negate: bool,
-) -> Vec<Statement> {
+) -> Vec<HirStatement> {
     let (Some(actual), Some(expected)) = (actual, expected) else {
         return Vec::new();
     };
@@ -86,11 +95,11 @@ fn expand_eq(
 }
 
 fn expand_trap(
-    expression: Option<Expression>,
-    expected_code: Option<Expression>,
+    expression: Option<HirExpression>,
+    expected_code: Option<HirExpression>,
     uid: usize,
     line: usize,
-) -> Vec<Statement> {
+) -> Vec<HirStatement> {
     let Some(expression) = expression else {
         return Vec::new();
     };
@@ -110,7 +119,7 @@ fn expand_trap(
             line,
         ));
     }
-    handler.push(Statement::Recover { value: None, line });
+    handler.push(HirStatement::Recover { value: None, line });
     statements.push(trap_stmt(expression, &error_binding, handler, line));
 
     match expected_code {
@@ -155,7 +164,7 @@ fn expand_trap(
     statements
 }
 
-fn expand_ntrap(expression: Option<Expression>, uid: usize, line: usize) -> Vec<Statement> {
+fn expand_ntrap(expression: Option<HirExpression>, uid: usize, line: usize) -> Vec<HirStatement> {
     let Some(expression) = expression else {
         return Vec::new();
     };
@@ -172,15 +181,15 @@ fn expand_ntrap(expression: Option<Expression>, uid: usize, line: usize) -> Vec<
 
 /// `FAIL error(TEST_ABORT_CODE, <detail>)` — raise the reserved assertion-abort
 /// error carrying the failure detail.
-fn fail_test(detail: Expression, line: usize) -> Statement {
-    let error = Expression::Call {
+fn fail_test(detail: HirExpression, line: usize) -> HirStatement {
+    let error = HirExpression::Call {
         callee: "error".to_string(),
         arguments: vec![
-            CallArg::Positional(num(TEST_ABORT_CODE)),
-            CallArg::Positional(detail),
+            HirCallArg::Positional(num(TEST_ABORT_CODE)),
+            HirCallArg::Positional(detail),
         ],
         line,
         column: 1,
     };
-    Statement::Fail { error, line }
+    HirStatement::Fail { error, line }
 }

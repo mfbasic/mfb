@@ -67,15 +67,6 @@ pub(crate) fn print_line(value: Expression) -> Statement {
     }
 }
 
-pub(crate) fn not(operand: Expression) -> Expression {
-    Expression::Unary {
-        operator: "NOT".to_string(),
-        operand: Box::new(operand),
-        line: 0,
-        column: 0,
-    }
-}
-
 pub(crate) fn let_mut(name: &str, type_name: &str, value: Expression) -> Statement {
     let_mut_at(name, type_name, value, 0)
 }
@@ -87,18 +78,6 @@ pub(crate) fn let_mut_at(name: &str, type_name: &str, value: Expression, line: u
         state_type: None,
         name: name.to_string(),
         type_name: Some(type_name.to_string()),
-        value: Some(value),
-        line,
-    }
-}
-
-pub(crate) fn let_imm(name: &str, value: Expression, line: usize) -> Statement {
-    Statement::Let {
-        mutable: false,
-        resource: false,
-        state_type: None,
-        name: name.to_string(),
-        type_name: None,
         value: Some(value),
         line,
     }
@@ -135,24 +114,6 @@ pub(crate) fn if_else(
         condition,
         then_body,
         else_body,
-        line,
-    }
-}
-
-/// `<inner> TRAP(binding) …handler… END TRAP` as a bare expression statement.
-pub(crate) fn trap_stmt(
-    inner: Expression,
-    binding: &str,
-    handler: Vec<Statement>,
-    line: usize,
-) -> Statement {
-    Statement::Expression {
-        expression: Expression::Trapped {
-            expression: Box::new(inner),
-            binding: binding.to_string(),
-            handler,
-            line,
-        },
         line,
     }
 }

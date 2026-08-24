@@ -16,7 +16,7 @@
 //!   scope; the obligation is drained from that scope's runtime owned-list (and
 //!   transferred to the caller when that collection is `RETURN`ed).
 //!
-//! The analysis is purely syntactic over the AST and depends only on which local
+//! The analysis is purely syntactic over the HIR and depends only on which local
 //! names are `RES` bindings, so the type checker and IR lowering compute the
 //! same answer independently.
 //!
@@ -48,7 +48,7 @@
 //! resource which escapes by a route the scan does not model is still closed
 //! exactly once rather than twice or never.
 
-use crate::ast::{CallArg, Expression, Function, Statement};
+use crate::hir::{HirCallArg, HirExpression, HirFunction, HirStatement};
 use std::collections::{HashMap, HashSet};
 
 /// Where a `RES` binding's close obligation is discharged.
@@ -132,14 +132,14 @@ struct Analyzer {
     /// collection that can actually *own* resources (`List OF RES File`) from a
     /// bare one, so the bug-291 rejection does not pile onto a program already
     /// rejected for the missing `RES` marker.
-    decl_type: HashMap<String, String>,
+    decl_type: HashMap<String, crate::types::ParameterType>,
     res_depth: HashMap<String, usize>,
     routings: Vec<Routing>,
     next_order: usize,
 }
 
 /// Analyze a function body, returning per-`RES`-binding ownership decisions.
-pub fn analyze_function(function: &Function) -> FunctionEscape {
+pub fn analyze_function(function: &HirFunction) -> FunctionEscape {
     let mut analyzer = Analyzer {
         res_names: HashSet::new(),
         decl_depth: HashMap::new(),
@@ -177,26 +177,29 @@ impl Analyzer {
         });
     }
 
-    fn walk(&mut self, body: &[Statement], depth: usize) {
+    fn walk(&mut self, body: &[HirStatement], depth: usize) {
         for statement in body {
             self.walk_statement(statement, depth);
         }
     }
 
-    fn walk_statement(&mut self, statement: &Statement, depth: usize) {
+    fn walk_statement(&mut self, statement: &HirStatement, depth: usize) {
         match statement {
-            Statement::Let {
+            HirStatement::Let {
                 resource,
                 name,
-                type_name,
+                type_,
+                explicit_type,
                 value,
                 ..
             } => {
                 self.declare(name, depth);
-                if let Some(type_name) = type_name {
+                // Mirror the AST rule: only an explicit `AS T` annotation records a
+                // declared type (an inferred binding carried `None` there).
+                if *explicit_type {
                     self.decl_type
                         .entry(name.clone())
-                        .or_insert_with(|| type_name.clone());
+                        .or_insert_with(|| type_.clone());
                 }
                 if *resource {
                     self.res_names.insert(name.clone());
@@ -206,16 +209,16 @@ impl Analyzer {
                     self.record_routing(Target::Var(name.clone()), value);
                 }
             }
-            Statement::Assign { name, value, .. } => {
+            HirStatement::Assign { name, value, .. } => {
                 self.declare(name, depth);
                 self.record_routing(Target::Var(name.clone()), value);
             }
-            Statement::Return {
+            HirStatement::Return {
                 value: Some(value), ..
             } => {
                 self.record_routing(Target::Returned, value);
             }
-            Statement::If {
+            HirStatement::If {
                 then_body,
                 else_body,
                 ..
@@ -223,22 +226,22 @@ impl Analyzer {
                 self.walk(then_body, depth + 1);
                 self.walk(else_body, depth + 1);
             }
-            Statement::Match { cases, .. } => {
+            HirStatement::Match { cases, .. } => {
                 for case in cases {
                     self.walk(&case.body, depth + 1);
                 }
             }
-            Statement::For { body, .. }
-            | Statement::ForEach { body, .. }
-            | Statement::While { body, .. }
-            | Statement::DoUntil { body, .. } => {
+            HirStatement::For { body, .. }
+            | HirStatement::ForEach { body, .. }
+            | HirStatement::While { body, .. }
+            | HirStatement::DoUntil { body, .. } => {
                 self.walk(body, depth + 1);
             }
             _ => {}
         }
     }
 
-    fn record_routing(&mut self, target: Target, expr: &Expression) {
+    fn record_routing(&mut self, target: Target, expr: &HirExpression) {
         let mut res_elems = Vec::new();
         let mut src_collections = Vec::new();
         self.scan_collection_expr(expr, &mut res_elems, &mut src_collections);
@@ -256,12 +259,12 @@ impl Analyzer {
     /// by a collection-valued expression.
     fn scan_collection_expr(
         &self,
-        expr: &Expression,
+        expr: &HirExpression,
         res_elems: &mut Vec<String>,
         src_collections: &mut Vec<String>,
     ) {
         match expr {
-            Expression::Identifier(name) => {
+            HirExpression::Identifier(name) => {
                 // A bare resource identifier in value position is not a
                 // collection (e.g. `RETURN f`, `LET g = f`); it only escapes when
                 // it appears as a collection *element* (see `scan_element`). A
@@ -270,17 +273,17 @@ impl Analyzer {
                     src_collections.push(name.clone());
                 }
             }
-            Expression::ListLiteral(values) => {
+            HirExpression::ListLiteral(values) => {
                 for value in values {
                     self.scan_element(value, res_elems, src_collections);
                 }
             }
-            Expression::MapLiteral { entries, .. } => {
+            HirExpression::MapLiteral { entries, .. } => {
                 for (_, value) in entries {
                     self.scan_element(value, res_elems, src_collections);
                 }
             }
-            Expression::Call {
+            HirExpression::Call {
                 callee, arguments, ..
             } if is_insertion_builtin(callee) => {
                 for (index, arg) in arguments.iter().enumerate() {
@@ -300,14 +303,14 @@ impl Analyzer {
             // while the collection still held it. Both arms of the trap produce
             // the same target, so both flow into it: the guarded expression on
             // success, and whatever the handler `RECOVER`s on failure.
-            Expression::Trapped {
+            HirExpression::Trapped {
                 expression,
                 handler,
                 ..
             } => {
                 self.scan_collection_expr(expression, res_elems, src_collections);
                 for statement in handler {
-                    if let Statement::Recover {
+                    if let HirStatement::Recover {
                         value: Some(value), ..
                     } = statement
                     {
@@ -323,11 +326,11 @@ impl Analyzer {
     /// collection expression contributes its own reachable resources.
     fn scan_element(
         &self,
-        expr: &Expression,
+        expr: &HirExpression,
         res_elems: &mut Vec<String>,
         src_collections: &mut Vec<String>,
     ) {
-        if let Expression::Identifier(name) = expr {
+        if let HirExpression::Identifier(name) = expr {
             if self.res_names.contains(name) {
                 res_elems.push(name.clone());
                 return;
@@ -484,14 +487,13 @@ impl Analyzer {
 /// can the collection actually take ownership of resources (§15.6)? Mirrors
 /// `builder_codegen_primitives::is_res_marked_resource_collection`, which lives in
 /// the target layer and is not reachable from here.
-fn is_res_marked_resource_collection(type_: &str) -> bool {
-    type_
-        .strip_prefix("List OF ")
-        .is_some_and(|element| element.starts_with("RES "))
-        || type_
-            .strip_prefix("Map OF ")
-            .and_then(|rest| rest.split_once(" TO "))
-            .is_some_and(|(_, value)| value.starts_with("RES "))
+fn is_res_marked_resource_collection(type_: &crate::types::ParameterType) -> bool {
+    use crate::types::ParameterType;
+    match type_ {
+        ParameterType::ListOf(element) => matches!(element.as_ref(), ParameterType::Res(_)),
+        ParameterType::MapOf(_, value) => matches!(value.as_ref(), ParameterType::Res(_)),
+        _ => false,
+    }
 }
 
 /// Collection-update builtins whose first argument is the collection being
@@ -514,27 +516,28 @@ fn is_insertion_builtin(callee: &str) -> bool {
     )
 }
 
-fn call_arg_expr(arg: &CallArg) -> &Expression {
+fn call_arg_expr(arg: &HirCallArg) -> &HirExpression {
     match arg {
-        CallArg::Positional(expr) => expr,
-        CallArg::Named { value, .. } => value,
+        HirCallArg::Positional(expr) => expr,
+        HirCallArg::Named { value, .. } => value,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Function, FunctionKind, Visibility};
+    use crate::ast::{FunctionKind, Visibility};
+    use crate::types::ParameterType;
 
-    fn func(body: Vec<Statement>) -> Function {
-        Function {
+    fn func(body: Vec<HirStatement>) -> HirFunction {
+        HirFunction {
             kind: FunctionKind::Func,
             visibility: Visibility::Private,
             isolated: false,
             name: "f".to_string(),
             template_params: Vec::new(),
             params: Vec::new(),
-            return_type: Some("Integer".to_string()),
+            returns: ParameterType::parse("Integer"),
             return_resource: false,
             return_state_type: None,
             body,
@@ -543,53 +546,57 @@ mod tests {
         }
     }
 
-    fn res(name: &str, value: Expression) -> Statement {
-        Statement::Let {
+    fn res(name: &str, value: HirExpression) -> HirStatement {
+        HirStatement::Let {
             mutable: false,
             resource: true,
             state_type: None,
             name: name.to_string(),
-            type_name: Some("fs.File".to_string()),
+            type_: ParameterType::parse("fs.File"),
+            explicit_type: true,
             value: Some(value),
             line: 1,
         }
     }
 
-    fn list(name: &str, value: Expression) -> Statement {
-        Statement::Let {
+    fn list(name: &str, value: HirExpression) -> HirStatement {
+        HirStatement::Let {
             mutable: true,
             resource: false,
             state_type: None,
             name: name.to_string(),
-            type_name: Some("List OF File".to_string()),
+            type_: ParameterType::parse("List OF File"),
+            explicit_type: true,
             value: Some(value),
             line: 1,
         }
     }
 
-    fn open() -> Expression {
-        Expression::Call {
+    fn open() -> HirExpression {
+        HirExpression::Call {
             callee: "fs.openFile".to_string(),
-            arguments: vec![CallArg::Positional(Expression::String("p".to_string()))],
+            arguments: vec![HirCallArg::Positional(HirExpression::String(
+                "p".to_string(),
+            ))],
             line: 1,
             column: 1,
         }
     }
 
-    fn append(collection: &str, element: &str) -> Expression {
-        Expression::Call {
+    fn append(collection: &str, element: &str) -> HirExpression {
+        HirExpression::Call {
             callee: "collections.append".to_string(),
             arguments: vec![
-                CallArg::Positional(Expression::Identifier(collection.to_string())),
-                CallArg::Positional(Expression::Identifier(element.to_string())),
+                HirCallArg::Positional(HirExpression::Identifier(collection.to_string())),
+                HirCallArg::Positional(HirExpression::Identifier(element.to_string())),
             ],
             line: 1,
             column: 1,
         }
     }
 
-    fn ident(name: &str) -> Expression {
-        Expression::Identifier(name.to_string())
+    fn ident(name: &str) -> HirExpression {
+        HirExpression::Identifier(name.to_string())
     }
 
     #[test]
@@ -597,7 +604,7 @@ mod tests {
         // RES f; LET xs = [f] — f and xs share a scope, so ownership stays local.
         let result = analyze_function(&func(vec![
             res("f", open()),
-            list("xs", Expression::ListLiteral(vec![ident("f")])),
+            list("xs", HirExpression::ListLiteral(vec![ident("f")])),
         ]));
         assert_eq!(result.owner("f"), ResOwner::Local);
         assert!(!result.floats("f"));
@@ -607,13 +614,13 @@ mod tests {
     fn inner_resource_floats_to_outer_collection() {
         // MUT xs = []; WHILE { RES f; xs = append(xs, f) } — f floats to xs.
         let result = analyze_function(&func(vec![
-            list("xs", Expression::ListLiteral(vec![])),
-            Statement::While {
+            list("xs", HirExpression::ListLiteral(vec![])),
+            HirStatement::While {
                 kind: crate::ast::LoopKind::While,
-                condition: Expression::Boolean(true),
+                condition: HirExpression::Boolean(true),
                 body: vec![
                     res("f", open()),
-                    Statement::Assign {
+                    HirStatement::Assign {
                         name: "xs".to_string(),
                         value: append("xs", "f"),
                         line: 1,
@@ -632,14 +639,14 @@ mod tests {
         // at the same scope depth, because xs is declared first and is returned;
         // the `RETURN` transfers xs's owned-list to the caller (§15.6).
         let result = analyze_function(&func(vec![
-            list("xs", Expression::ListLiteral(vec![])),
+            list("xs", HirExpression::ListLiteral(vec![])),
             res("f", open()),
-            Statement::Assign {
+            HirStatement::Assign {
                 name: "xs".to_string(),
                 value: append("xs", "f"),
                 line: 1,
             },
-            Statement::Return {
+            HirStatement::Return {
                 value: Some(ident("xs")),
                 line: 1,
             },
@@ -654,7 +661,7 @@ mod tests {
         // collection escape.
         let result = analyze_function(&func(vec![
             res("f", open()),
-            Statement::Return {
+            HirStatement::Return {
                 value: Some(ident("f")),
                 line: 1,
             },
@@ -666,14 +673,14 @@ mod tests {
     fn float_follows_collection_copy_chain() {
         // Outer ys; inner { RES f; xs = [f]; ys = xs } — f reaches ys (outermost).
         let result = analyze_function(&func(vec![
-            list("ys", Expression::ListLiteral(vec![])),
-            Statement::While {
+            list("ys", HirExpression::ListLiteral(vec![])),
+            HirStatement::While {
                 kind: crate::ast::LoopKind::While,
-                condition: Expression::Boolean(true),
+                condition: HirExpression::Boolean(true),
                 body: vec![
                     res("f", open()),
-                    list("xs", Expression::ListLiteral(vec![ident("f")])),
-                    Statement::Assign {
+                    list("xs", HirExpression::ListLiteral(vec![ident("f")])),
+                    HirStatement::Assign {
                         name: "ys".to_string(),
                         value: ident("xs"),
                         line: 1,

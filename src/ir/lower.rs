@@ -91,7 +91,7 @@ pub struct ImportedTypeVariant {
 /// already-augmented AST with [`lower_augmented_project`] directly.
 #[cfg(test)]
 pub fn lower_project_with_external_functions(
-    ast: &AstProject,
+    ast: &crate::ast::AstProject,
     entry: Option<EntryPoint>,
     external_function_types: &HashMap<String, String>,
     external_function_params: &HashMap<String, Vec<ExternalFunctionParam>>,
@@ -133,13 +133,17 @@ pub fn lower_project_with_external_functions(
     // `encoding::uses_package` still sees the seam's transitive `IMPORT encoding`.
     let augmented = crate::codegen::builtins::encoding::augmented_project(&augmented)
         .expect("built-in encoding package source must parse");
-    lower_augmented_project(
+    let mut ir = lower_augmented_project(
         &crate::hir::elaborate(&augmented),
         entry,
         external_function_types,
         external_function_params,
         imported_types,
-    )
+    );
+    // Docs come from the source AST this wrapper owns (the lowering path holds
+    // only HIR); the build's package path likewise collects from its original AST.
+    ir.docs = collect_project_docs(&augmented);
+    ir
 }
 
 /// Lower an already-augmented project (builtin package sources already injected by
@@ -153,10 +157,6 @@ pub fn lower_augmented_project(
     external_function_params: &HashMap<String, Vec<ExternalFunctionParam>>,
     imported_types: &[ImportedTypeDef],
 ) -> IrProject {
-    // The native-binding (`RESOURCE`/`FUNC alias`/`LINK`) and documentation
-    // extractors below still consume `crate::ast`; those items are reused verbatim
-    // in the HIR, so de-elaborating reproduces them byte-for-byte.
-    let ast = crate::hir::deelaborate(hir);
     let mut types = Vec::new();
     let mut functions = Vec::new();
     let mut function_returns = function_returns(hir);
@@ -238,11 +238,17 @@ pub fn lower_augmented_project(
         bindings,
         types,
         functions,
-        native_resources: native_resources(&ast),
-        link_functions: link_functions(&ast),
-        link_cstructs: link_cstructs(&ast),
-        link_aliases: link_aliases(&ast),
-        docs: collect_project_docs(&ast),
+        native_resources: native_resources(hir),
+        link_functions: link_functions(hir),
+        link_cstructs: link_cstructs(hir),
+        link_aliases: link_aliases(hir),
+        // Documentation is collected from the PRE-monomorphization source AST by
+        // whoever owns one — the package build path (`cli/build/mod.rs`, which
+        // overwrites this with the original declaration names monomorph renames
+        // away, plan-09-doc.md §5) and the in-process test wrapper
+        // (`lower_project_with_external_functions`). Executables ignore it. The
+        // lowering path itself holds only HIR and does not render one back.
+        docs: ProjectDocs::default(),
         // Assembled from the manifest by the build path (plan-46-B §4.3), which
         // is where project.json is read; the AST carries no manifest data.
         native_libraries: crate::binary_repr::NativeLibraryTable::default(),
@@ -420,14 +426,9 @@ fn lower_function(function: &HirFunction, context: &mut LowerContext<'_>) -> IrF
             line: function.line as u32,
             column: 1,
         },
-        // `resource_escape::analyze_function` consumes a `crate::ast::Function`;
-        // de-elaborate the HIR function back to its (byte-identical) AST form so
-        // the syntactic escape analysis is unchanged.
-        resource_owners: crate::ir::resource_escape::analyze_function(
-            &crate::hir::deelaborate_function(function),
-        )
-        .owners()
-        .clone(),
+        resource_owners: crate::ir::resource_escape::analyze_function(function)
+            .owners()
+            .clone(),
     }
 }
 
@@ -787,13 +788,8 @@ fn lower_statement(
                 if crate::codegen::builtins_testing::is_testing_call(callee) {
                     let uid = context.next_temp_id;
                     context.next_temp_id += 1;
-                    // `expand_expect` is an AST-level testing desugar; bridge the HIR
-                    // call arguments through the round-tripping de-elaborate/elaborate
-                    // seam so its generated statements re-enter the HIR lowering path.
-                    let ast_args = crate::hir::deelaborate_call_args(arguments);
-                    let expanded_ast =
-                        crate::testing::expand_expect(callee, &ast_args, uid, *call_line);
-                    let expanded = crate::hir::elaborate_statements(&expanded_ast, &[]);
+                    let expanded =
+                        crate::testing::expand_expect(callee, arguments, uid, *call_line);
                     return lower_statement_block(&expanded, locals, context, trap_name);
                 }
             }

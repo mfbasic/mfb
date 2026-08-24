@@ -89,72 +89,89 @@ mod tests {
     use crate::codegen::builtins_testing::{
         EXPECT_EQUAL, EXPECT_NEQUAL, EXPECT_NTRAP, EXPECT_TRAP,
     };
+    use crate::hir::{build as hir_build, HirCallArg, HirExpression, HirStatement};
 
-    /// Positional call arguments from a list of expressions.
-    fn pos(values: Vec<Expression>) -> Vec<CallArg> {
-        values.into_iter().map(CallArg::Positional).collect()
+    /// Positional HIR call arguments from a list of expressions (`expand_expect`
+    /// operates on HIR — the coverage tests above stay on the AST builders).
+    fn pos(values: Vec<HirExpression>) -> Vec<HirCallArg> {
+        values.into_iter().map(HirCallArg::Positional).collect()
     }
 
     #[test]
     fn expand_equality_lowers_to_two_lets_and_a_guarded_fail() {
         // `expectEqual(a, e)` binds both operands, then FAILs when they differ.
-        let out = expand_expect(EXPECT_EQUAL, &pos(vec![num(1), num(2)]), 0, 9);
+        let out = expand_expect(
+            EXPECT_EQUAL,
+            &pos(vec![hir_build::num(1), hir_build::num(2)]),
+            0,
+            9,
+        );
         assert_eq!(out.len(), 3);
-        assert!(matches!(out[0], Statement::Let { .. }));
-        assert!(matches!(out[1], Statement::Let { .. }));
+        assert!(matches!(out[0], HirStatement::Let { .. }));
+        assert!(matches!(out[1], HirStatement::Let { .. }));
         // The guard's condition is the *negated* equality (fail on mismatch).
-        let Statement::If { condition, .. } = &out[2] else {
+        let HirStatement::If { condition, .. } = &out[2] else {
             panic!("expected an IF guard");
         };
-        assert!(matches!(condition, Expression::Unary { .. }));
+        assert!(matches!(condition, HirExpression::Unary { .. }));
     }
 
     #[test]
     fn expand_inequality_fails_when_operands_are_equal() {
         // `expectNEqual(a, e)` FAILs on a *positive* equality (the two matched).
-        let out = expand_expect(EXPECT_NEQUAL, &pos(vec![num(1), num(1)]), 3, 4);
+        let out = expand_expect(
+            EXPECT_NEQUAL,
+            &pos(vec![hir_build::num(1), hir_build::num(1)]),
+            3,
+            4,
+        );
         assert_eq!(out.len(), 3);
-        let Statement::If { condition, .. } = &out[2] else {
+        let HirStatement::If { condition, .. } = &out[2] else {
             panic!("expected an IF guard");
         };
-        assert!(matches!(condition, Expression::Binary { .. }));
+        assert!(matches!(condition, HirExpression::Binary { .. }));
     }
 
     #[test]
     fn expand_trap_without_a_code_guards_the_flag() {
         // No expected code → flag init, the guarded expression, and one FAIL when
         // the trap never fired.
-        let out = expand_expect(EXPECT_TRAP, &pos(vec![ident("risky")]), 1, 5);
+        let out = expand_expect(EXPECT_TRAP, &pos(vec![hir_build::ident("risky")]), 1, 5);
         assert_eq!(out.len(), 3);
-        assert!(matches!(out[0], Statement::Let { .. }));
-        assert!(matches!(out[1], Statement::Expression { .. }));
-        assert!(matches!(out[2], Statement::If { .. }));
+        assert!(matches!(out[0], HirStatement::Let { .. }));
+        assert!(matches!(out[1], HirStatement::Expression { .. }));
+        assert!(matches!(out[2], HirStatement::If { .. }));
     }
 
     #[test]
     fn expand_trap_with_a_code_checks_both_presence_and_value() {
         // An expected code adds a code capture and two guards (missing + mismatch).
-        let out = expand_expect(EXPECT_TRAP, &pos(vec![ident("risky"), num(42)]), 2, 6);
+        let out = expand_expect(
+            EXPECT_TRAP,
+            &pos(vec![hir_build::ident("risky"), hir_build::num(42)]),
+            2,
+            6,
+        );
         assert_eq!(out.len(), 6);
         // Two of the emitted statements are the missing/mismatch FAIL guards.
         let guards = out
             .iter()
-            .filter(|statement| matches!(statement, Statement::If { .. }))
+            .filter(|statement| matches!(statement, HirStatement::If { .. }))
             .count();
         assert_eq!(guards, 2);
     }
 
     #[test]
     fn expand_ntrap_is_a_single_trap_whose_handler_fails() {
-        let out = expand_expect(EXPECT_NTRAP, &pos(vec![ident("safe")]), 0, 7);
+        let out = expand_expect(EXPECT_NTRAP, &pos(vec![hir_build::ident("safe")]), 0, 7);
         assert_eq!(out.len(), 1);
-        assert!(matches!(out[0], Statement::Expression { .. }));
+        assert!(matches!(out[0], HirStatement::Expression { .. }));
     }
 
     #[test]
     fn expand_expect_yields_nothing_for_unknown_or_argless_calls() {
         // An unrecognized callee produces no lowering.
-        assert!(expand_expect("notAnAssertion", &pos(vec![num(1)]), 0, 0).is_empty());
+        assert!(expand_expect("notAnAssertion", &pos(vec![hir_build::num(1)]), 0, 0).is_empty());
         // Missing operands short-circuit every family.
         assert!(expand_expect(EXPECT_EQUAL, &[], 0, 0).is_empty());
         assert!(expand_expect(EXPECT_TRAP, &[], 0, 0).is_empty());

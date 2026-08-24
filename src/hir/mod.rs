@@ -29,6 +29,8 @@
 use crate::ast::{ExitTarget, FunctionKind, LoopKind, TypeDeclKind, Visibility};
 use crate::types::ParameterType;
 
+pub(crate) mod build;
+
 /// A whole project — the elaborated mirror of [`crate::ast::AstProject`].
 #[derive(Clone, Debug)]
 pub(crate) struct HirProject {
@@ -912,30 +914,20 @@ fn elaborate_expression(
     }
 }
 
-/// Elaborate a slice of AST statements to HIR — the batch form of the private
-/// [`elaborate_statement`], exposed for `ir::lower`'s inline `expect(...)`
-/// desugar, which builds fresh AST statements (`testing::expand_expect`) that
-/// then re-enter the HIR statement-lowering path.
-pub(crate) fn elaborate_statements(
-    statements: &[crate::ast::Statement],
-    type_params: &[String],
-) -> Vec<HirStatement> {
-    statements
-        .iter()
-        .map(|__v| elaborate_statement(__v, type_params))
-        .collect()
-}
-
 // --- De-elaboration (HIR → AST) ------------------------------------------------
 //
-// The exact inverse of [`elaborate`], used only at the two seams where
-// `ir::lower` must hand a node to a module that still consumes `crate::ast`:
-// `crate::ir::resource_escape::analyze_function` (a `&crate::ast::Function`) and
-// the inline-`expect(...)` desugar `crate::testing::expand_expect` (a
-// `&[crate::ast::CallArg]`). Rendering every [`ParameterType`] back with
+// The exact inverse of [`elaborate`], used at exactly ONE production seam: the
+// post-monomorph validation passes that still consume `crate::ast` —
+// `resolver::resolve_augmented`, entry validation, and `syntaxcheck` — read
+// `deelaborate(&concrete_hir)` on the build path (`cli/build/mod.rs`) and the
+// audit path (`audit/mod.rs`). Nothing in the compile pipeline itself
+// (elaborate → monomorph → ir::lower → codegen) goes backward: lowering,
+// escape analysis (`resource_escape`), and the inline `expect(...)` desugar
+// (`testing::expand_expect` + `hir::build`) all operate on HIR directly. This
+// render is retired when those validators move onto HIR/`ir::verify` (the
+// plan-20-Z relocation trajectory). Rendering every [`ParameterType`] back with
 // `.name()` round-trips byte-exact (`ParameterType::parse(t.name()) == t`), so
-// `elaborate(deelaborate(x))` reproduces `x` and the re-lowered result is
-// byte-identical.
+// the validators see byte-identical source facts.
 
 /// Render an optional bare type back to the AST's `Option<String>`: a concrete
 /// type becomes `Some`, [`ParameterType::Unknown`] becomes `None` — the inverse
@@ -956,8 +948,8 @@ fn unrender_state(state: &Option<ParameterType>) -> Option<String> {
     state.as_ref().map(|state| state.name().into_owned())
 }
 
-/// De-elaborate a whole function (used by `resource_escape::analyze_function`).
-pub(crate) fn deelaborate_function(function: &HirFunction) -> crate::ast::Function {
+/// De-elaborate a whole function (a node of the validator-seam render above).
+fn deelaborate_function(function: &HirFunction) -> crate::ast::Function {
     crate::ast::Function {
         kind: function.kind,
         visibility: function.visibility,
@@ -972,12 +964,6 @@ pub(crate) fn deelaborate_function(function: &HirFunction) -> crate::ast::Functi
         trap: function.trap.as_ref().map(deelaborate_trap),
         line: function.line,
     }
-}
-
-/// De-elaborate the call arguments of a call expression (used by the inline
-/// `expect(...)` desugar).
-pub(crate) fn deelaborate_call_args(arguments: &[HirCallArg]) -> Vec<crate::ast::CallArg> {
-    arguments.iter().map(deelaborate_call_arg).collect()
 }
 
 fn deelaborate_trap(trap: &HirTrap) -> crate::ast::Trap {
