@@ -5,8 +5,35 @@ Effort: small (≤½ day)
 Severity: MEDIUM
 Class: Compiler correctness (a well-typed, spec-legal generic constructor is rejected; order-dependent, so it also silently "works" for a sibling declaration and misleads)
 
-Status: Open
-Regression Test: none yet — add a `unify_type` ordering unit test in `src/monomorph/helpers.rs` tests AND a compile test mirroring the `Box` repro below (see "Regression test" section). Both are RED at HEAD.
+Status: FIXED
+Regression Test: `src/monomorph/helpers.rs::unknown_actual_never_poisons_a_param_binding` (unit) and `src/monomorph/lower.rs::constructor_infers_param_despite_unknown_field_declared_first` (compile). Both RED before the fix, GREEN after.
+
+## STATUS: FIXED
+
+Fixed in `unify_type` (`src/monomorph/helpers.rs`). The doc's preferred **Option A**
+(never record an `Unknown` actual as a param binding) was implemented first and
+**regressed `collections::flatten`**: `flatten([[], [], ["x"]])`, whose outer literal
+types as `List OF List OF Unknown` (only the first, empty, inner is inspected), lost
+its provisional `T := Unknown` binding and became a hard `cannot infer template
+argument T` compile error. Landed **Option B** instead: an `Unknown` actual is
+recorded only as a *provisional* binding that a later concrete actual refines
+(`Unknown → concrete`); a concrete binding is never overwritten by an `Unknown`
+actual, and two concretes must still agree. This fixes bug-442's order-dependence
+while preserving every existing instantiation (including flatten's degenerate
+`flatten$Unknown`). Spec updated (`12_monomorphization.md`).
+
+Deviation from the doc: **Option B, not the doc's preferred Option A** — Option A
+over-rejected the width-agnostic-native-op case above. The doc's "all-Unknown yields
+no substitution" expectation is therefore also not adopted: all-Unknown keeps the
+provisional `Unknown`, matching prior behavior (byte-identical goldens).
+
+Verification: bug-442 repro compiles and runs (`0`); `flatten_inline_rt` builds with
+byte-identical `.ast`/`.ir` goldens; full `cargo test` green except `artifact_gate_all`
+(blocked by cross-session gate concurrency / pre-existing stale cross-arch goldens —
+all 9 `.ncode` diffs proven pre-existing via `mine==base` against the pre-fix binary);
+acceptance harness's 4 mismatches are a pre-existing test-accept path-corruption bug
+on `map-removekey-inplace-rt` (fixture builds fine, goldens byte-identical). Change is
+byte-neutral on this tree apart from the intended fix.
 
 ## Summary
 

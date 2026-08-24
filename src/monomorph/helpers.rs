@@ -45,10 +45,31 @@ pub(super) fn unify_type(
     substitutions: &mut HashMap<String, String>,
 ) -> bool {
     if params.iter().any(|param| param == pattern) {
-        if let Some(existing) = substitutions.get(pattern) {
-            return existing == actual;
+        match substitutions.get(pattern).map(String::as_str) {
+            // First occurrence: record it, even an `Unknown` (a no-information
+            // actual such as an empty `[]` literal, which types as `List OF
+            // Unknown`). Keeping it as a *provisional* binding preserves the
+            // degenerate `T := Unknown` instantiation that width-agnostic native
+            // ops (e.g. `collections::flatten`) rely on when no argument ever
+            // supplies a concrete element type.
+            None => {
+                substitutions.insert(pattern.to_string(), actual.to_string());
+            }
+            // A provisional `Unknown` binding is refined by any later concrete
+            // actual, so inference no longer depends on field/argument order
+            // (bug-442): a field carrying the concrete type (e.g. `FUNC(T) AS
+            // Boolean`) wins over an earlier empty-collection field (`List OF T`
+            // := `[]`), regardless of which is declared first.
+            Some("Unknown") if actual != "Unknown" => {
+                substitutions.insert(pattern.to_string(), actual.to_string());
+            }
+            // A concrete binding already won this slot; an `Unknown` actual is a
+            // wildcard that agrees with it (mirrors the `actual == "Unknown"`
+            // terminal rule below), so it neither overwrites nor conflicts.
+            Some(_) if actual == "Unknown" => {}
+            // Two concrete actuals for the same param must agree.
+            Some(existing) => return existing == actual,
         }
-        substitutions.insert(pattern.to_string(), actual.to_string());
         return true;
     }
 
@@ -544,6 +565,47 @@ mod tests {
         assert!(unify_type("T", "Integer", &params, &mut s));
         // Conflicting binding fails.
         assert!(!unify_type("T", "String", &params, &mut s));
+    }
+
+    #[test]
+    fn unknown_actual_never_poisons_a_param_binding() {
+        // bug-442: an `Unknown` actual (e.g. an empty `[]` literal types as
+        // `List OF Unknown`) must not occupy a param slot and block a later
+        // concrete binding, in EITHER field order.
+        let params = vec!["T".to_string()];
+        // Unknown first, concrete second.
+        let mut s = HashMap::new();
+        assert!(unify_type("List OF T", "List OF Unknown", &params, &mut s));
+        assert!(unify_type(
+            "FUNC(T) AS Boolean",
+            "FUNC(Integer) AS Boolean",
+            &params,
+            &mut s
+        ));
+        assert_eq!(s.get("T"), Some(&"Integer".to_string()));
+        // Concrete first, Unknown second — the concrete binding survives.
+        let mut s2 = HashMap::new();
+        assert!(unify_type(
+            "FUNC(T) AS Boolean",
+            "FUNC(Integer) AS Boolean",
+            &params,
+            &mut s2
+        ));
+        assert!(unify_type("List OF T", "List OF Unknown", &params, &mut s2));
+        assert_eq!(s2.get("T"), Some(&"Integer".to_string()));
+        // A genuine conflict between two concretes still fails.
+        let mut s3 = HashMap::new();
+        assert!(unify_type("T", "Integer", &params, &mut s3));
+        assert!(!unify_type("T", "String", &params, &mut s3));
+        // All-Unknown records a *provisional* `Unknown` binding (never dropped),
+        // preserving the degenerate `T := Unknown` instantiation that width-agnostic
+        // native ops such as `collections::flatten` rely on. A later concrete actual
+        // still refines it (asserted above); with none, it stays Unknown.
+        let mut s4 = HashMap::new();
+        assert!(unify_type("List OF T", "List OF Unknown", &params, &mut s4));
+        assert_eq!(s4.get("T"), Some(&"Unknown".to_string()));
+        assert!(unify_type("T", "Integer", &params, &mut s4));
+        assert_eq!(s4.get("T"), Some(&"Integer".to_string()));
     }
 
     #[test]

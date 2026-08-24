@@ -7,8 +7,36 @@ Effort: small fix (rewrite one detection branch); moderate test (loopback chunke
 Severity: HIGH — makes `http::read` fail on real chunked sites whose body happens to contain the bytes `0\r\n\r\n`
 Class: Correctness (HTTP client transfer-encoding framing)
 
-Status: Open (discovered loading facebook.com through the `examples/browser` client, which calls `http::read`)
-Regression Test: none yet — see Acceptance
+Status: FIXED (ef8a32962)
+Regression Test: `tests/rt_http_chunked_frame_completion.rs`
+
+## STATUS: FIXED (ef8a32962)
+
+Reproduced first: a loopback server emitting a `Transfer-Encoding: chunked`
+response whose first ~70 KiB chunk embeds the literal bytes `0\r\n\r\n` before the
+real terminator made `http::read` fail with `Error: 7-705-0003 truncated chunk
+data` — the exact mechanism the doc claims (`__http_frameComplete`'s naive
+substring search returns TRUE mid-body, `__http_dechunkBytes` then overruns).
+
+Fix: replaced the substring check in `__http_frameComplete`
+(`src/codegen/builtins/http/package.mfb`) with a new `__http_chunkedComplete`
+helper that walks the chunk framing (mirroring `__http_dechunkBytes`) and returns
+TRUE only once the terminating zero-length chunk is present at a real boundary,
+FALSE while any size line or chunk (data + trailing CRLF) is still incomplete.
+This is the doc's Proposed Fix verbatim. Shared by the blocking client
+(`http::read`) and the server request loop via `__http_frameComplete`.
+
+Test: `tests/rt_http_chunked_frame_completion.rs` (Rust integration test, gated on
+`python3`) drives `http::read` against the loopback server above; RED (truncated
+chunk data) before the fix, GREEN after. Full `cargo test` green except the
+pre-existing `artifact_gate_all` diffs on non-http fixtures
+(`bits`/`fs`/`io`/`term`/`tls` windows-x86_64, `macos-app-mode-*`) — provably
+unrelated: the fix touches only `http` and those fixtures do not import it.
+Regenerated the http `.ir` (three fixtures) and per-target `.ncodesum`
+byte-identity goldens (new function + shifted embedded source lines); scoped
+`artifact-gate http` passes across all five targets, 0 diffs.
+
+No deviation from the proposed approach.
 
 ## Symptom
 

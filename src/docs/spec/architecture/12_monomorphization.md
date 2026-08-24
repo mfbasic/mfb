@@ -123,7 +123,10 @@ driving both function-argument and constructor-field inference.
 
 ```text
 unify(pattern, actual):
-  pattern is a template param  -> bind on first use; on repeat require equality
+  pattern is a template param  -> bind on first use (an Unknown binding is
+                                  provisional: a later concrete refines it, and an
+                                  Unknown actual never overwrites a concrete);
+                                  two concrete actuals must agree
   List OF E                    -> recurse on element
   Result OF S                  -> recurse on success type
   Map OF K TO V                -> recurse on K and V
@@ -135,10 +138,18 @@ unify(pattern, actual):
 ```
 
 A template parameter binds to whatever it first meets and must be **equal** on
-every later occurrence (so `box<T>` called with mismatched `T` positions fails).
-`Unknown` is the wildcard: an empty `[]` literal types as `List OF Unknown`, and
-the terminal rule `actual == "Unknown"` lets it unify against any concrete
-pattern. The resource slot of a `Thread` type is optional — both-present unify
+every later occurrence between two concretes (so `box<T>` called with mismatched
+`T` positions fails). `Unknown` is the wildcard: an empty `[]` literal types as
+`List OF Unknown`, and the terminal rule `actual == "Unknown"` lets it unify
+against any concrete pattern. An `Unknown` bound to a param is **provisional** — a
+later concrete actual refines it (`Unknown → Integer`) and an `Unknown` actual
+never overwrites a concrete binding. That makes inference independent of
+field/argument order: a no-information field (an empty collection) no longer
+blocks a later field that supplies the concrete type (bug-442). Recording the
+provisional `Unknown` rather than dropping it preserves the degenerate
+`T := Unknown` instantiation that width-agnostic native ops (e.g.
+`collections::flatten` over lists whose first inner is empty) rely on when no
+argument supplies a concrete element type. The resource slot of a `Thread` type is optional — both-present unify
 recursively, both-absent succeed, mismatched presence fails. See
 `./mfb spec language templates` for the source-level template semantics this
 implements.
