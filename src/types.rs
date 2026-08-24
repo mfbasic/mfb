@@ -33,6 +33,16 @@ pub(crate) enum ParameterType {
     ListOf(Box<ParameterType>),
     MapOf(Box<ParameterType>, Box<ParameterType>),
     SetOf(Box<ParameterType>),
+    /// A `MapEntry OF K TO V` — a key/value pair type (the element type of a map
+    /// iteration). Structurally the same key-`TO`-value shape as [`MapOf`](Self::MapOf),
+    /// but a distinct nominal so `MapEntry OF …` round-trips and unifies as itself.
+    /// `monomorph::helpers::unify_type` already handled this shape on strings; the
+    /// variant lets a `ParameterType` represent it with no gap.
+    MapEntryOf(Box<ParameterType>, Box<ParameterType>),
+    /// A `Result OF T` — a success-typed result. A single-child structural type,
+    /// mirroring `monomorph::helpers::unify_type`'s `Result OF` arm, so the middle-end
+    /// shape is representable without folding into an opaque [`Named`](Self::Named).
+    ResultOf(Box<ParameterType>),
     /// A `RES`-marked collection element (`List OF RES fs.File`) — the mandatory
     /// ownership-axis marker for a resource stored as a collection element (§15.6).
     /// Matching is RES-*transparent*: [`unify`](crate::codegen::registry) and
@@ -108,6 +118,14 @@ impl ParameterType {
     }
     pub(crate) fn set_of(elem: ParameterType) -> Self {
         ParameterType::SetOf(Box::new(elem))
+    }
+    /// A `MapEntry OF key TO val` pair type.
+    pub(crate) fn map_entry_of(key: ParameterType, val: ParameterType) -> Self {
+        ParameterType::MapEntryOf(Box::new(key), Box::new(val))
+    }
+    /// A `Result OF success` type.
+    pub(crate) fn result_of(success: ParameterType) -> Self {
+        ParameterType::ResultOf(Box::new(success))
     }
     /// A `RES`-marked element (`RES fs.File`) wrapping `inner`.
     pub(crate) fn res(inner: ParameterType) -> Self {
@@ -194,6 +212,23 @@ impl ParameterType {
         {
             return ParameterType::map_of(ParameterType::parse(key), ParameterType::parse(value));
         }
+        // `MapEntry OF K TO V` — the key/value pair shape, split on the first top-level
+        // ` TO ` exactly as the `Map OF ` arm above (so the two spellings decompose
+        // identically). `MapEntry OF …` does not start with `Map OF `, so the order
+        // relative to that arm is immaterial.
+        if let Some((key, value)) = name
+            .strip_prefix("MapEntry OF ")
+            .and_then(|rest| rest.split_once(" TO "))
+        {
+            return ParameterType::map_entry_of(
+                ParameterType::parse(key),
+                ParameterType::parse(value),
+            );
+        }
+        // `Result OF T` — a single success-typed child, mirroring `List OF `/`Set OF `.
+        if let Some(success) = name.strip_prefix("Result OF ") {
+            return ParameterType::result_of(ParameterType::parse(success));
+        }
         // `ISOLATED FUNC(...)` (a capture-free worker entry — `thread::start`'s
         // callback) parses to an isolated [`Func`](Self::Func), so the `Func` arm can
         // reach the nested `ThreadWorker` handle in its first parameter; the
@@ -247,6 +282,12 @@ impl ParameterType {
                 Cow::Owned(format!("Map OF {} TO {}", elem_a.name(), elem_b.name()))
             }
             ParameterType::SetOf(elem) => Cow::Owned(format!("Set OF {}", elem.name())),
+            ParameterType::MapEntryOf(key, value) => {
+                Cow::Owned(format!("MapEntry OF {} TO {}", key.name(), value.name()))
+            }
+            ParameterType::ResultOf(success) => {
+                Cow::Owned(format!("Result OF {}", success.name()))
+            }
             ParameterType::Res(inner) => Cow::Owned(format!("RES {}", inner.name())),
             ParameterType::Named(elem) => Cow::Borrowed(elem.resolve()),
             ParameterType::Var(name) => Cow::Borrowed(name.resolve()),
@@ -663,6 +704,35 @@ mod tests {
                 );
             }
             other => panic!("expected Func, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn map_entry_and_result_parse_into_variants_and_round_trip() {
+        // The two shapes `monomorph::helpers::unify_type` handled on strings but `parse`
+        // previously folded into `Named`. They now decompose structurally and round-trip
+        // byte-exact.
+        assert_eq!(
+            ParameterType::parse("MapEntry OF String TO Integer"),
+            ParameterType::map_entry_of(ParameterType::String, ParameterType::Integer),
+        );
+        assert_eq!(
+            ParameterType::parse("Result OF Nothing"),
+            ParameterType::result_of(ParameterType::Nothing),
+        );
+        assert_eq!(
+            ParameterType::parse("Result OF List OF Integer"),
+            ParameterType::result_of(ParameterType::list_of(ParameterType::Integer)),
+        );
+        for spelling in [
+            "MapEntry OF String TO Integer",
+            "MapEntry OF String TO List OF Integer",
+            "Result OF Nothing",
+            "Result OF Integer",
+            "Result OF List OF String",
+            "List OF MapEntry OF String TO Integer",
+        ] {
+            round_trip(spelling);
         }
     }
 

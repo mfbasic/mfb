@@ -1921,6 +1921,16 @@ fn unify(
                 && unify(value, concrete_value, bindings, strict)
         }
         (
+            ParameterType::MapEntryOf(key, value),
+            ParameterType::MapEntryOf(concrete_key, concrete_value),
+        ) => {
+            unify(key, concrete_key, bindings, strict)
+                && unify(value, concrete_value, bindings, strict)
+        }
+        (ParameterType::ResultOf(success), ParameterType::ResultOf(concrete_success)) => {
+            unify(success, concrete_success, bindings, strict)
+        }
+        (
             ParameterType::Func(params, ret, isolated),
             ParameterType::Func(concrete_params, concrete_ret, concrete_isolated),
         ) => {
@@ -1966,6 +1976,8 @@ fn unify(
             ParameterType::ListOf(_)
             | ParameterType::SetOf(_)
             | ParameterType::MapOf(_, _)
+            | ParameterType::MapEntryOf(_, _)
+            | ParameterType::ResultOf(_)
             | ParameterType::Func(_, _, _)
             | ParameterType::ThreadHandle { .. },
             _,
@@ -2023,6 +2035,10 @@ fn substitute(
         ParameterType::MapOf(key, value) => {
             ParameterType::map_of(substitute(key, bindings)?, substitute(value, bindings)?)
         }
+        ParameterType::MapEntryOf(key, value) => {
+            ParameterType::map_entry_of(substitute(key, bindings)?, substitute(value, bindings)?)
+        }
+        ParameterType::ResultOf(success) => ParameterType::result_of(substitute(success, bindings)?),
         ParameterType::Func(params, ret, isolated) => {
             let params = params
                 .iter()
@@ -2064,7 +2080,10 @@ fn contains_var(ty: &ParameterType) -> bool {
         // single static nominal type independent of the call.
         ParameterType::Var(_) | ParameterType::Arg(_) => true,
         ParameterType::ListOf(elem) | ParameterType::SetOf(elem) => contains_var(elem),
-        ParameterType::MapOf(key, value) => contains_var(key) || contains_var(value),
+        ParameterType::ResultOf(success) => contains_var(success),
+        ParameterType::MapOf(key, value) | ParameterType::MapEntryOf(key, value) => {
+            contains_var(key) || contains_var(value)
+        }
         ParameterType::Func(params, ret, _) => params.iter().any(contains_var) || contains_var(ret),
         ParameterType::ThreadHandle { msg, res, out, .. } => {
             contains_var(msg) || contains_var(res) || contains_var(out)
@@ -3295,8 +3314,37 @@ mod tests {
         assert!(contains_var(&ParameterType::var("T")));
         assert!(contains_var(&list_of(ParameterType::var("T"))));
         assert!(contains_var(&map_of(String, ParameterType::var("V"))));
+        assert!(contains_var(&ParameterType::map_entry_of(
+            ParameterType::var("K"),
+            Integer,
+        )));
+        assert!(contains_var(&ParameterType::result_of(ParameterType::var("T"))));
         assert!(!contains_var(&list_of(Integer)));
+        assert!(!contains_var(&ParameterType::result_of(Integer)));
         assert!(!contains_var(&ParameterType::named("Instant")));
+    }
+
+    #[test]
+    fn unify_substitute_over_map_entry_and_result_variants() {
+        use ParameterType::{Integer, String};
+        // MapEntry OF K TO V: unify binds K/V from the concrete pair, then substitute
+        // rebuilds the concrete pair from a fully-generic pattern.
+        let pattern =
+            ParameterType::map_entry_of(ParameterType::var("K"), ParameterType::var("V"));
+        let concrete = ParameterType::map_entry_of(String, Integer);
+        let mut bindings = BTreeMap::new();
+        assert!(unify(&pattern, &concrete, &mut bindings, false));
+        assert_eq!(substitute(&pattern, &bindings), Some(concrete.clone()));
+        // A mismatched shape (Map OF vs MapEntry OF) does not unify.
+        assert!(!unify(&pattern, &map_of(String, Integer), &mut BTreeMap::new(), false));
+
+        // Result OF T: bind T, substitute back.
+        let rpattern = ParameterType::result_of(ParameterType::var("T"));
+        let rconcrete = ParameterType::result_of(Integer);
+        let mut rbindings = BTreeMap::new();
+        assert!(unify(&rpattern, &rconcrete, &mut rbindings, false));
+        assert_eq!(substitute(&rpattern, &rbindings), Some(rconcrete));
+        assert!(!unify(&rpattern, &list_of(Integer), &mut BTreeMap::new(), false));
     }
 
     #[test]

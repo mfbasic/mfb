@@ -263,7 +263,7 @@ wiring it into `ParameterType` — a primitive with no callers is safe to land a
 Acceptance: interner unit tests pass; `cargo test` green (no other code changed).
 VERIFIED (5/5 intern:: tests pass). NOTE: standalone primitive emits transient
 dead_code warnings until Phase 3 wires it into `ParameterType` (next commit).
-Commit: —
+Commit: ba11589c2
 
 ### Phase 3 — switch `Named`/`Var` to `Symbol`; delete the leak
 
@@ -287,23 +287,32 @@ Acceptance: `cargo test` green; `artifact-gate all` shows **no NEW diff** vs the
 Phase-1 baseline; `rg 'Box::leak' src/types.rs` is empty. VERIFIED — full suite's
 sole failure is the recorded `artifact_gate_all` baseline; `diff` of gate output
 vs `plan-102-baseline-diffs.txt` is IDENTICAL; leak count 0.
-Commit: —
+Commit: 9d1af3130
 
 ### Phase 4 — add `MapEntryOf` / `ResultOf` variants
 
 One line: complete the type vocabulary so a later pass has no representational gap.
 
-- [ ] Add the two variants (`src/types.rs`) + `parse` prefix arms + `name` render
-      arms + registry `unify`/`substitute`/`leaf_matches` recursion.
-- [ ] Grep the registry for any code that matched the old `Named("MapEntry OF …")`
+- [x] Add the two variants (`src/types.rs`) + `parse` prefix arms + `name` render
+      arms + registry `unify`/`substitute`/`leaf_matches` recursion. (Added
+      `MapEntryOf`/`ResultOf` + `map_entry_of`/`result_of` constructors; parse arms
+      mirror `Map OF`/`List OF`; unify/substitute/contains_var + the container
+      fail-set updated. `leaf_matches` needs no change — both are containers handled
+      before the leaf catch-all.)
+- [x] Grep the registry for any code that matched the old `Named("MapEntry OF …")`
       / `Named("Result OF …")` spelling and update it to the new variant
-      (`rg -n '"MapEntry OF|"Result OF' src/`).
-- [ ] Tests: `parse("MapEntry OF String TO Integer").name()` round-trips;
+      (`rg -n '"MapEntry OF|"Result OF' src/`). (0 matches in registry/types — nothing
+      relied on the old spelling; byte-identity confirms it below.)
+- [x] Tests: `parse("MapEntry OF String TO Integer").name()` round-trips;
       `parse("Result OF Nothing").name()` round-trips; a unify/substitute test over
-      each new variant.
+      each new variant. (`map_entry_and_result_parse_into_variants_and_round_trip` in
+      types.rs; `unify_substitute_over_map_entry_and_result_variants` +
+      `contains_var` extended in registry — all pass.)
 
 Acceptance: round-trip + unify/substitute tests pass; `artifact-gate all` shows no
-NEW diff vs baseline; `cargo test` green.
+NEW diff vs baseline; `cargo test` green. VERIFIED — new unit tests pass; gate
+`diff` vs baseline IDENTICAL; full suite's sole failure is the `artifact_gate_all`
+baseline.
 Commit: —
 
 ## Validation Plan
