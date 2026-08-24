@@ -108,28 +108,45 @@ None externally observable. Mangled symbol strings are unchanged (rendered via
 
 ### Phase 1 — typed `unify_type`
 
-- [ ] Rewrite `unify_type` to `ParameterType` structural matching with a
+- [x] Rewrite `unify_type` to `ParameterType` structural matching with a
       `HashMap<Symbol, ParameterType>` binding map (`src/monomorph/helpers.rs`).
-- [ ] Tests: unify cases over every variant incl. `MapEntryOf`/`ResultOf`/`Func`/
-      `ThreadHandle`; a `Var` binding-consistency case.
+      (Native arms for every represented shape — scalars, `ListOf`/`SetOf`/`ResultOf`/
+      `MapOf`/`MapEntryOf`/`Func`/`ThreadHandle`/`Res`; a leaf `Var`/`Named` whose
+      `Symbol` is in the template-param set binds/checks; a **user-generic** `Named`
+      (`Pair OF Integer, String` — no distinct variant, per the no-new-variant
+      decision) falls back to the string algorithm via `user_template_parts` and
+      re-parses, preserving results with zero `parse` behavior change.)
+- [x] Tests: unify cases over every variant incl. `MapEntryOf`/`ResultOf`/`Func`/
+      `ThreadHandle`; a `Var` binding-consistency case. (The historical string-level
+      cases run through `unify_str`/`substitute_str` test adapters that route through
+      the native functions via the byte-exact `parse`↔`name` round-trip — every
+      assertion preserved; container/thread/func/binding-consistency all covered.)
 
-Acceptance: unify unit tests pass; `cargo test` green (substitute still shimmed if
-needed for a clean split).
-Commit: —
+Acceptance: unify unit tests pass; `cargo test` green. VERIFIED (3625 bin unit tests).
+Commit: — (landed with Phase 2 as one atomic algorithm swap)
 
 ### Phase 2 — typed `substitute_type_params` + remove the shim
 
-- [ ] Rewrite `substitute_type_params` to build `ParameterType` trees; thread
+- [x] Rewrite `substitute_type_params` to build `ParameterType` trees; thread
       `HashMap<Symbol, ParameterType>` through the monomorph walk
-      (`src/monomorph/mod.rs`, `lower.rs`); delete the plan-102-D `name()` shim and
-      any now-dead string helpers.
-- [ ] Mangling renders `name()` only at the mangle point.
-- [ ] Tests: full suite.
+      (`src/monomorph/mod.rs`, `lower.rs`); delete the plan-102-D `name()` shim at the
+      unify/substitute boundaries. (The walk's substitution maps are `Symbol`-keyed
+      `ParameterType` values end to end; `concrete_type_name` — which additionally
+      *instantiates* user templates — keeps its string recursion but looks up
+      substitutions by `Symbol` and renders `.name()` at its boundary.)
+- [x] Mangling renders `name()` only at the mangle point. (`mangle_name` and the
+      `name<args>` instantiation keys stay string — the deliberate boundary.)
+- [x] Tests: full suite. (Sole failure = the recorded `artifact_gate_all` baseline.)
 
 Acceptance: `artifact-gate all` no NEW diff vs the plan-102-A baseline; `cargo
 test` green; `test-accept` no NEW mismatch; the §2 census re-run over
-`src/monomorph/` shows the `HashMap<String,String>` / `.to_string()` /
-`strip_prefix` / `format!` counts dropped (record the numbers).
+`src/monomorph/` shows the counts dropped (record the numbers). **VERIFIED** — gate
+`diff` vs baseline IDENTICAL; census (commands per §2): `HashMap<String,String>`
+21→**12**, `.to_string()` 103→**100**, `strip_prefix("` 17 (post; the survivors are
+the deliberate string boundaries — `concrete_type_name`'s instantiation recursion +
+the user-generic fallback), `format!(" OF ")` builds **8** (post). The unify/
+substitute hot pair itself is fully native; the residual string ops live in the
+mangling/instantiation-key/user-generic boundaries the Non-goals §2 explicitly keep.
 Commit: —
 
 ## Validation Plan

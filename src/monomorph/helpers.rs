@@ -53,107 +53,175 @@ pub(super) fn constructor_arg_field_type<'a>(
     }
 }
 
+/// The bindable [`Symbol`](crate::intern::Symbol) of a *leaf* type — a
+/// [`Var`](ParameterType::Var) (a minted type variable) or a bare
+/// [`Named`](ParameterType::Named) (a nominal whose whole name might itself be a
+/// template parameter). Container/`Func`/`Res` types have no leaf symbol.
+///
+/// The historical string algorithm bound a type variable by testing whether the
+/// *whole* pattern string equalled a declared template-param name
+/// (`params.iter().any(|p| p == pattern)`) — a bare `Named`/`Var` leaf. A user
+/// generic like `Pair OF Integer, String` parses to a single `Named` whose name is
+/// never a bare param, so it correctly returns its (non-matching) symbol here and
+/// falls through to the user-generic string fallback.
+fn leaf_param_symbol(type_: &ParameterType) -> Option<crate::intern::Symbol> {
+    match type_ {
+        ParameterType::Var(sym) | ParameterType::Named(sym) => Some(*sym),
+        _ => None,
+    }
+}
+
+/// Structurally unify a template `pattern` type against a concrete `actual` type,
+/// binding each template parameter (a [`Var`](ParameterType::Var), or a
+/// [`Named`](ParameterType::Named) whose symbol is in `params`) in `substitutions`.
+///
+/// This is the native-`ParameterType` successor of the historical string
+/// algorithm; it mirrors every arm of that algorithm exactly so the *result*
+/// (which type-args a call infers) is byte-identical:
+///
+/// * A leaf param binds on first sight and must agree on re-occurrence.
+/// * The six built-in container shapes (`List`/`Set`/`Result`/`Map`/`MapEntry`/
+///   thread handle) require the *actual* to be the same container — a mismatch is a
+///   hard `false`, **not** the trailing `Unknown` wildcard (the string arms
+///   `return false` before reaching it).
+/// * A *user generic* (a `Named` leaf whose name is `Name OF a, b`) is not a
+///   distinct variant — it falls back to the string algorithm (render both `.name()`,
+///   split with [`user_template_parts`], recurse on the re-parsed arguments), so
+///   `ParameterType::parse` gains no new variant and results are preserved.
+/// * A `FUNC(...)` pattern unifies only against a `FUNC(...)` actual (isolation is
+///   ignored, exactly as the string `func_type_parts` erased the `ISOLATED`
+///   marker); a non-func actual falls through to the wildcard tail.
+/// * The tail is `pattern == actual || actual is Unknown` — structural equality is
+///   byte-identical to the old string equality because `parse`/`name` is a
+///   bijection over this vocabulary, and the concrete side is never a `Var`.
 pub(super) fn unify_type(
-    pattern: &str,
-    actual: &str,
-    params: &[String],
-    substitutions: &mut HashMap<String, String>,
+    pattern: &ParameterType,
+    actual: &ParameterType,
+    params: &HashSet<crate::intern::Symbol>,
+    substitutions: &mut HashMap<crate::intern::Symbol, ParameterType>,
 ) -> bool {
-    if params.iter().any(|param| param == pattern) {
-        if let Some(existing) = substitutions.get(pattern) {
-            return existing == actual;
-        }
-        substitutions.insert(pattern.to_string(), actual.to_string());
-        return true;
-    }
-
-    if let Some(pattern_element) = pattern.strip_prefix("List OF ") {
-        let Some(actual_element) = actual.strip_prefix("List OF ") else {
-            return false;
-        };
-        return unify_type(pattern_element, actual_element, params, substitutions);
-    }
-    if let Some(pattern_element) = pattern.strip_prefix("Set OF ") {
-        let Some(actual_element) = actual.strip_prefix("Set OF ") else {
-            return false;
-        };
-        return unify_type(pattern_element, actual_element, params, substitutions);
-    }
-    if let Some(pattern_success) = pattern.strip_prefix("Result OF ") {
-        let Some(actual_success) = actual.strip_prefix("Result OF ") else {
-            return false;
-        };
-        return unify_type(pattern_success, actual_success, params, substitutions);
-    }
-    if let Some(pattern_rest) = pattern.strip_prefix("Map OF ") {
-        let Some(actual_rest) = actual.strip_prefix("Map OF ") else {
-            return false;
-        };
-        let Some((pattern_key, pattern_value)) = split_top_level_to(pattern_rest) else {
-            return false;
-        };
-        let Some((actual_key, actual_value)) = split_top_level_to(actual_rest) else {
-            return false;
-        };
-        return unify_type(&pattern_key, &actual_key, params, substitutions)
-            && unify_type(&pattern_value, &actual_value, params, substitutions);
-    }
-    if let Some(pattern_rest) = pattern.strip_prefix("MapEntry OF ") {
-        let Some(actual_rest) = actual.strip_prefix("MapEntry OF ") else {
-            return false;
-        };
-        let Some((pattern_key, pattern_value)) = split_top_level_to(pattern_rest) else {
-            return false;
-        };
-        let Some((actual_key, actual_value)) = split_top_level_to(actual_rest) else {
-            return false;
-        };
-        return unify_type(&pattern_key, &actual_key, params, substitutions)
-            && unify_type(&pattern_value, &actual_value, params, substitutions);
-    }
-    if let Some((pattern_kind, pattern_message, pattern_resource, pattern_output)) =
-        crate::types::thread_parts_full(pattern)
-    {
-        let Some((actual_kind, actual_message, actual_resource, actual_output)) =
-            crate::types::thread_parts_full(actual)
-        else {
-            return false;
-        };
-        let resource_unifies = match (pattern_resource, actual_resource) {
-            (None, None) => true,
-            (Some(pattern_resource), Some(actual_resource)) => {
-                unify_type(pattern_resource, actual_resource, params, substitutions)
+    // A bare template parameter binds/checks. Mirrors the string rule
+    // `params.iter().any(|p| p == pattern)` over the whole pattern name.
+    if let Some(sym) = leaf_param_symbol(pattern) {
+        if params.contains(&sym) {
+            if let Some(existing) = substitutions.get(&sym) {
+                return existing == actual;
             }
-            _ => false,
-        };
-        return pattern_kind == actual_kind
-            && unify_type(pattern_message, actual_message, params, substitutions)
-            && resource_unifies
-            && unify_type(pattern_output, actual_output, params, substitutions);
-    }
-    if let (Some((pattern_name, pattern_args)), Some((actual_name, actual_args))) =
-        (user_template_parts(pattern), user_template_parts(actual))
-    {
-        return pattern_name == actual_name
-            && pattern_args.len() == actual_args.len()
-            && pattern_args
-                .iter()
-                .zip(actual_args.iter())
-                .all(|(pattern, actual)| unify_type(pattern, actual, params, substitutions));
+            substitutions.insert(sym, actual.clone());
+            return true;
+        }
     }
 
-    if let (Some((pattern_params, pattern_ret)), Some((actual_params, actual_ret))) =
-        (func_type_parts(pattern), func_type_parts(actual))
+    // The built-in container shapes: the actual must be the same container, else a
+    // hard `false` (the string arms `return false` on a strip mismatch, never
+    // reaching the `Unknown` wildcard).
+    match pattern {
+        ParameterType::ListOf(pattern_element) => {
+            let ParameterType::ListOf(actual_element) = actual else {
+                return false;
+            };
+            return unify_type(pattern_element, actual_element, params, substitutions);
+        }
+        ParameterType::SetOf(pattern_element) => {
+            let ParameterType::SetOf(actual_element) = actual else {
+                return false;
+            };
+            return unify_type(pattern_element, actual_element, params, substitutions);
+        }
+        ParameterType::ResultOf(pattern_success) => {
+            let ParameterType::ResultOf(actual_success) = actual else {
+                return false;
+            };
+            return unify_type(pattern_success, actual_success, params, substitutions);
+        }
+        ParameterType::MapOf(pattern_key, pattern_value) => {
+            let ParameterType::MapOf(actual_key, actual_value) = actual else {
+                return false;
+            };
+            return unify_type(pattern_key, actual_key, params, substitutions)
+                && unify_type(pattern_value, actual_value, params, substitutions);
+        }
+        ParameterType::MapEntryOf(pattern_key, pattern_value) => {
+            let ParameterType::MapEntryOf(actual_key, actual_value) = actual else {
+                return false;
+            };
+            return unify_type(pattern_key, actual_key, params, substitutions)
+                && unify_type(pattern_value, actual_value, params, substitutions);
+        }
+        ParameterType::ThreadHandle {
+            worker: pattern_worker,
+            msg: pattern_message,
+            res: pattern_resource,
+            out: pattern_output,
+        } => {
+            let ParameterType::ThreadHandle {
+                worker: actual_worker,
+                msg: actual_message,
+                res: actual_resource,
+                out: actual_output,
+            } = actual
+            else {
+                return false;
+            };
+            // The resource plane defaults to `Nothing` when the handle carries no
+            // `RES` clause; the string algorithm saw that as `None`, so an absent
+            // plane on one side only fails to unify.
+            let resource_unifies = match (
+                matches!(pattern_resource.as_ref(), ParameterType::Nothing),
+                matches!(actual_resource.as_ref(), ParameterType::Nothing),
+            ) {
+                (true, true) => true,
+                (false, false) => {
+                    unify_type(pattern_resource, actual_resource, params, substitutions)
+                }
+                _ => false,
+            };
+            return pattern_worker == actual_worker
+                && unify_type(pattern_message, actual_message, params, substitutions)
+                && resource_unifies
+                && unify_type(pattern_output, actual_output, params, substitutions);
+        }
+        _ => {}
+    }
+
+    // A user generic (`Name OF a, b`, a single `Named`) is not a distinct variant:
+    // fall back to the string algorithm for this subtree so `parse` behavior is
+    // unchanged. Mirrors the old `(user_template_parts(p), user_template_parts(a))`
+    // arm — only fires when *both* sides split; otherwise fall through.
+    let pattern_name = pattern.name();
+    if let Some((pattern_base, pattern_args)) = user_template_parts(&pattern_name) {
+        let actual_name = actual.name();
+        if let Some((actual_base, actual_args)) = user_template_parts(&actual_name) {
+            return pattern_base == actual_base
+                && pattern_args.len() == actual_args.len()
+                && pattern_args.iter().zip(actual_args.iter()).all(|(p, a)| {
+                    unify_type(
+                        &ParameterType::parse(p),
+                        &ParameterType::parse(a),
+                        params,
+                        substitutions,
+                    )
+                });
+        }
+    }
+
+    // A `FUNC(...)` pattern unifies only against a `FUNC(...)` actual (isolation
+    // ignored, as `func_type_parts` erased the `ISOLATED` marker); a non-func actual
+    // falls through to the wildcard tail.
+    if let (
+        ParameterType::Func(pattern_params, pattern_ret, _),
+        ParameterType::Func(actual_params, actual_ret, _),
+    ) = (pattern, actual)
     {
         return pattern_params.len() == actual_params.len()
             && pattern_params
                 .iter()
                 .zip(actual_params.iter())
-                .all(|(pattern, actual)| unify_type(pattern, actual, params, substitutions))
+                .all(|(p, a)| unify_type(p, a, params, substitutions))
             && unify_type(pattern_ret, actual_ret, params, substitutions);
     }
 
-    pattern == actual || actual == "Unknown"
+    pattern == actual || matches!(actual, ParameterType::Unknown)
 }
 
 /// Splits a function type `FUNC(p1, p2) AS Ret` (or `ISOLATED FUNC(...) AS Ret`)
@@ -183,60 +251,89 @@ pub(super) fn user_template_parts(type_name: &str) -> Option<(String, Vec<String
     Some((name.to_string(), split_top_level_commas(rest)))
 }
 
+/// Rebuild `type_` with each bound template parameter replaced by its
+/// substitution, structurally. The native-`ParameterType` successor of the
+/// historical string algorithm; every arm mirrors it exactly so the substituted
+/// *result* is byte-identical:
+///
+/// * A bare param leaf ([`Var`](ParameterType::Var) or a [`Named`](ParameterType::Named)
+///   whose whole name is a param) becomes its bound type.
+/// * The six built-in container shapes recurse into their children.
+/// * A thread handle substitutes its message/output always and its resource plane
+///   only when present (`Nothing` == an absent `RES` clause, preserved as-is).
+/// * Everything else falls back to the string tail: a *user generic* (`Name OF a, b`)
+///   substitutes its arguments string-wise and re-`parse`s the reassembled name;
+///   any other type (a scalar, a concrete nominal, and — matching the old algorithm,
+///   which had no `FUNC`/`RES` arm — a `FUNC(...)` or `RES` type) is returned
+///   unchanged.
 pub(super) fn substitute_type_params(
-    type_name: &str,
-    substitutions: &HashMap<String, String>,
-) -> String {
-    if let Some(value) = substitutions.get(type_name) {
-        return value.clone();
-    }
-    if let Some(element) = type_name.strip_prefix("List OF ") {
-        return format!("List OF {}", substitute_type_params(element, substitutions));
-    }
-    if let Some(element) = type_name.strip_prefix("Set OF ") {
-        return format!("Set OF {}", substitute_type_params(element, substitutions));
-    }
-    if let Some(success) = type_name.strip_prefix("Result OF ") {
-        return format!(
-            "Result OF {}",
-            substitute_type_params(success, substitutions)
-        );
-    }
-    if let Some(rest) = type_name.strip_prefix("Map OF ") {
-        if let Some((key, value)) = split_top_level_to(rest) {
-            return format!(
-                "Map OF {} TO {}",
-                substitute_type_params(&key, substitutions),
-                substitute_type_params(&value, substitutions)
-            );
+    type_: &ParameterType,
+    substitutions: &HashMap<crate::intern::Symbol, ParameterType>,
+) -> ParameterType {
+    if let Some(sym) = leaf_param_symbol(type_) {
+        if let Some(value) = substitutions.get(&sym) {
+            return value.clone();
         }
     }
-    if let Some(rest) = type_name.strip_prefix("MapEntry OF ") {
-        if let Some((key, value)) = split_top_level_to(rest) {
-            return format!(
-                "MapEntry OF {} TO {}",
-                substitute_type_params(&key, substitutions),
-                substitute_type_params(&value, substitutions)
-            );
+    match type_ {
+        ParameterType::ListOf(element) => {
+            ParameterType::list_of(substitute_type_params(element, substitutions))
+        }
+        ParameterType::SetOf(element) => {
+            ParameterType::set_of(substitute_type_params(element, substitutions))
+        }
+        ParameterType::ResultOf(success) => {
+            ParameterType::result_of(substitute_type_params(success, substitutions))
+        }
+        ParameterType::MapOf(key, value) => ParameterType::map_of(
+            substitute_type_params(key, substitutions),
+            substitute_type_params(value, substitutions),
+        ),
+        ParameterType::MapEntryOf(key, value) => ParameterType::map_entry_of(
+            substitute_type_params(key, substitutions),
+            substitute_type_params(value, substitutions),
+        ),
+        ParameterType::ThreadHandle {
+            worker,
+            msg,
+            res,
+            out,
+        } => {
+            // The resource plane is only substituted when present; an absent plane
+            // (`Nothing`) is preserved, mirroring the string algorithm's
+            // `resource.map(...)` over the optional `RES` clause.
+            let resource = match res.as_ref() {
+                ParameterType::Nothing => ParameterType::Nothing,
+                other => substitute_type_params(other, substitutions),
+            };
+            ParameterType::thread_handle(
+                *worker,
+                substitute_type_params(msg, substitutions),
+                resource,
+                substitute_type_params(out, substitutions),
+            )
+        }
+        other => {
+            // The string tail. A user generic splits, substitutes its arguments, and
+            // re-`parse`s the reassembled `Name OF a, b`; any other type (scalar,
+            // nominal, `FUNC(...)`, `RES` — none of which the old algorithm descended
+            // into) is identity.
+            let name = other.name();
+            if let Some((base, args)) = user_template_parts(&name) {
+                let args = args
+                    .iter()
+                    .map(|arg| {
+                        substitute_type_params(&ParameterType::parse(arg), substitutions)
+                            .name()
+                            .into_owned()
+                    })
+                    .collect::<Vec<_>>();
+                ParameterType::parse(&format!("{base} OF {}", args.join(", ")))
+            } else {
+                other.clone()
+            }
         }
     }
-    if let Some((kind, message, resource, output)) = crate::types::thread_parts_full(type_name) {
-        let resource = resource.map(|resource| substitute_type_params(resource, substitutions));
-        return crate::types::format_thread_type(
-            kind,
-            &substitute_type_params(message, substitutions),
-            resource.as_deref(),
-            &substitute_type_params(output, substitutions),
-        );
-    }
-    if let Some((name, args)) = user_template_parts(type_name) {
-        let args = args
-            .iter()
-            .map(|arg| substitute_type_params(arg, substitutions))
-            .collect::<Vec<_>>();
-        return format!("{name} OF {}", args.join(", "));
-    }
-    type_name.to_string()
 }
 
 pub(super) fn split_top_level_to(value: &str) -> Option<(String, String)> {
@@ -509,6 +606,47 @@ mod tests {
             .collect()
     }
 
+    /// String adapter over the native [`unify_type`], so the historical
+    /// string-level cases keep asserting the same behavior through the
+    /// `parse`↔`name` round-trip (which is byte-exact).
+    fn unify_str(
+        pattern: &str,
+        actual: &str,
+        params: &[String],
+        subs: &mut HashMap<String, String>,
+    ) -> bool {
+        let param_set: std::collections::HashSet<crate::intern::Symbol> = params
+            .iter()
+            .map(|p| crate::intern::Symbol::intern(p))
+            .collect();
+        let mut native: HashMap<crate::intern::Symbol, ParameterType> = subs
+            .iter()
+            .map(|(k, v)| (crate::intern::Symbol::intern(k), ParameterType::parse(v)))
+            .collect();
+        let ok = unify_type(
+            &ParameterType::parse(pattern),
+            &ParameterType::parse(actual),
+            &param_set,
+            &mut native,
+        );
+        *subs = native
+            .iter()
+            .map(|(k, v)| (k.resolve().to_string(), v.name().into_owned()))
+            .collect();
+        ok
+    }
+
+    /// String adapter over the native [`substitute_type_params`] (same rationale).
+    fn substitute_str(type_name: &str, subs: &HashMap<String, String>) -> String {
+        let native: HashMap<crate::intern::Symbol, ParameterType> = subs
+            .iter()
+            .map(|(k, v)| (crate::intern::Symbol::intern(k), ParameterType::parse(v)))
+            .collect();
+        substitute_type_params(&ParameterType::parse(type_name), &native)
+            .name()
+            .into_owned()
+    }
+
     fn param(name: &str, type_name: Option<&str>) -> HirParam {
         HirParam {
             name: name.to_string(),
@@ -542,12 +680,12 @@ mod tests {
         let params = vec!["T".to_string()];
         let mut s = HashMap::new();
         // First occurrence binds T -> Integer.
-        assert!(unify_type("T", "Integer", &params, &mut s));
+        assert!(unify_str("T", "Integer", &params, &mut s));
         assert_eq!(s.get("T").map(String::as_str), Some("Integer"));
         // Second occurrence must agree.
-        assert!(unify_type("T", "Integer", &params, &mut s));
+        assert!(unify_str("T", "Integer", &params, &mut s));
         // Conflicting binding fails.
-        assert!(!unify_type("T", "String", &params, &mut s));
+        assert!(!unify_str("T", "String", &params, &mut s));
     }
 
     #[test]
@@ -565,7 +703,7 @@ mod tests {
         for (pattern, actual) in cases {
             let mut s = HashMap::new();
             assert!(
-                unify_type(pattern, actual, &params, &mut s),
+                unify_str(pattern, actual, &params, &mut s),
                 "unify {pattern} vs {actual}"
             );
         }
@@ -576,7 +714,7 @@ mod tests {
         // Thread types unify by kind, message, optional resource, and output.
         let params = vec!["T".to_string(), "U".to_string()];
         let mut s = HashMap::new();
-        assert!(unify_type(
+        assert!(unify_str(
             "Thread OF T TO U",
             "Thread OF Integer TO String",
             &params,
@@ -584,7 +722,7 @@ mod tests {
         ));
         // A thread with a resource clause on both sides unifies its resource slot.
         let mut s2 = HashMap::new();
-        assert!(unify_type(
+        assert!(unify_str(
             "ThreadWorker OF T RES U TO Nothing",
             "ThreadWorker OF Integer RES String TO Nothing",
             &params,
@@ -592,7 +730,7 @@ mod tests {
         ));
         // Resource present on one side only fails to unify.
         let mut s3 = HashMap::new();
-        assert!(!unify_type(
+        assert!(!unify_str(
             "Thread OF T RES U TO Nothing",
             "Thread OF Integer TO Nothing",
             &params,
@@ -600,7 +738,7 @@ mod tests {
         ));
         // A thread pattern against a non-thread actual fails.
         let mut s4 = HashMap::new();
-        assert!(!unify_type("Thread OF T TO U", "Integer", &params, &mut s4));
+        assert!(!unify_str("Thread OF T TO U", "Integer", &params, &mut s4));
     }
 
     #[test]
@@ -621,7 +759,7 @@ mod tests {
         for (pattern, actual) in cases {
             let mut s = HashMap::new();
             assert!(
-                !unify_type(pattern, actual, &params, &mut s),
+                !unify_str(pattern, actual, &params, &mut s),
                 "expected mismatch {pattern} vs {actual}"
             );
         }
@@ -631,9 +769,9 @@ mod tests {
     fn unify_treats_unknown_actual_as_wildcard_and_matches_concretes() {
         let params: Vec<String> = Vec::new();
         let mut s = HashMap::new();
-        assert!(unify_type("Integer", "Integer", &params, &mut s));
-        assert!(unify_type("Integer", "Unknown", &params, &mut s));
-        assert!(!unify_type("Integer", "String", &params, &mut s));
+        assert!(unify_str("Integer", "Integer", &params, &mut s));
+        assert!(unify_str("Integer", "Unknown", &params, &mut s));
+        assert!(!unify_str("Integer", "String", &params, &mut s));
     }
 
     #[test]
@@ -694,11 +832,11 @@ mod tests {
         let mut substitutions = HashMap::new();
         substitutions.insert("T".to_string(), "Integer".to_string());
         assert_eq!(
-            substitute_type_params("Pair OF List OF T, T", &substitutions),
+            substitute_str("Pair OF List OF T, T", &substitutions),
             "Pair OF List OF Integer, Integer"
         );
         assert_eq!(
-            substitute_type_params("List OF T", &substitutions),
+            substitute_str("List OF T", &substitutions),
             "List OF Integer"
         );
     }
@@ -731,36 +869,36 @@ mod tests {
     #[test]
     fn substitute_type_params_rewrites_every_shape() {
         let s = subs(&[("T", "Integer"), ("U", "String")]);
-        assert_eq!(substitute_type_params("T", &s), "Integer");
-        assert_eq!(substitute_type_params("List OF T", &s), "List OF Integer");
-        assert_eq!(substitute_type_params("Set OF T", &s), "Set OF Integer");
+        assert_eq!(substitute_str("T", &s), "Integer");
+        assert_eq!(substitute_str("List OF T", &s), "List OF Integer");
+        assert_eq!(substitute_str("Set OF T", &s), "Set OF Integer");
         assert_eq!(
-            substitute_type_params("Result OF T", &s),
+            substitute_str("Result OF T", &s),
             "Result OF Integer"
         );
         assert_eq!(
-            substitute_type_params("Map OF T TO U", &s),
+            substitute_str("Map OF T TO U", &s),
             "Map OF Integer TO String"
         );
         assert_eq!(
-            substitute_type_params("MapEntry OF T TO U", &s),
+            substitute_str("MapEntry OF T TO U", &s),
             "MapEntry OF Integer TO String"
         );
         assert_eq!(
-            substitute_type_params("Pair OF T, U", &s),
+            substitute_str("Pair OF T, U", &s),
             "Pair OF Integer, String"
         );
         // Thread shape substitutes message and output slots.
         assert_eq!(
-            substitute_type_params("Thread OF T TO U", &s),
+            substitute_str("Thread OF T TO U", &s),
             "Thread OF Integer TO String"
         );
         // Unknown names pass through unchanged.
-        assert_eq!(substitute_type_params("Boolean", &s), "Boolean");
+        assert_eq!(substitute_str("Boolean", &s), "Boolean");
         // Malformed Map (no TO) falls through to the identity return.
-        assert_eq!(substitute_type_params("Map OF T", &s), "Map OF T");
+        assert_eq!(substitute_str("Map OF T", &s), "Map OF T");
         // Malformed MapEntry (no TO) also falls through.
-        assert_eq!(substitute_type_params("MapEntry OF T", &s), "MapEntry OF T");
+        assert_eq!(substitute_str("MapEntry OF T", &s), "MapEntry OF T");
     }
 
     #[test]

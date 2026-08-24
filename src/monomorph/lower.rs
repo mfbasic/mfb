@@ -386,7 +386,7 @@ impl<'a> Monomorphizer<'a> {
     fn lower_type(
         &mut self,
         mut type_decl: HirTypeDecl,
-        substitutions: &HashMap<String, String>,
+        substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
         concrete_name: Option<String>,
     ) -> HirTypeDecl {
         if let Some(name) = concrete_name {
@@ -437,7 +437,7 @@ impl<'a> Monomorphizer<'a> {
     fn lower_function(
         &mut self,
         function: HirFunction,
-        substitutions: &HashMap<String, String>,
+        substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
         concrete_name: Option<String>,
     ) -> HirFunction {
         // Attribute any diagnostic raised while lowering this body to the file
@@ -459,7 +459,7 @@ impl<'a> Monomorphizer<'a> {
     fn lower_function_inner(
         &mut self,
         mut function: HirFunction,
-        substitutions: &HashMap<String, String>,
+        substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
         concrete_name: Option<String>,
     ) -> HirFunction {
         if let Some(name) = concrete_name {
@@ -599,22 +599,29 @@ impl<'a> Monomorphizer<'a> {
             return None;
         }
 
-        let mut substitutions = HashMap::new();
+        let param_symbols: HashSet<crate::intern::Symbol> = template
+            .template_params
+            .iter()
+            .map(|param| crate::intern::Symbol::intern(param))
+            .collect();
+        let mut substitutions: HashMap<crate::intern::Symbol, ParameterType> = HashMap::new();
         for (param, actual) in template.params.iter().zip(arg_types.iter()) {
-            let Some(pattern) = opt_type_name(&param.type_) else {
+            // An absent (`Unknown`) parameter annotation contributes no pattern —
+            // mirrors the old `opt_type_name(..) else continue`.
+            if matches!(param.type_, ParameterType::Unknown) {
                 continue;
-            };
-            let actual = self.template_view_type(actual);
+            }
+            let actual_name = self.template_view_type(actual);
             if !unify_type(
-                &pattern,
-                &actual,
-                &template.template_params,
+                &param.type_,
+                &ParameterType::parse(&actual_name),
+                &param_symbols,
                 &mut substitutions,
             ) {
                 self.report(
                     "TYPE_CALL_ARGUMENT_MISMATCH",
                     &format!(
-                        "Call to `{display}` cannot infer template arguments from `{actual}`."
+                        "Call to `{display}` cannot infer template arguments from `{actual_name}`."
                     ),
                     line,
                 );
@@ -625,7 +632,13 @@ impl<'a> Monomorphizer<'a> {
         let args = match template
             .template_params
             .iter()
-            .map(|param| substitutions.get(param).cloned())
+            .map(|param| {
+                // The mangled symbol is a string, so render the bound `ParameterType`
+                // at this deliberate string boundary.
+                substitutions
+                    .get(&crate::intern::Symbol::intern(param))
+                    .map(|type_| type_.name().into_owned())
+            })
             .collect::<Option<Vec<_>>>()
         {
             Some(args) => args,
@@ -637,7 +650,9 @@ impl<'a> Monomorphizer<'a> {
                 let missing = template
                     .template_params
                     .iter()
-                    .filter(|param| !substitutions.contains_key(*param))
+                    .filter(|param| {
+                        !substitutions.contains_key(&crate::intern::Symbol::intern(param))
+                    })
                     .cloned()
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -677,7 +692,10 @@ impl<'a> Monomorphizer<'a> {
             self.template_instantiation_depth += 1;
             let mut full_substitutions = HashMap::new();
             for (param, arg) in template.template_params.iter().zip(args.iter()) {
-                full_substitutions.insert(param.clone(), arg.clone());
+                full_substitutions.insert(
+                    crate::intern::Symbol::intern(param),
+                    crate::types::ParameterType::parse(arg),
+                );
             }
             let lowered =
                 self.lower_function(template, &full_substitutions, Some(concrete_name.clone()));
@@ -821,7 +839,10 @@ impl<'a> Monomorphizer<'a> {
         self.template_instantiation_depth += 1;
         let mut substitutions = HashMap::new();
         for (param, arg) in template.template_params.iter().zip(args.iter()) {
-            substitutions.insert(param.clone(), arg.clone());
+            substitutions.insert(
+                crate::intern::Symbol::intern(param),
+                crate::types::ParameterType::parse(arg),
+            );
         }
         let concrete = self.lower_type(template, &substitutions, Some(concrete_name.clone()));
         self.template_instantiation_depth -= 1;
@@ -832,7 +853,7 @@ impl<'a> Monomorphizer<'a> {
     fn lower_field(
         &mut self,
         field: &HirTypeField,
-        substitutions: &HashMap<String, String>,
+        substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
     ) -> HirTypeField {
         let mut lowered = field.clone();
         let type_name = field.type_.name().into_owned();
@@ -843,7 +864,7 @@ impl<'a> Monomorphizer<'a> {
     fn lower_statements(
         &mut self,
         statements: &[HirStatement],
-        substitutions: &HashMap<String, String>,
+        substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
         context: &mut FunctionContext,
     ) -> Vec<HirStatement> {
         statements
@@ -855,7 +876,7 @@ impl<'a> Monomorphizer<'a> {
     fn lower_statement(
         &mut self,
         statement: &HirStatement,
-        substitutions: &HashMap<String, String>,
+        substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
         context: &mut FunctionContext,
     ) -> HirStatement {
         match statement {
@@ -879,9 +900,14 @@ impl<'a> Monomorphizer<'a> {
                 let lowered_state = state_type
                     .as_ref()
                     .map(|state_type| self.concrete_type_name(state_type.name().as_ref(), substitutions));
-                let expected_source_type = type_name
-                    .as_ref()
-                    .map(|type_name| substitute_type_params(type_name, substitutions));
+                let expected_source_type = type_name.as_ref().map(|type_name| {
+                    substitute_type_params(
+                        &crate::types::ParameterType::parse(type_name),
+                        substitutions,
+                    )
+                    .name()
+                    .into_owned()
+                });
                 let lowered_value = value.as_ref().map(|value| {
                     self.lower_expression(
                         value,
@@ -1168,7 +1194,7 @@ impl<'a> Monomorphizer<'a> {
     fn lower_expression(
         &mut self,
         expression: &HirExpression,
-        substitutions: &HashMap<String, String>,
+        substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
         context: &mut FunctionContext,
         expected_type: Option<&str>,
         line: usize,
@@ -1332,6 +1358,11 @@ impl<'a> Monomorphizer<'a> {
                         unreachable!();
                     };
                     let mut inferred = HashMap::new();
+                    let param_set: std::collections::HashSet<crate::intern::Symbol> = template
+                        .template_params
+                        .iter()
+                        .map(|param| crate::intern::Symbol::intern(param))
+                        .collect();
                     let fields = match template.kind {
                         TypeDeclKind::Type => template.fields.clone(),
                         TypeDeclKind::Union => Vec::new(),
@@ -1342,9 +1373,9 @@ impl<'a> Monomorphizer<'a> {
                             self.expression_type(constructor_arg_value(argument), context)
                         {
                             unify_type(
-                                field.type_.name().as_ref(),
-                                &actual,
-                                &template.template_params,
+                                &field.type_,
+                                &crate::types::ParameterType::parse(&actual),
+                                &param_set,
                                 &mut inferred,
                             );
                         }
@@ -1352,7 +1383,11 @@ impl<'a> Monomorphizer<'a> {
                     let args = template
                         .template_params
                         .iter()
-                        .map(|param| inferred.get(param).cloned())
+                        .map(|param| {
+                            inferred
+                                .get(&crate::intern::Symbol::intern(param))
+                                .map(|type_| type_.name().into_owned())
+                        })
                         .collect::<Option<Vec<_>>>();
                     if let Some(args) = args {
                         concrete_type = Some(self.instantiate_type(&type_name, &args));
@@ -1526,7 +1561,7 @@ impl<'a> Monomorphizer<'a> {
     fn lower_constructor_arg(
         &mut self,
         argument: &HirConstructorArg,
-        substitutions: &HashMap<String, String>,
+        substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
         context: &mut FunctionContext,
         line: usize,
         expected_type: Option<&str>,
@@ -1560,14 +1595,14 @@ impl<'a> Monomorphizer<'a> {
     fn concrete_type_name(
         &mut self,
         type_name: &str,
-        substitutions: &HashMap<String, String>,
+        substitutions: &HashMap<crate::intern::Symbol, crate::types::ParameterType>,
     ) -> String {
         // A grouped type (`(T)`) is valid syntax the parser keeps verbatim;
         // unwrap it before matching so it isn't mis-parsed as a `(Map`-named
         // template and mangled into garbage (bug-105).
         let type_name = crate::types::strip_type_group(type_name);
-        if let Some(value) = substitutions.get(type_name) {
-            return value.clone();
+        if let Some(value) = substitutions.get(&crate::intern::Symbol::intern(type_name)) {
+            return value.name().into_owned();
         }
         if let Some(element) = type_name.strip_prefix("List OF ") {
             return format!(
