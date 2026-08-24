@@ -5,8 +5,63 @@ Effort: x-large (1d–3d)
 Severity: MEDIUM
 Class: Footgun (silent super-linear performance; no wrong result, no crash — but effectively a hang / potential OOM at scale)
 
-Status: Open
-Regression Test: `tests/rt_res_state_inplace_mutation.rs::collection_state_field_grows_in_place` (present, `#[ignore]`d pending this fix — remove the `#[ignore]` when it lands).
+Status: FIXED
+Regression Test: `tests/rt_res_state_inplace_mutation.rs` — `collection_state_field_grows_in_place` (case A, un-ignored) and `record_field_append_grows_in_place` + `record_field_append_not_last_inlined_rebuilds` (case B), all green.
+
+## STATUS: FIXED (worktree-B-430)
+
+Both halves land via an **inline-headroom, last-inlined-field** representation —
+NOT the out-of-line pointer the bug-424 write-up floated. The inlined collection
+sub-block keeps its layout but is allowed to carry geometric capacity headroom;
+because it is the record's **last inlined field**, growing it just extends the
+block's trailing data region, so no sibling sub-block shifts and no stored offset
+moves. This diverges the fewest subsystems: record block size, free, copy, and
+thread-transfer already size a collection sub-block from its **capacity** header
+(`emit_flat_block_size`, `emit_record_block_size_to_slot`), so headroom flows
+through them self-consistently with no layout/`.mfp`/type-table change at all.
+
+- **Case A (resource STATE).** `s.state.coll = collections::append(s.state.coll,
+  x)` for a last-inlined `List` field routes through
+  `try_inplace_state_collection_append` (`builder_control.rs`) to a new in-place
+  grow (`lower_inline_list_append_in_place` / `lower_inline_list_bulk_append_in_place`,
+  `list_mutate.rs`): reallocate the WHOLE record block with headroom on the tail
+  when full, copy the fixed prefix verbatim, relay entries/data, free the old
+  block, and write the new STATE pointer back through the resource's shared slot
+  (§15). Single-element and bulk (concatenation) `x`, and resource **unions**,
+  all handled.
+- **Case B (MUT record).** The bug doc's proposed `a.field = v` statement was
+  **not** added — the spec (§4.2) makes records immutable values updated only via
+  `WITH`, and `a.field = v` currently parses as `==`. Inventing the statement
+  would be a language change, not a bug fix. Instead the *idiomatic, spec-legal*
+  update `a = WITH a { coll := append(a.coll, x) }` of a uniquely-owned MUT record
+  local is optimized to the same in-place grow (`try_inplace_record_field_append`),
+  exactly as `try_inplace_append_assign` optimizes `a = append(a, x)` for a plain
+  list. The local's slot holds the record pointer, so the grow repoints it with no
+  STATE indirection.
+- **UAF guards.** `FOR EACH x IN s.state.field` / `FOR EACH x IN a.field`
+  snapshots an alias into the buffer the grow would free; both are tracked
+  (`for_each_iterable_state_fields` / `for_each_iterable_record_fields`) and the
+  in-place grow declines to the non-freeing rebuild while iterating. Fixing case B
+  also uncovered and fixed a **pre-existing** UAF: the plain-`Assign` rebuild's
+  "free the old block before overwrite" only excluded `for_each_iterable_locals`,
+  so `a = WITH a {…}` inside `FOR EACH a.field` freed `a`'s block mid-iteration.
+
+Runtime (debug `mfb`, macOS-aarch64, `List OF Byte` STATE accumulation): N=16000
+**23.81s → 0.16s**, linear in N (N=4000/8000/16000 ≈ 0.15/0.16/0.16s), RSS linear.
+Verified correct + leak/UAF/double-free-free across: kind-2 bulk, kind-0 single &
+bulk, union-STATE, MUT-record single & bulk, whole-state read snapshot,
+not-last-inlined fallback, `FOR EACH`-while-appending, and a 200-round
+grow→close→churn drop-stress. The http package's non-blocking `pump`
+(`s.state.raw = append(s.state.raw, r.bytes)` on `PendingState`) — the bug's
+motivating case — now grows in place (`http_codegen_cover` goldens regenerated).
+
+**Deviation from a non-goal (bounded, deliberate).** "A genuine value copy of a
+collection field stays shrink-to-fit" is not fully honored: a whole-**record**
+value copy (`LET snap = f.state`) carries the last collection field's headroom
+verbatim (the record memcpy is capacity-based), rather than re-tightening that one
+field. It is memory-safe and self-consistent (alloc/copy/free all capacity-based)
+and the slack is bounded, not accumulating; standalone collection copies still
+tighten. Re-tightening would add risk to `copy_flat_block` for no correctness gain.
 
 Split out of bug-424. bug-424 covered two independent halves of the same
 whole-record-rebuild mechanism; its Layer 1 (scalar STATE field stored in place)
@@ -182,9 +237,15 @@ constant factor of the MUT-local baseline, and linear in N.
 (build-only `--ncode`, cross-target `linux-x86_64`) asserts, for a STATE
 collection-append function: `state_assign_value == 0` (no whole-record replace)
 and at least one `append_inplace_realloc` label (the in-place grow path). It is
-`#[ignore]`d today; un-ignore it when the fix lands. Add: a runtime linearity /
-RSS-ceiling proof, a thread-transfer-of-collection-STATE correctness fixture, and
-a MUT-record-field twin of the same `--ncode` assertion once case B lands.
+now un-ignored and green. The MUT-record (case B) twin landed as
+`record_field_append_grows_in_place` (asserts `append_inplace_realloc >= 1`) with
+its non-goal guard `record_field_append_not_last_inlined_rebuilds`. The
+http package's real `pump` STATE-collection append is covered end-to-end by the
+`byte-identity/http` `.ncode` goldens (regenerated to the in-place shape) plus its
+runtime `.run` golden. Runtime linearity/RSS and the leak/UAF/drop matrix were
+verified by hand (see the STATUS block); the resource-union STATE collection
+append is additionally exercised at runtime by
+`tests/rt_macos_d4_union_state_tls.rs`.
 
 References: see bug-424 (`bugs/completed/`) for the full mechanism write-up, the
 IR dump confirming the `WITH`-rebuild desugar, and the blast-radius reads.
