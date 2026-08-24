@@ -153,25 +153,36 @@ None externally observable. HIR is internal; IR/wire format unchanged.
 
 ### Phase 1 — HIR node module + `elaborate` skeleton (decls), round-trip validated
 
-- [ ] Add `src/hir/` node types mirroring `ast/types.rs` decls, type fields
-      `ParameterType`, `RES`/`STATE` as sibling fields.
-- [ ] `elaborate` handles top-level decls (types, functions, bindings) on concrete
-      AST.
-- [ ] Tests: a HIR→string render (debug) round-trips a corpus of concrete decls to
-      the same type spellings the AST held (`ParameterType::name()` equality).
+Landed together with Phase 2 as one `src/hir/mod.rs` (953 lines, 16 HIR types) to
+avoid a stub-body HIR.
+
+- [x] Add `src/hir/` node types mirroring `ast/types.rs` decls, type fields
+      `ParameterType`, `RES`/`STATE` as sibling fields. (`HirProject`/`HirFile`/
+      `HirItem`/`HirFunction`/`HirTypeDecl`/`HirField`/`HirParam`/`HirBinding`/… —
+      type fields `ParameterType`, `resource: bool` + `state_type: Option<ParameterType>`
+      siblings; native/doc/testing `Item`s reuse the AST structs; `Copy` AST enums
+      reused directly.)
+- [x] `elaborate` handles top-level decls (types, functions, bindings) on concrete
+      AST via `ParameterType::parse` (absent annotation → `parse("Unknown")`).
+- [x] Tests: round-trips a corpus of concrete decls to the same type spellings the
+      AST held (`ParameterType::name()` equality). (5 unit tests.)
 
 Acceptance: round-trip test passes; `cargo test` green (nothing wired into the
-build path yet).
+build path yet). VERIFIED — 5/5 `hir::` tests pass; build + test-compile 0 errors/0
+warnings; module unwired.
 Commit: —
 
 ### Phase 2 — full `elaborate` (statements + expressions)
 
-- [ ] Extend `elaborate` to statements and expressions (the `type_name`/
-      `element_type`/`key_type`/… sites; measure them first).
-- [ ] Tests: `elaborate` produces a complete HIR for every fixture without panics;
-      HIR type spellings match the AST's.
+- [x] Extend `elaborate` to statements and expressions (all `Statement`/`Expression`
+      variants; `SetLiteral.element_type`/`MapLiteral.key/value_type`/`Constructor.type_`/
+      `MatchPattern::Union.type_` retyped to `ParameterType`; no silent catch-all —
+      exhaustive matches). Corrected the round-trip test's constructor case to bracket
+      syntax `Point[1,2]` (parens `Point(1,2)` fresh-parse to `Call`, not `Constructor`).
+- [x] Tests: `elaborate` produces a complete HIR for a mixed statement/expression
+      corpus without panics; HIR type spellings match the AST's.
 
-Acceptance: `elaborate` covers the whole fixture corpus; `cargo test` green.
+Acceptance: `elaborate` covers the corpus; `cargo test` green. VERIFIED (5/5 pass).
 Commit: —
 
 ### Phase 3 — switch `ir::lower` to HIR → IR
