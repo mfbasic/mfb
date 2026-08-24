@@ -55,7 +55,11 @@ fn build(root: &Path, source: &str) -> PathBuf {
     )
     .expect("write manifest");
     fs::write(root.join("src/main.mfb"), source).expect("write source");
-    let out = mfb().arg("build").arg(root).output().expect("run mfb build");
+    let out = mfb()
+        .arg("build")
+        .arg(root)
+        .output()
+        .expect("run mfb build");
     let combined = format!(
         "{}{}",
         String::from_utf8_lossy(&out.stdout),
