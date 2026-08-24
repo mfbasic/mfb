@@ -7,6 +7,7 @@ use crate::codegen::engine::function::*;
 use crate::codegen::engine::types::*;
 use crate::codegen::error::constants::*;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -260,7 +261,7 @@ impl TypeModel {
                         type_
                             .fields
                             .iter()
-                            .map(|field| (field.name.clone(), field.type_.name().into_owned()))
+                            .map(|field| (field.name.clone(), field.type_.clone()))
                             .collect(),
                     );
                 }
@@ -284,7 +285,7 @@ impl TypeModel {
                             variant
                                 .fields
                                 .iter()
-                                .map(|field| (field.name.clone(), field.type_.name().into_owned()))
+                                .map(|field| (field.name.clone(), field.type_.clone()))
                                 .collect(),
                         );
                     }
@@ -316,17 +317,17 @@ impl TypeModel {
         record_fields.insert(
             "Error".to_string(),
             vec![
-                ("code".to_string(), "Integer".to_string()),
-                ("message".to_string(), "String".to_string()),
-                ("source".to_string(), "ErrorLoc".to_string()),
+                ("code".to_string(), ParameterType::Integer),
+                ("message".to_string(), ParameterType::String),
+                ("source".to_string(), ParameterType::named("ErrorLoc")),
             ],
         );
         record_fields.insert(
             "ErrorLoc".to_string(),
             vec![
-                ("filename".to_string(), "String".to_string()),
-                ("line".to_string(), "Integer".to_string()),
-                ("char".to_string(), "Integer".to_string()),
+                ("filename".to_string(), ParameterType::String),
+                ("line".to_string(), ParameterType::Integer),
+                ("char".to_string(), ParameterType::Integer),
             ],
         );
         // plan-89-A/B: `AttributedString` is an opaque built-in laid out internally
@@ -348,23 +349,26 @@ impl TypeModel {
         record_fields.insert(
             "AttrSpan".to_string(),
             vec![
-                ("start".to_string(), "Integer".to_string()),
+                ("start".to_string(), ParameterType::Integer),
                 // `last` (not `end`): `end` is a reserved keyword and cannot follow
                 // `.` in the companion's member access. Field-identical to the
                 // companion's `AttrSpan`.
-                ("last".to_string(), "Integer".to_string()),
-                ("seq".to_string(), "Integer".to_string()),
-                ("class".to_string(), "Integer".to_string()),
-                ("member".to_string(), "Integer".to_string()),
-                ("text".to_string(), "String".to_string()),
-                ("number".to_string(), "Integer".to_string()),
+                ("last".to_string(), ParameterType::Integer),
+                ("seq".to_string(), ParameterType::Integer),
+                ("class".to_string(), ParameterType::Integer),
+                ("member".to_string(), ParameterType::Integer),
+                ("text".to_string(), ParameterType::String),
+                ("number".to_string(), ParameterType::Integer),
             ],
         );
         record_fields.insert(
             "AttributedString".to_string(),
             vec![
-                ("text".to_string(), "String".to_string()),
-                ("spans".to_string(), "List OF AttrSpan".to_string()),
+                ("text".to_string(), ParameterType::String),
+                (
+                    "spans".to_string(),
+                    ParameterType::list_of(ParameterType::named("AttrSpan")),
+                ),
             ],
         );
         // bug-374: record each user-declared resource's `CLOSE BY` op so
@@ -497,7 +501,7 @@ impl TypeModel {
                     type_export
                         .fields
                         .into_iter()
-                        .map(|field| (field.name, field.type_))
+                        .map(|field| (field.name, ParameterType::parse(&field.type_)))
                         .collect(),
                 );
             }
@@ -525,7 +529,7 @@ impl TypeModel {
                         variant
                             .fields
                             .into_iter()
-                            .map(|field| (field.name, field.type_))
+                            .map(|field| (field.name, ParameterType::parse(&field.type_)))
                             .collect(),
                     );
                 }

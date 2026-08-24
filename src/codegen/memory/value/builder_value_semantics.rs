@@ -337,7 +337,8 @@ impl CodeBuilder<'_> {
                 };
                 let mut field_slots = Vec::with_capacity(fields.len());
                 for (_, field_type) in &fields {
-                    let value = self.lower_default_value_inner(field_type, defaulting_unions)?;
+                    let value =
+                        self.lower_default_value_inner(&field_type.name(), defaulting_unions)?;
                     let slot = self.allocate_stack_object("default_record_field", 8);
                     self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
                     field_slots.push(slot);
@@ -400,7 +401,7 @@ impl CodeBuilder<'_> {
         };
         fields
             .iter()
-            .all(|(_, field_type)| self.default_value_materializable(field_type, visited))
+            .all(|(_, field_type)| self.default_value_materializable(&field_type.name(), visited))
     }
 
     pub(crate) fn lower_field_access(
@@ -459,8 +460,9 @@ impl CodeBuilder<'_> {
                         target_value.type_, member
                     ));
                 };
-                let inline_string = self.record_field_is_inlined(&target_value.type_, field_type);
-                (index, field_type.clone(), 0, inline_string)
+                let inline_string =
+                    self.record_field_is_inlined(&target_value.type_, &field_type.name());
+                (index, field_type.name().into_owned(), 0, inline_string)
             } else if let Some(fields) = self
                 .type_model
                 .union_variant_fields
@@ -476,7 +478,7 @@ impl CodeBuilder<'_> {
                         target_value.type_, member
                     ));
                 };
-                (index, field_type.clone(), 8, false)
+                (index, field_type.name().into_owned(), 8, false)
             } else if self.type_model.union_names.contains(&target_value.type_) {
                 // bug-147: a field name shared by two variants must resolve to a
                 // deterministic offset. Walk the variants in the stable
@@ -492,7 +494,7 @@ impl CodeBuilder<'_> {
                             .iter()
                             .enumerate()
                             .find(|(_, (name, _))| name == member)
-                            .map(|(index, (_, field_type))| (index, field_type.clone()))
+                            .map(|(index, (_, field_type))| (index, field_type.name().into_owned()))
                     })
                 else {
                     return Err(format!(
@@ -597,7 +599,7 @@ impl CodeBuilder<'_> {
             let slot = self.allocate_stack_object("with_old_field", 8);
             self.emit(abi::load_u64(base, abi::stack_pointer(), target_slot));
             self.emit(abi::load_u64(field, base, 8 * index));
-            if self.record_field_is_inlined(type_, field_type) {
+            if self.record_field_is_inlined(type_, &field_type.name()) {
                 self.emit(abi::add_registers(field, base, field));
             }
             self.emit(abi::store_u64(field, abi::stack_pointer(), slot));
@@ -913,11 +915,16 @@ impl CodeBuilder<'_> {
     pub(crate) fn static_type_name(&self, value: &NirValue) -> Option<String> {
         match value {
             NirValue::Const { type_, .. } => Some(type_.name().into_owned()),
-            NirValue::Local(name) => self.locals.get(name).map(|local| local.type_.clone()),
+            NirValue::Local(name) => self
+                .locals
+                .get(name)
+                .map(|local| local.type_.name().into_owned()),
             NirValue::LocalRef { type_, .. } => Some(type_.name().into_owned()),
             NirValue::Global { name, type_ } => {
                 if type_.name().is_empty() {
-                    self.globals.get(name).map(|global| global.type_.clone())
+                    self.globals
+                        .get(name)
+                        .map(|global| global.type_.name().into_owned())
                 } else {
                     Some(type_.name().into_owned())
                 }
@@ -1014,7 +1021,7 @@ impl CodeBuilder<'_> {
                         fields
                             .iter()
                             .find(|(name, _)| name == member)
-                            .map(|(_, type_)| type_.clone())
+                            .map(|(_, type_)| type_.name().into_owned())
                     });
                 if field_type.is_some() {
                     return field_type;

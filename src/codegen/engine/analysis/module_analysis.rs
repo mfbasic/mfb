@@ -90,9 +90,9 @@ fn type_requires_empty_string_constant(
     if !seen.insert(type_.to_string()) {
         return false;
     }
-    let result = fields
-        .iter()
-        .any(|(_, field_type)| type_requires_empty_string_constant(field_type, type_model, seen));
+    let result = fields.iter().any(|(_, field_type)| {
+        type_requires_empty_string_constant(&field_type.name(), type_model, seen)
+    });
     seen.remove(type_);
     result
 }
@@ -239,7 +239,7 @@ pub(crate) fn module_field_types(module: &NirModule) -> FieldTypes {
                 for field in &type_.fields {
                     fields.insert(
                         (type_.name.clone(), field.name.clone()),
-                        field.type_.name().into_owned(),
+                        field.type_.clone(),
                     );
                 }
             }
@@ -248,7 +248,7 @@ pub(crate) fn module_field_types(module: &NirModule) -> FieldTypes {
                     for field in &variant.fields {
                         fields.insert(
                             (variant.name.clone(), field.name.clone()),
-                            field.type_.name().into_owned(),
+                            field.type_.clone(),
                         );
                     }
                 }
@@ -291,7 +291,7 @@ pub(crate) fn module_may_emit_float_numeric_error(module: &NirModule) -> bool {
         let mut locals = function
             .params
             .iter()
-            .map(|param| (param.name.clone(), param.type_.name().into_owned()))
+            .map(|param| (param.name.clone(), param.type_.clone()))
             .collect::<HashMap<_, _>>();
         ops_may_emit_float_arithmetic_error(&function.body, &mut locals, &fields)
     })
@@ -299,7 +299,7 @@ pub(crate) fn module_may_emit_float_numeric_error(module: &NirModule) -> bool {
 
 fn ops_may_emit_float_arithmetic_error(
     ops: &[NirOp],
-    locals: &mut HashMap<String, String>,
+    locals: &mut HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> bool {
     for op in ops {
@@ -311,7 +311,7 @@ fn ops_may_emit_float_arithmetic_error(
                     value_may_emit_float_arithmetic_error(value, locals, fields)
                 });
                 if !type_.name().is_empty() {
-                    locals.insert(name.clone(), type_.name().into_owned());
+                    locals.insert(name.clone(), type_.clone());
                 }
                 emits
             }
@@ -365,7 +365,7 @@ fn ops_may_emit_float_arithmetic_error(
                 ..
             } => {
                 let mut body_locals = locals.clone();
-                body_locals.insert(name.clone(), type_.name().into_owned());
+                body_locals.insert(name.clone(), type_.clone());
                 matches!(type_, ParameterType::Float)
                     || value_may_emit_float_arithmetic_error(start, locals, fields)
                     || value_may_emit_float_arithmetic_error(end, locals, fields)
@@ -383,7 +383,7 @@ fn ops_may_emit_float_arithmetic_error(
                 body,
             } => {
                 let mut body_locals = locals.clone();
-                body_locals.insert(name.clone(), type_.name().into_owned());
+                body_locals.insert(name.clone(), type_.clone());
                 value_may_emit_float_arithmetic_error(iterable, locals, fields)
                     || ops_may_emit_float_arithmetic_error(body, &mut body_locals, fields)
             }
@@ -400,7 +400,7 @@ fn ops_may_emit_float_arithmetic_error(
 
 fn value_may_emit_float_arithmetic_error(
     value: &NirValue,
-    locals: &HashMap<String, String>,
+    locals: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> bool {
     match value {
@@ -410,10 +410,10 @@ fn value_may_emit_float_arithmetic_error(
             let result_type = static_nir_value_type(left, locals, fields)
                 .zip(static_nir_value_type(right, locals, fields))
                 .map(|(left_type, right_type)| {
-                    numeric_binary_result_type(op, &left_type, &right_type)
+                    typed_numeric_binary_result_type(op, &left_type, &right_type)
                 });
             (matches!(op.as_str(), "+" | "-" | "*" | "/" | "DIV" | "MOD" | "^")
-                && result_type == Some("Float"))
+                && result_type == Some(ParameterType::Float))
                 || value_may_emit_float_arithmetic_error(left, locals, fields)
                 || value_may_emit_float_arithmetic_error(right, locals, fields)
         }
@@ -450,7 +450,7 @@ fn value_may_emit_float_arithmetic_error(
         }
         NirValue::Unary { op, operand, .. } => {
             (op == "-"
-                && static_nir_value_type(operand, locals, fields).as_deref() == Some("Float"))
+                && static_nir_value_type(operand, locals, fields) == Some(ParameterType::Float))
                 || value_may_emit_float_arithmetic_error(operand, locals, fields)
         }
         NirValue::Closure { captures, .. } => captures
@@ -710,7 +710,7 @@ pub(crate) fn module_uses_unicode_runtime_tables(module: &NirModule) -> bool {
 fn ops_use_unicode_runtime_tables(
     ops: &[NirOp],
     constants: &mut HashMap<String, NirValue>,
-    types: &mut HashMap<String, String>,
+    types: &mut HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> bool {
     for op in ops {
@@ -718,7 +718,7 @@ fn ops_use_unicode_runtime_tables(
             NirOp::Bind {
                 name, type_, value, ..
             } => {
-                types.insert(name.clone(), type_.name().into_owned());
+                types.insert(name.clone(), type_.clone());
                 if let Some(value) = value {
                     if value_uses_unicode_runtime_tables(value, constants, types, fields) {
                         return true;
@@ -859,7 +859,7 @@ fn ops_use_unicode_runtime_tables(
                 let mut body_constants = constants.clone();
                 let mut body_types = types.clone();
                 body_constants.remove(name);
-                body_types.insert(name.clone(), type_.name().into_owned());
+                body_types.insert(name.clone(), type_.clone());
                 if ops_use_unicode_runtime_tables(
                     body,
                     &mut body_constants,
@@ -894,7 +894,7 @@ fn ops_use_unicode_runtime_tables(
                 let mut body_constants = constants.clone();
                 let mut body_types = types.clone();
                 body_constants.remove(name);
-                body_types.insert(name.clone(), type_.name().into_owned());
+                body_types.insert(name.clone(), type_.clone());
                 if ops_use_unicode_runtime_tables(
                     body,
                     &mut body_constants,
@@ -924,7 +924,7 @@ fn ops_use_unicode_runtime_tables(
 fn value_uses_unicode_runtime_tables(
     value: &NirValue,
     constants: &HashMap<String, NirValue>,
-    types: &HashMap<String, String>,
+    types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> bool {
     match value {
@@ -996,7 +996,7 @@ fn value_uses_unicode_runtime_tables(
 pub(crate) fn value_may_return_invalid_format(
     value: &NirValue,
     constants: &HashMap<String, NirValue>,
-    types: &HashMap<String, String>,
+    types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> bool {
     (match value {

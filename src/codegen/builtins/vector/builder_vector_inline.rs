@@ -324,7 +324,7 @@ impl CodeBuilder<'_> {
         let previous = self.locals.insert(
             len_name.clone(),
             LocalValue {
-                type_: "Float".to_string(),
+                type_: ParameterType::Float,
                 stack_offset: len_slot,
                 constant: None,
                 by_ref: false,

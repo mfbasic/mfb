@@ -95,8 +95,8 @@ impl CodeBuilder<'_> {
             else {
                 return Ok(false);
             };
-            if self.record_field_is_inlined(&type_.name(), field_type)
-                || self.record_field_is_pointer(field_type)
+            if self.record_field_is_inlined(&type_.name(), &field_type.name())
+                || self.record_field_is_pointer(&field_type.name())
             {
                 return Ok(false);
             }
@@ -127,7 +127,7 @@ impl CodeBuilder<'_> {
             .get(resource)
             .ok_or_else(|| format!("native code state assignment unknown local '{resource}'"))?;
         let stack_offset = local.stack_offset;
-        let resource_type = local.type_.clone();
+        let resource_type = local.type_.name().into_owned();
         let block = self.allocate_register()?;
         self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
         let record = self.emit_resource_record_ptr(&block, &resource_type)?;
@@ -185,10 +185,10 @@ impl CodeBuilder<'_> {
         let field_type = fields[index].1.clone();
         // Only a `List` (kind-0/1/2) grows in place here; a Map/Set is not an
         // `append` target.
-        if list_element_type(&field_type).is_none() {
+        if list_element_type(&field_type.name()).is_none() {
             return None;
         }
-        if !self.record_field_is_inlined(record_type, &field_type) {
+        if !self.record_field_is_inlined(record_type, &field_type.name()) {
             return None;
         }
         // No field after this one may be inlined, or growing this sub-block would
@@ -196,11 +196,11 @@ impl CodeBuilder<'_> {
         if fields
             .iter()
             .skip(index + 1)
-            .any(|(_, ft)| self.record_field_is_inlined(record_type, ft))
+            .any(|(_, ft)| self.record_field_is_inlined(record_type, &ft.name()))
         {
             return None;
         }
-        Some((index, field_type))
+        Some((index, field_type.name().into_owned()))
     }
 
     /// bug-430: recognize `s.state.coll = collections::append(s.state.coll, x)`
@@ -299,7 +299,7 @@ impl CodeBuilder<'_> {
             .get(resource)
             .ok_or_else(|| format!("native code state assignment unknown local '{resource}'"))?;
         let stack_offset = local.stack_offset;
-        let resource_type = local.type_.clone();
+        let resource_type = local.type_.name().into_owned();
         let state_slot = self.allocate_stack_object("inline_state_ptr", 8);
         let block = self.allocate_register()?;
         self.emit(abi::load_u64(&block, abi::stack_pointer(), stack_offset));
@@ -402,7 +402,7 @@ impl CodeBuilder<'_> {
                         self.locals.insert(
                             name.clone(),
                             LocalValue {
-                                type_: type_.name().into_owned(),
+                                type_: type_.clone(),
                                 stack_offset,
                                 constant,
                                 by_ref: by_ref_capture_slot,
@@ -773,7 +773,7 @@ impl CodeBuilder<'_> {
                     NirOp::StoreGlobal { name, type_, value } => {
                         let global = self.global_value(name)?;
                         let value_type = if type_.name().is_empty() {
-                            global.type_.clone()
+                            global.type_.name().into_owned()
                         } else {
                             type_.name().into_owned()
                         };
@@ -1064,7 +1064,7 @@ impl CodeBuilder<'_> {
                         // A resource union value is a `{tag, record-ptr}` block; the
                         // STATE lives in the active variant's record at `+8`
                         // (plan-74). Concrete resources address their record directly.
-                        let resource_type = local.type_.clone();
+                        let resource_type = local.type_.name().into_owned();
                         let result = self.lower_value(value)?;
                         // A register-native vector STATE payload materializes to its
                         // block here (identity otherwise; plan-01-vector).
@@ -1223,7 +1223,7 @@ impl CodeBuilder<'_> {
                                     case_locals.insert(
                                         name.clone(),
                                         LocalValue {
-                                            type_: type_.name().into_owned(),
+                                            type_: type_.clone(),
                                             stack_offset: local.stack_offset,
                                             constant: local.constant,
                                             by_ref: local.by_ref,
@@ -1349,7 +1349,7 @@ impl CodeBuilder<'_> {
                         iterable,
                         body,
                     } => {
-                        self.lower_for_each(name, &type_.name(), iterable, body)?;
+                        self.lower_for_each(name, type_, iterable, body)?;
                     }
                     NirOp::Trap { body, .. } => {
                         let (label, trap_name, trap_offset) = self
@@ -1366,7 +1366,7 @@ impl CodeBuilder<'_> {
                         self.locals.insert(
                             trap_name,
                             LocalValue {
-                                type_: "Error".to_string(),
+                                type_: ParameterType::named("Error"),
                                 stack_offset: trap_offset,
                                 constant: None,
                                 by_ref: false,
@@ -1601,7 +1601,7 @@ impl CodeBuilder<'_> {
         let previous = self.locals.insert(
             name.to_string(),
             LocalValue {
-                type_: type_.name().into_owned(),
+                type_: type_.clone(),
                 stack_offset: local_slot,
                 constant: None,
                 by_ref: false,
@@ -1798,7 +1798,7 @@ impl CodeBuilder<'_> {
             let Some(local) = self.locals.get(&name) else {
                 continue;
             };
-            if local.type_ != "Float" || local.by_ref {
+            if !matches!(local.type_, ParameterType::Float) || local.by_ref {
                 continue;
             }
             let stack_offset = local.stack_offset;
@@ -1858,7 +1858,7 @@ impl CodeBuilder<'_> {
     pub(crate) fn lower_for_each(
         &mut self,
         name: &str,
-        type_: &str,
+        type_: &ParameterType,
         iterable: &NirValue,
         body: &[NirOp],
     ) -> Result<(), String> {
@@ -2153,7 +2153,7 @@ impl CodeBuilder<'_> {
         let previous = self.locals.insert(
             name.to_string(),
             LocalValue {
-                type_: type_.to_string(),
+                type_: type_.clone(),
                 stack_offset: local_slot,
                 constant: None,
                 by_ref: false,

@@ -639,7 +639,7 @@ impl CodeBuilder<'_> {
             .map(|fields| {
                 fields
                     .iter()
-                    .any(|(_, ft)| self.record_field_is_inlined(record_type, ft))
+                    .any(|(_, ft)| self.record_field_is_inlined(record_type, &ft.name()))
             })
             .unwrap_or(false)
     }
@@ -795,7 +795,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), out_slot));
         for (index, (_, field_type)) in fields.iter().enumerate() {
-            if !self.record_field_is_inlined(record_type, field_type) {
+            if !self.record_field_is_inlined(record_type, &field_type.name()) {
                 continue;
             }
             // The field's own offset word at `8*index` is authoritative — and `0`
@@ -826,7 +826,7 @@ impl CodeBuilder<'_> {
             ));
             let inner_size_slot = self.allocate_stack_object("record_size_inner_size", 8);
             self.emit_inlined_block_size_from_ptr_slot(
-                field_type,
+                &field_type.name(),
                 inner_base_slot,
                 inner_size_slot,
             )?;
@@ -889,13 +889,13 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), size_slot));
         for (index, (_, field_type)) in fields.iter().enumerate() {
-            if !self.record_field_is_inlined(record_type, field_type) {
+            if !self.record_field_is_inlined(record_type, &field_type.name()) {
                 continue;
             }
             self.emit_align_offset_slot(size_slot, 8);
             let block_size_slot = self.allocate_stack_object("record_build_block_size", 8);
             self.emit_inlined_block_size_from_ptr_slot(
-                field_type,
+                &field_type.name(),
                 field_slots[index],
                 block_size_slot,
             )?;
@@ -934,7 +934,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), cursor_slot));
         for (index, (_, field_type)) in fields.iter().enumerate() {
-            if self.record_field_is_inlined(record_type, field_type) {
+            if self.record_field_is_inlined(record_type, &field_type.name()) {
                 self.emit_align_offset_slot(cursor_slot, 8);
                 // Slot stores the block-relative offset of the inlined sub-block.
                 self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), result_slot));
@@ -943,7 +943,7 @@ impl CodeBuilder<'_> {
                 // Compute the sub-block's byte size from the source pointer.
                 let block_size_slot = self.allocate_stack_object("record_fill_block_size", 8);
                 self.emit_inlined_block_size_from_ptr_slot(
-                    field_type,
+                    &field_type.name(),
                     field_slots[index],
                     block_size_slot,
                 )?;
@@ -2644,7 +2644,7 @@ fn type_is_flat_inner(
                 .cloned()
                 .unwrap_or_default()
                 .iter()
-                .all(|(_, ft)| type_is_flat_inner(model, ft, visited))
+                .all(|(_, ft)| type_is_flat_inner(model, &ft.name(), visited))
     } else if union_is_data(model, type_) {
         model
             .variants_for_union(type_)
@@ -2716,10 +2716,16 @@ pub(crate) fn union_is_data(model: &TypeModel, type_: &str) -> bool {
 /// codegen cannot reproduce without unbounded compile-time recursion.
 pub(crate) fn type_components(model: &TypeModel, type_: &str) -> Vec<String> {
     if let Some(fields) = model.record_fields.get(type_) {
-        return fields.iter().map(|(_, ft)| ft.clone()).collect();
+        return fields
+            .iter()
+            .map(|(_, ft)| ft.name().into_owned())
+            .collect();
     }
     if let Some(fields) = model.union_variant_fields.get(type_) {
-        return fields.iter().map(|(_, ft)| ft.clone()).collect();
+        return fields
+            .iter()
+            .map(|(_, ft)| ft.name().into_owned())
+            .collect();
     }
     if model.union_names.contains(type_) {
         return model.variants_for_union(type_).cloned().collect();

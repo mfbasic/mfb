@@ -13,13 +13,13 @@ use std::collections::HashMap;
 /// `static_nir_value_type` so a module-level walk can type `c.radius` the same
 /// way the builder does. Without it a `MemberAccess` operand types as `None` and
 /// every predicate built on this seam silently under-approximates (bug-363).
-pub(crate) type FieldTypes = HashMap<(String, String), String>;
+pub(crate) type FieldTypes = HashMap<(String, String), ParameterType>;
 
 pub(crate) fn static_nir_value_type(
     value: &NirValue,
-    locals: &HashMap<String, String>,
+    locals: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
-) -> Option<String> {
+) -> Option<ParameterType> {
     match value {
         NirValue::Const { type_, .. }
         | NirValue::LocalRef { type_, .. }
@@ -31,20 +31,23 @@ pub(crate) fn static_nir_value_type(
         | NirValue::WithUpdate { type_, .. }
         | NirValue::ListLiteral { type_, .. }
         | NirValue::SetLiteral { type_, .. }
-        | NirValue::MapLiteral { type_, .. } => Some(type_.name().into_owned()),
+        | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
         NirValue::Local(name) => locals.get(name).cloned(),
         NirValue::Binary {
             op, left, right, ..
         } => static_nir_value_type(left, locals, fields)
             .zip(static_nir_value_type(right, locals, fields))
             .map(|(left_type, right_type)| {
-                numeric_binary_result_type(op, &left_type, &right_type).to_string()
+                typed_numeric_binary_result_type(op, &left_type, &right_type)
             }),
         NirValue::Unary { operand, .. } => static_nir_value_type(operand, locals, fields),
         NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
             let arg_types = args
                 .iter()
-                .map(|arg| static_nir_value_type(arg, locals, fields))
+                .map(|arg| {
+                    static_nir_value_type(arg, locals, fields)
+                        .map(|type_| type_.name().into_owned())
+                })
                 .collect::<Option<Vec<_>>>()?;
             // plan-72-BB: the narrow `general`/`collections`/`strings` return-type
             // resolution (the argument-computed types codegen needs) goes through
@@ -52,36 +55,51 @@ pub(crate) fn static_nir_value_type(
             // package's computed return never widens this oracle (the aggregate is
             // byte-identical to each package's own `resolve_call`). Other builtins
             // fall through to the nominal `call_return_type_name`, as before.
+            // The per-argument `name()` render and the `parse` of the resolved
+            // return are the registry's string boundary — plan-104-C retypes it.
             match builtins::builtin_package_name(target) {
                 Some("general" | "collections" | "strings") => {
                     builtins::resolve_call_return_type(target, &arg_types, false)
                 }
                 _ => None,
             }
-            .or_else(|| builtins::call_return_type_name(target).map(std::borrow::Cow::into_owned))
+            .map(|type_| ParameterType::parse(&type_))
+            .or_else(|| {
+                builtins::call_return_type_name(target).map(|type_| ParameterType::parse(&type_))
+            })
         }
-        NirValue::ResultIsOk { .. } => Some("Boolean".to_string()),
-        NirValue::ResultValue { value } => static_nir_value_type(value, locals, fields)
-            .and_then(|type_| type_.strip_prefix("Result OF ").map(str::to_string)),
-        NirValue::ResultError { .. } => Some("Error".to_string()),
+        NirValue::ResultIsOk { .. } => Some(ParameterType::Boolean),
+        NirValue::ResultValue { value } => match static_nir_value_type(value, locals, fields)? {
+            ParameterType::ResultOf(success) => Some(*success),
+            _ => None,
+        },
+        NirValue::ResultError { .. } => Some(ParameterType::named("Error")),
         NirValue::MemberAccess { target, member } => {
             let target_type = static_nir_value_type(target, locals, fields)?;
             if member == "result" {
-                if let Some(output_type) = crate::types::parent_thread_output(&target_type) {
-                    return Some(format!("Result OF {output_type}"));
+                if let ParameterType::ThreadHandle {
+                    worker: false, out, ..
+                } = &target_type
+                {
+                    return Some(ParameterType::result_of((**out).clone()));
                 }
             }
             // Record and union-variant fields, then the two `MapEntry` members —
             // the same three sources `CodeBuilder::static_type_name` consults
             // (it grew its record/union arm in bug-366), so this walk types a
             // member read exactly as the lowering that follows it will (bug-363).
-            if let Some(field_type) = fields.get(&(target_type.clone(), member.clone())) {
+            // `FieldTypes` keys are nominal type NAMES, so the lookup renders
+            // the (scalar-cheap) name.
+            if let Some(field_type) = fields.get(&(target_type.name().into_owned(), member.clone()))
+            {
                 return Some(field_type.clone());
             }
-            let (key_type, value_type) = parse_map_entry_type(&target_type)?;
-            match member.as_str() {
-                "key" => Some(key_type),
-                "value" => Some(value_type),
+            match &target_type {
+                ParameterType::MapEntryOf(key_type, value_type) => match member.as_str() {
+                    "key" => Some((**key_type).clone()),
+                    "value" => Some((**value_type).clone()),
+                    _ => None,
+                },
                 _ => None,
             }
         }
@@ -132,7 +150,7 @@ pub(crate) fn collection_payload_alignment_for_code(code: usize) -> usize {
 pub(crate) fn local_constant_value_with_constants(
     value: &NirValue,
     constants: &HashMap<String, NirValue>,
-    types: &HashMap<String, String>,
+    types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> Option<NirValue> {
     match value {
@@ -191,7 +209,7 @@ pub(crate) fn strings_package_static_string_value(
     target: &str,
     args: &[NirValue],
     constants: &HashMap<String, NirValue>,
-    types: &HashMap<String, String>,
+    types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> Option<String> {
     let value = args
@@ -222,7 +240,7 @@ pub(crate) fn binary_may_consume_float_into_exact(
     op: &str,
     left: &NirValue,
     right: &NirValue,
-    types: &HashMap<String, String>,
+    types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> bool {
     if !matches!(op, "+" | "-" | "*" | "/" | "MOD" | "^") {
@@ -414,6 +432,26 @@ pub(crate) fn parse_map_entry_type(type_: &str) -> Option<(String, String)> {
 
 pub(crate) fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'static str {
     numeric::binary_result_type(operator, left, right).unwrap_or(numeric::TYPE_INTEGER)
+}
+
+/// Typed twin of [`numeric_binary_result_type`] (plan-104-B): renders the
+/// operand names (scalar renders are `Cow::Borrowed`, allocation-free), runs
+/// the one string algorithm in `numeric`, and maps its closed scalar result
+/// set back to variants with a static match — no parse. The string form
+/// survives for the still-shimmed consumer trees (deleted when its last
+/// string caller converts, per the plan's Open Decision).
+pub(crate) fn typed_numeric_binary_result_type(
+    operator: &str,
+    left: &ParameterType,
+    right: &ParameterType,
+) -> ParameterType {
+    match numeric_binary_result_type(operator, &left.name(), &right.name()) {
+        "Byte" => ParameterType::Byte,
+        "Float" => ParameterType::Float,
+        "Fixed" => ParameterType::Fixed,
+        "Money" => ParameterType::Money,
+        _ => ParameterType::Integer,
+    }
 }
 
 pub(crate) fn native_immediate_value(type_: &str, value: &str) -> Result<String, String> {

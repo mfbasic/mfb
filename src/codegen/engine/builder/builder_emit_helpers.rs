@@ -228,7 +228,11 @@ impl CodeBuilder<'_> {
                     .get(target)
                     .map(|function| function.returns.name().into_owned())
             })
-            .or_else(|| self.package_return_types.get(target).cloned())
+            .or_else(|| {
+                self.package_return_types
+                    .get(target)
+                    .map(|type_| type_.name().into_owned())
+            })
             .unwrap_or_else(|| "Unknown".to_string());
         if result_type == "Nothing" {
             if return_type.is_none() {

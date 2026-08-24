@@ -31,7 +31,7 @@ impl CodeBuilder<'_> {
         if self
             .locals
             .get(name)
-            .is_some_and(|local| Self::is_thread_type(&local.type_))
+            .is_some_and(|local| Self::is_thread_type(&local.type_.name()))
         {
             self.deactivate_thread_cleanup(name);
         }

@@ -14,6 +14,7 @@ use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir;
 use crate::target::shared::nir::*;
+use crate::types::ParameterType;
 use std::collections::HashMap;
 use std::collections::HashSet;
 pub(crate) fn expanded_nir_union_variants<'a>(
@@ -799,7 +800,7 @@ pub(crate) fn lower_function(
     function: &NirFunction,
     function_symbols: &HashMap<String, String>,
     functions: &HashMap<String, &NirFunction>,
-    package_return_types: &HashMap<String, String>,
+    package_return_types: &HashMap<String, ParameterType>,
     platform_imports: &HashMap<String, String>,
     platform: &dyn crate::codegen::engine::types::CodegenPlatform,
     build_mode: crate::target::NativeBuildMode,
@@ -915,7 +916,9 @@ pub(crate) fn lower_function(
         builder.locals.insert(
             param.name.clone(),
             LocalValue {
-                type_: param.type_.clone(),
+                // The typed NIR param, not the rendered `CodeParam` string —
+                // `params[i]` was built 1:1 from `function.params[i]` above.
+                type_: function.params[index].type_.clone(),
                 stack_offset,
                 constant: None,
                 by_ref: false,
@@ -956,7 +959,7 @@ pub(crate) fn lower_function(
         builder.locals.insert(
             name.clone(),
             LocalValue {
-                type_: "Error".to_string(),
+                type_: ParameterType::named("Error"),
                 stack_offset,
                 constant: None,
                 by_ref: false,
@@ -1097,7 +1100,7 @@ pub(crate) fn lower_builtin_function_wrapper(
     symbol: &str,
     function_symbols: &HashMap<String, String>,
     functions: &HashMap<String, &NirFunction>,
-    package_return_types: &HashMap<String, String>,
+    package_return_types: &HashMap<String, ParameterType>,
     platform_imports: &HashMap<String, String>,
     platform: &dyn crate::codegen::engine::types::CodegenPlatform,
     build_mode: crate::target::NativeBuildMode,
@@ -1193,7 +1196,9 @@ pub(crate) fn lower_builtin_function_wrapper(
     builder.locals.insert(
         "value".to_string(),
         LocalValue {
-            type_: param.type_.clone(),
+            // The wrapper's param type arrives as a `FUNC(...)` string split
+            // (a registry-descriptor boundary until plan-104-C); parse once here.
+            type_: ParameterType::parse(&param.type_),
             stack_offset,
             constant: None,
             by_ref: false,
@@ -1289,7 +1294,7 @@ pub(crate) fn lower_abi_function_helper(
     // duration of this call.
     let function_symbols: HashMap<String, String> = HashMap::new();
     let functions: HashMap<String, &NirFunction> = HashMap::new();
-    let package_return_types: HashMap<String, String> = HashMap::new();
+    let package_return_types: HashMap<String, ParameterType> = HashMap::new();
     let globals: HashMap<String, GlobalValue> = HashMap::new();
     let string_symbols: HashMap<String, String> = HashMap::new();
 
@@ -1428,7 +1433,7 @@ pub(crate) fn lower_thread_copy_function(
     symbol: &str,
     function_symbols: &HashMap<String, String>,
     functions: &HashMap<String, &NirFunction>,
-    package_return_types: &HashMap<String, String>,
+    package_return_types: &HashMap<String, ParameterType>,
     platform_imports: &HashMap<String, String>,
     platform: &dyn crate::codegen::engine::types::CodegenPlatform,
     build_mode: crate::target::NativeBuildMode,

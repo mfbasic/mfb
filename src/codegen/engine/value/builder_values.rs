@@ -334,7 +334,7 @@ impl CodeBuilder<'_> {
             NirValue::Local(name) => self
                 .locals
                 .get(name)
-                .map(|local| local.type_.clone())
+                .map(|local| local.type_.name().into_owned())
                 .unwrap_or_default(),
             _ => String::new(),
         }
@@ -422,6 +422,7 @@ impl CodeBuilder<'_> {
                     .get(name)
                     .ok_or_else(|| format!("native code local '{name}' does not resolve"))?;
                 let type_ = local.type_.clone();
+                let type_name = type_.name().into_owned();
                 let stack_offset = local.stack_offset;
                 let by_ref = local.by_ref;
                 // A non-aliased `Float` local loads straight into an FP register
@@ -429,12 +430,12 @@ impl CodeBuilder<'_> {
                 // arithmetic with no `ldr x` + `fmov` shuttle (plan-01
                 // float-dnative). A `by_ref` local needs a pointer deref first, so
                 // it stays on the GPR path.
-                if self.dnative_floats() && type_ == "Float" && !by_ref {
+                if self.dnative_floats() && matches!(type_, ParameterType::Float) && !by_ref {
                     let d = self.allocate_fp_register()?;
                     self.emit(abi::load_double(&d, abi::stack_pointer(), stack_offset));
                     return Ok(ValueResult {
                         origin: None,
-                        type_,
+                        type_: type_name,
                         location: Operand::from(d.render()),
                         text: name.clone(),
                     });
@@ -450,7 +451,7 @@ impl CodeBuilder<'_> {
                 }
                 Ok(ValueResult {
                     origin: None,
-                    type_,
+                    type_: type_name,
                     location: Operand::from(register.render()),
                     text: name.clone(),
                 })
@@ -486,18 +487,18 @@ impl CodeBuilder<'_> {
                 let value_type = if type_.name().is_empty() {
                     global.type_.clone()
                 } else {
-                    type_.name().into_owned()
+                    type_.clone()
                 };
                 let address = self.load_global_address(name)?;
                 // A `Float` global loads straight into an FP register under the
                 // `d`-native model (plan-01 float-dnative), mirroring the local
                 // load path.
-                if self.dnative_floats() && value_type == "Float" {
+                if self.dnative_floats() && matches!(value_type, ParameterType::Float) {
                     let d = self.allocate_fp_register()?;
                     self.emit(abi::load_double(&d, &address, 0));
                     return Ok(ValueResult {
                         origin: None,
-                        type_: value_type,
+                        type_: value_type.name().into_owned(),
                         location: Operand::from(d.render()),
                         text: name.clone(),
                     });
@@ -506,7 +507,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&register, &address, 0));
                 Ok(ValueResult {
                     origin: None,
-                    type_: value_type,
+                    type_: value_type.name().into_owned(),
                     location: Operand::from(register.render()),
                     text: name.clone(),
                 })
@@ -711,16 +712,14 @@ impl CodeBuilder<'_> {
                 // zip migrated to Implementation::Mfb.fast_path (func_zip.rs),
                 // consulted by try_mfb_fast_path below.
                 if let Some(local) = self.locals.get(target).cloned() {
-                    if local.type_.starts_with("FUNC(") {
-                        let return_type = callable_return_type(&local.type_).ok_or_else(|| {
-                            format!(
-                                "native call through `{target}` has invalid callable type `{}`",
-                                local.type_
-                            )
-                        })?;
+                    if matches!(local.type_, ParameterType::Func(_, _, false)) {
+                        let ParameterType::Func(_, return_type, _) = local.type_.clone() else {
+                            unreachable!("guarded by the Func match above");
+                        };
+                        let return_type = return_type.name().into_owned();
                         let callable = ValueResult {
                             origin: None,
-                            type_: local.type_,
+                            type_: local.type_.name().into_owned(),
                             location: {
                                 let register = self.allocate_register()?;
                                 self.emit(abi::load_u64(
@@ -744,19 +743,17 @@ impl CodeBuilder<'_> {
                 // indirectly too (bug-198): load the function pointer from the
                 // global's arena slot, mirroring the local FUNC-value path above.
                 if let Some(global) = self.globals.get(target).cloned() {
-                    if global.type_.starts_with("FUNC(") {
-                        let return_type = callable_return_type(&global.type_).ok_or_else(|| {
-                            format!(
-                                "native call through global `{target}` has invalid callable type `{}`",
-                                global.type_
-                            )
-                        })?;
+                    if matches!(global.type_, ParameterType::Func(_, _, false)) {
+                        let ParameterType::Func(_, return_type, _) = global.type_.clone() else {
+                            unreachable!("guarded by the Func match above");
+                        };
+                        let return_type = return_type.name().into_owned();
                         let address = self.load_global_address(target)?;
                         let register = self.allocate_register()?;
                         self.emit(abi::load_u64(&register, &address, 0));
                         let callable = ValueResult {
                             origin: None,
-                            type_: global.type_,
+                            type_: global.type_.name().into_owned(),
                             location: Operand::from(register.render()),
                             text: target.clone(),
                         };
@@ -879,16 +876,14 @@ impl CodeBuilder<'_> {
             }
             NirValue::CallResult { target, args, .. } => {
                 if let Some(local) = self.locals.get(target).cloned() {
-                    if local.type_.starts_with("FUNC(") {
-                        let return_type = callable_return_type(&local.type_).ok_or_else(|| {
-                            format!(
-                                "native raw call through `{target}` has invalid callable type `{}`",
-                                local.type_
-                            )
-                        })?;
+                    if matches!(local.type_, ParameterType::Func(_, _, false)) {
+                        let ParameterType::Func(_, return_type, _) = local.type_.clone() else {
+                            unreachable!("guarded by the Func match above");
+                        };
+                        let return_type = return_type.name().into_owned();
                         let callable = ValueResult {
                             origin: None,
-                            type_: local.type_,
+                            type_: local.type_.name().into_owned(),
                             location: {
                                 let register = self.allocate_register()?;
                                 self.emit(abi::load_u64(
@@ -1034,7 +1029,11 @@ impl CodeBuilder<'_> {
                     .functions
                     .get(target)
                     .map(|function| function.returns.name().into_owned())
-                    .or_else(|| self.package_return_types.get(target).cloned())
+                    .or_else(|| {
+                        self.package_return_types
+                            .get(target)
+                            .map(|type_| type_.name().into_owned())
+                    })
                     .or_else(|| {
                         builtins::call_return_type_name(target).map(std::borrow::Cow::into_owned)
                     })

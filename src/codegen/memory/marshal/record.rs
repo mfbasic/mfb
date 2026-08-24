@@ -83,13 +83,13 @@ pub(crate) fn emit_build_inlined_record(
         abi::store_u64("%v9", abi::stack_pointer(), scratch.size),
     ]);
     for (index, (_, field_type)) in fields.iter().enumerate() {
-        if !record_field_is_inlined(type_model, record_type, field_type) {
+        if !record_field_is_inlined(type_model, record_type, &field_type.name()) {
             continue;
         }
         emit_align_slot(scratch.size, instructions);
         emit_inlined_block_size(
             type_model,
-            field_type,
+            &field_type.name(),
             field_slots[index],
             scratch.block_size,
             record_type,
@@ -121,7 +121,7 @@ pub(crate) fn emit_build_inlined_record(
         abi::store_u64("%v9", abi::stack_pointer(), scratch.cursor),
     ]);
     for (index, (_, field_type)) in fields.iter().enumerate() {
-        if record_field_is_inlined(type_model, record_type, field_type) {
+        if record_field_is_inlined(type_model, record_type, &field_type.name()) {
             emit_align_slot(scratch.cursor, instructions);
             // Slot stores the block-relative offset of the inlined sub-block.
             instructions.extend([
@@ -131,7 +131,7 @@ pub(crate) fn emit_build_inlined_record(
             ]);
             emit_inlined_block_size(
                 type_model,
-                field_type,
+                &field_type.name(),
                 field_slots[index],
                 scratch.block_size,
                 record_type,

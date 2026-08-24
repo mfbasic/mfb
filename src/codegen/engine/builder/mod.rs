@@ -3,6 +3,7 @@ use crate::codegen::io::stdin::lower_stdin_recompute_base;
 use crate::codegen::io::stdin::lower_stdin_subscribe;
 use crate::codegen::io::stdin::lower_stdin_unsubscribe;
 use crate::codegen::io::stdin::stdin_log_data_object;
+use crate::types::ParameterType;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -115,7 +116,7 @@ pub(crate) struct CodeBuilder<'a> {
     pub(crate) current_symbol: String,
     pub(crate) function_symbols: &'a HashMap<String, String>,
     pub(crate) functions: &'a HashMap<String, &'a NirFunction>,
-    pub(crate) package_return_types: &'a HashMap<String, String>,
+    pub(crate) package_return_types: &'a HashMap<String, ParameterType>,
     pub(crate) platform_imports: &'a HashMap<String, String>,
     /// The target platform, threaded so builder-driven lowerings (the `AbiLower`
     /// experiment) can reach per-OS emission / DL resolution through `AbiCtx`
@@ -412,7 +413,7 @@ pub(crate) struct CodeBuilder<'a> {
 
 #[derive(Clone)]
 pub(crate) struct LocalValue {
-    pub(crate) type_: String,
+    pub(crate) type_: ParameterType,
     pub(crate) stack_offset: usize,
     pub(crate) constant: Option<NirValue>,
     /// A *reference* local: the stack slot holds a pointer to another binding's
@@ -425,7 +426,7 @@ pub(crate) struct LocalValue {
 
 #[derive(Clone)]
 pub(crate) struct GlobalValue {
-    pub(crate) type_: String,
+    pub(crate) type_: ParameterType,
     pub(crate) offset: usize,
 }
 
@@ -614,12 +615,12 @@ pub(crate) struct CollectionTypeLayout {
 #[derive(Clone)]
 pub(crate) struct TypeModel {
     pub(crate) enum_members: HashMap<(String, String), usize>,
-    pub(crate) record_fields: HashMap<String, Vec<(String, String)>>,
+    pub(crate) record_fields: HashMap<String, Vec<(String, ParameterType)>>,
     pub(crate) union_names: HashSet<String>,
     pub(crate) union_variants: HashMap<String, String>,
     pub(crate) union_variant_unions: HashMap<String, HashSet<String>>,
     pub(crate) union_variant_tags: HashMap<String, usize>,
-    pub(crate) union_variant_fields: HashMap<String, Vec<(String, String)>>,
+    pub(crate) union_variant_fields: HashMap<String, Vec<(String, ParameterType)>>,
     /// Names of the module's user-declared `RESOURCE` types. Built-in resources
     /// are recognized by `builtins::is_resource_type`; a `RESOURCE Db CLOSE BY …`
     /// is not, so without this set codegen could not tell `Db` from an unknown
@@ -712,7 +713,7 @@ pub(crate) fn lower_module_for_platform(
             (
                 global.name.clone(),
                 GlobalValue {
-                    type_: global.type_.name().into_owned(),
+                    type_: global.type_.clone(),
                     offset: ENTRY_GLOBALS_OFFSET + index * 8,
                 },
             )
@@ -738,11 +739,13 @@ pub(crate) fn lower_module_for_platform(
         .collect::<Vec<_>>();
     // Native `LINK` function return types (keyed `alias.func`) so calls used in
     // expressions resolve their result type (plan-linker.md §12).
-    let mut package_return_types: HashMap<String, String> = HashMap::new();
+    // The LINK block's C-boundary type strings are a genuine string source;
+    // parse once here (plan-104-B census: type-valued map).
+    let mut package_return_types: HashMap<String, ParameterType> = HashMap::new();
     for function in &module.link_functions {
         package_return_types.insert(
             format!("{}.{}", function.alias, function.name),
-            function.return_type.clone(),
+            ParameterType::parse(&function.return_type),
         );
     }
     for import in &module.imports {
@@ -754,7 +757,7 @@ pub(crate) fn lower_module_for_platform(
             .find(|function| {
                 nir::link_thunk_symbol(&function.alias, &function.name) == import.symbol
             })
-            .map(|function| function.return_type.clone())
+            .map(|function| ParameterType::parse(&function.return_type))
         {
             package_return_types
                 .entry(import.name.clone())

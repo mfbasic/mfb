@@ -170,22 +170,61 @@ Symbol/name-valued — STAY `String`:
 | `tests/test_support.rs` platform_imports params | test twins | follow production |
 
 Acceptance: the tagged map list is recorded in this section.
-Commit: —
+Commit: 7c0ecf8fa
 
 ### Phase 2 — stores + oracle + engine read sites native
 
-- [ ] `LocalValue.type_` → `ParameterType` (`builder/mod.rs`); repoint the 11
-      construction sites and the engine's `.type_` reads.
-- [ ] `FieldTypes` values → `ParameterType`; `module_field_types` builder and
-      the module-analysis walks thread `HashMap<String, ParameterType>`.
-- [ ] `static_nir_value_type` → `Option<ParameterType>` (typed
-      `numeric_binary_result_type` twin; structural container rebuilds; registry
-      fallback renders `.name()` per arg); repoint the 12 callers.
-- [ ] Convert the type-valued maps from Phase 1's census; leave symbol maps.
-- [ ] Native matches for the engine's 8 scalar-compare files and its structural
-      `strip_prefix` tests.
-- [ ] Tests: engine unit tests updated (fixtures build `ParameterType` via
-      `parse`; assertions preserved via `.name()` where they check spellings).
+- [x] `LocalValue.type_` → `ParameterType` (`builder/mod.rs`); repoint the 11
+      construction sites and the engine's `.type_` reads. **Also
+      `GlobalValue.type_`** (LocalValue's global twin, missed by the
+      HashMap-shaped census — same store family, converted with it), and the
+      FUNC-callable local/global call arms went structural
+      (`ParameterType::Func(_, _, false)` match preserving the plain-`FUNC(`
+      isolation exclusion) with the return type destructured, not string-split.
+- [x] `FieldTypes` values → `ParameterType`; `module_field_types` builder and
+      the module-analysis walks thread `HashMap<String, ParameterType>` (the
+      data_objects pre-pass walks sharing those maps flipped their `types`
+      params with it).
+- [x] `static_nir_value_type` → `Option<ParameterType>` (typed
+      `typed_numeric_binary_result_type` twin — renders operand names, runs the
+      one `numeric` algorithm, maps the closed scalar result set back with a
+      static match, no parse; `ResultOf`/`MapEntryOf`/`ThreadHandle` arms
+      structural; registry fallback renders `.name()` per arg + parses the
+      resolved return — the plan-104-C boundary, commented as such); the 12
+      callers consume the typed result.
+- [x] Convert the type-valued maps from Phase 1's census; leave symbol maps.
+      (`package_return_types` parses the LINK block's C-boundary strings at
+      build and renders at its two readers — the reader chains merge `&str`
+      params from builtins, C's seam. `TypeModel.record_fields`/
+      `union_variant_fields` values typed; `link_thunk`'s three signatures
+      followed — it reads only field names.)
+- [x] Native matches for the engine's scalar compares and structural tests
+      **where the operand is a typed store**; the survivors are annotated
+      below.
+- [x] Tests: engine unit tests compile untouched (`cargo check --all-targets`
+      0 errors/warnings); the one link_thunk fixture builds typed field lists.
+
+**Survivor annotation (measured post-conversion):** engine scalar-compare
+census `rg -n '== "(Integer|…|Scalar)"' src/codegen/engine/` → **24**, and
+structural-test census → **15**; every one operates on a `String`/`&str`
+carrier, none on a typed store:
+
+- `ValueResult.type_` reads (13 compares + 3 structural): the lowering
+  interchange struct stays `String` in B — it is the builtins boundary, typed
+  no earlier than C/D.
+- `type_utils`' shared string-vocabulary helpers (11 structural sites:
+  `is_collection_type`/`list_element_type`/`map_type_parts`/…): serve every
+  still-shimmed tree; C converts their codegen call sites (plan-104-C §3
+  Rejected alternatives keeps the helpers).
+- `emit_call`/`emit_call_result` `result_type` chains (3 compares): merge an
+  `Option<&str>` parameter passed by builtins callers — C's seam.
+- `ProgramEntrySpec.language_entry_returns: &str` (2 compares): consumed by the
+  per-arch backends — D's scope.
+- `builder_numeric` string-algorithm internals (3 compares incl.
+  `numeric_binary_result_type(...) == "Float"` on `static_type_name` strings),
+  `is_freeable_flat_value`/`type_requires_empty_string_constant` `&str`-param
+  helpers (2), `IrLinkFunction.return_type` wire string (1),
+  `validation.rs` `&str`-param walk (1 structural).
 
 Acceptance: `cargo test --no-fail-fast` green; `artifact-gate all` no NEW diff
 vs `planning/plan-104-baseline-diffs.txt`; engine scalar-compare census

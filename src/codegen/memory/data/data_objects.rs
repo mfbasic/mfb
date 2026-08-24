@@ -614,7 +614,7 @@ pub(crate) fn unicode_string_call_is_static(
     target: &str,
     args: &[NirValue],
     constants: &HashMap<String, NirValue>,
-    types: &HashMap<String, String>,
+    types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> bool {
     matches!(
@@ -812,10 +812,10 @@ fn collect_string_values_from_function(
     fields: &FieldTypes,
 ) {
     let mut constants = HashMap::new();
-    let mut types: HashMap<String, String> = function
+    let mut types: HashMap<String, ParameterType> = function
         .params
         .iter()
-        .map(|param| (param.name.clone(), param.type_.name().into_owned()))
+        .map(|param| (param.name.clone(), param.type_.clone()))
         .collect();
     collect_string_values_from_ops_with_constants(
         &function.body,
@@ -830,7 +830,7 @@ fn collect_string_values_from_ops_with_constants(
     ops: &[NirOp],
     values: &mut Vec<String>,
     constants: &mut HashMap<String, NirValue>,
-    types: &mut HashMap<String, String>,
+    types: &mut HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) {
     for op in ops {
@@ -838,7 +838,7 @@ fn collect_string_values_from_ops_with_constants(
             NirOp::Bind {
                 name, type_, value, ..
             } => {
-                types.insert(name.clone(), type_.name().into_owned());
+                types.insert(name.clone(), type_.clone());
                 if let Some(value) = value {
                     collect_string_values_from_value(value, values, constants, types, fields);
                     if let Some(constant) =
@@ -979,7 +979,7 @@ fn collect_string_values_from_ops_with_constants(
                 let mut body_constants = constants.clone();
                 let mut body_types = types.clone();
                 body_constants.remove(name);
-                body_types.insert(name.clone(), type_.name().into_owned());
+                body_types.insert(name.clone(), type_.clone());
                 collect_string_values_from_ops_with_constants(
                     body,
                     values,
@@ -1010,7 +1010,7 @@ fn collect_string_values_from_ops_with_constants(
                 let mut body_constants = constants.clone();
                 let mut body_types = types.clone();
                 body_constants.remove(name);
-                body_types.insert(name.clone(), type_.name().into_owned());
+                body_types.insert(name.clone(), type_.clone());
                 collect_string_values_from_ops_with_constants(
                     body,
                     values,
@@ -1038,7 +1038,7 @@ fn collect_string_values_from_value(
     value: &NirValue,
     values: &mut Vec<String>,
     constants: &HashMap<String, NirValue>,
-    types: &HashMap<String, String>,
+    types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) {
     if let Some(value) = static_string_value_with_constants(value, constants, types, fields) {
@@ -1140,7 +1140,7 @@ fn push_string_value(values: &mut Vec<String>, value: String) {
 pub(crate) fn static_string_value_with_constants(
     value: &NirValue,
     constants: &HashMap<String, NirValue>,
-    types: &HashMap<String, String>,
+    types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> Option<String> {
     match value {
@@ -1181,12 +1181,12 @@ pub(crate) fn static_string_value_with_constants(
 
 pub(crate) fn static_type_name_with_types(
     value: &NirValue,
-    types: &HashMap<String, String>,
+    types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> Option<String> {
     match value {
         NirValue::Const { type_, .. } => Some(type_.name().into_owned()),
-        NirValue::Local(name) => types.get(name).cloned(),
+        NirValue::Local(name) => types.get(name).map(|type_| type_.name().into_owned()),
         NirValue::LocalRef { type_, .. } => Some(type_.name().into_owned()),
         NirValue::Global { type_, .. } if !type_.name().is_empty() => {
             Some(type_.name().into_owned())
@@ -1276,7 +1276,7 @@ pub(crate) fn static_type_name_with_types(
             // `typeName(rec.field)` failed to lower at all, and the
             // ERR_INVALID_FORMAT gate missed a promoting Float operand (bug-366).
             if let Some(field_type) = fields.get(&(target_type.clone(), member.clone())) {
-                return Some(field_type.clone());
+                return Some(field_type.name().into_owned());
             }
             let (key_type, value_type) = parse_map_entry_type(&target_type)?;
             match member.as_str() {
@@ -1300,7 +1300,7 @@ pub(crate) fn static_type_name_with_types(
 /// keep their exact current answers.
 pub(crate) fn static_type_name_for_fold_with_types(
     value: &NirValue,
-    types: &HashMap<String, String>,
+    types: &HashMap<String, ParameterType>,
     fields: &FieldTypes,
 ) -> Option<String> {
     if let Some(type_name) = static_type_name_with_types(value, types, fields) {
