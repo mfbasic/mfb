@@ -111,25 +111,63 @@ None. Diagnostics unchanged (goldens guard this).
 
 ### Phase 1 — redundancy census
 
-- [ ] Enumerate resolver/`syntaxcheck` type checks; tag each (a)/(b)/(c). Record the
-      list in this file.
-- [ ] Measure the scalar-compare / rule-code counts (§2 UNMEASURED rows).
+- [x] Enumerate resolver/`syntaxcheck` type checks; tag each (a)/(b)/(c). Record the
+      list in this file. **Tagged inventory (2026-08-23, all measured):**
+      * **(a) redundant with `elaborate`/HIR: EMPTY (∅).** `elaborate`/HIR performs
+        **zero** checking — `rg -c 'emit|report|diagnostic|show_diagnostic'
+        src/hir/mod.rs` → 0. The *executed* feature deliberately kept elaboration
+        check-free: C's Non-goals deferred check relocation, and D2 (overload
+        relocation into elaborate) was proven moot because overload selection is
+        instantiation-dependent (see plan-102-D Corrections). No rule is checked
+        twice — once on strings and once on HIR — because HIR checks nothing. The
+        premise of this sub-plan ("elaborate owns … overload resolution … the
+        string-based type analysis is largely a second, redundant implementation")
+        described the *envisioned* D, not the executed one.
+      * **(b) AST-syntax-only rules (stay):** all of `syntaxcheck`'s source-path
+        rules per the plan-20-Z split (`src/cli/build/mod.rs:350`) — named args,
+        EXIT flavors, inline-trap boundaries, etc.
+      * **(c) semantic rules that should move to HIR/`ir::verify`:** exactly the
+        pre-existing plan-20-Z `syntaxcheck`→`ir::verify` relocation set — all 124
+        `TYPE_*` codes appear in BOTH passes (`comm -12` of the two sorted code
+        lists → 124; syntaxcheck-only → 0), with `RELOCATED_TO_IR_VERIFY`
+        (`src/ir/verify/mod.rs:71`) governing which pass emits on the source path.
+        Per this plan's own Open Decision, that relocation is its own ongoing
+        cleanup and is NOT braided into F.
+      * The **resolver** performs name/import/package resolution only — its 8
+        diagnostic sites are import/package rules, not type checks.
+- [x] Measure the scalar-compare / rule-code counts (§2 UNMEASURED rows).
+      (Scalar-name `==` compares in resolver+syntaxcheck: **1** —
+      `src/syntaxcheck/builtins.rs:39`; structural `strip_prefix("List OF …`)` ops in
+      syntaxcheck: **5**; distinct rule codes: syntaxcheck **124**, ir/verify **124**,
+      overlap **124**. The front end's string type-surface is tiny; the plan's
+      "shadow string type-checker" does not exist as a *duplicate* — it is the
+      plan-20-Z primary checker.)
 
 Acceptance: a tagged inventory exists in this plan; F's effort is re-estimated from
-it.
+it. VERIFIED — inventory above; effort re-estimate: **small** (the consolidation
+phase is moot, see below).
 Commit: —
 
 ### Phase 2 — consolidate
 
-- [ ] Delete the (a) redundant checks; move the (c) checks to HIR/`ir::verify`;
-      leave the (b) AST-syntax rules.
-- [ ] Tests: the full diagnostic golden suite (every `*-invalid` fixture) — same
-      codes, wording, order.
+- [x] ~~Delete the (a) redundant checks; move the (c) checks to HIR/`ir::verify`;
+      leave the (b) AST-syntax rules~~ — **moot by the census**: (a) is EMPTY
+      (nothing to delete — `elaborate` checks nothing, so the HIR introduced zero
+      duplication); (c) is the plan-20-Z relocation this plan's own Open Decision
+      explicitly scopes OUT ("do not braid the two"); (b) stays by definition. There
+      is no code change for F to make: the goal "no rule is checked twice, once on
+      strings and once on HIR" ALREADY HOLDS (vacuously, and by measurement).
+- [x] Tests: the full diagnostic golden suite — same codes, wording, order.
+      (Trivially unchanged — no code change; the E full-suite run is the standing
+      green: every diagnostic/golden binary passes, sole failure = the recorded
+      `artifact_gate_all` baseline.)
 
-Acceptance: diagnostic goldens byte-identical (no code/wording/order change);
-`artifact-gate all` no NEW diff; `cargo test` green; `test-accept` no NEW mismatch;
-the front-end scalar-compare census (§2) dropped (record the delta).
-Commit: —
+Acceptance: diagnostic goldens byte-identical; `artifact-gate all` no NEW diff;
+`cargo test` green; the front-end scalar-compare census dropped. VERIFIED —
+goldens/gate/suite unchanged since E (no code change in F); the census "delta" is
+recorded as the measured inventory above (nothing to drop: the front end held 1
+scalar compare and 0 HIR-duplicated checks).
+Commit: — (census-only; no code change)
 
 ## Validation Plan
 
@@ -151,7 +189,20 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **The premise described the envisioned D, not the executed one (2026-08-23).**
+  This sub-plan assumed `elaborate` would own overload resolution and enough type
+  analysis to make the front end's string checks a "second, redundant
+  implementation." The executed feature deliberately kept elaboration check-free:
+  plan-102-D2 (overload relocation) was proven moot — overload selection is
+  instantiation-dependent and cannot move above monomorph without changing results —
+  and no type-checking was relocated into `elaborate`/HIR (C's Non-goals). The
+  census therefore measured **zero** HIR-duplicated front-end checks
+  (`src/hir/mod.rs` emits no diagnostics), 1 scalar type compare, and a 124/124
+  syntaxcheck↔ir::verify rule-code overlap that is entirely the pre-existing
+  plan-20-Z dual-pass split (out of F's scope per its own Open Decision). F's goal —
+  "no rule is checked twice, once on strings and once on HIR" — holds already, so
+  the consolidation phase is moot with measurement evidence, and F closes as a
+  census-only sub-plan.
 
 ## Summary
 
