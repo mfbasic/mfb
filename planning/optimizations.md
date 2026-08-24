@@ -83,7 +83,8 @@ Levels **1–5 are the numeric performance dial** — enabled cumulatively by `r
 
 - **Level ≠ stage; gate per row, not per seam.** Each seam runs `rows.filter(r => r.level <= active_opt_level() && enabled(r))`. A single `-ON` lights up rows in *both* the Opt1 and Opt2 seams — a seam is never simply "on/off." (This supersedes plan-100's original binary `O0 => skip bracket` / `O1 => run bracket` shape.)
 - **Cumulative dial:** `-O3` enables levels 1–3. `-O5` is the maximum *behavior-preserving* level.
-- **Levels 1–2 are your "always on" candidates** — even a debug build could run them with little downside.
+- **The default is `-O1`, not `-O0` (plan-100).** MFB's shipping codegen already runs three Level-1 passes (FMA instruction-combining + two post-regalloc machine peepholes), so plan-100 sets the dial's default to `-O1` — keeping the default byte-identical to today — and makes **`-O0` the explicit "all dial passes off"** baseline (a correct-but-unoptimized path, not a byte-identity target). Those three passes are the **first landed rows** and are gated by `level_enabled(1)`; see the annotated rows below.
+- **Levels 1–2 are your "always on" candidates** — even a debug build could run them with little downside. (Level 1 *is* the default-on set today.)
 - **Level 4 is the debuggability cliff** — stack traces stop being truthful; a natural default ceiling for development builds, with 4–5 reserved for release.
 - **Level 6 is orthogonal and opt-in** — *never* implied by `-O5` or an "auto/max" setting; the user must name it (`-O6`). Cranking the dial for speed must never silently change results.
 - **Prerequisites are not dial rows.** SSA construction (mem2reg), alias analysis, range/trap analysis, memory-SSA, loop canonicalization, and function-attribute (`no-trap`) inference are Plan2 infrastructure, built *on demand* when an enabled pass needs them (LICM needs trap-analysis to hoist safely; alias-based passes need alias/memory-SSA; L6 rows need range analysis to minimize relaxation). They live in plan-100's Plan2, not in this table.
@@ -100,7 +101,7 @@ Levels **1–5 are the numeric performance dial** — enabled cumulatively by `r
 | Y   | Unreachable code elimination | 2 | Opt1 + Opt2 | Prune statically-dead branches in Opt1; prune unreachable CFG blocks in Opt2. |
 | Y   | Algebraic simplification | 1 | Opt1 | Apply identities (`x*1` → `x`); pure local rewrite, no analysis needed. |
 | Y   | Strength reduction (non-loop) | 1 | Opt1 | Replace expensive ops with cheaper ones (`x*2` → `x<<1`); local rewrite. |
-| Y   | Peephole optimization | 1 | Opt2 / post-regalloc | Local pattern rewrites; MIR peepholes in Opt2, machine peepholes after regalloc. |
+| Y   | Peephole optimization | 1 | Opt2 / post-regalloc | Local pattern rewrites; MIR peepholes in Opt2, machine peepholes after regalloc. **LANDED (plan-100): the post-regalloc machine peepholes `forward_stores_to_loads` + `remove_fp_shuttles` are gated Level-1 rows in `src/optimizer/opt2/` — on at `-O1`, off at `-O0`.** |
 | Y   | Branch simplification / folding | 2 | Opt1 + Opt2 | Fold known conditions; structured version in Opt1, CFG version in Opt2. |
 | Y   | Jump threading | 3 | Opt2 | Redirect jump-to-jump chains; requires CFG. |
 | Y   | Basic block merging | 2 | Opt2 | Merge single-pred/single-succ blocks; requires CFG. |
@@ -135,7 +136,7 @@ Levels **1–5 are the numeric performance dial** — enabled cumulatively by `r
 | Y   | Devirtualization | 4 | Opt1 | Resolve indirect calls to direct; enables Opt1 inlining. (Targets `FUNC` indirect calls.) |
 | Y   | Escape analysis | 4 | Opt1 | Determine non-escaping objects; results feed Plan1 storage-slot decisions. (Resource-escape analysis already exists — `src/ir/resource_escape.rs`.) |
 | Y   | Scalar replacement of aggregates (SROA) | 4 | Opt1 | Split structs into scalars; must run before Plan1 assigns StorageType/slots. |
-| Y   | Store-to-load forwarding | 3 | Opt2 | Replace loads with prior stored values; needs alias analysis. (A block-local machine version already exists — `peephole.rs:198`.) |
+| Y   | Store-to-load forwarding | 3 | Opt2 | Replace loads with prior stored values; needs alias analysis. (A block-local machine version already exists — `forward_stores_to_loads`, now `src/optimizer/opt2/peephole.rs`, gated as a **Level-1** machine peephole under the "Peephole optimization" row; the L3 entry here is the future alias-analysis-based broadening.) |
 | Y   | Redundant load elimination | 3 | Opt2 | Remove loads of already-available values; SSA + alias analysis. |
 | Y   | Memcpy/memset idiom recognition | 3 | Opt2 | Replace copy loops with bulk intrinsics; loop analysis on MIR. |
 | Y   | If-conversion (predication) | 3 | Opt2 (late) | Convert branches to selects; CFG diamond pattern matching. (csel/cmov are emittable.) |
@@ -153,7 +154,7 @@ Levels **1–5 are the numeric performance dial** — enabled cumulatively by `r
 | Y   | Stack slot coloring | 2 | regalloc | Reuse slots for non-overlapping lifetimes; regalloc/frame lowering. |
 | Y   | Frame pointer omission | 2 | codegen | Free FP register; frame lowering. |
 | Y   | Shrink wrapping | 2 | regalloc / codegen | Sink prologue/epilogue to needy paths; after regalloc knows clobbers. (Per-register callee-save placement is a finer-grained variant of the same pass.) |
-| Y   | Instruction selection / combining | 1 | codegen | Fuse MIR ops into machine instructions (e.g., FMA); MIR→machine lowering. (FMA fusion + adrp/add + cmp/branch fusion already exist.) **Base selection is mandatory lowering (not level-gated); only the optional cost-based *combining* is the dial pass.** |
+| Y   | Instruction selection / combining | 1 | codegen | Fuse MIR ops into machine instructions (e.g., FMA); MIR→machine lowering. (FMA fusion + adrp/add + cmp/branch fusion already exist.) **Base selection is mandatory lowering (not level-gated); only the optional cost-based *combining* is the dial pass.** **LANDED (plan-100): `fuse_scalar_fma` is a gated Level-1 combining pass in `src/optimizer/opt2/` — on at `-O1`, off at `-O0`. (adrp/add + cmp/branch fusion stay in mandatory selection, ungated.)** |
 | Y   | Addressing mode optimization | 1 | codegen | Fold address math into addressing modes; machine-specific. |
 | Y   | Bit-tricks / idiom recognition | 1 | Opt2 | Recognize popcount/bswap/rotate patterns; SSA pattern matching. |
 | Y   | Division-by-constant lowering | 1 | Opt2 / codegen | Div → multiply-shift; MIR lowering or instruction selection. |
@@ -197,7 +198,7 @@ Levels **1–5 are the numeric performance dial** — enabled cumulatively by `r
 | Y   | Global localization / constification | 2 | Opt1 | A global written once at init → constant; a global used by one function → local. Module-level; pairs with dead-global elimination. |
 | Y   | Return-slot / NRVO copy elision | 3 | Opt1 | Construct a value-semantic aggregate directly in the caller's return slot, eliding the copy. **Partially exists — `plan_returned_move` for `RETURN <owned-local>` (plan-25-C, `builder_exits.rs:258`); broadening beyond the direct-`RETURN`-local case is the net-new part.** |
 | Y   | Live-range splitting | 2 | regalloc | Split a long live range so only part spills. The single highest-value linear-scan improvement; pairs with coalescing (`allocator-20`). |
-| Y   | Machine copy propagation / redundant-move elimination | 1 | post-regalloc | Post-regalloc cleanup of moves coalescing/out-of-SSA left behind. Distinct from MIR-level copy propagation (`remove_fp_shuttles` peephole already does a slice of this). |
+| Y   | Machine copy propagation / redundant-move elimination | 1 | post-regalloc | Post-regalloc cleanup of moves coalescing/out-of-SSA left behind. Distinct from MIR-level copy propagation (`remove_fp_shuttles` peephole already does a slice of this). **LANDED (plan-100): `remove_fp_shuttles` is a gated Level-1 post-regalloc pass in `src/optimizer/opt2/` — on at `-O1`, off at `-O0`.** |
 | Y   | Shared out-of-line trap stubs | 2 | codegen | Collapse each check's inline miss path (per-site park / build-Error-block sequence, ~40+ instrs — `emit_error_register_return`) into one `bl` to a shared per-error-kind stub. **Net-new: plan-16 already outlined the Error-*Result* assembly (`_mfb_make_error_result`), but each site still inlines the preamble/park/routing — highest value-per-effort given a check after nearly every checked op.** |
 | Y   | Literal interning + read-only placement | 2 | Plan1 / codegen | Dedup identical string/array literals and place immutable data in read-only pages. Companion to constant merging. |
 | N   | Subregister-zeroing zext elimination (AArch64) | 2 | codegen | Exploit `w`-write-zeroes-upper-32 to drop explicit zero-extends. **N/A: the backend emits no `uxtw`/mask zero-extends — Integer math runs in 64-bit `x`-regs and the few narrow ops already rely on implicit zeroing. (Redundant *sign*-ext `sxtw` removal in FFI paths is the existing ext-elim row, still Y.)** |
