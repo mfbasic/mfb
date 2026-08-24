@@ -770,7 +770,7 @@ fn lower_statement(
                 ..
             } = expression
             {
-                if crate::builtins::testing::is_testing_call(callee) {
+                if crate::codegen::builtins_testing::is_testing_call(callee) {
                     let uid = context.next_temp_id;
                     context.next_temp_id += 1;
                     let expanded =

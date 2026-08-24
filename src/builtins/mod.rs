@@ -1,5 +1,3 @@
-pub(crate) mod testing;
-
 // `general` (the unqualified global builtins) migrated to the clean-room registry
 // (`crate::codegen::builtins::general`); this alias keeps the bare `general::` reads
 // in this module pointed at the new home.

@@ -1219,7 +1219,7 @@ impl Resolver<'_> {
         if callee.contains('.') {
             self.resolve_package_qualified_name(file, callee, line, imports);
         } else if crate::codegen::builtins::general::is_general_call(callee) {
-        } else if builtins::testing::is_testing_call(callee) {
+        } else if crate::codegen::builtins_testing::is_testing_call(callee) {
             // Assertion builtins are compiler-lowered; their arguments are
             // resolved by the caller. Placement (TCASE-only) is enforced earlier
             // by `crate::testing::validate_expect_placement`.

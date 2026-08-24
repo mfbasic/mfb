@@ -210,25 +210,31 @@ dependency, so it lands cleanly first.
 Acceptance: `cargo build` green; the 5 `codegen::resource::tests::*` pass. Full
 `cargo test --no-fail-fast` + release `artifact-gate.sh all` byte-identity verified
 cumulatively at Phase 3 (same worktree, cumulative code motion).
-Commit: —
+Commit: aebb059bf
 
 ### Phase 2 — relocate `testing.rs`
 
 Move the test-desugar metadata to `src/codegen/builtins_testing.rs`.
 
-- [ ] `git mv src/builtins/testing.rs src/codegen/builtins_testing.rs`.
-- [ ] Add `pub(crate) mod builtins_testing;` to `src/codegen/mod.rs`.
-- [ ] In `src/builtins/mod.rs`, replace `pub(crate) mod testing;` with
-      `pub(crate) use crate::codegen::builtins_testing as testing;` (keeps
-      `crate::builtins::testing` resolving during this phase) — or repoint the 13
-      refs directly (below) and drop the re-export.
-- [ ] Repoint the 13 `builtins::testing::` references to
-      `crate::codegen::builtins_testing::` (`src/testing/desugar/mod.rs`,
-      `src/testing/desugar/expect.rs`, `src/syntaxcheck/inference.rs`).
-- [ ] Tests: the `testing.rs` unit tests (if any) move with the file.
+- [x] `git mv src/builtins/testing.rs src/codegen/builtins_testing.rs`.
+- [x] Added `pub(crate) mod builtins_testing;` to `src/codegen/mod.rs`.
+- [x] In `src/builtins/mod.rs`, removed `pub(crate) mod testing;` outright (no
+      facade fn references it) and repointed every ref directly — chose the
+      repoint-and-drop path the plan offered over a transitional re-export.
+- [x] Repointed the facade `testing` refs → `crate::codegen::builtins_testing::`:
+      the 5 qualified `crate::builtins::testing` files (`ir/lower.rs`,
+      `codegen/builtins/testing/mod.rs` doc link, `testing/desugar/{mod,expect}.rs`,
+      `syntaxcheck/inference.rs`) via a `crate::builtins::testing`-only sed (safe:
+      distinct substring from the `crate::codegen::builtins::testing` *package*
+      module — `registry/mod.rs:1517`'s `::register` stayed intact) + the 2 bare
+      refs (`resolver/resolution.rs:1222`, `syntaxcheck/inference.rs:261`) by hand.
+      `grep crate::builtins::testing` → 0.
+- [x] Tests: the 5 `testing.rs` unit tests moved with the file; all pass under
+      `codegen::builtins_testing::tests::*`.
 
-Acceptance: `cargo build` and `cargo test --no-fail-fast` green; `artifact-gate.sh all`
-byte-identical for every target.
+Acceptance: `cargo build` green; the 5 `codegen::builtins_testing::tests::*` pass.
+Full `cargo test --no-fail-fast` + release `artifact-gate.sh all` byte-identity
+verified cumulatively at Phase 3.
 Commit: —
 
 ### Phase 3 — merge the facade, delete `src/builtins/` (largest blast radius)
