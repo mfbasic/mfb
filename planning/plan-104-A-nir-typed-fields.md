@@ -300,7 +300,7 @@ byte-exact render-back, so check it explicitly:
 finds no IR/NIR round-trip render (a shim reads `.name()`, it never re-parses),
 and any deliberately-kept render is named in Corrections, not left silent
 (plan-102's post-archive lesson: `6db8e040b`).
-Commit: —
+Commit: 61c97ea35
 
 ## Validation Plan
 

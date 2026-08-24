@@ -135,10 +135,39 @@ None externally observable.
 
 ### Phase 1 — map triage census
 
-- [ ] Enumerate every `HashMap<String, String>` in `src/codegen/engine/`
+- [x] Enumerate every `HashMap<String, String>` in `src/codegen/engine/`
       (`rg -n 'HashMap<String, String>' src/codegen/engine/`), read each
       declaration + writers, and record in this file which are **type-valued**
       (convert) vs **symbol/name-valued** (stay). This bounds Phase 2's scope.
+
+**Census (2026-08-24; declaration + writers read for each):**
+
+Type-valued — CONVERT in Phase 2:
+
+| Map | Where | Value is |
+|---|---|---|
+| `package_return_types` | `builder/mod.rs:118` (built `:741`) | link-function/import return-type spelling |
+| module-analysis `locals`/`types` walks | `analysis/module_analysis.rs:302,403,713,927,999` | local name → type spelling |
+| oracle `locals` | `types/type_utils.rs:20` (`static_nir_value_type`) | local name → type spelling |
+| helper `types` maps | `types/type_utils.rs:135,194,225` | local name → type spelling |
+| `FieldTypes` | `types/type_utils.rs:16` (`HashMap<(String,String),String>`) | field type spelling |
+| `TypeModel.record_fields` / `union_variant_fields` | `builder/mod.rs:617,622` (`Vec<(String,String)>` values) | per-field type spellings |
+
+Symbol/name-valued — STAY `String`:
+
+| Map | Where | Value is |
+|---|---|---|
+| `platform_imports` | `builder/mod.rs:84,119` (+ threaded everywhere) | platform import symbol |
+| `function_symbols` | `builder/mod.rs:116` | text symbol |
+| `string_symbols` | `builder/mod.rs:129` | data-object symbol |
+| `float_residents` | `builder/mod.rs:158` (writers: `builder_values.rs:412`, `builder_numeric.rs:213,216`) | FP vreg render (`d`-register name) |
+| `promoted_float_locals` | `builder/mod.rs:164` (writer `builder_control.rs:1812`) | `%fN` register render |
+| `len_of_local` | `builder/mod.rs:401` (writer `builder_control.rs:425`) | container **local name** (`n → L`) |
+| `union_variants` | `builder/mod.rs:619` | union **nominal name** (bare identifier, no structure; keys into name-keyed model maps) |
+| `resource_closers` | `builder/mod.rs:659` (reader `:986`) | close **function name** |
+| `get_container`/`copy_src` | `function_lowering.rs:229,230` | local names |
+| `err_binding` | `function_lowering.rs:401` | local name |
+| `tests/test_support.rs` platform_imports params | test twins | follow production |
 
 Acceptance: the tagged map list is recorded in this section.
 Commit: —
