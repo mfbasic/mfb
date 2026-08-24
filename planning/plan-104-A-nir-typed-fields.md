@@ -284,7 +284,12 @@ unchanged.
 Acceptance: `cargo test --no-fail-fast` green; `artifact-gate all` shows **no
 NEW diff** vs `planning/plan-104-baseline-diffs.txt` (in particular every
 `*.nir` golden byte-identical); `rg -c 'type_: String' src/target/shared/nir/mod.rs`
-→ 0.
+→ 0; **no backward conversion on the compile path** — the gate cannot see a
+byte-exact render-back, so check it explicitly:
+`rg -n 'name\(\).*ParameterType::parse|ParameterType::parse\(.*\.name\(\)' src/target/shared/nir/ src/codegen/`
+finds no IR/NIR round-trip render (a shim reads `.name()`, it never re-parses),
+and any deliberately-kept render is named in Corrections, not left silent
+(plan-102's post-archive lesson: `6db8e040b`).
 Commit: —
 
 ## Validation Plan
