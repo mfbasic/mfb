@@ -55,7 +55,7 @@ References:
 - Every example compiled and run during the pass (fs examples against temp
   paths only — rewrite any example that touches a real user path);
   compile-only members, if any, noted in the ledger.
-- Cross-model review (opus) per package; ledgers (confirmed → fixed /
+- Cross-model review (Codex) per package; ledgers (confirmed → fixed /
   rejected → disproving command) recorded here.
 - Census still 100% for all five.
 

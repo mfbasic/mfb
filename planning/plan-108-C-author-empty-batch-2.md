@@ -44,7 +44,7 @@ References:
 - Every example compiled while authoring, and run where it needs no live
   endpoint (no example may depend on an external network); compile-only
   members noted per function in the ledger.
-- Cross-model review (opus) per package; findings ledgers recorded here.
+- Cross-model review (Codex) per package; findings ledgers recorded here.
 - `scripts/man-census.sh` → 100% fill for all five packages AND the
   straggler list; at this letter's end, **every one of the census's 466
   function pages has desc+example** (the authoring half of plan-108 done).

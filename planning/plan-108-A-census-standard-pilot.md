@@ -27,7 +27,7 @@ error nor fail on one — do not run them for this plan.
 
 This letter builds what every later letter runs on: the exact census, the
 content standard, and the four-step per-package workflow (accuracy pass →
-scope pass → cross-model subagent review → apply), piloted end-to-end on one
+scope pass → cross-model Codex review → apply), piloted end-to-end on one
 filled package (`bits`) and one empty package (`thread`).
 
 References:
@@ -190,16 +190,24 @@ later letter):
    and run the example as part of writing it.
 2. **Scope pass** — apply `.ai/man-content.md`'s MUST-NOT list; rewrite
    internals-speak into developer terms or delete it.
-3. **Cross-model review** — spawn an independent subagent **on a different
-   model than the authoring session** (this session is Fable; reviewers run
-   `model: opus`), one per package, `subagent_type: general-purpose`. Input:
-   the package name only. Instructions: render `mfb man <pkg> --all` and
+3. **Cross-model review** — run the **Codex CLI** (a different vendor's
+   model entirely — stronger independence than another Claude tier;
+   `codex-cli 0.149.1` at `~/local/bin/codex`, verified installed), one
+   non-interactive run per package:
+   `codex exec -C <repo> -s workspace-write '<review prompt>'`.
+   The prompt instructs it to: render `mfb man <pkg> --all` and
    `mfb man <pkg> types`; independently verify every factual claim against
-   the code and by running MFBASIC programs; flag (a) inaccuracies with
-   evidence, (b) internals leakage per `.ai/man-content.md`, (c) missing
+   the code and by compiling/running MFBASIC probe programs (scratch
+   projects under `/tmp`); flag (a) inaccuracies with evidence,
+   (b) internals leakage per `.ai/man-content.md`, (c) missing
    developer-critical information (unlisted error conditions, surprising
    edge cases). Output: a structured findings list
-   (function / claim / verdict / evidence).
+   (function / claim / verdict / evidence), captured verbatim into the
+   letter's ledger along with `codex --version` and the model it reports.
+   `workspace-write` sandbox because verification requires building probes;
+   the reviewer never commits — the main thread applies every fix
+   (step 4), and `git status` must be clean of reviewer-made edits after
+   each run.
 4. **Apply** — triage each finding on the main thread: confirmed → fix;
    rejected → record WITH the disproving command in the letter's ledger.
    Re-render the touched pages and re-run `scripts/man-census.sh` for the
@@ -265,8 +273,9 @@ Commit: —
 - [ ] `thread`: author all 13 pages (+ overview check, types page) from
       code + old_man source material, every claim behavior-verified, every
       example compiled and run (thread examples spawn and join).
-- [ ] Cross-model review (opus, one agent per package) + apply findings;
-      record the findings ledger (confirmed/rejected + evidence) here.
+- [ ] Cross-model review (Codex, one `codex exec` run per package) + apply
+      findings; record the findings ledger (confirmed/rejected + evidence)
+      here.
 - [ ] Verify: re-render both packages (`mfb man bits --all`, `mfb man
       thread --all`, `types`); census re-run shows both at 100% fill.
 
@@ -290,10 +299,10 @@ Commit: —
 
 ## Open Decisions
 
-- **Reviewer model**: `opus` recommended (strongest non-Fable tier
-  available to the Agent tool; genuine cross-model independence). `sonnet`
-  is the fallback if opus availability/cost is a problem — record the
-  choice after the pilot.
+- **Codex model pinning**: `codex exec` uses whatever model
+  `~/.codex/config.toml` configures unless `-m` is passed. Decide during
+  the pilot whether to pin one with `-m` for review consistency across
+  letters; record the choice and the reported model here either way.
 - **Function-level `intro` policy**: the one-line intro under the title is
   empty nearly everywhere; recommend REQUIRED (one sentence, distinct from
   desc's first line) — decide in Phase 2 when writing the standard; the
