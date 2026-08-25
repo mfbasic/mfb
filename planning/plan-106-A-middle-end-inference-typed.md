@@ -349,8 +349,10 @@ Acceptance: suite green; `artifact-gate all` no NEW diff; the `.name()` census
 recorded above; the no-backward check clean. **MET**:
 `cargo test --bin mfb` → 3646 passed, 0 failed;
 `scripts/artifact-gate.sh target/release/mfb all` →
-`1255 tests, 1402 build(s), 1730 golden(s) checked, 0 diff(s)`.
-Commit: —
+`1255 tests, 1402 build(s), 1730 golden(s) checked, 0 diff(s)`;
+`cargo test --no-fail-fast` exit 0 (62 suites, 0 FAILED); `test-accept` 1271
+ran / 0 mismatches.
+Commit: `f3c81d81a`
 
 ## Validation Plan
 
