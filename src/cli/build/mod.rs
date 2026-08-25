@@ -351,7 +351,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // overloaded/generic declarations, so their doc headers would falsely appear
     // unresolved. The original-AST pass above already validated them. The AST is
     // already augmented, so resolve without re-injecting the package sources.
-    resolver::resolve_augmented(&options.location, &manifest, &concrete_ast, false)?;
+    resolver::resolve_augmented(&options.location, &manifest, &concrete_hir, false)?;
     reporter.phase("resolve", resolve_start.elapsed());
     let verify_start = std::time::Instant::now();
     // In test mode the synthesized driver is the entry point (it replaces the

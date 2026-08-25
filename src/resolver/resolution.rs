@@ -2,7 +2,7 @@ use super::*;
 
 impl Resolver<'_> {
     pub(super) fn resolve(&mut self) {
-        for file in &self.ast.files {
+        for file in &self.hir.files {
             self.resolve_file(file);
         }
     }
@@ -12,26 +12,26 @@ impl Resolver<'_> {
     /// `ARG`/`PROP`/`RET`/`ERROR`/`EXAMPLE` lines, attributes, and `DEPRECATED`
     /// against that declaration.
     pub(super) fn resolve_doc_blocks(&mut self) {
-        let ast = self.ast;
+        let hir = self.hir;
 
         // Index user declarations by name. Functions and subs share a namespace,
         // and a name may carry several overloads.
-        let mut funcs: HashMap<&str, Vec<&Function>> = HashMap::new();
-        let mut types: HashMap<&str, &TypeDecl> = HashMap::new();
+        let mut funcs: HashMap<&str, Vec<&HirFunction>> = HashMap::new();
+        let mut types: HashMap<&str, &HirTypeDecl> = HashMap::new();
         let mut resources: HashMap<&str, &ResourceDecl> = HashMap::new();
-        for file in &ast.files {
+        for file in &hir.files {
             for item in &file.items {
                 match item {
-                    Item::Function(function) => {
+                    HirItem::Function(function) => {
                         funcs
                             .entry(function.name.as_str())
                             .or_default()
                             .push(function);
                     }
-                    Item::Type(type_decl) => {
+                    HirItem::Type(type_decl) => {
                         types.entry(type_decl.name.as_str()).or_insert(type_decl);
                     }
-                    Item::Resource(resource) => {
+                    HirItem::Resource(resource) => {
                         resources.entry(resource.name.as_str()).or_insert(resource);
                     }
                     _ => {}
@@ -44,9 +44,9 @@ impl Resolver<'_> {
         // can carry its own DOC block.
         let mut seen: HashSet<(DocHeaderKind, String, String)> = HashSet::new();
         let mut package_doc_seen = false;
-        for file in &ast.files {
+        for file in &hir.files {
             for item in &file.items {
-                let Item::Doc(doc) = item else {
+                let HirItem::Doc(doc) = item else {
                     continue;
                 };
                 self.validate_doc_block(
@@ -64,10 +64,10 @@ impl Resolver<'_> {
 
     fn validate_doc_block(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         doc: &DocBlock,
-        funcs: &HashMap<&str, Vec<&Function>>,
-        types: &HashMap<&str, &TypeDecl>,
+        funcs: &HashMap<&str, Vec<&HirFunction>>,
+        types: &HashMap<&str, &HirTypeDecl>,
         resources: &HashMap<&str, &ResourceDecl>,
         seen: &mut HashSet<(DocHeaderKind, String, String)>,
         package_doc_seen: &mut bool,
@@ -210,7 +210,7 @@ impl Resolver<'_> {
                 let want_sub = kind == DocHeaderKind::Sub;
                 let resolved = match funcs.get(doc.header_name.as_str()) {
                     Some(list) => {
-                        let matching: Vec<&&Function> = list
+                        let matching: Vec<&&HirFunction> = list
                             .iter()
                             .filter(|f| (f.kind == FunctionKind::Sub) == want_sub)
                             .collect();
@@ -415,7 +415,7 @@ impl Resolver<'_> {
     /// the same declaration (same overload signature) as `DOC_DUPLICATE`.
     fn note_doc_target(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         doc: &DocBlock,
         seen: &mut HashSet<(DocHeaderKind, String, String)>,
     ) {
@@ -446,7 +446,7 @@ impl Resolver<'_> {
     /// duplicates and unknown names.
     fn check_doc_named(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         named: &[crate::ast::DocNamed],
         valid: &HashSet<&str>,
         unknown_rule: &str,
@@ -476,7 +476,7 @@ impl Resolver<'_> {
         }
     }
 
-    fn resolve_file(&mut self, file: &AstFile) {
+    fn resolve_file(&mut self, file: &HirFile) {
         let mut imports = HashMap::new();
 
         for import in &file.imports {
@@ -537,23 +537,23 @@ impl Resolver<'_> {
 
         for item in &file.items {
             match item {
-                Item::Binding(binding) => self.resolve_binding(file, binding, &imports),
-                Item::Function(function) => self.resolve_function(file, function, &imports),
-                Item::Type(type_decl) => self.resolve_type_decl(file, type_decl, &imports),
-                Item::Resource(resource) => self.resolve_resource_decl(file, resource, &imports),
-                Item::FuncAlias(alias) => self.resolve_func_alias(file, alias, &imports),
-                Item::Link(link) => self.resolve_link_block(file, link, &imports),
+                HirItem::Binding(binding) => self.resolve_binding(file, binding, &imports),
+                HirItem::Function(function) => self.resolve_function(file, function, &imports),
+                HirItem::Type(type_decl) => self.resolve_type_decl(file, type_decl, &imports),
+                HirItem::Resource(resource) => self.resolve_resource_decl(file, resource, &imports),
+                HirItem::FuncAlias(alias) => self.resolve_func_alias(file, alias, &imports),
+                HirItem::Link(link) => self.resolve_link_block(file, link, &imports),
                 // DOC blocks are validated package-wide in `resolve_doc_blocks`.
-                Item::Doc(_) => {}
+                HirItem::Doc(_) => {}
                 // TESTING blocks are lowered away before resolution (plan-18-A §3).
-                Item::Testing(_) => {}
+                HirItem::Testing(_) => {}
             }
         }
     }
 
     fn resolve_resource_decl(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         resource: &crate::ast::ResourceDecl,
         imports: &HashMap<String, String>,
     ) {
@@ -620,7 +620,7 @@ impl Resolver<'_> {
 
     fn resolve_func_alias(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         alias: &crate::ast::FuncAlias,
         imports: &HashMap<String, String>,
     ) {
@@ -641,10 +641,13 @@ impl Resolver<'_> {
 
     fn resolve_link_block(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         link: &crate::ast::LinkBlock,
         imports: &HashMap<String, String>,
     ) {
+        // A `LINK` block is the one node HIR keeps as the verbatim AST struct (it
+        // declares a native ABI signature, not a source-language type), so its
+        // parameter spellings enter the type domain here, at that boundary.
         for function in &link.functions {
             for param in &function.params {
                 if let Some(type_name) = &param.type_name {
@@ -654,12 +657,12 @@ impl Resolver<'_> {
                     if is_c_abi_type(type_name) {
                         continue;
                     }
-                    self.resolve_type_name(file, type_name, param.line, imports);
+                    self.resolve_type_by_name(file, type_name, param.line, imports);
                 }
             }
             if let Some(return_type) = &function.return_type {
                 if !is_c_abi_type(return_type) {
-                    self.resolve_type_name(file, return_type, function.line, imports);
+                    self.resolve_type_by_name(file, return_type, function.line, imports);
                 }
             }
         }
@@ -667,13 +670,11 @@ impl Resolver<'_> {
 
     fn resolve_binding(
         &mut self,
-        file: &AstFile,
-        binding: &TopLevelBinding,
+        file: &HirFile,
+        binding: &HirTopLevelBinding,
         imports: &HashMap<String, String>,
     ) {
-        if let Some(type_name) = &binding.type_name {
-            self.resolve_type_name(file, type_name, binding.line, imports);
-        }
+        self.resolve_type(file, &binding.type_, binding.line, imports);
         let locals = HashMap::new();
         if let Some(value) = &binding.value {
             self.resolve_expression(file, value, binding.line, imports, &locals);
@@ -682,8 +683,8 @@ impl Resolver<'_> {
 
     fn resolve_type_decl(
         &mut self,
-        file: &AstFile,
-        type_decl: &TypeDecl,
+        file: &HirFile,
+        type_decl: &HirTypeDecl,
         imports: &HashMap<String, String>,
     ) {
         let previous_template_params = std::mem::replace(
@@ -710,7 +711,7 @@ impl Resolver<'_> {
             }
             TypeDeclKind::Union => {
                 for include in &type_decl.includes {
-                    self.resolve_type_name(file, include, type_decl.line, imports);
+                    self.resolve_type_by_name(file, include, type_decl.line, imports);
                 }
 
                 let mut variants = HashMap::new();
@@ -726,7 +727,7 @@ impl Resolver<'_> {
                             variant.line,
                         );
                     }
-                    self.resolve_type_name(file, &variant.name, variant.line, imports);
+                    self.resolve_type_by_name(file, &variant.name, variant.line, imports);
                 }
             }
             TypeDeclKind::Enum => {
@@ -751,17 +752,17 @@ impl Resolver<'_> {
 
     fn resolve_member_field(
         &mut self,
-        file: &AstFile,
-        field: &TypeField,
+        file: &HirFile,
+        field: &HirTypeField,
         imports: &HashMap<String, String>,
     ) {
-        self.resolve_type_name(file, &field.type_name, field.line, imports);
+        self.resolve_type(file, &field.type_, field.line, imports);
     }
 
     fn resolve_function(
         &mut self,
-        file: &AstFile,
-        function: &crate::ast::Function,
+        file: &HirFile,
+        function: &HirFunction,
         imports: &HashMap<String, String>,
     ) {
         let previous_template_params = std::mem::replace(
@@ -793,18 +794,14 @@ impl Resolver<'_> {
                 );
             }
 
-            if let Some(type_name) = &param.type_name {
-                self.resolve_type_name(file, type_name, param.line, imports);
-            }
+            self.resolve_type(file, &param.type_, param.line, imports);
 
             if let Some(default) = &param.default {
                 self.resolve_expression(file, default, param.line, imports, &locals);
             }
         }
 
-        if let Some(return_type) = &function.return_type {
-            self.resolve_type_name(file, return_type, function.line, imports);
-        }
+        self.resolve_type(file, &function.returns, function.line, imports);
 
         self.resolve_block(file, &function.body, imports, &mut locals);
         if let Some(trap) = &function.trap {
@@ -824,8 +821,8 @@ impl Resolver<'_> {
 
     fn resolve_block(
         &mut self,
-        file: &AstFile,
-        body: &[Statement],
+        file: &HirFile,
+        body: &[HirStatement],
         imports: &HashMap<String, String>,
         locals: &mut HashMap<String, Symbol>,
     ) {
@@ -836,22 +833,20 @@ impl Resolver<'_> {
 
     fn resolve_statement(
         &mut self,
-        file: &AstFile,
-        statement: &Statement,
+        file: &HirFile,
+        statement: &HirStatement,
         imports: &HashMap<String, String>,
         locals: &mut HashMap<String, Symbol>,
     ) {
         match statement {
-            Statement::Let {
+            HirStatement::Let {
                 name,
-                type_name,
+                type_,
                 value,
                 line,
                 ..
             } => {
-                if let Some(type_name) = type_name {
-                    self.resolve_type_name(file, type_name, *line, imports);
-                }
+                self.resolve_type(file, type_, *line, imports);
                 if let Some(value) = value {
                     self.resolve_expression(file, value, *line, imports, locals);
                 }
@@ -874,31 +869,31 @@ impl Resolver<'_> {
                     );
                 }
             }
-            Statement::Return { value, line } => {
+            HirStatement::Return { value, line } => {
                 if let Some(value) = value {
                     self.resolve_expression(file, value, *line, imports, locals);
                 }
             }
-            Statement::Exit { code, line, .. } => {
+            HirStatement::Exit { code, line, .. } => {
                 if let Some(code) = code {
                     self.resolve_expression(file, code, *line, imports, locals);
                 }
             }
-            Statement::Continue { .. } => {}
-            Statement::Fail { error, line } => {
+            HirStatement::Continue { .. } => {}
+            HirStatement::Fail { error, line } => {
                 self.resolve_expression(file, error, *line, imports, locals);
             }
-            Statement::Propagate { .. } => {}
-            Statement::Recover { value, line } => {
+            HirStatement::Propagate { .. } => {}
+            HirStatement::Recover { value, line } => {
                 if let Some(value) = value {
                     self.resolve_expression(file, value, *line, imports, locals);
                 }
             }
-            Statement::Assign { name, value, line } => {
+            HirStatement::Assign { name, value, line } => {
                 self.resolve_identifier(file, name, *line, imports, locals);
                 self.resolve_expression(file, value, *line, imports, locals);
             }
-            Statement::StateAssign {
+            HirStatement::StateAssign {
                 resource,
                 value,
                 line,
@@ -906,10 +901,10 @@ impl Resolver<'_> {
                 self.resolve_identifier(file, resource, *line, imports, locals);
                 self.resolve_expression(file, value, *line, imports, locals);
             }
-            Statement::Expression { expression, line } => {
+            HirStatement::Expression { expression, line } => {
                 self.resolve_expression(file, expression, *line, imports, locals);
             }
-            Statement::If {
+            HirStatement::If {
                 condition,
                 then_body,
                 else_body,
@@ -919,7 +914,7 @@ impl Resolver<'_> {
                 self.resolve_nested_block(file, then_body, imports, locals);
                 self.resolve_nested_block(file, else_body, imports, locals);
             }
-            Statement::Match {
+            HirStatement::Match {
                 expression,
                 cases,
                 line,
@@ -929,7 +924,7 @@ impl Resolver<'_> {
                     self.resolve_match_pattern(file, &case.pattern, case.line, imports, locals);
                     if let Some(guard) = &case.guard {
                         let mut guard_locals = locals.clone();
-                        if let MatchPattern::Union { binding, .. } = &case.pattern {
+                        if let HirMatchPattern::Union { binding, .. } = &case.pattern {
                             guard_locals.insert(
                                 binding.clone(),
                                 Symbol {
@@ -942,7 +937,7 @@ impl Resolver<'_> {
                         self.resolve_expression(file, guard, case.line, imports, &guard_locals);
                     }
                     let mut case_locals = locals.clone();
-                    if let MatchPattern::Union { binding, .. } = &case.pattern {
+                    if let HirMatchPattern::Union { binding, .. } = &case.pattern {
                         case_locals.insert(
                             binding.clone(),
                             Symbol {
@@ -955,7 +950,7 @@ impl Resolver<'_> {
                     self.resolve_block(file, &case.body, imports, &mut case_locals);
                 }
             }
-            Statement::For {
+            HirStatement::For {
                 name,
                 start,
                 end,
@@ -989,7 +984,7 @@ impl Resolver<'_> {
                 }
                 self.resolve_block(file, body, imports, &mut nested);
             }
-            Statement::ForEach {
+            HirStatement::ForEach {
                 name,
                 iterable,
                 body,
@@ -1017,7 +1012,7 @@ impl Resolver<'_> {
                 }
                 self.resolve_block(file, body, imports, &mut nested);
             }
-            Statement::While {
+            HirStatement::While {
                 kind: _,
                 condition,
                 body,
@@ -1026,7 +1021,7 @@ impl Resolver<'_> {
                 self.resolve_expression(file, condition, *line, imports, locals);
                 self.resolve_nested_block(file, body, imports, locals);
             }
-            Statement::DoUntil {
+            HirStatement::DoUntil {
                 body,
                 condition,
                 line,
@@ -1039,8 +1034,8 @@ impl Resolver<'_> {
 
     fn resolve_nested_block(
         &mut self,
-        file: &AstFile,
-        body: &[Statement],
+        file: &HirFile,
+        body: &[HirStatement],
         imports: &HashMap<String, String>,
         locals: &HashMap<String, Symbol>,
     ) {
@@ -1050,23 +1045,25 @@ impl Resolver<'_> {
 
     fn resolve_match_pattern(
         &mut self,
-        file: &AstFile,
-        pattern: &MatchPattern,
+        file: &HirFile,
+        pattern: &HirMatchPattern,
         line: usize,
         imports: &HashMap<String, String>,
         locals: &HashMap<String, Symbol>,
     ) {
         match pattern {
-            MatchPattern::Else => {}
-            MatchPattern::Literal(pattern) => {
+            HirMatchPattern::Else => {}
+            HirMatchPattern::Literal(pattern) => {
                 self.resolve_expression(file, pattern, line, imports, locals);
             }
-            MatchPattern::Union { type_name, .. } => {
-                if type_name != "Ok" {
-                    self.resolve_type_name(file, type_name, line, imports);
+            HirMatchPattern::Union { type_, .. } => {
+                // `Ok` is the internal success variant of a `Result`, not a user
+                // type; `resolve_type` would reject it as such.
+                if !type_.is_named("Ok") {
+                    self.resolve_type(file, type_, line, imports);
                 }
             }
-            MatchPattern::OneOf(patterns) => {
+            HirMatchPattern::OneOf(patterns) => {
                 for pattern in patterns {
                     self.resolve_expression(file, pattern, line, imports, locals);
                 }
@@ -1076,25 +1073,25 @@ impl Resolver<'_> {
 
     fn resolve_expression(
         &mut self,
-        file: &AstFile,
-        expression: &Expression,
+        file: &HirFile,
+        expression: &HirExpression,
         line: usize,
         imports: &HashMap<String, String>,
         locals: &HashMap<String, Symbol>,
     ) {
         match expression {
-            Expression::String(_)
-            | Expression::Number(_)
-            | Expression::Scalar(_)
-            | Expression::Boolean(_) => {}
-            Expression::Binary { left, right, .. } => {
+            HirExpression::String(_)
+            | HirExpression::Number(_)
+            | HirExpression::Scalar(_)
+            | HirExpression::Boolean(_) => {}
+            HirExpression::Binary { left, right, .. } => {
                 self.resolve_expression(file, left, line, imports, locals);
                 self.resolve_expression(file, right, line, imports, locals);
             }
-            Expression::Unary { operand, .. } => {
+            HirExpression::Unary { operand, .. } => {
                 self.resolve_expression(file, operand, line, imports, locals);
             }
-            Expression::Call {
+            HirExpression::Call {
                 callee, arguments, ..
             } => {
                 self.resolve_callable(file, callee, line, imports, locals);
@@ -1102,12 +1099,10 @@ impl Resolver<'_> {
                     self.resolve_expression(file, call_arg_value(argument), line, imports, locals);
                 }
             }
-            Expression::Lambda { params, body, .. } => {
+            HirExpression::Lambda { params, body, .. } => {
                 let mut lambda_locals = locals.clone();
                 for param in params {
-                    if let Some(type_name) = &param.type_name {
-                        self.resolve_type_name(file, type_name, param.line, imports);
-                    }
+                    self.resolve_type(file, &param.type_, param.line, imports);
                     lambda_locals.insert(
                         param.name.clone(),
                         Symbol {
@@ -1122,12 +1117,14 @@ impl Resolver<'_> {
                 }
                 self.resolve_expression(file, body, line, imports, &lambda_locals);
             }
-            Expression::Constructor {
-                type_name,
-                arguments,
-            } => {
-                if !matches!(type_name.as_str(), "Error" | "Ok" | "Err") {
-                    self.resolve_type_name(file, type_name, line, imports);
+            HirExpression::Constructor { type_, arguments } => {
+                // `Error`/`Ok`/`Err` are the internal error-model constructors, not
+                // user types.
+                if !["Error", "Ok", "Err"]
+                    .iter()
+                    .any(|name| type_.is_named(name))
+                {
+                    self.resolve_type(file, type_, line, imports);
                 }
                 for argument in arguments {
                     self.resolve_expression(
@@ -1139,49 +1136,49 @@ impl Resolver<'_> {
                     );
                 }
             }
-            Expression::WithUpdate { target, updates } => {
+            HirExpression::WithUpdate { target, updates } => {
                 self.resolve_expression(file, target, line, imports, locals);
                 for update in updates {
                     self.resolve_expression(file, &update.value, update.line, imports, locals);
                 }
             }
-            Expression::ListLiteral(values) => {
+            HirExpression::ListLiteral(values) => {
                 for value in values {
                     self.resolve_expression(file, value, line, imports, locals);
                 }
             }
-            Expression::SetLiteral {
+            HirExpression::SetLiteral {
                 element_type,
                 elements,
             } => {
-                self.resolve_type_name(file, &strip_res(element_type), line, imports);
+                self.resolve_type(file, peel_res(element_type), line, imports);
                 for value in elements {
                     self.resolve_expression(file, value, line, imports, locals);
                 }
             }
-            Expression::MapLiteral {
+            HirExpression::MapLiteral {
                 key_type,
                 value_type,
                 entries,
             } => {
-                self.resolve_type_name(file, key_type, line, imports);
+                self.resolve_type(file, key_type, line, imports);
                 // A `Map OF K TO RES fs::File` literal value carries the resource
                 // ownership-axis marker (§15.6); resolve the underlying type.
-                self.resolve_type_name(file, &strip_res(value_type), line, imports);
+                self.resolve_type(file, peel_res(value_type), line, imports);
                 for (key, value) in entries {
                     self.resolve_expression(file, key, line, imports, locals);
                     self.resolve_expression(file, value, line, imports, locals);
                 }
             }
-            Expression::MemberAccess { target, .. } => {
-                if let Expression::Identifier(name) = target.as_ref() {
+            HirExpression::MemberAccess { target, .. } => {
+                if let HirExpression::Identifier(name) = target.as_ref() {
                     if self.types.contains(name) {
                         return;
                     }
                 }
                 self.resolve_expression(file, target, line, imports, locals);
             }
-            Expression::Trapped {
+            HirExpression::Trapped {
                 expression,
                 binding,
                 handler,
@@ -1199,8 +1196,8 @@ impl Resolver<'_> {
                 );
                 self.resolve_block(file, handler, imports, &mut handler_locals);
             }
-            Expression::Identifier(name) if name == "NOTHING" => {}
-            Expression::Identifier(name) => {
+            HirExpression::Identifier(name) if name == "NOTHING" => {}
+            HirExpression::Identifier(name) => {
                 self.resolve_identifier(file, name, line, imports, locals);
             }
         }
@@ -1208,7 +1205,7 @@ impl Resolver<'_> {
 
     fn resolve_callable(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         callee: &str,
         line: usize,
         imports: &HashMap<String, String>,
@@ -1240,7 +1237,7 @@ impl Resolver<'_> {
 
     fn resolve_identifier(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         name: &str,
         line: usize,
         imports: &HashMap<String, String>,
@@ -1262,167 +1259,180 @@ impl Resolver<'_> {
         }
     }
 
-    fn resolve_type_name(
+    /// Resolve a type spelling that HIR still stores as a `String`.
+    ///
+    /// Exactly three nodes reach this: a `UNION`'s `INCLUDES` list, a `UNION`
+    /// variant's name, and a `LINK` block's parameter/return types. HIR keeps all
+    /// three as the verbatim AST struct, so the source spelling enters the type
+    /// domain here — the one boundary, rather than a grammar the resolver used to
+    /// re-implement for every position (plan-106-D).
+    fn resolve_type_by_name(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         type_name: &str,
         line: usize,
         imports: &HashMap<String, String>,
     ) {
-        // Grouped type names (`(T)`) are valid syntax the parser emits verbatim
-        // (ast/expr.rs). `parse_type` and `thread_parts_full` already strip the
-        // group at their positions; do the same here so a parenthesized type in
-        // any non-thread position (`List OF (Map OF String TO Integer)`,
-        // `AS (Integer)`) resolves through its inner type instead of falling to
-        // the bare-name arm and being rejected as unknown (bug-105).
-        let stripped = crate::types::strip_type_group(type_name);
-        if stripped != type_name {
-            self.resolve_type_name(file, stripped, line, imports);
-            return;
-        }
-
-        // `Result` (and its success member `Ok`) are internal runtime types: a
-        // user never names them in any type position. Intercept them here with a
-        // targeted diagnostic instead of resolving them as types or falling
-        // through to a generic "unknown type" error.
-        if type_name == "Result" || type_name == "Ok" || type_name.starts_with("Result OF ") {
-            self.report(
-                "TYPE_RESULT_NOT_USER_VISIBLE",
-                "`Result` is an internal type; declare the success type directly \
-                 (a function call yields its value or fails with an `Error`).",
-                file,
-                line,
-            );
-            return;
-        }
-        if let Some(rest) = type_name.strip_prefix("ISOLATED FUNC(") {
-            self.resolve_function_type_name(file, rest, line, imports);
-            return;
-        }
-        if let Some(rest) = type_name.strip_prefix("FUNC(") {
-            self.resolve_function_type_name(file, rest, line, imports);
-            return;
-        }
-        if let Some((_, message, resource, output)) = crate::types::thread_parts_full(type_name) {
-            self.resolve_type_name(file, message, line, imports);
-            if let Some(resource) = resource {
-                self.resolve_type_name(file, resource, line, imports);
-            }
-            self.resolve_type_name(file, output, line, imports);
-            return;
-        }
-        // The built-in container shapes, decomposed by the CANONICAL grammar
-        // (plan-105-B) rather than a resolver-local `strip_prefix` cascade. Each
-        // child recurses back through this function by name, so the `RES `
-        // ownership-axis marker (§15.6) and the `STATE` clause below are still
-        // peeled one level at a time exactly as before.
-        //
-        // A shape that does not decompose (`Map OF K` with no ` TO `) falls through
-        // to the `STATE` / user-generic / unknown-type tail below, as the cascade's
-        // non-returning `if let` arms did.
-        match crate::types::ParameterType::parse(type_name) {
-            crate::types::ParameterType::ListOf(element) => {
-                self.resolve_type_name(file, &strip_res(&element.name()), line, imports);
-                return;
-            }
-            crate::types::ParameterType::SetOf(element) => {
-                // `Set OF T` (plan-63): a single element type, no `RES`, no `TO`.
-                self.resolve_type_name(file, &element.name(), line, imports);
-                return;
-            }
-            crate::types::ParameterType::MapOf(key, value) => {
-                self.resolve_type_name(file, &key.name(), line, imports);
-                self.resolve_type_name(file, &strip_res(&value.name()), line, imports);
-                return;
-            }
-            crate::types::ParameterType::MapEntryOf(key, value) => {
-                self.resolve_type_name(file, &key.name(), line, imports);
-                self.resolve_type_name(file, &value.name(), line, imports);
-                return;
-            }
-            _ => {}
-        }
-
-        // A resource type carrying `STATE T` (plan-52/54): resolve the base
-        // resource type and the STATE payload type independently — `fs::File STATE
-        // Cursor` is not a single symbol. Reached only after the compound-type
-        // arms above have peeled off any enclosing `Thread`/`List`/`Map` (whose
-        // own type strings also contain ` STATE `), so this fires on the bare
-        // resource element — a stateful binding/return, or a thread plane's RES
-        // element (plan-54).
-        if let Some(state) = crate::codegen::resource::state_type_name(type_name) {
-            let base = crate::codegen::resource::base_resource_name(type_name);
-            self.resolve_type_name(file, base, line, imports);
-            self.resolve_type_name(file, state, line, imports);
-            return;
-        }
-
-        // A user generic (`Stack OF T`, `Pair OF A, B`). The argument list was split
-        // here by hand at top-level commas (bug-106: a nested `FUNC(...) AS R` or
-        // `Map OF K TO V` argument must not be split at its internal commas);
-        // plan-105-B moved that rule into `ParameterType::parse`'s `UserOf` arm, the
-        // single place it now lives.
-        //
-        // An unknown head is deliberately NOT consumed here: it falls through to the
-        // `SYMBOL_UNKNOWN_TYPE` report below, which names the whole spelling.
-        if let crate::types::ParameterType::UserOf(base, args) =
-            crate::types::ParameterType::parse(type_name)
-        {
-            let base = base.resolve();
-            if self.types.contains(base) || self.active_template_params.contains(base) {
-                for arg in &args {
-                    self.resolve_type_name(file, &arg.name(), line, imports);
-                }
-                return;
-            }
-        }
-
-        if type_name == "Unknown" || self.active_template_params.contains(type_name) {
-            return;
-        }
-
-        if type_name.contains('.') {
-            self.resolve_package_qualified_name(file, type_name, line, imports);
-        } else if !self.types.contains(type_name) {
-            self.report(
-                "SYMBOL_UNKNOWN_TYPE",
-                &format!("Type `{type_name}` is not a built-in or top-level project type."),
-                file,
-                line,
-            );
-        }
+        self.resolve_type(file, &ParameterType::parse(type_name), line, imports);
     }
 
-    fn resolve_function_type_name(
+    /// Resolve every nominal reachable from `type_`, structurally.
+    ///
+    /// This replaces `resolve_type_name(&str)`, which was 120 lines of grammar
+    /// re-implementation — `strip_type_group`, `starts_with("Result OF ")`,
+    /// `strip_prefix("FUNC(")` + `split_func_params_and_return`,
+    /// `thread_parts_full`, `state_type_name`/`base_resource_name`, and four
+    /// `ParameterType::parse` arms that immediately re-rendered each child with
+    /// `.name()` so the recursion could go back through a string. Every one of
+    /// those decisions is a variant here.
+    ///
+    /// The leaf tail is still a NAME lookup, and that is not a residue of the old
+    /// design: a nominal's identity *is* its name, and `self.types` is a symbol
+    /// table. What is gone is deriving a type's SHAPE from its spelling.
+    fn resolve_type(
         &mut self,
-        file: &AstFile,
-        rest: &str,
+        file: &HirFile,
+        type_: &ParameterType,
         line: usize,
         imports: &HashMap<String, String>,
     ) {
-        // Split at the depth-0 `) AS ` so a parameter that is itself a
-        // `FUNC(...) AS …` (or any parenthesized/nested type) does not split at
-        // an inner `) AS ` and produce garbage names (bug-106).
-        let Some((params, return_type)) =
-            crate::codegen::builtins::split_func_params_and_return(rest)
-        else {
-            self.report(
-                "SYMBOL_UNKNOWN_TYPE",
-                &format!("Function type `FUNC({rest}` is malformed."),
-                file,
-                line,
-            );
-            return;
-        };
-        for param in params {
-            self.resolve_type_name(file, param, line, imports);
+        match type_ {
+            // `Result` (and its success member `Ok`) are internal runtime types: a
+            // user never names them in any type position. Intercept them with a
+            // targeted diagnostic instead of resolving them as types or falling to
+            // the generic unknown-type error below.
+            //
+            // The bare nominals need their own arm because `Result` IS in
+            // `BUILTIN_TYPES` — the leaf tail would find it and say nothing.
+            ParameterType::ResultOf(_) => self.report_result_not_user_visible(file, line),
+            ParameterType::Named(name) if matches!(name.resolve(), "Result" | "Ok") => {
+                self.report_result_not_user_visible(file, line);
+            }
+            // A `List OF RES fs::File` element carries the resource ownership-axis
+            // marker (§15.6); the marker rides on the element and names a type that
+            // must still be resolved.
+            ParameterType::ListOf(element) => {
+                self.resolve_type(file, peel_res(element), line, imports);
+            }
+            // `Set OF T` (plan-63): a single element type, no `RES`, no `TO`. A
+            // `RES`-marked element in this position is not peeled — it reaches the
+            // leaf tail and is reported, exactly as the string cascade left it.
+            ParameterType::SetOf(element) => {
+                self.resolve_type(file, element, line, imports);
+            }
+            ParameterType::MapOf(key, value) => {
+                self.resolve_type(file, key, line, imports);
+                self.resolve_type(file, peel_res(value), line, imports);
+            }
+            ParameterType::MapEntryOf(key, value) => {
+                self.resolve_type(file, key, line, imports);
+                self.resolve_type(file, value, line, imports);
+            }
+            ParameterType::Func(params, returns, _isolated) => {
+                for param in params {
+                    self.resolve_type(file, param, line, imports);
+                }
+                self.resolve_type(file, returns, line, imports);
+            }
+            // A parametric thread type's three planes. An absent resource plane is
+            // `Nothing`, whose arm below is a no-op — so this resolves exactly the
+            // planes the old `thread_parts_full` handed back.
+            ParameterType::ThreadHandle { msg, res, out, .. } => {
+                self.resolve_type(file, msg, line, imports);
+                self.resolve_type(file, res, line, imports);
+                self.resolve_type(file, out, line, imports);
+            }
+            // A user generic (`Stack OF T`, `Pair OF A, B`). An unknown head is
+            // deliberately NOT consumed: it falls to the unknown-type report, which
+            // names the whole spelling.
+            ParameterType::UserOf(head, args) => {
+                let head = head.resolve();
+                if self.types.contains(head) || self.active_template_params.contains(head) {
+                    for arg in args {
+                        self.resolve_type(file, arg, line, imports);
+                    }
+                } else {
+                    self.report_unknown_type(file, &type_.name(), line);
+                }
+            }
+            // The absent annotation.
+            ParameterType::Unknown => {}
+            // A type variable in a generic signature. `hir::elaborate` classified it
+            // from the enclosing declaration's `template_params`, which is the same
+            // set `active_template_params` holds — so the membership check agrees
+            // with the classification, and a stray variable is still reported.
+            ParameterType::Var(name) => {
+                let name = name.resolve();
+                if !self.active_template_params.contains(name) {
+                    self.report_unknown_type(file, name, line);
+                }
+            }
+            // A leaf: a scalar, a nominal, or a `RES`-marked type in a position the
+            // grammar does not allow one. All three resolve by NAME, which is what
+            // the string cascade's tail did after every structural peel.
+            _ => self.resolve_leaf(file, type_, line, imports),
         }
-        self.resolve_type_name(file, return_type, line, imports);
+    }
+
+    /// The leaf tail: a `STATE` clause, then the nominal itself.
+    fn resolve_leaf(
+        &mut self,
+        file: &HirFile,
+        type_: &ParameterType,
+        line: usize,
+        imports: &HashMap<String, String>,
+    ) {
+        // A resource type carrying `STATE T` (plan-52/54): resolve the base resource
+        // type and the STATE payload independently — `fs::File STATE Cursor` is not
+        // one symbol. Reached only after the compound arms above have peeled any
+        // enclosing `Thread`/`List`/`Map` (whose own spellings also contain
+        // ` STATE `), so this fires on the bare resource element: a stateful
+        // binding/return, or a thread plane's `RES` element (plan-54).
+        //
+        // `split_state` is TOP-LEVEL only, which is what keeps a composite like
+        // `List OF RES Handle STATE Cursor` splitting at its element rather than at
+        // the container (bug-429).
+        let (base, state) = type_.split_state();
+        if let Some(state) = state {
+            self.resolve_type(file, &base, line, imports);
+            self.resolve_type(file, &state, line, imports);
+            return;
+        }
+
+        let name = type_.name();
+        let name = name.as_ref();
+        if name == "Unknown" || self.active_template_params.contains(name) {
+            return;
+        }
+        if name.contains('.') {
+            self.resolve_package_qualified_name(file, name, line, imports);
+        } else if !self.types.contains(name) {
+            self.report_unknown_type(file, name, line);
+        }
+    }
+
+    fn report_unknown_type(&mut self, file: &HirFile, name: &str, line: usize) {
+        self.report(
+            "SYMBOL_UNKNOWN_TYPE",
+            &format!("Type `{name}` is not a built-in or top-level project type."),
+            file,
+            line,
+        );
+    }
+
+    fn report_result_not_user_visible(&mut self, file: &HirFile, line: usize) {
+        self.report(
+            "TYPE_RESULT_NOT_USER_VISIBLE",
+            "`Result` is an internal type; declare the success type directly \
+             (a function call yields its value or fails with an `Error`).",
+            file,
+            line,
+        );
     }
 
     fn resolve_package_qualified_name(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         name: &str,
         line: usize,
         imports: &HashMap<String, String>,
@@ -2360,16 +2370,16 @@ mod tests {
     }
 }
 
-/// A collection element/value spelling with its `RES ` ownership-axis marker peeled
-/// off (§15.6). The marker rides on the element, not the container, and names a type
+/// A collection element/value with its `RES` ownership-axis marker peeled off
+/// (§15.6). The marker rides on the element, not the container, and wraps a type
 /// that must still be resolved — `List OF RES fs::File` resolves `fs::File`.
 ///
-/// One helper, routed through the canonical grammar, rather than a bare
-/// `strip_prefix("RES ")` repeated at each of the four sites that need it
-/// (plan-105-B).
-fn strip_res(type_name: &str) -> String {
-    match crate::types::ParameterType::parse(type_name) {
-        crate::types::ParameterType::Res(inner) => inner.name().into_owned(),
-        _ => type_name.to_string(),
+/// plan-106-D: was `strip_res(&str) -> String`, which round-tripped the element
+/// through `parse` and `name()` to drop one variant. Peeling the variant is the
+/// whole operation.
+fn peel_res(type_: &ParameterType) -> &ParameterType {
+    match type_ {
+        ParameterType::Res(inner) => inner,
+        other => other,
     }
 }

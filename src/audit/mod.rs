@@ -109,7 +109,7 @@ pub fn run(options: &AuditOptions) -> i32 {
         return 3;
     };
     let concrete_ast = crate::hir::deelaborate(&concrete_hir);
-    if crate::resolver::resolve_augmented(&options.location, &manifest, &concrete_ast, false)
+    if crate::resolver::resolve_augmented(&options.location, &manifest, &concrete_hir, false)
         .is_err()
     {
         return 3;

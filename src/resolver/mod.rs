@@ -1,11 +1,15 @@
 use crate::ast::{
-    AstFile, AstProject, ConstructorArg, DocBlock, DocHeaderKind, Expression, Function,
-    FunctionKind, Item, MatchPattern, ResourceDecl, Statement, TopLevelBinding, TypeDecl,
-    TypeDeclKind, TypeField, Visibility, SELF_IMPORT,
+    AstProject, DocBlock, DocHeaderKind, FunctionKind, ResourceDecl, TypeDeclKind, Visibility,
+    SELF_IMPORT,
 };
 use crate::binary_repr;
 use crate::codegen::builtins;
+use crate::hir::{
+    HirConstructorArg, HirExpression, HirFile, HirFunction, HirItem, HirMatchPattern, HirProject,
+    HirStatement, HirTopLevelBinding, HirTypeDecl, HirTypeField,
+};
 use crate::rules;
+use crate::types::ParameterType;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -51,12 +55,24 @@ pub fn resolve_project(
     resolve_project_with(project_dir, manifest, ast, true)
 }
 
+/// Elaborate a source AST for the resolver (plan-106-D).
+///
+/// The resolver consumes [`HirProject`], so the AST-domain entry points above
+/// convert once here. This is a FORWARD (AST→HIR) conversion — the direction the
+/// compile path already runs — not a re-introduction of the de-elaboration seam
+/// this letter deletes. The build path never reaches it: it already holds a
+/// concrete `HirProject` and calls [`resolve_augmented`] directly.
+fn elaborated(ast: &AstProject) -> HirProject {
+    crate::hir::elaborate(ast)
+}
+
 /// Validate only the `DOC` blocks of an already-parsed project, without running
 /// full name resolution. Used by `mfb doc` on a single source file, where the
 /// surrounding project context (and lockfile) is unavailable. Returns `true`
 /// when every block is valid.
 pub fn validate_project_docs(project_dir: &Path, ast: &AstProject) -> bool {
-    let mut resolver = Resolver::new(project_dir, &HashMap::new(), ast);
+    let hir = elaborated(ast);
+    let mut resolver = Resolver::new(project_dir, &HashMap::new(), &hir);
     resolver.resolve_doc_blocks();
     !resolver.had_error
 }
@@ -72,7 +88,12 @@ pub fn resolve_project_with(
     validate_docs: bool,
 ) -> Result<(), ()> {
     let augmented = augment_project(ast)?;
-    resolve_augmented(project_dir, manifest, &augmented, validate_docs)
+    resolve_augmented(
+        project_dir,
+        manifest,
+        &elaborated(&augmented),
+        validate_docs,
+    )
 }
 
 /// Resolve an already-augmented project — the builtin package sources are already
@@ -83,7 +104,7 @@ pub fn resolve_project_with(
 pub fn resolve_augmented(
     project_dir: &Path,
     manifest: &HashMap<String, JsonValue>,
-    augmented: &AstProject,
+    augmented: &HirProject,
     validate_docs: bool,
 ) -> Result<(), ()> {
     let mut resolver = Resolver::new(project_dir, manifest, augmented);
@@ -142,23 +163,38 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     Ok(augmented)
 }
 
-fn constructor_arg_value(argument: &ConstructorArg) -> &Expression {
+fn constructor_arg_value(argument: &HirConstructorArg) -> &HirExpression {
     match argument {
-        ConstructorArg::Positional(value) => value,
-        ConstructorArg::Named { value, .. } => value,
+        HirConstructorArg::Positional(value) => value,
+        HirConstructorArg::Named { value, .. } => value,
     }
 }
 
 /// Whether a function overload's parameter types match the type list a `DOC`
 /// header named (whitespace-normalized, in order).
-fn overload_types_match(function: &Function, wanted: &[String]) -> bool {
-    crate::ast::param_types(function) == crate::ast::normalize_types(wanted)
+fn overload_types_match(function: &HirFunction, wanted: &[String]) -> bool {
+    // `wanted` is raw `DOC`-header text, so it still needs whitespace
+    // normalization. The declared side is a `ParameterType`, whose `name()` is
+    // canonical by construction — the normalization is kept on it only so the two
+    // sides stay literally the same function, as `ast::param_types` had them.
+    let declared: Vec<String> = function
+        .params
+        .iter()
+        .map(|param| match &param.type_ {
+            // `ast::param_types` spelled an unannotated parameter as the empty
+            // string; `Unknown` is that same absent annotation.
+            ParameterType::Unknown => String::new(),
+            type_ => crate::ast::normalize_ws(&type_.name()),
+        })
+        .collect();
+    declared == crate::ast::normalize_types(wanted)
 }
 
-fn call_arg_value(argument: &crate::ast::CallArg) -> &Expression {
+fn call_arg_value(argument: &crate::hir::HirCallArg) -> &HirExpression {
+    use crate::hir::HirCallArg;
     match argument {
-        crate::ast::CallArg::Positional(value) => value,
-        crate::ast::CallArg::Named { value, .. } => value,
+        HirCallArg::Positional(value) => value,
+        HirCallArg::Named { value, .. } => value,
     }
 }
 
@@ -193,7 +229,7 @@ fn resource_base_type(type_name: &str) -> &str {
 
 struct Resolver<'a> {
     project_dir: &'a Path,
-    ast: &'a AstProject,
+    hir: &'a HirProject,
     dependency_packages: HashMap<String, DependencyPackage>,
     top_levels: HashMap<String, Symbol>,
     functions: HashMap<String, Vec<FunctionSymbol>>,
@@ -225,25 +261,45 @@ struct Symbol {
     visibility: Visibility,
 }
 
+/// A declared parameter/return type in the overload-duplicate key, where `None`
+/// means "no `AS` annotation" (plan-106-D).
+///
+/// HIR represents an absent annotation as [`ParameterType::Unknown`], so the
+/// `Option` is reconstructed by [`declared`]. That is exactly the mapping the
+/// de-elaboration seam this letter deletes already applied at this position
+/// (`hir::unrender_optional_type`), so the post-monomorph pass is unchanged.
+type Declared = Option<ParameterType>;
+
+/// An HIR type field as a declared annotation: [`ParameterType::Unknown`] is the
+/// absent one. `AS Unknown` is not a spellable annotation — a parameter written
+/// that way is rejected as `TYPE_PARAM_REQUIRES_TYPE` ("must declare an `AS`
+/// type"), which is the same conflation stated in the language.
+fn declared(type_: &ParameterType) -> Declared {
+    match type_ {
+        ParameterType::Unknown => None,
+        other => Some(other.clone()),
+    }
+}
+
 #[derive(Clone)]
 struct FunctionSymbol {
     symbol: Symbol,
-    params: Vec<Option<String>>,
+    params: Vec<Declared>,
     /// Declared return type (`None` for a `SUB`). Part of the duplicate-detection
     /// key so two declarations sharing a name and parameter types but differing in
     /// return type form a legal return-type overload set (plan-01-overload.md §F.1).
-    return_type: Option<String>,
+    return_type: Declared,
 }
 
 impl<'a> Resolver<'a> {
     fn new(
         project_dir: &'a Path,
         manifest: &HashMap<String, JsonValue>,
-        ast: &'a AstProject,
+        hir: &'a HirProject,
     ) -> Self {
         let mut resolver = Self {
             project_dir,
-            ast,
+            hir,
             dependency_packages: dependency_packages(manifest),
             top_levels: HashMap::new(),
             functions: HashMap::new(),
@@ -264,16 +320,16 @@ impl<'a> Resolver<'a> {
                 .unwrap_or(false),
             had_error: false,
         };
-        resolver.collect_top_level_symbols(ast);
+        resolver.collect_top_level_symbols(hir);
         resolver
     }
 
-    fn collect_top_level_symbols(&mut self, ast: &AstProject) {
+    fn collect_top_level_symbols(&mut self, hir: &HirProject) {
         // First pass: register LINK namespaces so resource declarations and
         // re-export aliases (which reference `alias::func`) can be resolved.
-        for file in &ast.files {
+        for file in &hir.files {
             for item in &file.items {
-                if let Item::Link(link) = item {
+                if let HirItem::Link(link) = item {
                     let entry = self.link_functions.entry(link.alias.clone()).or_default();
                     for function in &link.functions {
                         entry.insert(
@@ -297,10 +353,10 @@ impl<'a> Resolver<'a> {
             }
         }
 
-        for file in &ast.files {
+        for file in &hir.files {
             for item in &file.items {
                 match item {
-                    Item::Binding(binding) => {
+                    HirItem::Binding(binding) => {
                         self.insert_top_level(
                             file,
                             &binding.name,
@@ -308,10 +364,10 @@ impl<'a> Resolver<'a> {
                             binding.visibility,
                         );
                     }
-                    Item::Function(function) => {
+                    HirItem::Function(function) => {
                         self.insert_function(file, function);
                     }
-                    Item::Type(type_decl) => {
+                    HirItem::Type(type_decl) => {
                         if self.insert_top_level(
                             file,
                             &type_decl.name,
@@ -323,7 +379,7 @@ impl<'a> Resolver<'a> {
                     }
                     // A native resource declaration introduces an opaque type at
                     // package scope (plan-link-update.md §5/§5a).
-                    Item::Resource(resource) => {
+                    HirItem::Resource(resource) => {
                         if self.insert_top_level(
                             file,
                             &resource.name,
@@ -336,10 +392,18 @@ impl<'a> Resolver<'a> {
                     // A re-export alias publishes a LINK function under a package
                     // name; register it as a callable carrying the target's
                     // parameter types (plan-link-update.md §5a).
-                    Item::FuncAlias(alias) => {
+                    HirItem::FuncAlias(alias) => {
+                        // A LINK signature is the verbatim AST node (HIR does not
+                        // elaborate `LINK` blocks), so its parameter spellings enter
+                        // the `Declared` key domain here, at that one boundary.
                         let params = self
                             .link_target_signature(&alias.target)
-                            .map(|sig| sig.params.clone())
+                            .map(|sig| {
+                                sig.params
+                                    .iter()
+                                    .map(|param| param.as_deref().map(ParameterType::parse))
+                                    .collect()
+                            })
                             .unwrap_or_default();
                         self.insert_alias_function(
                             file,
@@ -349,13 +413,13 @@ impl<'a> Resolver<'a> {
                             params,
                         );
                     }
-                    Item::Link(_) => {}
+                    HirItem::Link(_) => {}
                     // DOC blocks declare no symbols; they are resolved separately
                     // after symbol collection (see `resolve_doc_blocks`).
-                    Item::Doc(_) => {}
+                    HirItem::Doc(_) => {}
                     // TESTING blocks are lowered away (dropped or desugared into
                     // ordinary SUBs) before resolution runs (plan-18-A §3).
-                    Item::Testing(_) => {}
+                    HirItem::Testing(_) => {}
                 }
             }
         }
@@ -369,11 +433,11 @@ impl<'a> Resolver<'a> {
 
     fn insert_alias_function(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         name: &str,
         line: usize,
         visibility: Visibility,
-        params: Vec<Option<String>>,
+        params: Vec<Declared>,
     ) {
         if let Some(previous) = self.top_levels.get(name).cloned() {
             self.report(
@@ -428,7 +492,7 @@ impl<'a> Resolver<'a> {
             });
     }
 
-    fn insert_function(&mut self, file: &AstFile, function: &crate::ast::Function) {
+    fn insert_function(&mut self, file: &HirFile, function: &HirFunction) {
         // A reserved general built-in (`error`) is a language primitive and may not
         // be redeclared as a user `FUNC`/`SUB` (plan-01-overload.md §A.5). Every
         // other overridable built-in name (`toString`, `len`, …) is accepted.
@@ -461,13 +525,15 @@ impl<'a> Resolver<'a> {
         let params = function
             .params
             .iter()
-            .map(|param| param.type_name.clone())
+            .map(|param| declared(&param.type_))
             .collect::<Vec<_>>();
         // The duplicate-detection key is (name, parameter types, return type): two
         // declarations collide only when all three match. Sharing name + parameter
         // types but differing in return type is a legal return-type overload set
         // (plan-01-overload.md §F.1).
-        let return_type = function.return_type.clone();
+        // A `SUB` elaborates to `returns: Unknown`, which `declared` maps back to
+        // the `None` that distinguishes it from a `FUNC … AS T` in the key.
+        let return_type = declared(&function.returns);
         if let Some(previous) = self
             .functions
             .get(&function.name)
@@ -506,7 +572,7 @@ impl<'a> Resolver<'a> {
 
     fn insert_top_level(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         name: &str,
         line: usize,
         visibility: Visibility,
@@ -552,13 +618,13 @@ impl<'a> Resolver<'a> {
         true
     }
 
-    fn top_level_visible_in_file(&self, file: &AstFile, name: &str) -> bool {
+    fn top_level_visible_in_file(&self, file: &HirFile, name: &str) -> bool {
         self.top_levels
             .get(name)
             .is_some_and(|symbol| self.visible_from(file, symbol.visibility, &symbol.file_path))
     }
 
-    fn function_visible_in_file(&self, file: &AstFile, name: &str) -> bool {
+    fn function_visible_in_file(&self, file: &HirFile, name: &str) -> bool {
         self.functions.get(name).is_some_and(|functions| {
             functions.iter().any(|function| {
                 self.visible_from(file, function.symbol.visibility, &function.symbol.file_path)
@@ -566,14 +632,14 @@ impl<'a> Resolver<'a> {
         })
     }
 
-    fn visible_from(&self, file: &AstFile, visibility: Visibility, owner_file_path: &str) -> bool {
+    fn visible_from(&self, file: &HirFile, visibility: Visibility, owner_file_path: &str) -> bool {
         match visibility {
             Visibility::Export | Visibility::Public => true,
             Visibility::Private => file.path == owner_file_path,
         }
     }
 
-    fn report(&mut self, rule: &str, detail: &str, file: &AstFile, line: usize) {
+    fn report(&mut self, rule: &str, detail: &str, file: &HirFile, line: usize) {
         self.had_error = true;
         rules::show_diagnostic(rule, detail, &self.project_dir.join(&file.path), line, 1, 1);
     }
@@ -587,7 +653,8 @@ use packages::{dependency_packages, qualify_package_name, DependencyPackage};
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{CallArg, ConstructorArg, Expression, FunctionKind, Param, Visibility};
+    use crate::ast::{FunctionKind, Param, Visibility};
+    use crate::hir::{HirCallArg, HirParam};
     use crate::manifest::validate_project_manifest;
 
     fn quiet<T>(f: impl FnOnce() -> T) -> T {
@@ -611,10 +678,12 @@ mod tests {
         quiet(|| resolve_project(&dir, &manifest, &ast))
     }
 
-    fn empty_expr() -> Expression {
-        Expression::Number("1".into())
+    fn empty_expr() -> HirExpression {
+        HirExpression::Number("1".into())
     }
 
+    /// A `LINK` block's parameter — the one node HIR keeps as the verbatim AST
+    /// struct, so this stays in the AST domain.
     fn param(name: &str, type_name: Option<&str>) -> Param {
         Param {
             name: name.into(),
@@ -626,15 +695,26 @@ mod tests {
         }
     }
 
-    fn func(name: &str, params: Vec<Param>) -> Function {
-        Function {
+    fn hir_param(name: &str, type_name: Option<&str>) -> HirParam {
+        HirParam {
+            name: name.into(),
+            type_: type_name.map_or(ParameterType::Unknown, ParameterType::parse),
+            resource: false,
+            state_type: None,
+            default: None,
+            line: 1,
+        }
+    }
+
+    fn func(name: &str, params: Vec<HirParam>) -> HirFunction {
+        HirFunction {
             kind: FunctionKind::Func,
             visibility: Visibility::Export,
             isolated: false,
             name: name.into(),
             template_params: Vec::new(),
             params,
-            return_type: None,
+            returns: ParameterType::Unknown,
             return_resource: false,
             return_state_type: None,
             body: Vec::new(),
@@ -643,8 +723,8 @@ mod tests {
         }
     }
 
-    fn ast_file(path: &str) -> AstFile {
-        AstFile {
+    fn hir_file(path: &str) -> HirFile {
+        HirFile {
             path: path.into(),
             imports: Vec::new(),
             items: Vec::new(),
@@ -652,38 +732,57 @@ mod tests {
         }
     }
 
+    /// A one-file `HirProject` carrying `items`.
+    fn project_of(items: Vec<HirItem>) -> HirProject {
+        HirProject {
+            name: "p".into(),
+            files: vec![HirFile {
+                path: "a.mfb".into(),
+                imports: Vec::new(),
+                items,
+                internal: false,
+            }],
+        }
+    }
+
     #[test]
     fn constructor_arg_value_positional_and_named() {
-        let pos = ConstructorArg::Positional(empty_expr());
-        let named = ConstructorArg::Named {
+        let pos = HirConstructorArg::Positional(empty_expr());
+        let named = HirConstructorArg::Named {
             name: "x".into(),
             value: empty_expr(),
             line: 1,
         };
-        assert!(matches!(constructor_arg_value(&pos), Expression::Number(_)));
+        assert!(matches!(
+            constructor_arg_value(&pos),
+            HirExpression::Number(_)
+        ));
         assert!(matches!(
             constructor_arg_value(&named),
-            Expression::Number(_)
+            HirExpression::Number(_)
         ));
     }
 
     #[test]
     fn call_arg_value_positional_and_named() {
-        let pos = CallArg::Positional(empty_expr());
-        let named = CallArg::Named {
+        let pos = HirCallArg::Positional(empty_expr());
+        let named = HirCallArg::Named {
             name: "x".into(),
             value: empty_expr(),
             line: 1,
         };
-        assert!(matches!(call_arg_value(&pos), Expression::Number(_)));
-        assert!(matches!(call_arg_value(&named), Expression::Number(_)));
+        assert!(matches!(call_arg_value(&pos), HirExpression::Number(_)));
+        assert!(matches!(call_arg_value(&named), HirExpression::Number(_)));
     }
 
     #[test]
     fn overload_types_match_variants() {
         let f = func(
             "g",
-            vec![param("a", Some("Integer")), param("b", Some("String"))],
+            vec![
+                hir_param("a", Some("Integer")),
+                hir_param("b", Some("String")),
+            ],
         );
         assert!(overload_types_match(
             &f,
@@ -698,7 +797,7 @@ mod tests {
 
     #[test]
     fn overload_types_match_none_type_name() {
-        let f = func("g", vec![param("a", None)]);
+        let f = func("g", vec![hir_param("a", None)]);
         assert!(overload_types_match(&f, &[String::new()]));
         assert!(!overload_types_match(&f, &["Integer".to_string()]));
     }
@@ -725,13 +824,13 @@ mod tests {
 
     #[test]
     fn visible_from_rules() {
-        let empty = AstProject {
+        let empty = HirProject {
             name: "p".into(),
             files: Vec::new(),
         };
         let dir = std::path::Path::new(".");
         let resolver = Resolver::new(dir, &HashMap::new(), &empty);
-        let here = ast_file("a.mfb");
+        let here = hir_file("a.mfb");
         assert!(resolver.visible_from(&here, Visibility::Export, "other.mfb"));
         assert!(resolver.visible_from(&here, Visibility::Public, "other.mfb"));
         assert!(resolver.visible_from(&here, Visibility::Private, "a.mfb"));
@@ -740,30 +839,18 @@ mod tests {
 
     #[test]
     fn top_level_and_function_visibility_lookups() {
-        let file = AstFile {
+        let file = HirFile {
             path: "a.mfb".into(),
             imports: Vec::new(),
-            items: vec![
-                Item::Binding(crate::ast::TopLevelBinding {
-                    mutable: false,
-                    resource: false,
-                    state_type: None,
-                    name: "GLOBAL".into(),
-                    type_name: None,
-                    value: None,
-                    visibility: Visibility::Export,
-                    line: 1,
-                }),
-                Item::Function(func("helper", vec![])),
-            ],
+            items: vec![binding("GLOBAL"), HirItem::Function(func("helper", vec![]))],
             internal: false,
         };
-        let ast = AstProject {
+        let hir = HirProject {
             name: "p".into(),
             files: vec![file.clone()],
         };
         let dir = std::path::Path::new(".");
-        let resolver = Resolver::new(dir, &HashMap::new(), &ast);
+        let resolver = Resolver::new(dir, &HashMap::new(), &hir);
         assert!(resolver.top_level_visible_in_file(&file, "GLOBAL"));
         assert!(!resolver.top_level_visible_in_file(&file, "MISSING"));
         assert!(resolver.function_visible_in_file(&file, "helper"));
@@ -773,12 +860,12 @@ mod tests {
     #[test]
     fn link_target_signature_lookup() {
         let dir = std::path::Path::new(".");
-        let ast = AstProject {
+        let hir = HirProject {
             name: "p".into(),
-            files: vec![AstFile {
+            files: vec![HirFile {
                 path: "lib.mfb".into(),
                 imports: Vec::new(),
-                items: vec![Item::Link(crate::ast::LinkBlock {
+                items: vec![HirItem::Link(crate::ast::LinkBlock {
                     library: "lib".into(),
                     alias: "db".into(),
                     cstructs: Vec::new(),
@@ -810,7 +897,7 @@ mod tests {
                 internal: false,
             }],
         };
-        let resolver = Resolver::new(dir, &HashMap::new(), &ast);
+        let resolver = Resolver::new(dir, &HashMap::new(), &hir);
         assert!(resolver.link_target_signature("db.open").is_some());
         assert!(resolver.link_target_signature("db.missing").is_none());
         assert!(resolver.link_target_signature("other.open").is_none());
@@ -895,113 +982,77 @@ mod tests {
 
     #[test]
     fn duplicate_top_level_function_reports() {
-        let f1 = func("dup", vec![param("a", Some("Integer"))]);
-        let f2 = func("dup", vec![param("a", Some("Integer"))]);
-        let mut f3 = func("dup2", vec![param("a", Some("Integer"))]);
-        f3.return_type = Some("Integer".into());
-        let mut f4 = func("dup2", vec![param("a", Some("Integer"))]);
-        f4.return_type = Some("String".into());
-        let ast = AstProject {
-            name: "p".into(),
-            files: vec![AstFile {
-                path: "a.mfb".into(),
-                imports: Vec::new(),
-                items: vec![
-                    Item::Function(f1),
-                    Item::Function(f2),
-                    Item::Function(f3),
-                    Item::Function(f4),
-                ],
-                internal: false,
-            }],
-        };
+        let f1 = func("dup", vec![hir_param("a", Some("Integer"))]);
+        let f2 = func("dup", vec![hir_param("a", Some("Integer"))]);
+        let mut f3 = func("dup2", vec![hir_param("a", Some("Integer"))]);
+        f3.returns = ParameterType::Integer;
+        let mut f4 = func("dup2", vec![hir_param("a", Some("Integer"))]);
+        f4.returns = ParameterType::String;
+        let hir = project_of(vec![
+            HirItem::Function(f1),
+            HirItem::Function(f2),
+            HirItem::Function(f3),
+            HirItem::Function(f4),
+        ]);
         let dir = std::path::Path::new(".");
-        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &ast));
+        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &hir));
         assert!(resolver.had_error);
     }
 
     #[test]
     fn reserved_builtin_name_rejected() {
-        let ast = AstProject {
-            name: "p".into(),
-            files: vec![AstFile {
-                path: "a.mfb".into(),
-                imports: Vec::new(),
-                items: vec![Item::Function(func("error", vec![]))],
-                internal: false,
-            }],
-        };
+        let hir = project_of(vec![HirItem::Function(func("error", vec![]))]);
         let dir = std::path::Path::new(".");
-        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &ast));
+        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &hir));
         assert!(resolver.had_error);
     }
 
     #[test]
     fn type_and_resource_names_registered() {
-        let ast = AstProject {
-            name: "p".into(),
-            files: vec![AstFile {
-                path: "a.mfb".into(),
-                imports: Vec::new(),
-                items: vec![
-                    Item::Type(crate::ast::TypeDecl {
-                        kind: crate::ast::TypeDeclKind::Type,
-                        visibility: Visibility::Export,
-                        name: "Widget".into(),
-                        template_params: Vec::new(),
-                        fields: Vec::new(),
-                        includes: Vec::new(),
-                        variants: Vec::new(),
-                        members: Vec::new(),
-                        line: 1,
-                    }),
-                    Item::Binding(crate::ast::TopLevelBinding {
-                        mutable: false,
-                        resource: false,
-                        state_type: None,
-                        name: "Widget".into(),
-                        type_name: None,
-                        value: None,
-                        visibility: Visibility::Export,
-                        line: 2,
-                    }),
-                ],
-                internal: false,
-            }],
-        };
+        let hir = project_of(vec![
+            HirItem::Type(HirTypeDecl {
+                kind: TypeDeclKind::Type,
+                visibility: Visibility::Export,
+                name: "Widget".into(),
+                template_params: Vec::new(),
+                fields: Vec::new(),
+                includes: Vec::new(),
+                variants: Vec::new(),
+                members: Vec::new(),
+                line: 1,
+            }),
+            binding_at("Widget", 2),
+        ]);
         let dir = std::path::Path::new(".");
-        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &ast));
+        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &hir));
         assert!(resolver.types.contains("Widget"));
         assert!(resolver.had_error, "duplicate top-level should report");
     }
 
-    fn binding(name: &str) -> Item {
-        Item::Binding(crate::ast::TopLevelBinding {
+    fn binding(name: &str) -> HirItem {
+        binding_at(name, 1)
+    }
+
+    fn binding_at(name: &str, line: usize) -> HirItem {
+        HirItem::Binding(HirTopLevelBinding {
             mutable: false,
             resource: false,
             state_type: None,
             name: name.into(),
-            type_name: None,
+            type_: ParameterType::Unknown,
+            explicit_type: false,
             value: None,
             visibility: Visibility::Export,
-            line: 1,
+            line,
         })
     }
 
     #[test]
     fn function_name_collides_with_prior_binding_reports() {
         // A FUNC declared after a top-level binding of the same name collides.
-        let ast = AstProject {
-            name: "p".into(),
-            files: vec![AstFile {
-                path: "a.mfb".into(),
-                imports: Vec::new(),
-                items: vec![binding("dup"), Item::Function(func("dup", vec![]))],
-                internal: false,
-            }],
-        };
+        let hir = project_of(vec![binding("dup"), HirItem::Function(func("dup", vec![]))]);
         let dir = std::path::Path::new(".");
-        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &ast));
+        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &hir));
         assert!(resolver.had_error);
     }
 
@@ -1009,17 +1060,9 @@ mod tests {
     fn binding_name_collides_with_prior_function_reports() {
         // A binding declared after a FUNC of the same name collides (the
         // `insert_top_level` function-table branch).
-        let ast = AstProject {
-            name: "p".into(),
-            files: vec![AstFile {
-                path: "a.mfb".into(),
-                imports: Vec::new(),
-                items: vec![Item::Function(func("dup", vec![])), binding("dup")],
-                internal: false,
-            }],
-        };
+        let hir = project_of(vec![HirItem::Function(func("dup", vec![])), binding("dup")]);
         let dir = std::path::Path::new(".");
-        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &ast));
+        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &hir));
         assert!(resolver.had_error);
     }
 
@@ -1028,7 +1071,7 @@ mod tests {
         // A FUNC re-export alias whose name matches a prior top-level binding
         // hits the `insert_alias_function` duplicate branch. The alias also needs
         // a LINK namespace so its target resolves.
-        let link = Item::Link(crate::ast::LinkBlock {
+        let link = HirItem::Link(crate::ast::LinkBlock {
             library: "lib".into(),
             alias: "db".into(),
             cstructs: Vec::new(),
@@ -1057,30 +1100,22 @@ mod tests {
             }],
             line: 1,
         });
-        let alias = Item::FuncAlias(crate::ast::FuncAlias {
+        let alias = HirItem::FuncAlias(crate::ast::FuncAlias {
             visibility: Visibility::Export,
             name: "dup".into(),
             target: "db.close".into(),
             line: 5,
         });
-        let ast = AstProject {
-            name: "p".into(),
-            files: vec![AstFile {
-                path: "a.mfb".into(),
-                imports: Vec::new(),
-                items: vec![link, binding("dup"), alias],
-                internal: false,
-            }],
-        };
+        let hir = project_of(vec![link, binding("dup"), alias]);
         let dir = std::path::Path::new(".");
-        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &ast));
+        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &hir));
         assert!(resolver.had_error);
     }
 
     #[test]
     fn alias_function_registers_when_unique() {
         // A unique alias registers as a callable carrying the target's params.
-        let link = Item::Link(crate::ast::LinkBlock {
+        let link = HirItem::Link(crate::ast::LinkBlock {
             library: "lib".into(),
             alias: "db".into(),
             cstructs: Vec::new(),
@@ -1109,24 +1144,16 @@ mod tests {
             }],
             line: 1,
         });
-        let alias = Item::FuncAlias(crate::ast::FuncAlias {
+        let alias = HirItem::FuncAlias(crate::ast::FuncAlias {
             visibility: Visibility::Export,
             name: "closeDb".into(),
             target: "db.close".into(),
             line: 5,
         });
-        let ast = AstProject {
-            name: "p".into(),
-            files: vec![AstFile {
-                path: "a.mfb".into(),
-                imports: Vec::new(),
-                items: vec![link, alias],
-                internal: false,
-            }],
-        };
+        let hir = project_of(vec![link, alias]);
         let dir = std::path::Path::new(".");
-        let file = ast.files[0].clone();
-        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &ast));
+        let file = hir.files[0].clone();
+        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &hir));
         assert!(!resolver.had_error);
         assert!(resolver.function_visible_in_file(&file, "closeDb"));
     }

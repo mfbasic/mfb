@@ -116,6 +116,13 @@ mechanical post-C — its type logic is already `ParameterType`; only the node
 types change). Then flip the two seams, delete the block, port the test
 inspections to HIR assertions.
 
+One behavior change, deliberate and recorded: a malformed `FUNC(` spelling used
+to get `SYMBOL_UNKNOWN_TYPE` with the detail "Function type `FUNC(… ` is
+malformed."; it now gets the same rule with the generic detail naming the whole
+spelling. That message had **zero** references outside its own `format!`
+(`grep -rn 'is malformed' src/ tests/` → 1 hit), no fixture, and no test. The
+rule code, and therefore every golden, is unchanged.
+
 **Correctness risk:** syntaxcheck's walk breadth — thousands of match arms
 across 14k lines. Mitigation is the proven recipe plus committing
 module-by-module with the full diagnostic corpus after each.
@@ -153,11 +160,56 @@ None. Diagnostics byte-identical.
 - [x] **Prerequisite discovered mid-phase (Correction 3): `ParameterType::parse`
       does not peel a grouped type name.** Added as a task rather than deferred,
       per §Do-the-work — the resolver port cannot proceed without it.
-- [ ] Port `resolve_augmented` to `&HirProject`.
-- [ ] Tests: entry-validation unit tests; resolver corpus.
+- [x] Port `resolve_augmented` to `&HirProject`. All three files
+      (`mod.rs`/`resolution.rs`/`packages.rs`), and with them ALL FOUR resolve
+      entry points, since `resolve_augmented` is the shared core (Correction 1).
+      `resolve_project_with`, `validate_project_docs` and `cli/doc.rs`'s
+      single-file path each gain one forward `hir::elaborate`; the build and audit
+      paths pass the `concrete_hir` they already hold.
+
+      `resolve_type_name(&str)` is replaced by `resolve_type(&ParameterType)` — a
+      closed match on the variants — plus a `resolve_leaf` tail. All eight grammar
+      helpers left the resolver:
+
+      ```
+      $ rg -n 'resolve_type_name|strip_res|strip_type_group|thread_parts_full|state_type_name|base_resource_name|split_func_params_and_return' src/resolver/
+      (6 hits, every one a doc comment describing what was removed)
+      ```
+
+      Two arms needed care and are commented in place: `Result`/`Ok` need an
+      explicit `Named` arm because `Result` IS in `BUILTIN_TYPES`, so the leaf tail
+      would find it and say nothing (caught by
+      `result_type_not_user_visible_reports`); and `Set OF RES T` is deliberately
+      NOT peeled, because the string cascade did not peel it either — it reached
+      the tail and was reported.
+
+      `strip_res(&str) -> String` (a `parse`→`name()` round-trip to drop one
+      variant) becomes `peel_res(&ParameterType) -> &ParameterType`.
+
+      The overload-duplicate key keeps its `Option` domain via a documented
+      `declared()`: HIR spells an absent annotation `Unknown`, which is the exact
+      mapping the de-elaboration seam being deleted already applied here
+      (`hir::unrender_optional_type`), so the post-monomorph pass is unchanged.
+      `AS Unknown` is not a spellable annotation — it is rejected as
+      `TYPE_PARAM_REQUIRES_TYPE` (verified by building a probe project).
+- [x] Tests: entry-validation unit tests; resolver corpus. The resolver's own
+      test module now builds `HirProject`s directly (`project_of`, `hir_param`,
+      `binding_at`), which is the point — it tests what the resolver consumes.
 
 Acceptance: suite green; diagnostic corpus byte-identical; gate no NEW diff.
-Commit: —
+**ALL MET:**
+
+```
+cargo test --bin mfb                      3651 passed, 0 failed
+cargo build --bin mfb                     0 warnings
+artifact-gate.sh target/release/mfb all   1255 tests, 1402 build(s),
+                                          1730 golden(s) checked, 0 diff(s)
+test-accept.sh                            acceptance tests passed (1271 ran)
+```
+
+The whole `*-invalid` corpus is byte-identical across a validator changing its
+input language and a 120-line grammar deletion.
+Commit: `d42e7e4e6` (inventory), `eeb572003` (entry point + group peel)
 
 ### Phase 2 — syntaxcheck walk onto HIR
 
@@ -226,6 +278,29 @@ This is not a backward edge and does not violate the terminal invariant:
 `elaborate` is AST→HIR, the same direction the compile path already runs. The
 cost is one structural walk on a project already being walked several times.
 The §Non-goals bullet is struck through above.
+
+### Correction 4 — three HIR nodes still hold type SPELLINGS, not types
+
+The resolver port left exactly one `ParameterType::parse` behind, in a new
+`resolve_type_by_name`, reached from three positions where HIR stores a `String`:
+
+| Node | Field | Why HIR left it a string |
+|---|---|---|
+| `HirTypeDecl` | `includes: Vec<String>` | `UNION … INCLUDES A, B` |
+| `HirTypeDecl` | `variants: Vec<ast::UnionVariant>` (`.name`) | reused AST node |
+| `HirItem::Link` | `ast::LinkBlock` params/returns | reused AST node — a native ABI signature, not a source-language type |
+
+`HirItem`'s own doc comment claims the reused-verbatim nodes "carry no
+source-language type strings needing a `ParameterType`". For `LinkBlock` that is
+defensible (C ABI types are not language types); for `UnionVariant` and
+`includes` it is simply **false** — both are type references.
+
+Not fixed here: elaborating them is a change to the HIR node shape with
+consumers in `ir::lower` and codegen, which is outside a letter about moving
+*validators*. It is recorded as a straggler for plan-106-E's terminal census,
+which is where node-shape work belongs. `resolve_type_by_name` is one named,
+documented boundary rather than a grammar spread over 30 sites, and the letter's
+own acceptance (`rg -n 'deelaborate' src/` → 0) is unaffected.
 
 ### Correction 3 — `ParameterType::parse` did not peel a grouped type name
 
