@@ -12,23 +12,22 @@
 //!     (`CodeBuilder::lower_astrings_package_call` in
 //!     `src/codegen/builtins/astrings/gen_astrings.rs`).
 //!   - the `Attribute`-model constructors (`bold`..`background`) and the Tier-C
-//!     mutation/query members (`addAttribute`..`toMarkdown`) are **source rewrites**
-//!     — `Body::Rewrite("__astrings_*")` into the injected `__astrings_*` helper
-//!     bodies (the per-helper `helper_*.rs` files below). `clearAttributes`
-//!     overloads on arity: the whole form (1 arg) rewrites to
-//!     `__astrings_clearAttributes`, the ranged form (3 args) to
-//!     `__astrings_clearAttributesRange`, selected by the registry's overload-aware
-//!     `rewrite_target`.
+//!     mutation/query members (`addAttribute`..`toMarkdown`) are **source members**
+//!     — each `func_*.rs` descriptor carries its generic-free `__astrings_*` MFBASIC
+//!     body as `Body::mfb`, rewritten through the registry's overload-aware
+//!     `rewrite_target`. `clearAttributes` overloads on arity: the whole form
+//!     (1 arg) rewrites to `__astrings_clearAttributes`, the ranged form (3 args)
+//!     to `__astrings_clearAttributesRange`.
 //!   - `readSpans`/`writeSpans`/`scalarLen` are **internal-only** native overlay-bridge
 //!     primitives (`Body::abi_inline`, `internal_only: true`): they cross the
 //!     opaque record boundary the injected source cannot touch. Users can never call
 //!     them (the `internal_only` flag, honored by `builtins::is_internal_only_call`).
 //!
-//! The injected source (formerly a single `package.mfb` companion) is now assembled
+//! The injected source (formerly a single `package.mfb` companion) is assembled
 //! by `RegistryPackage::get_mfb` from parts registered here: the open `Attribute`
-//! model (`add_record`/`add_union`/`add_enum` below) plus every `__astrings_*` body,
-//! one `helper_*.rs` per FUNC (`add_helper`, csv/json-style), registered in the
-//! original companion order. The assembled file keeps the legacy
+//! model (`add_record`/`add_union`/`add_enum` below), the PRIVATE `__astrings_*`
+//! helper bodies (one `helper_*.rs` per FUNC, `add_helper` — private-only), and
+//! the public members' `Body::Mfb` bodies from their `func_*.rs` descriptors. The assembled file keeps the legacy
 //! `<builtin-astrings>` label (derived from the package import name) and is emitted
 //! on IMPORT by `Registry::augment_project`. The source `IMPORT strings` and calls
 //! the scalar seam (`strings::toScalars`/…); the `strings` package rides that seam
@@ -63,26 +62,16 @@ mod func_to_markdown;
 mod func_underline;
 mod func_write_spans;
 
-mod helper_add_attribute;
 mod helper_assemble;
 mod helper_attr_equals;
-mod helper_background;
-mod helper_bold;
 mod helper_case_fold;
-mod helper_clear_attributes;
-mod helper_clear_attributes_range;
 mod helper_concat;
 mod helper_decode_attr;
 mod helper_encode_attr;
 mod helper_find_matches;
 mod helper_flag_from_member;
 mod helper_flag_member;
-mod helper_font;
-mod helper_font_size;
-mod helper_foreground;
-mod helper_get_attributes;
 mod helper_is_winner;
-mod helper_italic;
 mod helper_leading_in_set;
 mod helper_left;
 mod helper_lower;
@@ -94,36 +83,46 @@ mod helper_next_seq;
 mod helper_normalize_nfc;
 mod helper_number_from_member;
 mod helper_number_member;
-mod helper_overline;
 mod helper_pack_color;
 mod helper_pad_left;
 mod helper_pad_right;
 mod helper_remap_segment;
-mod helper_remove_attribute;
 mod helper_repeat;
 mod helper_replace;
 mod helper_right;
 mod helper_scalar_count_str;
 mod helper_shift_spans;
 mod helper_split_span;
-mod helper_strike;
 mod helper_strip_prefix;
 mod helper_strip_suffix;
-mod helper_to_markdown;
 mod helper_trim;
 mod helper_trim_chars;
 mod helper_trim_end;
 mod helper_trim_start;
-mod helper_underline;
 mod helper_upper;
 mod helper_validate_range;
 mod helper_window_spans;
 
-/// One-line package intro (was `BuiltinModule::doc_intro`, historically empty).
-const INTRO: &str = "";
-/// Package-overview description (historically empty; the man page is the doc
-/// authority for `astrings`).
-const DESC: &str = "";
+/// One-line package intro (ported from the archived `planning/old_man` page).
+const INTRO: &str = r#"Attributed (styled) text: an opaque, value-semantic `AttributedString`"#;
+/// Package-overview description (ported from the archived `planning/old_man`
+/// page, citation markers stripped).
+const DESC: &str = r#"The `astrings` package works with `AttributedString`, an opaque built-in that
+pairs visible `String` text with an attribute overlay describing per-range style
+(bold, italic, font, size, foreground/background color, …). The type is
+**value-semantic**: it copies deeply,
+drops with its owning scope, and defaults to empty text with no attributes. It is
+**opaque** — it exposes no user-visible fields (`a.text` does not compile), cannot
+be built with a record literal (`AttributedString[...]`), and cannot be
+`WITH`-updated. It is copyable and defaultable but **not** comparable, so it is
+never a `Map` key or `Set` element.
+
+Reach the visible text with `toString(a)`; `io::print`/`io::write` emit it. The
+text is never reached by an implicit coercion — only through `toString` or an
+explicit overload.
+
+`astrings::fromString(text)` constructs an `AttributedString` whose visible text
+is `text` and whose attribute overlay is empty."#;
 
 /// Register the `astrings` package on the clean-room registry.
 pub(crate) fn register(r: &mut Registry) {
@@ -371,16 +370,7 @@ pub(crate) fn register(r: &mut Registry) {
     // `package.mfb` blob.
     //
     // Convenience constructors.
-    helper_bold::register(&mut pkg);
-    helper_italic::register(&mut pkg);
-    helper_underline::register(&mut pkg);
-    helper_strike::register(&mut pkg);
-    helper_overline::register(&mut pkg);
-    helper_font::register(&mut pkg);
-    helper_font_size::register(&mut pkg);
     helper_pack_color::register(&mut pkg);
-    helper_foreground::register(&mut pkg);
-    helper_background::register(&mut pkg);
     // Attribute <-> AttrSpan encoding.
     helper_flag_member::register(&mut pkg);
     helper_flag_from_member::register(&mut pkg);
@@ -393,14 +383,9 @@ pub(crate) fn register(r: &mut Registry) {
     helper_validate_range::register(&mut pkg);
     helper_next_seq::register(&mut pkg);
     // Tier-C: mutation.
-    helper_add_attribute::register(&mut pkg);
     helper_split_span::register(&mut pkg);
-    helper_remove_attribute::register(&mut pkg);
-    helper_clear_attributes_range::register(&mut pkg);
-    helper_clear_attributes::register(&mut pkg);
     // Tier-C: query (higher-start-wins resolution).
     helper_is_winner::register(&mut pkg);
-    helper_get_attributes::register(&mut pkg);
     // Tier-B: attribute-preserving transforms (plan-89-D). Each transform runs the
     // existing String transform on the visible text, then remaps the stored spans by
     // the same edit (all inclusive scalar bounds). The text invariant
@@ -440,7 +425,6 @@ pub(crate) fn register(r: &mut Registry) {
     helper_md_escape::register(&mut pkg);
     helper_md_escape_font::register(&mut pkg);
     helper_md_state_at::register(&mut pkg);
-    helper_to_markdown::register(&mut pkg);
 
     // Native-direct constructor (shared codegen carrier).
     func_from_string::register(&mut pkg);

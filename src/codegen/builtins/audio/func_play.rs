@@ -12,6 +12,26 @@ use crate::types::ParameterType;
 
 use super::{param, AUDIO_OUTPUT_TYPE_ID};
 
+#[rustfmt::skip]
+const BODY_TRACK: &str =
+r#"' audio::play(output, mml) — parse a single MML track and write it to the stream.
+SUB __audio_play(RES out AS audio::AudioOutput, mml AS String)
+  __audio_playSamples(out, __audio_mmlRenderSamples(mml))
+END SUB"#;
+
+#[rustfmt::skip]
+const BODY_TRACKS: &str =
+r#"' audio::play(output, tracks) — parse each track, mix them, and write to the
+' stream. Each track is isolated: tempo/length/octave/volume/instrument do not
+' carry between tracks.
+SUB __audio_playTracks(RES out AS audio::AudioOutput, tracks AS List OF String)
+  MUT rendered AS List OF List OF Integer = []
+  FOR EACH tk IN tracks
+    rendered = collections::append(rendered, __audio_mmlRenderSamples(tk))
+  NEXT
+  __audio_playSamples(out, __audio_mmlMix(rendered))
+END SUB"#;
+
 const INTRO: &str = r#"Parse MML music text and play it on an open output stream."#;
 const DESC: &str = r#"`audio::play` is a small MML (Music Macro Language) sequencer. It parses one or
 more tracks of MML text, synthesizes each track to mono `s16le` PCM at a fixed 48 kHz
@@ -84,7 +104,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Nothing,
                 errors: errors(),
-                body: Body::Rewrite("__audio_playTracks"),
+                body: Body::mfb(BODY_TRACKS, "__audio_playTracks"),
             },
             Implementation {
                 params: vec![
@@ -98,7 +118,7 @@ pub(crate) fn register(pkg: &mut RegistryPackage) {
                 ],
                 return_type: ParameterType::Nothing,
                 errors: errors(),
-                body: Body::Rewrite("__audio_play"),
+                body: Body::mfb(BODY_TRACK, "__audio_play"),
             },
         ],
     });

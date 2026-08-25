@@ -25,12 +25,12 @@
 //! `AbiCtx::call`. The IR-level overload rewrites live in [`runtime_overload_name`]
 //! (`audio.read` → `audio.readTimeout`, …), keyed on argument shape.
 //!
-//! The `render`/`play` members are pure MFBASIC: the tone renderer and the MML
-//! sequencer are injected source (one `__audio_*` body per `helper_*.rs` file,
-//! registered via `add_helper` and assembled by `get_mfb`; the bodies CALL the
-//! migrated `math` registry package by name), and the public members rewrite
-//! to their `__audio_render`/`__audio_play`/`__audio_playTracks` bodies
-//! (`Body::Rewrite`) through the generic `registry::rewrite_target`. The three
+//! The `render`/`play` members are pure MFBASIC: each `func_*.rs` descriptor
+//! carries its `__audio_render`/`__audio_play`/`__audio_playTracks` body as
+//! `Body::mfb`, rewritten through the generic `registry::rewrite_target`; the
+//! PRIVATE `__audio_*` sequencer helpers (one `helper_*.rs` per FUNC,
+//! `add_helper` — private-only, the bodies CALL the migrated `math` registry
+//! package by name) render before them in the `get_mfb` assembly. The three
 //! value records (`AudioDevice`, `AudioEnvelope`, `AudioNote`) and the internal
 //! `__audio_MmlEvent` event record are registered via `add_record` and rendered
 //! into the injected source by `get_mfb`.
@@ -88,10 +88,7 @@ mod helper_mml_synth;
 mod helper_mml_tokens;
 mod helper_mml_trailing_dots;
 mod helper_mml_wave_code;
-mod helper_play;
 mod helper_play_samples;
-mod helper_play_tracks;
-mod helper_render;
 
 /// The `AudioInput` capture handle's bare type name (the `RegistryResource` name
 /// and the `type` half of its qualified id).
@@ -436,7 +433,6 @@ pub(crate) fn register(r: &mut Registry) {
     // Shared s16 primitives + the tone renderer.
     helper_clamp_s16::register(&mut pkg);
     helper_append_s16_le::register(&mut pkg);
-    helper_render::register(&mut pkg);
     // audio::play — a small MML (Music Macro Language) sequencer. A track is a
     // space-separated string of tokens; every token is separated by a single
     // space. Tokens: notes A..G (with a trailing + / - accidental, an inline
@@ -470,8 +466,6 @@ pub(crate) fn register(r: &mut Registry) {
     helper_mml_mix::register(&mut pkg);
     helper_mml_encode::register(&mut pkg);
     helper_play_samples::register(&mut pkg);
-    helper_play::register(&mut pkg);
-    helper_play_tracks::register(&mut pkg);
 
     r.add_package(pkg);
 }
