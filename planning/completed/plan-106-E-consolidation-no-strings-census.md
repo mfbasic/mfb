@@ -429,6 +429,22 @@ name.** The measurement above is the starting denominator.
 
 ## Corrections
 
+### Correction 4 (post-archive, 2026-08-24) — census line 3 undercounted by one production site
+
+A code-level re-verification of the archived census reproduced every line
+exactly (line 1 = 10, line 2 = 12 test hits, line 4/5/6 inventories identical,
+223-parse distribution byte-for-byte) EXCEPT line 3: the recorded "10, all
+boundaries" missed one production `format!` type build present since plan-57-D
+— `refined_list_literal_type`
+(`src/codegen/collection/layout/builder_collection_layout.rs:2459`,
+`format!("List OF {element}")` over name-domain `&str` inputs; the file's other
+hit, `:2890`, is `#[cfg(test)]`). The true line-3 production count is **11**.
+The site is not a new class: it is squarely the codegen name-keyed layout web
+that census line 6 already records as the honest follow-up ("key the codegen
+type tables by `ParameterType`"), and it joins that denominator. Recorded so
+the follow-up's starting measurement is right, not to reclassify it as a
+boundary.
+
 ### Correction 3 — the `.mfp` wire type-id encoder mis-split a nested `Map` key
 
 Found while clearing census line 1, and the reason the one-grammar rule exists.
