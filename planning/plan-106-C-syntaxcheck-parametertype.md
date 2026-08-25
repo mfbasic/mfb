@@ -196,12 +196,20 @@ None. Diagnostics byte-identical.
       vocabulary, and closing it serves B's residue, C's swap, and E's census
       at once.
 
-      **Recorded decision:** give `ParameterType` a first-class STATE
-      representation (an accessor pair at minimum — `state_of(&self)` /
-      `with_state` already exists from letter A — and, if the corpus needs the
-      independent axis, a variant). Sized and executed in Phase 2; the change is
-      a vocabulary addition, so `parse`/`name` must stay byte-exact
-      round-tripping (`hir-parse-name-roundtrip-load-bearing`).
+      **Decision, and it is DONE** (landed ahead of the rest of Phase 2, because
+      letter B's residue needed it too):
+
+      `ParameterType` gains `split_state` / `state` / `without_state` in
+      `src/types.rs` — the structural twins of
+      `codegen::resource::{state_type_name, base_resource_name}`, joining
+      `with_state` from letter A. No variant was needed: the accessors are
+      enough for both the thread plane's `res_state` slot (whose `res` child is
+      a leaf) and every STATE read in `ir::lower` / `ir::verify`.
+
+      They are **top-level only**, and that is load-bearing rather than a
+      shortcut — see Correction 2. Wired at ten sites across `ir::lower` and
+      `ir::verify`, which removes the last `state_type_name` renders from both
+      and closes two of letter B's five recorded `parse` sites.
 
 - [x] Read `types.rs::parse_type`'s symbol-table touches; record the
       grammar-vs-scope split.
@@ -289,6 +297,43 @@ which are global lookups, not lexical scope.
 
 Phase 2 is re-scoped accordingly: the seam it needs is a *registry+STATE*
 adapter, not a scope resolver.
+
+### 2. The STATE accessors must be TOP-LEVEL only — bug-429 depends on the no-op
+
+`split_state` was first written to descend to the same child `with_state`
+attaches to, so the two would be exact inverses for every shape. That is
+mathematically tidy and **wrong**, and the gate caught it: 4 diffs, on
+`bug427_list_union_state_rt` and `bug429_owned_list_union_drain_rt` — both
+MISSING (the fixtures stopped compiling), not byte diffs.
+
+```
+$ target/release/mfb build -q -ast -ir <bug427 fixture>
+…:29 error[TYPE_ASSIGNMENT_MISMATCH]:
+   Assignment to `handles` has type List OF RES Handle STATE Cursor,
+   expected List OF RES Handle.
+```
+
+The reason is recorded in the code that the descending version broke —
+`ir::verify::values.rs::check_result_value_type`, whose comment states it
+outright: base-normalizing a composite "is a no-op — `base_resource_name`
+declines to split a ` STATE ` whose base contains a space", and that no-op is
+what makes **both sides normalize identically**. Peel the element's clause on
+one side while the other has none to peel and a correct, STATE-carrying
+resource union is rejected asymmetrically. That asymmetry IS bug-429.
+
+So the accessors reproduce the name helpers exactly, guard and all:
+`List OF RES File STATE Cursor` splits to nothing. They agree with `with_state`
+on leaf bases — every place a resource's STATE is actually read — and
+deliberately not on composites. Both properties are pinned:
+`split_state_is_top_level_only` (which cites the two fixtures) and
+`split_state_matches_the_name_domain_helpers` (which compares against
+`state_type_name`/`base_resource_name` on nine spellings, including the thread
+planes whose ` STATE ` belongs to the plane).
+
+The lesson generalises past this plan: *an inverse pair is not automatically the
+right pair.* `with_state` builds a spelling and so must descend; reading one
+back must not, because the callers compare normalized types and normalization
+has to be symmetric.
 
 ## Summary
 

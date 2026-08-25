@@ -461,6 +461,55 @@ impl ParameterType {
         }
     }
 
+    /// Split a resource type into its base and its own **top-level** ` STATE T`
+    /// clause, if it carries one.
+    ///
+    /// `STATE` has no variant: outside a thread plane [`parse`](Self::parse) has
+    /// no arm for it, so `File STATE Cursor` is one opaque
+    /// [`Named`](Self::Named). That makes the clause readable only off a
+    /// spelling, which is why `ir::verify` and `syntaxcheck` both ended up
+    /// re-parsing to recover it (plan-106-B §Phase 2 census, plan-106-C Phase 1).
+    /// This is the structural way back.
+    ///
+    /// **Top-level only, and that is load-bearing.** It reproduces
+    /// `codegen::resource::{base_resource_name, state_type_name}` exactly,
+    /// including their guard: a base containing a space is a composite, so
+    /// `List OF RES File STATE Cursor` and `Result OF Stream STATE Pending`
+    /// split to *nothing*. That no-op is what keeps both sides of a comparison
+    /// normalizing identically — peeling the element's clause on one side while
+    /// the other has none to peel is exactly the asymmetry bug-429 fixed
+    /// (`ir::verify::values.rs`, `check_result_value_type`). It does **not**
+    /// descend, and so it is NOT a general inverse of
+    /// [`with_state`](Self::with_state), which attaches to the innermost
+    /// rendered child; the two agree precisely on leaf bases, which is every
+    /// place a resource's STATE is actually read.
+    ///
+    /// Guarded by `split_state_is_top_level_only` and
+    /// `split_state_matches_the_name_domain_helpers`.
+    pub(crate) fn split_state(&self) -> (ParameterType, Option<ParameterType>) {
+        let name = self.name();
+        match split_state_clause(&name) {
+            Some((base, state)) => (
+                ParameterType::parse(base),
+                Some(ParameterType::parse(state)),
+            ),
+            None => (self.clone(), None),
+        }
+    }
+
+    /// The top-level ` STATE T` clause this type carries, if any — the structural
+    /// twin of `codegen::resource::state_type_name`, and the read half of
+    /// [`split_state`](Self::split_state).
+    pub(crate) fn state(&self) -> Option<ParameterType> {
+        self.split_state().1
+    }
+
+    /// This type with its top-level ` STATE T` clause removed — the structural
+    /// twin of `codegen::resource::base_resource_name`.
+    pub(crate) fn without_state(&self) -> ParameterType {
+        self.split_state().0
+    }
+
     /// The parameter type's formatted name.
     pub(crate) fn name(&self) -> Cow<'static, str> {
         match self {
@@ -706,6 +755,23 @@ fn split_thread_types(rest: &str) -> Option<(&str, Option<&str>, &str)> {
 /// bug-108.2. The two other copies (`monomorph`, `syntaxcheck::types::split_map_body`)
 /// are the lockstep-edit hazard the architectural review flagged
 /// (`planning/Compiler Pipeline.md:25`).
+/// Split a type spelling into its base and its OWN top-level ` STATE T` clause.
+///
+/// Byte-for-byte the rule `codegen::resource::split_state_clause` applies,
+/// re-stated here so [`ParameterType::split_state`] does not reach into `codegen`
+/// for the grammar half of its own vocabulary. The guard is the load-bearing
+/// part: a base containing a space is a composite whose ` STATE ` belongs to
+/// something *nested* (`Thread OF … RES File STATE Cursor TO …`, plan-54), not to
+/// this type. Pinned against the `codegen` original by
+/// `split_state_matches_the_name_domain_helpers`.
+fn split_state_clause(type_name: &str) -> Option<(&str, &str)> {
+    let (base, state) = type_name.split_once(" STATE ")?;
+    if base.contains(' ') {
+        return None; // nested STATE inside a composite type — not this type's own.
+    }
+    Some((base, state))
+}
+
 pub(crate) fn split_top_level_to(body: &str) -> Option<(&str, &str)> {
     let bytes = body.as_bytes();
     let mut depth: usize = 0;
@@ -1120,6 +1186,130 @@ mod tests {
             }
         }
         assert_eq!(checked, bases.len() * states.len());
+    }
+
+    /// plan-106-C: on a LEAF base — every place a resource's STATE is actually
+    /// read — `split_state` undoes `with_state` exactly.
+    #[test]
+    fn split_state_is_the_inverse_of_with_state_on_leaves() {
+        let states = [
+            ParameterType::named("Cursor"),
+            ParameterType::Integer,
+            ParameterType::named("pkg.FileInfo"),
+            // A STRUCTURED state — `fs.File STATE List OF Choice` is legal, and
+            // wrapping it with `named` instead of parsing it is the exact bug
+            // plan-106-B Correction 4 fixed.
+            ParameterType::list_of(ParameterType::named("Choice")),
+        ];
+        let leaves = [
+            ParameterType::named("File"),
+            ParameterType::named("fs.File"),
+            ParameterType::Integer,
+            ParameterType::String,
+            ParameterType::Unknown,
+        ];
+        let mut checked = 0usize;
+        for base in &leaves {
+            assert_eq!(
+                base.split_state(),
+                (base.clone(), None),
+                "stateless leaf reported a STATE: {base:?}"
+            );
+            for state in &states {
+                let attached = base.with_state(state);
+                assert_eq!(
+                    attached.split_state(),
+                    (base.clone(), Some(state.clone())),
+                    "split_state did not invert with_state for `{}` STATE `{}`",
+                    base.name(),
+                    state.name()
+                );
+                assert_eq!(attached.without_state(), *base);
+                assert_eq!(attached.state().as_ref(), Some(state));
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, leaves.len() * states.len());
+
+        // A `Var` is the one leaf that cannot round-trip, for the same sanctioned
+        // reason the descriptor guard records: a type variable renders as its bare
+        // name and `parse` cannot know a name is a variable without the declaring
+        // scope, so it comes back a `Named`. Harmless — a STATE is attached to a
+        // concrete resource, never to a type variable — but asserted so the limit
+        // is explicit rather than discovered later.
+        let var_with_state = ParameterType::var("T").with_state(&ParameterType::named("Cursor"));
+        assert_eq!(
+            var_with_state.split_state(),
+            (
+                ParameterType::named("T"),
+                Some(ParameterType::named("Cursor"))
+            )
+        );
+    }
+
+    /// `split_state` is **top-level only**, and this pins that it does NOT
+    /// descend — the property bug-429 depends on.
+    ///
+    /// `with_state` attaches to the innermost rendered child, so on a composite
+    /// the two are deliberately not inverses: `List OF RES File STATE Cursor`
+    /// carries its clause on the *element*, and the top-level split must report
+    /// `None` for it. Peeling it here would strip one side of a comparison while
+    /// the other has nothing to strip, which is precisely the asymmetry that
+    /// rejected a correct STATE-carrying resource union (bug-429) — and, when
+    /// this accessor was first written descending, broke
+    /// `bug427_list_union_state_rt` and `bug429_owned_list_union_drain_rt` with
+    /// "expected List OF RES Handle, got List OF RES Handle STATE Cursor".
+    #[test]
+    fn split_state_is_top_level_only() {
+        for spelling in [
+            "List OF RES File STATE Cursor",
+            "Set OF RES File STATE Cursor",
+            "Result OF File STATE Cursor",
+            "Map OF String TO RES File STATE Cursor",
+            "RES File STATE Cursor",
+        ] {
+            let type_ = ParameterType::parse(spelling);
+            assert_eq!(
+                type_.split_state(),
+                (type_.clone(), None),
+                "`{spelling}` must not split — its STATE belongs to a nested type"
+            );
+            // Exactly what the name-domain helper this replaces answers.
+            assert_eq!(crate::codegen::resource::state_type_name(spelling), None);
+        }
+    }
+
+    /// `split_state` must agree with the name-domain helpers it replaces
+    /// (`codegen::resource::base_resource_name` / `state_type_name`) on every
+    /// spelling, including the composites above and the thread planes whose
+    /// ` STATE ` belongs to the plane, not the handle (plan-54).
+    #[test]
+    fn split_state_matches_the_name_domain_helpers() {
+        for spelling in [
+            "File",
+            "File STATE Cursor",
+            "fs.File STATE Cursor",
+            "Integer",
+            "RES File STATE Cursor",
+            "List OF RES File STATE Cursor",
+            "Map OF String TO RES File STATE Cursor",
+            "Thread OF RES fs.File STATE Cursor TO Integer",
+            "Thread OF Integer RES fs.File STATE Cursor TO String",
+        ] {
+            let type_ = ParameterType::parse(spelling);
+            let (base, state) = type_.split_state();
+            assert_eq!(
+                state.as_ref().map(|s| s.name()).as_deref(),
+                crate::codegen::resource::state_type_name(spelling),
+                "STATE disagreement on `{spelling}`"
+            );
+            assert_eq!(
+                base.name(),
+                crate::codegen::resource::base_resource_name(spelling),
+                "base disagreement on `{spelling}`"
+            );
+            assert_eq!(type_.name(), spelling);
+        }
     }
 
     #[test]

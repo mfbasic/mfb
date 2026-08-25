@@ -237,7 +237,7 @@ fn collect_diagnostics_with(
                 .iter()
                 .filter(|p| {
                     env.is_resource_or_resource_union(&resource_base_type(&p.type_).name())
-                        && crate::codegen::resource::state_type_name(&p.type_.name()).is_none()
+                        && p.type_.state().is_none()
                 })
                 .map(|p| p.name.clone())
                 .collect(),
@@ -1189,18 +1189,11 @@ fn is_resource_name(name: &str) -> bool {
 /// `STATE` nested inside a thread plane (`Thread OF RES File STATE Cursor TO Out`)
 /// is left intact (plan-54, via `base_resource_name`'s top-level guard).
 fn resource_base_type(type_: &ParameterType) -> ParameterType {
-    let inner = strip_res(type_);
-    // The ` STATE T` clause rides INSIDE the resource's nominal spelling
-    // (`parse` has no `STATE` arm outside a thread plane), so it is stripped off
-    // the name; `base_resource_name`'s top-level guard leaves a `STATE` nested in
-    // a thread plane intact (plan-54).
-    let name = inner.name();
-    let base = crate::codegen::resource::base_resource_name(&name);
-    if base == name {
-        inner.clone()
-    } else {
-        ParameterType::parse(base)
-    }
+    // plan-106-C: `ParameterType::without_state` is the structural splitter, so
+    // this no longer renders the type and re-parses the base out of the spelling.
+    // It keeps the same top-level guard, which leaves a `STATE` nested inside a
+    // thread plane intact (plan-54).
+    strip_res(type_).without_state()
 }
 
 /// The name-domain twin of [`resource_base_type`], for the callers that hold a

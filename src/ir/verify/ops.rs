@@ -233,13 +233,8 @@ impl TypeEnv {
                     // can only be *written*, so an inferred binding has nothing
                     // new for them to check.
                     if *explicit_type && !name.starts_with('$') {
-                        if let Some(state_type) =
-                            crate::codegen::resource::state_type_name(&type_.name())
-                        {
-                            if !self.is_defaultable(
-                                &ParameterType::parse(state_type),
-                                &mut HashSet::new(),
-                            ) {
+                        if let Some(state_type) = type_.state() {
+                            if !self.is_defaultable(&state_type, &mut HashSet::new()) {
                                 self.emit(
                                     "TYPE_STATE_INVALID",
                                     format!(
@@ -249,7 +244,7 @@ impl TypeEnv {
                             }
                         }
                         if is_resource {
-                            self.check_binding_state_agreement(name, &type_.name(), value, locals);
+                            self.check_binding_state_agreement(name, type_, value, locals);
                         }
                     }
                     // plan-59-E: RES-binding a collection element used to be
@@ -369,8 +364,7 @@ impl TypeEnv {
                     if let Some(t) = locals.get(resource) {
                         // The `STATE` clause rides inside the resource's nominal
                         // spelling, so it is read off the name.
-                        let t_name = t.name();
-                        let declared_state = crate::codegen::resource::state_type_name(&t_name);
+                        let declared_state = t.state();
                         if declared_state.is_none()
                             && self.is_resource_or_resource_union(&resource_base_type(t).name())
                         {
@@ -381,7 +375,7 @@ impl TypeEnv {
                                 ),
                             );
                         }
-                        if let Some(state_type) = declared_state.map(ParameterType::named) {
+                        if let Some(state_type) = declared_state {
                             if let Some(actual) = self.infer_type(value, locals) {
                                 if !self.expression_compatible(&state_type, &actual, value) {
                                     let (actual, state_type) = (actual.name(), state_type.name());
@@ -482,9 +476,7 @@ impl TypeEnv {
                         // cannot show the opaque value carries.
                         if self.is_opaque_state_value(value) {
                             let ret = self.current_return.borrow().clone();
-                            if let Some(declared) =
-                                crate::codegen::resource::state_type_name(&ret.name())
-                            {
+                            if let Some(declared) = ret.state().map(|s| s.name().into_owned()) {
                                 self.emit(
                                     "TYPE_STATE_OPAQUE_NARROWING",
                                     format!(

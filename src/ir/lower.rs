@@ -763,15 +763,9 @@ fn lower_statement(
                 .get(resource)
                 .or_else(|| context.binding_types.get(resource))
                 .cloned();
-            // The `STATE` clause rides inside the resource's NOMINAL spelling
-            // (`File STATE Cursor` is one opaque `Named`), so it is read off the
-            // name and rebuilt as the nominal it denotes.
-            let state_type = resource_type
-                .as_ref()
-                .map(ParameterType::name)
-                .and_then(|name| {
-                    crate::codegen::resource::state_type_name(&name).map(ParameterType::named)
-                });
+            // plan-106-C: `ParameterType::state` splits the ` STATE T` clause out
+            // structurally, so this no longer renders the type to read it back.
+            let state_type = resource_type.as_ref().and_then(ParameterType::state);
             let lowered =
                 lower_expression_with_expected(value, state_type.as_ref(), locals, context);
             vec![IrOp::StateAssign {
@@ -1744,11 +1738,10 @@ fn match_case_binding(
             // resolve and lower through the concrete-record path. The `UnionExtract`
             // itself stays keyed on the bare variant type (it loads the variant
             // record pointer at `+8`).
-            // The scrutinee's `STATE` clause rides inside its nominal spelling, so
-            // it is read off the name and re-attached structurally.
-            let matched_name = matched_type.name();
-            let binding_type = match crate::codegen::resource::state_type_name(&matched_name) {
-                Some(state) => type_.with_state(&ParameterType::named(state)),
+            // The scrutinee's `STATE` clause is split out structurally and
+            // re-attached to the variant (plan-106-C).
+            let binding_type = match matched_type.state() {
+                Some(state) => type_.with_state(&state),
                 None => type_.clone(),
             };
             Some((
@@ -2026,14 +2019,11 @@ fn expression_type(
                 }
             }
             let target_type = expression_type(target, locals, context)?;
-            // `s.state` on a `RES` value yields its `STATE` record type. The
-            // `STATE` clause rides inside the resource's NOMINAL spelling
-            // (`File STATE FileState` is one opaque `Named` — see
-            // `ParameterType::parse`), so this reads it off the name.
+            // `s.state` on a `RES` value yields its `STATE` record type, split
+            // out structurally (plan-106-C's `ParameterType::state`).
             if member == "state" {
-                let target_name = target_type.name();
-                if let Some(state) = crate::codegen::resource::state_type_name(&target_name) {
-                    return Some(ParameterType::named(state));
+                if let Some(state) = target_type.state() {
+                    return Some(state);
                 }
             }
             // `t.result` is removed; worker outcomes are retrieved only via
