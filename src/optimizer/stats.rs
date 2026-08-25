@@ -16,6 +16,12 @@ pub(super) static ALGEBRAIC_SIMPLIFICATION: AtomicU64 = AtomicU64::new(0);
 /// "Strength reduction (non-loop)" (Opt1): checked ops replaced by cheaper
 /// trap-identical ones.
 pub(super) static STRENGTH_REDUCTION: AtomicU64 = AtomicU64::new(0);
+/// "Constant propagation" (Opt2): instructions rewritten to `mov_imm` from
+/// SSA-proven cross-block constants.
+pub(super) static CONSTANT_PROPAGATION: AtomicU64 = AtomicU64::new(0);
+/// "Copy propagation" (Opt2): register uses rewritten to read a copy's
+/// ultimate source directly.
+pub(super) static COPY_PROPAGATION: AtomicU64 = AtomicU64::new(0);
 /// "Dead-code elimination (DCE)" (both seams): dead binds/evals removed on NIR
 /// plus dead pure instructions removed on MIR.
 pub(super) static DEAD_CODE_ELIMINATION: AtomicU64 = AtomicU64::new(0);
@@ -37,6 +43,14 @@ pub(super) static FP_SHUTTLES_FOLDED: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) fn count_constant_folds(fired: u64) {
     add(&CONSTANT_FOLDING, fired);
+}
+
+pub(crate) fn count_constant_propagations(fired: u64) {
+    add(&CONSTANT_PROPAGATION, fired);
+}
+
+pub(crate) fn count_copy_propagations(fired: u64) {
+    add(&COPY_PROPAGATION, fired);
 }
 
 pub(crate) fn count_dead_code_eliminations(fired: u64) {

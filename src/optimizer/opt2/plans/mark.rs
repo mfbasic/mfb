@@ -14,11 +14,16 @@
 //! live (control flow untouched); ADCE leaves them dead until some live
 //! instruction proves control-dependent on them.
 //!
-//! Marking then propagates: a live instruction's register uses make every
-//! whitelisted definition of those vregs live (non-SSA: all defs of a used
-//! vreg are kept), and — when control dependence is supplied — a live
-//! instruction makes the conditional terminators of its controlling blocks
-//! live.
+//! Marking then propagates. With the [`super::ssa`] overlay supplied (both
+//! DCE rows pass it), a live instruction's register uses make live exactly
+//! the definitions that *actually reach* them — the use's SSA value's
+//! defining instruction, or every argument-defining instruction through a
+//! phi — so a definition of a vreg name no live use ever reads is removable
+//! even when another definition of the same name is live. A use with no SSA
+//! fact (an unreachable block) falls back to the conservative non-SSA edge:
+//! every whitelisted definition of that vreg name is kept. When control
+//! dependence is supplied, a live instruction also makes the conditional
+//! terminators of its controlling blocks live.
 
 use std::collections::HashMap;
 
@@ -30,6 +35,7 @@ use crate::codegen::engine::types::CodeInstruction;
 use crate::target::shared::regmodel::RegClass;
 
 use super::postdom::PostDom;
+use super::ssa::{Ssa, ValueDef};
 
 /// The marking outcome: `live[i]` for every instruction. Anything not live is
 /// removable by construction (whitelisted, vreg-dst, proven unused — or a
@@ -81,11 +87,14 @@ pub(crate) fn conditional_terminator(op: CodeOp) -> bool {
 
 /// Run the marking. `control` supplies blocks + control dependence for ADCE;
 /// `None` is plain DCE (conditional branches seeded live, no block facts
-/// needed).
+/// needed). `ssa` supplies the per-use value resolution for precise marking;
+/// without it (or for a use it has no fact for) every definition of a used
+/// vreg is kept.
 pub(crate) fn mark_live(
     instructions: &[CodeInstruction],
     models: &(ClassModel, ClassModel),
     control: Option<(&[Block], &PostDom)>,
+    ssa: Option<&Ssa>,
 ) -> Marking {
     let n = instructions.len();
     // Which block each instruction belongs to (ADCE only).
@@ -144,11 +153,53 @@ pub(crate) fn mark_live(
             queue.push(i);
         }
     }
+    // Memo for the SSA value walk: a value's contributors are marked once.
+    let mut value_marked = vec![false; ssa.map_or(0, |ssa| ssa.values.len())];
+    // Mark every instruction contributing to `value` live: its defining
+    // instruction, or every phi argument's contributors, transitively (phi
+    // cycles exist in loops, hence the memo).
+    fn mark_value(
+        value: usize,
+        ssa: &Ssa,
+        value_marked: &mut [bool],
+        live: &mut [bool],
+        queue: &mut Vec<usize>,
+    ) {
+        let mut values = vec![value];
+        while let Some(v) = values.pop() {
+            if value_marked[v] {
+                continue;
+            }
+            value_marked[v] = true;
+            match &ssa.values[v] {
+                ValueDef::Inst(def) => {
+                    if !live[*def] {
+                        live[*def] = true;
+                        queue.push(*def);
+                    }
+                }
+                ValueDef::Phi(args) => values.extend(args.iter().copied()),
+                ValueDef::Entry => {}
+            }
+        }
+    }
     while let Some(i) = queue.pop() {
-        // Data edges: every whitelisted def of a vreg this instruction reads.
+        // Data edges: with SSA facts, exactly the definitions reaching each
+        // use; otherwise every whitelisted def of the vreg name.
         for model in [&models.0, &models.1] {
             for used in effect(&instructions[i], model).uses {
                 if let RegRef::VReg(id) = used {
+                    if let Some(value) = ssa.and_then(|ssa| ssa.value_of_use(i, (model.is_fp, id)))
+                    {
+                        mark_value(
+                            value,
+                            ssa.expect("value came from it"),
+                            &mut value_marked,
+                            &mut live,
+                            &mut queue,
+                        );
+                        continue;
+                    }
                     if let Some(defs) = vreg_defs.get(&(model.class, id)) {
                         for &def in defs {
                             if !live[def] {

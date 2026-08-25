@@ -40,7 +40,12 @@ pub(crate) fn fold_constants(instructions: &mut [CodeInstruction]) {
     let mut known: HashMap<String, u64> = HashMap::new();
     let mut folded = 0;
     for instruction in instructions.iter_mut() {
-        match fold_one(instruction, &known) {
+        let step = fold_one(instruction, &|field| {
+            instruction
+                .get(field)
+                .and_then(|name| known.get(&name).copied())
+        });
+        match step {
             Step::Record(dst, value) => {
                 known.insert(dst, value);
             }
@@ -62,8 +67,10 @@ pub(crate) fn fold_constants(instructions: &mut [CodeInstruction]) {
     crate::optimizer::stats::count_constant_folds(folded);
 }
 
-/// What one instruction does to the known-constant map.
-enum Step {
+/// What one instruction does to the known-constant map. pub(super): the SSA
+/// constant-propagation row (`opt2::constprop`) evaluates the same fold
+/// semantics per SSA value, so the two rows cannot drift.
+pub(super) enum Step {
     /// `dst` now provably holds the value; instruction unchanged.
     Record(String, u64),
     /// All inputs known: rewrite the instruction to `mov_imm dst, value`.
@@ -74,13 +81,16 @@ enum Step {
     Barrier,
 }
 
-fn fold_one(instruction: &CodeInstruction, known: &HashMap<String, u64>) -> Step {
+/// Evaluate one instruction against `resolve_reg`, which supplies the known
+/// 64-bit value of the register named by an operand *field* (block-local:
+/// the name→value map; SSA: the use's value's constant). The fold rules and
+/// their soundness argument live in the module docs.
+pub(super) fn fold_one(
+    instruction: &CodeInstruction,
+    resolve_reg: &dyn Fn(&str) -> Option<u64>,
+) -> Step {
     // A register operand's known value, or a literal field's bits.
-    let reg = |field: &str| -> Option<u64> {
-        instruction
-            .get(field)
-            .and_then(|name| known.get(&name).copied())
-    };
+    let reg = |field: &str| -> Option<u64> { resolve_reg(field) };
     let imm = |field: &str| -> Option<u64> { instruction.get(field).and_then(|text| bits(&text)) };
     let dst = || instruction.get("dst");
 

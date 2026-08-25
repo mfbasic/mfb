@@ -25,7 +25,7 @@ use crate::codegen::engine::regalloc::analysis::build_cfg;
 use crate::codegen::engine::types::CodeInstruction;
 use crate::target::shared::regmodel::RegisterModel;
 
-use super::plans::{mark, postdom};
+use super::plans::{mark, postdom, ssa};
 
 /// Run the ADCE row over one function's selected stream, in place.
 /// Self-guarded on the row's catalog level (3).
@@ -38,7 +38,8 @@ pub(crate) fn eliminate(instructions: &mut Vec<CodeInstruction>, model: &dyn Reg
         return; // no postdominance facts (e.g. an infinite loop): skip
     };
     let models = regalloc::class_models(model);
-    let marking = mark::mark_live(instructions, &models, Some((&blocks, &postdom)));
+    let ssa = ssa::build(instructions, &blocks, &models);
+    let marking = mark::mark_live(instructions, &models, Some((&blocks, &postdom)), Some(&ssa));
     let removed = super::dce::sweep(instructions, &marking.live);
     crate::optimizer::stats::count_aggressive_dce(removed);
 }

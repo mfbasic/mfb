@@ -68,6 +68,24 @@ pub(crate) fn rows() -> &'static [Row] {
             counter: &stats::STRENGTH_REDUCTION,
         },
         Row {
+            name: "Constant propagation",
+            level: 2,
+            stage: "MIR",
+            summary: "Replaces registers proven (on SSA) to hold the same \
+                      constant on every path — across branches and joins the \
+                      block-local folder cannot see past.",
+            counter: &stats::CONSTANT_PROPAGATION,
+        },
+        Row {
+            name: "Copy propagation",
+            level: 2,
+            stage: "MIR",
+            summary: "Rewrites uses of a copied register to read the copy's \
+                      original source directly, when it provably still holds \
+                      the same value; the bypassed copies then die as dead code.",
+            counter: &stats::COPY_PROPAGATION,
+        },
+        Row {
             name: "Dead-code elimination (DCE)",
             level: 2,
             stage: "NIR + MIR",
