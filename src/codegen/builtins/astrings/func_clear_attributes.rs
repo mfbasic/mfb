@@ -1,7 +1,7 @@
 //! `astrings::clearAttributes` — Tier-C mutation member (`Body::Rewrite`),
 //! overloaded on arity.
 //!
-//! Backed by the injected source companion (`package.mfb`): the whole form (1 arg)
+//! Backed by the injected source (the per-helper `helper_*.rs` bodies): the whole form (1 arg)
 //! rewrites to `__astrings_clearAttributes`, the ranged form (3 args) to
 //! `__astrings_clearAttributesRange`. The registry's overload-aware `rewrite_target`
 //! selects the body by argument count (replacing the legacy per-package

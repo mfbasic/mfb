@@ -1,6 +1,6 @@
 //! `astrings::readSpans` — internal-only native overlay bridge (`Body::abi_inline`).
 //!
-//! Never user-callable (`internal_only`): the source companion (`package.mfb`, an
+//! Never user-callable (`internal_only`): the injected source (assembled from `helper_*.rs`, an
 //! `internal` file) reads the opaque `AttributedString` attribute overlay through
 //! this native primitive; `resolver::resolution` rejects it from user source. The
 //! lowering stays SHARED in `src/codegen/builtins/astrings/gen_astrings.rs`.
