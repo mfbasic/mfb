@@ -181,31 +181,75 @@ Commit: —
 
 ### Phase 2 — the terminal census + straggler burn-down
 
-- [ ] Run every census line from §1; paste the full results here.
-- [ ] Any hit outside the permitted boundaries is fixed in this phase (each
-      one a listed task added here as found).
+- [x] Run every census line from §1; paste the full results here. **See
+      §The terminal census below** — every line, its command, its count, and
+      every residual hit classified.
+- [x] Any hit outside the permitted boundaries is fixed in this phase. Four
+      tranches, each gated independently:
+
+      | | what | commit |
+      |---|---|---|
+      | 1 | 48 `helper(&x.type_.name())` render→parse round-trips across 36 files | `e70c84697` |
+      | 2 | the collection emitter tree (24 functions) takes `&ParameterType` | `91bce3797` |
+      | 3 | the last hand-rolled grammar — **and a real `.mfp` wire bug** (Correction 3) | `4746fa03a` |
+      | 4 | monomorph's substitution walk + its 5 render→parse sites | `cba1524ba` |
+
+      Hand-rolled type grammar outside `types.rs`/`ast/` went **63 → 10**, and
+      all 10 are boundaries rather than residue (census line 1 below).
 
 Stragglers already identified by earlier letters (each a TASK here, not a
 deferral — see plan-106-A §Corrections 2 and 3 for the measurements):
 
-- [ ] **Codegen's residual hand-rolled type grammar** (plan-106-A Correction 2):
-      plan-104 typed the NIR data model but left ~15 `strip_prefix("List OF "…)`
-      sites and the name-keyed
-      `type_utils::numeric_binary_result_type` +
-      `type_utils::typed_numeric_binary_result_type` (which renders `name()`,
-      runs the string algorithm, and re-matches the result). Convert onto
-      `numeric::typed_binary_result_type` and structural matches.
-- [ ] **Monomorph's substitution walk** (plan-106-A Correction 3):
-      `concrete_type_name` (`src/monomorph/lower.rs:1630`) and its inverse
-      `template_view_type` (`:1738`) parse their input, recurse by rendered
-      child name, and `format!("List OF {…}")` the result — 14 type-grammar
-      `format!`s, plus five `ParameterType::parse(&self.concrete_type_name(…))`
-      re-parses at `lower.rs:421,475,481,862,1069`. Retype both to
-      `ParameterType -> ParameterType`, preserving the two behaviors the
-      by-name recursion encodes (the per-level `strip_type_group` unwrap —
-      bug-105 — and the `substitutions` lookup, whose keys are always bare
-      template-parameter names, so the probe belongs at `Named`/`Var` leaves).
-- [ ] `bench-lowering.sh` vs the 106 baseline: record; not slower.
+- [x] **Codegen's residual hand-rolled type grammar** (plan-106-A Correction 2).
+      Both promotion shells are deleted (Phase 1). The grammar sites were
+      **~15 by the plan's estimate and 63 measured** — corrected in Correction 2
+      below with the command. All are gone from `src/codegen/`:
+
+      ```
+      $ rg -n '(strip_prefix|starts_with)\("(List OF |Set OF |Map OF |RES |Result OF |MapEntry OF |Thread OF |ThreadWorker OF |FUNC\(|ISOLATED FUNC\()' src/codegen/ src/target/
+      (0 hits)
+      ```
+- [x] **Monomorph's substitution walk** (plan-106-A Correction 3). Both are
+      `ParameterType -> ParameterType` now (`concrete_type` / `template_view`),
+      the 14 type-grammar `format!`s are gone, and all five
+      `ParameterType::parse(&self.concrete_type_name(…))` sites call the typed
+      walk directly.
+
+      The two behaviours the plan named are preserved, and both turned out to be
+      *statable* rather than implied:
+
+      * the per-level `strip_type_group` unwrap is **no longer needed here** —
+        Correction 3 of this plan made `ParameterType::parse` peel a `(T)` group
+        at every level, so a grouped spelling can no longer arrive as a junk
+        nominal. The earlier fix paid for itself.
+      * the `substitutions` probe belongs at the nominal leaves — **verified**,
+        not assumed: every key is `Symbol::intern(param)` over a declaration's
+        `template_params` (`lower.rs:707`, `:861`), so it is always a bare
+        parameter name and could only ever have matched at a leaf. `leaf_symbol`
+        accepts `Named` AND `Var`, because a name arriving through HIR was
+        classified by `with_vars` and one arriving through a spelling was not.
+      * the self-binding guard still compares RENDERED names, so a `Var`/`Named`
+        spelling difference cannot be mistaken for progress and spin the walk.
+- [x] `bench-lowering.sh` vs the 106 baseline: recorded, **not slower on the
+      release path**, and the decisive evidence is not the wall clock:
+
+      ```
+                          baseline (94a38078b)   plan-106 end
+        trivial   release        0.62                0.35
+        one-regex release        7.09                6.87
+        acceptance release      50.01               51.08
+        regex fn instructions  869181              869181   <- identical
+                  int_vregs    143493              143493   <- identical
+      ```
+
+      The lowered instruction and vreg counts are **byte-for-byte the same**,
+      which is the direct measurement of "no work was added"; wall-clock is a
+      proxy. Two of the three release timings improved. The third moved 1.1s
+      (2%), which is inside the run-to-run variance observed on this machine —
+      the same binary measured 54.61 then 51.08 on consecutive runs while a peer
+      session was compiling. Debug timings drifted upward monotonically across
+      runs (279 → 300 → 318) under that same load and are not a usable signal;
+      recorded here rather than quietly dropped.
 
 Acceptance: the census in this file shows the invariant HOLDS with every
 residual hit classified into the three permitted boundary classes; suite
@@ -235,12 +279,176 @@ Commit: —
 - Doc sync: Phase 3 IS the doc sync.
 - Acceptance: full suite; gate; test-accept; fmt both crates.
 
+
+## The terminal census
+
+Run at the end of Phase 2. Every line from §1, its command, its count, and every
+residual hit classified into one of plan-106-A's three permitted boundary classes
+— or named plainly as NOT one, which happens once (line 6).
+
+### 1. Hand-rolled type-grammar parsing → **10, all boundaries** (was 63)
+
+```
+$ rg -n '(strip_prefix|starts_with)\("(List OF |Set OF |Map OF |RES |Result OF |MapEntry OF |Thread OF |ThreadWorker OF |FUNC\(|ISOLATED FUNC\()' src/ \
+    --glob '!src/types.rs' --glob '!src/ast/**' --glob '!src/docs/**' | grep -v '///'
+```
+
+| n | site | class |
+|---|---|---|
+| 6 | `ir/tests.rs` ×3, `binary_repr/tests/sections_tests.rs` ×3 — assertions on a rendered spelling | **tests** (class 2) |
+| 3 | `binary_repr/sections.rs` `is_structural` / `opaque_structural_kind` | neither: they choose WHICH ARM, and the fallback wire kind for a spelling that **did not parse**. They cannot consult a parse result by definition. |
+| 1 | `syntaxcheck/types.rs:145` — the malformed-`FUNC(` guard | same: it fires precisely *because* `parse` said no. Pinned by `parse_function_type_malformed_yields_unknown`. |
+
+`src/codegen/` and `src/target/` are at **zero**.
+
+### 2. Scalar type-string compares → **0 outside tests and the name domain**
+
+```
+$ rg -n 'name\(\)(\.as_ref\(\)|\.as_str\(\))? == "(Integer|String|Boolean|Float|Fixed|Byte|Money|Nothing|AttributeString|Scalar|Error)"' src/
+```
+16 hits at Phase-2 start; 12 are in `ir/tests.rs` (tests), and the 4 production
+round-trips are fixed: `binary_repr/writer.rs` ×2 compare the `ParameterType`
+directly, `ir/verify/values.rs` ×2 use `is_named("Scalar")`.
+
+The broader `== "Integer"`-family sweep is 67 hits, but the remainder compare a
+NAME already in the name domain (a `&str` element/field type threaded from a
+name-keyed table), not a rendered `ParameterType`. Those belong to line 6.
+
+### 3. `format!` type construction outside `name()` → **10, all boundaries**
+
+```
+$ rg -n 'format!\("(List OF|Set OF|Map OF|Result OF|MapEntry OF|Thread OF|ThreadWorker OF)' src/
+```
+
+| n | site | class |
+|---|---|---|
+| 5 | `types.rs` — `ParameterType::name` itself | **the renderer** (class 3) |
+| 5 | `binary_repr/reader.rs` — the `.mfp` type-table DECODER rebuilding a spelling from ids | **wire decode** (class 2/3) |
+
+Gone this phase: monomorph's 14, the 6 collection builtins'
+`format!("List OF {x}")` locals, and three
+`ParameterType::parse(&format!("…"))` build-then-parse pairs.
+
+### 4. Type-valued `HashMap<String, String>` environments → **0**
+
+```
+$ rg -n '(locals|function_returns|function_types|function_params|globals|binding_types|declared_binding_types|enclosing_return)\s*:\s*&?(HashMap<String, String>|Option<String>)' src/
+src/binary_repr/writer.rs:169:  external_function_returns: &HashMap<String, String>,   <- WIRE metadata, not an environment
+src/codegen/engine/builder/mod.rs:165:  promoted_float_locals: HashMap<String, String>,  <- name -> REGISTER (`%fN`), not a type
+```
+Both hits are false positives of the pattern; no type environment survives.
+Three other `HashMap<String, String>` maps are nominal→nominal symbol tables
+(`TypeIndex::variants`, `verify::link::resource_state`,
+`syntaxcheck::close_to_type`), not type-shape maps.
+
+### 5. HIR→AST de-elaboration → **0** (plan-106-D)
+
+```
+$ rg -n 'deelaborate' src/
+src/hir/mod.rs:918:// behind one `deelaborate` entry, rendering the concrete HIR ...
+```
+One hit, the tombstone comment. Zero code. syntaxcheck's private `Type` enum and
+parser are likewise gone (plan-106-C); the driver's signature round-trip went in
+plan-105-A.
+
+### 6. `ParameterType::parse` call-site inventory → **223 production, and one is
+not a sanctioned boundary**
+
+```
+$ rg -n 'ParameterType::parse\(' src/ --glob '!src/docs/**' | grep -v tests | grep -v test_support \
+  | sed 's|^src/\([a-z_]*\)/.*|\1|;s|^src/\([a-z_]*\)\.rs.*|\1|' | sort | uniq -c | sort -rn
+  109 codegen      39 ir        38 types      26 monomorph
+    4 hir           2 syntaxcheck  2 manifest    2 binary_repr    1 resolver
+```
+
+| area | n | class |
+|---|---|---|
+| `types` | 38 | the parser's own recursion + its tests — **the one parser** |
+| `ir` | 39 | wire/JSON decode (`ir/binary.rs` 27) and decoded-IR hardening in `ir::verify` — **wire decode** |
+| `monomorph` | 26 | the instantiation-key domain: mangled names in/out of `type_instantiations`, and `Symbol`-keyed substitution values built from argument spellings |
+| `hir` | 4 | `elaborate` — **the AST→typed boundary** |
+| `syntaxcheck`/`manifest`/`resolver`/`binary_repr` | 7 | AST-domain queries (`UNION` variants, `LINK` signatures, manifest entry) and wire decode |
+| **`codegen`** | **109** | **NOT a sanctioned class — see below** |
+
+**The one honest gap.** `src/codegen/` re-parses a type NAME in 109 places. This
+is not scattered grammar any more — every one goes through the canonical parser,
+and the hand-rolled cascades are at zero — but it is a render→parse round trip,
+which plan-106-A:452 says the invariant exists to *surface*, not to bless.
+
+What it is: codegen's block-layout, symbol-mangling and runtime-helper tables are
+keyed by type NAME (`type_model.record_fields`, `union_variant_fields`,
+`_mfb_builtin_{name}_{type}`, the `CollectionTypeLayout` codes). An emitter deep
+in that tree is handed a spelling and asks the grammar what shape it is.
+
+Why it is not fixed here: closing it means retyping the name-keyed tables
+themselves, not the emitters — the emitters were retyped this phase (24 of them,
+commit `91bce3797`), and the parses that remain are below that layer. That is a
+codegen-representation change with its own risk surface, and it is not what a
+plan about the *front end's* type vocabulary should be doing under cover.
+
+Recorded as follow-up with its shape, not reclassified: **key the codegen type
+tables by `ParameterType` (or by an interned type id) instead of by rendered
+name.** The measurement above is the starting denominator.
+
 ## Open Decisions
 
-- None — this letter executes decisions the earlier letters made. If one
-  appears, it goes here with a recommendation before Phase 2 closes.
+- **Resolved during Phase 2:** the census's own line 6 turned up a residual the
+  plan had not scoped — codegen's 109 name→type re-parses. The decision taken,
+  and the reason, is recorded in the census above: name it plainly as a gap with
+  its measurement and its fix shape, rather than reclassify it as a permitted
+  boundary. Reclassifying is exactly the move plan-102 made when it shipped with
+  backward seams behind a green gate, which is why §Rejected-alternatives says
+  the census IS the deliverable.
 
 ## Corrections
+
+### Correction 3 — the `.mfp` wire type-id encoder mis-split a nested `Map` key
+
+Found while clearing census line 1, and the reason the one-grammar rule exists.
+
+`binary_repr::sections::type_id` split a `Map OF …` body with
+`split_once(" TO ")` — the LEFTMOST separator, which is exactly the mis-split
+bug-108.2 fixed in the front end. For
+
+```
+Map OF Map OF String TO Integer TO Boolean
+```
+
+it encoded key `Map OF String` and value `Integer TO Boolean`: two types that do
+not exist. Proved with a test written BEFORE the fix, and the damage is worse
+than a wrong name — the table does not decode at all:
+
+```
+names: "truncated binary representation"
+```
+
+So a package exporting a nested-`Map`-key signature wrote an unreadable `.mfp`.
+The container arms now decompose through `ParameterType::parse`, where the
+top-level split rule lives once.
+`a_nested_map_key_splits_at_the_top_level_separator`
+(`binary_repr/tests/sections_tests.rs`) was RED before, GREEN after.
+
+This is the concrete answer to "why not just leave the duplicate grammar alone":
+the duplicate had the bug, and nothing else could see it.
+
+### Correction 2 — the straggler count was ~15; it is 63
+
+§Phase-2 inherited plan-106-A Correction 2's estimate of "~15
+`strip_prefix("List OF "…)` sites" in codegen. Measured at kickoff:
+
+```
+$ rg -c '(strip_prefix|starts_with)\("(List OF |Set OF |Map OF |RES |Result OF |MapEntry OF |Thread OF |ThreadWorker OF |FUNC\(|ISOLATED FUNC\()' src/ \
+    --glob '!src/types.rs' --glob '!src/ast/**' --glob '!src/docs/**'
+63 hits across 24 files
+```
+
+The earlier estimate counted only `strip_prefix`, and only in codegen. The real
+population also included `starts_with` predicates (the larger half), the `.mfp`
+wire encoder, `ir::verify`, and the `general` resolver's string pocket.
+
+Re-scoped in place rather than re-split: the burn-down ran as four gated
+tranches, and the line now stands at 10 — all boundaries (see §The terminal
+census, line 1). Size was not treated as a reason to defer any of it.
 
 ### Correction 1 — the five NIR walks are NOT five siblings; the review's premise is false
 

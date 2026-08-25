@@ -305,7 +305,7 @@ pub(super) fn lower_project_with_external_functions(
         if entry.accepts_args {
             flags |= 1 << 1;
         }
-        if entry.returns.name().as_ref() == "Integer" {
+        if entry.returns == crate::types::ParameterType::Integer {
             flags |= 1 << 2;
         }
         (function_id, flags)
@@ -641,7 +641,7 @@ pub(super) fn lower_function(
     if function.kind == "sub" {
         flags |= FUNCTION_FLAG_SUB | FUNCTION_FLAG_RETURNS_NOTHING;
     }
-    if function.returns.name().as_ref() == "Nothing" {
+    if function.returns == crate::types::ParameterType::Nothing {
         flags |= FUNCTION_FLAG_RETURNS_NOTHING;
     }
     if function.isolated {

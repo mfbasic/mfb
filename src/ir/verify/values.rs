@@ -410,7 +410,7 @@ impl TypeEnv {
                     | ParameterType::Float
                     | ParameterType::Fixed
                     | ParameterType::Money
-            ) || t.name() == "Scalar"
+            ) || t.is_named("Scalar")
         };
         match value {
             IrValue::Const { type_, value } if numeric(type_) => {
@@ -749,7 +749,7 @@ impl TypeEnv {
         // Scalar orders by codepoint value; non-numeric, and never orders against
         // String (plan-41-A). Both operands must be Scalar (Unknown permissive).
         let scalar =
-            |t: &ParameterType| matches!(t, ParameterType::Unknown) || t.name() == "Scalar";
+            |t: &ParameterType| matches!(t, ParameterType::Unknown) || t.is_named("Scalar");
         let ok = match op {
             "AND" | "OR" | "XOR" => boolean(&lt) && boolean(&rt),
             "&" => string(&lt) && string(&rt),
