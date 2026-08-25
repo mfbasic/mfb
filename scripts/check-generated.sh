@@ -47,8 +47,11 @@ check() {
   fi
 }
 
-check scripts/gen_vector_package.py src/builtins/vector_package.mfb
-check scripts/gen_regex_unicode.py src/codegen/unicode/unicode_gencat.mfb
-check scripts/gen_regex_scripts.py src/codegen/unicode/unicode_script_of.mfb
+# The vector bodies live as BODY consts across src/codegen/builtins/vector/
+# {func_,helper_}*.rs since the package.mfb split; a dedicated checker extracts
+# and compares them per-FUNC instead of a single-artifact byte compare.
+if python3 scripts/check_vector_bodies.py; then :; else status=1; fi
+check scripts/gen_regex_unicode.py src/codegen/string/unicode/unicode_gencat.mfb
+check scripts/gen_regex_scripts.py src/codegen/string/unicode/unicode_script_of.mfb
 
 exit "$status"

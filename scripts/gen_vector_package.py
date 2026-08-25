@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Generate src/builtins/vector_package.mfb (plan-06-vector.md spine, Phases 1-6).
+"""Generate the `vector` package MFBASIC source (plan-06-vector.md spine, Phases 1-6).
 
 The nine vector value records and every overloaded geometry/utility/2D function
-follow strict per-(element-type, dimension) patterns; generating the companion
+follow strict per-(element-type, dimension) patterns; generating the source
 keeps the ~170 overloads consistent and the canonical left-to-right evaluation
-order (plan-06 §4) uniform. The emitted file is the committed source of truth;
-re-run this script when the semantics change.
+order (plan-06 §4) uniform. The committed source of truth is the set of `BODY*`
+raw-string consts across `src/codegen/builtins/vector/{func_,helper_}*.rs` (one
+FUNC per const); `scripts/check_vector_bodies.py` (run by
+`scripts/check-generated.sh`) gates them against this generator's FUNC tail.
+When the semantics change: edit the generator, re-run it, and copy the changed
+FUNC bodies into their consts.
 
 Determinism: every algebraic op is correctly-rounded (FSQRT / IEEE +-*/),
 Fixed is Q32.32, Integer uses a deterministic rounding isqrt; the three trig

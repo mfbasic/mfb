@@ -11,7 +11,8 @@
 //! resolver. The nine records are registered via [`RegistryPackage::add_record`] with
 //! element-typed props so the record-constant path (`registry_record_constant` in
 //! `ir/lower.rs`) reads each field's element type in declaration order; the FUNC
-//! bodies are injected from the companion source (`package.mfb`) as helper functions.
+//! bodies ride each member's `func_*.rs` descriptor as `Body::mfb` (the private
+//! isqrt/angleFixed/toString bodies as `helper_*.rs` `add_helper` chunks).
 //!
 //! The SIMD inline-lowering **carrier** stays shared in
 //! `src/codegen/builtins/vector/builder_vector_inline.rs` (the `VECTOR_NATIVE_MARKER`
@@ -34,9 +35,44 @@
 
 use crate::codegen::registry::{
     registry, Body, DefaultValue, Implementation, Parameter, RecordProp, Registry,
-    RegistryConstant, RegistryFunction, RegistryOverride, RegistryPackage, RegistryRecord,
+    RegistryConstant, RegistryOverride, RegistryPackage, RegistryRecord,
 };
 use crate::types::ParameterType;
+
+mod func_abs;
+mod func_angle;
+mod func_clamp_length;
+mod func_cross;
+mod func_distance;
+mod func_dot;
+mod func_length;
+mod func_lerp;
+mod func_lerp_unclamped;
+mod func_max;
+mod func_min;
+mod func_normalize;
+mod func_perpendicular;
+mod func_project;
+mod func_reflect;
+mod func_reject;
+mod func_rotate_2d;
+mod func_scale;
+mod func_slerp;
+
+mod helper_angle_fixed_integer2;
+mod helper_angle_fixed_integer3;
+mod helper_angle_fixed_integer4;
+mod helper_isqrt_floor;
+mod helper_isqrt_round;
+mod helper_to_string_fixed2;
+mod helper_to_string_fixed3;
+mod helper_to_string_fixed4;
+mod helper_to_string_float2;
+mod helper_to_string_float3;
+mod helper_to_string_float4;
+mod helper_to_string_integer2;
+mod helper_to_string_integer3;
+mod helper_to_string_integer4;
 
 const INTRO: &str =
     r#"Fixed-width math vectors (Float/Fixed/Integer, 2-4D) and geometry over them"#;
@@ -98,13 +134,13 @@ fn imp(
     params: Vec<Parameter>,
     return_type: ParameterType,
     errors: Vec<&'static str>,
-    rewrite: &'static str,
+    body: Body,
 ) -> Implementation {
     Implementation {
         params,
         return_type,
         errors,
-        body: Body::Rewrite(rewrite),
+        body,
     }
 }
 
@@ -112,7 +148,7 @@ fn imp(
 /// member's applicable types (all nine, or the three 2D types) to reproduce the legacy
 /// `resolve_call` acceptance and `implementation_name` targets exactly.
 #[derive(Clone, Copy)]
-enum Shape {
+pub(crate) enum Shape {
     /// `(v AS T_N)` → scalar element `T`. `length`.
     UnaryScalar,
     /// `(v AS T_N)` → `T_N`. `normalize`, `abs`.
@@ -134,12 +170,14 @@ enum Shape {
     Cross,
 }
 
-/// Build a member's overloads for `shape`, one per applicable type, each rewriting to
-/// its type-specific internal FUNC.
-fn implementations(
+/// Build a member's overloads for `shape`, one per applicable type, each carrying
+/// its type-specific internal FUNC body (`body(ty)`, from the member's `func_*.rs`)
+/// as `Body::mfb` with the `__vector_<member>_<type>` rewrite target.
+pub(crate) fn implementations(
     member: &'static str,
     shape: Shape,
     errors: &[&'static str],
+    body: fn(&str) -> &'static str,
 ) -> Vec<Implementation> {
     let errs = || errors.to_vec();
     let mut out = Vec::new();
@@ -150,7 +188,7 @@ fn implementations(
                     vec![param("v", &[], ParameterType::named(ty))],
                     element_of(ty),
                     errs(),
-                    rewrite(member, ty),
+                    Body::mfb(body(ty), rewrite(member, ty)),
                 ));
             }
         }
@@ -160,7 +198,7 @@ fn implementations(
                     vec![param("v", &[], ParameterType::named(ty))],
                     ParameterType::named(ty),
                     errs(),
-                    rewrite(member, ty),
+                    Body::mfb(body(ty), rewrite(member, ty)),
                 ));
             }
         }
@@ -173,7 +211,7 @@ fn implementations(
                     ],
                     element_of(ty),
                     errs(),
-                    rewrite(member, ty),
+                    Body::mfb(body(ty), rewrite(member, ty)),
                 ));
             }
         }
@@ -186,7 +224,7 @@ fn implementations(
                     ],
                     ParameterType::named(ty),
                     errs(),
-                    rewrite(member, ty),
+                    Body::mfb(body(ty), rewrite(member, ty)),
                 ));
             }
         }
@@ -200,7 +238,7 @@ fn implementations(
                     ],
                     ParameterType::named(ty),
                     errs(),
-                    rewrite(member, ty),
+                    Body::mfb(body(ty), rewrite(member, ty)),
                 ));
             }
         }
@@ -213,7 +251,7 @@ fn implementations(
                     ],
                     ParameterType::named(ty),
                     errs(),
-                    rewrite(member, ty),
+                    Body::mfb(body(ty), rewrite(member, ty)),
                 ));
             }
         }
@@ -223,7 +261,7 @@ fn implementations(
                     vec![param("v", &[], ParameterType::named(ty))],
                     ParameterType::named(ty),
                     errs(),
-                    rewrite(member, ty),
+                    Body::mfb(body(ty), rewrite(member, ty)),
                 ));
             }
         }
@@ -236,7 +274,7 @@ fn implementations(
                     ],
                     ParameterType::named(ty),
                     errs(),
-                    rewrite(member, ty),
+                    Body::mfb(body(ty), rewrite(member, ty)),
                 ));
             }
         }
@@ -248,7 +286,7 @@ fn implementations(
                     vec![param("a", &["v"], ParameterType::named(ty))],
                     ParameterType::named(ty),
                     errs(),
-                    rewrite(member, ty),
+                    Body::mfb(body(ty), rewrite(member, ty)),
                 ));
             }
             for &ty in VEC3_TYPES {
@@ -259,7 +297,7 @@ fn implementations(
                     ],
                     ParameterType::named(ty),
                     errs(),
-                    rewrite(member, ty),
+                    Body::mfb(body(ty), rewrite(member, ty)),
                 ));
             }
             for &ty in VEC4_TYPES {
@@ -271,165 +309,13 @@ fn implementations(
                     ],
                     ParameterType::named(ty),
                     errs(),
-                    rewrite(member, ty),
+                    Body::mfb(body(ty), rewrite(member, ty)),
                 ));
             }
         }
     }
     out
 }
-
-/// One function member's descriptor row.
-struct Member {
-    name: &'static str,
-    shape: Shape,
-    intro: &'static str,
-    expected: &'static str,
-    errors: &'static [&'static str],
-}
-
-// `ErrInvalidArgument` (`77050002`) is the only user error the vector members raise —
-// inside their FUNC bodies (zero-length normalize/project/reject/angle/slerp, negative
-// `clamp_length` max). Declared here so the man2 error tables render; the runtime
-// emission is the FUNC body's `FAIL error(77050002, …)` (and the SIMD carrier's
-// `emit_error_code_return` for the inlined `normalize`), not a registry error-code path.
-const ERR: &[&str] = &["ErrInvalidArgument"];
-
-const MEMBERS: &[Member] = &[
-    Member {
-        name: "length",
-        shape: Shape::UnaryScalar,
-        intro: "Euclidean length (magnitude) of a vector",
-        expected: "a vector (Float2/3/4, Fixed2/3/4, Integer2/3/4)",
-        errors: &[],
-    },
-    Member {
-        name: "normalize",
-        shape: Shape::UnaryVector,
-        intro: "Unit vector pointing the same way as the given vector",
-        expected: "a vector (Float2/3/4, Fixed2/3/4, Integer2/3/4)",
-        errors: ERR,
-    },
-    Member {
-        name: "distance",
-        shape: Shape::BinaryScalar,
-        intro: "Euclidean distance between two points",
-        expected: "two vectors of the same type",
-        errors: &[],
-    },
-    Member {
-        name: "dot",
-        shape: Shape::BinaryScalar,
-        intro: "Dot (inner) product of two vectors",
-        expected: "two vectors of the same type",
-        errors: &[],
-    },
-    Member {
-        name: "cross",
-        shape: Shape::Cross,
-        intro: "Generalized (n-1)-ary cross product",
-        expected: "one T2, two T3, or three T4 vectors of the same type",
-        errors: &[],
-    },
-    Member {
-        name: "reflect",
-        shape: Shape::BinaryVector,
-        intro: "Reflect a vector about a plane through the origin with the given normal",
-        expected: "two vectors of the same type",
-        errors: &[],
-    },
-    Member {
-        name: "project",
-        shape: Shape::BinaryVector,
-        intro: "Vector projection of one vector onto another",
-        expected: "two vectors of the same type",
-        errors: ERR,
-    },
-    Member {
-        name: "reject",
-        shape: Shape::BinaryVector,
-        intro: "Component of one vector orthogonal to another",
-        expected: "two vectors of the same type",
-        errors: ERR,
-    },
-    Member {
-        name: "angle",
-        shape: Shape::BinaryScalar,
-        intro: "Unsigned angle in radians between two vectors",
-        expected: "two vectors of the same type",
-        errors: ERR,
-    },
-    Member {
-        name: "lerp",
-        shape: Shape::Lerp,
-        intro: "Linear interpolation between two vectors, clamped to the segment",
-        expected: "two vectors of the same type and a Float t",
-        errors: &[],
-    },
-    Member {
-        name: "lerp_unclamped",
-        shape: Shape::Lerp,
-        intro: "Linear interpolation between two vectors, extrapolating outside 0 through 1",
-        expected: "two vectors of the same type and a Float t",
-        errors: &[],
-    },
-    Member {
-        name: "slerp",
-        shape: Shape::Lerp,
-        intro: "Spherical linear interpolation along the arc between two vectors",
-        expected: "two vectors of the same type and a Float t",
-        errors: ERR,
-    },
-    Member {
-        name: "clamp_length",
-        shape: Shape::ClampLength,
-        intro: "Cap a vector's magnitude while preserving its direction",
-        expected: "a vector and a scalar max of the vector's element type",
-        errors: ERR,
-    },
-    Member {
-        name: "scale",
-        shape: Shape::BinaryVector,
-        intro: "Component-wise (Hadamard) product of two vectors",
-        expected: "two vectors of the same type",
-        errors: &[],
-    },
-    Member {
-        name: "min",
-        shape: Shape::BinaryVector,
-        intro: "Component-wise minimum of two vectors",
-        expected: "two vectors of the same type",
-        errors: &[],
-    },
-    Member {
-        name: "max",
-        shape: Shape::BinaryVector,
-        intro: "Component-wise maximum of two vectors",
-        expected: "two vectors of the same type",
-        errors: &[],
-    },
-    Member {
-        name: "abs",
-        shape: Shape::UnaryVector,
-        intro: "Component-wise absolute value of a vector",
-        expected: "a vector (Float2/3/4, Fixed2/3/4, Integer2/3/4)",
-        errors: &[],
-    },
-    Member {
-        name: "perpendicular",
-        shape: Shape::Perpendicular,
-        intro: "Left perpendicular of a 2D vector",
-        expected: "a 2D vector (Float2, Fixed2, Integer2)",
-        errors: &[],
-    },
-    Member {
-        name: "rotate_2d",
-        shape: Shape::Rotate2d,
-        intro: "Rotate a 2D vector counterclockwise by an angle in radians",
-        expected: "a 2D vector and a Float angle",
-        errors: &[],
-    },
-];
 
 /// Register the nine value records with element-typed props (in declaration order, so
 /// `constant_components` reads each field's element type correctly).
@@ -637,25 +523,47 @@ pub(crate) fn register(r: &mut Registry) {
 
     add_records(&mut pkg);
 
-    for member in MEMBERS {
-        pkg.add_function(RegistryFunction {
-            name: member.name,
-            intro: member.intro,
-            desc: "",
-            example: "",
-            expected_arguments: Some(member.expected),
-            internal_only: false,
-            implementations: implementations(member.name, member.shape, member.errors),
-        });
-    }
+    // The internal rounding integer-sqrt helpers, the Fixed-path integer `angle`
+    // cores, and the per-type `toString` renderers (the `add_override` targets) —
+    // one `helper_*.rs` per FUNC (`add_helper` — private-only), in the old
+    // companion order.
+    helper_isqrt_floor::register(&mut pkg);
+    helper_isqrt_round::register(&mut pkg);
+    helper_angle_fixed_integer2::register(&mut pkg);
+    helper_angle_fixed_integer3::register(&mut pkg);
+    helper_angle_fixed_integer4::register(&mut pkg);
+    helper_to_string_float2::register(&mut pkg);
+    helper_to_string_float3::register(&mut pkg);
+    helper_to_string_float4::register(&mut pkg);
+    helper_to_string_fixed2::register(&mut pkg);
+    helper_to_string_fixed3::register(&mut pkg);
+    helper_to_string_fixed4::register(&mut pkg);
+    helper_to_string_integer2::register(&mut pkg);
+    helper_to_string_integer3::register(&mut pkg);
+    helper_to_string_integer4::register(&mut pkg);
 
-    // The overloaded `__vector_*` FUNC bodies (member implementations + the internal
-    // integer-sqrt helpers + the per-type `toString` renderers) as one companion chunk;
-    // the nine `TYPE` declarations are registered above (add_record), not here.
-    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
-        "vector_package",
-        include_str!("package.mfb"),
-    ));
+    // The 19 function members, each a `func_*.rs` descriptor whose per-type
+    // overload bodies ride `Body::mfb` (built by the shared `implementations`
+    // shape machinery above).
+    func_length::register(&mut pkg);
+    func_normalize::register(&mut pkg);
+    func_distance::register(&mut pkg);
+    func_dot::register(&mut pkg);
+    func_cross::register(&mut pkg);
+    func_reflect::register(&mut pkg);
+    func_project::register(&mut pkg);
+    func_reject::register(&mut pkg);
+    func_angle::register(&mut pkg);
+    func_lerp::register(&mut pkg);
+    func_lerp_unclamped::register(&mut pkg);
+    func_slerp::register(&mut pkg);
+    func_clamp_length::register(&mut pkg);
+    func_scale::register(&mut pkg);
+    func_min::register(&mut pkg);
+    func_max::register(&mut pkg);
+    func_abs::register(&mut pkg);
+    func_perpendicular::register(&mut pkg);
+    func_rotate_2d::register(&mut pkg);
 
     add_constants(&mut pkg);
     add_overrides(&mut pkg);

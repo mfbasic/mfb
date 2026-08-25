@@ -21,8 +21,9 @@
 //! symbols are unchanged.
 //!
 //! The pure URL string work (`toUrl`/`percentDecode`/`parseQuery`, the `Url` value
-//! record, and the `toString(net::Url)` renderer) is source-backed
-//! (`package.mfb`): those three members are `Body::Rewrite` targets, and
+//! record, and the `toString(net::Url)` renderer) is source-backed: the three
+//! members carry their `__net_*` bodies as `Body::mfb` in their `func_*.rs`, the
+//! private helpers live one per `helper_*.rs` (`add_helper` — private-only), and
 //! `toString(net::Url)` is registered as an [`RegistryPackage::add_override`].
 //!
 //! `poll`/`connectTcp` are argument-shape-overloaded — two/four `Implementation`s —
@@ -40,12 +41,13 @@ use crate::types::ParameterType;
 /// name/aliases/type for arity, coercion, and named-argument binding.
 pub(crate) fn req(
     name: &'static str,
+    desc: &'static str,
     aliases: &'static [&'static str],
     ty: ParameterType,
 ) -> Parameter {
     Parameter {
         name,
-        desc: "",
+        desc,
         aliases,
         ty,
         default: DefaultValue::None,
@@ -55,10 +57,10 @@ pub(crate) fn req(
 /// An optional trailing parameter that widens the arity but is NOT default-padded
 /// by the registry — the code layer injects the timeout/port/backlog sentinel
 /// (`builder_values`), matching the legacy `DefaultValue::Optional`.
-pub(crate) fn opt(name: &'static str, ty: ParameterType) -> Parameter {
+pub(crate) fn opt(name: &'static str, desc: &'static str, ty: ParameterType) -> Parameter {
     Parameter {
         name,
-        desc: "",
+        desc,
         aliases: &[],
         ty,
         default: DefaultValue::Optional,
@@ -99,6 +101,16 @@ mod func_to_url;
 mod func_write;
 mod func_write_text;
 
+mod helper_authority_end;
+mod helper_decode_query_component;
+mod helper_default_port;
+mod helper_index_of;
+mod helper_last_index_of;
+mod helper_parse_port;
+mod helper_percent_decode_impl;
+mod helper_slice;
+mod helper_url_to_string;
+
 mod gen_io;
 mod gen_poll;
 pub(crate) mod gen_shared;
@@ -112,8 +124,8 @@ pub(crate) const UDP_SOCKET_TYPE: &str = "UdpSocket";
 pub(crate) const ADDRESS_TYPE: &str = "Address";
 pub(crate) const DATAGRAM_TYPE: &str = "Datagram";
 pub(crate) const DATAGRAM_TEXT_TYPE: &str = "DatagramText";
-/// The `Url` value record's name — declared in `package.mfb` (with its `DOC` block)
-/// and registered as a source type.
+/// The `Url` value record's name — registry-modeled (`add_record`, DOC
+/// round-tripped via `description`).
 pub(crate) const URL_TYPE: &str = "Url";
 
 /// The package-qualified type identities (`net.Socket`, `net.Listener`,
@@ -163,9 +175,54 @@ pub(crate) fn register(r: &mut Registry) {
     // The URL string helpers are pure `strings`/`collections` source.
     pkg.add_imports(vec!["strings", "collections"]);
 
-    // The `Url` value record is declared (with its DOC block) in `package.mfb`; the
-    // registry only records the name so the generic type query recognizes it.
-    pkg.add_source_types(&[URL_TYPE]);
+    // The `Url` value record (its DOC block round-trips via `description`).
+    pkg.add_record(RegistryRecord {
+        name: URL_TYPE,
+        export: true,
+        description: "A parsed URL, produced by `net::toUrl` and rendered back with `net::toString`. Each component is stored decomposed for direct access.",
+        props: vec![
+            RecordProp {
+                name: "scheme",
+                ty: ParameterType::String,
+                description: "The scheme, lowercased (e.g. `\"http\"` or `\"https\"`).",
+            },
+            RecordProp {
+                name: "username",
+                ty: ParameterType::String,
+                description: "The userinfo before the `:`, or `\"\"` if none.",
+            },
+            RecordProp {
+                name: "password",
+                ty: ParameterType::String,
+                description: "The userinfo after the `:`, or `\"\"` if none.",
+            },
+            RecordProp {
+                name: "host",
+                ty: ParameterType::String,
+                description: "The registered name or IP literal (an IPv6 literal without brackets).",
+            },
+            RecordProp {
+                name: "port",
+                ty: ParameterType::Integer,
+                description: "The explicit port, or the scheme default (80 for http, 443 for https).",
+            },
+            RecordProp {
+                name: "path",
+                ty: ParameterType::String,
+                description: "The path, beginning with `/`; `/` when the href had none.",
+            },
+            RecordProp {
+                name: "query",
+                ty: ParameterType::String,
+                description: "The raw query without the leading `?`, or `\"\"` if none.",
+            },
+            RecordProp {
+                name: "fragment",
+                ty: ParameterType::String,
+                description: "The raw fragment without the leading `#`, or `\"\"` if none.",
+            },
+        ],
+    });
 
     // The value records the native helpers construct: `Address` (localAddress /
     // remoteAddress / a datagram's `from`), and the two datagram shapes. Rendered as
@@ -263,12 +320,20 @@ pub(crate) fn register(r: &mut Registry) {
         helper: URL_TO_STRING,
     });
 
-    // The shared private `__net_*` helpers, the `Url` TYPE, and the three
-    // source-member bodies (`__net_toUrl`/`__net_percentDecode`/`__net_parseQuery`).
-    pkg.add_helper(crate::codegen::registry::RegistryHelper::always(
-        "net_package",
-        include_str!("package.mfb"),
-    ));
+    // The shared private `__net_*` URL-string helpers, one `helper_*.rs` per FUNC
+    // (`add_helper` — private-only; `__net_urlToString` is the `toString(Url)`
+    // override target above, reached through `add_override`, not a function). The
+    // three public source members' bodies ride their `func_*.rs` descriptors as
+    // `Body::mfb`.
+    helper_index_of::register(&mut pkg);
+    helper_last_index_of::register(&mut pkg);
+    helper_slice::register(&mut pkg);
+    helper_default_port::register(&mut pkg);
+    helper_authority_end::register(&mut pkg);
+    helper_parse_port::register(&mut pkg);
+    helper_url_to_string::register(&mut pkg);
+    helper_percent_decode_impl::register(&mut pkg);
+    helper_decode_query_component::register(&mut pkg);
 
     func_lookup::register(&mut pkg);
     func_connect_tcp::register(&mut pkg);
