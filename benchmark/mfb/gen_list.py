@@ -490,7 +490,7 @@ def emit_func(suffix, E, kind, prefix, name):
         # bytes — so the open fd stays valid after the unlink, and no temp file is
         # left behind). The handle is closed by RES drop at function return.
         out.append(f'  LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_{fn}.tmp"])')
-        out.append(f'  RES f AS File STATE {E["rec"]} = fs::open(stPath, "write")')
+        out.append(f'  RES f AS fs::File STATE {E["rec"]} = fs::open(stPath, "write")')
         out.append('  fs::deleteFile(stPath)')
     for ln in outside:
         out.append('  ' + ln)
