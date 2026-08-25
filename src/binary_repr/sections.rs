@@ -76,6 +76,40 @@ impl TypeTable {
     }
 
     pub(super) fn type_id(&mut self, strings: &mut StringPool, name: &str) -> u32 {
+        /// Whether a spelling OPENS one of the structural shapes, i.e. whether the
+        /// structural arm below should claim it. Kept as a prefix test on purpose:
+        /// it decides *which arm*, not what the type is — the shape itself comes
+        /// from `ParameterType::parse` inside the arm.
+        fn is_structural(name: &str) -> bool {
+            [
+                "List OF ",
+                "Set OF ",
+                "Result OF ",
+                "Thread OF ",
+                "ThreadWorker OF ",
+                "Map OF ",
+                "MapEntry OF ",
+                "FUNC(",
+                "ISOLATED FUNC(",
+            ]
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+        }
+
+        /// The wire kind for a structural spelling that did not parse — the kind
+        /// each old non-splitting `else` branch wrote.
+        fn opaque_structural_kind(name: &str) -> u16 {
+            if name.starts_with("Thread OF ") {
+                7
+            } else if name.starts_with("ThreadWorker OF ") {
+                10
+            } else if name.starts_with("MapEntry OF ") {
+                9
+            } else {
+                5
+            }
+        }
+
         match name {
             // A resource carrying `STATE T` is a composite of two type ids, encoded
             // like `List`/`Map`/`Thread` rather than as an opaque name (plan-52-D
@@ -108,68 +142,71 @@ impl TypeTable {
             "fs.File" => TYPE_FILE_HANDLE,
             "net.Socket" => TYPE_SOCKET_HANDLE,
             "net.Listener" => TYPE_LISTENER_HANDLE,
-            name if name.starts_with("List OF ") => {
-                // `strip_prefix` (not `trim_start_matches`, which is greedy and
-                // would collapse `List OF List OF X` to `List OF X`).
-                let element = self.type_id(strings, name.strip_prefix("List OF ").unwrap_or(name));
-                self.list_type(strings, element)
-            }
-            name if name.starts_with("Set OF ") => {
+            // The structural shapes, decomposed by the CANONICAL grammar
+            // (plan-106-E) rather than a prefix cascade with its own splitter.
+            //
+            // The `Map`/`MapEntry` arms used to `split_once(" TO ")`, which takes
+            // the LEFTMOST separator — the same mis-split bug-108.2 fixed in the
+            // front end. `Map OF Map OF String TO Integer TO Boolean` encoded key
+            // `Map OF String` and value `Integer TO Boolean`, two types that do
+            // not exist, and the resulting table did not decode at all
+            // ("truncated binary representation"). `ParameterType::parse` splits
+            // at the TOP-LEVEL ` TO `, which is where that rule lives once.
+            name if is_structural(name) => match crate::types::ParameterType::parse(name) {
+                crate::types::ParameterType::ListOf(element) => {
+                    let element = self.type_id(strings, &element.name());
+                    self.list_type(strings, element)
+                }
                 // `Set OF T` (plan-63): a single element type id, kind 13. Distinct
                 // from `List` (kind 4) so a decoded signature keeps the `Set`
                 // spelling every front-end stage pattern-matches on.
-                let element = self.type_id(strings, name.strip_prefix("Set OF ").unwrap_or(name));
-                self.set_type(strings, element)
-            }
-            name if name.starts_with("Result OF ") => {
-                let success =
-                    self.type_id(strings, name.strip_prefix("Result OF ").unwrap_or(name));
-                self.result_type(strings, success)
-            }
-            name if name.starts_with("Thread OF ") => {
-                if let Some((_, message, resource, output)) = crate::types::thread_parts_full(name)
-                {
-                    let message = self.type_id(strings, message);
-                    let resource = resource.map(|resource| self.type_id(strings, resource));
-                    let output = self.type_id(strings, output);
-                    self.thread_type(strings, message, resource, output)
-                } else {
-                    self.add_entry(strings, "", name, 7, Vec::new())
+                crate::types::ParameterType::SetOf(element) => {
+                    let element = self.type_id(strings, &element.name());
+                    self.set_type(strings, element)
                 }
-            }
-            name if name.starts_with("ThreadWorker OF ") => {
-                if let Some((_, message, resource, output)) = crate::types::thread_parts_full(name)
-                {
-                    let message = self.type_id(strings, message);
-                    let resource = resource.map(|resource| self.type_id(strings, resource));
-                    let output = self.type_id(strings, output);
-                    self.thread_worker_type(strings, message, resource, output)
-                } else {
-                    self.add_entry(strings, "", name, 10, Vec::new())
+                crate::types::ParameterType::ResultOf(success) => {
+                    let success = self.type_id(strings, &success.name());
+                    self.result_type(strings, success)
                 }
-            }
-            name if name.starts_with("FUNC(") => self.function_type(strings, name),
-            name if name.starts_with("ISOLATED FUNC(") => self.function_type(strings, name),
-            name if name.starts_with("Map OF ") => {
-                let rest = name.strip_prefix("Map OF ").unwrap_or(name);
-                if let Some((key, value)) = rest.split_once(" TO ") {
-                    let key = self.type_id(strings, key);
-                    let value = self.type_id(strings, value);
+                crate::types::ParameterType::ThreadHandle {
+                    worker,
+                    msg,
+                    res,
+                    out,
+                } => {
+                    let message = self.type_id(strings, &msg.name());
+                    // An absent resource plane is `Nothing`, which the wire encodes
+                    // as no plane at all (`thread_parts_full` returned `None`).
+                    let resource = match res.as_ref() {
+                        crate::types::ParameterType::Nothing => None,
+                        res => Some(self.type_id(strings, &res.name())),
+                    };
+                    let output = self.type_id(strings, &out.name());
+                    if worker {
+                        self.thread_worker_type(strings, message, resource, output)
+                    } else {
+                        self.thread_type(strings, message, resource, output)
+                    }
+                }
+                crate::types::ParameterType::Func(_, _, _) => self.function_type(strings, name),
+                crate::types::ParameterType::MapOf(key, value) => {
+                    let key = self.type_id(strings, &key.name());
+                    let value = self.type_id(strings, &value.name());
                     self.map_type(strings, key, value)
-                } else {
-                    self.add_entry(strings, "", name, 5, Vec::new())
                 }
-            }
-            name if name.starts_with("MapEntry OF ") => {
-                let rest = name.strip_prefix("MapEntry OF ").unwrap_or(name);
-                if let Some((key, value)) = rest.split_once(" TO ") {
-                    let key = self.type_id(strings, key);
-                    let value = self.type_id(strings, value);
+                crate::types::ParameterType::MapEntryOf(key, value) => {
+                    let key = self.type_id(strings, &key.name());
+                    let value = self.type_id(strings, &value.name());
                     self.map_entry_type(strings, key, value)
-                } else {
-                    self.add_entry(strings, "", name, 9, Vec::new())
                 }
-            }
+                // A spelling that OPENS one of the structural shapes but does not
+                // parse as one (`Map OF K` with no ` TO `) keeps the opaque entry
+                // the old non-splitting `else` branches wrote.
+                _ => {
+                    let kind = opaque_structural_kind(name);
+                    self.add_entry(strings, "", name, kind, Vec::new())
+                }
+            },
             "Byte" => TYPE_BYTE,
             "Money" => TYPE_MONEY,
             // plan-89-A: an opaque primitive-like type, identified on the wire by

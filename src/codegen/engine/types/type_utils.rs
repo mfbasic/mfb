@@ -301,8 +301,40 @@ pub(crate) fn join_texts(values: &[ValueResult]) -> String {
         .join(", ")
 }
 
+/// Whether a type SPELLING denotes a collection.
+///
+/// plan-106-E: the shape question goes to the canonical grammar, not a local
+/// prefix cascade — the same move plan-105-B made in the resolver. This and the
+/// four predicates below are codegen's NAME-domain boundary: the block-layout
+/// and symbol tables are keyed by name, so these consumers hold a spelling and
+/// legitimately need it classified. What is gone is a second grammar.
 pub(crate) fn is_collection_type(type_: &str) -> bool {
-    type_.starts_with("List OF ") || type_.starts_with("Map OF ") || is_set_type(type_)
+    typed_is_collection_type(&ParameterType::parse(type_))
+}
+
+/// Whether a type SPELLING denotes a `Result OF T`.
+///
+/// The same NAME-domain boundary as [`is_collection_type`]: codegen's block and
+/// payload emitters hold a spelling, and the shape question goes to the canonical
+/// grammar rather than a `starts_with("Result OF ")` repeated at each site.
+pub(crate) fn is_result_type(type_: &str) -> bool {
+    matches!(ParameterType::parse(type_), ParameterType::ResultOf(_))
+}
+
+/// The payload type NAME of a `Result OF T`.
+pub(crate) fn result_payload_type(type_: &str) -> Option<String> {
+    match ParameterType::parse(type_) {
+        ParameterType::ResultOf(payload) => Some(payload.name().into_owned()),
+        _ => None,
+    }
+}
+
+/// Whether a type SPELLING denotes a PARENT-side thread handle.
+pub(crate) fn is_parent_thread_type(type_: &str) -> bool {
+    matches!(
+        ParameterType::parse(type_),
+        ParameterType::ThreadHandle { worker: false, .. }
+    )
 }
 
 // --- Typed structural twins (plan-104-C) -----------------------------------
@@ -375,11 +407,6 @@ pub(crate) fn typed_map_entry_type_parts(
     }
 }
 
-/// Whether `type_` is a `Set OF T` (plan-63).
-pub(crate) fn is_set_type(type_: &str) -> bool {
-    type_.starts_with("Set OF ")
-}
-
 /// Whether a collection block of `type_` carries the FNV-1a hash bucket region
 /// past its data region — true for `Map` and `Set` (both probe by key/element),
 /// false for every `List` representation. This is the single predicate every
@@ -387,25 +414,24 @@ pub(crate) fn is_set_type(type_: &str) -> bool {
 /// `kind == MAP` test, so a Set is never sized one way and freed another
 /// (plan-63-B §3).
 pub(crate) fn collection_has_buckets(type_: &str) -> bool {
-    type_.starts_with("Map OF ") || is_set_type(type_)
+    matches!(
+        ParameterType::parse(type_),
+        ParameterType::MapOf(_, _) | ParameterType::SetOf(_)
+    )
 }
 
+/// The element type NAME of a `List OF T`.
+///
+/// A `List OF RES File` element stores and is read as the bare resource pointer
+/// (`File`); the `RES` ownership-axis marker is not part of the value (§15.6),
+/// which is what [`typed_list_element_type`] peels.
 pub(crate) fn list_element_type(type_: &str) -> Option<String> {
-    let element = type_.strip_prefix("List OF ")?;
-    // A `List OF RES File` element stores and is read as the bare resource pointer
-    // (`File`); the `RES` ownership-axis marker is not part of the value (§15.6).
-    Some(strip_res_marker(element).to_string())
+    typed_list_element_type(&ParameterType::parse(type_)).map(|element| element.name().into_owned())
 }
 
 pub(crate) fn map_type_parts(type_: &str) -> Option<(String, String)> {
-    let rest = type_.strip_prefix("Map OF ")?;
-    let (key, value) = rest.split_once(" TO ")?;
-    Some((key.to_string(), strip_res_marker(value).to_string()))
-}
-
-/// Strip a `RES ` collection-element ownership-axis marker (`RES File` -> `File`).
-pub(crate) fn strip_res_marker(type_: &str) -> &str {
-    type_.strip_prefix("RES ").unwrap_or(type_)
+    typed_map_type_parts(&ParameterType::parse(type_))
+        .map(|(key, value)| (key.name().into_owned(), value.name().into_owned()))
 }
 
 /// True when `type_` is a first-class function value type — a `FUNC(...) AS T`
@@ -415,7 +441,7 @@ pub(crate) fn strip_res_marker(type_: &str) -> &str {
 /// deep copy and no per-value free (bug-73). This mirrors the front-end
 /// `is_function_type` in `target/shared/validate.rs`.
 pub(crate) fn is_function_type(type_: &str) -> bool {
-    type_.starts_with("FUNC(") || type_.starts_with("ISOLATED FUNC(")
+    matches!(ParameterType::parse(type_), ParameterType::Func(_, _, _))
 }
 
 /// Byte index of the top-level `") AS "` that separates a function type's

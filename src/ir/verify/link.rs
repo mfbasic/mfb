@@ -594,12 +594,12 @@ impl TypeEnv {
         for function in &project.link_functions {
             if function.return_resource {
                 if let Some(state) = &function.return_state_type {
-                    check(resource_base_type_name(&function.return_type), state, self);
+                    check(&resource_base_type_name(&function.return_type), state, self);
                 }
             }
             for (_, ptype) in &function.params {
                 if let Some(state) = crate::codegen::resource::state_type_name(ptype) {
-                    check(resource_base_type_name(ptype), state, self);
+                    check(&resource_base_type_name(ptype), state, self);
                 }
             }
         }
@@ -655,9 +655,7 @@ impl TypeEnv {
         // (bug-342 A9). Derived from the base so a new primitive flows here.
         PRIMITIVE_TYPES.contains(&base)
             || matches!(base, "Error" | "ErrorLoc" | "AttributedString")
-            || base.starts_with("List OF ")
-            || base.starts_with("Set OF ")
-            || base.starts_with("Map OF ")
+            || crate::codegen::engine::types::is_collection_type(base)
             || base.starts_with("FUNC")
             || (self.records.contains_key(base) && self.close_op_for(base).is_none())
             || self.enums.contains_key(base)

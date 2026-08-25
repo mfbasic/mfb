@@ -317,7 +317,7 @@ impl CodeBuilder<'_> {
         self.type_is_flat(type_)
             && (type_ == "String"
                 || is_collection_type(type_)
-                || type_.starts_with("Result OF ")
+                || crate::codegen::engine::types::is_result_type(type_)
                 || self.type_model.record_fields.contains_key(type_)
                 || self.union_is_data(type_))
     }

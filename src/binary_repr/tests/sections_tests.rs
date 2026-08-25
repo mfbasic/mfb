@@ -203,6 +203,36 @@ fn type_table_encode_decode_round_trips_payloads() {
     assert!(decoded.ids.contains_key("List#3"));
 }
 
+/// A `Map` whose KEY is itself a `Map` must split at the TOP-LEVEL ` TO `.
+///
+/// The wire encoder used to `split_once(" TO ")`, which takes the LEFTMOST
+/// separator — the same mis-split bug-108.2 fixed in the front end. For
+/// `Map OF Map OF String TO Integer TO Boolean` that yields key
+/// `Map OF String` and value `Integer TO Boolean`: two types that do not exist,
+/// interned into the `.mfp`'s type table. plan-106-E routes the split through
+/// the canonical grammar, where the rule lives once.
+#[test]
+fn a_nested_map_key_splits_at_the_top_level_separator() {
+    let mut strings = StringPool::new();
+    let mut types = TypeTable::new();
+    types.type_id(&mut strings, "Map OF Map OF String TO Integer TO Boolean");
+    let names = type_entry_names(&types, &strings.values).expect("names");
+    let interned: Vec<&String> = names.values().collect();
+    assert!(
+        interned.iter().any(|n| *n == "Map OF String TO Integer"),
+        "the inner Map must be interned as the KEY; got {interned:?}"
+    );
+    // A leftmost split would have interned these two non-existent types instead.
+    assert!(
+        !interned.iter().any(|n| *n == "Integer TO Boolean"),
+        "bogus value type interned; got {interned:?}"
+    );
+    assert!(
+        !interned.iter().any(|n| *n == "Map OF String"),
+        "bogus key type interned; got {interned:?}"
+    );
+}
+
 #[test]
 fn const_pool_stores_every_scalar_kind() {
     let mut strings = StringPool::new();

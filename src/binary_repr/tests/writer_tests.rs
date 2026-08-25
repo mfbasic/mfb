@@ -76,18 +76,26 @@ fn native_resources_add_type_and_resource_entry() {
         .any(|entry| entry.abi_export_kind.is_some()));
 }
 
+/// A wire function signature's parameter list splits at TOP-LEVEL commas only.
+///
+/// plan-106-E: this used to test `split_top_level_types` directly, a local
+/// splitter the wire encoder called after stripping `FUNC(` itself. Both are
+/// deleted — the rule lives in `ParameterType::parse` — so the same contract is
+/// pinned through the entry point that survives.
 #[test]
 fn split_top_level_types_respects_nesting() {
-    use crate::codegen::builtins::split_top_level_types;
-    assert!(split_top_level_types("").is_empty());
-    assert!(split_top_level_types("  ").is_empty());
+    let empty = parse_function_type("FUNC() AS Nothing").expect("a no-parameter signature");
+    assert!(empty.params.is_empty());
+    let two = parse_function_type("FUNC(Integer, String) AS Nothing").expect("two parameters");
     assert_eq!(
-        split_top_level_types("Integer, String"),
+        two.params,
         vec!["Integer".to_string(), "String".to_string()]
     );
     // A comma inside a nested FUNC(...) is not a top-level separator.
+    let nested = parse_function_type("FUNC(FUNC(Integer, String) AS Boolean, Byte) AS Nothing")
+        .expect("a higher-order signature");
     assert_eq!(
-        split_top_level_types("FUNC(Integer, String) AS Boolean, Byte"),
+        nested.params,
         vec![
             "FUNC(Integer, String) AS Boolean".to_string(),
             "Byte".to_string()
@@ -116,18 +124,28 @@ fn parse_function_type_handles_isolated_and_plain() {
     assert!(parse_function_type("FUNC(Integer").is_none());
 }
 
+/// The parameter list and the return type split at the TOP-LEVEL `") AS "`.
+///
+/// plan-106-E: was a direct test of `split_function_type_rest`, the wire
+/// encoder's own depth scanner, now deleted along with it. The contract it
+/// protected — a nested `FUNC(...) AS T` parameter must not split at its INNER
+/// `") AS "` (bug-175 F) — is pinned here through `parse_function_type`.
 #[test]
 fn split_function_type_rest_finds_top_level_terminator() {
-    assert_eq!(
-        split_function_type_rest("Integer) AS Boolean"),
-        Some(("Integer", "Boolean"))
-    );
+    let simple = parse_function_type("FUNC(Integer) AS Boolean").expect("a simple signature");
+    assert_eq!(simple.params, vec!["Integer".to_string()]);
+    assert_eq!(simple.returns, "Boolean");
     // Nested parens are skipped until the top-level ") AS ".
-    assert_eq!(
-        split_function_type_rest("FUNC() AS Integer) AS Boolean"),
-        Some(("FUNC() AS Integer", "Boolean"))
-    );
-    assert_eq!(split_function_type_rest("Integer"), None);
+    let nested =
+        parse_function_type("FUNC(FUNC() AS Integer) AS Boolean").expect("a nested signature");
+    assert_eq!(nested.params, vec!["FUNC() AS Integer".to_string()]);
+    assert_eq!(nested.returns, "Boolean");
+    // A return type that is itself a function keeps its whole spelling.
+    let returns_func =
+        parse_function_type("FUNC(Integer) AS FUNC(Integer) AS Integer").expect("a returned FUNC");
+    assert_eq!(returns_func.returns, "FUNC(Integer) AS Integer");
+    // Not a function type at all.
+    assert!(parse_function_type("Integer").is_none());
 }
 
 #[test]

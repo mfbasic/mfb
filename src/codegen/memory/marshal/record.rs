@@ -217,7 +217,9 @@ fn emit_inlined_block_size(
         emit_collection_flat_size(field_type, "%v9", "%v10", "%v11", instructions);
         instructions.push(abi::store_u64("%v10", abi::stack_pointer(), out_slot));
         Ok(())
-    } else if union_is_data(type_model, field_type) || field_type.starts_with("Result OF ") {
+    } else if union_is_data(type_model, field_type)
+        || crate::codegen::engine::types::is_result_type(field_type)
+    {
         // A data union and a flat `Result` are self-describing: `size` word @+8.
         instructions.extend([
             abi::load_u64("%v9", abi::stack_pointer(), ptr_slot),

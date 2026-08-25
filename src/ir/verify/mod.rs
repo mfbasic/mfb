@@ -1199,9 +1199,13 @@ fn resource_base_type(type_: &ParameterType) -> ParameterType {
 /// The name-domain twin of [`resource_base_type`], for the callers that hold a
 /// type SPELLING rather than a type: the `LINK` block's raw AST strings (an
 /// un-elaborated `crate::ast::LinkBlock` — see `src/hir/mod.rs:435`).
-fn resource_base_type_name(type_: &str) -> &str {
-    let t = type_.strip_prefix("RES ").unwrap_or(type_);
-    crate::codegen::resource::base_resource_name(t)
+fn resource_base_type_name(type_: &str) -> String {
+    // plan-106-E: routed through [`resource_base_type`] so the `RES` peel and the
+    // top-level `STATE` guard are stated once, structurally, instead of a local
+    // `strip_prefix` beside them.
+    resource_base_type(&ParameterType::parse(type_))
+        .name()
+        .into_owned()
 }
 
 /// Whether a type is a thread handle — structurally, **or** by a spelling that

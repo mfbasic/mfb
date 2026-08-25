@@ -25,7 +25,11 @@ impl TypeEnv {
         // A Result scrutinee's CASE Ok/Error arms are rejected by
         // TYPE_RESULT_NOT_MATCHABLE; suppress the secondary exhaustiveness
         // cascade like syntaxcheck does. Unknown types are skipped as always.
-        if ty.is_empty() || ty == "Unknown" || ty == "Result" || ty.starts_with("Result OF ") {
+        if ty.is_empty()
+            || ty == "Unknown"
+            || ty == "Result"
+            || crate::codegen::engine::types::is_result_type(&ty)
+        {
             return;
         }
         // The complete member/variant set, and whether it is a union (for the

@@ -794,8 +794,8 @@ impl CodeBuilder<'_> {
     /// still required. A collection whose key/value payloads are all inline
     /// (scalars, `String`) is already flat and copies generically.
     fn collection_needs_transfer_fix(&self, type_: &str) -> Result<bool, String> {
-        let (key_type, value_type) = if let Some(value_type) = type_.strip_prefix("List OF ") {
-            (None, value_type.to_string())
+        let (key_type, value_type) = if let Some(value_type) = list_element_type(type_) {
+            (None, value_type)
         } else {
             let (key, value) = map_type_parts(type_).ok_or_else(|| {
                 format!("native thread transfer collection type '{type_}' does not resolve")
@@ -888,8 +888,8 @@ impl CodeBuilder<'_> {
         source_slot: usize,
         result_slot: usize,
     ) -> Result<(), String> {
-        let (key_type, value_type) = if let Some(value_type) = type_.strip_prefix("List OF ") {
-            (None, value_type.to_string())
+        let (key_type, value_type) = if let Some(value_type) = list_element_type(type_) {
+            (None, value_type)
         } else {
             let (key, value) = map_type_parts(type_).ok_or_else(|| {
                 format!("native thread transfer collection type '{type_}' does not resolve")
@@ -916,7 +916,7 @@ impl CodeBuilder<'_> {
         }
         if is_collection_type(type_)
             || self.type_model.union_names.contains(type_)
-            || type_.starts_with("Result OF ")
+            || crate::codegen::engine::types::is_result_type(type_)
         {
             // A flat nested collection / data union / `Result` was inlined and
             // copied whole; only a non-flat one (an embedded pointer/resource
@@ -1050,7 +1050,7 @@ impl CodeBuilder<'_> {
         ));
 
         if is_collection_type(payload_type)
-            || payload_type.starts_with("Result OF ")
+            || crate::codegen::engine::types::is_result_type(payload_type)
             || payload_type == "Error"
         {
             self.emit(abi::load_u64(

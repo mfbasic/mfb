@@ -668,7 +668,9 @@ impl CodeBuilder<'_> {
             Ok(())
         } else if self.type_model.record_fields.contains_key(field_type) {
             self.emit_record_block_size_to_slot(field_type, ptr_slot, out_slot)
-        } else if self.union_is_data(field_type) || field_type.starts_with("Result OF ") {
+        } else if self.union_is_data(field_type)
+            || crate::codegen::engine::types::is_result_type(field_type)
+        {
             // A data union and a flat `Result` are self-describing: their `size`
             // word lives at +8 (plan-02 §4.3).
             self.emit_data_union_size_to_slot(ptr_slot, out_slot);
@@ -2601,15 +2603,15 @@ pub(crate) fn record_field_is_pointer(model: &TypeModel, field_type: &str) -> bo
         || model
             .union_names
             .contains(crate::codegen::resource::base_resource_name(field_type))
-        || field_type.starts_with("Result OF ")
+        || crate::codegen::engine::types::is_result_type(field_type)
         || field_type == "Error"
 }
 
 /// The payload value types a collection stores: the element type for a `List`,
 /// the key and value types for a `Map`.
 fn collection_payload_types(type_: &str) -> Vec<String> {
-    if let Some(value) = type_.strip_prefix("List OF ") {
-        vec![value.to_string()]
+    if let Some(element) = list_element_type(type_) {
+        vec![element]
     } else if let Some((key, value)) = map_type_parts(type_) {
         vec![key, value]
     } else {
@@ -2637,10 +2639,10 @@ fn type_is_flat_inner(
     }
     let result = if type_ == "String" {
         true
-    } else if let Some(payload) = type_.strip_prefix("Result OF ") {
+    } else if let Some(payload) = crate::codegen::engine::types::result_payload_type(type_) {
         // A flat `Result` `{tag, size, payload}` is pointer-free when its
         // success payload is flat (the `Err` variant is the now-flat `Error`).
-        type_is_flat_inner(model, payload, visited)
+        type_is_flat_inner(model, &payload, visited)
     } else if is_collection_type(type_) {
         // A collection is flat when every payload is flat — including a nested
         // flat collection, which is inlined in the data region (plan-02 §4.4,
@@ -2695,7 +2697,7 @@ pub(crate) fn record_field_is_inlined(
     let is_composite = model.record_fields.contains_key(field_type)
         || model.union_names.contains(field_type)
         || is_collection_type(field_type)
-        || field_type.starts_with("Result OF ");
+        || crate::codegen::engine::types::is_result_type(field_type);
     is_composite && type_is_flat(model, field_type)
 }
 
@@ -2748,8 +2750,8 @@ pub(crate) fn type_components(model: &TypeModel, type_: &str) -> Vec<String> {
     if let Some((key, value)) = map_type_parts(type_) {
         return vec![key, value];
     }
-    if let Some(payload) = type_.strip_prefix("Result OF ") {
-        return vec![payload.to_string()];
+    if let Some(payload) = crate::codegen::engine::types::result_payload_type(type_) {
+        return vec![payload];
     }
     Vec::new()
 }

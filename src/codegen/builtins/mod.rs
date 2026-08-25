@@ -659,21 +659,6 @@ pub(crate) fn split_top_level_commas(value: &str) -> Vec<&str> {
     parts
 }
 
-/// Owned, empty-aware variant of [`split_top_level_commas`]: an empty (or
-/// all-whitespace) list is zero types rather than one empty string, and each part
-/// is returned owned. The single home for what were three byte-identical
-/// depth-tracked splitters — in `thread`, `binary_repr::writer`, and the native
-/// value-semantics builder (bug-340 A5).
-pub(crate) fn split_top_level_types(params: &str) -> Vec<String> {
-    if params.trim().is_empty() {
-        return Vec::new();
-    }
-    split_top_level_commas(params)
-        .into_iter()
-        .map(str::to_string)
-        .collect()
-}
-
 /// Split the body of a `FUNC(<params>) AS <return>` type — everything after the
 /// `FUNC(` prefix — into its parameter types and its return type.
 ///

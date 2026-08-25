@@ -186,7 +186,7 @@ pub(crate) fn builtin_function_id_for_type(name: &str, function_type: &str) -> O
     if params.len() != 1 || returns != "Boolean" {
         return builtin_function_id(name);
     }
-    match (name, params[0]) {
+    match (name, params[0].as_str()) {
         (IS_POSITIVE, "Float") => Some(BUILTIN_FUNCTION_IS_POSITIVE_FLOAT),
         (IS_POSITIVE, "Fixed") => Some(BUILTIN_FUNCTION_IS_POSITIVE_FIXED),
         (IS_NEGATIVE, "Float") => Some(BUILTIN_FUNCTION_IS_NEGATIVE_FLOAT),
@@ -258,8 +258,19 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 /// Integer) AS Integer` is what `collections::transform` receives over a list of
 /// two-argument function values — so the parameter list is scanned with paren
 /// depth: the closing paren and the separating commas are the ones at depth 0.
-pub(crate) fn function_parts(type_name: &str) -> Option<(Vec<&str>, &str)> {
-    crate::codegen::builtins::split_func_params_and_return(type_name.strip_prefix("FUNC(")?)
+///
+/// plan-106-E: the split is the [`ParameterType::Func`] variant's own fields, not
+/// a `strip_prefix("FUNC(")` plus a depth scan. `ISOLATED FUNC(…)` still answers
+/// `None`, as the bare-`FUNC(` strip did — the isolated flag is matched
+/// explicitly rather than falling out of the prefix.
+pub(crate) fn function_parts(type_name: &str) -> Option<(Vec<String>, String)> {
+    match crate::types::ParameterType::parse(type_name) {
+        crate::types::ParameterType::Func(params, returns, false) => Some((
+            params.iter().map(|p| p.name().into_owned()).collect(),
+            returns.name().into_owned(),
+        )),
+        _ => None,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -325,9 +336,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
                 return None;
             }
             if arg_types[0] == "String"
-                || arg_types[0].starts_with("List OF ")
-                || arg_types[0].starts_with("Map OF ")
-                || arg_types[0].starts_with("Set OF ")
+                || crate::codegen::engine::types::is_collection_type(&arg_types[0])
             {
                 ResolvedCall {
                     return_type: Cow::Borrowed("Integer"),
@@ -469,9 +478,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         IS_EMPTY | IS_NOT_EMPTY
             if arg_types.len() == 1
                 && (arg_types[0] == "String"
-                    || arg_types[0].starts_with("List OF ")
-                    || arg_types[0].starts_with("Map OF ")
-                    || arg_types[0].starts_with("Set OF ")) =>
+                    || crate::codegen::engine::types::is_collection_type(&arg_types[0])) =>
         {
             ResolvedCall {
                 return_type: Cow::Borrowed("Boolean"),
@@ -1076,28 +1083,40 @@ mod tests {
     fn function_parts_splits_nested_function_parameters() {
         assert_eq!(
             function_parts("FUNC(Integer, String) AS Boolean"),
-            Some((vec!["Integer", "String"], "Boolean"))
+            Some((
+                vec!["Integer".to_string(), "String".to_string()],
+                "Boolean".to_string()
+            ))
         );
         assert_eq!(
             function_parts("FUNC() AS Nothing"),
-            Some((vec![], "Nothing"))
+            Some((vec![], "Nothing".to_string()))
         );
         assert_eq!(function_parts("Integer"), None);
         assert_eq!(function_parts("FUNC(Integer)"), None);
         assert_eq!(
             function_parts("FUNC(FUNC(Integer, Integer) AS Integer) AS Integer"),
-            Some((vec!["FUNC(Integer, Integer) AS Integer"], "Integer"))
+            Some((
+                vec!["FUNC(Integer, Integer) AS Integer".to_string()],
+                "Integer".to_string()
+            ))
         );
         assert_eq!(
             function_parts("FUNC(String, FUNC(Integer, Integer) AS Integer) AS Boolean"),
             Some((
-                vec!["String", "FUNC(Integer, Integer) AS Integer"],
-                "Boolean"
+                vec![
+                    "String".to_string(),
+                    "FUNC(Integer, Integer) AS Integer".to_string()
+                ],
+                "Boolean".to_string()
             ))
         );
         assert_eq!(
             function_parts("FUNC(Integer) AS FUNC(Integer) AS Integer"),
-            Some((vec!["Integer"], "FUNC(Integer) AS Integer"))
+            Some((
+                vec!["Integer".to_string()],
+                "FUNC(Integer) AS Integer".to_string()
+            ))
         );
         assert_eq!(function_parts("FUNC(FUNC(Integer) AS Integer"), None);
     }

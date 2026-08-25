@@ -1213,7 +1213,7 @@ impl CodeBuilder<'_> {
         payload_type == "String"
             || payload_type == "Error"
             || is_collection_type(payload_type)
-            || payload_type.starts_with("Result OF ")
+            || crate::codegen::engine::types::is_result_type(payload_type)
             || self.type_model.record_fields.contains_key(payload_type)
             // A **data** union is inlined whole; a **resource** union is a scalar
             // pointer to its `{tag, ptr}` block, like a concrete resource, so it

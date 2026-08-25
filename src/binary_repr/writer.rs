@@ -832,34 +832,22 @@ pub(super) struct FunctionTypeSignature {
     pub(super) returns: String,
 }
 
+/// The wire signature of a function type.
+///
+/// plan-106-E: the decomposition is the [`crate::types::ParameterType::Func`]
+/// variant's own fields — the `ISOLATED ` marker is its `isolated` flag, and the
+/// parameter list is already split at the top level by the canonical grammar.
 pub(super) fn parse_function_type(type_name: &str) -> Option<FunctionTypeSignature> {
-    let (isolated, rest) = if let Some(rest) = type_name.strip_prefix("ISOLATED FUNC(") {
-        (true, rest)
-    } else {
-        (false, type_name.strip_prefix("FUNC(")?)
-    };
-    let (params, returns) = split_function_type_rest(rest)?;
-    Some(FunctionTypeSignature {
-        isolated,
-        params: crate::codegen::builtins::split_top_level_types(params),
-        returns: returns.to_string(),
-    })
-}
-
-pub(super) fn split_function_type_rest(rest: &str) -> Option<(&str, &str)> {
-    let mut depth = 0usize;
-    let bytes = rest.as_bytes();
-    for index in 0..bytes.len() {
-        match bytes[index] {
-            b'(' => depth += 1,
-            b')' if depth == 0 && rest[index..].starts_with(") AS ") => {
-                return Some((&rest[..index], &rest[index + 5..]));
-            }
-            b')' => depth = depth.saturating_sub(1),
-            _ => {}
+    match crate::types::ParameterType::parse(type_name) {
+        crate::types::ParameterType::Func(params, returns, isolated) => {
+            Some(FunctionTypeSignature {
+                isolated,
+                params: params.iter().map(|p| p.name().into_owned()).collect(),
+                returns: returns.name().into_owned(),
+            })
         }
+        _ => None,
     }
-    None
 }
 
 pub(super) fn source_type_payload(
