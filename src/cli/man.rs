@@ -39,10 +39,10 @@ pub(crate) fn show_man(args: &[String]) -> Result<(), String> {
         [] => {
             if all {
                 print_markdown(&render_all_markdown());
-                Ok(())
             } else {
-                Err("Usage: mfb man <package> [function] [--all]".to_string())
+                print_markdown(&render_index_markdown());
             }
+            Ok(())
         }
         [name] => {
             // A real built-in package wins; otherwise fall back to the prose guide
@@ -71,14 +71,29 @@ pub(crate) fn show_man(args: &[String]) -> Result<(), String> {
                 return Err("mfb man --all cannot be combined with a function".to_string());
             }
             if let Some(package) = registry().resolve_package(name) {
-                // `types` is a reserved page name (matching the old `mfb man <pkg> types`),
-                // intercepted only for packages that actually declare a public record or
-                // union; otherwise it falls through to the normal function lookup below.
+                // `types` is a reserved page name (matching the old `mfb man <pkg> types`).
+                // A package with public types renders its consolidated types page; a
+                // function literally named `types` still wins the lookup below when the
+                // package has none; otherwise a friendly no-types message is the answer.
                 if *page_name == "types" && has_public_types(package) {
                     print_markdown(&render_types_markdown(package));
                     return Ok(());
                 }
-                let function = package.function(page_name).ok_or_else(|| {
+                // Internal-only members (`astrings::readSpans`, …) are not user-
+                // callable, so they get no man page — an unknown-function error is
+                // the truthful answer.
+                let function = package
+                    .function(page_name)
+                    .filter(|function| !function.internal_only);
+                if *page_name == "types" && function.is_none() {
+                    print_markdown(&format!(
+                        "The `{}` package has no public types.\n\nRun `mfb man {}` to list its functions.\n",
+                        package.import_name(),
+                        package.import_name(),
+                    ));
+                    return Ok(());
+                }
+                let function = function.ok_or_else(|| {
                     format!(
                         "unknown {} function `{page_name}`\n\nRun `mfb man {}` to list functions.",
                         package.import_name(),
@@ -129,12 +144,78 @@ fn render_all_markdown() -> String {
     md
 }
 
+/// Bare `mfb man`: a friendly index — every builtin package (sorted, with its
+/// one-line intro), then every non-builtin guide topic (sorted, with the summary
+/// line from its overview).
+fn render_index_markdown() -> String {
+    let mut md = String::new();
+    md.push_str("# mfb man\n\nThe MFBASIC reference manual.\n\n");
+
+    md.push_str("## Builtin packages\n\n");
+    md.push_str("| Package | Summary |\n| --- | --- |\n");
+    // `unqualified_global` packages have no writable `IMPORT <pkg>` spelling and
+    // are skipped here for the same reason `mfb man --all` skips them.
+    let mut packages: Vec<_> = registry()
+        .packages()
+        .iter()
+        .filter(|package| !package.is_unqualified_global())
+        .collect();
+    packages.sort_by_key(|package| package.import_name());
+    for package in packages {
+        md.push_str(&format!(
+            "| `{}` | {} |\n",
+            package.import_name(),
+            package.intro(),
+        ));
+    }
+    md.push('\n');
+
+    md.push_str("## Guide topics\n\n");
+    md.push_str("| Topic | Summary |\n| --- | --- |\n");
+    let mut topics: Vec<_> = man::topics().iter().collect();
+    topics.sort_by_key(|topic| topic.name);
+    for topic in topics {
+        md.push_str(&format!(
+            "| `{}` | {} |\n",
+            topic.name,
+            topic_summary(topic)
+        ));
+    }
+    md.push('\n');
+
+    md.push_str(
+        "Run `mfb man <package>` for a package overview, `mfb man <package> <function>` \
+         for one function, `mfb man <package> types` for a package's types, or \
+         `mfb man <topic>` for a guide.\n",
+    );
+    md
+}
+
+/// A guide topic's one-line summary: the first non-empty, non-heading line of its
+/// overview (the line right under the `# <name>` title).
+fn topic_summary(topic: &ManTopic) -> &'static str {
+    topic
+        .overview
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with('#'))
+        .unwrap_or("")
+}
+
 /// `mfb man <package> --all`: the package overview, the full page for every
 /// function it documents, and — when the package exposes public types — its
 /// consolidated `types` page, each separated by a full-width rule.
 fn render_package_all_markdown(package: &RegistryPackage) -> String {
     let mut md = render_package_markdown(package);
-    for function in package.functions() {
+    // Internal-only members are not user-callable and render no page. Pages come
+    // in name order, matching the overview's sorted Functions table.
+    let mut functions: Vec<_> = package
+        .functions()
+        .iter()
+        .filter(|f| !f.internal_only)
+        .collect();
+    functions.sort_by_key(|function| function.name);
+    for function in functions {
         md.push_str(&man_rule());
         md.push_str(&render_function_markdown(package, function));
     }
@@ -212,10 +293,18 @@ fn render_package_markdown(package: &RegistryPackage) -> String {
         md.push_str("\n\n");
     }
 
-    if !package.functions().is_empty() {
+    // Internal-only members (`astrings::readSpans`, …) are not user-callable and
+    // must not be advertised. The listing is sorted by name, not registration order.
+    let mut functions: Vec<_> = package
+        .functions()
+        .iter()
+        .filter(|function| !function.internal_only)
+        .collect();
+    functions.sort_by_key(|function| function.name);
+    if !functions.is_empty() {
         md.push_str("## Functions\n\n");
         md.push_str("| Function | Summary |\n| --- | --- |\n");
-        for function in package.functions() {
+        for function in &functions {
             md.push_str(&format!(
                 "| `{}::{}` | {} |\n",
                 package.import_name(),
@@ -235,6 +324,15 @@ fn render_package_markdown(package: &RegistryPackage) -> String {
         }
     }
     render_errors_table(&mut md, &names);
+
+    // Point at the consolidated types page when the package exports any types.
+    if has_public_types(package) {
+        md.push_str("## See also\n\n");
+        md.push_str(&format!(
+            "- `mfb man {} types` — the package's types (records, unions, enums, resources)\n\n",
+            package.import_name(),
+        ));
+    }
 
     md
 }
@@ -264,11 +362,9 @@ fn render_types_markdown(package: &RegistryPackage) -> String {
     md.push_str(pkg);
     md.push_str("\n\n");
 
-    md.push_str("## Types\n\n");
-
     let records: Vec<_> = package.records().iter().filter(|r| r.export).collect();
     if !records.is_empty() {
-        md.push_str("### Records\n\n");
+        md.push_str("## Records\n\n");
         for record in records {
             md.push_str(&format!("#### {pkg}::{}\n\n", record.name));
             md.push_str("| Field | Type | Description |\n| --- | --- | --- |\n");
@@ -286,7 +382,7 @@ fn render_types_markdown(package: &RegistryPackage) -> String {
 
     let unions: Vec<_> = package.unions().iter().filter(|u| u.export).collect();
     if !unions.is_empty() {
-        md.push_str("### Unions\n\n");
+        md.push_str("## Unions\n\n");
         for union in unions {
             md.push_str(&format!("#### {pkg}::{}\n\n", union.name));
             md.push_str("A union of:\n\n");
@@ -299,7 +395,7 @@ fn render_types_markdown(package: &RegistryPackage) -> String {
 
     let enums: Vec<_> = package.enums().iter().filter(|e| e.export).collect();
     if !enums.is_empty() {
-        md.push_str("### Enums\n\n");
+        md.push_str("## Enums\n\n");
         for r#enum in enums {
             md.push_str(&format!("#### {pkg}::{}\n\n", r#enum.name));
             md.push_str("An enum of:\n\n");
@@ -312,7 +408,7 @@ fn render_types_markdown(package: &RegistryPackage) -> String {
 
     let resources: Vec<_> = package.resources().iter().filter(|r| r.export).collect();
     if !resources.is_empty() {
-        md.push_str("### Resources\n\n");
+        md.push_str("## Resources\n\n");
         for resource in resources {
             md.push_str(&format!("#### {pkg}::{}\n\n", resource.name));
             md.push_str(resource.description);
@@ -567,11 +663,19 @@ fn render_errors_table(md: &mut String, names: &[&'static str]) {
 }
 
 fn print_markdown(markdown: &str) {
+    use std::io::Write;
     let style = render::Style {
         width: detect_terminal_width(),
         color: std::io::stdout().is_terminal(),
     };
-    println!("{}", render::render(markdown, &style));
+    // A closed stdout (`mfb man --all | head`) is a normal way to stop reading,
+    // not an error — `println!` would panic on the broken pipe.
+    if let Err(err) = writeln!(std::io::stdout(), "{}", render::render(markdown, &style)) {
+        if err.kind() != std::io::ErrorKind::BrokenPipe {
+            eprintln!("error: failed writing man output: {err}");
+            std::process::exit(1);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -666,16 +770,16 @@ mod tests {
         assert!(md.starts_with("# Types\n"));
         assert!(md.contains("## Package\n\njson"));
         // Category headings group the types; individual types render one level deeper.
-        assert!(md.contains("### Records"));
+        assert!(md.contains("## Records"));
         assert!(md.contains("#### json::JsonObj"));
         assert!(md.contains("| Field | Type | Description |"));
         // The exported union renders under a Unions heading with its variants.
-        assert!(md.contains("### Unions"));
+        assert!(md.contains("## Unions"));
         assert!(md.contains("#### json::Json"));
         assert!(md.contains("- `JsonNull`"));
         // json has no exported enums/resources, so those headings are excluded.
-        assert!(!md.contains("### Enums"));
-        assert!(!md.contains("### Resources"));
+        assert!(!md.contains("## Enums"));
+        assert!(!md.contains("## Resources"));
         // Internal (non-export) records are omitted from the public page.
         assert!(!md.contains("__json_Node"));
         assert!(!md.contains("__json_StringNode"));
@@ -685,13 +789,13 @@ mod tests {
     fn types_page_renders_a_record_only_package() {
         let package = registry().resolve_package("csv").unwrap();
         let md = render_types_markdown(package);
-        assert!(md.contains("### Records"));
+        assert!(md.contains("## Records"));
         assert!(md.contains("#### csv::CsvReader"));
         assert!(md.contains("#### csv::CsvRow"));
         // A record-only package excludes the other category headings.
-        assert!(!md.contains("### Unions"));
-        assert!(!md.contains("### Enums"));
-        assert!(!md.contains("### Resources"));
+        assert!(!md.contains("## Unions"));
+        assert!(!md.contains("## Enums"));
+        assert!(!md.contains("## Resources"));
     }
 
     #[test]
@@ -720,29 +824,61 @@ mod tests {
 
         assert!(has_public_types(&package));
         let md = render_types_markdown(&package);
-        assert!(md.contains("### Enums"));
+        assert!(md.contains("## Enums"));
         assert!(md.contains("#### demo::Stream"));
         assert!(md.contains("- `StdOut` — standard output"));
         // A resource renders as its name + description only (no close op leaks out).
-        assert!(md.contains("### Resources"));
+        assert!(md.contains("## Resources"));
         assert!(md.contains("#### demo::Handle"));
         assert!(md.contains("An opaque demo handle."));
         // No exported records/unions → those headings are excluded.
-        assert!(!md.contains("### Records"));
-        assert!(!md.contains("### Unions"));
+        assert!(!md.contains("## Records"));
+        assert!(!md.contains("## Unions"));
         assert!(!md.contains("demo.close"));
     }
 
     #[test]
-    fn types_is_a_normal_function_lookup_when_the_package_has_no_public_types() {
-        // `encoding` declares no records/unions/enums/resources, so it has no public
-        // types page — `types` falls through to a function lookup.
+    fn types_shows_a_friendly_message_when_the_package_has_no_public_types() {
+        // `encoding` declares no records/unions/enums/resources (and no function
+        // named `types`), so `mfb man encoding types` prints the friendly
+        // no-public-types message instead of an unknown-function error.
         assert!(!has_public_types(
             registry().resolve_package("encoding").unwrap()
         ));
-        assert!(show_man(&s(&["encoding", "types"]))
-            .unwrap_err()
-            .contains("unknown encoding function"));
+        assert!(show_man(&s(&["encoding", "types"])).is_ok());
+    }
+
+    #[test]
+    fn bare_man_renders_the_index_of_packages_and_topics() {
+        assert!(show_man(&s(&[])).is_ok());
+        let md = render_index_markdown();
+        assert!(md.contains("## Builtin packages"));
+        assert!(md.contains("| `csv` |"));
+        assert!(md.contains("## Guide topics"));
+        assert!(md.contains("| `errors` |"));
+        // Both listings are sorted by name.
+        assert!(md.find("| `bits` |").unwrap() < md.find("| `csv` |").unwrap());
+        assert!(md.find("| `errors` |").unwrap() < md.find("| `flow` |").unwrap());
+        // `unqualified_global` packages have no importable spelling and are skipped.
+        assert!(!md.contains("| `testing` |"));
+    }
+
+    #[test]
+    fn package_overview_sorts_functions_and_links_its_types_page() {
+        let package = registry().resolve_package("csv").unwrap();
+        let md = render_package_markdown(package);
+        // The Functions table is sorted by name: `parse` before `readRow` before
+        // `stringify`.
+        let parse = md.find("| `csv::parse` |").unwrap();
+        let read_row = md.find("| `csv::readRow` |").unwrap();
+        let stringify = md.find("| `csv::stringify` |").unwrap();
+        assert!(parse < read_row && read_row < stringify);
+        // csv exports records, so the overview points at its types page.
+        assert!(md.contains("## See also"));
+        assert!(md.contains("`mfb man csv types`"));
+        // A package with no public types gets no such pointer.
+        let encoding = registry().resolve_package("encoding").unwrap();
+        assert!(!render_package_markdown(encoding).contains("## See also"));
     }
 
     #[test]
