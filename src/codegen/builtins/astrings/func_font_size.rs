@@ -1,6 +1,6 @@
 //! `astrings::fontSize` — Integer-valued `Attribute` constructor (`Body::Rewrite`).
 //!
-//! Backed by the injected source companion (`package.mfb`): a call rewrites to the
+//! Backed by the injected source (the per-helper `helper_*.rs` bodies): a call rewrites to the
 //! internal `__astrings_fontSize` FUNC through the registry's `rewrite_target`.
 
 use crate::codegen::registry::{

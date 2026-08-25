@@ -1,6 +1,6 @@
 //! `astrings::scalarLen` — internal-only native overlay bridge (`Body::abi_inline`).
 //!
-//! Never user-callable (`internal_only`): the source companion (`package.mfb`, an
+//! Never user-callable (`internal_only`): the injected source (assembled from `helper_*.rs`, an
 //! `internal` file) reads the visible scalar count of an opaque `AttributedString`
 //! through this native primitive for inclusive-range bounds validation. The lowering
 //! stays SHARED in `src/codegen/builtins/astrings/gen_astrings.rs`.

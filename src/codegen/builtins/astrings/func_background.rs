@@ -1,7 +1,7 @@
 //! `astrings::background` — (r, g, b) Byte-triple `Attribute` constructor
 //! (`Body::Rewrite`).
 //!
-//! Backed by the injected source companion (`package.mfb`): a call rewrites to the
+//! Backed by the injected source (the per-helper `helper_*.rs` bodies): a call rewrites to the
 //! internal `__astrings_background` FUNC (which packs the triple into a `0xRRGGBB`
 //! numeric payload) through the registry's `rewrite_target`.
 
