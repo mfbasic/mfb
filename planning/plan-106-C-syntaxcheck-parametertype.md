@@ -240,7 +240,7 @@ scope threading to preserve) and harder in another (the STATE peel is load
 Acceptance: the mapping table exists in this section with no UNVERIFIED rows.
 **MET** — the table above is complete, and both flagged UNVERIFIED items (the
 `res_state` distinction, the grammar-vs-scope split) are answered with citations.
-Commit: —
+Commit: `38c3522d1`
 
 ### Phase 2 — the swap, module by module
 
