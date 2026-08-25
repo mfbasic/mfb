@@ -1049,7 +1049,7 @@ END FUNC
 
 FUNC test_ssf_add(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssf_add.tmp"])
-  RES f AS File STATE RecSetFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
@@ -1069,7 +1069,7 @@ END FUNC
 
 FUNC test_ssf_remove(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssf_remove.tmp"])
-  RES f AS File STATE RecSetFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   LET base = buildSetRange(300)
   MUT times AS List OF Integer = []
@@ -1093,7 +1093,7 @@ END FUNC
 
 FUNC test_ssf_contains(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssf_contains.tmp"])
-  RES f AS File STATE RecSetFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildSetRange(1000)
   MUT times AS List OF Integer = []
@@ -1119,7 +1119,7 @@ END FUNC
 
 FUNC test_ssf_toList(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssf_toList.tmp"])
-  RES f AS File STATE RecSetFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildSetRange(1000)
   MUT times AS List OF Integer = []
@@ -1141,7 +1141,7 @@ END FUNC
 
 FUNC test_ssf_toSet(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssf_toSet.tmp"])
-  RES f AS File STATE RecSetFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildSetRange(300)
   MUT times AS List OF Integer = []
@@ -1163,7 +1163,7 @@ END FUNC
 
 FUNC test_ssf_union(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssf_union.tmp"])
-  RES f AS File STATE RecSetFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildSetRange(300)
   LET other AS Set OF Integer = buildSetShift(300, 150)
@@ -1186,7 +1186,7 @@ END FUNC
 
 FUNC test_ssf_intersection(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssf_intersection.tmp"])
-  RES f AS File STATE RecSetFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildSetRange(300)
   LET other AS Set OF Integer = buildSetShift(300, 150)
@@ -1209,7 +1209,7 @@ END FUNC
 
 FUNC test_ssf_difference(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssf_difference.tmp"])
-  RES f AS File STATE RecSetFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildSetRange(300)
   LET other AS Set OF Integer = buildSetShift(300, 150)
@@ -1232,7 +1232,7 @@ END FUNC
 
 FUNC test_ssf_symmetricDifference(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssf_symmetricDifference.tmp"])
-  RES f AS File STATE RecSetFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildSetRange(300)
   LET other AS Set OF Integer = buildSetShift(300, 150)
@@ -1255,7 +1255,7 @@ END FUNC
 
 FUNC test_ssf_isSubset(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssf_isSubset.tmp"])
-  RES f AS File STATE RecSetFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildSetRange(1000)
   LET other AS Set OF Integer = buildSetShift(1000, 500)
@@ -1280,7 +1280,7 @@ END FUNC
 
 FUNC test_ssf_isSuperset(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssf_isSuperset.tmp"])
-  RES f AS File STATE RecSetFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildSetRange(1000)
   LET other AS Set OF Integer = buildSetShift(1000, 500)
@@ -1305,7 +1305,7 @@ END FUNC
 
 FUNC test_ssf_isDisjoint(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssf_isDisjoint.tmp"])
-  RES f AS File STATE RecSetFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildSetRange(1000)
   LET other AS Set OF Integer = buildSetShift(1000, 500)
@@ -1334,7 +1334,7 @@ END FUNC
 
 FUNC test_ssd_add(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssd_add.tmp"])
-  RES f AS File STATE RecSetDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
@@ -1354,7 +1354,7 @@ END FUNC
 
 FUNC test_ssd_remove(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssd_remove.tmp"])
-  RES f AS File STATE RecSetDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   LET base = buildStrSetRange(400)
   MUT times AS List OF Integer = []
@@ -1378,7 +1378,7 @@ END FUNC
 
 FUNC test_ssd_contains(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssd_contains.tmp"])
-  RES f AS File STATE RecSetDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrSetRange(200)
   MUT times AS List OF Integer = []
@@ -1404,7 +1404,7 @@ END FUNC
 
 FUNC test_ssd_toList(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssd_toList.tmp"])
-  RES f AS File STATE RecSetDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrSetRange(200)
   MUT times AS List OF Integer = []
@@ -1426,7 +1426,7 @@ END FUNC
 
 FUNC test_ssd_toSet(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssd_toSet.tmp"])
-  RES f AS File STATE RecSetDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrSetRange(100)
   MUT times AS List OF Integer = []
@@ -1448,7 +1448,7 @@ END FUNC
 
 FUNC test_ssd_union(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssd_union.tmp"])
-  RES f AS File STATE RecSetDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrSetRange(100)
   LET other AS Set OF String = buildStrSetShift(100, 50)
@@ -1471,7 +1471,7 @@ END FUNC
 
 FUNC test_ssd_intersection(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssd_intersection.tmp"])
-  RES f AS File STATE RecSetDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrSetRange(100)
   LET other AS Set OF String = buildStrSetShift(100, 50)
@@ -1494,7 +1494,7 @@ END FUNC
 
 FUNC test_ssd_difference(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssd_difference.tmp"])
-  RES f AS File STATE RecSetDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrSetRange(100)
   LET other AS Set OF String = buildStrSetShift(100, 50)
@@ -1517,7 +1517,7 @@ END FUNC
 
 FUNC test_ssd_symmetricDifference(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssd_symmetricDifference.tmp"])
-  RES f AS File STATE RecSetDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrSetRange(100)
   LET other AS Set OF String = buildStrSetShift(100, 50)
@@ -1540,7 +1540,7 @@ END FUNC
 
 FUNC test_ssd_isSubset(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssd_isSubset.tmp"])
-  RES f AS File STATE RecSetDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrSetRange(200)
   LET other AS Set OF String = buildStrSetShift(200, 100)
@@ -1565,7 +1565,7 @@ END FUNC
 
 FUNC test_ssd_isSuperset(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssd_isSuperset.tmp"])
-  RES f AS File STATE RecSetDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrSetRange(200)
   LET other AS Set OF String = buildStrSetShift(200, 100)
@@ -1590,7 +1590,7 @@ END FUNC
 
 FUNC test_ssd_isDisjoint(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_ssd_isDisjoint.tmp"])
-  RES f AS File STATE RecSetDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecSetDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrSetRange(200)
   LET other AS Set OF String = buildStrSetShift(200, 100)

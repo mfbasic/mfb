@@ -51,7 +51,7 @@ FUNC test_crypto_sha256(run AS Integer, tests AS List OF BenchResult) AS List OF
     LET t0 AS Integer = datetime::monotonicNanos()
     MUT acc AS Integer = 0
     FOR rep = 0 TO reps - 1
-      acc = acc + cryptoSumBytes(crypto::sha256(buf))
+      acc = acc + cryptoSumBytes(crypto::hash(Hash.SHA256, buf))
     NEXT
     checksum = acc
     LET t1 AS Integer = datetime::monotonicNanos()
@@ -76,7 +76,7 @@ FUNC test_crypto_sha512(run AS Integer, tests AS List OF BenchResult) AS List OF
     LET t0 AS Integer = datetime::monotonicNanos()
     MUT acc AS Integer = 0
     FOR rep = 0 TO reps - 1
-      acc = acc + cryptoSumBytes(crypto::sha512(buf))
+      acc = acc + cryptoSumBytes(crypto::hash(Hash.SHA512, buf))
     NEXT
     checksum = acc
     LET t1 AS Integer = datetime::monotonicNanos()
@@ -102,7 +102,7 @@ FUNC test_crypto_hmac(run AS Integer, tests AS List OF BenchResult) AS List OF B
     LET t0 AS Integer = datetime::monotonicNanos()
     MUT acc AS Integer = 0
     FOR rep = 0 TO reps - 1
-      acc = acc + cryptoSumBytes(crypto::hmacSha256(key, buf))
+      acc = acc + cryptoSumBytes(crypto::hmac(Hash.SHA256, key, buf))
     NEXT
     checksum = acc
     LET t1 AS Integer = datetime::monotonicNanos()
@@ -127,7 +127,7 @@ FUNC test_crypto_pbkdf2(run AS Integer, tests AS List OF BenchResult) AS List OF
   MUT checksum AS Integer = 0
   FOR r = 0 TO run - 1
     LET t0 AS Integer = datetime::monotonicNanos()
-    LET dk AS List OF Byte = crypto::pbkdf2Sha256(pw, salt, iters, 32)
+    LET dk AS List OF Byte = crypto::pbkdf2(Hash.SHA256, pw, salt, iters, 32)
     checksum = cryptoSumBytes(dk)
     LET t1 AS Integer = datetime::monotonicNanos()
     times = collections::append(times, t1 - t0)
@@ -173,7 +173,7 @@ FUNC test_crypto_churn(run AS Integer, tests AS List OF BenchResult) AS List OF 
       FOR j = 0 TO 39
         m = collections::append(m, toByte((i * 13 + j * 37 + 11) MOD 256))
       NEXT
-      acc = acc + cryptoSumBytes(crypto::sha256(m))
+      acc = acc + cryptoSumBytes(crypto::hash(Hash.SHA256, m))
     NEXT
     checksum = acc
     LET t1 AS Integer = datetime::monotonicNanos()
@@ -203,9 +203,9 @@ FUNC test_crypto_ed25519(run AS Integer, tests AS List OF BenchResult) AS List O
     LET t0 AS Integer = datetime::monotonicNanos()
     MUT acc AS Integer = 0
     FOR rep = 0 TO reps - 1
-      LET sig AS List OF Byte = crypto::ed25519Sign(seed, msg)
+      LET sig AS List OF Byte = crypto::sign(Certificate.Ed25519, seed, msg)
       acc = acc + cryptoSumBytes(sig)
-      IF crypto::ed25519Verify(pub, msg, sig) THEN acc = acc + 1
+      IF crypto::verify(Certificate.Ed25519, pub, msg, sig) THEN acc = acc + 1
     NEXT
     checksum = acc
     LET t1 AS Integer = datetime::monotonicNanos()

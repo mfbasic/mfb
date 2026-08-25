@@ -823,7 +823,7 @@ END FUNC
 
 FUNC test_msf_set(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_msf_set.tmp"])
-  RES f AS File STATE RecMapFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecMapFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
@@ -843,7 +843,7 @@ END FUNC
 
 FUNC test_msf_get(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_msf_get.tmp"])
-  RES f AS File STATE RecMapFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecMapFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildMapII(1000)
   MUT times AS List OF Integer = []
@@ -867,7 +867,7 @@ END FUNC
 
 FUNC test_msf_getOr(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_msf_getOr.tmp"])
-  RES f AS File STATE RecMapFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecMapFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildMapII(1000)
   MUT times AS List OF Integer = []
@@ -891,7 +891,7 @@ END FUNC
 
 FUNC test_msf_hasKey(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_msf_hasKey.tmp"])
-  RES f AS File STATE RecMapFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecMapFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildMapII(1000)
   MUT times AS List OF Integer = []
@@ -917,7 +917,7 @@ END FUNC
 
 FUNC test_msf_removeKey(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_msf_removeKey.tmp"])
-  RES f AS File STATE RecMapFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecMapFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   LET base = buildMapII(300)
   MUT times AS List OF Integer = []
@@ -941,7 +941,7 @@ END FUNC
 
 FUNC test_msf_keys(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_msf_keys.tmp"])
-  RES f AS File STATE RecMapFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecMapFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildMapII(1000)
   MUT times AS List OF Integer = []
@@ -963,7 +963,7 @@ END FUNC
 
 FUNC test_msf_values(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_msf_values.tmp"])
-  RES f AS File STATE RecMapFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecMapFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildMapII(1000)
   MUT times AS List OF Integer = []
@@ -985,7 +985,7 @@ END FUNC
 
 FUNC test_msf_mapValues(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_msf_mapValues.tmp"])
-  RES f AS File STATE RecMapFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecMapFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildMapII(300)
   MUT times AS List OF Integer = []
@@ -1007,7 +1007,7 @@ END FUNC
 
 FUNC test_msf_merge(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_msf_merge.tmp"])
-  RES f AS File STATE RecMapFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecMapFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildMapII(300)
   LET other AS Map OF Integer TO Integer = buildMapIIShift(300, 150)
@@ -1034,7 +1034,7 @@ END FUNC
 
 FUNC test_msd_set(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_msd_set.tmp"])
-  RES f AS File STATE RecMapDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecMapDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
@@ -1054,7 +1054,7 @@ END FUNC
 
 FUNC test_msd_get(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_msd_get.tmp"])
-  RES f AS File STATE RecMapDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecMapDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildMapIS(200)
   MUT times AS List OF Integer = []
@@ -1078,7 +1078,7 @@ END FUNC
 
 FUNC test_msd_getOr(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_msd_getOr.tmp"])
-  RES f AS File STATE RecMapDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecMapDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildMapIS(200)
   MUT times AS List OF Integer = []
@@ -1102,7 +1102,7 @@ END FUNC
 
 FUNC test_msd_hasKey(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_msd_hasKey.tmp"])
-  RES f AS File STATE RecMapDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecMapDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildMapIS(200)
   MUT times AS List OF Integer = []
@@ -1128,7 +1128,7 @@ END FUNC
 
 FUNC test_msd_removeKey(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_msd_removeKey.tmp"])
-  RES f AS File STATE RecMapDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecMapDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   LET base = buildMapIS(400)
   MUT times AS List OF Integer = []
@@ -1152,7 +1152,7 @@ END FUNC
 
 FUNC test_msd_keys(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_msd_keys.tmp"])
-  RES f AS File STATE RecMapDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecMapDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildMapIS(200)
   MUT times AS List OF Integer = []
@@ -1174,7 +1174,7 @@ END FUNC
 
 FUNC test_msd_values(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_msd_values.tmp"])
-  RES f AS File STATE RecMapDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecMapDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildMapIS(200)
   MUT times AS List OF Integer = []
@@ -1196,7 +1196,7 @@ END FUNC
 
 FUNC test_msd_mapValues(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_msd_mapValues.tmp"])
-  RES f AS File STATE RecMapDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecMapDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildMapIS(100)
   MUT times AS List OF Integer = []
@@ -1218,7 +1218,7 @@ END FUNC
 
 FUNC test_msd_merge(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_msd_merge.tmp"])
-  RES f AS File STATE RecMapDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecMapDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildMapIS(100)
   LET other AS Map OF Integer TO String = buildMapISShift(100, 50)

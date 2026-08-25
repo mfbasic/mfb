@@ -227,7 +227,7 @@ def emit_func(suffix, E, kind, prefix, name):
     out.append(f'FUNC {fn}(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult')
     if kind == 'state':
         out.append(f'  LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_{fn}.tmp"])')
-        out.append(f'  RES f AS File STATE {E["rec"]} = fs::open(stPath, "write")')
+        out.append(f'  RES f AS fs::File STATE {E["rec"]} = fs::open(stPath, "write")')
         out.append('  fs::deleteFile(stPath)')
     for ln in outside:
         out.append('  ' + ln)

@@ -3052,7 +3052,7 @@ END FUNC
 
 FUNC test_lsf_append(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_append.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
@@ -3072,7 +3072,7 @@ END FUNC
 
 FUNC test_lsf_append_batch(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_append_batch.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
@@ -3092,7 +3092,7 @@ END FUNC
 
 FUNC test_lsf_prepend(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_prepend.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
@@ -3112,7 +3112,7 @@ END FUNC
 
 FUNC test_lsf_copy(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_copy.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3134,7 +3134,7 @@ END FUNC
 
 FUNC test_lsf_distinct(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_distinct.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildDupRange(5000, 1000)
   MUT times AS List OF Integer = []
@@ -3156,7 +3156,7 @@ END FUNC
 
 FUNC test_lsf_groupby(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_groupby.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(2000)
   MUT times AS List OF Integer = []
@@ -3178,7 +3178,7 @@ END FUNC
 
 FUNC test_lsf_set(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_set.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
@@ -3207,7 +3207,7 @@ END FUNC
 
 FUNC test_lsf_sort(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_sort.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRand(50)
   MUT times AS List OF Integer = []
@@ -3229,7 +3229,7 @@ END FUNC
 
 FUNC test_lsf_sort_asc(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_sort_asc.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = sortMakeAsc(20000)
   MUT times AS List OF Integer = []
@@ -3252,7 +3252,7 @@ END FUNC
 
 FUNC test_lsf_sort_desc(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_sort_desc.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = sortMakeDesc(20000)
   MUT times AS List OF Integer = []
@@ -3275,7 +3275,7 @@ END FUNC
 
 FUNC test_lsf_sort_rand(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_sort_rand.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = sortMakeScramble(20000)
   MUT times AS List OF Integer = []
@@ -3298,7 +3298,7 @@ END FUNC
 
 FUNC test_lsf_all(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_all.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildPos(1000)
   MUT times AS List OF Integer = []
@@ -3322,7 +3322,7 @@ END FUNC
 
 FUNC test_lsf_any(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_any.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildNeg(1000)
   MUT times AS List OF Integer = []
@@ -3346,7 +3346,7 @@ END FUNC
 
 FUNC test_lsf_chunks(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_chunks.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3368,7 +3368,7 @@ END FUNC
 
 FUNC test_lsf_contains(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_contains.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3392,7 +3392,7 @@ END FUNC
 
 FUNC test_lsf_drop(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_drop.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3414,7 +3414,7 @@ END FUNC
 
 FUNC test_lsf_filter(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_filter.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3436,7 +3436,7 @@ END FUNC
 
 FUNC test_lsf_find(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_find.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3458,7 +3458,7 @@ END FUNC
 
 FUNC test_lsf_findIndex(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_findIndex.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3480,7 +3480,7 @@ END FUNC
 
 FUNC test_lsf_findLastIndex(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_findLastIndex.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3502,7 +3502,7 @@ END FUNC
 
 FUNC test_lsf_flatten(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_flatten.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3524,7 +3524,7 @@ END FUNC
 
 FUNC test_lsf_forEach(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_forEach.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3546,7 +3546,7 @@ END FUNC
 
 FUNC test_lsf_get(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_get.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3570,7 +3570,7 @@ END FUNC
 
 FUNC test_lsf_getOr(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_getOr.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3594,7 +3594,7 @@ END FUNC
 
 FUNC test_lsf_insert(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_insert.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
@@ -3614,7 +3614,7 @@ END FUNC
 
 FUNC test_lsf_mid(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_mid.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3636,7 +3636,7 @@ END FUNC
 
 FUNC test_lsf_partition(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_partition.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3659,7 +3659,7 @@ END FUNC
 
 FUNC test_lsf_reduce(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_reduce.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3681,7 +3681,7 @@ END FUNC
 
 FUNC test_lsf_reduceRight(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_reduceRight.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3703,7 +3703,7 @@ END FUNC
 
 FUNC test_lsf_removeAt(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_removeAt.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   LET base = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3727,7 +3727,7 @@ END FUNC
 
 FUNC test_lsf_replace(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_replace.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3749,7 +3749,7 @@ END FUNC
 
 FUNC test_lsf_sortBy(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_sortBy.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(500)
   MUT times AS List OF Integer = []
@@ -3772,7 +3772,7 @@ END FUNC
 
 FUNC test_lsf_sum(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_sum.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3794,7 +3794,7 @@ END FUNC
 
 FUNC test_lsf_take(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_take.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3816,7 +3816,7 @@ END FUNC
 
 FUNC test_lsf_transform(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_transform.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3838,7 +3838,7 @@ END FUNC
 
 FUNC test_lsf_window(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_window.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3860,7 +3860,7 @@ END FUNC
 
 FUNC test_lsf_zip(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsf_zip.tmp"])
-  RES f AS File STATE RecFixed = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecFixed = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildRange(1000)
   MUT times AS List OF Integer = []
@@ -3886,7 +3886,7 @@ END FUNC
 
 FUNC test_lsd_append(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_append.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
@@ -3906,7 +3906,7 @@ END FUNC
 
 FUNC test_lsd_append_batch(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_append_batch.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
@@ -3926,7 +3926,7 @@ END FUNC
 
 FUNC test_lsd_prepend(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_prepend.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
@@ -3946,7 +3946,7 @@ END FUNC
 
 FUNC test_lsd_copy(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_copy.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -3968,7 +3968,7 @@ END FUNC
 
 FUNC test_lsd_distinct(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_distinct.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrDup(5000, 1000)
   MUT times AS List OF Integer = []
@@ -3990,7 +3990,7 @@ END FUNC
 
 FUNC test_lsd_groupby(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_groupby.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(2000)
   MUT times AS List OF Integer = []
@@ -4012,7 +4012,7 @@ END FUNC
 
 FUNC test_lsd_set(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_set.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
@@ -4041,7 +4041,7 @@ END FUNC
 
 FUNC test_lsd_sort(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_sort.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(50)
   MUT times AS List OF Integer = []
@@ -4063,7 +4063,7 @@ END FUNC
 
 FUNC test_lsd_sort_asc(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_sort_asc.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = strMakeAsc(20000)
   MUT times AS List OF Integer = []
@@ -4086,7 +4086,7 @@ END FUNC
 
 FUNC test_lsd_sort_desc(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_sort_desc.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = strMakeDesc(20000)
   MUT times AS List OF Integer = []
@@ -4109,7 +4109,7 @@ END FUNC
 
 FUNC test_lsd_sort_rand(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_sort_rand.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = strMakeScramble(20000)
   MUT times AS List OF Integer = []
@@ -4132,7 +4132,7 @@ END FUNC
 
 FUNC test_lsd_all(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_all.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4156,7 +4156,7 @@ END FUNC
 
 FUNC test_lsd_any(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_any.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4180,7 +4180,7 @@ END FUNC
 
 FUNC test_lsd_chunks(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_chunks.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4202,7 +4202,7 @@ END FUNC
 
 FUNC test_lsd_contains(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_contains.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4226,7 +4226,7 @@ END FUNC
 
 FUNC test_lsd_drop(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_drop.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4248,7 +4248,7 @@ END FUNC
 
 FUNC test_lsd_filter(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_filter.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4270,7 +4270,7 @@ END FUNC
 
 FUNC test_lsd_find(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_find.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4292,7 +4292,7 @@ END FUNC
 
 FUNC test_lsd_findIndex(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_findIndex.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4314,7 +4314,7 @@ END FUNC
 
 FUNC test_lsd_findLastIndex(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_findLastIndex.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4336,7 +4336,7 @@ END FUNC
 
 FUNC test_lsd_flatten(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_flatten.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4358,7 +4358,7 @@ END FUNC
 
 FUNC test_lsd_forEach(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_forEach.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4380,7 +4380,7 @@ END FUNC
 
 FUNC test_lsd_get(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_get.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4404,7 +4404,7 @@ END FUNC
 
 FUNC test_lsd_getOr(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_getOr.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4428,7 +4428,7 @@ END FUNC
 
 FUNC test_lsd_insert(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_insert.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   MUT times AS List OF Integer = []
   MUT checksum AS Integer = 0
@@ -4448,7 +4448,7 @@ END FUNC
 
 FUNC test_lsd_mid(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_mid.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4470,7 +4470,7 @@ END FUNC
 
 FUNC test_lsd_partition(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_partition.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4493,7 +4493,7 @@ END FUNC
 
 FUNC test_lsd_reduce(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_reduce.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4515,7 +4515,7 @@ END FUNC
 
 FUNC test_lsd_reduceRight(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_reduceRight.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4537,7 +4537,7 @@ END FUNC
 
 FUNC test_lsd_removeAt(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_removeAt.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   LET base = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4561,7 +4561,7 @@ END FUNC
 
 FUNC test_lsd_replace(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_replace.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4583,7 +4583,7 @@ END FUNC
 
 FUNC test_lsd_sortBy(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_sortBy.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(500)
   MUT times AS List OF Integer = []
@@ -4606,7 +4606,7 @@ END FUNC
 
 FUNC test_lsd_take(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_take.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4628,7 +4628,7 @@ END FUNC
 
 FUNC test_lsd_transform(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_transform.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4650,7 +4650,7 @@ END FUNC
 
 FUNC test_lsd_window(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_window.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
@@ -4672,7 +4672,7 @@ END FUNC
 
 FUNC test_lsd_zip(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
   LET stPath AS String = fs::pathJoin([fs::tempDirectory(), "bench_test_lsd_zip.tmp"])
-  RES f AS File STATE RecDyn = fs::open(stPath, "write")
+  RES f AS fs::File STATE RecDyn = fs::open(stPath, "write")
   fs::deleteFile(stPath)
   f.state.xs = buildStrRange(1000)
   MUT times AS List OF Integer = []
