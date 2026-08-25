@@ -35,7 +35,7 @@ See plan-106-A §Prerequisites (shared). Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-106-C complete | `rg -n 'enum Type' src/syntaxcheck/` → 0 | NOT MET until C lands |
+| plan-106-C complete | `rg -n 'enum Type' src/syntaxcheck/` → 0 | **MET** (2026-08-24, commit `e9eaac094`) — the single hit is the doc comment recording the removal |
 
 ## 1. Goal
 
@@ -56,8 +56,12 @@ See plan-106-A §Prerequisites (shared). Additionally:
 - No rule relocation and no dual-resolve restructuring (the review's Rec #5/#6
   observations about resolve-runs-twice and diagnostic streaming are REAL but
   they are separate work — record them, don't braid them).
-- The PRE-monomorph passes (`resolve_project` on the source AST, DOC
-  validation) stay AST-domain — they run before elaboration by design.
+- ~~The PRE-monomorph passes (`resolve_project` on the source AST, DOC
+  validation) stay AST-domain — they run before elaboration by design.~~
+  **Corrected in Phase 1 (Correction 1)**: they cannot, because
+  `resolve_augmented` IS the pre-pass — both passes funnel through it. The
+  pre-pass gains one forward `elaborate()` call instead. No pass is duplicated,
+  and no backward edge is created.
 
 ## 2. Current State
 
@@ -74,8 +78,9 @@ the two seams. The de-elaboration block is 16 private functions behind one
 | production seams | 2 | `cli/build/mod.rs:341`, `audit/mod.rs:111` |
 | test-inspection call sites to port | 5 | `rg -n 'hir::deelaborate' src/monomorph/lower.rs src/ir/tests.rs \| wc -l` → 5 (all `#[cfg(test)]`) |
 | validator entry points to retarget | 3 | `check_project_collect`, `resolve_augmented`, `validate_entry_point` |
-| syntaxcheck walk surface (AST→HIR port) | 14,441 lines total; walk-arm count at kickoff | `rg -c 'Statement::\|Expression::\|Item::' src/syntaxcheck/` (record at kickoff — post-C the count reflects the real port surface) |
-| resolve_augmented walk surface | at kickoff | `rg -c 'Statement::\|Expression::\|Item::' src/resolver/` |
+| syntaxcheck walk surface (AST→HIR port) | **164** walk-arm lines over 8 files | `rg -c 'Statement::\|Expression::\|Item::' src/syntaxcheck/` at kickoff: helpers 42, inference 28, mod 27, checking 21, link 18, builtins 13, types 8, resources 1 |
+| resolve_augmented walk surface | **77** walk-arm lines over 2 files | `rg -c 'Statement::\|Expression::\|Item::' src/resolver/` at kickoff: resolution.rs 46, mod.rs 31 |
+| `resolve_type_name` recursion sites (the resolver's string-grammar machine) | **30** | `rg -n 'resolve_type_name\(' src/resolver/ \| grep -v 'fn resolve_type_name' \| wc -l` → 30 |
 
 ### Verified properties
 
@@ -83,12 +88,25 @@ the two seams. The de-elaboration block is 16 private functions behind one
   (perl word-boundary renames + type-field reads becoming structural) is
   proven four times over (monomorph D3, `resource_escape`, `expand_expect`,
   ir::lower C3). VERIFIED (landed).
-- **What `resolve_augmented` does post-monomorph** (vs the pre-monomorph
-  `resolve_project`): UNVERIFIED in detail — Phase 1 reads it and records
-  which of its checks are name-resolution (port) vs type-string work
-  (should already be gone post-105-B) vs redundant with the pre-pass
-  (candidate to note for the separate dual-resolve cleanup, NOT to delete
-  here).
+- **What `resolve_augmented` does post-monomorph.** VERIFIED (Phase 1, by
+  reading `resolver/resolution.rs` and censusing every `self.report` call).
+  `resolve_augmented` is not a post-monomorph-only entry point: it is the
+  SHARED core both passes funnel through (`resolve_project` →
+  `resolve_project_with` → `augment_project` → `resolve_augmented`). It runs
+  exactly two things — `resolve()` (always) and `resolve_doc_blocks()` (only
+  when `validate_docs`, i.e. only the pre-pass). Its checks split as:
+
+  | Kind | Rules | Disposition |
+  |---|---|---|
+  | Name resolution over the walk | `SYMBOL_UNKNOWN_IDENTIFIER` ×5, `SYMBOL_DUPLICATE_LOCAL` ×4, `SYMBOL_DUPLICATE_IMPORT` ×4, `SYMBOL_UNKNOWN_IMPORT`, `SYMBOL_DUPLICATE_TOP_LEVEL` ×6, `SYMBOL_RESERVED_BUILTIN_NAME`, `TYPE_DUPLICATE_FIELD`/`_VARIANT`/`_ENUM_MEMBER` | **Port mechanically.** Pure structural walk; no type strings. |
+  | Type-string work | `SYMBOL_UNKNOWN_TYPE` ×2 + `TYPE_RESULT_NOT_USER_VISIBLE`, all reached through `resolve_type_name(&str)` | **NOT already gone post-105-B** — the plan's guess was wrong. `resolve_type_name` is still a 120-line string-grammar machine: `strip_type_group`, `== "Result"` / `starts_with("Result OF ")`, `strip_prefix("ISOLATED FUNC(")` / `("FUNC(")` + `split_func_params_and_return`, `thread_parts_full`, a `parse(…)` whose four container arms immediately **re-render** each child with `.name()` to recurse, `state_type_name`/`base_resource_name`, a second `parse(…)` for `UserOf` that re-renders its args, `== "Unknown"`, and `contains('.')`. It is the single largest no-strings violation left outside codegen, and it becomes `resolve_type(&ParameterType)`. |
+  | Resource-decl / LINK checks | `RESOURCE_CLOSE_NOT_NATIVE` ×2, `RESOURCE_CLOSE_SIGNATURE`, `RESOURCE_CLOSE_MISSING` | Port mechanically (`HirItem::Resource`/`Link` reuse the AST node verbatim). |
+  | DOC validation (18 `DOC_*` rules) | `resolve_doc_blocks` | **Pre-pass only** (`validate_docs`). Reads `HirItem::Doc`, whose `DocBlock` is the verbatim AST node. |
+
+  Nothing here is redundant-with-the-pre-pass in a way this letter may delete:
+  the post-pass sees the *monomorphized* program, so it resolves names the
+  pre-pass never saw (instantiated generics, mangled overloads). The
+  dual-resolve observation stands as separate work, as §Non-goals says.
 
 ## 3. Design Overview
 
@@ -119,8 +137,11 @@ None. Diagnostics byte-identical.
 
 ### Phase 1 — entry validation + resolve_augmented onto HIR
 
-- [ ] Read `resolve_augmented` post-monomorph responsibilities; record the
-      inventory in §2 (replacing UNVERIFIED).
+- [x] Read `resolve_augmented` post-monomorph responsibilities; record the
+      inventory in §2 (replacing UNVERIFIED). Two findings changed the shape of
+      this phase and are in §Corrections: `resolve_augmented` is the SHARED core
+      of both resolve passes (not a post-monomorph-only entry point), and its
+      `resolve_type_name` is still a full string-grammar machine.
 - [ ] Port `validate_entry_point` to `&HirProject` (both callers).
 - [ ] Port `resolve_augmented` to `&HirProject`.
 - [ ] Tests: entry-validation unit tests; resolver corpus.
@@ -167,7 +188,55 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+### Correction 1 — `resolve_augmented` is the SHARED core, not a post-monomorph entry point
+
+The plan (§Non-goals) assumed `resolve_project` and `resolve_augmented` were
+separable, so the pre-monomorph pass could stay AST-domain while the
+post-monomorph one moved to HIR. Measured:
+
+```
+$ rg -n 'fn resolve_project|fn resolve_project_with|fn resolve_augmented|fn validate_project_docs' src/resolver/mod.rs
+46:pub fn resolve_project(          -> resolve_project_with(.., true)
+68:pub fn resolve_project_with(     -> augment_project(ast)? -> resolve_augmented(..)
+83:pub fn resolve_augmented(        -> Resolver::new(..).resolve()
+58:pub fn validate_project_docs(    -> Resolver::new(..).resolve_doc_blocks()
+```
+
+Every resolve in the compiler goes through one `Resolver`. Making
+`resolve_augmented` take `&HirProject` therefore moves ALL of them.
+
+Keeping the pre-pass AST-domain would require a second copy of the 2,375-line
+`resolution.rs` walk — the exact duplication this plan exists to remove, and a
+guaranteed future divergence. So the resolver becomes HIR-only and the three
+AST-domain entry points (`resolve_project_with`, `validate_project_docs`, and
+`cli/doc.rs`'s single-file path) each gain one forward `crate::hir::elaborate`
+call.
+
+This is not a backward edge and does not violate the terminal invariant:
+`elaborate` is AST→HIR, the same direction the compile path already runs. The
+cost is one structural walk on a project already being walked several times.
+The §Non-goals bullet is struck through above.
+
+### Correction 2 — `resolve_type_name` is still a full string-grammar machine
+
+§2 predicted the resolver's type-string work "should already be gone
+post-105-B". It is not. `resolver/resolution.rs:1265-1392` is 120 lines of
+grammar re-implementation with **30** recursion sites, and its four
+`ParameterType::parse` container arms *re-render every child with `.name()`*
+just to recurse by string. Measured before the port:
+
+```
+$ rg -n 'strip_prefix|starts_with\("|thread_parts_full|state_type_name|base_resource_name|strip_type_group|split_func_params' src/resolver/resolution.rs
+1278:  strip_type_group        1288:  starts_with("Result OF ")
+1298:  strip_prefix("ISOLATED FUNC(")   1302:  strip_prefix("FUNC(")
+1306:  thread_parts_full       1353:  state_type_name   1354:  base_resource_name
+1407:  split_func_params_and_return
+```
+
+Phase 1 therefore does more than a node-type rename: `resolve_type_name(&str)`
+becomes `resolve_type(&ParameterType)`, a closed match on the variants, and all
+eight grammar helpers above leave the resolver. Recorded here rather than
+deferred, per §Do-the-work.
 
 ## Summary
 
