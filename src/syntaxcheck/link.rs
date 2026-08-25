@@ -10,9 +10,9 @@ impl<'a> SyntaxChecker<'a> {
         // Map every LINK function `alias.func` to whether it can fail (has a
         // SUCCESS_ON / ERROR_ON gate).
         let mut close_may_fail: HashMap<String, bool> = HashMap::new();
-        for file in &self.ast.files {
+        for file in &self.hir.files {
             for item in &file.items {
-                if let Item::Link(link) = item {
+                if let HirItem::Link(link) = item {
                     for function in &link.functions {
                         close_may_fail.insert(
                             format!("{}.{}", link.alias, function.name),
@@ -23,9 +23,9 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
-        for file in &self.ast.files {
+        for file in &self.hir.files {
             for item in &file.items {
-                if let Item::Resource(resource) = item {
+                if let HirItem::Resource(resource) = item {
                     let close_function = resource.close_fn.clone();
                     let may_fail = close_may_fail
                         .get(&close_function)
@@ -51,7 +51,7 @@ impl<'a> SyntaxChecker<'a> {
     /// `collect_native_resources` (plan-link-update.md §8/§10).
     pub(super) fn check_resource_decl(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         resource: &crate::ast::ResourceDecl,
     ) {
         // bug-373: a user RESOURCE that reuses a built-in resource name is
@@ -78,7 +78,7 @@ impl<'a> SyntaxChecker<'a> {
 
     /// Native-specific checks on a `LINK` block: `CPtr` containment and ABI
     /// slot/parameter consistency (plan-link-update.md §5b/§5c/§11/§12).
-    pub(super) fn check_link_block(&mut self, file: &AstFile, link: &crate::ast::LinkBlock) {
+    pub(super) fn check_link_block(&mut self, file: &HirFile, link: &crate::ast::LinkBlock) {
         self.check_link_cstructs(file, link);
         self.check_cstruct_escape(file, link);
         let cstructs: Vec<String> = link.cstructs.iter().map(|c| c.name.clone()).collect();
@@ -96,7 +96,7 @@ impl<'a> SyntaxChecker<'a> {
     /// `CStructFault` carries only `(rule, message)`, and every message already
     /// names the offending slot. See the plan's Corrections — buying slot-level
     /// spans means widening a carrier four landed rules also use.
-    fn check_buffer_slots(&mut self, file: &AstFile, function: &crate::ast::LinkFunction) {
+    fn check_buffer_slots(&mut self, file: &HirFile, function: &crate::ast::LinkFunction) {
         // Nothing to check unless the function actually uses the feature. The
         // `List OF Byte` return rule (rule 8) is the exception — it fires on a
         // function with no CBuffer and no BUFFER clause at all, which is precisely
@@ -161,14 +161,17 @@ impl<'a> SyntaxChecker<'a> {
     /// The `(name, type)` fields of a user record `TYPE`, or `None` when the name
     /// is not a record (a union/enum/unknown cannot back a `CSTRUCT`).
     fn record_fields_of(&self, name: &str) -> Option<Vec<(String, String)>> {
-        for file in &self.ast.files {
+        for file in &self.hir.files {
             for item in &file.items {
-                if let Item::Type(decl) = item {
+                if let HirItem::Type(decl) = item {
                     if decl.name == name && decl.kind == crate::ast::TypeDeclKind::Type {
                         return Some(
                             decl.fields
                                 .iter()
-                                .map(|f| (f.name.clone(), f.type_name.clone()))
+                                // `ir::check_struct_slot` compares a CSTRUCT field's
+                                // C type against the record field's declared SPELLING,
+                                // which is the ABI seam's own vocabulary.
+                                .map(|f| (f.name.clone(), f.type_.name().into_owned()))
                                 .collect(),
                         );
                     }
@@ -181,7 +184,7 @@ impl<'a> SyntaxChecker<'a> {
     /// Validate a wrapper's struct slots and `BIND IN` blocks (plan-50-E §4.6).
     fn check_struct_slots(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         link: &crate::ast::LinkBlock,
         function: &crate::ast::LinkFunction,
     ) {
@@ -357,7 +360,7 @@ impl<'a> SyntaxChecker<'a> {
     /// and `SIZEOF`. Naming one in a wrapper's MFBASIC-facing signature would make
     /// a private C layout part of the public API — the same argument that confines
     /// `CPtr` (`NATIVE_CPTR_ESCAPE`). plan-50-B §4.5.
-    fn check_cstruct_escape(&mut self, file: &AstFile, link: &crate::ast::LinkBlock) {
+    fn check_cstruct_escape(&mut self, file: &HirFile, link: &crate::ast::LinkBlock) {
         if link.cstructs.is_empty() {
             return;
         }
@@ -398,7 +401,7 @@ impl<'a> SyntaxChecker<'a> {
     ///
     /// Shares `ir::check_cstruct` with the package path so the two cannot drift;
     /// this side adds the per-declaration span and the duplicate-name check.
-    fn check_link_cstructs(&mut self, file: &AstFile, link: &crate::ast::LinkBlock) {
+    fn check_link_cstructs(&mut self, file: &HirFile, link: &crate::ast::LinkBlock) {
         let names: Vec<String> = link.cstructs.iter().map(|c| c.name.clone()).collect();
         for (index, decl) in link.cstructs.iter().enumerate() {
             if link.cstructs[..index].iter().any(|p| p.name == decl.name) {
@@ -435,7 +438,7 @@ impl<'a> SyntaxChecker<'a> {
     /// slot may name one as its ctype (plan-50-E).
     pub(super) fn check_link_function_in(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         function: &crate::ast::LinkFunction,
         cstructs: &[String],
     ) {
@@ -786,9 +789,9 @@ impl<'a> SyntaxChecker<'a> {
     pub(super) fn collect_native_functions(&mut self) {
         // First gather every LINK function's signature so aliases can adopt them.
         let mut link_sigs: HashMap<String, (FunctionSig, String)> = HashMap::new();
-        for file in &self.ast.files {
+        for file in &self.hir.files {
             for item in &file.items {
-                let Item::Link(link) = item else {
+                let HirItem::Link(link) = item else {
                     continue;
                 };
                 for function in &link.functions {
@@ -805,9 +808,9 @@ impl<'a> SyntaxChecker<'a> {
 
         // Then register re-export aliases, adopting the target's signature with
         // the alias's declared visibility (plan-link-update.md §5a).
-        for file in &self.ast.files {
+        for file in &self.hir.files {
             for item in &file.items {
-                let Item::FuncAlias(alias) = item else {
+                let HirItem::FuncAlias(alias) = item else {
                     continue;
                 };
                 if let Some((sig, _)) = link_sigs.get(&alias.target) {

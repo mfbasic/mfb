@@ -108,7 +108,6 @@ pub fn run(options: &AuditOptions) -> i32 {
     ) else {
         return 3;
     };
-    let concrete_ast = crate::hir::deelaborate(&concrete_hir);
     if crate::resolver::resolve_augmented(&options.location, &manifest, &concrete_hir, false)
         .is_err()
     {
@@ -119,7 +118,7 @@ pub fn run(options: &AuditOptions) -> i32 {
     else {
         return 3;
     };
-    if crate::syntaxcheck::check_project(&options.location, &concrete_ast).is_err() {
+    if crate::syntaxcheck::check_project(&options.location, &concrete_hir).is_err() {
         return 3;
     }
 

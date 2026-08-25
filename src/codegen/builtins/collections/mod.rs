@@ -368,10 +368,10 @@ mod tests {
     fn import_detection_via_registry() {
         let pkg = registry().resolve_package("collections").unwrap();
         let ast = project("IMPORT collections\nSUB main\nEND SUB\n");
-        assert!(pkg.is_imported_by(&ast));
+        assert!(pkg.is_imported_by(&crate::codegen::registry::ProjectView::of_ast(&ast)));
 
         let bare = project("SUB main\nEND SUB\n");
-        assert!(!pkg.is_imported_by(&bare));
+        assert!(!pkg.is_imported_by(&crate::codegen::registry::ProjectView::of_ast(&bare)));
     }
 
     #[test]

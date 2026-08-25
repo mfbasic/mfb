@@ -2051,7 +2051,7 @@ impl<'a> Monomorphizer<'a> {
 #[cfg(test)]
 mod tests {
     use super::super::{ImportedOverload, Monomorphizer};
-    use crate::ast::{AstProject, Function, Item, TypeDecl};
+    use crate::ast::AstProject;
     use crate::types::ParameterType;
 
     /// Parse one or more `(relative_path, source)` files into an `AstProject`.
@@ -2071,45 +2071,49 @@ mod tests {
 
     /// Monomorphize a single `main.mfb` source, returning `Ok(project)` or the
     /// error flag. Diagnostics are silenced so error-path tests stay quiet.
-    fn monomorphize(src: &str) -> Result<AstProject, ()> {
+    ///
+    /// plan-106-D: returns the concrete HIR the monomorphizer actually produces.
+    /// It used to be de-elaborated back to an AST purely so these assertions could
+    /// read it — a test-only backward path, which is how backward paths come back.
+    fn monomorphize(src: &str) -> Result<crate::hir::HirProject, ()> {
         monomorphize_files(&[("src/main.mfb", src)])
     }
 
-    fn monomorphize_files(files: &[(&str, &str)]) -> Result<AstProject, ()> {
+    fn monomorphize_files(files: &[(&str, &str)]) -> Result<crate::hir::HirProject, ()> {
         let ast = project(files);
         let dir = std::env::temp_dir();
         let prev = std::panic::take_hook();
         // Silence the front end's diagnostic printing during error-path tests.
         let result = super::super::monomorphize_project(&dir, &crate::hir::elaborate(&ast));
         std::panic::set_hook(prev);
-        result.map(|hir| crate::hir::deelaborate(&hir))
+        result
     }
 
-    fn functions(project: &AstProject) -> Vec<&Function> {
+    fn functions(project: &crate::hir::HirProject) -> Vec<&crate::hir::HirFunction> {
         project
             .files
             .iter()
             .flat_map(|f| &f.items)
             .filter_map(|item| match item {
-                Item::Function(function) => Some(function),
+                crate::hir::HirItem::Function(function) => Some(function),
                 _ => None,
             })
             .collect()
     }
 
-    fn types(project: &AstProject) -> Vec<&TypeDecl> {
+    fn types(project: &crate::hir::HirProject) -> Vec<&crate::hir::HirTypeDecl> {
         project
             .files
             .iter()
             .flat_map(|f| &f.items)
             .filter_map(|item| match item {
-                Item::Type(type_decl) => Some(type_decl),
+                crate::hir::HirItem::Type(type_decl) => Some(type_decl),
                 _ => None,
             })
             .collect()
     }
 
-    fn function_names(project: &AstProject) -> Vec<String> {
+    fn function_names(project: &crate::hir::HirProject) -> Vec<String> {
         functions(project).iter().map(|f| f.name.clone()).collect()
     }
 
@@ -2904,10 +2908,8 @@ END FUNC
             name: "app".to_string(),
             files: vec![file],
         };
-        let concrete = crate::hir::deelaborate(
-            &super::super::monomorphize_project(dir.path(), &crate::hir::elaborate(&ast))
-                .expect("monomorphizes"),
-        );
+        let concrete = super::super::monomorphize_project(dir.path(), &crate::hir::elaborate(&ast))
+            .expect("monomorphizes");
         // The `main` body's call to `package_simple.score` is rewritten to the
         // package-qualified mangled symbol.
         let main = functions(&concrete)

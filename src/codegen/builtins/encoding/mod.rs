@@ -50,7 +50,7 @@
 //! `call_param_names` seam remains.
 
 // --- codegen tier imports (migration) ---
-use crate::codegen::registry::{registry, Registry, RegistryPackage};
+use crate::codegen::registry::{Registry, RegistryPackage};
 mod func_base32_decode;
 mod func_base32_encode;
 mod func_base64_decode;
@@ -236,20 +236,15 @@ const SOURCE_DOC: &str = "builtins/encoding.mfb";
 pub(crate) fn augmented_project(
     ast: &crate::ast::AstProject,
 ) -> Result<crate::ast::AstProject, ()> {
-    let Some(pkg) = registry().resolve_package("encoding") else {
-        return Ok(ast.clone());
-    };
-    if !pkg.is_imported_by(ast) {
-        return Ok(ast.clone());
-    }
-    let file = crate::ast::parse_source_internal(
-        std::path::Path::new(SOURCE_LABEL),
-        SOURCE_DOC,
-        &pkg.get_mfb(),
-    )?;
-    let mut augmented = ast.clone();
-    augmented.files.push(file);
-    Ok(augmented)
+    crate::codegen::registry::inject_late_pass(ast, "encoding", SOURCE_LABEL, SOURCE_DOC)
+}
+
+/// The same injection onto the elaborated project syntaxcheck consumes
+/// (plan-106-D).
+pub(crate) fn augmented_hir_project(
+    hir: &crate::hir::HirProject,
+) -> Result<crate::hir::HirProject, ()> {
+    crate::codegen::registry::inject_late_pass_hir(hir, "encoding", SOURCE_LABEL, SOURCE_DOC)
 }
 
 #[cfg(test)]
@@ -390,7 +385,7 @@ mod tests {
         assert!(registry()
             .resolve_package("encoding")
             .unwrap()
-            .is_imported_by(&ast));
+            .is_imported_by(&crate::codegen::registry::ProjectView::of_ast(&ast)));
         assert_eq!(
             augmented_project(&ast).expect("augment").files.len(),
             ast.files.len() + 1
@@ -403,7 +398,7 @@ mod tests {
         assert!(!registry()
             .resolve_package("encoding")
             .unwrap()
-            .is_imported_by(&ast));
+            .is_imported_by(&crate::codegen::registry::ProjectView::of_ast(&ast)));
         assert_eq!(
             augmented_project(&ast).expect("augment").files.len(),
             ast.files.len()

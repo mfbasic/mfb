@@ -341,12 +341,12 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // into concrete HIR, which `ir::lower_augmented_project` consumes directly.
     let generic_hir = crate::hir::elaborate(&augmented);
     let concrete_hir = monomorph::monomorphize_project(&options.location, &generic_hir)?;
-    // De-elaborate the concrete HIR back to its byte-identical AST for the
-    // validation passes below (`resolve_augmented`, entry validation,
-    // `syntaxcheck`) that still consume `crate::ast`. The IR lowering paths take
-    // `&concrete_hir` instead. `ParameterType::parse`↔`.name()` round-trips
-    // byte-exact, so this AST equals the pre-D3 monomorph output.
-    let concrete_ast = crate::hir::deelaborate(&concrete_hir);
+    // plan-106-D: every pass from here down consumes `&concrete_hir` directly.
+    // This is where the compile path used to turn around — `deelaborate` rendered
+    // the concrete HIR back to an AST for `resolve_augmented`, entry validation
+    // and `syntaxcheck`, and that render was the last backward edge in the
+    // compiler (and the last thing depending on `parse`↔`name` byte-exactness).
+    //
     // Skip DOC validation on the post-monomorph pass: monomorphization renames
     // overloaded/generic declarations, so their doc headers would falsely appear
     // unresolved. The original-AST pass above already validated them. The AST is
@@ -401,7 +401,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // relocated `ir::verify` rule would print after all of syntaxcheck's,
     // scrambling the source-order sequence the goldens record (plan-20-Z).
     let syntaxcheck_diagnostics =
-        syntaxcheck::check_project_collect(&options.location, &concrete_ast);
+        syntaxcheck::check_project_collect(&options.location, &concrete_hir);
     // bug-377: the source IR names an imported resource's type but carries no
     // record that it *is* a resource, so verify's resource rules need the
     // imported packages' `RESOURCE_TABLE` rows handed to them explicitly.

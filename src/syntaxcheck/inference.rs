@@ -4,8 +4,8 @@ use super::*;
 impl<'a> SyntaxChecker<'a> {
     pub(super) fn infer_expression(
         &mut self,
-        file: &AstFile,
-        expression: &Expression,
+        file: &HirFile,
+        expression: &HirExpression,
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
         mode: ExprMode,
@@ -40,8 +40,8 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn infer_expression_with_expected(
         &mut self,
-        file: &AstFile,
-        expression: &Expression,
+        file: &HirFile,
+        expression: &HirExpression,
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
         expected: Option<&Type>,
@@ -54,17 +54,17 @@ impl<'a> SyntaxChecker<'a> {
         let value_less_call_ok = self.allow_value_less_call;
         self.allow_value_less_call = false;
         match expression {
-            Expression::String(_) => Type::String,
-            Expression::Scalar(_) => scalar_type(),
-            Expression::Boolean(_) => Type::Boolean,
-            Expression::Number(value) => match numeric::classify_literal(value).1 {
+            HirExpression::String(_) => Type::String,
+            HirExpression::Scalar(_) => scalar_type(),
+            HirExpression::Boolean(_) => Type::Boolean,
+            HirExpression::Number(value) => match numeric::classify_literal(value).1 {
                 numeric::LiteralType::Integer => Type::Integer,
                 numeric::LiteralType::Float => Type::Float,
                 numeric::LiteralType::Fixed => Type::Fixed,
                 numeric::LiteralType::Money => Type::Money,
             },
-            Expression::Identifier(name) if name == "NOTHING" => Type::Nothing,
-            Expression::Identifier(name) => {
+            HirExpression::Identifier(name) if name == "NOTHING" => Type::Nothing,
+            HirExpression::Identifier(name) => {
                 let canonical_name = self.canonical_import_name(file, name);
                 if canonical_name == "NOTHING" {
                     Type::Nothing
@@ -105,24 +105,23 @@ impl<'a> SyntaxChecker<'a> {
                     }
                 }
             }
-            Expression::Constructor {
-                type_name,
-                arguments,
-            } => self.infer_constructor(file, type_name, arguments, locals, line, expected),
-            Expression::WithUpdate { target, updates } => {
+            HirExpression::Constructor { type_, arguments } => {
+                self.infer_constructor(file, type_, arguments, locals, line, expected)
+            }
+            HirExpression::WithUpdate { target, updates } => {
                 self.infer_with_update(file, target, updates, locals, line)
             }
-            Expression::MemberAccess { target, member } => {
+            HirExpression::MemberAccess { target, member } => {
                 self.infer_member_access(file, target, member, locals, line)
             }
-            Expression::Trapped {
+            HirExpression::Trapped {
                 expression: inner,
                 binding,
                 handler,
                 line: trap_line,
             } => {
                 let trapped_callee = match inner.as_ref() {
-                    Expression::Call { callee, .. } => {
+                    HirExpression::Call { callee, .. } => {
                         Some(self.canonical_import_name(file, callee))
                     }
                     _ => None,
@@ -204,7 +203,7 @@ impl<'a> SyntaxChecker<'a> {
                 }
                 success_type
             }
-            Expression::Binary {
+            HirExpression::Binary {
                 left,
                 operator,
                 right,
@@ -223,14 +222,14 @@ impl<'a> SyntaxChecker<'a> {
                 );
                 self.infer_binary(file, operator, &left_type, &right_type, line)
             }
-            Expression::Unary {
+            HirExpression::Unary {
                 operator, operand, ..
             } => {
                 if operator == "-" && !integer_literal_in_range(expression) {
                     return Type::Integer;
                 }
                 if operator == "-" {
-                    if let Expression::Number(value) = operand.as_ref() {
+                    if let HirExpression::Number(value) = operand.as_ref() {
                         // A negated numeric literal keeps the operand's literal
                         // type: `-5` Integer, `-1.5`/`-1e3`/`-2f` Float, `-2F`
                         // Fixed, `-2m` Money.
@@ -246,7 +245,7 @@ impl<'a> SyntaxChecker<'a> {
                     self.infer_expression(file, operand, locals, line, ExprMode::Read);
                 self.infer_unary(file, operator, &operand_type, line)
             }
-            Expression::Call {
+            HirExpression::Call {
                 callee, arguments, ..
             } => {
                 if crate::codegen::builtins_testing::is_testing_call(callee) {
@@ -336,19 +335,19 @@ impl<'a> SyntaxChecker<'a> {
 
                 Type::Unknown
             }
-            Expression::Lambda {
+            HirExpression::Lambda {
                 params,
                 body,
                 assign_target,
             } => self.infer_lambda(file, params, body, assign_target.as_deref(), locals, line),
-            Expression::ListLiteral(values) => {
+            HirExpression::ListLiteral(values) => {
                 self.infer_list_literal(file, values, locals, line, expected)
             }
-            Expression::SetLiteral {
+            HirExpression::SetLiteral {
                 element_type,
                 elements,
             } => self.infer_set_literal(file, element_type, elements, locals, line),
-            Expression::MapLiteral {
+            HirExpression::MapLiteral {
                 key_type,
                 value_type,
                 entries,
@@ -358,8 +357,8 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn infer_match_scrutinee(
         &mut self,
-        file: &AstFile,
-        expression: &Expression,
+        file: &HirFile,
+        expression: &HirExpression,
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
@@ -373,11 +372,11 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn thread_send_failure_restore(
         &self,
-        file: &AstFile,
-        expression: &Expression,
+        file: &HirFile,
+        expression: &HirExpression,
         locals: &HashMap<String, LocalInfo>,
     ) -> Option<(String, LocalInfo)> {
-        let Expression::Call {
+        let HirExpression::Call {
             callee, arguments, ..
         } = expression
         else {
@@ -393,7 +392,7 @@ impl<'a> SyntaxChecker<'a> {
         let Some(argument) = arguments.get(1).map(call_arg_value) else {
             return None;
         };
-        let Expression::Identifier(name) = argument else {
+        let HirExpression::Identifier(name) = argument else {
             return None;
         };
         let info = locals.get(name)?;
@@ -405,23 +404,23 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn check_match_pattern(
         &mut self,
-        file: &AstFile,
-        pattern: &MatchPattern,
+        file: &HirFile,
+        pattern: &HirMatchPattern,
         matched_type: &Type,
-        scrutinee_state: Option<&str>,
+        scrutinee_state: Option<&Type>,
         case_locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) {
         match pattern {
-            MatchPattern::Else => {}
-            MatchPattern::Literal(expression) => {
+            HirMatchPattern::Else => {}
+            HirMatchPattern::Literal(expression) => {
                 self.infer_expression(file, expression, case_locals, line, ExprMode::Read);
             }
-            MatchPattern::OneOf(expressions) => {
+            HirMatchPattern::OneOf(expressions) => {
                 for expression in expressions {
                     self.check_match_pattern(
                         file,
-                        &MatchPattern::Literal(expression.clone()),
+                        &HirMatchPattern::Literal(expression.clone()),
                         matched_type,
                         scrutinee_state,
                         case_locals,
@@ -429,8 +428,13 @@ impl<'a> SyntaxChecker<'a> {
                     );
                 }
             }
-            MatchPattern::Union { type_name, binding } => {
-                if matches!(type_name.as_str(), "Ok" | "Error" | "Err") {
+            HirMatchPattern::Union {
+                type_: pattern_type,
+                binding,
+            } => {
+                let type_name = pattern_type.name();
+                let type_name = type_name.as_ref();
+                if matches!(type_name, "Ok" | "Error" | "Err") {
                     // `Result`/`Ok` are internal: a user `MATCH` can never
                     // scrutinize a `Result`, so `CASE Ok`/`CASE Error` are not
                     // valid match arms. Failures are handled with inline `TRAP`.
@@ -445,7 +449,7 @@ impl<'a> SyntaxChecker<'a> {
                             || !info
                                 .variants
                                 .iter()
-                                .any(|variant| variant.name == *type_name)
+                                .any(|variant| variant.name == type_name)
                         {
                             return;
                         }
@@ -459,7 +463,7 @@ impl<'a> SyntaxChecker<'a> {
                                 // same STATE the scrutinee declared (plan-74).
                                 // Without this, `f.state` on `CASE File(f)` of a
                                 // stateful union fails to resolve.
-                                state_type: scrutinee_state.map(str::to_string),
+                                state_type: scrutinee_state.cloned(),
                             },
                         );
                     }
@@ -471,11 +475,11 @@ impl<'a> SyntaxChecker<'a> {
         }
     }
 
-    pub(super) fn match_case_name(&self, pattern: &MatchPattern) -> Option<String> {
+    pub(super) fn match_case_name(&self, pattern: &HirMatchPattern) -> Option<String> {
         match pattern {
-            MatchPattern::Union { type_name, .. } => Some(type_name.clone()),
-            MatchPattern::Literal(Expression::MemberAccess { target, member }) => {
-                if let Expression::Identifier(type_name) = target.as_ref() {
+            HirMatchPattern::Union { type_, .. } => Some(type_.name().into_owned()),
+            HirMatchPattern::Literal(HirExpression::MemberAccess { target, member }) => {
+                if let HirExpression::Identifier(type_name) = target.as_ref() {
                     Some(format!("{type_name}::{member}"))
                 } else {
                     None
@@ -512,7 +516,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn report_match_not_exhaustive(
         &mut self,
-        _file: &AstFile,
+        _file: &HirFile,
         _line: usize,
         _matched_type: &Type,
         _covered_cases: &HashSet<String>,
@@ -524,8 +528,8 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn infer_list_literal(
         &mut self,
-        file: &AstFile,
-        values: &[Expression],
+        file: &HirFile,
+        values: &[HirExpression],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
         expected: Option<&Type>,
@@ -565,15 +569,15 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn infer_set_literal(
         &mut self,
-        file: &AstFile,
-        element_type: &str,
-        elements: &[Expression],
+        file: &HirFile,
+        element_type: &Type,
+        elements: &[HirExpression],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
         // A `Set OF T` element behaves like a Map key: it must be comparable and
         // may not carry a resource/thread (§15.6).
-        let element_type = self.parse_type(element_type);
+        let element_type = self.normalize_type(element_type);
         self.check_type_reference(file, &element_type, line);
         if self.contains_resource_or_thread(&element_type) {
             self.report_invalid_collection_element(file, line, "element", &element_type);
@@ -587,17 +591,17 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn infer_map_literal(
         &mut self,
-        file: &AstFile,
-        key_type: &str,
-        value_type: &str,
-        entries: &[(Expression, Expression)],
+        file: &HirFile,
+        key_type: &Type,
+        value_type: &Type,
+        entries: &[(HirExpression, HirExpression)],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        let key_type = self.parse_type(key_type);
+        let key_type = self.normalize_type(key_type);
         // The value may carry the `RES` ownership-axis marker (`Map OF K TO RES
         // File`, §15.6).
-        let value_type = self.parse_collection_element_type(value_type);
+        let value_type = self.normalize_type(value_type);
         self.check_type_reference(file, &key_type, line);
         self.check_type_reference(file, strip_res(&value_type), line);
         if self.contains_resource_or_thread(&key_type) {
@@ -617,13 +621,19 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn infer_constructor(
         &mut self,
-        file: &AstFile,
-        type_name: &str,
-        arguments: &[ConstructorArg],
+        file: &HirFile,
+        constructed: &Type,
+        arguments: &[HirConstructorArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
         _expected: Option<&Type>,
     ) -> Type {
+        // A constructor names a record/union NOMINAL, whose identity is its name —
+        // every check below is a lookup in a name-keyed table (`type_infos`,
+        // `read_only_record_type`, the built-in special cases). `name()` round-trips
+        // the spelling the AST carried here before plan-106-D.
+        let type_name = constructed.name();
+        let type_name = type_name.as_ref();
         // `AttributedString` is an opaque built-in with no user-visible fields
         // (plan-89-A): it cannot be constructed with `AttributedString[...]`; it is
         // created with `astrings::fromString(text)`.
@@ -738,9 +748,9 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn infer_with_update(
         &mut self,
-        file: &AstFile,
-        target: &Expression,
-        updates: &[RecordUpdate],
+        file: &HirFile,
+        target: &HirExpression,
+        updates: &[HirRecordUpdate],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
@@ -808,8 +818,8 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn infer_member_access(
         &mut self,
-        file: &AstFile,
-        target: &Expression,
+        file: &HirFile,
+        target: &HirExpression,
         member: &str,
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
@@ -818,14 +828,14 @@ impl<'a> SyntaxChecker<'a> {
         // record. The owner and a non-owning holder may both read it (and replace it via
         // `s.state = WITH s.state { ... }`).
         if member == "state" {
-            if let Expression::Identifier(name) = target {
+            if let HirExpression::Identifier(name) = target {
                 if let Some(state) = locals.get(name).and_then(|info| info.state_type.clone()) {
-                    return self.parse_type(&state);
+                    return self.normalize_type(&state);
                 }
             }
         }
 
-        if let Expression::Identifier(type_name) = target {
+        if let HirExpression::Identifier(type_name) = target {
             if let Some(info) = self.type_infos.get(type_name).cloned() {
                 if matches!(info.kind, TypeDeclKind::Enum) {
                     if !self.visible_from(file, info.visibility, &info.file_path) {
@@ -904,18 +914,18 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn check_constructor_arguments(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         constructor: &str,
         fields: &[FieldInfo],
-        arguments: &[ConstructorArg],
+        arguments: &[HirConstructorArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) {
         let mut seen_named = HashSet::new();
         for (index, argument) in arguments.iter().enumerate() {
             let (field, argument_value, argument_line) = match argument {
-                ConstructorArg::Positional(value) => (fields.get(index), value, line),
-                ConstructorArg::Named {
+                HirConstructorArg::Positional(value) => (fields.get(index), value, line),
+                HirConstructorArg::Named {
                     name,
                     value,
                     line: argument_line,
@@ -960,7 +970,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn infer_binary(
         &mut self,
-        _file: &AstFile,
+        _file: &HirFile,
         operator: &str,
         left: &Type,
         right: &Type,
@@ -1035,10 +1045,10 @@ impl<'a> SyntaxChecker<'a> {
     /// *variable* never warns; a Fixed literal never warns.
     fn warn_money_bare_float_literal(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         operator: &str,
-        left: &Expression,
-        right: &Expression,
+        left: &HirExpression,
+        right: &HirExpression,
         left_type: &Type,
         right_type: &Type,
         line: usize,
@@ -1073,9 +1083,9 @@ impl<'a> SyntaxChecker<'a> {
     /// `Call` arm before general builtin dispatch.
     pub(super) fn check_expect_call(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         callee: &str,
-        arguments: &[CallArg],
+        arguments: &[HirCallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
@@ -1205,12 +1215,12 @@ impl<'a> SyntaxChecker<'a> {
     /// FUNC) and the callback members (a failing callback is trapped).
     fn check_trap_guardable(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         callee: &str,
-        expression: &Expression,
+        expression: &HirExpression,
         line: usize,
     ) {
-        let Expression::Call {
+        let HirExpression::Call {
             callee: inner_callee,
             ..
         } = expression
@@ -1256,7 +1266,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn infer_unary(
         &mut self,
-        _file: &AstFile,
+        _file: &HirFile,
         operator: &str,
         operand: &Type,
         _line: usize,
@@ -1282,10 +1292,10 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn check_call(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         callee: &str,
         sig: &FunctionSig,
-        arguments: &[CallArg],
+        arguments: &[HirCallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) {
@@ -1324,10 +1334,10 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn check_function_value_call(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         callee: &str,
         type_: &Type,
-        arguments: &[CallArg],
+        arguments: &[HirCallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
@@ -1340,7 +1350,7 @@ impl<'a> SyntaxChecker<'a> {
 
         if arguments
             .iter()
-            .any(|argument| matches!(argument, CallArg::Named { .. }))
+            .any(|argument| matches!(argument, HirCallArg::Named { .. }))
         {
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
@@ -1397,9 +1407,9 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn infer_lambda(
         &mut self,
-        file: &AstFile,
-        params: &[crate::ast::Param],
-        body: &Expression,
+        file: &HirFile,
+        params: &[crate::hir::HirParam],
+        body: &HirExpression,
         assign_target: Option<&str>,
         outer_locals: &mut HashMap<String, LocalInfo>,
         line: usize,
@@ -1407,11 +1417,9 @@ impl<'a> SyntaxChecker<'a> {
         let mut locals = outer_locals.clone();
         let mut param_types = Vec::new();
         for param in params {
-            let type_ = param
-                .type_name
-                .as_deref()
-                .map(|name| self.parse_type(name))
-                .unwrap_or(Type::Unknown);
+            // An unannotated lambda parameter elaborates to `Unknown`, which is the
+            // same answer the `Option` map produced.
+            let type_ = self.normalize_type(&param.type_);
             locals.insert(
                 param.name.clone(),
                 LocalInfo {
@@ -1545,9 +1553,9 @@ impl<'a> SyntaxChecker<'a> {
 /// the `Money`-scaling exactness nudge (plan-29-F §4.6) fires only on these, not
 /// on `f`/`F`-suffixed literals or Float variables. A leading unary minus is
 /// transparent (`-1.08` is still a bare literal).
-fn is_bare_decimal_float(expr: &Expression) -> bool {
+fn is_bare_decimal_float(expr: &HirExpression) -> bool {
     match expr {
-        Expression::Number(text) => {
+        HirExpression::Number(text) => {
             // A suffixed literal (`1.08f`/`1.08F`) is intrinsically typed and is
             // never the culprit; only an unsuffixed decimal that classifies as
             // Float qualifies.
@@ -1560,7 +1568,7 @@ fn is_bare_decimal_float(expr: &Expression) -> bool {
                     numeric::LiteralType::Float
                 )
         }
-        Expression::Unary {
+        HirExpression::Unary {
             operator, operand, ..
         } if operator == "-" => is_bare_decimal_float(operand),
         _ => false,
@@ -2062,7 +2070,7 @@ mod tests {
 
     #[test]
     fn match_with_else_exhaustive_accepted() {
-        // CASE ELSE covers all remaining variants (MatchPattern::Else arm).
+        // CASE ELSE covers all remaining variants (HirMatchPattern::Else arm).
         let src = "ENUM Color\n  Red, Blue\nEND ENUM\nFUNC pick(c AS Color) AS Integer\n  MATCH c\n    CASE Color.Red\n      RETURN 1\n    CASE ELSE\n      RETURN 0\n  END MATCH\nEND FUNC\nFUNC main AS Integer\n  RETURN pick(Color.Blue)\nEND FUNC\n";
         assert!(accepts(src));
     }

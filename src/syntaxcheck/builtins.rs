@@ -6,8 +6,8 @@ use super::*;
 /// literal satisfy a `Byte` parameter. Only a `Number` literal qualifies; a
 /// computed `Integer` expression does not (matching the term-builtin and
 /// plain-FUNC call paths, which coerce literals but not values).
-fn expr_is_byte_literal(expression: &Expression) -> bool {
-    matches!(expression, Expression::Number(text)
+fn expr_is_byte_literal(expression: &HirExpression) -> bool {
+    matches!(expression, HirExpression::Number(text)
         if text.parse::<u16>().is_ok_and(|n| n <= u8::MAX as u16))
 }
 
@@ -27,7 +27,7 @@ fn expr_is_byte_literal(expression: &Expression) -> bool {
 fn resolve_table_call_with_byte_literals(
     callee: &str,
     arg_types: &[String],
-    arguments: &[Expression],
+    arguments: &[HirExpression],
 ) -> Option<String> {
     if let Some(return_type) = builtins::resolve_call_return_type(callee, arg_types, true) {
         return Some(return_type);
@@ -266,10 +266,10 @@ impl<'a> SyntaxChecker<'a> {
     /// table is the order the hand-written arm chain used (bug-324).
     pub(super) fn check_builtin_call(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         display_callee: &str,
         callee: &str,
-        arguments: &[CallArg],
+        arguments: &[HirCallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
         expected: Option<&Type>,
@@ -368,10 +368,10 @@ impl<'a> SyntaxChecker<'a> {
     fn check_table_builtin_call(
         &mut self,
         args: ArgMode,
-        file: &AstFile,
+        file: &HirFile,
         display_callee: &str,
         callee: &str,
-        arguments: &[CallArg],
+        arguments: &[HirCallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
@@ -439,10 +439,10 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn check_term_builtin_call(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         display_callee: &str,
         callee: &str,
-        arguments: &[CallArg],
+        arguments: &[HirCallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
@@ -491,7 +491,7 @@ impl<'a> SyntaxChecker<'a> {
             && arg_types.len() == 3
             && self.type_name(&arg_types[2]) == "AttributedString";
         if third_is_attributed {
-            let astrings_imported = self.ast.files.iter().any(|file| {
+            let astrings_imported = self.hir.files.iter().any(|file| {
                 file.imports
                     .iter()
                     .any(|import| import.package_name() == "astrings")
@@ -565,10 +565,10 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn check_thread_builtin_call(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         display_callee: &str,
         callee: &str,
-        arguments: &[CallArg],
+        arguments: &[HirCallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
@@ -594,7 +594,7 @@ impl<'a> SyntaxChecker<'a> {
 
         if callee == "thread.start" {
             let valid_entry = match arguments.first() {
-                Some(Expression::Identifier(name)) => {
+                Some(HirExpression::Identifier(name)) => {
                     let canonical_name = self.canonical_import_name(file, name);
                     self.lookup_visible_function(file, name)
                         .or_else(|| self.lookup_visible_function(file, &canonical_name))
@@ -668,10 +668,10 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn check_general_builtin_call(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         display_callee: &str,
         callee: &str,
-        arguments: &[CallArg],
+        arguments: &[HirCallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
@@ -759,10 +759,10 @@ impl<'a> SyntaxChecker<'a> {
     /// helper set; `callee` is the canonical `collections.<member>` form.
     pub(super) fn check_collections_builtin_call(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         display_callee: &str,
         callee: &str,
-        arguments: &[CallArg],
+        arguments: &[HirCallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
@@ -778,7 +778,7 @@ impl<'a> SyntaxChecker<'a> {
         // unary callback over the list's element type needs it, so the gate is a
         // set rather than one name.
         if crate::codegen::registry::callback_member(callee) && arguments.len() == 2 {
-            if let Expression::Identifier(predicate) = &arguments[1] {
+            if let HirExpression::Identifier(predicate) = &arguments[1] {
                 if crate::codegen::builtins::general::builtin_function_id(predicate).is_some() {
                     let collection_type =
                         self.infer_expression(file, &arguments[0], locals, line, ExprMode::Read);
@@ -901,7 +901,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn check_general_builtin_comparability(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         display_callee: &str,
         callee: &str,
         arg_types: &[Type],
@@ -938,15 +938,15 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn normalize_builtin_call_arguments(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         display_callee: &str,
         callee: &str,
-        arguments: &[CallArg],
+        arguments: &[HirCallArg],
         line: usize,
-    ) -> Vec<Expression> {
+    ) -> Vec<HirExpression> {
         if !arguments
             .iter()
-            .any(|argument| matches!(argument, CallArg::Named { .. }))
+            .any(|argument| matches!(argument, HirCallArg::Named { .. }))
         {
             return arguments
                 .iter()
@@ -967,7 +967,7 @@ impl<'a> SyntaxChecker<'a> {
             // bound by name, so reject them rather than silently binding by source
             // order (bug-173 B), mirroring the unknown-name path below.
             for argument in arguments {
-                if let CallArg::Named { name, line, .. } = argument {
+                if let HirCallArg::Named { name, line, .. } = argument {
                     self.report(
                         "TYPE_UNKNOWN_ARGUMENT_NAME",
                         &format!(
@@ -989,7 +989,7 @@ impl<'a> SyntaxChecker<'a> {
         let mut saw_unknown_named = false;
         for argument in arguments {
             match argument {
-                CallArg::Positional(value) => {
+                HirCallArg::Positional(value) => {
                     while next_positional < ordered.len() && ordered[next_positional].is_some() {
                         next_positional += 1;
                     }
@@ -1000,7 +1000,7 @@ impl<'a> SyntaxChecker<'a> {
                         extras.push(value.clone());
                     }
                 }
-                CallArg::Named { name, value, line } => {
+                HirCallArg::Named { name, value, line } => {
                     let Some(index) = param_names
                         .iter()
                         .position(|aliases| aliases.iter().any(|alias| alias == name))
@@ -1069,24 +1069,24 @@ impl<'a> SyntaxChecker<'a> {
     /// within it.
     fn normalize_overloaded_builtin_call_arguments(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         display_callee: &str,
         overloads: &[Vec<&str>],
-        arguments: &[CallArg],
+        arguments: &[HirCallArg],
         line: usize,
-    ) -> Vec<Expression> {
-        let positionals: Vec<&Expression> = arguments
+    ) -> Vec<HirExpression> {
+        let positionals: Vec<&HirExpression> = arguments
             .iter()
             .filter_map(|argument| match argument {
-                CallArg::Positional(value) => Some(value),
-                CallArg::Named { .. } => None,
+                HirCallArg::Positional(value) => Some(value),
+                HirCallArg::Named { .. } => None,
             })
             .collect();
-        let named: Vec<(&String, &Expression, usize)> = arguments
+        let named: Vec<(&String, &HirExpression, usize)> = arguments
             .iter()
             .filter_map(|argument| match argument {
-                CallArg::Named { name, value, line } => Some((name, value, *line)),
-                CallArg::Positional(_) => None,
+                HirCallArg::Named { name, value, line } => Some((name, value, *line)),
+                HirCallArg::Positional(_) => None,
             })
             .collect();
 
@@ -1128,7 +1128,7 @@ impl<'a> SyntaxChecker<'a> {
         if let Some(params) =
             builtins::select_param_name_overload(overloads, positionals.len(), &supplied_names)
         {
-            let mut ordered: Vec<Option<&Expression>> = vec![None; params.len()];
+            let mut ordered: Vec<Option<&HirExpression>> = vec![None; params.len()];
             for (index, value) in positionals.iter().enumerate() {
                 ordered[index] = Some(value);
             }
@@ -1181,13 +1181,13 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn normalize_named_arguments(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         callee: &str,
-        arguments: &[CallArg],
+        arguments: &[HirCallArg],
         params: &[ParamSig],
         line: usize,
         allow_trailing_omission: bool,
-    ) -> Vec<Option<Expression>> {
+    ) -> Vec<Option<HirExpression>> {
         let mut ordered = vec![None; params.len()];
         let mut next_positional = 0usize;
         let mut supplied = 0usize;
@@ -1195,7 +1195,7 @@ impl<'a> SyntaxChecker<'a> {
 
         for argument in arguments {
             match argument {
-                CallArg::Positional(value) => {
+                HirCallArg::Positional(value) => {
                     while next_positional < ordered.len() && ordered[next_positional].is_some() {
                         next_positional += 1;
                     }
@@ -1207,7 +1207,7 @@ impl<'a> SyntaxChecker<'a> {
                     next_positional += 1;
                     supplied += 1;
                 }
-                CallArg::Named { name, value, line } => {
+                HirCallArg::Named { name, value, line } => {
                     let Some(index) = params.iter().position(|param| param.name == *name) else {
                         self.report(
                             "TYPE_UNKNOWN_ARGUMENT_NAME",
@@ -1297,9 +1297,9 @@ mod builtins_tests {
 
         let three_integers = vec!["Integer".to_string(); 3];
         let in_range = vec![
-            Expression::Number("255".to_string()),
-            Expression::Number("0".to_string()),
-            Expression::Number("128".to_string()),
+            HirExpression::Number("255".to_string()),
+            HirExpression::Number("0".to_string()),
+            HirExpression::Number("128".to_string()),
         ];
         // Exact match fails (params are Byte), coercion of the ≤255 literals wins.
         assert_eq!(
@@ -1321,9 +1321,9 @@ mod builtins_tests {
 
         // A >255 literal does not fit a Byte, stays Integer, and stays rejected.
         let out_of_range = vec![
-            Expression::Number("300".to_string()),
-            Expression::Number("0".to_string()),
-            Expression::Number("0".to_string()),
+            HirExpression::Number("300".to_string()),
+            HirExpression::Number("0".to_string()),
+            HirExpression::Number("0".to_string()),
         ];
         assert_eq!(
             resolve_table_call_with_byte_literals(
@@ -1337,7 +1337,7 @@ mod builtins_tests {
         // A genuinely-Integer parameter (`fontSize`) still resolves — the literal
         // is not force-flipped to Byte when the Integer overload already matches.
         let one_integer = vec!["Integer".to_string()];
-        let fourteen = vec![Expression::Number("14".to_string())];
+        let fourteen = vec![HirExpression::Number("14".to_string())];
         assert_eq!(
             resolve_table_call_with_byte_literals("astrings.fontSize", &one_integer, &fourteen),
             Some("Attribute".to_string())
@@ -1345,9 +1345,9 @@ mod builtins_tests {
 
         // A non-literal Integer expression is not coerced (matches term/FUNC).
         let identifier = vec![
-            Expression::Identifier("r".to_string()),
-            Expression::Number("0".to_string()),
-            Expression::Number("0".to_string()),
+            HirExpression::Identifier("r".to_string()),
+            HirExpression::Number("0".to_string()),
+            HirExpression::Number("0".to_string()),
         ];
         assert_eq!(
             resolve_table_call_with_byte_literals(

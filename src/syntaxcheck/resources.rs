@@ -133,7 +133,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn report_invalid_collection_element(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         line: usize,
         role: &str,
         type_: &Type,
@@ -154,10 +154,10 @@ impl<'a> SyntaxChecker<'a> {
     /// collection (its slot holds a pointer copied from that binding).
     pub(super) fn collection_element_is_resource_binding(
         &self,
-        value: &Expression,
+        value: &HirExpression,
         locals: &HashMap<String, LocalInfo>,
     ) -> bool {
-        let Expression::Identifier(name) = value else {
+        let HirExpression::Identifier(name) = value else {
             return false;
         };
         locals
@@ -169,7 +169,7 @@ impl<'a> SyntaxChecker<'a> {
     /// pointer copy (it stays usable after insertion), everything else is consumed.
     pub(super) fn collection_element_mode(
         &self,
-        value: &Expression,
+        value: &HirExpression,
         locals: &HashMap<String, LocalInfo>,
     ) -> ExprMode {
         if self.collection_element_is_resource_binding(value, locals) {
@@ -337,7 +337,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn report_thread_type_not_sendable(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         line: usize,
         context: &str,
         type_: &Type,
@@ -355,7 +355,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn require_thread_sendable_type(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         line: usize,
         context: &str,
         type_: &Type,
@@ -367,7 +367,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn check_thread_boundary_sendability(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         display_callee: &str,
         callee: &str,
         arg_types: &[Type],
@@ -676,7 +676,7 @@ mod resources_tests {
     #[test]
     fn contains_thread_walks_set_element() {
         use super::super::{SyntaxChecker, Type};
-        let project = crate::ast::AstProject {
+        let project = crate::hir::HirProject {
             name: "t".to_string(),
             files: vec![],
         };
@@ -937,7 +937,7 @@ mod resources_tests {
 
     #[test]
     fn map_res_file_value_walk() {
-        // A `Map OF String TO RES fs::File` value type walks parse_collection_element_type
+        // A `Map OF String TO RES fs::File` value type carries `Type::Res`
         // and the RES-marked value axis check.
         let src = "IMPORT fs\nFUNC main AS Integer\n  MUT m AS Map OF String TO RES fs::File = Map OF String TO RES fs::File {}\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);

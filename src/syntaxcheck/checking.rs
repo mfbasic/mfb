@@ -4,8 +4,8 @@ use super::*;
 impl<'a> SyntaxChecker<'a> {
     pub(super) fn check_block(
         &mut self,
-        file: &AstFile,
-        body: &[Statement],
+        file: &HirFile,
+        body: &[HirStatement],
         expected_return: &Type,
         locals: &mut HashMap<String, LocalInfo>,
         trap_name: Option<&str>,
@@ -15,7 +15,7 @@ impl<'a> SyntaxChecker<'a> {
             if flow == Flow::AlwaysReturns {
                 if matches!(
                     statement,
-                    Statement::Exit { .. } | Statement::Continue { .. }
+                    HirStatement::Exit { .. } | HirStatement::Continue { .. }
                 ) {
                     for unreachable in &body[index + 1..] {
                         self.report(
@@ -73,29 +73,28 @@ impl<'a> SyntaxChecker<'a> {
     /// feeds the surviving type-visibility/thread-sendability arms).
     pub(super) fn check_resource_declaration(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         line: usize,
         _resource: bool,
-        state_type: Option<&str>,
+        state_type: Option<&Type>,
         _declared: Option<&Type>,
         _context: &str,
     ) {
         if let Some(state) = state_type {
-            let state_resolved = self.parse_type(state);
-            self.check_type_reference(file, &state_resolved, line);
+            self.check_type_reference(file, state, line);
         }
     }
 
     #[allow(clippy::too_many_arguments)]
     pub(super) fn check_binding_shape(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         name: &str,
         mutable: bool,
         line: usize,
         declared: Option<&Type>,
         inferred: Option<&Type>,
-        value: Option<&Expression>,
+        value: Option<&HirExpression>,
     ) {
         if matches!(inferred, Some(Type::Unknown)) {
             self.report(
@@ -114,23 +113,27 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn check_statement(
         &mut self,
-        file: &AstFile,
-        statement: &Statement,
+        file: &HirFile,
+        statement: &HirStatement,
         expected_return: &Type,
         locals: &mut HashMap<String, LocalInfo>,
         trap_name: Option<&str>,
     ) -> Flow {
         match statement {
-            Statement::Let {
+            HirStatement::Let {
                 name,
-                type_name,
+                type_,
+                explicit_type,
                 value,
                 line,
                 mutable,
                 resource,
                 state_type,
             } => {
-                let declared = type_name.as_deref().map(|name| self.parse_type(name));
+                // `explicit_type` is the AST's `type_name.is_some()`: an absent
+                // annotation elaborates to `Unknown`, and the checks below must
+                // distinguish "no annotation" from one that resolved to nothing.
+                let declared = explicit_type.then(|| self.normalize_type(type_));
                 if let Some(declared) = &declared {
                     self.check_type_reference(file, declared, *line);
                 }
@@ -160,7 +163,7 @@ impl<'a> SyntaxChecker<'a> {
                     file,
                     *line,
                     *resource,
-                    state_type.as_deref(),
+                    state_type.as_ref(),
                     (binding_type != Type::Unknown).then_some(&binding_type),
                     &format!("binding `{name}`"),
                 );
@@ -174,7 +177,7 @@ impl<'a> SyntaxChecker<'a> {
                 );
                 Flow::FallsThrough
             }
-            Statement::Return { value, line } => {
+            HirStatement::Return { value, line } => {
                 if self.current_is_sub {
                     if let Some(value) = value {
                         self.infer_expression(file, value, locals, *line, ExprMode::Transfer);
@@ -210,7 +213,7 @@ impl<'a> SyntaxChecker<'a> {
                 }
                 Flow::AlwaysReturns
             }
-            Statement::Exit { target, code, line } => {
+            HirStatement::Exit { target, code, line } => {
                 match target {
                     // EXIT FOR/DO/WHILE outside a matching loop is rejected by
                     // ir::verify (plan-20), so there is nothing to check here.
@@ -252,13 +255,13 @@ impl<'a> SyntaxChecker<'a> {
                 }
                 Flow::AlwaysReturns
             }
-            Statement::Continue { kind: _, line: _ } => Flow::AlwaysReturns,
-            Statement::Fail { error, line } => {
+            HirStatement::Continue { kind: _, line: _ } => Flow::AlwaysReturns,
+            HirStatement::Fail { error, line } => {
                 self.infer_expression(file, error, locals, *line, ExprMode::Transfer);
                 Flow::AlwaysReturns
             }
-            Statement::Propagate { line: _ } => Flow::AlwaysReturns,
-            Statement::Recover { value, line } => {
+            HirStatement::Propagate { line: _ } => Flow::AlwaysReturns,
+            HirStatement::Recover { value, line } => {
                 let Some(recover_type) = self.inline_trap_types.last().cloned() else {
                     if let Some(value) = value {
                         self.infer_expression(file, value, locals, *line, ExprMode::Read);
@@ -319,7 +322,7 @@ impl<'a> SyntaxChecker<'a> {
                 }
                 Flow::AlwaysReturns
             }
-            Statement::Assign { name, value, line } => {
+            HirStatement::Assign { name, value, line } => {
                 let Some(local) = locals.get(name).cloned() else {
                     if let Some(_binding) = self.lookup_visible_binding(file, name).cloned() {
                         // Mutability/type/range rejections for global
@@ -342,7 +345,7 @@ impl<'a> SyntaxChecker<'a> {
                 let _ = local;
                 Flow::FallsThrough
             }
-            Statement::StateAssign {
+            HirStatement::StateAssign {
                 resource,
                 value,
                 line,
@@ -363,11 +366,10 @@ impl<'a> SyntaxChecker<'a> {
                     self.infer_expression(file, value, locals, *line, ExprMode::Read);
                     return Flow::FallsThrough;
                 };
-                let Some(state_name) = local.state_type.clone() else {
+                let Some(state_type) = local.state_type.clone() else {
                     self.infer_expression(file, value, locals, *line, ExprMode::Read);
                     return Flow::FallsThrough;
                 };
-                let state_type = self.parse_type(&state_name);
                 self.infer_expression_with_expected(
                     file,
                     value,
@@ -378,7 +380,7 @@ impl<'a> SyntaxChecker<'a> {
                 );
                 Flow::FallsThrough
             }
-            Statement::Expression { expression, line } => {
+            HirStatement::Expression { expression, line } => {
                 // A bare expression statement is the one position where a
                 // value-less `SUB` call is allowed (it discards no value).
                 self.allow_value_less_call = true;
@@ -386,7 +388,7 @@ impl<'a> SyntaxChecker<'a> {
                 self.allow_value_less_call = false;
                 Flow::FallsThrough
             }
-            Statement::If {
+            HirStatement::If {
                 condition,
                 then_body,
                 else_body,
@@ -426,7 +428,7 @@ impl<'a> SyntaxChecker<'a> {
                     Flow::FallsThrough
                 }
             }
-            Statement::Match {
+            HirStatement::Match {
                 expression,
                 cases,
                 line,
@@ -438,7 +440,7 @@ impl<'a> SyntaxChecker<'a> {
                 // each MATCH-extracted variant inherits it (plan-74). The scrutinee's
                 // STATE lives on its binding's `LocalInfo`, not in `matched_type`.
                 let scrutinee_state = match expression {
-                    Expression::Identifier(name) => {
+                    HirExpression::Identifier(name) => {
                         locals.get(name).and_then(|info| info.state_type.clone())
                     }
                     _ => None,
@@ -449,7 +451,7 @@ impl<'a> SyntaxChecker<'a> {
                 let mut fallthroughs = Vec::new();
                 for case in cases {
                     if case.guard.is_none() {
-                        if matches!(case.pattern, MatchPattern::Else) {
+                        if matches!(case.pattern, HirMatchPattern::Else) {
                             has_unguarded_else = true;
                         } else if let Some(name) = self.match_case_name(&case.pattern) {
                             covered_cases.insert(name);
@@ -459,9 +461,9 @@ impl<'a> SyntaxChecker<'a> {
                     if matches!(
                         (&case.pattern, &send_failure_restore),
                         (
-                            MatchPattern::Union { type_name, .. },
+                            HirMatchPattern::Union { type_, .. },
                             Some((_, _))
-                        ) if type_name == "Error"
+                        ) if type_.is_named("Error")
                     ) {
                         if let Some((name, info)) = &send_failure_restore {
                             case_locals.insert(name.clone(), info.clone());
@@ -471,7 +473,7 @@ impl<'a> SyntaxChecker<'a> {
                         file,
                         &case.pattern,
                         &matched_type,
-                        scrutinee_state.as_deref(),
+                        scrutinee_state.as_ref(),
                         &mut case_locals,
                         case.line,
                     );
@@ -515,7 +517,7 @@ impl<'a> SyntaxChecker<'a> {
                     Flow::FallsThrough
                 }
             }
-            Statement::For {
+            HirStatement::For {
                 name,
                 start,
                 end,
@@ -554,7 +556,7 @@ impl<'a> SyntaxChecker<'a> {
                 }
                 Flow::FallsThrough
             }
-            Statement::ForEach {
+            HirStatement::ForEach {
                 name,
                 iterable,
                 body,
@@ -596,7 +598,7 @@ impl<'a> SyntaxChecker<'a> {
                 }
                 Flow::FallsThrough
             }
-            Statement::While {
+            HirStatement::While {
                 kind,
                 condition,
                 body,
@@ -613,7 +615,7 @@ impl<'a> SyntaxChecker<'a> {
                 }
                 Flow::FallsThrough
             }
-            Statement::DoUntil {
+            HirStatement::DoUntil {
                 body,
                 condition,
                 line,
@@ -1012,7 +1014,7 @@ END FUNC
 
     #[test]
     fn assign_to_non_local_reports_unknown_value() {
-        // Statement::Assign with an unknown target (not a local, not a visible
+        // HirStatement::Assign with an unknown target (not a local, not a visible
         // global binding).
         let src = "\
 FUNC main AS Integer
@@ -1042,7 +1044,7 @@ END FUNC
 
     #[test]
     fn assign_to_global_binding_infers_without_report() {
-        // The `lookup_visible_binding` Some branch of Statement::Assign.
+        // The `lookup_visible_binding` Some branch of HirStatement::Assign.
         let src = "\
 MUT counter AS Integer = 0
 
@@ -1377,7 +1379,7 @@ END FUNC
 
     #[test]
     fn state_assign_to_non_local_reports() {
-        // Statement::StateAssign with an unknown target binding.
+        // HirStatement::StateAssign with an unknown target binding.
         let src = "\
 FUNC main AS Integer
   notdeclared.state = 5

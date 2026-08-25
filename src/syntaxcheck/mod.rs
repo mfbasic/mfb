@@ -1,13 +1,15 @@
 use crate::ast::{
-    AstFile, AstProject, CallArg, ConstructorArg, ExitTarget, Expression, Function, FunctionKind,
-    Item, LoopKind, MatchPattern, RecordUpdate, Statement, TopLevelBinding, TypeDecl, TypeDeclKind,
-    TypeField, Visibility, SELF_IMPORT,
+    AstProject, ExitTarget, FunctionKind, LoopKind, TypeDeclKind, Visibility, SELF_IMPORT,
 };
 use crate::binary_repr::{
     self, BinaryReprExportKind, BinaryReprTypeExport, BinaryReprTypeField, BinaryReprTypeVariant,
     BinaryReprTypeVisibility,
 };
 use crate::codegen::builtins;
+use crate::hir::{
+    HirCallArg, HirConstructorArg, HirExpression, HirFile, HirFunction, HirItem, HirMatchPattern,
+    HirProject, HirRecordUpdate, HirStatement, HirTopLevelBinding, HirTypeDecl, HirTypeField,
+};
 use crate::numeric;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -111,7 +113,7 @@ struct LocalInfo {
     mutable: bool,
     /// The `STATE T` type attached to a `RES` binding/parameter, if any. Drives
     /// `s.state` member access typing.
-    state_type: Option<String>,
+    state_type: Option<Type>,
 }
 
 #[derive(Clone)]
@@ -171,7 +173,7 @@ enum ExprMode {
 /// nested `fn idents` before plan-58-B; a walker that three rules disagree about
 /// is how a name gets treated as "read" by one check and unread by another.
 ///
-/// `Expression::Identifier` carries no line of its own, which is why every caller
+/// `HirExpression::Identifier` carries no line of its own, which is why every caller
 /// reports at the `ABI` line rather than the expression's.
 fn link_expr_idents(expr: &crate::ast::Expression, out: &mut Vec<String>) {
     match expr {
@@ -187,9 +189,13 @@ fn link_expr_idents(expr: &crate::ast::Expression, out: &mut Vec<String>) {
 
 pub fn check_project_collect(
     project_dir: &Path,
-    ast: &AstProject,
+    hir: &crate::hir::HirProject,
 ) -> Result<Vec<crate::rules::PendingDiagnostic>, ()> {
-    let augmented = crate::codegen::registry::registry().augment_project(ast)?;
+    // plan-106-D: the injection runs in the HIR domain, through the SAME chain
+    // the AST pipeline uses (`resolver::augment_hir_project`). syntaxcheck used to
+    // carry its own copy of the four-pass sequence — a second place to keep in
+    // dependency order, and to forget to update.
+    let augmented = crate::resolver::augment_hir_project(hir)?;
 
     // `term`'s source companion (`package.mfb`) and the `term`↔`astrings`
     // `drawText(AttributedString)` bridge are injected by the clean-room
@@ -202,8 +208,8 @@ pub fn check_project_collect(
     // `registry::augment_project` above.
     // `vector` source is injected by the clean-room `registry::augment_project` above.
     // `http` before `net`: `http_package.mfb` imports `net` (plan-03-http.md Phase 4).
-    let augmented = crate::codegen::builtins::http::augmented_project(&augmented)?;
-    let augmented = crate::codegen::builtins::net::augmented_project(&augmented)?;
+    let augmented = crate::codegen::builtins::http::augmented_hir_project(&augmented)?;
+    let augmented = crate::codegen::builtins::net::augmented_hir_project(&augmented)?;
     // `audio` source (render/play synthesis + records) is injected by the generic
     // clean-room `registry::augment_project` above.
     // `process` (its `Stream`/`Signal` enum companion) is injected by the generic
@@ -214,7 +220,7 @@ pub fn check_project_collect(
     // injected by the generic clean-room `registry::augment_project` above as a
     // `WhenUsed` gated helper (plan-99 PART B) — before this `encoding` late pass, so
     // `encoding::uses_package` still sees the seam's transitive `IMPORT encoding`.
-    let augmented = crate::codegen::builtins::encoding::augmented_project(&augmented)?;
+    let augmented = crate::codegen::builtins::encoding::augmented_hir_project(&augmented)?;
     let mut checker = SyntaxChecker::new(project_dir, &augmented);
     checker.check();
     Ok(checker.diagnostics)
@@ -223,8 +229,8 @@ pub fn check_project_collect(
 /// Check `ast` and render any rejections directly (standalone callers that do
 /// not run `ir::verify`, e.g. `mfb audit`). `build` uses `check_project_collect`
 /// instead so it can merge the two diagnostic streams.
-pub fn check_project(project_dir: &Path, ast: &AstProject) -> Result<(), ()> {
-    let diagnostics = check_project_collect(project_dir, ast)?;
+pub fn check_project(project_dir: &Path, hir: &crate::hir::HirProject) -> Result<(), ()> {
+    let diagnostics = check_project_collect(project_dir, hir)?;
     // Warnings (`Severity::Warn`) are rendered but never fail the check — only
     // real errors do, mirroring the `build` pipeline (which gates on
     // `crate::rules::is_error`).
@@ -248,13 +254,17 @@ pub fn export_in_executable_diagnostics(
     is_package: bool,
     ast: &AstProject,
 ) -> Vec<crate::rules::PendingDiagnostic> {
+    // Reads the ORIGINAL source AST at the build boundary, before elaboration —
+    // `EXPORT` placement is a source-syntax fact, and the pre-monomorph AST is
+    // where the user's own declarations still are.
+    use crate::ast::Item;
     if is_package {
         return Vec::new();
     }
     let mut diagnostics = Vec::new();
     for file in &ast.files {
         // Skip toolchain-provided source: injected builtin packages
-        // (`AstFile::internal`) and the synthetic prelude (`<builtin …>` path),
+        // (`HirFile::internal`) and the synthetic prelude (`<builtin …>` path),
         // which legitimately carry EXPORT declarations.
         if file.internal || file.path.starts_with('<') {
             continue;
@@ -285,7 +295,7 @@ pub fn export_in_executable_diagnostics(
 
 struct SyntaxChecker<'a> {
     project_dir: &'a Path,
-    ast: &'a AstProject,
+    hir: &'a HirProject,
     functions: HashMap<String, Vec<FunctionSig>>,
     bindings: HashMap<String, BindingSig>,
     user_types: HashSet<String>,
@@ -363,10 +373,10 @@ struct VariantConstructor {
 }
 
 impl<'a> SyntaxChecker<'a> {
-    pub(super) fn new(project_dir: &'a Path, ast: &'a AstProject) -> Self {
+    pub(super) fn new(project_dir: &'a Path, hir: &'a HirProject) -> Self {
         let mut checker = Self {
             project_dir,
-            ast,
+            hir,
             functions: HashMap::new(),
             bindings: HashMap::new(),
             user_types: HashSet::new(),
@@ -400,16 +410,16 @@ impl<'a> SyntaxChecker<'a> {
     pub(super) fn collect_close_op_aliases(&mut self) {
         // close op (dotted `alias.func`) -> bare resource type it closes.
         let mut close_to_type: HashMap<String, String> = HashMap::new();
-        for file in &self.ast.files {
+        for file in &self.hir.files {
             for item in &file.items {
-                if let Item::Resource(resource) = item {
+                if let HirItem::Resource(resource) = item {
                     close_to_type.insert(resource.close_fn.clone(), resource.name.clone());
                 }
             }
         }
-        for file in &self.ast.files {
+        for file in &self.hir.files {
             for item in &file.items {
-                if let Item::FuncAlias(alias) = item {
+                if let HirItem::FuncAlias(alias) = item {
                     if let Some(type_name) = close_to_type.get(&alias.target) {
                         self.close_op_aliases
                             .insert(alias.name.clone(), type_name.clone());
@@ -420,9 +430,9 @@ impl<'a> SyntaxChecker<'a> {
     }
 
     pub(super) fn collect_types(&mut self) {
-        for file in &self.ast.files {
+        for file in &self.hir.files {
             for item in &file.items {
-                if let Item::Type(type_decl) = item {
+                if let HirItem::Type(type_decl) = item {
                     self.user_types.insert(type_decl.name.clone());
                     self.user_type_kinds
                         .insert(type_decl.name.clone(), type_decl.kind);
@@ -430,9 +440,9 @@ impl<'a> SyntaxChecker<'a> {
             }
         }
 
-        for file in &self.ast.files {
+        for file in &self.hir.files {
             for item in &file.items {
-                if let Item::Type(type_decl) = item {
+                if let HirItem::Type(type_decl) = item {
                     let info = self.type_info(file, type_decl);
                     self.type_infos.insert(type_decl.name.clone(), info);
                 }
@@ -457,7 +467,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn collect_package_types(&mut self) {
         let mut seen = HashSet::new();
-        for file in &self.ast.files {
+        for file in &self.hir.files {
             for import in &file.imports {
                 let package = import.package_name().to_string();
                 if !seen.insert(package.clone()) || builtins::is_builtin_import(&package) {
@@ -509,7 +519,7 @@ impl<'a> SyntaxChecker<'a> {
     /// appears in source), so `RES db AS sqlite::Db` is recognized as a resource.
     pub(super) fn collect_package_resources(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         binding: &str,
         line: usize,
         package_file: &Path,
@@ -568,7 +578,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn validate_imported_package_type(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         line: usize,
         package_file: &Path,
         type_export: &BinaryReprTypeExport,
@@ -604,7 +614,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn validate_package_metadata_type(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         line: usize,
         package_file: &Path,
         type_: &Type,
@@ -792,7 +802,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn collect_package_functions(&mut self) {
         let mut seen = HashSet::new();
-        for file in &self.ast.files {
+        for file in &self.hir.files {
             for import in &file.imports {
                 let binding = import.binding_name().to_string();
                 let package = import.package_name().to_string();
@@ -881,20 +891,18 @@ impl<'a> SyntaxChecker<'a> {
     /// keyed by bare name) from `collect_functions` are left untouched, so ordinary
     /// unqualified in-project calls are unaffected (plan-81-import-self.md §4.2).
     fn collect_self_exports(&mut self, binding: &str) {
-        for file in &self.ast.files {
+        for file in &self.hir.files {
             for item in &file.items {
-                let Item::Function(function) = item else {
+                let HirItem::Function(function) = item else {
                     continue;
                 };
                 if function.visibility != Visibility::Export {
                     continue;
                 }
                 let return_type = match function.kind {
-                    FunctionKind::Func => function
-                        .return_type
-                        .as_deref()
-                        .map(|name| self.parse_type(name))
-                        .unwrap_or(Type::Unknown),
+                    // An unannotated `FUNC` elaborates to `Unknown`, which is the
+                    // same answer the `Option` map produced.
+                    FunctionKind::Func => self.normalize_type(&function.returns),
                     FunctionKind::Sub => Type::Nothing,
                 };
                 let params = function
@@ -902,11 +910,7 @@ impl<'a> SyntaxChecker<'a> {
                     .iter()
                     .map(|param| ParamSig {
                         name: param.name.clone(),
-                        type_: param
-                            .type_name
-                            .as_deref()
-                            .map(|name| self.parse_type(name))
-                            .unwrap_or(Type::Unknown),
+                        type_: self.normalize_type(&param.type_),
                         has_default: param.default.is_some(),
                     })
                     .collect();
@@ -928,7 +932,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn validate_imported_function_signature(
         &mut self,
-        file: &AstFile,
+        file: &HirFile,
         line: usize,
         package_file: &Path,
         function_name: &str,
@@ -1038,12 +1042,12 @@ impl<'a> SyntaxChecker<'a> {
         }
         let mut variants = Vec::new();
         let includes = self
-            .ast
+            .hir
             .files
             .iter()
             .flat_map(|file| &file.items)
             .find_map(|item| {
-                let Item::Type(type_decl) = item else {
+                let HirItem::Type(type_decl) = item else {
                     return None;
                 };
                 if type_decl.name == union_name {
@@ -1075,7 +1079,7 @@ impl<'a> SyntaxChecker<'a> {
         variants
     }
 
-    pub(super) fn type_info(&self, file: &AstFile, type_decl: &TypeDecl) -> TypeInfo {
+    pub(super) fn type_info(&self, file: &HirFile, type_decl: &HirTypeDecl) -> TypeInfo {
         let fields = type_decl
             .fields
             .iter()
@@ -1107,25 +1111,21 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn field_info(
         &self,
-        field: &TypeField,
+        field: &HirTypeField,
         containing_visibility: Visibility,
     ) -> FieldInfo {
         FieldInfo {
             name: field.name.clone(),
-            type_: self.parse_type(&field.type_name),
+            type_: self.normalize_type(&field.type_),
             visibility: effective_field_visibility(field.visibility, containing_visibility),
         }
     }
 
     pub(super) fn collect_bindings(&mut self) {
-        for file in &self.ast.files {
+        for file in &self.hir.files {
             for item in &file.items {
-                if let Item::Binding(binding) = item {
-                    let type_ = binding
-                        .type_name
-                        .as_deref()
-                        .map(|name| self.parse_type(name))
-                        .unwrap_or(Type::Unknown);
+                if let HirItem::Binding(binding) = item {
+                    let type_ = self.normalize_type(&binding.type_);
                     self.bindings.insert(
                         binding.name.clone(),
                         BindingSig {
@@ -1140,15 +1140,11 @@ impl<'a> SyntaxChecker<'a> {
     }
 
     pub(super) fn collect_functions(&mut self) {
-        for file in &self.ast.files {
+        for file in &self.hir.files {
             for item in &file.items {
-                if let Item::Function(function) = item {
+                if let HirItem::Function(function) = item {
                     let return_type = match function.kind {
-                        FunctionKind::Func => function
-                            .return_type
-                            .as_deref()
-                            .map(|name| self.parse_type(name))
-                            .unwrap_or(Type::Unknown),
+                        FunctionKind::Func => self.normalize_type(&function.returns),
                         FunctionKind::Sub => Type::Nothing,
                     };
                     let params = function
@@ -1156,11 +1152,7 @@ impl<'a> SyntaxChecker<'a> {
                         .iter()
                         .map(|param| ParamSig {
                             name: param.name.clone(),
-                            type_: param
-                                .type_name
-                                .as_deref()
-                                .map(|name| self.parse_type(name))
-                                .unwrap_or(Type::Unknown),
+                            type_: self.normalize_type(&param.type_),
                             has_default: param.default.is_some(),
                         })
                         .collect();
@@ -1181,7 +1173,7 @@ impl<'a> SyntaxChecker<'a> {
         }
     }
 
-    pub(super) fn canonical_import_name(&self, file: &AstFile, name: &str) -> String {
+    pub(super) fn canonical_import_name(&self, file: &HirFile, name: &str) -> String {
         let Some((binding, rest)) = name.split_once('.') else {
             return name.to_string();
         };
@@ -1194,7 +1186,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn visible_function_sigs<'b>(
         &'b self,
-        file: &AstFile,
+        file: &HirFile,
         name: &str,
     ) -> Vec<&'b FunctionSig> {
         self.functions
@@ -1207,7 +1199,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn lookup_visible_function<'b>(
         &'b self,
-        file: &AstFile,
+        file: &HirFile,
         name: &str,
     ) -> Option<&'b FunctionSig> {
         let visible = self.visible_function_sigs(file, name);
@@ -1219,7 +1211,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn lookup_visible_binding<'b>(
         &'b self,
-        file: &AstFile,
+        file: &HirFile,
         name: &str,
     ) -> Option<&'b BindingSig> {
         self.bindings
@@ -1229,9 +1221,9 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn lookup_visible_call_sig<'b>(
         &'b self,
-        file: &AstFile,
+        file: &HirFile,
         name: &str,
-        arguments: &[CallArg],
+        arguments: &[HirCallArg],
         expected: Option<&Type>,
     ) -> Option<&'b FunctionSig> {
         let visible = self.visible_function_sigs(file, name);
@@ -1266,10 +1258,14 @@ impl<'a> SyntaxChecker<'a> {
         matching.into_iter().last()
     }
 
-    pub(super) fn call_shape_matches_sig(&self, arguments: &[CallArg], sig: &FunctionSig) -> bool {
+    pub(super) fn call_shape_matches_sig(
+        &self,
+        arguments: &[HirCallArg],
+        sig: &FunctionSig,
+    ) -> bool {
         let positional = arguments
             .iter()
-            .take_while(|argument| matches!(argument, CallArg::Positional(_)))
+            .take_while(|argument| matches!(argument, HirCallArg::Positional(_)))
             .count();
         if positional > sig.params.len() {
             return false;
@@ -1282,7 +1278,7 @@ impl<'a> SyntaxChecker<'a> {
 
         let mut seen = HashSet::new();
         for argument in arguments {
-            let CallArg::Named { name, .. } = argument else {
+            let HirCallArg::Named { name, .. } = argument else {
                 continue;
             };
             if !seen.insert(name) {
@@ -1296,32 +1292,29 @@ impl<'a> SyntaxChecker<'a> {
     }
 
     pub(super) fn check(&mut self) {
-        for file in &self.ast.files {
+        for file in &self.hir.files {
             for item in &file.items {
                 match item {
-                    Item::Binding(binding) => self.check_binding(file, binding),
-                    Item::Function(function) => self.check_function(file, function),
-                    Item::Type(type_decl) => self.check_type_decl(file, type_decl),
-                    Item::Resource(resource) => self.check_resource_decl(file, resource),
-                    Item::Link(link) => self.check_link_block(file, link),
+                    HirItem::Binding(binding) => self.check_binding(file, binding),
+                    HirItem::Function(function) => self.check_function(file, function),
+                    HirItem::Type(type_decl) => self.check_type_decl(file, type_decl),
+                    HirItem::Resource(resource) => self.check_resource_decl(file, resource),
+                    HirItem::Link(link) => self.check_link_block(file, link),
                     // A re-export alias carries no body to check; its target was
                     // validated during resolve (plan-link-update.md §5a).
-                    Item::FuncAlias(_) => {}
+                    HirItem::FuncAlias(_) => {}
                     // DOC blocks carry no executable code to syntaxcheck.
-                    Item::Doc(_) => {}
+                    HirItem::Doc(_) => {}
                     // TESTING blocks are lowered away before syntaxcheck (plan-18-A §3).
-                    Item::Testing(_) => {}
+                    HirItem::Testing(_) => {}
                 }
             }
         }
     }
 
-    pub(super) fn check_binding(&mut self, file: &AstFile, binding: &TopLevelBinding) {
+    pub(super) fn check_binding(&mut self, file: &HirFile, binding: &HirTopLevelBinding) {
         let mut locals = HashMap::new();
-        let declared = binding
-            .type_name
-            .as_deref()
-            .map(|name| self.parse_type(name));
+        let declared = declared(&binding.type_).map(|type_| self.normalize_type(type_));
         if let Some(declared) = &declared {
             self.check_type_reference(file, declared, binding.line);
         }
@@ -1349,7 +1342,7 @@ impl<'a> SyntaxChecker<'a> {
             file,
             binding.line,
             binding.resource,
-            binding.state_type.as_deref(),
+            binding.state_type.as_ref(),
             (binding_type != Type::Unknown).then_some(&binding_type),
             &format!("binding `{}`", binding.name),
         );
@@ -1358,11 +1351,11 @@ impl<'a> SyntaxChecker<'a> {
         }
     }
 
-    pub(super) fn check_type_decl(&mut self, file: &AstFile, type_decl: &TypeDecl) {
+    pub(super) fn check_type_decl(&mut self, file: &HirFile, type_decl: &HirTypeDecl) {
         match type_decl.kind {
             TypeDeclKind::Type => {
                 for field in &type_decl.fields {
-                    let type_ = self.parse_type(&field.type_name);
+                    let type_ = self.normalize_type(&field.type_);
                     self.check_type_reference(file, &type_, field.line);
                 }
             }
@@ -1381,7 +1374,7 @@ impl<'a> SyntaxChecker<'a> {
         }
     }
 
-    pub(super) fn check_function(&mut self, file: &AstFile, function: &Function) {
+    pub(super) fn check_function(&mut self, file: &HirFile, function: &HirFunction) {
         if function.isolated
             && (!matches!(function.kind, FunctionKind::Func)
                 || matches!(function.visibility, Visibility::Private))
@@ -1400,10 +1393,10 @@ impl<'a> SyntaxChecker<'a> {
 
         let expected_return = match function.kind {
             FunctionKind::Func => {
-                if function.return_type.is_none() {
+                if declared(&function.returns).is_none() {
                     Type::Unknown
                 } else {
-                    let return_type = self.parse_type(function.return_type.as_deref().unwrap());
+                    let return_type = self.normalize_type(&function.returns);
                     // `check_type_reference` reports `TYPE_RESULT_NOT_USER_VISIBLE`
                     // for a `Result` in any type position, including this one.
                     self.check_type_reference(file, &return_type, function.line);
@@ -1415,7 +1408,7 @@ impl<'a> SyntaxChecker<'a> {
                 }
             }
             FunctionKind::Sub => {
-                if function.return_type.is_some() {
+                if declared(&function.returns).is_some() {
                     self.report(
                         "TYPE_SUB_CANNOT_RETURN_VALUE",
                         &format!("SUB `{}` cannot declare a return type.", function.name),
@@ -1428,13 +1421,13 @@ impl<'a> SyntaxChecker<'a> {
         };
 
         if matches!(function.kind, FunctionKind::Func) {
-            if let Some(return_name) = function.return_type.as_deref() {
-                let return_type = self.parse_type(return_name);
+            if let Some(declared_return) = declared(&function.returns) {
+                let return_type = self.normalize_type(declared_return);
                 self.check_resource_declaration(
                     file,
                     function.line,
                     function.return_resource,
-                    function.return_state_type.as_deref(),
+                    function.return_state_type.as_ref(),
                     Some(&return_type),
                     "return type",
                 );
@@ -1447,18 +1440,14 @@ impl<'a> SyntaxChecker<'a> {
 
         let mut locals = HashMap::new();
         for param in &function.params {
-            let param_type = param
-                .type_name
-                .as_deref()
-                .map(|name| self.parse_type(name))
-                .unwrap_or(Type::Unknown);
+            let param_type = self.normalize_type(&param.type_);
             self.check_type_reference(file, &param_type, param.line);
 
             self.check_resource_declaration(
                 file,
                 param.line,
                 param.resource,
-                param.state_type.as_deref(),
+                param.state_type.as_ref(),
                 (param_type != Type::Unknown).then_some(&param_type),
                 &format!("parameter `{}`", param.name),
             );
@@ -1543,7 +1532,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn visible_from(
         &self,
-        file: &AstFile,
+        file: &HirFile,
         visibility: Visibility,
         owner_file_path: &str,
     ) -> bool {
@@ -1553,7 +1542,7 @@ impl<'a> SyntaxChecker<'a> {
         }
     }
 
-    pub(super) fn check_type_reference(&mut self, file: &AstFile, type_: &Type, line: usize) {
+    pub(super) fn check_type_reference(&mut self, file: &HirFile, type_: &Type, line: usize) {
         match type_ {
             Type::ListOf(element) => {
                 let inner = strip_res(element);
@@ -1710,7 +1699,7 @@ impl<'a> SyntaxChecker<'a> {
         type_.name().into_owned()
     }
 
-    pub(super) fn report(&mut self, rule: &str, detail: &str, file: &AstFile, line: usize) {
+    pub(super) fn report(&mut self, rule: &str, detail: &str, file: &HirFile, line: usize) {
         // plan-20-Z: every relocated rule's emission site has been DELETED from
         // `syntaxcheck` — `ir::verify` is the single source of truth for them.
         // This function now carries only the erased-syntax rules (constructs
@@ -1734,7 +1723,7 @@ impl<'a> SyntaxChecker<'a> {
     /// (`crate::rules::is_error` gates the pipeline), so `had_error` stays unset.
     /// Used for rules that flag a benign condition (e.g. a provably-dead inline
     /// TRAP handler) without rejecting the program.
-    pub(super) fn report_warning(&mut self, rule: &str, detail: &str, file: &AstFile, line: usize) {
+    pub(super) fn report_warning(&mut self, rule: &str, detail: &str, file: &HirFile, line: usize) {
         debug_assert!(
             !crate::ir::RELOCATED_TO_IR_VERIFY.contains(&rule),
             "rule {rule} is relocated to ir::verify; syntaxcheck must not emit it"
@@ -1768,7 +1757,7 @@ pub(crate) mod testutil {
             name: "test".to_string(),
             files: vec![file],
         };
-        let diagnostics = check_project_collect(Path::new("."), &project)
+        let diagnostics = check_project_collect(Path::new("."), &crate::hir::elaborate(&project))
             .expect("builtin augmentation must succeed");
         diagnostics.into_iter().map(|d| d.rule).collect()
     }
@@ -1794,7 +1783,7 @@ pub(crate) mod testutil {
             .cloned()
             .unwrap_or_else(|| "test".to_string());
         let project = crate::ast::parse_project(&name, dir, &manifest).expect("project must parse");
-        match check_project_collect(dir, &project) {
+        match check_project_collect(dir, &crate::hir::elaborate(&project)) {
             Ok(diags) => diags.into_iter().map(|d| d.rule).collect(),
             Err(()) => vec!["AUGMENTATION_FAILED".to_string()],
         }
@@ -2344,10 +2333,10 @@ mod checker_tests {
             "IMPORT brokenpkg\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
         )
         .unwrap();
-        let project = AstProject {
+        let project = crate::hir::elaborate(&AstProject {
             name: "t".into(),
             files: vec![file],
-        };
+        });
         let diags = super::check_project_collect(&dir, &project).unwrap();
         let _ = fs::remove_dir_all(&dir);
         assert!(
@@ -2381,10 +2370,10 @@ mod checker_tests {
             "FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
         )
         .unwrap();
-        let project = AstProject {
+        let project = crate::hir::elaborate(&AstProject {
             name: "t".into(),
             files: vec![file],
-        };
+        });
         let dir = Path::new(".");
         let mut checker = SyntaxChecker::new(dir, &project);
         let file_ref = &project.files[0];
@@ -2565,10 +2554,10 @@ mod checker_tests {
             "IMPORT nonexistent_pkg\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
         )
         .unwrap();
-        let project = AstProject {
+        let project = crate::hir::elaborate(&AstProject {
             name: "t".into(),
             files: vec![file],
-        };
+        });
         // A directory with no `packages/nonexistent_pkg.mfp`: the collectors take
         // the missing-file continue and register nothing for the import.
         let dir = std::env::temp_dir().join(format!("mfb_sc_nomfp_{}", std::process::id()));
@@ -2588,10 +2577,10 @@ mod checker_tests {
             "FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
         )
         .unwrap();
-        let project = AstProject {
+        let project = crate::hir::elaborate(&AstProject {
             name: "t".into(),
             files: vec![file],
-        };
+        });
         assert!(super::check_project(Path::new("."), &project).is_ok());
     }
 
@@ -2605,10 +2594,10 @@ mod checker_tests {
             "FUNC f AS Result OF Integer\n  RETURN 1\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
         )
         .unwrap();
-        let project = AstProject {
+        let project = crate::hir::elaborate(&AstProject {
             name: "t".into(),
             files: vec![file],
-        };
+        });
         assert!(super::check_project(Path::new("."), &project).is_err());
     }
 
@@ -2716,7 +2705,7 @@ mod checker_tests {
         use crate::ast::{parse_source, AstProject};
         use std::path::Path;
         // Cover every item kind the visibility match walks: binding, type,
-        // function, resource (Item::Resource arm), and func alias (Item::FuncAlias
+        // function, resource (HirItem::Resource arm), and func alias (HirItem::FuncAlias
         // arm). The resource/alias targets need only parse — this entry point runs
         // before import resolution.
         let src = "EXPORT LET g AS Integer = 5\nEXPORT TYPE Rec\n  x AS Integer\nEND TYPE\nEXPORT FUNC f() AS Integer\n  RETURN 1\nEND FUNC\nEXPORT RESOURCE Db CLOSE BY x::close\nEXPORT FUNC ff AS x::gg\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";

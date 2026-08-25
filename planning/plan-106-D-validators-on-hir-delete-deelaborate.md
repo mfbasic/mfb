@@ -213,24 +213,80 @@ Commit: `d42e7e4e6` (inventory), `eeb572003` (entry point + group peel)
 
 ### Phase 2 — syntaxcheck walk onto HIR
 
-- [ ] Port `check_project_collect`'s walk module-by-module
-      (`Statement::`→`HirStatement::` etc.; type fields read structurally),
-      full diagnostic corpus after each module.
-- [ ] Tests: full `*-invalid` corpus; accepted-program gate.
+- [x] Port `check_project_collect`'s walk (all 8 modules, 14,324 lines):
+      `Statement::`→`HirStatement::` etc., and every `Option<String>` type field
+      read structurally. `SyntaxChecker.ast` is now `hir: &HirProject`.
 
-Acceptance: suite green; corpus byte-identical; gate no NEW diff.
-Commit: —
+      Three things were NOT mechanical and are commented in place:
+
+      1. **The builtin-source injection had to move into the HIR domain.**
+         `check_project_collect` augments its own input (the raw-AST callers —
+         `testutil`, `audit` — depend on it), and the injectors gate on an
+         `AstProject`. Solved by `codegen::registry::ProjectView`, which collects
+         the only two facts the gates read (imported packages, call callees) from
+         EITHER domain — so one decision procedure serves both pipelines instead
+         of a second copy of `is_imported_by` plus the ~100-line `references_any`
+         walk. See Correction 5.
+      2. **`hir::elaborate` classifies a generic parameter as `Type::Var`**
+         (`with_vars`), a variant syntaxcheck's own parser never produced — its
+         own doc comment says so. Every rule is written against the nominal, so
+         `normalize` collapses `Var` back. Without it the injected `collections`
+         source stops type-checking against ITSELF: generic members' parameters
+         become `Var` while call sites carry nominals, and every candidate is
+         rejected as `TYPE_CALL_ARGUMENT_MISMATCH`. Caught by 10 red unit tests,
+         not by inspection.
+      3. **`export_in_executable_diagnostics` stays AST-domain** — it reads the
+         ORIGINAL source AST at the build boundary, because `EXPORT` placement is
+         a source-syntax fact about the user's own declarations.
+
+      Two dead helpers fell out and are deleted: `AstFile::import_bindings` (the
+      HIR one is the only caller now) and `parse_collection_element_type` (a
+      one-line alias for `parse_type`).
+- [x] Tests: full `*-invalid` corpus; accepted-program gate. Both byte-identical.
+
+Acceptance: suite green; corpus byte-identical; gate no NEW diff. **ALL MET**
+(measurements under Phase 3, which landed in the same change — see below).
+Commit: (with Phase 3)
 
 ### Phase 3 — flip the seams; delete de-elaboration
 
-- [ ] `cli/build/mod.rs` + `audit/mod.rs` pass `&concrete_hir`; delete the
-      renders.
-- [ ] Delete all 16 `deelaborate_*` fns + the block comment; port the 5
-      test-inspection sites to assert over HIR.
-- [ ] Tests: full suite.
+- [x] `cli/build/mod.rs` + `audit/mod.rs` pass `&concrete_hir`; delete the
+      renders. Both `concrete_ast` bindings went **unused the moment the last
+      validator ported** — the compiler pointed at the seam rather than the plan
+      having to find it.
+- [x] Delete all 16 `deelaborate_*` fns + the block comment (**439 lines**);
+      port the 5 test-inspection sites to assert over HIR.
+
+      The monomorph tests now inspect the concrete `HirProject` the
+      monomorphizer actually returns — it used to be de-elaborated purely so the
+      assertions could read it, which is exactly the "test-only backward path"
+      §Open-Decisions warned is how backward paths come back.
+
+      The three `ir` lowering tests needed two new seams, both `#[cfg(test)]`:
+      `resolver::resolve_hir_project` and `ir::lower_monomorphized_project` (they
+      monomorphize a BARE project, so the builtin sources must be injected
+      afterwards). The second also fixes a latent wrong: `ir.docs` now comes from
+      the ORIGINAL source AST, as the build path does, instead of from a
+      post-monomorph program whose overloads are already mangled.
+- [x] Tests: full suite.
 
 Acceptance: `rg -n 'deelaborate' src/` → **0**; suite green; gate no NEW diff;
-`test-accept` no NEW mismatch.
+`test-accept` no NEW mismatch. **ALL MET:**
+
+```
+$ rg -n 'deelaborate' src/
+src/hir/mod.rs:918:// behind one `deelaborate` entry, rendering the concrete HIR ...
+```
+one hit, the tombstone comment recording the deletion — zero code.
+
+```
+cargo test --bin mfb                      3651 passed, 0 failed
+cargo test --no-fail-fast                 0 suites FAILED
+cargo build --release --bin mfb           0 warnings
+artifact-gate.sh target/release/mfb all   1255 tests, 1402 build(s),
+                                          1730 golden(s) checked, 0 diff(s)
+test-accept.sh                            acceptance tests passed (1271 ran)
+```
 Commit: —
 
 ## Validation Plan
@@ -278,6 +334,42 @@ This is not a backward edge and does not violate the terminal invariant:
 `elaborate` is AST→HIR, the same direction the compile path already runs. The
 cost is one structural walk on a project already being walked several times.
 The §Non-goals bullet is struck through above.
+
+### Correction 5 — the builtin-source injection had to become domain-neutral
+
+Unforeseen by the plan. `syntaxcheck::check_project_collect` does not merely walk
+its input — it first **injects the builtin package sources** (registry pass, then
+`http` → `net` → `encoding` late passes). Its raw-AST callers (`testutil`,
+`mfb audit`) depend on that; the build path is already augmented and gets a
+*second* injection, which a probe confirmed:
+
+```
+P106D-PROBE in=5 out=7 paths=["src/main.mfb", "<builtin prelude>",
+  "builtins/collections.mfb", "builtins/http.mfb", "builtins/net.mfb",
+  "builtins/http.mfb", "builtins/net.mfb"]
+```
+
+(Pre-existing, and preserved exactly — dropping it is a behavior change §Non-goals
+forbids. Worth its own look later: the build parses and checks the `http`/`net`
+sources twice.)
+
+The injectors gate on an `AstProject`, so a validator consuming HIR cannot call
+them. The cheap answer — a second copy of `is_imported_by` and of the ~100-line
+`references_any` AST walk, one per domain — is precisely the duplication this plan
+exists to remove.
+
+Instead, `codegen::registry::ProjectView` collects the only two facts every gate
+reads — which packages the program `IMPORT`s, and which call callees it names —
+from either domain (`of_ast` / `of_hir`). `synthetic_files(&ProjectView)` is then
+ONE decision procedure with two thin adapters (`augment_project` /
+`augment_hir_project`). Three side effects, all simplifications:
+
+- `WhenUsed` no longer re-walks the whole AST per gate; the callee set is
+  collected once (`short_callee` reduction applied at collection, the same match).
+- The three late passes (`http`/`net`/`encoding`) had **byte-identical** bodies;
+  they are now two-line adapters over one `inject_late_pass`.
+- syntaxcheck no longer carries its own copy of the four-pass chain — it calls
+  `resolver::augment_hir_project`.
 
 ### Correction 4 — three HIR nodes still hold type SPELLINGS, not types
 
@@ -369,7 +461,25 @@ deferred, per §Do-the-work.
 
 ## Summary
 
-The last backward edge dies, and with it the `parse↔name` load-bearing seam.
-Risk is walk breadth, not design — the port recipe has landed four times. The
-review's dual-resolve/diagnostic-streaming observations are recorded as
-separate work, not braided in.
+**Done.** The last backward edge is dead, and with it the `parse`↔`name`
+load-bearing seam. `rg -n 'deelaborate' src/` finds one comment and no code.
+
+The risk the plan named — syntaxcheck's walk breadth — was real but not what bit:
+the node renames were mechanical, and the three genuine defects were all *type
+representation* changing under the walk (`Var` classification, the grouped-type
+parse, the `Option<String>`→`Unknown` collapse). Each was caught by a red test or
+a probe, none by reading.
+
+What the plan did not have, all recorded above: `resolve_augmented` is the shared
+core of every resolve (Correction 1); `resolve_type_name` was still a full string
+grammar (2); `ParameterType::parse` did not peel a grouped type name (3); three
+HIR nodes still hold type spellings (4, filed for letter E); and the builtin-source
+injection had to become domain-neutral (5).
+
+Across every step — a grammar change, a validator changing its input language, a
+120-line grammar deletion and a 439-line block deletion — the 1,730 goldens and
+the 1,271-fixture diagnostic corpus never moved.
+
+The review's dual-resolve/diagnostic-streaming observations are still separate
+work, not braided in. The double builtin-source injection on the build path
+(Correction 5) is a new one for that same list.

@@ -3,18 +3,6 @@ use super::*;
 use crate::types::ParameterType;
 
 impl<'a> SyntaxChecker<'a> {
-    /// Parse a collection element / `Map` value type, honoring the `RES` marker
-    /// (`List OF RES fs::File`). The marker wraps the element in [`Type::Res`]; the
-    /// element validation later checks it matches the element's resource-ness.
-    ///
-    /// plan-106-C: `RES` is a variant of the canonical grammar
-    /// ([`ParameterType::Res`]), so this is now just [`parse_type`](Self::parse_type).
-    /// Kept as a named seam because the call sites document *which* position they
-    /// are parsing.
-    pub(super) fn parse_collection_element_type(&self, name: &str) -> Type {
-        self.parse_type(name)
-    }
-
     /// The type a source/imported type SPELLING denotes.
     ///
     /// plan-106-C: the grammar is [`ParameterType::parse`] — syntaxcheck no
@@ -35,10 +23,18 @@ impl<'a> SyntaxChecker<'a> {
     /// Steps 1–4 are applied by [`type_from_parameter`](Self::type_from_parameter)
     /// at every level, exactly as the recursive private parser applied them.
     pub(super) fn parse_type(&self, name: &str) -> Type {
-        self.normalize(
-            &ParameterType::parse(crate::types::strip_type_group(name)),
-            false,
-        )
+        self.normalize_type(&ParameterType::parse(name))
+    }
+
+    /// The same normalization applied to a type HIR already carries.
+    ///
+    /// plan-106-D: every type syntaxcheck reads off an HIR node arrives as a
+    /// `ParameterType`, so it needs syntaxcheck's three non-grammar steps and
+    /// nothing else. `parse_type` above is now just this, preceded by the parse
+    /// — and it survives only for the handful of spellings HIR still stores as
+    /// strings (`UNION` variants, `LINK` signatures).
+    pub(super) fn normalize_type(&self, type_: &Type) -> Type {
+        self.normalize(type_, false)
     }
 
     /// syntaxcheck's three normalizations, applied at every level — the only
@@ -90,8 +86,23 @@ impl<'a> SyntaxChecker<'a> {
                 out: Box::new(self.normalize(out, false)),
             },
             Type::Named(name) => self.normalize_leaf(name.resolve(), in_thread_res),
+            // plan-106-D: a type variable collapses back to the bare nominal.
+            //
+            // `hir::elaborate` classifies a name appearing in the enclosing
+            // declaration's `template_params` as a [`Type::Var`] (`with_vars`).
+            // syntaxcheck's own parser never produced that variant — a generic
+            // parameter `T` was a `Named("T")` here — and every rule below is
+            // written against the nominal. Without this collapse, the injected
+            // `collections` package source stops type-checking against itself: its
+            // generic members' parameters become `Var` while their call sites carry
+            // nominals, and every candidate is rejected as
+            // `TYPE_CALL_ARGUMENT_MISMATCH`.
+            //
+            // The classification is not lost — it lives in the HIR that monomorph
+            // reads. syntaxcheck simply predates it.
+            Type::Var(name) => self.normalize_leaf(name.resolve(), in_thread_res),
             // Scalars, `Unknown`, and the variants syntaxcheck's own parser never
-            // produces (`Var`, `Arg`, `UserOf`, `AttributeString`) normalize to
+            // produces (`Arg`, `UserOf`, `AttributeString`) normalize to
             // themselves.
             other => other.clone(),
         }
@@ -256,38 +267,38 @@ impl<'a> SyntaxChecker<'a> {
         &self,
         expected: &Type,
         actual: &Type,
-        expression: Option<&Expression>,
+        expression: Option<&HirExpression>,
     ) -> bool {
         if self.compatible(expected, actual) {
             return true;
         }
         match (expected, actual, expression) {
-            (Type::Byte, Type::Integer, Some(Expression::Number(value))) => value
+            (Type::Byte, Type::Integer, Some(HirExpression::Number(value))) => value
                 .parse::<u16>()
                 .is_ok_and(|number| number <= u8::MAX as u16),
-            (Type::Fixed, Type::Integer | Type::Float, Some(Expression::Number(_))) => true,
+            (Type::Fixed, Type::Integer | Type::Float, Some(HirExpression::Number(_))) => true,
             (
                 Type::Fixed,
                 Type::Integer | Type::Float,
-                Some(Expression::Unary {
+                Some(HirExpression::Unary {
                     operator, operand, ..
                 }),
-            ) if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) => true,
+            ) if operator == "-" && matches!(operand.as_ref(), HirExpression::Number(_)) => true,
             // A decimal literal acquires type Money from a Money expectation
             // (`LET a AS Money = 1.25`), mirroring the Fixed path (plan-29-A §4.4).
             // The exact range is checked in ir::verify.
-            (Type::Money, Type::Integer | Type::Float, Some(Expression::Number(_))) => true,
+            (Type::Money, Type::Integer | Type::Float, Some(HirExpression::Number(_))) => true,
             (
                 Type::Money,
                 Type::Integer | Type::Float,
-                Some(Expression::Unary {
+                Some(HirExpression::Unary {
                     operator, operand, ..
                 }),
-            ) if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) => true,
+            ) if operator == "-" && matches!(operand.as_ref(), HirExpression::Number(_)) => true,
             (
                 Type::ListOf(expected_element),
                 Type::ListOf(_),
-                Some(Expression::ListLiteral(values)),
+                Some(HirExpression::ListLiteral(values)),
             ) => values.iter().all(|value| {
                 let Some(actual_element) = numeric_literal_type(value) else {
                     return false;
@@ -382,7 +393,7 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn require_comparable_type(
         &mut self,
-        _file: &AstFile,
+        _file: &HirFile,
         _line: usize,
         _context: &str,
         _type_: &Type,
@@ -638,7 +649,7 @@ mod types_tests {
         ));
     }
 
-    // ---- RES-marked collection element (parse_collection_element_type) ------
+    // ---- RES-marked collection element (Type::Res) --------------------------
 
     #[test]
     fn res_marked_list_element_parses() {
@@ -799,7 +810,7 @@ mod types_tests {
     fn parse_type_nested_map_key_structure() {
         use super::{SyntaxChecker, Type};
         let dir = std::path::Path::new(".");
-        let project = crate::ast::AstProject {
+        let project = crate::hir::HirProject {
             name: "t".to_string(),
             files: vec![],
         };
@@ -827,7 +838,7 @@ mod types_tests {
         use super::{FieldInfo, SyntaxChecker, Type, TypeInfo};
         use crate::ast::{TypeDeclKind, Visibility};
         let dir = std::path::Path::new(".");
-        let project = crate::ast::AstProject {
+        let project = crate::hir::HirProject {
             name: "t".to_string(),
             files: vec![],
         };
@@ -858,8 +869,8 @@ mod types_tests {
 
     // ---- parse_type / compatible direct unit tests -------------------------
 
-    fn empty_project() -> crate::ast::AstProject {
-        crate::ast::AstProject {
+    fn empty_project() -> crate::hir::HirProject {
+        crate::hir::HirProject {
             name: "t".to_string(),
             files: vec![],
         }

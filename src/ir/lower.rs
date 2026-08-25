@@ -151,6 +151,35 @@ pub fn lower_project_with_external_functions(
     ir
 }
 
+/// Lower an already-monomorphized project, for the in-process tests.
+///
+/// The tests monomorphize a BARE (un-injected) project, so the builtin package
+/// sources are injected here — the same chain the AST wrapper above runs, in the
+/// HIR domain.
+///
+/// `ir.docs` comes from the ORIGINAL source AST, not the post-monomorph program.
+/// That matches the build path (whose package path "likewise collects from its
+/// original AST") and is the only thing that can be right: monomorphization
+/// renames overloaded and generic declarations, so a `DOC` header can no longer
+/// find the declaration it documents. Before plan-106-D this read a
+/// de-elaborated post-monomorph AST.
+#[cfg(test)]
+pub fn lower_monomorphized_project(
+    concrete: &crate::hir::HirProject,
+    source: &crate::ast::AstProject,
+    entry: Option<EntryPoint>,
+    external_signatures: &HashMap<String, ExternalSignature>,
+    imported_types: &[ImportedTypeDef],
+) -> IrProject {
+    let augmented =
+        crate::resolver::augment_hir_project(concrete).expect("built-in package source must parse");
+    let mut ir = lower_augmented_project(&augmented, entry, external_signatures, imported_types);
+    ir.docs = collect_project_docs(
+        &crate::resolver::augment_project(source).expect("built-in package source must parse"),
+    );
+    ir
+}
+
 /// Lower an already-augmented project (builtin package sources already injected by
 /// `resolver::augment_project`, before monomorphization) to IR. The build path
 /// calls this directly on the post-monomorph AST; [`lower_project_with_external_

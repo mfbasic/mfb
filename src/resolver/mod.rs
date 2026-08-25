@@ -96,6 +96,27 @@ pub fn resolve_project_with(
     )
 }
 
+/// Resolve an already-elaborated project, injecting the builtin package sources
+/// first — the HIR analogue of [`resolve_project_with`] (plan-106-D).
+///
+/// Test-only: the build path resolves the pre-monomorph AST and then calls
+/// [`resolve_augmented`] on the concrete HIR it already holds. The `ir` lowering
+/// tests monomorphize a BARE project, so they need the injection first.
+#[cfg(test)]
+pub fn resolve_hir_project(
+    project_dir: &Path,
+    manifest: &HashMap<String, JsonValue>,
+    hir: &HirProject,
+    validate_docs: bool,
+) -> Result<(), ()> {
+    resolve_augmented(
+        project_dir,
+        manifest,
+        &augment_hir_project(hir)?,
+        validate_docs,
+    )
+}
+
 /// Resolve an already-augmented project — the builtin package sources are already
 /// injected (`augment_project`), so this does NOT re-augment. Used on the
 /// post-monomorphization AST, where the monomorphizer already ran over the injected
@@ -160,6 +181,20 @@ pub fn augment_project(ast: &AstProject) -> Result<AstProject, ()> {
     // helper (plan-99 PART B) — before this `encoding` late pass, so
     // `encoding::uses_package` still sees the seam's transitive `IMPORT encoding`.
     let augmented = crate::codegen::builtins::encoding::augmented_project(&augmented)?;
+    Ok(augmented)
+}
+
+/// [`augment_project`]'s chain, in the HIR domain (plan-106-D).
+///
+/// The same four passes in the same dependency order. Each is a thin adapter over
+/// one decision procedure — `codegen::registry::ProjectView` gates the injection
+/// from either domain — so the two chains cannot drift apart the way two copies
+/// of the gate logic would have.
+pub fn augment_hir_project(hir: &HirProject) -> Result<HirProject, ()> {
+    let augmented = crate::codegen::registry::registry().augment_hir_project(hir)?;
+    let augmented = crate::codegen::builtins::http::augmented_hir_project(&augmented)?;
+    let augmented = crate::codegen::builtins::net::augmented_hir_project(&augmented)?;
+    let augmented = crate::codegen::builtins::encoding::augmented_hir_project(&augmented)?;
     Ok(augmented)
 }
 

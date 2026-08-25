@@ -165,18 +165,13 @@ const SOURCE_DOC: &str = "builtins/http.mfb";
 pub(crate) fn augmented_project(
     ast: &crate::ast::AstProject,
 ) -> Result<crate::ast::AstProject, ()> {
-    let Some(pkg) = crate::codegen::registry::registry().resolve_package("http") else {
-        return Ok(ast.clone());
-    };
-    if !pkg.is_imported_by(ast) {
-        return Ok(ast.clone());
-    }
-    let file = crate::ast::parse_source_internal(
-        std::path::Path::new(SOURCE_LABEL),
-        SOURCE_DOC,
-        &pkg.get_mfb(),
-    )?;
-    let mut augmented = ast.clone();
-    augmented.files.push(file);
-    Ok(augmented)
+    crate::codegen::registry::inject_late_pass(ast, "http", SOURCE_LABEL, SOURCE_DOC)
+}
+
+/// The same injection onto the elaborated project syntaxcheck consumes
+/// (plan-106-D).
+pub(crate) fn augmented_hir_project(
+    hir: &crate::hir::HirProject,
+) -> Result<crate::hir::HirProject, ()> {
+    crate::codegen::registry::inject_late_pass_hir(hir, "http", SOURCE_LABEL, SOURCE_DOC)
 }
