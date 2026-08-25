@@ -278,9 +278,19 @@ why this order, not the plan's original one):
       from their being separate variants. Verified: `cargo test --bin mfb` 3650
       passed / 0 failed, `artifact-gate all` 0 diffs, `test-accept` 1271 ran /
       0 mismatches, 0 warnings.
-- [ ] **2d — convert the four nominal variants** (`Error`, `ErrorLoc`, `Scalar`,
-      `AttributedString` — **42** refs) and `User(String)` (**34** refs) onto
-      `Named`/`UserOf`.
+- [x] **2d — convert the four nominal variants** (`Error`, `ErrorLoc`, `Scalar`,
+      `AttributedString` — **42** refs) onto `Type::User`, which is what they
+      are and what `ParameterType` models them as. `User(String)` itself needs
+      no change until 2e (it becomes `Named(Symbol)` there).
+      Two predicates carry the cases where "is this a KNOWN type?" or "is this
+      primitive-like?" mattered: `is_builtin_nominal` and
+      `is_comparable_builtin_nominal` — the same shape `ir::verify` already uses
+      in `is_comparable_defaultable_primitive`. Four `Type::error()` /
+      `error_loc()` / `scalar()` / `attributed_string()` constructors keep the
+      call sites reading as before. Verified: `cargo test --bin mfb` 3650
+      passed / 0 failed, `artifact-gate all` 0 diffs, `test-accept` 1271 ran /
+      0 mismatches, 0 warnings. See Correction 7 for the one place this went
+      wrong first.
 - [ ] **2e — replace `enum Type` with `ParameterType`**; delete the conversion,
       and fold the thread plane's `res_state` into `res` at the same moment
       (Correction 6).
@@ -314,6 +324,31 @@ Commit: —
   Recommend the thin fn — one seam, testable.
 
 ## Corrections
+
+### 7. Deleting a variant flips the default answer — `AttributedString`
+
+Rung 2d reddened `attributed_string_not_comparable`. Removing
+`Type::AttributedString` from `is_comparable_with_seen`'s `false` group was not
+neutral: the general `Type::User(name)` arm below it answers **`true`** for any
+name it cannot resolve ("unknown user type — permissive, no false rejection"),
+so dropping the explicit arm silently flipped `AttributedString` from
+not-comparable to comparable, and `a = b` on two attributed strings would have
+started type-checking.
+
+The comment I wrote while making the change said it "falls through to the
+general `User` arm" as if that were harmless. It was the test that knew better.
+
+Fixed with its own guarded arm, and the comment now records *why* the arm has to
+exist rather than asserting the fall-through is fine.
+
+The general lesson for the rest of this ladder: when a variant is folded into a
+catch-all, the catch-all's DEFAULT becomes that type's answer — so every
+predicate the variant appeared in has to be re-checked, not just the ones where
+it appeared in a `true` list. `is_copyable_type_with_seen` and
+`is_thread_sendable_type_with_seen` were audited the same way and their
+catch-alls do agree (a builtin nominal is not a resource and not in
+`type_infos`, so they answer `true`, which is correct) — they still got explicit
+arms so the primitive set stays readable and independent of that arm's shape.
 
 ### 6. Rung 2b cannot stand alone — the STATE fold must land WITH the swap
 

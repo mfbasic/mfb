@@ -190,19 +190,20 @@ impl<'a> SyntaxChecker<'a> {
         seen: &mut HashSet<String>,
     ) -> bool {
         match type_ {
-            Type::AttributedString
-            | Type::Boolean
+            Type::Boolean
             | Type::Byte
-            | Type::Error
-            | Type::ErrorLoc
             | Type::Fixed
             | Type::Float
             | Type::Integer
             | Type::Money
             | Type::Nothing
-            | Type::Scalar
             | Type::String
             | Type::Unknown => true,
+            // The built-in nominals carry no fields, so they are copyable — the
+            // general `User` arm below would answer the same (they are not
+            // resources and not in `type_infos`), but saying it here keeps the
+            // primitive set readable and independent of that arm's shape.
+            Type::User(name) if is_builtin_nominal(name) => true,
             // A collection slot holds a *pointer* to a resource (`RES fs::File`),
             // which copies freely — copying the collection makes more pointers,
             // never another resource. A standalone resource stays non-copyable
@@ -256,19 +257,17 @@ impl<'a> SyntaxChecker<'a> {
         seen: &mut HashSet<String>,
     ) -> bool {
         match type_ {
-            Type::AttributedString
-            | Type::Boolean
+            Type::Boolean
             | Type::Byte
-            | Type::Error
-            | Type::ErrorLoc
             | Type::Fixed
             | Type::Float
             | Type::Integer
             | Type::Money
             | Type::Nothing
-            | Type::Scalar
             | Type::String
             | Type::Unknown => true,
+            // The built-in nominals are plain values: thread-sendable.
+            Type::User(name) if is_builtin_nominal(name) => true,
             Type::ListOf(element) => self.is_thread_sendable_type_with_seen(element, seen),
             Type::SetOf(element) => self.is_thread_sendable_type_with_seen(element, seen),
             Type::MapOf(key, value) => {

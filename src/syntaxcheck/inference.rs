@@ -55,7 +55,7 @@ impl<'a> SyntaxChecker<'a> {
         self.allow_value_less_call = false;
         match expression {
             Expression::String(_) => Type::String,
-            Expression::Scalar(_) => Type::Scalar,
+            Expression::Scalar(_) => Type::scalar(),
             Expression::Boolean(_) => Type::Boolean,
             Expression::Number(value) => match numeric::classify_literal(value).1 {
                 numeric::LiteralType::Integer => Type::Integer,
@@ -179,7 +179,7 @@ impl<'a> SyntaxChecker<'a> {
                 handler_locals.insert(
                     binding.clone(),
                     LocalInfo {
-                        type_: Type::Error,
+                        type_: Type::error(),
                         mutable: false,
                         state_type: None,
                     },
@@ -642,7 +642,7 @@ impl<'a> SyntaxChecker<'a> {
                     ExprMode::Transfer,
                 );
             }
-            return Type::AttributedString;
+            return Type::attributed_string();
         }
 
         // `Error` and `ErrorLoc` are read-only compiler/runtime-generated records.
@@ -667,9 +667,9 @@ impl<'a> SyntaxChecker<'a> {
                 );
             }
             return if type_name == "Error" {
-                Type::Error
+                Type::error()
             } else {
-                Type::ErrorLoc
+                Type::error_loc()
             };
         }
 
@@ -744,10 +744,7 @@ impl<'a> SyntaxChecker<'a> {
         line: usize,
     ) -> Type {
         let target_type = self.infer_expression(file, target, locals, line, ExprMode::Transfer);
-        if matches!(
-            target_type,
-            Type::Error | Type::ErrorLoc | Type::AttributedString
-        ) {
+        if matches!(&target_type, Type::User(name) if is_builtin_nominal(name)) {
             for update in updates {
                 self.infer_expression(file, &update.value, locals, update.line, ExprMode::Transfer);
             }
@@ -837,15 +834,15 @@ impl<'a> SyntaxChecker<'a> {
             }
             return Type::Unknown;
         }
-        if matches!(target_type, Type::Error) {
+        if target_type.is_named("Error") {
             return match member {
                 "code" => Type::Integer,
                 "message" => Type::String,
-                "source" => Type::ErrorLoc,
+                "source" => Type::error_loc(),
                 _ => Type::Unknown,
             };
         }
-        if matches!(target_type, Type::ErrorLoc) {
+        if target_type.is_named("ErrorLoc") {
             return match member {
                 "filename" => Type::String,
                 "line" => Type::Integer,
@@ -993,8 +990,8 @@ impl<'a> SyntaxChecker<'a> {
             // attributed strings into one (both operands attributed — no mixing with
             // `String`). Attributes on the right operand shift by the left's scalar
             // length (Open Decision 2).
-            if matches!(left, Type::AttributedString) && matches!(right, Type::AttributedString) {
-                return Type::AttributedString;
+            if left.is_named("AttributedString") && right.is_named("AttributedString") {
+                return Type::attributed_string();
             }
             if self.compatible(&Type::String, left) && self.compatible(&Type::String, right) {
                 return Type::String;
@@ -1230,8 +1227,8 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Boolean
             | Type::String
             | Type::Byte
-            | Type::Scalar
             | Type::Unknown => true,
+            Type::User(name) if name == "Scalar" => true,
             Type::ListOf(inner) => matches!(**inner, Type::Byte),
             _ => false,
         }

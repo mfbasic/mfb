@@ -23,17 +23,74 @@ mod types;
 
 use self::helpers::*;
 
+/// The built-in NOMINAL types: named types the language always has in scope,
+/// which carry no structure of their own.
+///
+/// plan-106-C rung 2d: these were four `Type` variants
+/// (`AttributedString`/`Error`/`ErrorLoc`/`Scalar`). They are now
+/// [`Type::User`] like any other nominal — which is what `ParameterType` models
+/// them as ([`Named`](crate::types::ParameterType::Named)), and the last
+/// structural difference between the two enums apart from `User` itself.
+///
+/// The predicate exists because two questions genuinely need it: "is this a
+/// KNOWN type?" (a package's metadata may reference `Error` without declaring
+/// it — `validate_package_metadata_type`) and "is this primitive-like?" (the
+/// copyable / thread-sendable / comparable predicates). `ir::verify` already
+/// models the same set the same way, in `is_comparable_defaultable_primitive`.
+///
+/// `AttributedString` is deliberately absent from
+/// [`is_comparable_builtin_nominal`]: it wraps an attribute overlay like a
+/// `List`, so it is copyable and defaultable but NOT comparable — never a `Map`
+/// key or `Set` element (plan-89-A).
+pub(super) fn is_builtin_nominal(name: &str) -> bool {
+    matches!(name, "AttributedString" | "Error" | "ErrorLoc" | "Scalar")
+}
+
+/// The subset of [`is_builtin_nominal`] that is *comparable* — everything but
+/// `AttributedString` (plan-89-A).
+pub(super) fn is_comparable_builtin_nominal(name: &str) -> bool {
+    matches!(name, "Error" | "ErrorLoc" | "Scalar")
+}
+
+impl Type {
+    /// The `Error` built-in nominal. plan-106-C rung 2d replaced the `Type::Error`
+    /// variant with a nominal; these constructors keep the call sites reading the
+    /// same and give each name one spelling.
+    pub(super) fn error() -> Type {
+        Type::User("Error".to_string())
+    }
+
+    /// The `ErrorLoc` built-in nominal.
+    pub(super) fn error_loc() -> Type {
+        Type::User("ErrorLoc".to_string())
+    }
+
+    /// The `Scalar` built-in nominal — a 32-bit Unicode scalar value
+    /// (plan-41-A). Register-carried like `Byte`, written with a backtick
+    /// literal `` `x` ``; comparable and orderable by codepoint, but **not
+    /// numeric** — it never enters the promotion lattice.
+    pub(super) fn scalar() -> Type {
+        Type::User("Scalar".to_string())
+    }
+
+    /// The `AttributedString` built-in nominal (plan-89-A) — an opaque,
+    /// value-semantic wrapper over a visible `String` plus an attribute overlay.
+    /// It exposes no user-visible fields, and is copyable/defaultable but NOT
+    /// comparable.
+    pub(super) fn attributed_string() -> Type {
+        Type::User("AttributedString".to_string())
+    }
+
+    /// Whether this type is the named built-in nominal `name`.
+    pub(super) fn is_named(&self, name: &str) -> bool {
+        matches!(self, Type::User(n) if n == name)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Type {
-    /// `AttributedString` (plan-89-A): an opaque, value-semantic built-in
-    /// wrapping a visible `String` plus an attribute overlay. Primitive-like —
-    /// it exposes no user-visible fields (opacity), is copyable/defaultable but
-    /// NOT comparable, and is always in scope (modeled on `Error`).
-    AttributedString,
     Boolean,
     Byte,
-    Error,
-    ErrorLoc,
     Fixed,
     Float,
     Integer,
@@ -55,10 +112,6 @@ enum Type {
     Func(Vec<Type>, Box<Type>, bool),
     Nothing,
     ResultOf(Box<Type>),
-    /// `Scalar`: a 32-bit Unicode scalar value (plan-41-A). Register-carried like
-    /// `Byte`, written with a backtick literal `` `x` ``. Comparable and orderable
-    /// by codepoint, but **not numeric** — it never enters the promotion lattice.
-    Scalar,
     String,
     /// A thread handle. `worker` distinguishes a `ThreadWorker` handle from a
     /// parent `Thread` handle — the two never unify with each other — mirroring
@@ -682,6 +735,12 @@ impl<'a> SyntaxChecker<'a> {
                     seen,
                 );
             }
+            // A built-in nominal (`Error`, `Scalar`, …) is always in scope and
+            // declares no fields, so there is nothing to walk and nothing to
+            // report — it was one of the four inert `=> {}` variants before rung
+            // 2d. Checked BEFORE the general `User` arm, which would otherwise
+            // report it as a type the package references but does not declare.
+            Type::User(name) if is_builtin_nominal(name) => {}
             Type::User(name) => {
                 if self.resource_registry.is_resource(name) || !seen.insert(name.clone()) {
                     return;
@@ -729,17 +788,13 @@ impl<'a> SyntaxChecker<'a> {
                 }
                 seen.remove(name);
             }
-            Type::AttributedString
-            | Type::Boolean
+            Type::Boolean
             | Type::Byte
-            | Type::Error
-            | Type::ErrorLoc
             | Type::Fixed
             | Type::Float
             | Type::Integer
             | Type::Money
             | Type::Nothing
-            | Type::Scalar
             | Type::String
             | Type::Unknown => {}
         }
@@ -1454,7 +1509,7 @@ impl<'a> SyntaxChecker<'a> {
             trap_locals.insert(
                 trap.name.clone(),
                 LocalInfo {
-                    type_: Type::Error,
+                    type_: Type::error(),
                     mutable: false,
                     state_type: None,
                 },
@@ -1625,17 +1680,13 @@ impl<'a> SyntaxChecker<'a> {
                     );
                 }
             }
-            Type::AttributedString
-            | Type::Boolean
+            Type::Boolean
             | Type::Byte
-            | Type::Error
-            | Type::ErrorLoc
             | Type::Fixed
             | Type::Float
             | Type::Integer
             | Type::Money
             | Type::Nothing
-            | Type::Scalar
             | Type::String
             | Type::Unknown => {}
         }
@@ -1643,16 +1694,12 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn type_name(&self, type_: &Type) -> String {
         match type_ {
-            Type::AttributedString => "AttributedString".to_string(),
             Type::Boolean => "Boolean".to_string(),
             Type::Byte => "Byte".to_string(),
-            Type::Error => "Error".to_string(),
-            Type::ErrorLoc => "ErrorLoc".to_string(),
             Type::Fixed => "Fixed".to_string(),
             Type::Float => "Float".to_string(),
             Type::Integer => "Integer".to_string(),
             Type::Money => "Money".to_string(),
-            Type::Scalar => "Scalar".to_string(),
             Type::ListOf(element) => format!("List OF {}", self.type_name(element)),
             Type::SetOf(element) => format!("Set OF {}", self.type_name(element)),
             Type::MapOf(key, value) => {

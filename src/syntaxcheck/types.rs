@@ -136,13 +136,11 @@ impl<'a> SyntaxChecker<'a> {
             return Type::Unknown;
         }
         match name {
-            "AttributedString" => Type::AttributedString,
-            "Error" => Type::Error,
-            "ErrorLoc" => Type::ErrorLoc,
-            "Scalar" => Type::Scalar,
             // `Result` with no ` OF ` is the bare marker; the canonical parser
             // leaves it a nominal, and it means `Result OF Unknown` here.
             "Result" => Type::ResultOf(Box::new(Type::Unknown)),
+            // Everything else — including the four built-in nominals
+            // (`Error`/`ErrorLoc`/`Scalar`/`AttributedString`) — is a nominal.
             other => Type::User(other.to_string()),
         }
     }
@@ -338,27 +336,29 @@ impl<'a> SyntaxChecker<'a> {
     /// non-numeric — it does not order against `String` or any numeric type.
     /// `Unknown` is permitted so a prior error does not cascade.
     pub(super) fn is_orderable_scalar(&self, type_: &Type) -> bool {
-        matches!(type_, Type::Scalar | Type::Unknown)
+        matches!(type_, Type::Unknown) || type_.is_named("Scalar")
     }
 
     pub(super) fn is_comparable_with_seen(&self, type_: &Type, seen: &mut HashSet<String>) -> bool {
         match type_ {
             Type::Boolean
             | Type::Byte
-            | Type::Error
-            | Type::ErrorLoc
             | Type::Fixed
             | Type::Float
             | Type::Integer
             | Type::Money
             | Type::Nothing
-            | Type::Scalar
             | Type::String
             | Type::Unknown => true,
-            // `AttributedString` wraps a list overlay (like `List`): not comparable,
-            // not orderable, never a `Map` key or `Set` element (plan-89-A).
-            Type::AttributedString
-            | Type::ListOf(_)
+            // `Error`/`ErrorLoc`/`Scalar` are comparable.
+            Type::User(name) if is_comparable_builtin_nominal(name) => true,
+            // `AttributedString` is NOT: it wraps a list overlay (like `List`),
+            // so it is never a `Map` key or `Set` element (plan-89-A). It needs
+            // its own arm — the general `User` arm below answers `true` for any
+            // name it cannot resolve, so merely leaving it out would flip the
+            // verdict (caught by `attributed_string_not_comparable`).
+            Type::User(name) if name == "AttributedString" => false,
+            Type::ListOf(_)
             | Type::SetOf(_)
             | Type::MapOf(_, _)
             | Type::Func(..)
