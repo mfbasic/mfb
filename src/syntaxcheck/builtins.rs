@@ -783,14 +783,18 @@ impl<'a> SyntaxChecker<'a> {
                     let collection_type =
                         self.infer_expression(file, &arguments[0], locals, line, ExprMode::Read);
                     let collection_type_name = self.type_name(&collection_type);
+                    // plan-105-B: read the element off the canonical grammar rather
+                    // than re-implementing the `List OF ` prefix rule here.
                     let predicate_type =
-                        collection_type_name
-                            .strip_prefix("List OF ")
-                            .and_then(|element| {
+                        match crate::types::ParameterType::parse(&collection_type_name) {
+                            crate::types::ParameterType::ListOf(element) => {
                                 crate::codegen::builtins::general::filter_predicate_type(
-                                    predicate, element,
+                                    predicate,
+                                    &element.name(),
                                 )
-                            });
+                            }
+                            _ => None,
+                        };
 
                     let Some(predicate_type) = predicate_type else {
                         self.report(

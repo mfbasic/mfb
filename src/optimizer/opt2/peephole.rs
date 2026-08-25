@@ -1,9 +1,9 @@
 //! Block-local store-to-load forwarding (plan-01-float-codegen Phase 3a).
 //!
-//! The bump-and-reset register model spills every value to a stack slot between
-//! statements and defensively spills an operand to the stack before lowering the
-//! next one (see `emit_float_binary` / `lower_comparison_binary`). That leaves
-//! runs like
+//! The legacy bump-and-reset register model (since removed) spilled every value
+//! to a stack slot between statements and defensively spilled an operand to the
+//! stack before lowering the next one (see `emit_float_binary` /
+//! `lower_comparison_binary`, which retain that shape). That leaves runs like
 //!
 //! ```text
 //!   str x10, [sp, #0xa8]      ; spill a*b

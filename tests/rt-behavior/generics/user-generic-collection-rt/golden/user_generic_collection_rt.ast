@@ -1,0 +1,113 @@
+{
+  "project": "user_generic_collection_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "collections", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Stack",
+      "templateParams": ["T"],
+      "line": 13,
+      "fields": [
+      { "visibility": null, "name": "items", "type": "List OF T", "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "push",
+      "templateParams": ["T"],
+      "line": 17,
+      "params": [
+      { "name": "value", "type": "T", "default": null, "line": 17 },
+      { "name": "s", "type": "Stack OF T", "default": null, "line": 17 }
+      ],
+      "returnType": "Stack OF T",
+      "body": [
+      { "kind": "return", "value": { "kind": "with", "target": { "kind": "identifier", "value": "s" }, "updates": [{ "field": "items", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "items" }, { "kind": "identifier", "value": "value" }] } }] }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "depth",
+      "templateParams": ["T"],
+      "line": 21,
+      "params": [
+      { "name": "s", "type": "Stack OF T", "default": null, "line": 21 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "items" }] }, "line": 22 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "peek",
+      "templateParams": ["T"],
+      "line": 25,
+      "params": [
+      { "name": "fallback", "type": "T", "default": null, "line": 25 },
+      { "name": "s", "type": "Stack OF T", "default": null, "line": 25 }
+      ],
+      "returnType": "T",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "items" }] }, "right": { "kind": "number", "value": "0" } },
+        "line": 26,
+        "then": [
+        { "kind": "return", "value": { "kind": "identifier", "value": "fallback" }, "line": 27 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "items" }, { "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "items" }] }, "right": { "kind": "number", "value": "1" } }] }, "line": 29 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 32,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "ints", "type": "Stack OF Integer", "value": { "kind": "constructor", "type": "Stack", "arguments": [{ "kind": "list", "values": [] }] }, "line": 33 },
+      { "kind": "assignment", "name": "ints", "value": { "kind": "call", "callee": "push", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "identifier", "value": "ints" }] }, "line": 34 },
+      { "kind": "assignment", "name": "ints", "value": { "kind": "call", "callee": "push", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "identifier", "value": "ints" }] }, "line": 35 },
+      { "kind": "assignment", "name": "ints", "value": { "kind": "call", "callee": "push", "arguments": [{ "kind": "number", "value": "3" }, { "kind": "identifier", "value": "ints" }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "int-depth=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "depth", "arguments": [{ "kind": "identifier", "value": "ints" }] }] } }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "int-peek=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "peek", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "identifier", "value": "ints" }] }] } }] }, "line": 38 },
+      { "kind": "binding", "mutable": true, "name": "strs", "type": "Stack OF String", "value": { "kind": "constructor", "type": "Stack", "arguments": [{ "kind": "list", "values": [] }] }, "line": 40 },
+      { "kind": "assignment", "name": "strs", "value": { "kind": "call", "callee": "push", "arguments": [{ "kind": "string", "value": "a" }, { "kind": "identifier", "value": "strs" }] }, "line": 41 },
+      { "kind": "assignment", "name": "strs", "value": { "kind": "call", "callee": "push", "arguments": [{ "kind": "string", "value": "b" }, { "kind": "identifier", "value": "strs" }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "str-depth=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "depth", "arguments": [{ "kind": "identifier", "value": "strs" }] }] } }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "str-peek=" }, "right": { "kind": "call", "callee": "peek", "arguments": [{ "kind": "string", "value": "" }, { "kind": "identifier", "value": "strs" }] } }] }, "line": 44 },
+      { "kind": "binding", "mutable": true, "name": "rows", "type": "Stack OF List OF Integer", "value": { "kind": "constructor", "type": "Stack", "arguments": [{ "kind": "list", "values": [] }] }, "line": 48 },
+      { "kind": "assignment", "name": "rows", "value": { "kind": "call", "callee": "push", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, { "kind": "identifier", "value": "rows" }] }, "line": 49 },
+      { "kind": "assignment", "name": "rows", "value": { "kind": "call", "callee": "push", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "5" }] }, { "kind": "identifier", "value": "rows" }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rows-depth=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "depth", "arguments": [{ "kind": "identifier", "value": "rows" }] }] } }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rows-peek-count=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "peek", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "0" }] }, { "kind": "identifier", "value": "rows" }] }] }] } }] }, "line": 57 },
+      { "kind": "binding", "mutable": false, "name": "empty", "type": "Stack OF Integer", "value": { "kind": "constructor", "type": "Stack", "arguments": [{ "kind": "list", "values": [] }] }, "line": 60 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "empty-depth=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "depth", "arguments": [{ "kind": "identifier", "value": "empty" }] }] } }] }, "line": 61 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "empty-peek=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "peek", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, { "kind": "identifier", "value": "empty" }] }] } }] }, "line": 62 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 63 }
+      ]
+    }
+    ]
+  }
+  ]
+}

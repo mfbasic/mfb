@@ -338,7 +338,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(&scratch10, &scratch10, 1));
         self.emit(abi::branch(&copy_loop));
         self.emit(abi::label(&copy_done));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
@@ -612,7 +612,7 @@ impl CodeBuilder<'_> {
             self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label, &element_type);
         }
         self.emit(abi::label(&done));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(
             &result,
             abi::stack_pointer(),

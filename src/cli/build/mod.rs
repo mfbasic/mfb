@@ -123,9 +123,6 @@ pub(crate) struct BuildOptions {
     /// that changes a build's *validity* by target, which is worse than one that
     /// changes nothing.
     pub(crate) app_debug: bool,
-    /// Register-allocation strategy selected by `-regalloc <name>` (plan-03
-    /// §4.2). Defaults to the backend default.
-    pub(crate) regalloc: crate::codegen::engine::regalloc::RegallocKind,
     /// Optimization scale level selected by `-O<N>` / `--optimize <N>`
     /// (plan-100). Defaults to `-O1`, at which the shipping Level-1 passes run
     /// -- so the flagless build is today's exact codegen. `-O0` turns the dial
@@ -194,9 +191,6 @@ impl BuildOutput {
 }
 
 pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
-    // Record the register-allocation strategy for the native backend to read
-    // during lowering (plan-03 §4.2).
-    crate::codegen::engine::regalloc::set_strategy(options.regalloc);
     // Record the optimization level for the gated passes to read at their
     // seams (plan-100 §2). Default `-O1` runs the Level-1 rows, as today.
     crate::optimizer::set_opt_level(options.opt);
@@ -425,31 +419,25 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         .iter()
         .map(|(type_name, _)| type_name.as_str())
         .collect();
-    let (all_external_types, all_external_params) =
-        external_package_function_types(&options.location, &manifest);
-    // The map's value is a whole signature (`FUNC(String) AS SoundFile STATE
-    // FileInfo`), so the return type is the tail after the last ` AS `.
-    let returns_imported_resource = |signature: &String| {
-        let returns = signature
-            .rsplit_once(" AS ")
-            .map(|(_, returns)| returns)
-            .unwrap_or(signature.as_str());
-        imported_resource_types.contains(crate::codegen::resource::base_resource_name(returns))
+    let all_external_signatures = external_package_function_types(&options.location, &manifest);
+    // plan-105-A: the signature arrives TYPED, so the return type is a field —
+    // not the tail after the last ` AS ` of a string the driver formatted itself.
+    // A stateful resource return (`SoundFile STATE FileInfo`) carries its STATE
+    // clause inside the nominal leaf, which `base_resource_name` strips.
+    let returns_imported_resource = |signature: &ir::ExternalSignature| {
+        imported_resource_types.contains(crate::codegen::resource::base_resource_name(
+            &signature.returns.name(),
+        ))
     };
-    let source_external_types: HashMap<String, String> = all_external_types
-        .into_iter()
-        .filter(|(_, signature)| returns_imported_resource(signature))
-        .collect();
-    let source_external_params: HashMap<String, Vec<ir::ExternalFunctionParam>> =
-        all_external_params
+    let source_external_signatures: HashMap<String, ir::ExternalSignature> =
+        all_external_signatures
             .into_iter()
-            .filter(|(name, _)| source_external_types.contains_key(name))
+            .filter(|(_, signature)| returns_imported_resource(signature))
             .collect();
     let source_ir = ir::lower_augmented_project(
         &concrete_hir,
         entry.clone(),
-        &source_external_types,
-        &source_external_params,
+        &source_external_signatures,
         &imported_type_defs(&options.location, &manifest),
     );
     let verify_diagnostics =
@@ -515,15 +503,14 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 installed_package_files(&options.location, &manifest).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
-            let (external_functions, external_params) =
-                external_package_function_types_from_files(&packages).map_err(|err| {
+            let external_signatures = external_package_function_types_from_files(&packages)
+                .map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
             let mut ir = ir::lower_augmented_project(
                 &concrete_hir,
                 entry.clone(),
-                &external_functions,
-                &external_params,
+                &external_signatures,
                 &imported_type_defs_from_files(&packages),
             );
             // plan-46-B §4.3: an executable that declares its *own* `LINK` block
@@ -732,15 +719,14 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 installed_package_files(&options.location, &manifest).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
-            let (external_functions, external_params) =
-                external_package_function_types_from_files(&packages).map_err(|err| {
+            let external_signatures = external_package_function_types_from_files(&packages)
+                .map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
             let mut ir = ir::lower_augmented_project(
                 &concrete_hir,
                 entry.clone(),
-                &external_functions,
-                &external_params,
+                &external_signatures,
                 &imported_type_defs_from_files(&packages),
             );
             // Collect documentation from the pre-monomorphization AST: it keeps
@@ -807,13 +793,12 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 continue;
             }
             BuildOutput::Ir => {
-                let (external_functions, external_params) =
+                let external_signatures =
                     external_package_function_types(&options.location, &manifest);
                 let ir = ir::lower_augmented_project(
                     &concrete_hir,
                     entry.clone(),
-                    &external_functions,
-                    &external_params,
+                    &external_signatures,
                     &imported_type_defs(&options.location, &manifest),
                 );
                 let ir_path = ir::write_ir(&options.location, &ir).map_err(|err| {
@@ -848,15 +833,14 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         }
         let packages = packages_cache.as_ref().expect("cached packages");
         if ir_cache.is_none() {
-            let (external_functions, external_params) =
-                external_package_function_types_from_files(packages).map_err(|err| {
+            let external_signatures = external_package_function_types_from_files(packages)
+                .map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
             let mut lowered = ir::lower_augmented_project(
                 &concrete_hir,
                 entry.clone(),
-                &external_functions,
-                &external_params,
+                &external_signatures,
                 &imported_type_defs_from_files(packages),
             );
             // The debug emitters below run the same NIR/plan/code pipeline as a
@@ -1022,7 +1006,7 @@ mod tests {
         assert_eq!(joined.target.name(), "linux-x86_64");
     }
 
-    /// plan-42: `--target`/`--regalloc`/`--app` are the documented spellings; the
+    /// plan-42: `--target`/`--app` are the documented spellings; the
     /// single-dash forms (space and `=`) stay working aliases that parse to the
     /// same options.
     #[test]
@@ -1037,19 +1021,6 @@ mod tests {
             let long = parse_build_options(long).expect("--target form");
             let short = parse_build_options(short).expect("-target form");
             assert_eq!(long.target.name(), short.target.name());
-        }
-
-        for (long, short) in [
-            (s(&["--regalloc", "bump"]), s(&["-regalloc", "bump"])),
-            (s(&["--regalloc=bump"]), s(&["-regalloc=bump"])),
-        ] {
-            let long = parse_build_options(long).expect("--regalloc form");
-            let short = parse_build_options(short).expect("-regalloc form");
-            assert_eq!(long.regalloc, short.regalloc);
-            assert_eq!(
-                long.regalloc,
-                crate::codegen::engine::regalloc::parse_kind("bump").expect("bump")
-            );
         }
 
         assert!(
@@ -1116,14 +1087,10 @@ mod tests {
             assert_eq!(long.target.name(), short.target.name());
         }
 
-        for (long, short) in [
-            (s(&["--regalloc", "bump"]), s(&["-regalloc", "bump"])),
-            (s(&["--regalloc=bump"]), s(&["-regalloc=bump"])),
-        ] {
-            let long = parse_test_options(long).expect("--regalloc form");
-            let short = parse_test_options(short).expect("-regalloc form");
-            assert_eq!(long.regalloc, short.regalloc);
-        }
+        // `--regalloc` was removed with the bump oracle; both spellings now
+        // land in the unknown-option arm like any other retired flag.
+        assert!(parse_test_options(s(&["--regalloc", "bump"])).is_err());
+        assert!(parse_test_options(s(&["-regalloc=bump"])).is_err());
 
         assert!(parse_test_options(s(&["--app"])).is_err());
         assert!(parse_test_options(s(&["-app"])).is_err());

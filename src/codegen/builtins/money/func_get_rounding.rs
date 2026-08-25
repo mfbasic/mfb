@@ -81,7 +81,7 @@ pub(crate) fn lower_money_get_rounding(
     _args: &[ValueResult],
     _ctx: &AbiCtx,
 ) -> Result<ValueResult, String> {
-    let result = builder.allocate_register()?;
+    let result = builder.allocate_register();
     builder.emit(abi::load_u64(
         result,
         ARENA_STATE_REGISTER,

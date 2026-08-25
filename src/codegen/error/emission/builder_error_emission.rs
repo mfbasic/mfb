@@ -123,7 +123,7 @@ impl CodeBuilder<'_> {
         code: &str,
         message: &str,
     ) -> Result<(), String> {
-        let code_register = self.allocate_register()?;
+        let code_register = self.allocate_register();
         self.emit(abi::move_immediate(&code_register, "Integer", code));
         self.emit_error_register_return(&code_register, message)
     }
@@ -359,7 +359,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&src_fill_done));
         self.emit(abi::label(&src_null_fill));
         self.emit(abi::label(&src_fill_done));
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
     }
@@ -633,7 +633,7 @@ impl CodeBuilder<'_> {
         let scratch9 = self.temporary_vreg();
         let value_register = if let Some(value) = value {
             if value.type_ == ParameterType::Nothing {
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 self.emit(abi::move_immediate(&register, "Integer", "0"));
                 Operand::from(register.render())
             } else if !already_standalone
@@ -652,11 +652,11 @@ impl CodeBuilder<'_> {
                 value.location.clone()
             }
         } else {
-            let register = self.allocate_register()?;
+            let register = self.allocate_register();
             self.emit(abi::move_immediate(&register, "Integer", "0"));
             Operand::from(register.render())
         };
-        let message_register = self.allocate_register()?;
+        let message_register = self.allocate_register();
         self.emit(abi::move_immediate(&message_register, "Integer", "0"));
         self.emit(abi::store_u64(
             &value_register,
@@ -919,9 +919,9 @@ impl CodeBuilder<'_> {
                 error.type_
             ));
         }
-        let code_register = self.allocate_register()?;
-        let message_register = self.allocate_register()?;
-        let source_register = self.allocate_register()?;
+        let code_register = self.allocate_register();
+        let message_register = self.allocate_register();
+        let source_register = self.allocate_register();
         self.emit_load_error_fields(
             &error.location,
             &code_register,
@@ -955,9 +955,9 @@ impl CodeBuilder<'_> {
                 error.type_
             ));
         }
-        let code_register = self.allocate_register()?;
-        let message_register = self.allocate_register()?;
-        let source_register = self.allocate_register()?;
+        let code_register = self.allocate_register();
+        let message_register = self.allocate_register();
+        let source_register = self.allocate_register();
         self.emit_load_error_fields(
             &error.location,
             &code_register,

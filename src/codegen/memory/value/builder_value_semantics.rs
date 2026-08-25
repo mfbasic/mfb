@@ -21,7 +21,7 @@ impl CodeBuilder<'_> {
         type_: &str,
     ) -> Result<String, String> {
         if self.is_resource_union_type(type_) {
-            let record = self.allocate_register()?;
+            let record = self.allocate_register();
             self.emit(abi::load_u64(&record, value_ptr, 8));
             Ok(record.render())
         } else {
@@ -42,10 +42,10 @@ impl CodeBuilder<'_> {
         state_type: &str,
         resource_type: &str,
     ) -> Result<(), String> {
-        let block = self.allocate_register()?;
+        let block = self.allocate_register();
         self.emit(abi::load_u64(&block, abi::stack_pointer(), resource_slot));
         let ptr = self.emit_resource_record_ptr(&block, resource_type)?;
-        let current = self.allocate_register()?;
+        let current = self.allocate_register();
         self.emit(abi::load_u64(&current, &ptr, RESOURCE_OFFSET_STATE));
         let done = self.label("resource_state_init_done");
         self.emit(abi::compare_immediate(&current, "0"));
@@ -57,10 +57,10 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             default_slot,
         ));
-        let block2 = self.allocate_register()?;
+        let block2 = self.allocate_register();
         self.emit(abi::load_u64(&block2, abi::stack_pointer(), resource_slot));
         let ptr2 = self.emit_resource_record_ptr(&block2, resource_type)?;
-        let value = self.allocate_register()?;
+        let value = self.allocate_register();
         self.emit(abi::load_u64(&value, abi::stack_pointer(), default_slot));
         self.emit(abi::store_u64(&value, &ptr2, RESOURCE_OFFSET_STATE));
         self.emit(abi::label(&done));
@@ -76,7 +76,7 @@ impl CodeBuilder<'_> {
     /// caller attaches STATE (a concrete resource IS this record; a resource
     /// union wraps it at `+8`), so this returns the bare record register.
     fn emit_closed_resource_record(&mut self) -> Result<VirtualRegister, String> {
-        let record = self.allocate_register()?;
+        let record = self.allocate_register();
         self.emit(abi::move_immediate(
             abi::return_register(),
             "Integer",
@@ -100,7 +100,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::store_u64(abi::ZERO, &record, offset));
             offset += 8;
         }
-        let one = self.allocate_register()?;
+        let one = self.allocate_register();
         self.emit(abi::move_immediate(&one, "Integer", "1"));
         // The single canonical closed-flag offset, shared by every built-in
         // resource record (enforced by the compile-time asserts beside each
@@ -128,7 +128,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         match type_ {
             "Nothing" => {
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 self.emit(abi::move_immediate(&register, "Integer", "0"));
                 Ok(ValueResult {
                     origin: None,
@@ -138,7 +138,7 @@ impl CodeBuilder<'_> {
                 })
             }
             "Boolean" => {
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 self.emit(abi::move_immediate(&register, "Boolean", "0"));
                 Ok(ValueResult {
                     origin: None,
@@ -148,7 +148,7 @@ impl CodeBuilder<'_> {
                 })
             }
             "Byte" | "Integer" | "Float" | "Fixed" | "Money" | "Scalar" => {
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 self.emit(abi::move_immediate(&register, type_, "0"));
                 Ok(ValueResult {
                     origin: None,
@@ -190,7 +190,7 @@ impl CodeBuilder<'_> {
                 let record_slot = self.allocate_stack_object("default_union_record", 8);
                 self.emit(abi::store_u64(&record, abi::stack_pointer(), record_slot));
                 // The union block: `{tag@0, record-ptr@8}`, 16 bytes.
-                let block = self.allocate_register()?;
+                let block = self.allocate_register();
                 self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
                 self.emit(abi::move_immediate(abi::c_arg(1), "Integer", "8"));
                 self.emit_arena_alloc_call();
@@ -205,14 +205,14 @@ impl CodeBuilder<'_> {
                 let (tag, _) = variants.first().ok_or_else(|| {
                     format!("resource union '{type_}' has no variants for a default value")
                 })?;
-                let tag_register = self.allocate_register()?;
+                let tag_register = self.allocate_register();
                 self.emit(abi::move_immediate(
                     &tag_register,
                     "UnionTag",
                     &tag.to_string(),
                 ));
                 self.emit(abi::store_u64(&tag_register, &block, 0));
-                let record_reg = self.allocate_register()?;
+                let record_reg = self.allocate_register();
                 self.emit(abi::load_u64(
                     &record_reg,
                     abi::stack_pointer(),
@@ -428,7 +428,7 @@ impl CodeBuilder<'_> {
                 // For a concrete resource the value already IS the record.
                 let record = self
                     .emit_resource_record_ptr(&target_value.location, &target_value.type_.name())?;
-                let register = self.allocate_register()?;
+                let register = self.allocate_register();
                 self.emit(abi::load_u64(&register, &record, RESOURCE_OFFSET_STATE));
                 return Ok(ValueResult {
                     origin: None,
@@ -522,7 +522,7 @@ impl CodeBuilder<'_> {
                 target_value.type_
             ));
         };
-        let register = self.allocate_register()?;
+        let register = self.allocate_register();
         self.emit(abi::load_u64(
             &register,
             &target_value.location,
@@ -709,7 +709,7 @@ impl CodeBuilder<'_> {
         // whose result/argument registers differ (x86-64), the loop back-edges
         // break the result-vs-argument dataflow, so a later consumer would
         // arg-map the value. A neutral register carries it safely.
-        let result_ptr = self.allocate_register()?;
+        let result_ptr = self.allocate_register();
         self.emit(abi::move_register(&result_ptr, abi::mfb_return(1)));
         self.emit(abi::load_u64(left_cur, abi::stack_pointer(), left_slot));
         self.emit(abi::load_u64(right_cur, abi::stack_pointer(), right_slot));
@@ -763,7 +763,7 @@ impl CodeBuilder<'_> {
 
     pub(crate) fn load_global_address(&mut self, name: &str) -> Result<String, String> {
         let global = self.global_value(name)?;
-        let register = self.allocate_register()?;
+        let register = self.allocate_register();
         self.emit(abi::add_immediate(
             &register,
             ARENA_STATE_REGISTER,
@@ -1163,7 +1163,7 @@ impl CodeBuilder<'_> {
                     .ok_or_else(|| {
                         format!("native code union variant '{variant}' does not resolve")
                     })?;
-                let tag_register = self.allocate_register()?;
+                let tag_register = self.allocate_register();
                 self.emit(abi::load_u64(&tag_register, &matched.location, 0));
                 self.emit(abi::compare_immediate(&tag_register, &tag.to_string()));
                 self.emit(abi::branch_eq(label));

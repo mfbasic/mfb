@@ -5,7 +5,7 @@
 //! - `types.rs` — structural/nominal types: the project and function containers
 //!   (`IrProject`, `IrFunction`, `EntryPoint`) and the declared entities
 //!   (`IrType`, `IrBinding`, `IrField`, `IrVariant`, `IrEnumMember`, `IrParam`,
-//!   `IrSourceLoc`, `IrRecordUpdate`, `ExternalFunctionParam`).
+//!   `IrSourceLoc`, `IrRecordUpdate`, `ExternalFunctionParam`, `ExternalSignature`).
 //! - `op.rs` — `IrOp`, the statement/operation nodes.
 //! - `value.rs` — `IrValue`, `IrMatchCase`, `IrMatchPattern`: value and pattern
 //!   nodes.
@@ -94,7 +94,7 @@ pub(crate) use types::{
     EntryPoint, IrBinding, IrEnumMember, IrField, IrFunction, IrParam, IrRecordUpdate, IrSourceLoc,
     IrType, IrVariant,
 };
-pub use types::{ExternalFunctionParam, IrProject};
+pub use types::{ExternalFunctionParam, ExternalSignature, IrProject};
 pub(crate) use value::{IrMatchCase, IrMatchPattern, IrValue};
 pub use verify::check as verify_semantics;
 pub use verify::collect_source_diagnostics as verify_source_diagnostics;

@@ -250,7 +250,7 @@ impl CodeBuilder<'_> {
         label: &str,
         result_slot: usize,
     ) -> Result<ValueResult, String> {
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,

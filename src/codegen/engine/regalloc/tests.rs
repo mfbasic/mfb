@@ -11,45 +11,6 @@ fn vreg_roundtrips() {
     assert_eq!(parse_vreg("loop_3"), None);
 }
 
-#[test]
-fn parse_kind_known_and_unknown() {
-    assert_eq!(parse_kind("bump"), Ok(RegallocKind::BumpAndReset));
-    assert!(parse_kind("graph-coloring").is_err());
-}
-
-#[test]
-fn bump_rewrite_substitutes_eager_physicals() {
-    // dst = %v0, lhs = %v1, rhs = x9 (a hardcoded physical), offset untouched.
-    let mut instructions = vec![
-        CodeInstruction::new("add")
-            .field("dst", &vreg_name(0))
-            .field("lhs", &vreg_name(1))
-            .field("rhs", "x9"),
-        CodeInstruction::new("ldr_u64")
-            .field("dst", &vreg_name(1))
-            .field("base", "sp")
-            .field("offset", "16"),
-    ];
-    let eager = vec!["x8".to_string(), "x10".to_string()];
-    let outcome = allocate(
-        RegallocKind::BumpAndReset,
-        &mut instructions,
-        &eager,
-        &[],
-        &Aarch64RegisterModel,
-        0,
-        &[],
-    );
-    assert_eq!(instructions[0].get("dst").as_deref(), Some("x8"));
-    assert_eq!(instructions[0].get("lhs").as_deref(), Some("x10"));
-    assert_eq!(instructions[0].get("rhs").as_deref(), Some("x9"));
-    assert_eq!(instructions[1].get("dst").as_deref(), Some("x10"));
-    assert_eq!(instructions[1].get("base").as_deref(), Some("sp"));
-    assert_eq!(instructions[1].get("offset").as_deref(), Some("16"));
-    assert!(outcome.spill_slots.is_empty());
-    assert!(outcome.extra_callee_saved.is_empty());
-}
-
 /// A value live across a call must be colored to a callee-saved register the
 /// call preserves (not a caller-saved one the call clobbers). A generic
 /// (PCS-compliant) call preserves `x19`–`x28`, so the value stays in a register
@@ -70,15 +31,7 @@ fn linear_scan_keeps_value_across_call_in_callee_saved() {
             .field("offset", "0"),
         CodeInstruction::new("ret"),
     ];
-    let outcome = allocate(
-        RegallocKind::LinearScan,
-        &mut instructions,
-        &[String::new()],
-        &[],
-        &Aarch64RegisterModel,
-        64,
-        &[],
-    );
+    let outcome = allocate(&mut instructions, &Aarch64RegisterModel, 64, &[]);
     // No spill, and the chosen register is callee-saved (the call preserves it).
     assert!(outcome.spill_slots.is_empty());
     let colored = instructions[1].get("dst").unwrap().to_string();
@@ -116,15 +69,7 @@ fn linear_scan_spills_integer_across_arena_alloc() {
             .field("offset", "0"),
         CodeInstruction::new("ret"),
     ];
-    let outcome = allocate(
-        RegallocKind::LinearScan,
-        &mut instructions,
-        &[String::new()],
-        &[],
-        &Aarch64RegisterModel,
-        64,
-        &[],
-    );
+    let outcome = allocate(&mut instructions, &Aarch64RegisterModel, 64, &[]);
     assert_eq!(outcome.spill_slots, vec![64]);
     // No sentinel survives anywhere in the rewritten stream.
     for instruction in &instructions {
@@ -191,15 +136,7 @@ fn linear_scan_records_callee_saved_reload_scratch_int() {
     instructions.push(CodeInstruction::new("ret"));
 
     // `LinearScan` ignores the eager (bump) assignment.
-    let outcome = allocate(
-        RegallocKind::LinearScan,
-        &mut instructions,
-        &[],
-        &[],
-        &Aarch64RegisterModel,
-        64,
-        &[],
-    );
+    let outcome = allocate(&mut instructions, &Aarch64RegisterModel, 64, &[]);
     // v0 spilled (a slot was allocated), and the callee-saved register commandeered
     // as its reload scratch is in the frame's save set.
     assert!(
@@ -265,15 +202,7 @@ fn linear_scan_records_callee_saved_reload_scratch_fp() {
     instructions.push(CodeInstruction::new("ret"));
 
     // `LinearScan` ignores the eager (bump) assignment.
-    let outcome = allocate(
-        RegallocKind::LinearScan,
-        &mut instructions,
-        &[],
-        &[],
-        &Aarch64RegisterModel,
-        0,
-        &[],
-    );
+    let outcome = allocate(&mut instructions, &Aarch64RegisterModel, 0, &[]);
     assert!(
         !outcome.spill_slots.is_empty(),
         "f200 must spill under full FP pressure"
@@ -301,15 +230,7 @@ fn linear_scan_colors_short_range_in_register() {
             .field("rhs", &vreg_name(0)),
         CodeInstruction::new("ret"),
     ];
-    let outcome = allocate(
-        RegallocKind::LinearScan,
-        &mut instructions,
-        &[String::new()],
-        &[],
-        &Aarch64RegisterModel,
-        0,
-        &[],
-    );
+    let outcome = allocate(&mut instructions, &Aarch64RegisterModel, 0, &[]);
     assert!(outcome.spill_slots.is_empty());
     // v0 colored to some allocatable physical; both operands match.
     let colored = instructions[1].get("dst").unwrap().to_string();
@@ -346,15 +267,7 @@ fn linear_scan_avoids_live_fp_scratch_token_realization() {
             .field("src", &fp_vreg_name(0)),
         CodeInstruction::new("ret"),
     ];
-    let outcome = allocate(
-        RegallocKind::LinearScan,
-        &mut instructions,
-        &[],
-        &[],
-        &Aarch64RegisterModel,
-        0,
-        &[],
-    );
+    let outcome = allocate(&mut instructions, &Aarch64RegisterModel, 0, &[]);
     assert!(
         outcome.spill_slots.is_empty(),
         "no FP pressure — %f0 must color"
@@ -559,15 +472,7 @@ fn x86_fp_values_live_across_a_call_avoid_the_volatile_high_xmm() {
     }
     instructions.push(CodeInstruction::new("ret"));
 
-    allocate(
-        RegallocKind::LinearScan,
-        &mut instructions,
-        &[],
-        &[],
-        &X86_64RegisterModel,
-        0,
-        &[],
-    );
+    allocate(&mut instructions, &X86_64RegisterModel, 0, &[]);
 
     let volatile_high: Vec<String> = (8..=14).map(|n| format!("xmm{n}")).collect();
     for (index, instruction) in instructions.iter().enumerate() {
@@ -603,15 +508,7 @@ fn linear_scan_writes_typed_phys_operands() {
             .field("rhs", &vreg_name(0)),
         CodeInstruction::new("ret"),
     ];
-    allocate(
-        RegallocKind::LinearScan,
-        &mut instructions,
-        &[String::new()],
-        &[],
-        &Aarch64RegisterModel,
-        0,
-        &[],
-    );
+    allocate(&mut instructions, &Aarch64RegisterModel, 0, &[]);
     // v0's def is now a typed Phys of the Int class.
     let dst = instructions[1].operand("dst").expect("dst operand");
     match dst {

@@ -337,9 +337,9 @@ impl CodeBuilder<'_> {
         text: String,
     ) -> Result<ValueResult, String> {
         self.reset_temporary_registers();
-        let in_ptr = self.allocate_register()?;
+        let in_ptr = self.allocate_register();
         self.emit(abi::move_register(&in_ptr, &input.location));
-        let count = self.allocate_register()?;
+        let count = self.allocate_register();
         self.emit(abi::load_u64(&count, &in_ptr, COLLECTION_OFFSET_COUNT));
         let in_slot = self.allocate_stack_object("simd_fl_in", 8);
         let count_slot = self.allocate_stack_object("simd_fl_count", 8);
@@ -349,15 +349,15 @@ impl CodeBuilder<'_> {
         let result_base =
             self.emit_alloc_result_list(&count, &COLLECTION_TYPE_FLOAT.to_string(), "simd_fl")?;
 
-        let in_ptr = self.allocate_register()?;
+        let in_ptr = self.allocate_register();
         self.emit(abi::load_u64(&in_ptr, abi::stack_pointer(), in_slot));
-        let count = self.allocate_register()?;
+        let count = self.allocate_register();
         self.emit(abi::load_u64(&count, abi::stack_pointer(), count_slot));
-        let in_data = self.allocate_register()?;
+        let in_data = self.allocate_register();
         self.emit_collection_data_pointer_for(&in_data, &in_ptr, "Float");
-        let out_data = self.allocate_register()?;
+        let out_data = self.allocate_register();
         self.emit_collection_data_pointer_for(&out_data, &result_base, "Float");
-        let pairs = self.allocate_register()?;
+        let pairs = self.allocate_register();
         self.emit(abi::shift_right_immediate(&pairs, &count, 1));
 
         // v22 = accumulated error mask (valid even when the loop never runs).
@@ -500,7 +500,7 @@ impl CodeBuilder<'_> {
         for err in kernel.errors() {
             self.emit_float_error_reduce(*err, k, true)?;
         }
-        let dst = self.allocate_register()?;
+        let dst = self.allocate_register();
         self.emit(abi::vector_extract_to_x(&dst, abi::VEC_SCRATCH[0], 0));
         Ok(ValueResult {
             origin: None,
@@ -1927,9 +1927,8 @@ impl CodeBuilder<'_> {
                 return reg.clone();
             }
         }
-        // LinearScan's `allocate_register` is infallible (it never overflows a
-        // pool — it spills); an exhaustion under `-regalloc bump` is recorded and
-        // surfaced by `run_register_allocation` rather than panicking (bug-70).
+        // `allocate_register` is infallible: it never overflows a pool — the
+        // liveness-driven coloring spills under pressure.
         let reg = self.temporary_vreg().render();
         self.math_pool_base_vreg = Some((self.current_symbol.clone(), reg.clone()));
         reg
@@ -2009,12 +2008,12 @@ impl CodeBuilder<'_> {
         text: String,
     ) -> Result<ValueResult, String> {
         self.reset_temporary_registers();
-        let left_ptr = self.allocate_register()?;
+        let left_ptr = self.allocate_register();
         self.emit(abi::load_u64(&left_ptr, abi::stack_pointer(), left_slot));
-        let right_ptr = self.allocate_register()?;
+        let right_ptr = self.allocate_register();
         self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
-        let count = self.allocate_register()?;
-        let rcount = self.allocate_register()?;
+        let count = self.allocate_register();
+        let rcount = self.allocate_register();
         self.emit(abi::load_u64(&count, &left_ptr, COLLECTION_OFFSET_COUNT));
         self.emit(abi::load_u64(&rcount, &right_ptr, COLLECTION_OFFSET_COUNT));
         let lengths_ok = self.label("simd_flb_len_ok");
@@ -2028,19 +2027,19 @@ impl CodeBuilder<'_> {
         let result_base =
             self.emit_alloc_result_list(&count, &COLLECTION_TYPE_FLOAT.to_string(), "simd_flb")?;
 
-        let left_ptr = self.allocate_register()?;
+        let left_ptr = self.allocate_register();
         self.emit(abi::load_u64(&left_ptr, abi::stack_pointer(), left_slot));
-        let right_ptr = self.allocate_register()?;
+        let right_ptr = self.allocate_register();
         self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
-        let count = self.allocate_register()?;
+        let count = self.allocate_register();
         self.emit(abi::load_u64(&count, abi::stack_pointer(), count_slot));
-        let left_data = self.allocate_register()?;
+        let left_data = self.allocate_register();
         self.emit_collection_data_pointer_for(&left_data, &left_ptr, "Float");
-        let right_data = self.allocate_register()?;
+        let right_data = self.allocate_register();
         self.emit_collection_data_pointer_for(&right_data, &right_ptr, "Float");
-        let out_data = self.allocate_register()?;
+        let out_data = self.allocate_register();
         self.emit_collection_data_pointer_for(&out_data, &result_base, "Float");
-        let pairs = self.allocate_register()?;
+        let pairs = self.allocate_register();
         self.emit(abi::shift_right_immediate(&pairs, &count, 1));
         let k = &self.float_kernel_regs();
         self.emit(abi::vector_eor(&k.v22, &k.v22, &k.v22));
@@ -2135,7 +2134,7 @@ impl CodeBuilder<'_> {
         for err in kernel.errors() {
             self.emit_float_error_reduce(*err, k, true)?;
         }
-        let dst = self.allocate_register()?;
+        let dst = self.allocate_register();
         self.emit(abi::vector_extract_to_x(&dst, abi::VEC_SCRATCH[0], 0));
         Ok(ValueResult {
             origin: None,

@@ -47,10 +47,9 @@ pub(crate) mod stats;
 /// relaxation) -- and is never reached by escalating the dial, not even at
 /// `-O5`/"max".
 ///
-/// Unlike [`crate::codegen::engine::regalloc::RegallocKind`], whose default is
-/// the first-listed strategy, the default here is deliberately **non-zero**:
-/// today's shipping codegen already runs the Level-1 passes, so `-O1` is the
-/// default and `-O0` is the new "optimizations off" path.
+/// The default here is deliberately **non-zero**: today's shipping codegen
+/// already runs the Level-1 passes, so `-O1` is the default and `-O0` is the
+/// new "optimizations off" path.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub(crate) struct OptLevel(pub(crate) u8);
 

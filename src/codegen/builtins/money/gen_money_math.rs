@@ -50,11 +50,11 @@ impl CodeBuilder<'_> {
         let keep = self.label("money_round_keep");
 
         // abs_rem = |remainder|
-        let abs_rem = self.allocate_register()?;
+        let abs_rem = self.allocate_register();
         self.emit(abi::move_register(&abs_rem, remainder));
         self.emit_abs_i64(&abs_rem)?;
         // half = |div| - |rem|  (in [1, |div|]); tie when |rem| == half.
-        let half = self.allocate_register()?;
+        let half = self.allocate_register();
         self.emit(abi::subtract_registers(&half, abs_divisor, &abs_rem));
 
         // Default: keep the truncated quotient.
@@ -64,7 +64,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_gt(&round_up)); // |rem| > half  -> past the half, round away
 
         // Exact tie (|rem| == half): Commercial rounds away, Banker rounds to even.
-        let mode = self.allocate_register()?;
+        let mode = self.allocate_register();
         self.emit(abi::load_u64(
             &mode,
             ARENA_STATE_REGISTER,
@@ -73,9 +73,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&mode, "0"));
         self.emit(abi::branch_eq(&round_up)); // Commercial -> away
                                               // Banker: round only when the truncated quotient is odd (to reach even).
-        let one = self.allocate_register()?;
+        let one = self.allocate_register();
         self.emit(abi::move_immediate(&one, "Integer", "1"));
-        let parity = self.allocate_register()?;
+        let parity = self.allocate_register();
         self.emit(abi::and_registers(&parity, quotient.clone(), &one));
         self.emit(abi::compare_immediate(&parity, "0"));
         self.emit(abi::branch_eq(&keep)); // even quotient -> keep, already even
@@ -176,13 +176,13 @@ impl CodeBuilder<'_> {
             "Integer" | "Byte" => {
                 self.emit_nonzero_or_invalid(&scalar.location)?;
                 self.emit_integer_division_overflow_check(&money.location, &scalar.location)?;
-                let quotient = self.allocate_register()?;
+                let quotient = self.allocate_register();
                 self.emit(abi::signed_divide_registers(
                     &quotient,
                     &money.location,
                     &scalar.location,
                 ));
-                let remainder = self.allocate_register()?;
+                let remainder = self.allocate_register();
                 // remainder = raw - quotient * k
                 self.emit(abi::multiply_subtract_registers(
                     &remainder,
@@ -190,11 +190,11 @@ impl CodeBuilder<'_> {
                     &scalar.location,
                     &money.location,
                 ));
-                let abs_div = self.allocate_register()?;
+                let abs_div = self.allocate_register();
                 self.emit(abi::move_register(&abs_div, &scalar.location));
                 self.emit_abs_i64(&abs_div)?;
                 // sign_neg = -1 (nonzero) when the signs of raw and k differ.
-                let sign_neg = self.allocate_register()?;
+                let sign_neg = self.allocate_register();
                 self.emit(abi::exclusive_or_registers(
                     &sign_neg,
                     &money.location,
@@ -209,7 +209,7 @@ impl CodeBuilder<'_> {
                 // (bug-230). Because |raw| < 2^63 = |i64::MIN|, the remainder
                 // magnitude is always below the half, so the result is exactly the
                 // truncated quotient — skip rounding entirely for this divisor.
-                let min_divisor = self.allocate_register()?;
+                let min_divisor = self.allocate_register();
                 // i64::MIN as its unsigned bit pattern (2^63); `move_immediate`
                 // takes the u64 pattern, not the signed "-9223372036854775808".
                 self.emit(abi::move_immediate(&min_divisor, "Integer", F64_SIGN_BIT));
@@ -245,11 +245,11 @@ impl CodeBuilder<'_> {
         left: &ValueResult,
         right: &ValueResult,
     ) -> Result<String, String> {
-        let da = self.allocate_fp_register()?;
-        let db = self.allocate_fp_register()?;
+        let da = self.allocate_fp_register();
+        let db = self.allocate_fp_register();
         self.emit(abi::signed_convert_to_float_d(&da, &left.location));
         self.emit(abi::signed_convert_to_float_d(&db, &right.location));
-        let result = self.allocate_fp_register()?;
+        let result = self.allocate_fp_register();
         self.emit(abi::float_divide_d(&result, &da, &db));
         Ok(result.render())
     }
@@ -261,11 +261,11 @@ impl CodeBuilder<'_> {
         left: &ValueResult,
         right: &ValueResult,
     ) -> Result<String, String> {
-        let da = self.allocate_fp_register()?;
-        let db = self.allocate_fp_register()?;
+        let da = self.allocate_fp_register();
+        let db = self.allocate_fp_register();
         self.load_numeric_as_double(&da, left)?;
         self.load_numeric_as_double(&db, right)?;
-        let result = self.allocate_fp_register()?;
+        let result = self.allocate_fp_register();
         self.emit(abi::float_divide_d(&result, &da, &db));
         Ok(result.render())
     }
@@ -283,12 +283,12 @@ impl CodeBuilder<'_> {
         divide: bool,
     ) -> Result<String, String> {
         let dst = dst.into();
-        let fval = self.allocate_fp_register()?;
+        let fval = self.allocate_fp_register();
         self.load_numeric_as_double(&fval, scalar)?;
         self.emit_float_finite_or_invalid(&fval)?;
-        let money_d = self.allocate_fp_register()?;
+        let money_d = self.allocate_fp_register();
         self.emit(abi::signed_convert_to_float_d(&money_d, money_raw));
-        let result = self.allocate_fp_register()?;
+        let result = self.allocate_fp_register();
         if divide {
             // A Money result, so a zero divisor is ErrInvalidArgument (not a Float
             // boundary) — plan-29-F Open Decisions.
@@ -313,9 +313,9 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         let ok = self.label("money_finite_ok");
         let invalid = self.label("money_finite_invalid");
-        let bits = self.allocate_register()?;
-        let exponent = self.allocate_register()?;
-        let mask = self.allocate_register()?;
+        let bits = self.allocate_register();
+        let exponent = self.allocate_register();
+        let mask = self.allocate_register();
         self.emit(abi::float_move_x_from_d(&bits, value));
         self.emit_float_exponent_classify(&exponent, &mask, &bits);
         self.emit(abi::branch_ne(&ok));
@@ -344,9 +344,9 @@ impl CodeBuilder<'_> {
         let scratch = self.temporary_vreg();
 
         // Range guard: |value| >= 2^63 (or non-finite) overflows the raw i64.
-        let magnitude = self.allocate_fp_register()?;
+        let magnitude = self.allocate_fp_register();
         self.emit(abi::float_abs_d(&magnitude, value.clone()));
-        let limit = self.allocate_fp_register()?;
+        let limit = self.allocate_fp_register();
         self.emit_f64_const(&limit, &scratch, 9_223_372_036_854_775_808.0);
         self.emit(abi::float_compare_d(&magnitude, &limit));
         self.emit(abi::branch_mi(&range_ok)); // |value| < 2^63 (ordered, less-than)
@@ -355,16 +355,16 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&range_ok));
 
         // q = trunc(value) toward zero.
-        let quotient = self.allocate_register()?;
+        let quotient = self.allocate_register();
         self.emit(abi::float_convert_to_signed_x(&quotient, value.clone()));
         // frac = value - (q as f64), in (-1, 1); abs_frac = |frac|.
-        let q_f = self.allocate_fp_register()?;
+        let q_f = self.allocate_fp_register();
         self.emit(abi::signed_convert_to_float_d(&q_f, &quotient));
-        let frac = self.allocate_fp_register()?;
+        let frac = self.allocate_fp_register();
         self.emit(abi::float_subtract_d(&frac, value.clone(), &q_f));
-        let abs_frac = self.allocate_fp_register()?;
+        let abs_frac = self.allocate_fp_register();
         self.emit(abi::float_abs_d(&abs_frac, &frac));
-        let half = self.allocate_fp_register()?;
+        let half = self.allocate_fp_register();
         self.emit_f64_const(&half, &scratch, 0.5);
 
         self.emit(abi::move_register(dst.clone(), &quotient)); // default: keep the truncation
@@ -372,7 +372,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_mi(&done)); // abs_frac < 0.5 → keep
         self.emit(abi::branch_gt(&round_away)); // abs_frac > 0.5 → round away
                                                 // Exact half tie: Commercial rounds away; Banker rounds to even.
-        let mode = self.allocate_register()?;
+        let mode = self.allocate_register();
         self.emit(abi::load_u64(
             &mode,
             ARENA_STATE_REGISTER,
@@ -380,9 +380,9 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::compare_immediate(&mode, "0"));
         self.emit(abi::branch_eq(&round_away)); // Commercial → away
-        let one = self.allocate_register()?;
+        let one = self.allocate_register();
         self.emit(abi::move_immediate(&one, "Integer", "1"));
-        let parity = self.allocate_register()?;
+        let parity = self.allocate_register();
         self.emit(abi::and_registers(&parity, &quotient, &one));
         self.emit(abi::compare_immediate(&parity, "0"));
         self.emit(abi::branch_eq(&done)); // even quotient → keep
@@ -626,9 +626,9 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         let dst = dst.into();
         let raw = raw.into();
-        let scale = self.allocate_register()?;
-        let quotient = self.allocate_register()?;
-        let remainder = self.allocate_register()?;
+        let scale = self.allocate_register();
+        let quotient = self.allocate_register();
+        let remainder = self.allocate_register();
         self.emit(abi::move_immediate(&scale, "Integer", "100000"));
         self.emit(abi::signed_divide_registers(&quotient, &raw, &scale));
         self.emit(abi::multiply_subtract_registers(
@@ -651,10 +651,10 @@ impl CodeBuilder<'_> {
             }
             "round" => {
                 // half-away: bump the magnitude when 2*|remainder| >= 100000.
-                let abs_rem = self.allocate_register()?;
+                let abs_rem = self.allocate_register();
                 let bump_pos = self.label("math_money_round_bump_pos");
                 let bump_neg = self.label("math_money_round_bump_neg");
-                let half = self.allocate_register()?;
+                let half = self.allocate_register();
                 self.emit(abi::move_register(&abs_rem, &remainder));
                 self.emit_abs_i64(&abs_rem)?;
                 // 2*|rem| vs 100000: compare |rem| against 100000 - |rem|.

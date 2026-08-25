@@ -439,7 +439,7 @@ impl CodeBuilder<'_> {
         self.raise_error("collections.insert", "ErrIndexOutOfRange")?;
         self.emit(abi::label(&done));
 
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
@@ -865,7 +865,7 @@ impl CodeBuilder<'_> {
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
 
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             origin: None,
@@ -2389,7 +2389,7 @@ impl CodeBuilder<'_> {
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
 
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             origin: None,
@@ -2934,7 +2934,7 @@ impl CodeBuilder<'_> {
             ));
         }
 
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             origin: None,
@@ -3164,7 +3164,7 @@ impl CodeBuilder<'_> {
         // allocates fresh; the non-in-place set frees the same singleton/removed
         // pair), so there is no double-free. The threaded result is discarded: the
         // function reloads the (unchanged) buffer_slot after `done`.
-        let keep = self.allocate_register()?;
+        let keep = self.allocate_register();
         self.emit(abi::load_u64(&keep, abi::stack_pointer(), buffer_slot));
         let threaded = ValueResult {
             origin: None,
@@ -3181,7 +3181,7 @@ impl CodeBuilder<'_> {
         self.raise_error("collections.set", "ErrIndexOutOfRange")?;
         self.emit(abi::label(&done));
 
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
         Ok(ValueResult {
             origin: None,
@@ -3476,7 +3476,7 @@ impl CodeBuilder<'_> {
         self.raise_error("collections.removeAt", "ErrIndexOutOfRange")?;
         self.emit(abi::label(&done));
 
-        let result = self.allocate_register()?;
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,

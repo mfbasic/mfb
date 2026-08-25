@@ -95,7 +95,7 @@ pub(crate) fn lower_bits_bor(
     let right_reg = args[1].location.clone();
     let left_text = &args[0].text;
     let right_text = &args[1].text;
-    let dst = builder.allocate_register()?;
+    let dst = builder.allocate_register();
     builder.emit(abi::or_registers(dst, left_reg, right_reg));
     Ok(ValueResult {
         origin: None,

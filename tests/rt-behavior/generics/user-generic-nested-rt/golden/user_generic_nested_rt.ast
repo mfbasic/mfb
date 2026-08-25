@@ -1,0 +1,105 @@
+{
+  "project": "user_generic_nested_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "collections", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Pairing",
+      "templateParams": ["A", "B"],
+      "line": 17,
+      "fields": [
+      { "visibility": null, "name": "first", "type": "A", "line": 18 },
+      { "visibility": null, "name": "second", "type": "B", "line": 19 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Holder",
+      "templateParams": ["T"],
+      "line": 22,
+      "fields": [
+      { "visibility": null, "name": "held", "type": "T", "line": 23 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "unhold",
+      "templateParams": ["T"],
+      "line": 26,
+      "params": [
+      { "name": "h", "type": "Holder OF T", "default": null, "line": 26 }
+      ],
+      "returnType": "T",
+      "body": [
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "held" }, "line": 27 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 30,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "inner", "type": "Pairing OF Integer, String", "value": { "kind": "constructor", "type": "Pairing", "arguments": [{ "kind": "number", "value": "7" }, { "kind": "string", "value": "seven" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "inner=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "inner" }, "member": "first" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "inner" }, "member": "second" } }] }, "line": 35 },
+      { "kind": "binding", "mutable": false, "name": "listy", "type": "Holder OF List OF Integer", "value": { "kind": "constructor", "type": "Holder", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }] }, "line": 38 },
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 39 },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "call", "callee": "unhold", "arguments": [{ "kind": "identifier", "value": "listy" }] },
+        "line": 40,
+        "body": [
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "v" } }, "line": 41 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "listy-sum=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "total" }] } }] }, "line": 43 },
+      { "kind": "binding", "mutable": true, "name": "boxes", "type": "List OF Holder OF Integer", "value": { "kind": "list", "values": [] }, "line": 46 },
+      { "kind": "assignment", "name": "boxes", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "boxes" }, { "kind": "constructor", "type": "Holder", "arguments": [{ "kind": "number", "value": "4" }] }] }, "line": 47 },
+      { "kind": "assignment", "name": "boxes", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "boxes" }, { "kind": "constructor", "type": "Holder", "arguments": [{ "kind": "number", "value": "5" }] }] }, "line": 48 },
+      { "kind": "binding", "mutable": true, "name": "boxSum", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 49 },
+      {
+        "kind": "forEach",
+        "name": "b",
+        "iterable": { "kind": "identifier", "value": "boxes" },
+        "line": 50,
+        "body": [
+        { "kind": "assignment", "name": "boxSum", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "boxSum" }, "right": { "kind": "call", "callee": "unhold", "arguments": [{ "kind": "identifier", "value": "b" }] } }, "line": 51 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "boxes-sum=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "boxSum" }] } }] }, "line": 53 },
+      { "kind": "binding", "mutable": true, "name": "pairs", "type": "List OF Pairing OF Integer, String", "value": { "kind": "list", "values": [] }, "line": 57 },
+      { "kind": "assignment", "name": "pairs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "pairs" }, { "kind": "constructor", "type": "Pairing", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "string", "value": "one" }] }] }, "line": 58 },
+      { "kind": "assignment", "name": "pairs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "pairs" }, { "kind": "constructor", "type": "Pairing", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "string", "value": "two" }] }] }, "line": 59 },
+      { "kind": "binding", "mutable": true, "name": "joined", "type": "String", "value": { "kind": "string", "value": "" }, "line": 60 },
+      {
+        "kind": "forEach",
+        "name": "p",
+        "iterable": { "kind": "identifier", "value": "pairs" },
+        "line": 61,
+        "body": [
+        { "kind": "assignment", "name": "joined", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "joined" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "first" }] } }, "right": { "kind": "string", "value": ":" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "second" } }, "right": { "kind": "string", "value": ";" } }, "line": 62 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pairs=" }, "right": { "kind": "identifier", "value": "joined" } }] }, "line": 64 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 65 }
+      ]
+    }
+    ]
+  }
+  ]
+}

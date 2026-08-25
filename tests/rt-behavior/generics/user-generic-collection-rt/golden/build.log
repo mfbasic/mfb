@@ -1,0 +1,17 @@
+$ mfb build -ast -ir tests/rt-behavior/generics/user-generic-collection-rt
+Wrote AST to tests/rt-behavior/generics/user-generic-collection-rt/user_generic_collection_rt.ast
+Wrote IR to tests/rt-behavior/generics/user-generic-collection-rt/user_generic_collection_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/generics/user-generic-collection-rt
+Wrote executable to tests/rt-behavior/generics/user-generic-collection-rt/build/user_generic_collection_rt.out
+[exit 0]
+$ tests/rt-behavior/generics/user-generic-collection-rt/build/user_generic_collection_rt.out
+int-depth=3
+int-peek=3
+str-depth=2
+str-peek=b
+rows-depth=2
+rows-peek-count=3
+empty-depth=0
+empty-peek=-1
+[exit 0]

@@ -79,7 +79,7 @@ impl CodeBuilder<'_> {
         record: &Operand,
         field_index: usize,
     ) -> Result<VirtualRegister, String> {
-        let ptr = self.allocate_register()?;
+        let ptr = self.allocate_register();
         self.emit(abi::load_u64(&ptr, record, 8 * field_index));
         self.emit(abi::add_registers(&ptr, record, &ptr));
         Ok(ptr)
@@ -97,7 +97,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             record_slot,
         ));
-        let record = self.allocate_register()?;
+        let record = self.allocate_register();
         self.emit(abi::load_u64(&record, abi::stack_pointer(), record_slot));
         let record_op = Operand::from(record.render());
         let spans_alias = self.emit_attributed_string_field_ptr(&record_op, 1)?;
@@ -122,7 +122,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             record_slot,
         ));
-        let record = self.allocate_register()?;
+        let record = self.allocate_register();
         self.emit(abi::load_u64(&record, abi::stack_pointer(), record_slot));
         let record_op = Operand::from(record.render());
         let text_ptr = self.emit_attributed_string_field_ptr(&record_op, 0)?;
@@ -130,7 +130,7 @@ impl CodeBuilder<'_> {
         let length = self.temporary_vreg();
         let data = self.temporary_vreg();
         let index = self.temporary_vreg();
-        let count = self.allocate_register()?;
+        let count = self.allocate_register();
         let addr = self.temporary_vreg();
         let byte = self.temporary_vreg();
         let mask = self.temporary_vreg();
@@ -172,7 +172,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             record_slot,
         ));
-        let record = self.allocate_register()?;
+        let record = self.allocate_register();
         self.emit(abi::load_u64(&record, abi::stack_pointer(), record_slot));
         let record_op = Operand::from(record.render());
         let text_alias = self.emit_attributed_string_field_ptr(&record_op, 0)?;

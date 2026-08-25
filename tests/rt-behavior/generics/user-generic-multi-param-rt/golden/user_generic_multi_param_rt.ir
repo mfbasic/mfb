@@ -1,0 +1,155 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "user_generic_multi_param_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 14,
+    "visibility": "public",
+    "name": "Pairing$Integer$Integer",
+    "fields": [
+    { "visibility": null, "line": 15, "name": "first", "type": "Integer" },
+    { "visibility": null, "line": 16, "name": "second", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 14,
+    "visibility": "public",
+    "name": "Pairing$Integer$String",
+    "fields": [
+    { "visibility": null, "line": 15, "name": "first", "type": "Integer" },
+    { "visibility": null, "line": 16, "name": "second", "type": "String" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 14,
+    "visibility": "public",
+    "name": "Pairing$String$Integer",
+    "fields": [
+    { "visibility": null, "line": 15, "name": "first", "type": "String" },
+    { "visibility": null, "line": 16, "name": "second", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 31,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 32, "mutable": false, "name": "p", "type": "Pairing$Integer$String", "value": { "kind": "constructor", "type": "Pairing$Integer$String", "args": [{ "kind": "const", "type": "Integer", "value": "7" }, { "kind": "const", "type": "String", "value": "seven" }] } },
+    { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "first=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "pairFirst$Integer$String", "args": [{ "kind": "local", "name": "p" }] }] } }] } },
+    { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "second=" }, "right": { "kind": "call", "type": "String", "target": "pairSecond$Integer$String", "args": [{ "kind": "local", "name": "p" }] } }] } },
+    { "op": "bind", "line": 38, "mutable": false, "name": "q", "type": "Pairing$String$Integer", "value": { "kind": "call", "type": "Pairing$String$Integer", "target": "flipPair$Integer$String", "args": [{ "kind": "local", "name": "p" }] } },
+    { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "flip-first=" }, "right": { "kind": "call", "type": "String", "target": "pairFirst$String$Integer", "args": [{ "kind": "local", "name": "q" }] } }] } },
+    { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "flip-second=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "pairSecond$String$Integer", "args": [{ "kind": "local", "name": "q" }] }] } }] } },
+    { "op": "bind", "line": 44, "mutable": false, "name": "r", "type": "Pairing$Integer$Integer", "value": { "kind": "constructor", "type": "Pairing$Integer$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "same=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "pairFirst$Integer$Integer", "args": [{ "kind": "local", "name": "r" }] }] } }, "right": { "kind": "const", "type": "String", "value": "," } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "pairSecond$Integer$Integer", "args": [{ "kind": "local", "name": "r" }] }] } }] } },
+    { "op": "return", "line": 46, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "flipPair$Integer$String",
+    "line": 27,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "p", "line": 27, "type": "Pairing$Integer$String", "default": null }
+    ],
+    "returns": "Pairing$String$Integer",
+    "body": [
+    { "op": "return", "line": 28, "value": { "kind": "constructor", "type": "Pairing$String$Integer", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "p" }, "member": "second" }, { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "p" }, "member": "first" }] } }
+    ]
+  },
+  {
+    "name": "pairFirst$Integer$Integer",
+    "line": 19,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "p", "line": 19, "type": "Pairing$Integer$Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 20, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "p" }, "member": "first" } }
+    ]
+  },
+  {
+    "name": "pairFirst$Integer$String",
+    "line": 19,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "p", "line": 19, "type": "Pairing$Integer$String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 20, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "p" }, "member": "first" } }
+    ]
+  },
+  {
+    "name": "pairFirst$String$Integer",
+    "line": 19,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "p", "line": 19, "type": "Pairing$String$Integer", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 20, "value": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "p" }, "member": "first" } }
+    ]
+  },
+  {
+    "name": "pairSecond$Integer$Integer",
+    "line": 23,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "p", "line": 23, "type": "Pairing$Integer$Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 24, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "p" }, "member": "second" } }
+    ]
+  },
+  {
+    "name": "pairSecond$Integer$String",
+    "line": 23,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "p", "line": 23, "type": "Pairing$Integer$String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "line": 24, "value": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "p" }, "member": "second" } }
+    ]
+  },
+  {
+    "name": "pairSecond$String$Integer",
+    "line": 23,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "p", "line": 23, "type": "Pairing$String$Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 24, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "p" }, "member": "second" } }
+    ]
+  }
+  ]
+}

@@ -11,7 +11,6 @@ use crate::codegen::app::hook as app;
 use crate::codegen::builtins::perf;
 use crate::codegen::builtins::vector::builder_simd_float_math;
 use crate::codegen::engine::mir;
-use crate::codegen::engine::regalloc;
 use crate::codegen::link::locator as link_locator;
 use crate::codegen::link::thunk as link_thunk;
 use crate::codegen::term::core as term;
@@ -137,19 +136,10 @@ pub(crate) struct CodeBuilder<'a> {
     pub(crate) next_register: usize,
     /// Next virtual-register index `allocate_register` will hand out. Virtual
     /// registers are colored to physical registers after the whole function is
-    /// lowered (`regalloc::allocate`); the bump-and-reset replay uses
-    /// `vreg_eager` (plan-03 Stage A).
+    /// lowered (`regalloc::allocate`, plan-03).
     pub(crate) next_vreg: u32,
-    /// Per-virtual-register physical register the bump allocator computed
-    /// eagerly at allocation time (index == virtual register number). Consumed
-    /// by `regalloc::allocate` to reproduce the legacy assignment byte-for-byte.
-    pub(crate) vreg_eager: Vec<String>,
-    /// Next FP-class temporary register the bump strategy would hand out
-    /// (`d0`–`d7`, reset per statement), and the FP virtual-register counter and
-    /// per-vreg eager FP physical (plan-03 Stage C).
-    pub(crate) next_fp_register: usize,
+    /// FP virtual-register counter (plan-03 Stage C).
     pub(crate) next_fp_vreg: u32,
-    pub(crate) fp_vreg_eager: Vec<String>,
     /// Float values whose bits in a GPR `ValueResult.location` are *also* resident
     /// in an FP virtual register (the `d`-register a float op left its result in).
     /// Lets a chained float operand be read straight from the `d`-register instead
@@ -196,15 +186,6 @@ pub(crate) struct CodeBuilder<'a> {
     /// — both here (callee) and at every call site (caller) — keeping the two sides
     /// consistent. Shared verbatim across all functions in the build.
     pub(crate) callback_referenced_functions: HashSet<String>,
-    /// The register-allocation strategy selected for this build (`-regalloc`).
-    pub(crate) regalloc_kind: regalloc::RegallocKind,
-    /// First scratch-register-exhaustion error recorded by an infallible vreg
-    /// minter (`temporary_vreg`/`temporary_fp_vreg`), which cannot return a
-    /// `Result` to their many call sites. Only the fixed-pool `-regalloc bump`
-    /// oracle can exhaust; the default linear-scan spills and never sets this.
-    /// `run_register_allocation` surfaces it as a clean build error instead of
-    /// letting the former `.expect` panic (an ICE) escape (bug-70).
-    pub(crate) regalloc_error: Option<String>,
     pub(crate) next_label: usize,
     pub(crate) trap: Option<TrapState>,
     pub(crate) loop_stack: Vec<LoopLabels>,

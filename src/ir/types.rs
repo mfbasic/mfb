@@ -82,6 +82,47 @@ pub struct ExternalFunctionParam {
     pub type_: ParameterType,
 }
 
+/// One imported package function's signature, carried as **typed data** from the
+/// `.mfp` decode boundary to [`crate::ir::lower_augmented_project`].
+///
+/// The `.mfp` stores parameter and return types as strings (the wire format is
+/// unchanged — plan-105-A). `manifest::package` parses each ONE time here, at the
+/// decode boundary, and every consumer reads the structure. Before plan-105-A the
+/// driver instead *formatted* an export into a `FUNC(p1, p2) AS R` string and then
+/// re-parsed the return type back out of it with `rsplit_once(" AS ")`, with
+/// `ir::lower` re-parsing the same string a third time — a structured→string→
+/// structured round-trip whose format was a silent coupling between three helpers
+/// (`planning/Compiler Pipeline.md:58`, Recommendation #1).
+///
+/// [`signature_type`](Self::signature_type) renders the equivalent
+/// [`ParameterType::Func`] when a consumer still needs the string spelling (the
+/// lowering context's `function_types` map is string-keyed until plan-106); that is
+/// a render-*out*, not a round-trip — nothing parses it back.
+#[derive(Clone)]
+pub struct ExternalSignature {
+    pub params: Vec<ExternalFunctionParam>,
+    pub returns: ParameterType,
+    pub isolated: bool,
+}
+
+impl ExternalSignature {
+    /// The signature as a [`ParameterType::Func`] — the typed form of the
+    /// `{ISOLATED }FUNC(p1, p2) AS R` spelling the `.mfp` decode used to build by
+    /// hand. `.name()` on the result reproduces that spelling byte-exactly.
+    pub(crate) fn signature_type(&self) -> ParameterType {
+        let params = self
+            .params
+            .iter()
+            .map(|param| param.type_.clone())
+            .collect::<Vec<_>>();
+        if self.isolated {
+            ParameterType::func_isolated(params, self.returns.clone())
+        } else {
+            ParameterType::func(params, self.returns.clone())
+        }
+    }
+}
+
 /// The whole compiled IR for one project: its declared entities, functions, the
 /// native-`LINK` model, and the metadata carried to the backend or into a `.mfp`.
 #[derive(Clone)]

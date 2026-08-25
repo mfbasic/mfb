@@ -131,7 +131,7 @@ pub(crate) fn lower_money_round(
     ));
     let decimals = args[1].clone();
     let text = format!("money.round({}, {})", value.text, decimals.text);
-    let raw = builder.allocate_register()?;
+    let raw = builder.allocate_register();
     builder.emit(abi::load_u64(raw, abi::stack_pointer(), raw_slot));
     let dec = decimals.location;
 
@@ -148,12 +148,12 @@ pub(crate) fn lower_money_round(
     builder.emit(abi::label(&hi_ok));
 
     // divisor = 10^(5 - decimals), built by a bounded (<=5) multiply loop.
-    let exponent = builder.allocate_register()?;
+    let exponent = builder.allocate_register();
     builder.emit(abi::move_immediate(exponent, "Integer", "5"));
     builder.emit(abi::subtract_registers(exponent, exponent, &dec));
-    let divisor = builder.allocate_register()?;
+    let divisor = builder.allocate_register();
     builder.emit(abi::move_immediate(divisor, "Integer", "1"));
-    let ten = builder.allocate_register()?;
+    let ten = builder.allocate_register();
     builder.emit(abi::move_immediate(ten, "Integer", "10"));
     let loop_label = builder.label("money_round_pow_loop");
     let loop_done = builder.label("money_round_pow_done");
@@ -166,20 +166,20 @@ pub(crate) fn lower_money_round(
     builder.emit(abi::label(&loop_done));
 
     // q = raw / divisor, r = raw - q*divisor, sign_neg = raw < 0.
-    let quotient = builder.allocate_register()?;
+    let quotient = builder.allocate_register();
     builder.emit(abi::signed_divide_registers(quotient, raw, divisor));
-    let remainder = builder.allocate_register()?;
+    let remainder = builder.allocate_register();
     builder.emit(abi::multiply_subtract_registers(
         remainder, quotient, divisor, raw,
     ));
-    let sign_neg = builder.allocate_register()?;
+    let sign_neg = builder.allocate_register();
     builder.emit(abi::arithmetic_shift_right_immediate(sign_neg, raw, 63));
-    let rounded = builder.allocate_register()?;
+    let rounded = builder.allocate_register();
     builder.emit_apply_rounding(rounded, quotient, remainder, divisor, sign_neg)?;
     // result = rounded * divisor (back to Money scale). `emit_apply_rounding` can
     // return `q+1`, so for a near-max Money `(q+1)*divisor` can exceed i64::MAX — trap
     // ErrOverflow rather than wrapping to a negative Money (bug-175 A).
-    let result = builder.allocate_register()?;
+    let result = builder.allocate_register();
     builder.emit_checked_integer_multiply(result, rounded, divisor)?;
     Ok(ValueResult {
         origin: None,

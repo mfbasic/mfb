@@ -6,7 +6,6 @@ use crate::codegen::compiler::opt::fma_fusion;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::mir;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::regalloc;
 use crate::codegen::engine::types::*;
 use crate::codegen::engine::util::*;
 use crate::codegen::error::constants::*;
@@ -854,10 +853,7 @@ pub(crate) fn lower_function(
         stack_size: 0,
         next_register: 8,
         next_vreg: 0,
-        vreg_eager: Vec::new(),
-        next_fp_register: 0,
         next_fp_vreg: 0,
-        fp_vreg_eager: Vec::new(),
         float_residents: HashMap::new(),
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
@@ -866,8 +862,6 @@ pub(crate) fn lower_function(
         borrow_get_result: false,
         current_returns_param_borrow: false,
         callback_referenced_functions: HashSet::new(),
-        regalloc_kind: regalloc::active_kind(),
-        regalloc_error: None,
         next_label: 0,
         trap: None,
         loop_stack: Vec::new(),
@@ -1146,10 +1140,7 @@ pub(crate) fn lower_builtin_function_wrapper(
         stack_size: 0,
         next_register: 8,
         next_vreg: 0,
-        vreg_eager: Vec::new(),
-        next_fp_register: 0,
         next_fp_vreg: 0,
-        fp_vreg_eager: Vec::new(),
         float_residents: HashMap::new(),
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
@@ -1158,8 +1149,6 @@ pub(crate) fn lower_builtin_function_wrapper(
         borrow_get_result: false,
         current_returns_param_borrow: false,
         callback_referenced_functions: HashSet::new(),
-        regalloc_kind: regalloc::active_kind(),
-        regalloc_error: None,
         next_label: 0,
         trap: None,
         loop_stack: Vec::new(),
@@ -1320,10 +1309,7 @@ pub(crate) fn lower_abi_function_helper(
         stack_size: 0,
         next_register: 8,
         next_vreg: 0,
-        vreg_eager: Vec::new(),
-        next_fp_register: 0,
         next_fp_vreg: 0,
-        fp_vreg_eager: Vec::new(),
         float_residents: HashMap::new(),
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
@@ -1332,8 +1318,6 @@ pub(crate) fn lower_abi_function_helper(
         borrow_get_result: false,
         current_returns_param_borrow: false,
         callback_referenced_functions: HashSet::new(),
-        regalloc_kind: regalloc::active_kind(),
-        regalloc_error: None,
         next_label: 0,
         trap: None,
         loop_stack: Vec::new(),
@@ -1468,10 +1452,7 @@ pub(crate) fn lower_thread_copy_function(
         stack_size: 0,
         next_register: 8,
         next_vreg: 0,
-        vreg_eager: Vec::new(),
-        next_fp_register: 0,
         next_fp_vreg: 0,
-        fp_vreg_eager: Vec::new(),
         float_residents: HashMap::new(),
         promoted_float_locals: HashMap::new(),
         address_taken_locals: HashSet::new(),
@@ -1480,8 +1461,6 @@ pub(crate) fn lower_thread_copy_function(
         borrow_get_result: false,
         current_returns_param_borrow: false,
         callback_referenced_functions: HashSet::new(),
-        regalloc_kind: regalloc::active_kind(),
-        regalloc_error: None,
         next_label: 0,
         trap: None,
         loop_stack: Vec::new(),
@@ -1521,7 +1500,7 @@ pub(crate) fn lower_thread_copy_function(
 
     // Capture the incoming source pointer in a vreg (spilled across the copy's
     // internal calls), deep-copy it, and return the fresh pointer.
-    let source = builder.allocate_register()?;
+    let source = builder.allocate_register();
     builder.emit(abi::move_register(&source, &param.location));
     let result = builder.emit_thread_copy_real(type_, &source)?;
     builder.emit(abi::move_register(abi::return_register(), &result));

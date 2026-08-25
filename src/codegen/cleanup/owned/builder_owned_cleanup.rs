@@ -171,7 +171,7 @@ impl CodeBuilder<'_> {
                 variants,
                 state_type,
             } => {
-                let union_ptr = self.allocate_register()?;
+                let union_ptr = self.allocate_register();
                 self.emit(abi::load_u64(&union_ptr, &scratch9, 0));
                 self.emit(abi::load_u64(&scratch10, &scratch9, 8));
                 self.emit(abi::store_u64(
@@ -289,12 +289,12 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         self.owned_value_slots.push(object_slot);
         let skip = self.label("closure_free_skip");
-        let obj = self.allocate_register()?;
+        let obj = self.allocate_register();
         self.emit(abi::load_u64(&obj, abi::stack_pointer(), object_slot));
         self.emit(abi::compare_immediate(&obj, "0"));
         self.emit(abi::branch_eq(&skip));
         // env = *(obj + 8). Spill it — arena_free below clobbers caller-saved regs.
-        let env = self.allocate_register()?;
+        let env = self.allocate_register();
         self.emit(abi::load_u64(&env, &obj, CLOSURE_OFFSET_ENV));
         let env_slot = self.allocate_stack_object("closure_free_env", 8);
         self.emit(abi::store_u64(&env, abi::stack_pointer(), env_slot));
@@ -306,8 +306,8 @@ impl CodeBuilder<'_> {
             if !self.is_freeable_flat_value(capture_type) {
                 continue;
             }
-            let env_reg = self.allocate_register()?;
-            let cap = self.allocate_register()?;
+            let env_reg = self.allocate_register();
+            let cap = self.allocate_register();
             self.emit(abi::load_u64(&env_reg, abi::stack_pointer(), env_slot));
             self.emit(abi::load_u64(&cap, &env_reg, index * 8));
             let cap_skip = self.label("closure_free_cap_skip");

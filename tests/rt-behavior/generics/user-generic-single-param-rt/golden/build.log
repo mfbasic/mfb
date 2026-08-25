@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/rt-behavior/generics/user-generic-single-param-rt
+Wrote AST to tests/rt-behavior/generics/user-generic-single-param-rt/user_generic_single_param_rt.ast
+Wrote IR to tests/rt-behavior/generics/user-generic-single-param-rt/user_generic_single_param_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/generics/user-generic-single-param-rt
+Wrote executable to tests/rt-behavior/generics/user-generic-single-param-rt/build/user_generic_single_param_rt.out
+[exit 0]
+$ tests/rt-behavior/generics/user-generic-single-param-rt/build/user_generic_single_param_rt.out
+int=7
+str=hi
+rebox=42
+restr=there
+[exit 0]

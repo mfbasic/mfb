@@ -724,15 +724,7 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
     let backend = mir::active_backend();
     *instructions = backend.select(neutral);
     let spill_base = inner_frame + X86_WRAP_BYTES;
-    let outcome = regalloc::allocate(
-        regalloc::RegallocKind::LinearScan,
-        instructions,
-        &[],
-        &[],
-        backend.register_model(),
-        spill_base,
-        &[],
-    );
+    let outcome = regalloc::allocate(instructions, backend.register_model(), spill_base, &[]);
     let spill_bytes = outcome.spill_slots.len() * backend.register_model().spill_slot_bytes();
     // Round to 16 so the bracket keeps the interior alignment parity.
     let spill_bytes = (spill_bytes + 15) & !15;

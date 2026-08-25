@@ -73,7 +73,6 @@ pub(crate) mod helpers {
                 &concrete,
                 None,
                 &std::collections::HashMap::new(),
-                &std::collections::HashMap::new(),
                 &[],
             ))
         })();
@@ -199,7 +198,6 @@ mod lowering_totality_tests {
             super::lower_project_with_external_functions(
                 &concrete,
                 None,
-                &std::collections::HashMap::new(),
                 &std::collections::HashMap::new(),
                 &[],
             );
@@ -2413,26 +2411,25 @@ mod lower_tests {
             files: vec![file],
         };
 
-        let mut types = StdHashMap::new();
-        types.insert(
+        let mut signatures = StdHashMap::new();
+        signatures.insert(
             "extAdd".to_string(),
-            "FUNC(Integer, Integer) AS Integer".to_string(),
+            ExternalSignature {
+                params: vec![
+                    ExternalFunctionParam {
+                        name: "a".to_string(),
+                        type_: crate::types::ParameterType::parse("Integer"),
+                    },
+                    ExternalFunctionParam {
+                        name: "b".to_string(),
+                        type_: crate::types::ParameterType::parse("Integer"),
+                    },
+                ],
+                returns: crate::types::ParameterType::parse("Integer"),
+                isolated: false,
+            },
         );
-        let mut params = StdHashMap::new();
-        params.insert(
-            "extAdd".to_string(),
-            vec![
-                ExternalFunctionParam {
-                    name: "a".to_string(),
-                    type_: crate::types::ParameterType::parse("Integer"),
-                },
-                ExternalFunctionParam {
-                    name: "b".to_string(),
-                    type_: crate::types::ParameterType::parse("Integer"),
-                },
-            ],
-        );
-        let ir = lower_project_with_external_functions(&project, None, &types, &params, &[]);
+        let ir = lower_project_with_external_functions(&project, None, &signatures, &[]);
         // The call to the external function types as Integer (from the external
         // return-type table).
         let call_ty = function(&ir, "run").body.iter().find_map(|op| match op {
@@ -5270,31 +5267,25 @@ END FUNC
         resolver::resolve_project_with(&dir, &manifest, &concrete, false).unwrap();
         std::panic::set_hook(prev);
 
-        let mut ext_types = std::collections::HashMap::new();
-        ext_types.insert(
+        let mut ext_signatures = std::collections::HashMap::new();
+        ext_signatures.insert(
             "ext.doThing".to_string(),
-            "FUNC(Integer) AS String".to_string(),
-        );
-        let mut ext_params = std::collections::HashMap::new();
-        ext_params.insert(
-            "ext.doThing".to_string(),
-            vec![super::ExternalFunctionParam {
-                name: "n".to_string(),
-                type_: crate::types::ParameterType::parse("Integer"),
-            }],
+            super::ExternalSignature {
+                params: vec![super::ExternalFunctionParam {
+                    name: "n".to_string(),
+                    type_: crate::types::ParameterType::parse("Integer"),
+                }],
+                returns: crate::types::ParameterType::parse("String"),
+                isolated: false,
+            },
         );
         let entry = Some(super::EntryPoint {
             name: "main".to_string(),
             returns: crate::types::ParameterType::parse("Integer"),
             accepts_args: false,
         });
-        let ir = super::lower_project_with_external_functions(
-            &concrete,
-            entry,
-            &ext_types,
-            &ext_params,
-            &[],
-        );
+        let ir =
+            super::lower_project_with_external_functions(&concrete, entry, &ext_signatures, &[]);
         assert_eq!(ir.entry.as_ref().unwrap().name, "main");
     }
 

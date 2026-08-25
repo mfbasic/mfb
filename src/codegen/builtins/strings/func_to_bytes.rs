@@ -189,7 +189,7 @@ pub(crate) fn lower(
     builder.emit(abi::branch(&write_loop));
     builder.emit(abi::label(&write_done));
 
-    let result = builder.allocate_register()?;
+    let result = builder.allocate_register();
     builder.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
     Ok(ValueResult {
         origin: None,

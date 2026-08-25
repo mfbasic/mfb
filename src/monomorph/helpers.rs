@@ -71,6 +71,71 @@ fn leaf_param_symbol(type_: &ParameterType) -> Option<crate::intern::Symbol> {
     }
 }
 
+/// Whether `specific` is `general` with some [`Unknown`](ParameterType::Unknown)
+/// leaves replaced by concrete types — i.e. the two describe the SAME shape and
+/// `general` simply carries less information about it.
+///
+/// This is what makes a provisional template binding refinable (bug-442). An empty
+/// `[]` literal types as `List OF Unknown`, so a parameter bound from it holds an
+/// `Unknown` *nested inside a container*; a later argument spelling the same shape
+/// concretely (`List OF Integer`) must win rather than conflict.
+///
+/// Reflexive: `refines(t, t)` is true for every `t` (zero replacements), so the
+/// equal-bindings case falls out and re-inserting the identical type is a no-op.
+fn refines(general: &ParameterType, specific: &ParameterType) -> bool {
+    if matches!(general, ParameterType::Unknown) {
+        return true;
+    }
+    match (general, specific) {
+        (ParameterType::ListOf(a), ParameterType::ListOf(b))
+        | (ParameterType::SetOf(a), ParameterType::SetOf(b))
+        | (ParameterType::ResultOf(a), ParameterType::ResultOf(b))
+        | (ParameterType::Res(a), ParameterType::Res(b)) => refines(a, b),
+        (ParameterType::MapOf(ak, av), ParameterType::MapOf(bk, bv))
+        | (ParameterType::MapEntryOf(ak, av), ParameterType::MapEntryOf(bk, bv)) => {
+            refines(ak, bk) && refines(av, bv)
+        }
+        (ParameterType::UserOf(a_name, a_args), ParameterType::UserOf(b_name, b_args)) => {
+            a_name == b_name
+                && a_args.len() == b_args.len()
+                && a_args.iter().zip(b_args.iter()).all(|(a, b)| refines(a, b))
+        }
+        (
+            ParameterType::Func(a_params, a_ret, a_isolated),
+            ParameterType::Func(b_params, b_ret, b_isolated),
+        ) => {
+            a_isolated == b_isolated
+                && a_params.len() == b_params.len()
+                && a_params
+                    .iter()
+                    .zip(b_params.iter())
+                    .all(|(a, b)| refines(a, b))
+                && refines(a_ret, b_ret)
+        }
+        (
+            ParameterType::ThreadHandle {
+                worker: a_worker,
+                msg: a_msg,
+                res: a_res,
+                out: a_out,
+            },
+            ParameterType::ThreadHandle {
+                worker: b_worker,
+                msg: b_msg,
+                res: b_res,
+                out: b_out,
+            },
+        ) => {
+            a_worker == b_worker
+                && refines(a_msg, b_msg)
+                && refines(a_res, b_res)
+                && refines(a_out, b_out)
+        }
+        // Different shapes, or two leaves: only equality refines.
+        _ => general == specific,
+    }
+}
+
 /// Structurally unify a template `pattern` type against a concrete `actual` type,
 /// binding each template parameter (a [`Var`](ParameterType::Var), or a
 /// [`Named`](ParameterType::Named) whose symbol is in `params`) in `substitutions`.
@@ -84,10 +149,10 @@ fn leaf_param_symbol(type_: &ParameterType) -> Option<crate::intern::Symbol> {
 ///   thread handle) require the *actual* to be the same container — a mismatch is a
 ///   hard `false`, **not** the trailing `Unknown` wildcard (the string arms
 ///   `return false` before reaching it).
-/// * A *user generic* (a `Named` leaf whose name is `Name OF a, b`) is not a
-///   distinct variant — it falls back to the string algorithm (render both `.name()`,
-///   split with [`user_template_parts`], recurse on the re-parsed arguments), so
-///   `ParameterType::parse` gains no new variant and results are preserved.
+/// * A *user generic* is a [`UserOf`](ParameterType::UserOf): same template name,
+///   same arity, then each type argument recursively — the same shape as the
+///   built-in container arms (plan-105-B replaced the string fallback that used to
+///   serve this case).
 /// * A `FUNC(...)` pattern unifies only against a `FUNC(...)` actual (isolation is
 ///   ignored, exactly as the string `func_type_parts` erased the `ISOLATED`
 ///   marker); a non-func actual falls through to the wildcard tail.
@@ -114,18 +179,29 @@ pub(super) fn unify_type(
                 None => {
                     substitutions.insert(sym, actual.clone());
                 }
-                // A provisional `Unknown` binding is refined by any later concrete
-                // actual, so inference no longer depends on field/argument order
-                // (bug-442): a field carrying the concrete type (e.g. `FUNC(T) AS
-                // Boolean`) wins over an earlier empty-collection field (`List OF T`
-                // := `[]`), regardless of which is declared first.
-                Some(ParameterType::Unknown) if !matches!(actual, ParameterType::Unknown) => {
+                // A provisional binding is refined by any later, more concrete actual,
+                // so inference no longer depends on field/argument order (bug-442): a
+                // field carrying the concrete type (e.g. `FUNC(T) AS Boolean`) wins
+                // over an earlier empty-collection field (`List OF T` := `[]`),
+                // regardless of which is declared first.
+                //
+                // "More concrete" is [`refines`] — `Unknown` replaced by a real type
+                // ANYWHERE in the shape, not only at the whole-binding root. The root-
+                // only rule this replaced could not see an `Unknown` nested inside a
+                // container, so `pick([], rows)` against
+                // `pick OF T(fallback AS T, xs AS List OF T)` bound `T := List OF
+                // Unknown` from the empty literal and then REJECTED the concrete
+                // `List OF Integer` that followed, reporting
+                // `TYPE_CALL_ARGUMENT_MISMATCH: cannot infer template arguments`
+                // on a call whose second argument determines `T` completely.
+                Some(existing) if refines(existing, actual) => {
                     substitutions.insert(sym, actual.clone());
                 }
-                // A concrete binding already won this slot; an `Unknown` actual is a
-                // wildcard that agrees with it (mirrors the `actual is Unknown`
-                // terminal rule below), so it neither overwrites nor conflicts.
-                Some(_) if matches!(actual, ParameterType::Unknown) => {}
+                // The existing binding is already at least as concrete (the actual is
+                // `Unknown`, or an `Unknown`-bearing shape of the same form). It
+                // agrees — mirroring the `actual is Unknown` terminal rule below — so
+                // it neither overwrites nor conflicts.
+                Some(existing) if refines(actual, existing) => {}
                 // Two concrete actuals for the same param must agree.
                 Some(existing) => return existing == actual,
             }
@@ -205,25 +281,23 @@ pub(super) fn unify_type(
         _ => {}
     }
 
-    // A user generic (`Name OF a, b`, a single `Named`) is not a distinct variant:
-    // fall back to the string algorithm for this subtree so `parse` behavior is
-    // unchanged. Mirrors the old `(user_template_parts(p), user_template_parts(a))`
-    // arm — only fires when *both* sides split; otherwise fall through.
-    let pattern_name = pattern.name();
-    if let Some((pattern_base, pattern_args)) = user_template_parts(&pattern_name) {
-        let actual_name = actual.name();
-        if let Some((actual_base, actual_args)) = user_template_parts(&actual_name) {
-            return pattern_base == actual_base
-                && pattern_args.len() == actual_args.len()
-                && pattern_args.iter().zip(actual_args.iter()).all(|(p, a)| {
-                    unify_type(
-                        &ParameterType::parse(p),
-                        &ParameterType::parse(a),
-                        params,
-                        substitutions,
-                    )
-                });
-        }
+    // A user generic (`Name OF a, b`) unifies structurally on its own variant
+    // (plan-105-B). This replaces the string fallback that rendered both sides with
+    // `.name()`, re-split them with the private `user_template_parts`, and re-parsed
+    // each argument — the last copy of the type grammar inside monomorph. Only fires
+    // when BOTH sides are user generics, exactly as that arm did; otherwise fall
+    // through to the container/FUNC arms below.
+    if let (
+        ParameterType::UserOf(pattern_base, pattern_args),
+        ParameterType::UserOf(actual_base, actual_args),
+    ) = (pattern, actual)
+    {
+        return pattern_base == actual_base
+            && pattern_args.len() == actual_args.len()
+            && pattern_args
+                .iter()
+                .zip(actual_args.iter())
+                .all(|(p, a)| unify_type(p, a, params, substitutions));
     }
 
     // A `FUNC(...)` pattern unifies only against a `FUNC(...)` actual (isolation
@@ -245,33 +319,6 @@ pub(super) fn unify_type(
     pattern == actual || matches!(actual, ParameterType::Unknown)
 }
 
-/// Splits a function type `FUNC(p1, p2) AS Ret` (or `ISOLATED FUNC(...) AS Ret`)
-/// into its parameter types and return type for template unification. A parameter
-/// may itself be a comma-bearing function type, so the split is paren-depth aware.
-pub(super) fn func_type_parts(type_name: &str) -> Option<(Vec<&str>, &str)> {
-    let rest = type_name
-        .strip_prefix("FUNC(")
-        .or_else(|| type_name.strip_prefix("ISOLATED FUNC("))?;
-    crate::codegen::builtins::split_func_params_and_return(rest)
-}
-
-pub(super) fn user_template_parts(type_name: &str) -> Option<(String, Vec<String>)> {
-    if type_name.starts_with("List OF ")
-        || type_name.starts_with("Set OF ")
-        || type_name.starts_with("Map OF ")
-        || type_name.starts_with("MapEntry OF ")
-        || type_name.starts_with("Result OF ")
-        || type_name.starts_with("Thread OF ")
-        || type_name.starts_with("ThreadWorker OF ")
-        || type_name.starts_with("FUNC(")
-        || type_name.starts_with("ISOLATED FUNC(")
-    {
-        return None;
-    }
-    let (name, rest) = type_name.split_once(" OF ")?;
-    Some((name.to_string(), split_top_level_commas(rest)))
-}
-
 /// Rebuild `type_` with each bound template parameter replaced by its
 /// substitution, structurally. The native-`ParameterType` successor of the
 /// historical string algorithm; every arm mirrors it exactly so the substituted
@@ -282,11 +329,10 @@ pub(super) fn user_template_parts(type_name: &str) -> Option<(String, Vec<String
 /// * The six built-in container shapes recurse into their children.
 /// * A thread handle substitutes its message/output always and its resource plane
 ///   only when present (`Nothing` == an absent `RES` clause, preserved as-is).
-/// * Everything else falls back to the string tail: a *user generic* (`Name OF a, b`)
-///   substitutes its arguments string-wise and re-`parse`s the reassembled name;
-///   any other type (a scalar, a concrete nominal, and — matching the old algorithm,
-///   which had no `FUNC`/`RES` arm — a `FUNC(...)` or `RES` type) is returned
-///   unchanged.
+/// * A *user generic* ([`UserOf`](ParameterType::UserOf)) substitutes each type
+///   argument; its template head is a nominal, never a param.
+/// * Everything else is identity: a scalar, a concrete nominal, and — matching the
+///   old algorithm, which had no `FUNC`/`RES` arm — a `FUNC(...)` or `RES` type.
 pub(super) fn substitute_type_params(
     type_: &ParameterType,
     substitutions: &HashMap<crate::intern::Symbol, ParameterType>,
@@ -334,113 +380,20 @@ pub(super) fn substitute_type_params(
                 substitute_type_params(out, substitutions),
             )
         }
-        other => {
-            // The string tail. A user generic splits, substitutes its arguments, and
-            // re-`parse`s the reassembled `Name OF a, b`; any other type (scalar,
-            // nominal, `FUNC(...)`, `RES` — none of which the old algorithm descended
-            // into) is identity.
-            let name = other.name();
-            if let Some((base, args)) = user_template_parts(&name) {
-                let args = args
-                    .iter()
-                    .map(|arg| {
-                        substitute_type_params(&ParameterType::parse(arg), substitutions)
-                            .name()
-                            .into_owned()
-                    })
-                    .collect::<Vec<_>>();
-                ParameterType::parse(&format!("{base} OF {}", args.join(", ")))
-            } else {
-                other.clone()
-            }
-        }
+        // A user generic substitutes each type ARGUMENT; the template head is a
+        // nominal and never a param. Structural (plan-105-B) where this used to
+        // render `.name()`, re-split the string, substitute, and re-`parse` the
+        // reassembled spelling.
+        ParameterType::UserOf(base, args) => ParameterType::UserOf(
+            *base,
+            args.iter()
+                .map(|arg| substitute_type_params(arg, substitutions))
+                .collect(),
+        ),
+        // Any other type (scalar, concrete nominal, `FUNC(...)`, `RES`) is identity —
+        // the old string algorithm had no arm for these and did not descend into them.
+        other => other.clone(),
     }
-}
-
-pub(super) fn split_top_level_to(value: &str) -> Option<(String, String)> {
-    split_top_level_to_str(value).map(|(left, right)| (left.to_string(), right.to_string()))
-}
-
-/// Split a `Map`/`MapEntry` body `K TO V` on the ` TO ` that separates the outer
-/// key from its value. A leftmost `split_once(" TO ")` mis-parses a key that
-/// itself carries a top-level ` TO ` (`Map OF Map OF String TO Integer TO
-/// Boolean`, bug-108.2). This mirrors `syntaxcheck::types::split_map_body`:
-/// separators inside parenthesized / `FUNC(...)` groups are skipped, and so is
-/// the ` TO ` owned by each nested `Map`/`MapEntry`/`Thread`/`ThreadWorker`
-/// sub-type. Returns `None` when there is no top-level ` TO `.
-fn split_top_level_to_str(body: &str) -> Option<(&str, &str)> {
-    let bytes = body.as_bytes();
-    let mut depth: usize = 0;
-    // Nested `OF`-constructs seen at depth 0 whose ` TO ` has not yet appeared.
-    let mut pending: usize = 0;
-    let mut index = 0;
-    while index < body.len() {
-        match bytes[index] {
-            b'(' => {
-                depth += 1;
-                index += 1;
-            }
-            b')' => {
-                depth = depth.saturating_sub(1);
-                index += 1;
-            }
-            // `is_char_boundary` guards the slice: `.mfp`-decoded type strings are
-            // not guaranteed ASCII, so `index` can land on a UTF-8 continuation
-            // byte where `body[index..]` would panic (bug-169). A non-boundary
-            // byte never begins ` TO ` nor a keyword, so skipping it is correct.
-            _ if depth == 0
-                && body.is_char_boundary(index)
-                && body[index..].starts_with(" TO ") =>
-            {
-                if pending > 0 {
-                    pending -= 1;
-                    index += 4;
-                } else {
-                    return Some((&body[..index], &body[index + 4..]));
-                }
-            }
-            _ if depth == 0
-                && body.is_char_boundary(index)
-                && type_owns_a_to_separator(body, index) =>
-            {
-                pending += 1;
-                index += 1;
-            }
-            _ => index += 1,
-        }
-    }
-    None
-}
-
-/// Whether a `Map`/`MapEntry`/`Thread`/`ThreadWorker` `OF`-construct — each of
-/// which owns exactly one top-level ` TO ` — begins at byte `at` of `body`. The
-/// keyword must sit on a word boundary so a template whose name merely ends in
-/// `Map` is not counted.
-fn type_owns_a_to_separator(body: &str, at: usize) -> bool {
-    let bytes = body.as_bytes();
-    if at > 0 {
-        let prev = bytes[at - 1];
-        if prev.is_ascii_alphanumeric()
-            || prev == b'_'
-            || prev == b'.'
-            || prev == b':'
-            || prev >= 0x80
-        {
-            return false;
-        }
-    }
-    ["MapEntry OF ", "ThreadWorker OF ", "Map OF ", "Thread OF "]
-        .iter()
-        .any(|keyword| body[at..].starts_with(keyword))
-}
-
-/// The type arguments of `Name OF A, B` — split only on the commas at paren depth
-/// 0, so a `FUNC(Integer, String) AS Boolean` argument stays one argument.
-pub(super) fn split_top_level_commas(value: &str) -> Vec<String> {
-    crate::codegen::builtins::split_top_level_commas(value)
-        .into_iter()
-        .map(str::to_string)
-        .collect()
 }
 
 /// Read each imported package's exported functions and collect the overloaded
@@ -832,18 +785,56 @@ mod tests {
         assert!(!unify_str("Integer", "String", &params, &mut s));
     }
 
+    /// plan-105-B retired monomorph's private `func_type_parts`; the canonical
+    /// grammar decomposes a function type into the same pieces (and, unlike the
+    /// private copy, preserves the `ISOLATED` marker instead of erasing it).
     #[test]
     fn func_type_parts_handles_isolated_and_empty_params() {
         assert_eq!(
-            func_type_parts("FUNC(Integer, String) AS Boolean"),
-            Some((vec!["Integer", "String"], "Boolean"))
+            func_parts("FUNC(Integer, String) AS Boolean"),
+            Some((
+                vec!["Integer".to_string(), "String".to_string()],
+                "Boolean".to_string(),
+                false
+            ))
         );
         assert_eq!(
-            func_type_parts("ISOLATED FUNC() AS Nothing"),
-            Some((Vec::new(), "Nothing"))
+            func_parts("ISOLATED FUNC() AS Nothing"),
+            Some((Vec::new(), "Nothing".to_string(), true))
         );
-        assert_eq!(func_type_parts("Integer"), None);
-        assert_eq!(func_type_parts("FUNC(Integer)"), None);
+        assert_eq!(func_parts("Integer"), None);
+        assert_eq!(func_parts("FUNC(Integer)"), None);
+    }
+
+    /// The parameter/return decomposition of a `FUNC(...) AS R` spelling, read off
+    /// the canonical [`ParameterType::Func`].
+    fn func_parts(type_name: &str) -> Option<(Vec<String>, String, bool)> {
+        match PARSE(type_name) {
+            crate::types::ParameterType::Func(params, ret, isolated) => Some((
+                params.iter().map(|p| p.name().into_owned()).collect(),
+                ret.name().into_owned(),
+                isolated,
+            )),
+            _ => None,
+        }
+    }
+
+    /// The template head and rendered type arguments of a user generic, read off the
+    /// canonical [`ParameterType::UserOf`] — the successor of the deleted
+    /// `user_template_parts`.
+    fn user_parts(type_name: &str) -> Option<(String, Vec<String>)> {
+        match PARSE(type_name) {
+            crate::types::ParameterType::UserOf(name, args) => Some((
+                name.resolve().to_string(),
+                args.iter().map(|a| a.name().into_owned()).collect(),
+            )),
+            _ => None,
+        }
+    }
+
+    #[allow(non_snake_case)]
+    fn PARSE(type_name: &str) -> crate::types::ParameterType {
+        crate::types::ParameterType::parse(type_name)
     }
 
     /// bug-35: a type argument that is itself a comma-bearing function type must
@@ -851,19 +842,23 @@ mod tests {
     #[test]
     fn nested_function_type_arguments_are_not_shredded() {
         assert_eq!(
-            func_type_parts("FUNC(FUNC(Integer, String) AS Boolean, Integer) AS Nothing"),
+            func_parts("FUNC(FUNC(Integer, String) AS Boolean, Integer) AS Nothing"),
             Some((
-                vec!["FUNC(Integer, String) AS Boolean", "Integer"],
-                "Nothing"
+                vec![
+                    "FUNC(Integer, String) AS Boolean".to_string(),
+                    "Integer".to_string()
+                ],
+                "Nothing".to_string(),
+                false
             ))
         );
         assert_eq!(
-            func_type_parts("ISOLATED FUNC(FUNC(A, B) AS C) AS D"),
-            Some((vec!["FUNC(A, B) AS C"], "D"))
+            func_parts("ISOLATED FUNC(FUNC(A, B) AS C) AS D"),
+            Some((vec!["FUNC(A, B) AS C".to_string()], "D".to_string(), true))
         );
         // A two-argument template whose first argument is a two-parameter FUNC.
         assert_eq!(
-            user_template_parts("Pair OF FUNC(Integer, String) AS Boolean, Integer"),
+            user_parts("Pair OF FUNC(Integer, String) AS Boolean, Integer"),
             Some((
                 "Pair".to_string(),
                 vec![
@@ -872,14 +867,14 @@ mod tests {
                 ]
             ))
         );
-        // A nested user template argument keeps its own arguments.
+        // The depth-aware top-level comma split now lives in the canonical grammar.
         assert_eq!(
-            split_top_level_commas("Pair OF Integer, String"),
-            vec!["Pair OF Integer".to_string(), "String".to_string()]
+            crate::codegen::builtins::split_top_level_commas("Pair OF Integer, String"),
+            vec!["Pair OF Integer", "String"]
         );
         assert_eq!(
-            split_top_level_commas("FUNC(A, B) AS C, D"),
-            vec!["FUNC(A, B) AS C".to_string(), "D".to_string()]
+            crate::codegen::builtins::split_top_level_commas("FUNC(A, B) AS C, D"),
+            vec!["FUNC(A, B) AS C", "D"]
         );
     }
 
@@ -899,10 +894,13 @@ mod tests {
         );
     }
 
+    /// A built-in constructor spelled with ` OF ` must never be read as a user
+    /// generic named `List`/`Map`/… — the ordering rule `ParameterType::parse`'s
+    /// `UserOf` arm inherited from the deleted `user_template_parts`.
     #[test]
     fn user_template_parts_excludes_builtin_shapes() {
         assert_eq!(
-            user_template_parts("Pair OF Integer, String"),
+            user_parts("Pair OF Integer, String"),
             Some((
                 "Pair".to_string(),
                 vec!["Integer".to_string(), "String".to_string()]
@@ -914,14 +912,14 @@ mod tests {
             "Map OF Integer TO String",
             "MapEntry OF Integer TO String",
             "Result OF Integer",
-            "Thread OF Integer",
-            "ThreadWorker OF Integer",
+            "Thread OF Integer TO String",
+            "ThreadWorker OF Integer TO String",
             "FUNC(Integer) AS String",
             "ISOLATED FUNC() AS Nothing",
         ] {
-            assert_eq!(user_template_parts(builtin), None, "{builtin}");
+            assert_eq!(user_parts(builtin), None, "{builtin}");
         }
-        assert_eq!(user_template_parts("Integer"), None);
+        assert_eq!(user_parts("Integer"), None);
     }
 
     #[test]
@@ -1101,16 +1099,19 @@ mod tests {
         );
     }
 
+    /// plan-105-B moved both splitters into the canonical grammar
+    /// (`crate::types::split_top_level_to`, `builtins::split_top_level_commas`);
+    /// these assertions follow them there.
     #[test]
     fn split_helpers() {
         assert_eq!(
-            split_top_level_to("Integer TO String"),
-            Some(("Integer".to_string(), "String".to_string()))
+            crate::types::split_top_level_to("Integer TO String"),
+            Some(("Integer", "String"))
         );
-        assert_eq!(split_top_level_to("Integer"), None);
+        assert_eq!(crate::types::split_top_level_to("Integer"), None);
         assert_eq!(
-            split_top_level_commas("Integer, String"),
-            vec!["Integer".to_string(), "String".to_string()]
+            crate::codegen::builtins::split_top_level_commas("Integer, String"),
+            vec!["Integer", "String"]
         );
     }
 

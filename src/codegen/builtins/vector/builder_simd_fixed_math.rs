@@ -28,9 +28,9 @@ impl CodeBuilder<'_> {
         text: String,
     ) -> Result<ValueResult, String> {
         self.reset_temporary_registers();
-        let in_ptr = self.allocate_register()?;
+        let in_ptr = self.allocate_register();
         self.emit(abi::move_register(&in_ptr, &input.location));
-        let count = self.allocate_register()?;
+        let count = self.allocate_register();
         self.emit(abi::load_u64(&count, &in_ptr, COLLECTION_OFFSET_COUNT));
         let in_slot = self.allocate_stack_object("simd_fxsqrt_in", 8);
         let count_slot = self.allocate_stack_object("simd_fxsqrt_count", 8);
@@ -40,15 +40,15 @@ impl CodeBuilder<'_> {
         let result_base =
             self.emit_alloc_result_list(&count, &COLLECTION_TYPE_FIXED.to_string(), "simd_fxsqrt")?;
 
-        let in_ptr = self.allocate_register()?;
+        let in_ptr = self.allocate_register();
         self.emit(abi::load_u64(&in_ptr, abi::stack_pointer(), in_slot));
-        let count = self.allocate_register()?;
+        let count = self.allocate_register();
         self.emit(abi::load_u64(&count, abi::stack_pointer(), count_slot));
-        let in_data = self.allocate_register()?;
+        let in_data = self.allocate_register();
         self.emit_collection_data_pointer_for(&in_data, &in_ptr, "Fixed");
-        let out_data = self.allocate_register()?;
+        let out_data = self.allocate_register();
         self.emit_collection_data_pointer_for(&out_data, &result_base, "Fixed");
-        let pairs = self.allocate_register()?;
+        let pairs = self.allocate_register();
         self.emit(abi::shift_right_immediate(&pairs, &count, 1));
 
         // Persistent vector state threaded through both kernel runs: `one` =
@@ -59,7 +59,7 @@ impl CodeBuilder<'_> {
         let neg_mask = self.temporary_fp_vreg();
         let mask = self.temporary_fp_vreg();
         let sel = self.temporary_fp_vreg();
-        let one_val = self.allocate_register()?;
+        let one_val = self.allocate_register();
         self.emit(abi::move_immediate(&one_val, "Integer", "1"));
         self.emit(abi::vector_dup_from_x(&one, &one_val));
         self.emit(abi::vector_eor(&neg_mask, &neg_mask, &neg_mask));
@@ -81,24 +81,24 @@ impl CodeBuilder<'_> {
 
         // --- Scalar tail (count & 1): broadcast the single element into both
         // lanes, run the same kernel, store lane 0. ---
-        let tail = self.allocate_register()?;
+        let tail = self.allocate_register();
         self.emit(abi::move_immediate(&tail, "Integer", "1"));
         self.emit(abi::and_registers(&tail, &count, &tail));
         let tail_done = self.label("simd_fxsqrt_tail_done");
         self.emit(abi::compare_immediate(&tail, "0"));
         self.emit(abi::branch_eq(&tail_done));
-        let elem = self.allocate_register()?;
+        let elem = self.allocate_register();
         self.emit(abi::load_u64(&elem, &in_data, 0));
         self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[0], &elem));
         self.emit_fixed_sqrt_vector(&one, &neg_mask, &mask, &sel)?;
-        let res_lane = self.allocate_register()?;
+        let res_lane = self.allocate_register();
         self.emit(abi::vector_extract_to_x(&res_lane, abi::VEC_SCRATCH[3], 0));
         self.emit(abi::store_u64(&res_lane, &out_data, 0));
         self.emit(abi::label(&tail_done));
 
         // --- Error reduce: any negative lane → ErrInvalidArgument ---
-        let lane0 = self.allocate_register()?;
-        let lane1 = self.allocate_register()?;
+        let lane0 = self.allocate_register();
+        let lane1 = self.allocate_register();
         self.emit(abi::vector_extract_to_x(&lane0, &neg_mask, 0));
         self.emit(abi::vector_extract_to_x(&lane1, &neg_mask, 1));
         self.emit(abi::or_registers(&lane0, &lane0, &lane1));
@@ -166,7 +166,7 @@ impl CodeBuilder<'_> {
         )); // rem = 0
             // digit counter (48 fractional bits) — an allocator-placed vreg
             // (plan-34-B Phase 3); the vector state stays in physical `v1..v7`.
-        let digit = self.allocate_register()?;
+        let digit = self.allocate_register();
         self.emit(abi::move_immediate(&digit, "Integer", "48"));
 
         let loop_label = self.label("simd_fxsqrt_digit");
@@ -260,9 +260,9 @@ impl CodeBuilder<'_> {
         text: String,
     ) -> Result<ValueResult, String> {
         self.reset_temporary_registers();
-        let in_ptr = self.allocate_register()?;
+        let in_ptr = self.allocate_register();
         self.emit(abi::move_register(&in_ptr, &input.location));
-        let count = self.allocate_register()?;
+        let count = self.allocate_register();
         self.emit(abi::load_u64(&count, &in_ptr, COLLECTION_OFFSET_COUNT));
         let in_slot = self.allocate_stack_object("simd_fxlog_in", 8);
         let count_slot = self.allocate_stack_object("simd_fxlog_count", 8);
@@ -285,12 +285,12 @@ impl CodeBuilder<'_> {
         let in_data_slot = self.allocate_stack_object("simd_fxlog_indata", 8);
         let out_data_slot = self.allocate_stack_object("simd_fxlog_outdata", 8);
         let idx_slot = self.allocate_stack_object("simd_fxlog_idx", 8);
-        let in_ptr = self.allocate_register()?;
+        let in_ptr = self.allocate_register();
         self.emit(abi::load_u64(&in_ptr, abi::stack_pointer(), in_slot));
-        let in_data = self.allocate_register()?;
+        let in_data = self.allocate_register();
         self.emit_collection_data_pointer_for(&in_data, &in_ptr, "Fixed");
         self.emit(abi::store_u64(&in_data, abi::stack_pointer(), in_data_slot));
-        let out_data = self.allocate_register()?;
+        let out_data = self.allocate_register();
         self.emit_collection_data_pointer_for(&out_data, &result_base, "Fixed");
         self.emit(abi::store_u64(
             &out_data,
@@ -304,20 +304,20 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&loop_label));
         // Reload idx and count; exit when idx == count.
         self.reset_temporary_registers();
-        let idx = self.allocate_register()?;
-        let count = self.allocate_register()?;
+        let idx = self.allocate_register();
+        let count = self.allocate_register();
         self.emit(abi::load_u64(&idx, abi::stack_pointer(), idx_slot));
         self.emit(abi::load_u64(&count, abi::stack_pointer(), count_slot));
         self.emit(abi::compare_registers(&idx, &count));
         self.emit(abi::branch_ge(&loop_done));
         // addr = in_data + idx*8; load the element.
-        let in_data = self.allocate_register()?;
+        let in_data = self.allocate_register();
         self.emit(abi::load_u64(&in_data, abi::stack_pointer(), in_data_slot));
-        let offset = self.allocate_register()?;
+        let offset = self.allocate_register();
         self.emit(abi::shift_left_immediate(&offset, &idx, 3));
-        let addr = self.allocate_register()?;
+        let addr = self.allocate_register();
         self.emit(abi::add_registers(&addr, &in_data, &offset));
-        let element = self.allocate_register()?;
+        let element = self.allocate_register();
         self.emit(abi::load_u64(&element, &addr, 0));
         // result = scalar Fixed log (terminal ErrInvalidArgument on element <= 0).
         let result = self.emit_fixed_log(&element, base10)?;
@@ -325,9 +325,9 @@ impl CodeBuilder<'_> {
         let result_slot = self.allocate_stack_object("simd_fxlog_result", 8);
         self.emit(abi::store_u64(&result, abi::stack_pointer(), result_slot));
         self.reset_temporary_registers();
-        let idx = self.allocate_register()?;
-        let out_data = self.allocate_register()?;
-        let result = self.allocate_register()?;
+        let idx = self.allocate_register();
+        let out_data = self.allocate_register();
+        let result = self.allocate_register();
         self.emit(abi::load_u64(&idx, abi::stack_pointer(), idx_slot));
         self.emit(abi::load_u64(
             &out_data,
@@ -335,9 +335,9 @@ impl CodeBuilder<'_> {
             out_data_slot,
         ));
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
-        let offset = self.allocate_register()?;
+        let offset = self.allocate_register();
         self.emit(abi::shift_left_immediate(&offset, &idx, 3));
-        let addr = self.allocate_register()?;
+        let addr = self.allocate_register();
         self.emit(abi::add_registers(&addr, &out_data, &offset));
         self.emit(abi::store_u64(&result, &addr, 0));
         // idx++ and loop.
@@ -349,7 +349,7 @@ impl CodeBuilder<'_> {
         // Reload the list base for the result (it did not survive the loop's
         // register resets).
         self.reset_temporary_registers();
-        let result_base = self.allocate_register()?;
+        let result_base = self.allocate_register();
         self.emit(abi::load_u64(&result_base, abi::stack_pointer(), base_slot));
         Ok(ValueResult {
             origin: None,

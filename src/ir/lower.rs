@@ -93,8 +93,7 @@ pub struct ImportedTypeVariant {
 pub fn lower_project_with_external_functions(
     ast: &crate::ast::AstProject,
     entry: Option<EntryPoint>,
-    external_function_types: &HashMap<String, String>,
-    external_function_params: &HashMap<String, Vec<ExternalFunctionParam>>,
+    external_signatures: &HashMap<String, ExternalSignature>,
     imported_types: &[ImportedTypeDef],
 ) -> IrProject {
     let augmented = crate::codegen::registry::registry()
@@ -136,8 +135,7 @@ pub fn lower_project_with_external_functions(
     let mut ir = lower_augmented_project(
         &crate::hir::elaborate(&augmented),
         entry,
-        external_function_types,
-        external_function_params,
+        external_signatures,
         imported_types,
     );
     // Docs come from the source AST this wrapper owns (the lowering path holds
@@ -153,8 +151,7 @@ pub fn lower_project_with_external_functions(
 pub fn lower_augmented_project(
     hir: &crate::hir::HirProject,
     entry: Option<EntryPoint>,
-    external_function_types: &HashMap<String, String>,
-    external_function_params: &HashMap<String, Vec<ExternalFunctionParam>>,
+    external_signatures: &HashMap<String, ExternalSignature>,
     imported_types: &[ImportedTypeDef],
 ) -> IrProject {
     let mut types = Vec::new();
@@ -163,11 +160,17 @@ pub fn lower_augmented_project(
     let mut function_types = function_types(hir);
     let mut function_params = function_params(hir);
     let binding_types = declared_binding_types(hir);
-    function_types.extend(external_function_types.clone());
-    for (name, params) in external_function_params {
+    // Imported-package signatures arrive TYPED (plan-105-A): the return type and
+    // the parameter list are read straight off `ExternalSignature` instead of being
+    // re-split out of a formatted `FUNC(…) AS R` string. The `function_types` entry
+    // is still a string because the lowering context's own map is string-keyed
+    // until plan-106 — that is a render-out (`name()`), not a round-trip.
+    for (name, signature) in external_signatures {
+        function_types.insert(name.clone(), signature.signature_type().name().into_owned());
         function_params.insert(
             name.clone(),
-            params
+            signature
+                .params
                 .iter()
                 .map(|param| CallParam {
                     name: param.name.clone(),
@@ -176,11 +179,7 @@ pub fn lower_augmented_project(
                 })
                 .collect(),
         );
-    }
-    for (name, type_) in external_function_types {
-        if let Some(return_type) = function_return_from_type(type_) {
-            function_returns.insert(name.clone(), return_type);
-        }
+        function_returns.insert(name.clone(), signature.returns.name().into_owned());
     }
     let type_index = TypeIndex::new(hir, imported_types);
     let mut context = LowerContext {
@@ -2212,23 +2211,34 @@ fn expression_type(
     }
 }
 
+/// The parameter and return types of a declared function-value type string, or
+/// `None` when it is not a `FUNC(…) AS R` at all.
+///
+/// The inputs here are a local's or a global binding's DECLARED type — still a
+/// string until plan-106 retypes the lowering context's maps. Imported-package
+/// signatures no longer reach this path at all: they arrive typed
+/// (`ExternalSignature`, plan-105-A).
+///
+/// Routed through [`ParameterType::parse`] rather than a private `strip_prefix`
+/// cascade, so `ir::lower` holds no copy of the type grammar. That also fixes the
+/// hand-rolled splitters this replaced: they cut at the FIRST `") AS "` and split
+/// parameters on a bare `", "`, so a higher-order declared type
+/// (`FUNC(FUNC(Integer) AS String) AS File`) mis-typed as return `String) AS File`
+/// with a single truncated parameter. `parse` splits at paren depth 0.
+fn declared_func_parts(type_: &str) -> Option<(Vec<ParameterType>, ParameterType)> {
+    match ParameterType::parse(type_) {
+        ParameterType::Func(params, returns, _) => Some((params, *returns)),
+        _ => None,
+    }
+}
+
 fn function_return_from_type(type_: &str) -> Option<String> {
-    type_
-        .strip_prefix("FUNC(")
-        .or_else(|| type_.strip_prefix("ISOLATED FUNC("))
-        .and_then(|rest| rest.split_once(") AS "))
-        .map(|(_, return_type)| return_type.to_string())
+    declared_func_parts(type_).map(|(_, returns)| returns.name().into_owned())
 }
 
 fn function_param_types_from_type(type_: &str) -> Option<Vec<String>> {
-    let rest = type_
-        .strip_prefix("FUNC(")
-        .or_else(|| type_.strip_prefix("ISOLATED FUNC("))?;
-    let (params, _) = rest.split_once(") AS ")?;
-    if params.trim().is_empty() {
-        return Some(Vec::new());
-    }
-    Some(params.split(", ").map(str::to_string).collect())
+    declared_func_parts(type_)
+        .map(|(params, _)| params.iter().map(|p| p.name().into_owned()).collect())
 }
 
 /// Lower resource-plane thread calls to their dedicated runtime helpers. The

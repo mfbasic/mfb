@@ -98,7 +98,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&r0, abi::stack_pointer(), i_slot));
         self.emit(abi::branch(&loop_l));
         self.emit(abi::label(&done_l));
-        let result_reg = self.allocate_register()?;
+        let result_reg = self.allocate_register();
         self.emit(abi::load_u64(
             &result_reg,
             abi::stack_pointer(),

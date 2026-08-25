@@ -1,0 +1,42 @@
+IMPORT io
+
+' plan-105-B: golden coverage for a SINGLE-parameter user generic.
+'
+' Before this fixture the corpus contained no `TYPE X OF T` at all
+' (`rg -rl 'TYPE [A-Za-z]+ OF [A-Z]' tests/` -> 0), so every byte-identity gate
+' ran without ever exercising monomorph's user-generic path. That path is the
+' one plan-105-B retypes: `ParameterType::UserOf` replaces the `Named("Box OF
+' Integer")` leaf that monomorph used to re-split with string helpers
+' (`user_template_parts`). Two distinct instantiations of one template are the
+' minimum that proves the instantiation KEY still separates them.
+
+TYPE Box OF T
+  value AS T
+END TYPE
+
+FUNC unbox OF T(b AS Box OF T) AS T
+  RETURN b.value
+END FUNC
+
+' NOTE: a `Box OF T` parameter must come LAST. The type parser reads `OF`'s
+' argument list greedily across commas, so `(b AS Box OF T, v AS T)` parses as a
+' two-argument `Box OF T, v` and then fails to close the parameter list.
+FUNC rebox OF T(v AS T, b AS Box OF T) AS Box OF T
+  RETURN Box[v]
+END FUNC
+
+FUNC main AS Integer
+  LET i AS Box OF Integer = Box[7]
+  LET s AS Box OF String = Box["hi"]
+  io::print("int=" & toString(unbox(i)))
+  io::print("str=" & unbox(s))
+
+  ' Re-instantiating the same template through a second generic function must
+  ' reuse the same concrete Box OF Integer, not mint a divergent one.
+  LET i2 AS Box OF Integer = rebox(42, i)
+  io::print("rebox=" & toString(unbox(i2)))
+
+  LET s2 AS Box OF String = rebox("there", s)
+  io::print("restr=" & unbox(s2))
+  RETURN 0
+END FUNC
