@@ -1,128 +1,147 @@
 use super::helpers::*;
 use super::*;
+use crate::types::ParameterType;
 
 impl<'a> SyntaxChecker<'a> {
     /// Parse a collection element / `Map` value type, honoring the `RES` marker
     /// (`List OF RES fs::File`). The marker wraps the element in [`Type::Res`]; the
     /// element validation later checks it matches the element's resource-ness.
+    ///
+    /// plan-106-C: `RES` is a variant of the canonical grammar
+    /// ([`ParameterType::Res`]), so this is now just [`parse_type`](Self::parse_type).
+    /// Kept as a named seam because the call sites document *which* position they
+    /// are parsing.
     pub(super) fn parse_collection_element_type(&self, name: &str) -> Type {
-        if let Some(inner) = name.strip_prefix("RES ") {
-            return Type::Res(Box::new(self.parse_type(inner)));
-        }
         self.parse_type(name)
     }
 
+    /// The type a source/imported type SPELLING denotes.
+    ///
+    /// plan-106-C: the grammar is [`ParameterType::parse`] — syntaxcheck no
+    /// longer carries a private copy of it. What remains here is only the work
+    /// the canonical parser deliberately does not do, established by reading the
+    /// old parser's five non-grammar steps (recorded in the plan):
+    ///
+    /// 1. the top-level ` STATE T` peel — `Type` has no STATE concept, it carries
+    ///    the clause *beside* the type in `LocalInfo`/`ParamSig`, so a
+    ///    `fs::File STATE Cursor` IS a `File` for every purpose `Type` serves
+    ///    (plan-52-D §4);
+    /// 2. a qualified builtin **resource** keeps its qualified identity (plan-97);
+    /// 3. a qualified builtin **value** type collapses to its bare internal id
+    ///    (plan-03-http §A.1/§B.2);
+    /// 4. the thread plane's `STATE` splits into its own slot (plan-54);
+    /// 5. nothing — the old tail consulted `user_types` and discarded the answer.
+    ///
+    /// Steps 1–4 are applied by [`type_from_parameter`](Self::type_from_parameter)
+    /// at every level, exactly as the recursive private parser applied them.
     pub(super) fn parse_type(&self, name: &str) -> Type {
-        // `Type` has no STATE concept: syntaxcheck carries a resource's `STATE T`
-        // beside the type, in `LocalInfo`/`ParamSig`, never inside it. So a type
-        // string that spells the STATE inline resolves to its base — a
-        // `fs::File STATE Cursor` IS a `File` for every purpose `Type` serves.
-        //
-        // Only imported signatures arrive spelled that way (a locally declared
-        // `RES f AS fs::File STATE Cursor` is parsed with the clause already split off
-        // by the parser). Without this the STATE rode inside `Type::User`, and
-        // every ordinary comparison against it failed — `fs::close(h)` on an
-        // imported stateful handle reported "argument type(s) (fs::File STATE Cursor),
-        // expected File" (plan-52-D §4).
-        let name = crate::codegen::resource::base_resource_name(name);
-        let name = crate::types::strip_type_group(name);
-        // A package-qualified built-in **resource** (`fs.File`, `process.Process`)
-        // KEEPS its qualified identity — resources are package-scoped so a user
-        // `TYPE File` no longer collides (plan-97). Value types still collapse below.
-        if builtins::is_qualified_builtin_resource(name) {
-            return Type::User(name.to_string());
-        }
-        // A package-qualified built-in value type (`net.Url`, `http.Result`) resolves
-        // to its bare internal id (plan-03-http.md §A.1/§B.2).
-        if let Some(bare) = builtins::qualified_builtin_type(name) {
-            return Type::User(bare);
-        }
-        if let Some(rest) = name.strip_prefix("ISOLATED FUNC(") {
-            return self.parse_function_type(rest, true);
-        }
-        if let Some(rest) = name.strip_prefix("FUNC(") {
-            return self.parse_function_type(rest, false);
-        }
-        if let Some(element) = name.strip_prefix("List OF ") {
-            return Type::List(Box::new(self.parse_collection_element_type(element)));
-        }
-        if let Some(element) = name.strip_prefix("Set OF ") {
-            // A Set element is always comparable (never `RES`), so parse it as a
-            // plain element type — no resource-collection element handling needed.
-            return Type::Set(Box::new(self.parse_type(element)));
-        }
-        if let Some(success) = name.strip_prefix("Result OF ") {
-            return Type::Result(Box::new(self.parse_type(success)));
-        }
-        if let Some((kind, message, resource, output)) = crate::types::thread_parts_full(name) {
-            // The plane's `RES` element may carry a `STATE T` clause (plan-54);
-            // peel it into a separate `resource_state` so the resource type stays
-            // bare (every resource consumer sees `File`, not `fs::File STATE Cursor`),
-            // while the plane still names the state it transfers.
-            let resource_state = resource
-                .and_then(crate::codegen::resource::state_type_name)
-                .map(|state| Box::new(self.parse_type(state)));
-            let resource = resource.map(|resource| Box::new(self.parse_type(resource)));
-            if kind == crate::types::THREAD_WORKER_TYPE {
-                return Type::ThreadWorker(
-                    Box::new(self.parse_type(message)),
-                    resource,
-                    resource_state,
-                    Box::new(self.parse_type(output)),
-                );
-            }
-            return Type::Thread(
-                Box::new(self.parse_type(message)),
-                resource,
-                resource_state,
-                Box::new(self.parse_type(output)),
-            );
-        }
-        if let Some(rest) = name.strip_prefix("Map OF ") {
-            if let Some((key, value)) = split_map_body(rest) {
-                return Type::Map(
-                    Box::new(self.parse_type(key)),
-                    Box::new(self.parse_collection_element_type(value)),
-                );
-            }
-        }
+        self.type_from_parameter(&ParameterType::parse(crate::types::strip_type_group(name)))
+    }
 
-        match name {
-            "AttributedString" => Type::AttributedString,
-            "Boolean" => Type::Boolean,
-            "Byte" => Type::Byte,
-            "Error" => Type::Error,
-            "ErrorLoc" => Type::ErrorLoc,
-            "Fixed" => Type::Fixed,
-            "Float" => Type::Float,
-            "Integer" => Type::Integer,
-            "Money" => Type::Money,
-            "Nothing" => Type::Nothing,
-            "Scalar" => Type::Scalar,
-            "String" => Type::String,
-            "Unknown" => Type::Unknown,
-            "Result" => Type::Result(Box::new(Type::Unknown)),
-            other if builtins::is_builtin_type(other) => Type::User(other.to_string()),
-            other if self.user_types.contains(other) => Type::User(other.to_string()),
-            other => Type::User(other.to_string()),
+    /// Convert a canonically-parsed [`ParameterType`] into syntaxcheck's `Type`,
+    /// applying the four non-grammar steps [`parse_type`](Self::parse_type)
+    /// documents. This function *is* the plan's mapping table, executable.
+    fn type_from_parameter(&self, type_: &ParameterType) -> Type {
+        match type_ {
+            ParameterType::ListOf(element) => {
+                Type::List(Box::new(self.type_from_parameter(element)))
+            }
+            ParameterType::SetOf(element) => Type::Set(Box::new(self.type_from_parameter(element))),
+            ParameterType::ResultOf(success) => {
+                Type::Result(Box::new(self.type_from_parameter(success)))
+            }
+            ParameterType::MapOf(key, value) => Type::Map(
+                Box::new(self.type_from_parameter(key)),
+                Box::new(self.type_from_parameter(value)),
+            ),
+            ParameterType::Res(inner) => Type::Res(Box::new(self.type_from_parameter(inner))),
+            ParameterType::Func(params, return_type, isolated) => Type::Function {
+                params: params
+                    .iter()
+                    .map(|param| self.type_from_parameter(param))
+                    .collect(),
+                return_type: Box::new(self.type_from_parameter(return_type)),
+                isolated: *isolated,
+            },
+            ParameterType::ThreadHandle {
+                worker,
+                msg,
+                res,
+                out,
+            } => {
+                // Step 4: the plane's `RES` element may carry a ` STATE T` clause,
+                // which becomes its own slot so every resource consumer sees the
+                // bare `File`, not `fs.File STATE Cursor`, while the plane still
+                // names the state it transfers (plan-54).
+                let (resource, resource_state) = match res.as_ref() {
+                    ParameterType::Nothing => (None, None),
+                    other => {
+                        let (base, state) = other.split_state();
+                        (
+                            Some(Box::new(self.type_from_parameter(&base))),
+                            state.map(|state| Box::new(self.type_from_parameter(&state))),
+                        )
+                    }
+                };
+                let message = Box::new(self.type_from_parameter(msg));
+                let output = Box::new(self.type_from_parameter(out));
+                if *worker {
+                    Type::ThreadWorker(message, resource, resource_state, output)
+                } else {
+                    Type::Thread(message, resource, resource_state, output)
+                }
+            }
+            ParameterType::Boolean => Type::Boolean,
+            ParameterType::Byte => Type::Byte,
+            ParameterType::Fixed => Type::Fixed,
+            ParameterType::Float => Type::Float,
+            ParameterType::Integer => Type::Integer,
+            ParameterType::Money => Type::Money,
+            ParameterType::Nothing => Type::Nothing,
+            ParameterType::String => Type::String,
+            ParameterType::Unknown => Type::Unknown,
+            // Every remaining shape is named: a nominal, a user generic, a type
+            // variable, `Arg`, or the `AttributeString` variant (a spelling the
+            // language's attributed-text type does not use). They share the leaf
+            // path, which applies steps 1-3.
+            leaf => self.leaf_type_from_name(&leaf.name()),
         }
     }
 
-    pub(super) fn parse_function_type(&self, rest: &str, isolated: bool) -> Type {
-        // Split at the depth-0 `) AS ` and at top-level commas so a nested
-        // function-typed parameter (`FUNC(FUNC(Integer) AS Integer, …) AS R`) is
-        // not mis-split at an inner `) AS `/comma (bug-106).
-        let Some((params, return_type)) = builtins::split_func_params_and_return(rest) else {
+    /// The leaf half of [`type_from_parameter`](Self::type_from_parameter):
+    /// steps 1-3 of [`parse_type`](Self::parse_type), then the scalar table.
+    fn leaf_type_from_name(&self, name: &str) -> Type {
+        // Step 1: peel a top-level ` STATE T`. `Type` has no STATE concept.
+        let name = crate::codegen::resource::base_resource_name(name);
+        // Step 2: a package-qualified built-in RESOURCE keeps its qualified
+        // identity — resources are package-scoped, so a user `TYPE File` no longer
+        // collides (plan-97).
+        if builtins::is_qualified_builtin_resource(name) {
+            return Type::User(name.to_string());
+        }
+        // Step 3: a package-qualified built-in VALUE type resolves to its bare
+        // internal id.
+        if let Some(bare) = builtins::qualified_builtin_type(name) {
+            return Type::User(bare);
+        }
+        // A spelling that LOOKS like a function type but did not parse as one is
+        // malformed (`FUNC(Integer` — no `) AS ` return clause). The old private
+        // parser answered `Type::Unknown` for it, and that is the right answer:
+        // `Unknown` is syntaxcheck's permissive skip, whereas treating it as a
+        // nominal would make it match nothing and reject the program on a
+        // *parse* failure. Pinned by `parse_function_type_malformed_yields_unknown`.
+        if name.starts_with("FUNC(") || name.starts_with("ISOLATED FUNC(") {
             return Type::Unknown;
-        };
-        let params = params
-            .into_iter()
-            .map(|param| self.parse_type(param))
-            .collect();
-        Type::Function {
-            params,
-            return_type: Box::new(self.parse_type(return_type)),
-            isolated,
+        }
+        match name {
+            "AttributedString" => Type::AttributedString,
+            "Error" => Type::Error,
+            "ErrorLoc" => Type::ErrorLoc,
+            "Scalar" => Type::Scalar,
+            // `Result` with no ` OF ` is the bare marker; the canonical parser
+            // leaves it a nominal, and it means `Result OF Unknown` here.
+            "Result" => Type::Result(Box::new(Type::Unknown)),
+            other => Type::User(other.to_string()),
         }
     }
 
@@ -479,31 +498,6 @@ impl<'a> SyntaxChecker<'a> {
 /// match must sit on a word boundary so a user template whose name merely ends
 /// in `Map` (`MyMap OF T`, which owns no ` TO `) is not counted.
 
-/// Split a `Map OF` body `K TO V` (the text after the outer `Map OF ` prefix) on
-/// the ` TO ` that separates the outer key from its value. A leftmost
-/// `split_once(" TO ")` mis-parses a key that itself carries a ` TO `
-/// (`Map OF Map OF String TO Integer TO Boolean`, bug-41): this scan skips the
-/// ` TO ` owned by each nested `Map`/`MapEntry`/`Thread`/`ThreadWorker` sub-type
-/// and ignores separators inside parenthesized / `FUNC(...)` groups. Returns
-/// `None` when there is no top-level ` TO ` (a malformed body), so the caller
-/// falls through and the whole string is treated as a plain type name.
-/// Split a `Map OF` body `K TO V` (the text after the outer `Map OF ` prefix) on
-/// the ` TO ` that separates the outer key from its value.
-///
-/// plan-105-B: this was a verbatim third copy of the same depth-aware scan (the
-/// others lived in `monomorph::helpers` and `resolver::resolution`), which is
-/// precisely the lockstep-edit hazard the architectural review flagged
-/// (`planning/Compiler Pipeline.md:25`) — a fix like bug-41/bug-108.2 had to be
-/// applied to all of them or the compiler disagreed with itself about where a
-/// nested `Map OF Map OF String TO Integer TO Boolean` splits. It now delegates to
-/// the canonical [`crate::types::split_top_level_to`].
-///
-/// Returns `None` when there is no top-level ` TO ` (a malformed body), so the
-/// caller falls through and the whole string is treated as a plain type name.
-fn split_map_body(body: &str) -> Option<(&str, &str)> {
-    crate::types::split_top_level_to(body)
-}
-
 #[cfg(test)]
 mod types_tests {
     use crate::syntaxcheck::testutil::*;
@@ -773,7 +767,9 @@ mod types_tests {
 
     #[test]
     fn split_map_body_handles_nested_key_and_value() {
-        use super::split_map_body;
+        // plan-106-C deleted `split_map_body`, which had become a bare delegate;
+        // these assertions follow the splitter to its one home.
+        use crate::types::split_top_level_to as split_map_body;
         // Simple body: leftmost and balanced agree.
         assert_eq!(
             split_map_body("String TO Integer"),

@@ -84,17 +84,6 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
     )
 }
 
-/// Whether `name` is a builtin value/opaque type contributed by any package
-/// (plan-72-BB: iterated over the descriptor registry's `types`). `thread`'s opaque
-/// `Thread`/`ThreadWorker` handles — bare and the parametric `Thread OF ... TO ...`
-/// spelling — are recognized by the clean-room registry's `is_builtin_type`
-/// (source-declared-type + parametric-head extension).
-pub(crate) fn is_builtin_type(name: &str) -> bool {
-    // `datetime`'s value records/enums (authored in `package.mfb`) are recognized
-    // through the generic registry via their `add_source_types` declaration.
-    crate::codegen::registry::registry().is_builtin_type(name)
-}
-
 /// The internal helper a built-in package provides as an **override** of an
 /// overridable general built-in (`toString`, `len`, …) over one of its value
 /// types (plan-01-overload.md §B.2). A general call `f(x)` whose sole argument
@@ -1096,10 +1085,13 @@ mod tests {
 
     #[test]
     fn is_builtin_type_aggregates() {
-        // A thread type routes through thread::is_builtin_type.
-        assert!(is_builtin_type("Thread"));
-        assert!(!is_builtin_type("Integer"));
-        assert!(!is_builtin_type("List OF Integer"));
+        // A thread type routes through the registry's type table. plan-106-C
+        // deleted the `builtins::is_builtin_type` wrapper — syntaxcheck's parser
+        // was its last caller, and that call discarded the answer — so these
+        // assertions follow it to the registry.
+        assert!(crate::codegen::registry::registry().is_builtin_type("Thread"));
+        assert!(!crate::codegen::registry::registry().is_builtin_type("Integer"));
+        assert!(!crate::codegen::registry::registry().is_builtin_type("List OF Integer"));
     }
 
     #[test]

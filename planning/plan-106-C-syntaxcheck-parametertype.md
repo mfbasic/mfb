@@ -77,7 +77,7 @@ the differences are enumerable and small.
 
 | What | Count | Command |
 |---|---|---|
-| private parser to delete | 1,077 lines | `wc -l src/syntaxcheck/types.rs` |
+| private parser to delete | plan-writing "1,077 lines"; **actually ~110** — see Correction 3 | the grammar was `parse_type` + `parse_function_type` + `parse_collection_element_type`; the file's other ~920 lines are the compatibility algebra, the argument-mode helpers and 500 lines of tests, none of which is a parser |
 | `Type` references in the engine | 153 (inference.rs) | `rg -c '\bType\b' src/syntaxcheck/inference.rs` → 153; whole-module count at kickoff: `rg -c '\bType\b' src/syntaxcheck/` |
 | syntaxcheck total | 14,441 lines | `find src/syntaxcheck -name '*.rs' \| xargs wc -l` |
 | enum variant delta vs `ParameterType` | to enumerate | Phase 1 task: read both enums side-by-side; record the full mapping table here |
@@ -244,18 +244,43 @@ Commit: `38c3522d1`
 
 ### Phase 2 — the swap, module by module
 
-- [ ] Convert `types.rs` callers → canonical parse + scope resolution;
-      convert `inference.rs`; convert the rule modules (`checking.rs`,
-      `resources.rs`, `builtins.rs`, `link.rs`, `helpers.rs`); delete
-      `enum Type` and the private parser (+ its 1,077 lines of tests, ported
-      to `ParameterType` where they cover grammar the canonical tests lack).
+Sequenced as a ladder so each rung is independently gated (see Correction 3 for
+why this order, not the plan's original one):
+
+- [x] **2a — delete the private GRAMMAR** (this rung). `parse_type` is now
+      `ParameterType::parse` + a conversion; `parse_function_type` and the
+      `strip_prefix` cascade are gone, and `parse_collection_element_type` is a
+      one-line alias (`RES` is a variant of the canonical grammar).
+      `rg -n 'strip_prefix\("(List OF |Set OF |Map OF |RES |Result OF |MapEntry OF |FUNC\()' src/syntaxcheck/`
+      → **0**. The conversion, `type_from_parameter` + `leaf_type_from_name`,
+      *is* the Phase-1 mapping table made executable, and it applies the four
+      real non-grammar steps at every level exactly as the recursive private
+      parser did.
+- [x] Deleted with their last callers: `syntaxcheck::types::split_map_body` (a
+      bare delegate to `crate::types::split_top_level_to` — its 6 grammar
+      assertions follow the splitter to its one home) and
+      `builtins::is_builtin_type` (whose only production caller was the parser's
+      inert tail arm — its 3 assertions follow to `registry().is_builtin_type`).
+      `cargo build --bin mfb` → **0 warnings**.
+- [ ] **2b — fold the `res_state` slot** into `res` using `with_state`/`state`,
+      so `Type::Thread` drops to 3 slots.
+- [ ] **2c — merge `Thread`/`ThreadWorker`** into one `worker: bool` variant, and
+      rename the container variants to `ParameterType`'s (`List`→`ListOf`, …).
+- [ ] **2d — convert the four nominal variants** (`Error`, `ErrorLoc`, `Scalar`,
+      `AttributedString`) and `User(String)` onto `Named`/`UserOf`.
+- [ ] **2e — replace `enum Type` with `ParameterType`**; delete the conversion.
 - [ ] `helpers.rs` promotion copy → the numeric.rs typed source.
-- [ ] Tests: the full `*-invalid` diagnostic corpus after EVERY module commit.
+- [ ] Tests: the full `*-invalid` diagnostic corpus after EVERY rung.
 
 Acceptance: `cargo test --no-fail-fast` green; diagnostic corpus
 byte-identical; `artifact-gate all` no NEW diff; `rg -n 'enum Type' src/syntaxcheck/`
 → 0; `wc -l src/syntaxcheck/types.rs` → file deleted or reduced to
 scope-resolution only (record which).
+
+Rung 2a verified: `cargo test --bin mfb` → 3650 passed, 0 failed;
+`artifact-gate all` → `1255 tests, 1402 build(s), 1730 golden(s) checked,
+0 diff(s)`; `test-accept` → 1271 ran, 0 mismatches — the whole `*-invalid`
+diagnostic corpus byte-identical across a parser swap.
 Commit: —
 
 ## Validation Plan
@@ -274,6 +299,60 @@ Commit: —
   Recommend the thin fn — one seam, testable.
 
 ## Corrections
+
+### 3. The "1,077-line parser" is ~110 lines of grammar
+
+§2 Measured populations lists "private parser to delete — 1,077 lines,
+`wc -l src/syntaxcheck/types.rs`", and §1's Goal says the file's parser is
+replaced "by the canonical `parse`". The file is 1,031 lines at kickoff, but the
+*parser* is only `parse_type` (~95 lines), `parse_function_type` (~18) and
+`parse_collection_element_type` (~7). The rest is:
+
+- `compatible` / `compatible_optional` / `expression_compatible` — the
+  compatibility algebra (~130 lines), which is not a parser and survives the
+  swap (it moves onto `ParameterType` at rung 2e);
+- `is_numeric` / `is_comparable` / `is_orderable_*` / `require_comparable_type`
+  and the `call_argument_mode` family (~150 lines);
+- ~500 lines of tests.
+
+`wc -l` on a file is not a measurement of the thing inside it. The real
+deliverable — "syntaxcheck holds no copy of the type grammar" — is checkable
+and now **met** at rung 2a:
+
+```
+$ rg -n 'strip_prefix\("(List OF |Set OF |Map OF |RES |Result OF |MapEntry OF |FUNC\()' src/syntaxcheck/
+$ echo $?
+1        # no matches
+```
+
+The file is 1,026 lines and will not shrink much further; that is fine, because
+line count was never the goal.
+
+### 4. Phase 2 is a ladder, not a module walk
+
+The plan sequences Phase 2 by MODULE (`types.rs` callers, then `inference.rs`,
+then the rule modules). That order does not actually decompose: `enum Type`'s
+variants are referenced from all eight modules (606 references), so changing a
+variant's *shape* breaks every module at once no matter which one you start in —
+there is no module-sized commit.
+
+What does decompose is the **enum's shape**, one property at a time, with the
+private enum kept until the end. Re-sequenced as rungs 2a–2e above. Rung 2a
+(delete the grammar) is deliberately first because it is the rung that removes
+the actual defect class — a duplicate parser that can drift from the canonical
+one — and it is independent of every variant change.
+
+### 5. A malformed `FUNC(` must stay `Unknown`
+
+Rung 2a reddened `parse_function_type_malformed_yields_unknown`:
+`parse_type("FUNC(Integer")` (no `) AS ` clause) answered `Type::Unknown` under
+the private parser, and `Type::User("FUNC(Integer")` under the canonical one,
+which leaves an unsplittable `FUNC(` as a nominal.
+
+The test is RIGHT and was kept: `Unknown` is syntaxcheck's permissive skip, so a
+*parse* failure degrades to "cannot say" rather than to a nominal that matches
+nothing and rejects the program. `leaf_type_from_name` restores it explicitly,
+with the reasoning at the site.
 
 ### 1. `User(String)` is NOT scope-resolved — the symbol-table consultation is inert
 
