@@ -156,6 +156,6 @@ pub(crate) fn lower_has_key(
         key_slot,
         key_type,
         "has_key",
-        &collection.type_.name(),
+        &collection.type_,
     )
 }

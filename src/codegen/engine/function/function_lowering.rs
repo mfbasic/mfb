@@ -942,7 +942,8 @@ pub(crate) fn lower_function(
             builder.emit(abi::store_u64(&scratch, abi::stack_pointer(), stack_offset));
             builder.reset_temporary_registers();
         }
-        if CodeBuilder::is_thread_type(&param.type_) {
+        // The TYPED NIR param, not the rendered `CodeParam` string beside it.
+        if CodeBuilder::is_thread_type(&function.params[index].type_) {
             builder
                 .active_cleanups
                 .push(ActiveCleanup::Thread(ThreadCleanup {

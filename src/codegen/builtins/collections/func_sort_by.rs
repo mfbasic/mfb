@@ -8,6 +8,7 @@ use crate::codegen::engine::types::{callable_return_type, typed_list_element_typ
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
+use crate::types::ParameterType;
 /// Native fast path for `#collections_sortBy$T$U`: 8-byte fixed-width items and
 /// signed 8-byte keys (String items allowed when the source is re-eval-safe).
 /// Other shapes decline (`Ok(None)`). Free fn.
@@ -89,7 +90,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             action_slot,
         ));
-        let keys_type = format!("List OF {key_type}");
+        let keys_type = ParameterType::list_of(ParameterType::parse(&key_type));
 
         // n = count(collection).
         let n_slot = self.allocate_stack_object("sortby_n", 8);
@@ -205,7 +206,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
             self.emit(abi::branch_eq(&k_ok));
             // keyFn failed: free the partial keys buffer, propagate the raw error.
-            self.emit_callback_failure_exit(Some((keys_slot, keys_type.clone())))?;
+            self.emit_callback_failure_exit(Some((keys_slot, keys_type.name().into_owned())))?;
             self.emit(abi::label(&k_ok));
             // keys[i] = RESULT_VALUE_REGISTER.
             self.emit(abi::load_u64(&addr, abi::stack_pointer(), keys_slot));
@@ -223,14 +224,14 @@ impl CodeBuilder<'_> {
             // scratch buffers (itemsB/keysB) for the ping-pong merge.
             let srcreg = self.temporary_vreg();
             self.emit(abi::load_u64(&srcreg, abi::stack_pointer(), coll_slot));
-            let items_copy = self.copy_collection_tight(&list_type.name(), &srcreg)?;
+            let items_copy = self.copy_collection_tight(&list_type, &srcreg)?;
             let items_slot = self.allocate_stack_object("sortby_items", 8);
             self.emit(abi::store_u64(
                 &items_copy,
                 abi::stack_pointer(),
                 items_slot,
             ));
-            let itemsb = self.lower_reserved_list(&list_type.name(), coll_slot)?;
+            let itemsb = self.lower_reserved_list(&list_type, coll_slot)?;
             let itemsb_slot = self.allocate_stack_object("sortby_itemsb", 8);
             self.emit(abi::store_u64(
                 &itemsb.location,
@@ -437,7 +438,7 @@ impl CodeBuilder<'_> {
             // in sorted order, then free the four Integer index buffers. The result
             // is pre-sized to the source (same n entries, same total bytes — a
             // permutation), so no append regrows.
-            let result = self.lower_reserved_list(&list_type.name(), coll_slot)?;
+            let result = self.lower_reserved_list(&list_type, coll_slot)?;
             let result_slot = self.allocate_stack_object("sortby_result", 8);
             self.emit(abi::store_u64(
                 &result.location,
@@ -475,7 +476,7 @@ impl CodeBuilder<'_> {
             self.emit_element_value_offset(&gvoff, &gvlen, &gcoll, &gidx, &gscr1, &gscr2, "String");
             let gitem = self.emit_load_collection_payload("String", &gcoll, &gvoff, &gvlen)?;
             self.emit(abi::store_u64(&gitem, abi::stack_pointer(), gitem_slot));
-            self.lower_list_append_in_place(result_slot, gitem_slot, &list_type.name(), "String")?;
+            self.lower_list_append_in_place(result_slot, gitem_slot, &list_type, "String")?;
             self.free_collection_loop_item(gitem_slot, "String")?;
             self.emit(abi::load_u64(&r0, abi::stack_pointer(), gk_slot));
             self.emit(abi::add_immediate(&r0, &r0, 1));
@@ -523,8 +524,7 @@ impl CodeBuilder<'_> {
             location: Operand::from(result_reg.render()),
             text: String::new(),
         };
-        let threaded =
-            self.free_intermediate_collection(itemsb_slot, &list_type.name(), threaded)?;
+        let threaded = self.free_intermediate_collection(itemsb_slot, &list_type, threaded)?;
         let threaded = self.free_intermediate_collection(keys_slot, &keys_type, threaded)?;
         let threaded = self.free_intermediate_collection(keysb_slot, &keys_type, threaded)?;
         Ok(ValueResult {

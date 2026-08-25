@@ -44,7 +44,7 @@ pub(crate) fn lower(
     let count_slot = builder.allocate_stack_object("strings_split_count", 8);
     let data_len_slot = builder.allocate_stack_object("strings_split_data_len", 8);
     let result_slot = builder.allocate_stack_object("strings_split_result", 8);
-    let layout = CollectionTypeLayout::from_type("List OF String")
+    let layout = CollectionTypeLayout::from_type(&ParameterType::list_of(ParameterType::String))
         .ok_or_else(|| "native strings.split cannot resolve List OF String layout".to_string())?;
 
     let invalid_delimiter = builder.label("strings_split_invalid_delimiter");

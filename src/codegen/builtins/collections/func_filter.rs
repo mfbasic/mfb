@@ -163,7 +163,7 @@ pub(crate) fn lower_filter(
     // Pre-size the output to the source: filter's result is a subset, so the
     // per-element append regrows neither the entry table nor the data region
     // (plan-25-B B2).
-    let output = builder.lower_reserved_list(&collection.type_.name(), collection_slot)?;
+    let output = builder.lower_reserved_list(&collection.type_, collection_slot)?;
     let output_slot = builder.allocate_stack_object("filter_output", 8);
     let cursor_slot = builder.allocate_stack_object("filter_cursor", 8);
     let remaining_slot = builder.allocate_stack_object("filter_remaining", 8);
@@ -210,12 +210,7 @@ pub(crate) fn lower_filter(
     builder.emit(abi::branch(&skip_label));
     builder.emit(abi::label(&keep_label));
     // Private accumulator → append in place with headroom (plan-01 §4.2).
-    builder.lower_list_append_in_place(
-        output_slot,
-        item_slot,
-        &collection.type_.name(),
-        &element_type,
-    )?;
+    builder.lower_list_append_in_place(output_slot, item_slot, &collection.type_, &element_type)?;
     builder.emit(abi::label(&skip_label));
     // bug-307: freed after the append on purpose. `emit_copy_payload_to_collection`
     // COPIES the String's bytes into the output's packed data region rather than

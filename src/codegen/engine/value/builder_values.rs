@@ -182,7 +182,7 @@ impl CodeBuilder<'_> {
         }
         if self.value_needs_owning_copy(value) && self.is_freeable_flat_value(&result.type_.name())
         {
-            let copied = self.copy_flat_block(&result.type_.name(), &result.location)?;
+            let copied = self.copy_flat_block(&result.type_, &result.location)?;
             return Ok(ValueResult {
                 origin: None,
                 type_: result.type_,
@@ -1593,13 +1593,9 @@ impl CodeBuilder<'_> {
                     self.current_symbol
                 ))
             }
-            NirValue::ListLiteral { type_, values } => {
-                self.lower_list_literal(&type_.name(), values)
-            }
-            NirValue::SetLiteral { type_, values } => self.lower_set_literal(&type_.name(), values),
-            NirValue::MapLiteral { type_, entries } => {
-                self.lower_map_literal(&type_.name(), entries)
-            }
+            NirValue::ListLiteral { type_, values } => self.lower_list_literal(&type_, values),
+            NirValue::SetLiteral { type_, values } => self.lower_set_literal(&type_, values),
+            NirValue::MapLiteral { type_, entries } => self.lower_map_literal(&type_, entries),
         }
     }
 

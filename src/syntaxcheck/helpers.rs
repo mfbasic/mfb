@@ -279,11 +279,20 @@ pub(super) fn numeric_binary_result_type(operator: &str, left: &Type, right: &Ty
     numeric::typed_binary_result_type(operator, left, right).unwrap_or(Type::Unknown)
 }
 
-pub(super) fn read_only_record_type(type_name: &str) -> bool {
-    crate::codegen::builtins::term::is_read_only_record(type_name)
+/// Whether a type is a compiler-owned read-only record.
+///
+/// plan-106-E: mirrors the typed form plan-106-B already gave `ir::verify`
+/// (`verify/mod.rs:read_only_record_type`) — a `MapEntry OF K TO V` is read-only
+/// STRUCTURALLY; the rest are nominal lookups into per-package tables, which are
+/// keyed by NAME.
+pub(super) fn read_only_record_type(type_: &Type) -> bool {
+    if matches!(type_, Type::MapEntryOf(_, _)) {
+        return true;
+    }
+    let type_name = type_.name();
+    crate::codegen::builtins::term::is_read_only_record(&type_name)
         || type_name == crate::codegen::builtins::net::ADDRESS_TYPE
         || type_name == crate::codegen::builtins::audio::AUDIO_DEVICE_TYPE
-        || type_name.starts_with("MapEntry OF ")
 }
 
 #[cfg(test)]

@@ -179,7 +179,7 @@ pub(crate) fn lower_get(
         let result = builder.lower_list_get(
             collection_slot,
             key_slot,
-            &collection.type_.name(),
+            &collection.type_,
             &element_type,
             unchecked,
         )?;
@@ -198,7 +198,7 @@ pub(crate) fn lower_get(
         let result = builder.lower_map_get(
             collection_slot,
             key_slot,
-            &collection.type_.name(),
+            &collection.type_,
             &key_type,
             &value_type,
         )?;

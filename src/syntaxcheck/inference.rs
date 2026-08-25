@@ -697,7 +697,7 @@ impl<'a> SyntaxChecker<'a> {
             return Type::Unknown;
         }
 
-        if read_only_record_type(type_name) {
+        if read_only_record_type(constructed) {
             self.report(
                 "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
                 &format!("TYPE `{type_name}` is compiler-owned and cannot be constructed."),
@@ -778,7 +778,7 @@ impl<'a> SyntaxChecker<'a> {
             return Type::Unknown;
         };
         let type_name = type_name.resolve();
-        if read_only_record_type(type_name) {
+        if read_only_record_type(&target_type) {
             for update in updates {
                 self.infer_expression(file, &update.value, locals, update.line, ExprMode::Transfer);
             }

@@ -58,10 +58,12 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             collection_slot,
         ));
-        let layout = CollectionTypeLayout::from_type(&format!("List OF {element_type}"))
-            .ok_or_else(|| {
-                format!("native code collection type 'List OF {element_type}' is not supported")
-            })?;
+        let layout = CollectionTypeLayout::from_type(&ParameterType::list_of(
+            ParameterType::parse(&element_type),
+        ))
+        .ok_or_else(|| {
+            format!("native code collection type 'List OF {element_type}' is not supported")
+        })?;
         let data_len_slot = self.allocate_stack_object("map_projection_data_len", 8);
         let result_slot = self.allocate_stack_object("map_projection_result", 8);
         let length_loop = self.label("map_projection_length_loop");

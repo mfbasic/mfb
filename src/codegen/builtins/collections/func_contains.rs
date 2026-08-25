@@ -190,7 +190,7 @@ pub(crate) fn lower_contains(
             item_slot,
             &element_type,
             "contains",
-            &collection.type_.name(),
+            &collection.type_,
         );
     }
 

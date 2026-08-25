@@ -168,7 +168,7 @@ impl CodeBuilder<'_> {
                 })
             }
             _ if is_collection_type(type_) => {
-                let result = self.lower_empty_collection(type_)?;
+                let result = self.lower_empty_collection(&ParameterType::parse(type_))?;
                 Ok(ValueResult {
                     origin: None,
                     type_: result.type_,

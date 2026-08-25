@@ -571,18 +571,24 @@ impl TypeModel {
 }
 
 impl CollectionTypeLayout {
-    pub(crate) fn from_type(type_: &str) -> Option<Self> {
-        if let Some(value_type) = type_.strip_prefix("List OF ") {
+    /// The block layout of a collection type.
+    ///
+    /// plan-106-E: dispatches on the variant. The element/key/value types it
+    /// hands on are the variant's children, not substrings of its spelling.
+    pub(crate) fn from_type(type_: &ParameterType) -> Option<Self> {
+        if let crate::types::ParameterType::ListOf(value_type) = type_ {
             return Some(Self {
                 // The single point that chooses a list's block representation
                 // (plan-57-D). Every header writer takes `layout.kind` from
                 // here, so the `kind` byte and the layout cannot disagree.
-                kind: list_block_kind(value_type),
+                kind: list_block_kind(&value_type.name()),
                 key_type_code: COLLECTION_TYPE_NONE,
                 value_type_code: collection_type_code(value_type)?,
             });
         }
-        if let Some(element_type) = crate::codegen::engine::types::set_element_type(type_) {
+        if let Some(element_type) =
+            crate::codegen::engine::types::typed_set_element_type(type_).cloned()
+        {
             // `Set OF T` (plan-63): a Map-shaped block whose element is the key and
             // whose value is a 1-byte `Boolean` (always TRUE — see plan-63-B
             // Corrections). Keeping a real (if trivial) value lets every Map
@@ -595,11 +601,11 @@ impl CollectionTypeLayout {
                 value_type_code: COLLECTION_TYPE_BOOLEAN,
             });
         }
-        let (key_type, value_type) = map_type_parts(type_)?;
+        let (key_type, value_type) = crate::codegen::engine::types::typed_map_type_parts(type_)?;
         Some(Self {
             kind: COLLECTION_KIND_MAP,
-            key_type_code: collection_type_code(&key_type)?,
-            value_type_code: collection_type_code(&value_type)?,
+            key_type_code: collection_type_code(key_type)?,
+            value_type_code: collection_type_code(value_type)?,
         })
     }
 }

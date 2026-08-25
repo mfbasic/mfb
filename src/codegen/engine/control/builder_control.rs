@@ -266,7 +266,7 @@ impl CodeBuilder<'_> {
         let Some(element_type) = typed_list_element_type(&field_type).cloned() else {
             return Ok(false);
         };
-        if CollectionTypeLayout::from_type(&field_type.name()).is_none() {
+        if CollectionTypeLayout::from_type(&field_type).is_none() {
             return Ok(false);
         }
         let NirValue::Call {
@@ -330,7 +330,7 @@ impl CodeBuilder<'_> {
             self.lower_inline_list_bulk_append_in_place(
                 state_slot,
                 field_index,
-                &field_type.name(),
+                &field_type,
                 &element_type.name(),
                 rhs_slot,
             )?;
@@ -338,7 +338,7 @@ impl CodeBuilder<'_> {
             self.lower_inline_list_append_in_place(
                 state_slot,
                 field_index,
-                &field_type.name(),
+                &field_type,
                 &element_type.name(),
                 rhs_slot,
             )?;
@@ -503,7 +503,7 @@ impl CodeBuilder<'_> {
                         let aliases_live_resource = value
                             .as_ref()
                             .is_some_and(Self::value_aliases_live_resource);
-                        let owns_resource_slot = !Self::is_thread_type(&type_.name())
+                        let owns_resource_slot = !Self::is_thread_type(&type_)
                             && !aliases_union_variant
                             && !by_ref_capture_slot
                             && !floats_to_collection
@@ -617,7 +617,8 @@ impl CodeBuilder<'_> {
                             // default to arena allocations already).
                             let location = if result.type_ == ParameterType::String {
                                 Operand::from(
-                                    self.copy_flat_block("String", &result.location)?.render(),
+                                    self.copy_flat_block(&ParameterType::String, &result.location)?
+                                        .render(),
                                 )
                             } else {
                                 result.location
@@ -663,7 +664,7 @@ impl CodeBuilder<'_> {
                             .get(name)
                             .cloned()
                             .unwrap_or(crate::ir::resource_escape::ResOwner::Local);
-                        if Self::is_thread_type(&type_.name()) {
+                        if Self::is_thread_type(&type_) {
                             self.active_cleanups
                                 .push(ActiveCleanup::Thread(ThreadCleanup {
                                     name: name.clone(),
@@ -920,7 +921,7 @@ impl CodeBuilder<'_> {
                             // Observation boundary: a `Float` reassignment must
                             // be finite (plan-17).
                             self.observe_float(value, &result)?;
-                            let assign_slot = if Self::is_thread_type(&result.type_.name()) {
+                            let assign_slot = if Self::is_thread_type(&result.type_) {
                                 let slot = self.allocate_stack_object("thread_assign_value", 8);
                                 self.emit(abi::store_u64(
                                     &result.location,

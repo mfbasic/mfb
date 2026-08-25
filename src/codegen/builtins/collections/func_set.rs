@@ -229,14 +229,14 @@ pub(crate) fn lower_set(
             ));
             let source = builder.allocate_register()?;
             builder.emit(abi::load_u64(&source, abi::stack_pointer(), list_slot));
-            let copy = builder.copy_collection_tight(&collection.type_.name(), &source)?;
+            let copy = builder.copy_collection_tight(&collection.type_, &source)?;
             let copy_slot = builder.allocate_stack_object("set_value_copy", 8);
             builder.emit(abi::store_u64(&copy, abi::stack_pointer(), copy_slot));
             return builder.lower_list_set_in_place(
                 copy_slot,
                 index_slot,
                 item_slot,
-                &collection.type_.name(),
+                &collection.type_,
                 &element_type,
             );
         }
@@ -252,7 +252,7 @@ pub(crate) fn lower_set(
         let removed = builder.lower_list_remove_at(
             list_slot,
             index_slot,
-            &collection.type_.name(),
+            &collection.type_,
             &element_type,
         )?;
         let removed_slot = builder.allocate_stack_object("set_removed_list", 8);
@@ -261,32 +261,22 @@ pub(crate) fn lower_set(
             abi::stack_pointer(),
             removed_slot,
         ));
-        let (singleton_slot, materialized) = builder.collection_argument_as_list_slot(
-            &collection.type_.name(),
-            &element_type,
-            item,
-        )?;
+        let (singleton_slot, materialized) =
+            builder.collection_argument_as_list_slot(&collection.type_, &element_type, item)?;
         let mut result = builder.lower_list_insert_collection(
             removed_slot,
             index_slot,
             singleton_slot,
-            &collection.type_.name(),
+            &collection.type_,
             &element_type,
         )?;
         // Both intermediates were fully copied into the result: the
         // materialized singleton and the removeAt product.
         if materialized {
-            result = builder.free_intermediate_collection(
-                singleton_slot,
-                &collection.type_.name(),
-                result,
-            )?;
+            result =
+                builder.free_intermediate_collection(singleton_slot, &collection.type_, result)?;
         }
-        return builder.free_intermediate_collection(
-            removed_slot,
-            &collection.type_.name(),
-            result,
-        );
+        return builder.free_intermediate_collection(removed_slot, &collection.type_, result);
     }
 
     if let Some((key_type, value_type)) = typed_map_type_parts(&collection.type_)
@@ -330,12 +320,8 @@ pub(crate) fn lower_set(
             abi::stack_pointer(),
             value_slot,
         ));
-        let without = builder.lower_map_remove_key(
-            map_slot,
-            key_slot,
-            &collection.type_.name(),
-            &key_type,
-        )?;
+        let without =
+            builder.lower_map_remove_key(map_slot, key_slot, &collection.type_, &key_type)?;
         let without_slot = builder.allocate_stack_object("set_map_without", 8);
         builder.emit(abi::store_u64(
             &without.location,
@@ -343,7 +329,7 @@ pub(crate) fn lower_set(
             without_slot,
         ));
         let singleton = builder.lower_collection_values(
-            &collection.type_.name(),
+            &collection.type_,
             vec![CollectionValueSlot {
                 key: Some(PayloadSlot {
                     slot: key_slot,
@@ -366,15 +352,10 @@ pub(crate) fn lower_set(
         // `without` whole-map copy and the `singleton` map afterward, mirroring
         // the list branch's frees. Without this every non-in-place map `set`
         // leaked one whole-map-sized block plus a singleton per call (bug-145).
+        let result = builder.lower_map_concat(without_slot, singleton_slot, &collection.type_)?;
         let result =
-            builder.lower_map_concat(without_slot, singleton_slot, &collection.type_.name())?;
-        let result =
-            builder.free_intermediate_collection(without_slot, &collection.type_.name(), result)?;
-        return builder.free_intermediate_collection(
-            singleton_slot,
-            &collection.type_.name(),
-            result,
-        );
+            builder.free_intermediate_collection(without_slot, &collection.type_, result)?;
+        return builder.free_intermediate_collection(singleton_slot, &collection.type_, result);
     }
 
     Err(format!(

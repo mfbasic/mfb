@@ -10,11 +10,10 @@
 // --- codegen tier imports (migration) ---
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
-use crate::codegen::engine::types::{list_element_type, typed_list_element_type};
+use crate::codegen::engine::types::typed_list_element_type;
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
 use crate::target::shared::nir::NirValue;
-use crate::types::ParameterType;
 /// plan-86 A3: native `collections::flatten` (`#collections_flatten$T`, 1 arg)
 /// for a simple result element T (String or fixed-width) — the inner lists are
 /// inline self-contained blocks, bulk-appended into the result with no per-inner
@@ -43,9 +42,10 @@ impl CodeBuilder<'_> {
         let source = self.lower_value(&args[0])?;
         let outer_type = source.type_.clone();
         let inner_type = typed_list_element_type(&outer_type)
-            .map(|type_| type_.name().into_owned())
+            .cloned()
             .ok_or_else(|| format!("native flatten does not accept {outer_type}"))?;
-        let elem = list_element_type(&inner_type)
+        let elem = typed_list_element_type(&inner_type)
+            .map(|element| element.name().into_owned())
             .ok_or_else(|| format!("native flatten inner type {inner_type} is not a list"))?;
         let source_slot = self.allocate_stack_object("flatten_source", 8);
         self.emit(abi::store_u64(
@@ -87,9 +87,9 @@ impl CodeBuilder<'_> {
         let ob = self.temporary_vreg();
         let db = self.temporary_vreg();
         self.emit(abi::load_u64(&ob, abi::stack_pointer(), source_slot));
-        self.emit_element_value_offset(&voff, &vlen, &ob, &r0, &sc1, &sc2, &inner_type);
+        self.emit_element_value_offset(&voff, &vlen, &ob, &r0, &sc1, &sc2, &inner_type.name());
         self.emit(abi::load_u64(&ob, abi::stack_pointer(), source_slot));
-        self.emit_collection_data_pointer_for(&db, &ob, &inner_type);
+        self.emit_collection_data_pointer_for(&db, &ob, &inner_type.name());
         self.emit(abi::add_registers(&db, &db, &voff));
         self.emit(abi::store_u64(&db, abi::stack_pointer(), inner_slot));
         // result = bulk-append(result, inner) — concatenates the inner's elements.
@@ -107,7 +107,7 @@ impl CodeBuilder<'_> {
         ));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&inner_type),
+            type_: inner_type.clone(),
             location: Operand::from(result_reg.render()),
             text: format!("flatten({outer_type})"),
         })

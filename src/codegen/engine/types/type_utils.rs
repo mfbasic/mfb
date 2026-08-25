@@ -103,19 +103,25 @@ pub(crate) fn static_nir_value_type(
     }
 }
 
-pub(crate) fn collection_type_code(type_: &str) -> Option<usize> {
+/// The compact runtime type code for a collection payload.
+///
+/// plan-106-E: a closed match on the variants. The two container arms were
+/// `starts_with("List OF ")` / `("Map OF ")`; a `Set` payload has never had its
+/// own code and still falls to `OBJECT`, as the string form's tail did.
+pub(crate) fn collection_type_code(type_: &ParameterType) -> Option<usize> {
     match type_ {
-        "Nothing" => None,
-        "Boolean" => Some(COLLECTION_TYPE_BOOLEAN),
-        "Byte" => Some(COLLECTION_TYPE_BYTE),
-        "Integer" => Some(COLLECTION_TYPE_INTEGER),
-        "Float" => Some(COLLECTION_TYPE_FLOAT),
-        "Fixed" => Some(COLLECTION_TYPE_FIXED),
-        "Money" => Some(COLLECTION_TYPE_MONEY),
-        "Scalar" => Some(COLLECTION_TYPE_SCALAR),
-        "String" => Some(COLLECTION_TYPE_STRING),
-        _ if type_.starts_with("List OF ") => Some(COLLECTION_TYPE_LIST),
-        _ if type_.starts_with("Map OF ") => Some(COLLECTION_TYPE_MAP),
+        ParameterType::Nothing => None,
+        ParameterType::Boolean => Some(COLLECTION_TYPE_BOOLEAN),
+        ParameterType::Byte => Some(COLLECTION_TYPE_BYTE),
+        ParameterType::Integer => Some(COLLECTION_TYPE_INTEGER),
+        ParameterType::Float => Some(COLLECTION_TYPE_FLOAT),
+        ParameterType::Fixed => Some(COLLECTION_TYPE_FIXED),
+        ParameterType::Money => Some(COLLECTION_TYPE_MONEY),
+        ParameterType::String => Some(COLLECTION_TYPE_STRING),
+        ParameterType::ListOf(_) => Some(COLLECTION_TYPE_LIST),
+        ParameterType::MapOf(_, _) => Some(COLLECTION_TYPE_MAP),
+        // `Scalar` is a nominal, not a variant.
+        ParameterType::Named(name) if name.resolve() == "Scalar" => Some(COLLECTION_TYPE_SCALAR),
         _ => Some(COLLECTION_TYPE_OBJECT),
     }
 }
@@ -382,13 +388,6 @@ pub(crate) fn is_set_type(type_: &str) -> bool {
 /// (plan-63-B §3).
 pub(crate) fn collection_has_buckets(type_: &str) -> bool {
     type_.starts_with("Map OF ") || is_set_type(type_)
-}
-
-/// The element type of a `Set OF T` (`Set OF Integer` -> `Integer`). A Set
-/// element is always comparable and never `RES`-marked, so no marker strip is
-/// needed (unlike [`list_element_type`]).
-pub(crate) fn set_element_type(type_: &str) -> Option<String> {
-    type_.strip_prefix("Set OF ").map(str::to_string)
 }
 
 pub(crate) fn list_element_type(type_: &str) -> Option<String> {

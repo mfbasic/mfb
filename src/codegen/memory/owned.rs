@@ -31,7 +31,7 @@ impl CodeBuilder<'_> {
         if self.is_freeable_flat_value(&result.type_.name())
             && result.type_ != ParameterType::String
         {
-            let copied = self.copy_flat_block(&result.type_.name(), &result.location)?;
+            let copied = self.copy_flat_block(&result.type_, &result.location)?;
             return Ok(ValueResult {
                 origin: None,
                 type_: result.type_,

@@ -143,5 +143,5 @@ pub(crate) fn lower_remove_key(
     let key_slot = builder.allocate_stack_object("remove_key_key", 8);
     // `d`-native float key stores via `str d` (plan-01 float-dnative).
     builder.store_value_at(&key, abi::stack_pointer(), key_slot);
-    builder.lower_map_remove_key(map_slot, key_slot, &map.type_.name(), &key_type)
+    builder.lower_map_remove_key(map_slot, key_slot, &map.type_, &key_type)
 }

@@ -23,7 +23,7 @@ impl CodeBuilder<'_> {
         map_slot: usize,
         key_slot: usize,
         value_slot: usize,
-        map_type: &str,
+        map_type: &ParameterType,
         key_type: &str,
         value_type: &str,
     ) -> Result<ValueResult, String> {
@@ -913,7 +913,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), map_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&map_type),
+            type_: map_type.clone(),
             location: Operand::from(result.render()),
             text: format!("map set in place {map_type}"),
         })
@@ -929,7 +929,7 @@ impl CodeBuilder<'_> {
         &mut self,
         map_slot: usize,
         key_slot: usize,
-        map_type: &str,
+        map_type: &ParameterType,
         key_type: &str,
     ) -> Result<ValueResult, String> {
         let s8 = self.temporary_vreg();
@@ -1039,7 +1039,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), map_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&map_type),
+            type_: map_type.clone(),
             location: Operand::from(result.render()),
             text: format!("removeKey_in_place({map_type}, {key_type})"),
         })

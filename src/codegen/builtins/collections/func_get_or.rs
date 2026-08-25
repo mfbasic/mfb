@@ -195,7 +195,7 @@ pub(crate) fn lower_get_or(
             collection_slot,
             key_slot,
             default_slot,
-            &collection.type_.name(),
+            &collection.type_,
             &element_type,
         )?;
         return builder.materialize_owned_element(result);
@@ -220,7 +220,7 @@ pub(crate) fn lower_get_or(
             collection_slot,
             key_slot,
             default_slot,
-            &collection.type_.name(),
+            &collection.type_,
             &key_type,
             &value_type,
         )?;

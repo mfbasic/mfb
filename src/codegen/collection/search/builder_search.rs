@@ -130,7 +130,7 @@ impl CodeBuilder<'_> {
                     haystack_slot,
                     needle_slot,
                     start_slot,
-                    &haystack.type_.name(),
+                    &haystack.type_,
                     &element_type,
                 );
             }
@@ -139,7 +139,7 @@ impl CodeBuilder<'_> {
                     haystack_slot,
                     needle_slot,
                     start_slot,
-                    &haystack.type_.name(),
+                    &haystack.type_,
                     &element_type,
                 );
             }
@@ -354,7 +354,7 @@ impl CodeBuilder<'_> {
         haystack_slot: usize,
         needle_slot: usize,
         start_slot: usize,
-        list_type: &str,
+        list_type: &ParameterType,
         element_type: &str,
     ) -> Result<ValueResult, String> {
         let scratch8 = self.temporary_vreg();
@@ -485,7 +485,7 @@ impl CodeBuilder<'_> {
         haystack_slot: usize,
         needle_slot: usize,
         start_slot: usize,
-        list_type: &str,
+        list_type: &ParameterType,
         element_type: &str,
     ) -> Result<ValueResult, String> {
         let sub_payload = kind2_payload_size(element_type);
@@ -719,7 +719,7 @@ impl CodeBuilder<'_> {
                 value_slot,
                 start_slot,
                 count_slot,
-                &value.type_.name(),
+                &value.type_,
                 &element_type,
             );
         }
@@ -945,7 +945,7 @@ impl CodeBuilder<'_> {
         value_slot: usize,
         start_slot: usize,
         count_slot: usize,
-        list_type: &str,
+        list_type: &ParameterType,
         element_type: &str,
     ) -> Result<ValueResult, String> {
         let layout = CollectionTypeLayout::from_type(list_type)
@@ -1316,7 +1316,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
             origin: None,
-            type_: ParameterType::parse(&list_type),
+            type_: list_type.clone(),
             location: Operand::from(result.render()),
             text: format!("mid({list_type}, Integer, Integer) over {element_type}"),
         })

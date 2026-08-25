@@ -35,9 +35,10 @@ pub(crate) fn lower_strings_graphemes(
     let state_bc_slot = builder.allocate_stack_object("strings_graphemes_state_bc", 8);
     let state_icb_slot = builder.allocate_stack_object("strings_graphemes_state_icb", 8);
     let result_slot = builder.allocate_stack_object("strings_graphemes_result", 8);
-    let layout = CollectionTypeLayout::from_type("List OF String").ok_or_else(|| {
-        "native strings.graphemes cannot resolve List OF String layout".to_string()
-    })?;
+    let layout = CollectionTypeLayout::from_type(&ParameterType::list_of(ParameterType::String))
+        .ok_or_else(|| {
+            "native strings.graphemes cannot resolve List OF String layout".to_string()
+        })?;
 
     let count_empty = builder.label("strings_graphemes_count_empty");
     let count_loop = builder.label("strings_graphemes_count_loop");

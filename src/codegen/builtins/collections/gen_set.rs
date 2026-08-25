@@ -32,7 +32,7 @@ impl CodeBuilder<'_> {
         key_slot: usize,
         key_type: &str,
         label_prefix: &str,
-        collection_type: &str,
+        collection_type: &ParameterType,
     ) -> Result<ValueResult, String> {
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();

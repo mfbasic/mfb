@@ -142,5 +142,5 @@ pub(crate) fn lower_remove_at(
         abi::stack_pointer(),
         index_slot,
     ));
-    builder.lower_list_remove_at(list_slot, index_slot, &list.type_.name(), &element_type)
+    builder.lower_list_remove_at(list_slot, index_slot, &list.type_, &element_type)
 }

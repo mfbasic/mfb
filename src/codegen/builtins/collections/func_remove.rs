@@ -118,5 +118,5 @@ pub(crate) fn lower_remove(
     }
     let item_slot = builder.allocate_stack_object("set_remove_item", 8);
     builder.store_value_at(&item, abi::stack_pointer(), item_slot);
-    builder.lower_map_remove_key(set_slot, item_slot, &set.type_.name(), &element_type)
+    builder.lower_map_remove_key(set_slot, item_slot, &set.type_, &element_type)
 }

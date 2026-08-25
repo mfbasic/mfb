@@ -38,8 +38,9 @@ impl CodeBuilder<'_> {
         &mut self,
         n_slot: usize,
     ) -> Result<ValueResult, String> {
-        let layout = CollectionTypeLayout::from_type("List OF Integer")
-            .ok_or_else(|| "native index-list layout unavailable".to_string())?;
+        let layout =
+            CollectionTypeLayout::from_type(&ParameterType::list_of(ParameterType::Integer))
+                .ok_or_else(|| "native index-list layout unavailable".to_string())?;
         let n = self.temporary_vreg();
         let eight = self.temporary_vreg();
         let bytes = self.temporary_vreg();
@@ -342,7 +343,7 @@ impl CodeBuilder<'_> {
 
         // Gather: items_slot holds the sorted index permutation; build the result
         // by copying source[idx] in order, then free the two index buffers.
-        let result = self.lower_reserved_list(&list_type.name(), coll_slot)?;
+        let result = self.lower_reserved_list(&list_type, coll_slot)?;
         let result_slot = self.allocate_stack_object("sort_result", 8);
         self.emit(abi::store_u64(
             &result.location,
@@ -378,7 +379,7 @@ impl CodeBuilder<'_> {
             self.emit_element_value_offset(&gvoff, &gvlen, &gcoll, &gidx, &gscr1, &gscr2, "String");
             let gitem = self.emit_load_collection_payload("String", &gcoll, &gvoff, &gvlen)?;
             self.emit(abi::store_u64(&gitem, abi::stack_pointer(), gitem_slot));
-            self.lower_list_append_in_place(result_slot, gitem_slot, &list_type.name(), "String")?;
+            self.lower_list_append_in_place(result_slot, gitem_slot, &list_type, "String")?;
             self.free_collection_loop_item(gitem_slot, "String")?;
             self.emit(abi::load_u64(&r0, abi::stack_pointer(), gk_slot));
             self.emit(abi::add_immediate(&r0, &r0, 1));
@@ -445,7 +446,7 @@ impl CodeBuilder<'_> {
             location: Operand::from(result_reg.render()),
             text: String::new(),
         };
-        let idx_type = "List OF Integer".to_string();
+        let idx_type = ParameterType::list_of(ParameterType::Integer);
         let threaded = self.free_intermediate_collection(items_slot, &idx_type, threaded)?;
         let threaded = self.free_intermediate_collection(itemsb_slot, &idx_type, threaded)?;
         Ok(ValueResult {

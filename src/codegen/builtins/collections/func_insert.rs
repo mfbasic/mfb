@@ -160,16 +160,16 @@ pub(crate) fn lower_insert(
     // Materialize a `d`-native float before the payload spill (plan-01).
     let item = builder.materialize_value(item)?;
     let (insert_slot, materialized) =
-        builder.collection_argument_as_list_slot(&list.type_.name(), &element_type, item)?;
+        builder.collection_argument_as_list_slot(&list.type_, &element_type, item)?;
     let result = builder.lower_list_insert_collection(
         list_slot,
         index_slot,
         insert_slot,
-        &list.type_.name(),
+        &list.type_,
         &element_type,
     )?;
     if materialized {
-        return builder.free_intermediate_collection(insert_slot, &list.type_.name(), result);
+        return builder.free_intermediate_collection(insert_slot, &list.type_, result);
     }
     Ok(result)
 }

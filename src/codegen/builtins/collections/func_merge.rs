@@ -6,7 +6,7 @@ use crate::codegen::collection::layout::*;
 use crate::codegen::engine::builder::*;
 use crate::codegen::engine::operand::*;
 use crate::codegen::engine::types::{
-    collection_has_buckets, list_element_type, typed_list_element_type, typed_map_type_parts,
+    collection_has_buckets, typed_list_element_type, typed_map_type_parts,
 };
 use crate::codegen::error::constants::*;
 use crate::target::shared::abi;
@@ -52,12 +52,14 @@ impl CodeBuilder<'_> {
     /// Returns the stack slot holding the result map pointer.
     fn copy_map_with_capacity(
         &mut self,
-        map_type: &str,
+        map_type: &ParameterType,
         source_slot: usize,
         extra_count_slot: usize,
         extra_data_slot: usize,
     ) -> Result<usize, String> {
-        let element = list_element_type(map_type).unwrap_or_default();
+        let element = typed_list_element_type(map_type)
+            .map(|element| element.name().into_owned())
+            .unwrap_or_default();
         let stride = list_entry_stride(&element);
         let layout = CollectionTypeLayout::from_type(map_type)
             .ok_or_else(|| format!("native code collection type '{map_type}' is not supported"))?;
@@ -95,7 +97,7 @@ impl CodeBuilder<'_> {
             &s12,
         ));
         self.emit_reserve_map_buckets(
-            collection_has_buckets(map_type),
+            collection_has_buckets(&map_type.name()),
             &s11,
             abi::return_register(),
             &s13,
@@ -181,12 +183,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&t, abi::stack_pointer(), extra_count_slot));
         self.emit(abi::load_u64(&t, &bt, COLLECTION_OFFSET_DATA_LENGTH));
         self.emit(abi::store_u64(&t, abi::stack_pointer(), extra_data_slot));
-        let result_slot = self.copy_map_with_capacity(
-            &map_type.name(),
-            a_slot,
-            extra_count_slot,
-            extra_data_slot,
-        )?;
+        let result_slot =
+            self.copy_map_with_capacity(&map_type, a_slot, extra_count_slot, extra_data_slot)?;
         // Insert each of b's entries into the presized result.
         let i_slot = self.allocate_stack_object("merge_i", 8);
         let n_slot = self.allocate_stack_object("merge_n", 8);
@@ -288,7 +286,7 @@ impl CodeBuilder<'_> {
             result_slot,
             key_slot,
             value_slot,
-            &map_type.name(),
+            &map_type,
             &key_type,
             &value_type,
         )?;
