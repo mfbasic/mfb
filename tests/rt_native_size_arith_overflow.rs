@@ -247,10 +247,14 @@ fn thread_queue_limit_in_range_accepted() {
     let root = thread_project("bug60_thread_accept", "1", "3");
     let exe = build_executable(&root).expect("build executable");
     let result = run_allow_failure(&exe);
+    // Report `output` (stdout + stderr), not `stdout`: an uncaught runtime error
+    // prints to stderr and leaves stdout empty, so the stdout-only form rendered a
+    // real failure as a blank message with nothing to diagnose (that is exactly how
+    // the x86-64 `c_return`/`mfb_return` thread-spawn bug first surfaced on CI).
     assert!(
         result.success,
         "in-range limit was rejected:\n{}",
-        result.stdout
+        result.output
     );
     assert_eq!(result.stdout, "one\n");
     fs::remove_dir_all(&root).ok();

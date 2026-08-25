@@ -749,7 +749,7 @@ pub(crate) fn simple_thread_handle_helper(
                 "pthread_cond_timedwait",
             )?;
             instructions.extend([
-                abi::compare_immediate(abi::mfb_return(0), "0"),
+                abi::compare_immediate(abi::c_return(0), "0"),
                 abi::branch_ne(&not_ready),
                 abi::branch(&wait_loop),
                 abi::label(&ready),
@@ -909,7 +909,7 @@ pub(crate) fn lower_thread_sleep_worker_helper(
         // Zero = a spurious/broadcast wake (a parent `send`, or `cancel`); re-loop
         // to re-check the cancel flag. The absolute deadline is unchanged, so a
         // send never shortens the sleep.
-        abi::compare_immediate(abi::mfb_return(0), "0"),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_ne(&deadline_reached),
         abi::branch(&wait_loop),
         abi::label(&deadline_reached),
@@ -1124,7 +1124,7 @@ pub(crate) fn thread_queue_write_helper(
         "pthread_cond_timedwait",
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::mfb_return(0), "0"),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_ne(&timeout),
         abi::branch(&wait_loop),
         // Unbounded (omit) form: block on the not-full condition until a slot frees
@@ -1449,7 +1449,7 @@ pub(crate) fn thread_queue_read_helper(
         "pthread_cond_timedwait",
     )?;
     instructions.extend([
-        abi::compare_immediate(abi::mfb_return(0), "0"),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_ne(&timeout),
         abi::branch(&wait_loop),
         abi::label(&wait_indefinite),

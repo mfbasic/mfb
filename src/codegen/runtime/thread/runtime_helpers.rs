@@ -91,7 +91,12 @@ pub(crate) fn emit_thread_external_call(ctx: &mut EmitCtx, name: &str) -> Result
 /// Emit the Win32 realization of a POSIX threading primitive (plan-47-H). The
 /// shared callers set arguments in the pthread convention (`x0..`); each arm
 /// re-uses or lightly adjusts them for the matching kernel32 call and leaves the
-/// POSIX return contract in the return register (0 = success).
+/// POSIX return contract in the **C** return register (`c_return(0)`; 0 = success)
+/// — the same register a real `pthread_*` would return in, so the shared callers
+/// read one register on every family. It must NOT be `return_register()`
+/// (`mfb_return(0)`): the two are both `x0` on AArch64 but differ on x86-64
+/// (`rax` vs the aligned MFB bank's `rdi`/`rcx`), so an MFB-token read here
+/// silently tests a clobbered caller-saved register.
 fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String> {
     let from = ctx.symbol;
     let pi = ctx.platform_imports;
@@ -108,33 +113,33 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
         "pthread_mutex_init" => {
             call(ctx, from, "InitializeSRWLock")?;
             ctx.instructions
-                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+                .push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
         }
         "pthread_mutex_lock" => {
             call(ctx, from, "AcquireSRWLockExclusive")?;
             ctx.instructions
-                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+                .push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
         }
         "pthread_mutex_unlock" => {
             call(ctx, from, "ReleaseSRWLockExclusive")?;
             ctx.instructions
-                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+                .push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
         }
         // Condition variable → CONDITION_VARIABLE.
         "pthread_cond_init" => {
             call(ctx, from, "InitializeConditionVariable")?;
             ctx.instructions
-                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+                .push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
         }
         "pthread_cond_signal" => {
             call(ctx, from, "WakeConditionVariable")?;
             ctx.instructions
-                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+                .push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
         }
         "pthread_cond_broadcast" => {
             call(ctx, from, "WakeAllConditionVariable")?;
             ctx.instructions
-                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+                .push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
         }
         // pthread_cond_wait(cond=x0, mutex=x1) → SleepConditionVariableSRW(cond,
         // lock, dwMilliseconds=INFINITE, Flags=0). Returns BOOL; POSIX wants 0.
@@ -146,7 +151,7 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
             ]);
             call(ctx, from, "SleepConditionVariableSRW")?;
             ctx.instructions
-                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+                .push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
         }
         // pthread_cond_timedwait(cond=x0, mutex=x1, &abstime=x2). The shared
         // callers loop on their own deadline (emit_thread_deadline), re-checking
@@ -164,12 +169,12 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
             ]);
             call(ctx, from, "SleepConditionVariableSRW")?;
             ctx.instructions.extend([
-                abi::compare_immediate(abi::return_register(), "0"),
+                abi::compare_immediate(abi::c_return(0), "0"),
                 abi::branch_eq(&timed), // BOOL 0 → timed out (or error)
-                abi::move_immediate(abi::return_register(), "Integer", "0"),
+                abi::move_immediate(abi::c_return(0), "Integer", "0"),
                 abi::branch(&done),
                 abi::label(&timed),
-                abi::move_immediate(abi::return_register(), "Integer", "110"), // ETIMEDOUT
+                abi::move_immediate(abi::c_return(0), "Integer", "110"), // ETIMEDOUT
                 abi::label(&done),
             ]);
         }
@@ -190,24 +195,24 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
             ]);
             call(ctx, from, "Sleep")?;
             ctx.instructions
-                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+                .push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
         }
         // pthread_detach(handle=x0): release our reference; the thread runs on.
         "pthread_detach" => {
             call(ctx, from, "CloseHandle")?;
             ctx.instructions
-                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+                .push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
         }
         // Stack-size attr is set directly on CreateThread (see the spawn helper);
         // these are inert on Windows.
         "pthread_attr_init" | "pthread_attr_setstacksize" | "pthread_attr_destroy" => {
             ctx.instructions
-                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+                .push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
         }
         "sched_yield" => {
             call(ctx, from, "SwitchToThread")?;
             ctx.instructions
-                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+                .push(abi::move_immediate(abi::c_return(0), "Integer", "0"));
         }
         // clock_gettime(clk=x0, &ts=x1): the deadline helpers compare a stored
         // `now` against `now + timeout`, so the value must be a real, consistent,
@@ -232,7 +237,7 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
                 abi::load_u64(abi::c_arg(0), abi::stack_pointer(), 0x28),             // &ts
                 abi::store_u64(abi::c_arg(2), abi::c_arg(0), 0),                      // tv_sec
                 abi::store_u64(abi::c_arg(3), abi::c_arg(0), 8),                      // tv_nsec
-                abi::move_immediate(abi::return_register(), "Integer", "0"),
+                abi::move_immediate(abi::c_return(0), "Integer", "0"),
                 abi::add_stack(0x30),
             ]);
         }
@@ -337,7 +342,7 @@ pub(crate) fn emit_thread_queue_alloc(
         "pthread_mutex_init",
     )?;
     ctx.instructions.extend([
-        abi::compare_immediate(abi::mfb_return(0), "0"),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_ne(&init_error),
         abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
         abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
@@ -354,7 +359,7 @@ pub(crate) fn emit_thread_queue_alloc(
         "pthread_cond_init",
     )?;
     ctx.instructions.extend([
-        abi::compare_immediate(abi::mfb_return(0), "0"),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_ne(&init_error),
         abi::load_u64("%v9", abi::stack_pointer(), queue_stack_offset),
         abi::add_immediate(abi::c_arg(0), "%v9", THREAD_QUEUE_NOT_FULL_OFFSET),
@@ -371,7 +376,7 @@ pub(crate) fn emit_thread_queue_alloc(
         "pthread_cond_init",
     )?;
     ctx.instructions.extend([
-        abi::compare_immediate(abi::mfb_return(0), "0"),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_ne(&init_error),
         abi::branch(&init_done),
         abi::label(&init_error),
@@ -486,7 +491,7 @@ pub(crate) fn lower_thread_sleep_helper(
         // the kernel wrote the leftover into `rem`, so copy rem->req and re-enter
         // so a signal cannot truncate the sleep. nsec/sec are always in range, so
         // EINVAL is impossible — any non-zero return is an interrupt.
-        abi::compare_immediate(abi::mfb_return(0), "0"),
+        abi::compare_immediate(abi::c_return(0), "0"),
         abi::branch_eq(&ok),
         abi::load_u64("%v9", abi::stack_pointer(), REM_OFFSET),
         abi::store_u64("%v9", abi::stack_pointer(), REQ_OFFSET),
@@ -831,8 +836,8 @@ pub(crate) fn lower_thread_start_helper(
         instructions.extend([
             abi::add_stack(0x40),
             abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
-            abi::store_u64(abi::mfb_return(0), "%v9", THREAD_OFFSET_OS_HANDLE), // cb.os_handle = HANDLE
-            abi::compare_immediate(abi::mfb_return(0), "0"),
+            abi::store_u64(abi::c_return(0), "%v9", THREAD_OFFSET_OS_HANDLE), // cb.os_handle = HANDLE
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_eq(&spawn_error), // NULL = failure
             abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -915,7 +920,7 @@ pub(crate) fn lower_thread_start_helper(
             platform_imports,
         )?);
         instructions.extend([
-            abi::compare_immediate(abi::mfb_return(0), "0"),
+            abi::compare_immediate(abi::c_return(0), "0"),
             abi::branch_ne(&spawn_error),
             abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
             abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
@@ -1363,7 +1368,7 @@ pub(crate) fn lower_thread_trampoline(
         "pthread_mutex_unlock",
     )?;
     instructions.extend([
-        abi::move_immediate(abi::mfb_return(0), "Integer", "0"),
+        abi::move_immediate(abi::c_return(0), "Integer", "0"),
         abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), ARENA_OFFSET),
         abi::load_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), CLOSURE_OFFSET),
         abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), X20_OFFSET),
