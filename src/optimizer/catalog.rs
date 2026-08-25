@@ -86,6 +86,25 @@ pub(crate) fn rows() -> &'static [Row] {
             counter: &stats::COPY_PROPAGATION,
         },
         Row {
+            name: "Branch simplification / folding",
+            level: 2,
+            stage: "NIR + MIR",
+            summary: "Folds a branch whose outcome is known at compile time — \
+                      `IF TRUE`/`IF FALSE` keeps only its taken arm, \
+                      `WHILE FALSE` vanishes, and a compare of known constants \
+                      turns its conditional branch into straight-line flow.",
+            counter: &stats::BRANCH_SIMPLIFICATION,
+        },
+        Row {
+            name: "Jump threading",
+            level: 3,
+            stage: "MIR",
+            summary: "Redirects a branch that lands on an unconditional jump \
+                      straight to the final destination, collapsing \
+                      jump-to-jump chains.",
+            counter: &stats::JUMP_THREADING,
+        },
+        Row {
             name: "Dead-code elimination (DCE)",
             level: 2,
             stage: "NIR + MIR",
@@ -123,6 +142,15 @@ pub(crate) fn rows() -> &'static [Row] {
                       possible read, with only provably memory-free instructions \
                       in between.",
             counter: &stats::DEAD_STORE_ELIMINATION,
+        },
+        Row {
+            name: "Basic block merging",
+            level: 2,
+            stage: "MIR",
+            summary: "Fuses single-predecessor/single-successor block pairs \
+                      back into straight-line code: a branch to the very next \
+                      block and a label nothing references both vanish.",
+            counter: &stats::BLOCK_MERGING,
         },
         Row {
             name: "Peephole optimization (store-to-load forwarding)",

@@ -15,13 +15,15 @@
 //! ```
 //!
 //! [`opt1`] is the `NirModule -> NirModule` seam; [`opt2`] holds the MIR/machine
-//! passes plus the between-selection-and-regalloc MIR seam. Eleven rows ship
+//! passes plus the between-selection-and-regalloc MIR seam. Fourteen rows ship
 //! today, each gated by [`level_enabled`] on its own catalog level: constant
 //! folding (both seams), algebraic simplification, non-loop strength
 //! reduction, and the two machine peepholes at Level 1; constant propagation
-//! and copy propagation (on the `opt2::plans::ssa` overlay), dead-code
-//! elimination (both seams), unreachable code elimination (both seams), and
-//! dead-store elimination at Level 2; and aggressive DCE at Level 3. The single
+//! and copy propagation (on the `opt2::plans::ssa` overlay), branch
+//! simplification (both seams), dead-code elimination (both seams),
+//! unreachable code elimination (both seams), dead-store elimination, and
+//! basic block merging at Level 2; and aggressive DCE plus jump threading at
+//! Level 3. The single
 //! code-level description of the landed rows is [`catalog`] (rendered by both
 //! `mfb build -v` and `mfb man optimizations`); the rows' optimization-only
 //! analyses live under `opt1::plans` / `opt2::plans`, distinct from the

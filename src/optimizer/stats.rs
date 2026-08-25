@@ -22,6 +22,14 @@ pub(super) static CONSTANT_PROPAGATION: AtomicU64 = AtomicU64::new(0);
 /// "Copy propagation" (Opt2): register uses rewritten to read a copy's
 /// ultimate source directly.
 pub(super) static COPY_PROPAGATION: AtomicU64 = AtomicU64::new(0);
+/// "Branch simplification / folding" (both seams): constant-condition IFs /
+/// WHILE FALSE folded on NIR plus known compare-and-branches folded on MIR.
+pub(super) static BRANCH_SIMPLIFICATION: AtomicU64 = AtomicU64::new(0);
+/// "Jump threading" (Opt2): branch targets redirected past trampoline blocks.
+pub(super) static JUMP_THREADING: AtomicU64 = AtomicU64::new(0);
+/// "Basic block merging" (Opt2): branches-to-next and orphaned labels fused
+/// away.
+pub(super) static BLOCK_MERGING: AtomicU64 = AtomicU64::new(0);
 /// "Dead-code elimination (DCE)" (both seams): dead binds/evals removed on NIR
 /// plus dead pure instructions removed on MIR.
 pub(super) static DEAD_CODE_ELIMINATION: AtomicU64 = AtomicU64::new(0);
@@ -51,6 +59,18 @@ pub(crate) fn count_constant_propagations(fired: u64) {
 
 pub(crate) fn count_copy_propagations(fired: u64) {
     add(&COPY_PROPAGATION, fired);
+}
+
+pub(crate) fn count_branch_simplifications(fired: u64) {
+    add(&BRANCH_SIMPLIFICATION, fired);
+}
+
+pub(crate) fn count_jumps_threaded(fired: u64) {
+    add(&JUMP_THREADING, fired);
+}
+
+pub(crate) fn count_blocks_merged(fired: u64) {
+    add(&BLOCK_MERGING, fired);
 }
 
 pub(crate) fn count_dead_code_eliminations(fired: u64) {

@@ -1,13 +1,15 @@
 //! Opt1 — the NIR half of the optimizer (plan-100).
 //!
 //! A single seam, [`optimize_nir`], sitting between NIR lowering and Plan1
-//! (storage / `StorageType` / symbol assignment). Five catalog rows occupy
+//! (storage / `StorageType` / symbol assignment). Six catalog rows occupy
 //! it — [`constant_folding`], [`algebraic`] simplification, and non-loop
 //! [`strength`] reduction (Level 1, composed into one scope-tracked walk by
-//! [`local_rewrites`]), then tree-level [`uce`] and [`dce`] (Level 2, the
-//! latter consuming the [`plans`] name-usage census).
+//! [`local_rewrites`]), then tree-level [`branches`] simplification, [`uce`],
+//! and [`dce`] (Level 2, the last consuming the [`plans`] name-usage
+//! census).
 
 pub(crate) mod algebraic;
+pub(crate) mod branches;
 pub(crate) mod constant_folding;
 pub(crate) mod dce;
 pub(crate) mod local_rewrites;
@@ -42,10 +44,12 @@ use crate::target::shared::nir::NirModule;
 pub(crate) fn optimize_nir(mut module: NirModule, level: OptLevel) -> NirModule {
     let _ = level;
     local_rewrites::apply(&mut module);
-    // After the local rewrites: unreachable-code truncation (Level 2) first,
-    // so a name whose only readers were unreachable is then provably unused
-    // for tree-DCE (Level 2), which sweeps it along with the bindings the
-    // rewrites stranded.
+    // After the local rewrites: branch simplification (Level 2) folds the
+    // constant conditions folding just minted; then unreachable-code
+    // truncation (Level 2), so a name whose only readers were unreachable
+    // (or in a dropped arm) is provably unused for tree-DCE (Level 2), which
+    // sweeps it along with the bindings the rewrites stranded.
+    branches::simplify(&mut module);
     uce::eliminate(&mut module);
     dce::eliminate(&mut module);
     module

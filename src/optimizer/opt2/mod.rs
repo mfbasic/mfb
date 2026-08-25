@@ -17,24 +17,29 @@
 //!    mandatory lowering rather than a dial row. It stays in
 //!    `crate::codegen::compiler::opt::fma_fusion` (plan-100 Corrections).
 //! 2. **The between-selection-and-regalloc MIR seam**, [`optimize_mir`],
-//!    occupied by seven rows: the Opt2 halves of constant folding
+//!    occupied by ten rows: the Opt2 halves of constant folding
 //!    ([`constant_folding`], Level 1), constant propagation ([`constprop`],
 //!    Level 2) and copy propagation ([`copyprop`], Level 2) on the SSA
-//!    overlay, dead-code elimination ([`dce`], Level 2), unreachable code
-//!    elimination ([`uce`], Level 2), dead-store elimination ([`dse`],
-//!    Level 2), and aggressive DCE ([`adce`], Level 3). The [`plans`] module
+//!    overlay, branch folding ([`branches`], Level 2), jump threading
+//!    ([`threading`], Level 3), dead-code elimination ([`dce`], Level 2),
+//!    unreachable code elimination ([`uce`], Level 2), dead-store
+//!    elimination ([`dse`], Level 2), aggressive DCE ([`adce`], Level 3),
+//!    and basic block merging ([`merge`], Level 2). The [`plans`] module
 //!    holds their optimization-only analyses (def-use marking,
 //!    postdominators/control dependence, the SSA overlay), built on the
 //!    allocator's own effect model and CFG.
 
 pub(crate) mod adce;
+pub(crate) mod branches;
 pub(crate) mod constant_folding;
 pub(crate) mod constprop;
 pub(crate) mod copyprop;
 pub(crate) mod dce;
 pub(crate) mod dse;
+pub(crate) mod merge;
 pub(crate) mod peephole;
 pub(crate) mod plans;
+pub(crate) mod threading;
 pub(crate) mod uce;
 
 use crate::codegen::engine::types::CodeInstruction;
@@ -46,9 +51,11 @@ use crate::target::shared::regmodel::RegisterModel;
 ///
 /// Occupied by the block-local MIR constant folder ([`constant_folding`],
 /// L1), the SSA-overlay propagation rows ([`constprop`] and [`copyprop`],
-/// L2), the precise-DCE sweep ([`dce`], L2), dead-store elimination
-/// ([`dse`], L2), control-dependence ADCE ([`adce`], L3), and
-/// unreachable-block pruning ([`uce`], L2) — consuming the optimization-only
+/// L2), branch folding ([`branches`], L2), jump threading ([`threading`],
+/// L3), the precise-DCE sweep ([`dce`], L2), dead-store elimination
+/// ([`dse`], L2), control-dependence ADCE ([`adce`], L3),
+/// unreachable-block pruning ([`uce`], L2), and basic block merging
+/// ([`merge`], L2) — consuming the optimization-only
 /// analyses in [`plans`] (the SSA overlay, def-use marking,
 /// postdominators/control dependence), which reuse the allocator's effect
 /// model and CFG. Plan2's SSA is an **overlay**: the stream keeps its `%vN`
@@ -59,9 +66,9 @@ use crate::target::shared::regmodel::RegisterModel;
 /// arrive with the first Opt2 pass that needs them (plan-100 §5).
 ///
 /// Rows still to land here are the remaining CFG/dataflow ones in
-/// `planning/optimizations.md` — jump threading, redundant-load elimination,
-/// the alias-based broadening of store-to-load forwarding and of DSE beyond
-/// `sp` slots, behavior-preserving check elision.
+/// `planning/optimizations.md` — redundant-load elimination, the alias-based
+/// broadening of store-to-load forwarding and of DSE beyond `sp` slots,
+/// behavior-preserving check elision.
 ///
 /// The two machine peepholes are deliberately **not** here: they operate on
 /// physical registers and so stay at their post-regalloc call sites. `level` is
@@ -76,17 +83,24 @@ pub(crate) fn optimize_mir(
     // Pipeline order, each row self-guarded on its own catalog level: folding
     // (L1) strands dead feeders; constant propagation (L2) folds the
     // cross-block constants the block-local folder cannot see; copy
-    // propagation (L2) bypasses register copies, stranding them; dead-store
-    // elimination (L2) strands more; DCE (L2) sweeps them all; ADCE (L3)
-    // removes the dead control structure plain DCE keeps; unreachable-block
-    // pruning (L2) runs last over the final control flow.
+    // propagation (L2) bypasses register copies, stranding them; branch
+    // folding (L2) turns known compares into unconditional flow (creating
+    // statically-dead blocks); jump threading (L3) collapses jump-to-jump
+    // chains; dead-store elimination (L2) strands more; DCE (L2) sweeps them
+    // all; ADCE (L3) removes the dead control structure plain DCE keeps;
+    // unreachable-block pruning (L2) drops what the folded branches and
+    // threaded jumps orphaned; block merging (L2) runs last, fusing the
+    // branch-to-next hops and orphaned labels back into straight-line blocks.
     constant_folding::fold_constants(instructions);
     constprop::eliminate(instructions, model);
     copyprop::eliminate(instructions, model);
+    branches::fold_branches(instructions);
+    threading::thread_jumps(instructions);
     dse::eliminate(instructions);
     dce::eliminate(instructions, model);
     adce::eliminate(instructions, model);
     uce::eliminate(instructions);
+    merge::merge_blocks(instructions);
 }
 
 #[cfg(test)]
